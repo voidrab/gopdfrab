@@ -1,23 +1,23 @@
-package gopdfrab
+package pdfrab
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // Document represents a PDF file.
-// It holds the file handle and the offset of the cross-reference table.
 type Document struct {
 	file      *os.File
-	size      int64
-	trailer   map[string]interface{} // Simplified representation of the trailer dictionary
-	xrefTable map[int]int64          // Map of Object ID -> Byte Offset
+	info      os.FileInfo
+	trailer   map[string]any
+	xrefTable map[int]int64
 }
 
 // Open initializes the PDF document.
-// It performs a lightweight check for the header and parses the trailer.
 func Open(path string) (*Document, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -32,7 +32,7 @@ func Open(path string) (*Document, error) {
 
 	doc := &Document{
 		file: f,
-		size: info.Size(),
+		info: info,
 	}
 
 	header := make([]byte, 8)
@@ -45,12 +45,67 @@ func Open(path string) (*Document, error) {
 		return nil, errors.New("invalid file format: missing %PDF header")
 	}
 
-	if err := doc.parseTrailer(); err != nil {
+	if err := doc.initializeStructure(); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("failed to parse trailer: %w", err)
+		return nil, fmt.Errorf("failed to parse structure: %w", err)
 	}
 
 	return doc, nil
+}
+
+// initializeStructure locates startxref, parses the xref table, then the trailer.
+func (d *Document) initializeStructure() error {
+	tailSize := min(d.info.Size(), int64(1500))
+
+	tailOffset := d.info.Size() - tailSize
+	tail := make([]byte, tailSize)
+	if _, err := d.file.ReadAt(tail, tailOffset); err != nil {
+		return err
+	}
+
+	startXrefIdx := bytes.LastIndex(tail, []byte("startxref"))
+	if startXrefIdx == -1 {
+		return errors.New("startxref not found")
+	}
+
+	contentAfterStartXref := string(tail[startXrefIdx+9:]) // skip "startxref"
+
+	tokens := strings.Fields(contentAfterStartXref)
+	if len(tokens) == 0 {
+		return errors.New("startxref offset missing")
+	}
+
+	xrefOffset, err := strconv.ParseInt(tokens[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("could not parse startxref offset: %v", err)
+	}
+
+	if err := d.parseXRefTable(xrefOffset); err != nil {
+		return fmt.Errorf("failed to parse xref table: %w", err)
+	}
+
+	searchBlock := tail[:startXrefIdx]
+	trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
+	if trailerIdx == -1 {
+		return errors.New("trailer keyword not found")
+	}
+
+	// Parse the dictionary following "trailer"
+	l := NewLexer(searchBlock[trailerIdx:])
+
+	// Consume 'trailer'
+	if tok := l.NextToken(); tok.Value != "trailer" {
+		return errors.New("expected 'trailer' keyword")
+	}
+
+	// Consume Dictionary
+	dict, err := parseDictionary(l)
+	if err != nil {
+		return fmt.Errorf("failed to parse trailer dictionary: %w", err)
+	}
+	d.trailer = dict
+
+	return nil
 }
 
 // Close ensures the file handle is released.
@@ -60,8 +115,8 @@ func (d *Document) Close() error {
 
 // parseDictionary consumes tokens to build a map.
 // It expects the current token to be '<<'.
-func parseDictionary(l *Lexer) (map[string]interface{}, error) {
-	dict := make(map[string]interface{})
+func parseDictionary(l *Lexer) (map[string]any, error) {
+	dict := make(map[string]any)
 
 	// Ensure we start with '<<'
 	tok := l.NextToken()
@@ -75,24 +130,17 @@ func parseDictionary(l *Lexer) (map[string]interface{}, error) {
 		if keyTok.Type == TokenDictEnd {
 			break // End of dictionary '>>'
 		}
-		if keyTok.Type != TokenName {
-			return nil, fmt.Errorf("expected dictionary key /Name, got %v", keyTok.Value)
-		}
 
 		// 2. Read Value
 		valTok := l.NextToken()
 
 		// Handle indirect references (e.g., "1 0 R")
-		// If we see an Integer, we must check if the NEXT two tokens are Integer + "R"
 		if valTok.Type == TokenInteger {
-			// Peek logic would go here for high performance.
-			// For now, we perform a naive check.
 			savedPos := l.pos
 			tok2 := l.NextToken()
 			tok3 := l.NextToken()
 
 			if tok3.Type == TokenKeyword && tok3.Value == "R" {
-				// It is a reference: "1 0 R"
 				dict[keyTok.Value] = fmt.Sprintf("%s %s R", valTok.Value, tok2.Value)
 				continue
 			} else {
@@ -101,72 +149,70 @@ func parseDictionary(l *Lexer) (map[string]interface{}, error) {
 			}
 		}
 
-		// Simple value storage
 		dict[keyTok.Value] = valTok.Value
 	}
 	return dict, nil
 }
 
-// parseTrailer locates the 'startxref' and parses the trailer dictionary.
-// This allows us to find the Root object and Info object without reading the whole file.
-func (d *Document) parseTrailer() error {
-	// Read the last 1KB of the file. The trailer is almost always here.
-	// This avoids scanning the whole file.
-	bufSize := int64(1024)
-	if d.size < bufSize {
-		bufSize = d.size
-	}
-
-	tail := make([]byte, bufSize)
-	_, err := d.file.ReadAt(tail, d.size-bufSize)
-	if err != nil {
-		return err
-	}
-
-	// Find %%EOF marker
-	eofIndex := bytes.LastIndex(tail, []byte("%%EOF"))
-	if eofIndex == -1 {
-		return errors.New("EOF marker not found")
-	}
-
-	l := NewLexer(tail)
-
-	l.skipToDict()
-
-	// TODO find start of dict
-
-	trailerDict, err := parseDictionary(l)
-	if err != nil {
-		return err
-	}
-
-	d.trailer = trailerDict
-
-	return nil
-}
-
-// --- Public API ---
-
-// GetMetadata returns the metadata dictionary (Title, Author, etc.).
+// GetMetadata extracts info from the Info dictionary.
 func (d *Document) GetMetadata() (map[string]string, error) {
-	// 1. Check if trailer has "Info" key
-	if _, ok := d.trailer["Info"]; !ok {
-		return nil, errors.New("no metadata info found in trailer")
+	infoRef, ok := d.trailer["Info"].(string)
+	if !ok {
+		return nil, errors.New("no info dictionary in trailer")
 	}
 
-	// 2. In a real scenario, we parse the object at d.trailer["Info"]
-	// For now, we simulate returning data.
-	return map[string]string{
-		"Producer": "gopdfrab Library",
-		"Title":    "Performance Demo",
-	}, nil
+	obj, err := d.resolveObject(infoRef)
+	if err != nil {
+		return nil, err
+	}
+
+	dict, ok := obj.(map[string]any)
+	if !ok {
+		return nil, errors.New("info object is not a dictionary")
+	}
+
+	metadata := make(map[string]string)
+	for k, v := range dict {
+		if s, ok := v.(string); ok {
+			metadata[k] = s
+		}
+	}
+	return metadata, nil
 }
 
 // GetPageCount parses the Page Tree Root to find the Count.
 func (d *Document) GetPageCount() (int, error) {
-	// 1. Get Root object from Trailer
-	// 2. Follow Root -> Pages -> Count
+	rootRef, ok := d.trailer["Root"].(string)
+	if !ok {
+		return 0, errors.New("no Root found in trailer")
+	}
 
-	// Simulation:
-	return 42, nil
+	rootObj, err := d.resolveObject(rootRef)
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve Root: %w", err)
+	}
+	rootDict := rootObj.(map[string]any)
+
+	pagesRef, ok := rootDict["Pages"].(string)
+	if !ok {
+		return 0, errors.New("root dictionary missing Pages")
+	}
+
+	pagesObj, err := d.resolveObject(pagesRef)
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve Pages: %w", err)
+	}
+	pagesDict := pagesObj.(map[string]any)
+
+	countStr, ok := pagesDict["Count"].(string)
+	if !ok {
+		return 0, errors.New("pages dictionary missing Count")
+	}
+
+	count, err := strconv.Atoi(countStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid page count format: %v", err)
+	}
+
+	return count, nil
 }

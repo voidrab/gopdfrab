@@ -1,11 +1,11 @@
-package gopdfrab
+package pdfrab
 
 import (
 	"bytes"
+	"encoding/hex"
 	"unicode"
 )
 
-// TokenType identifies the type of data representing the token.
 type TokenType int
 
 const (
@@ -26,7 +26,7 @@ const (
 // Token represents a distinct piece of syntax from the PDF.
 type Token struct {
 	Type  TokenType
-	Value string // In a hyper-optimized version, use []byte or start/end offsets
+	Value string
 }
 
 // Lexer holds the state of the current chunk being parsed.
@@ -51,12 +51,11 @@ func (l *Lexer) NextToken() Token {
 	ch := l.data[l.pos]
 
 	switch ch {
-	case '%':
-		// Comment: skip until end of line
+	case '%': // skip comment
 		for l.pos < len(l.data) && l.data[l.pos] != '\r' && l.data[l.pos] != '\n' {
 			l.pos++
 		}
-		return l.NextToken() // Recurse to get the actual next token
+		return l.NextToken()
 	case '/':
 		return l.readName()
 	case '(':
@@ -73,7 +72,6 @@ func (l *Lexer) NextToken() Token {
 			l.pos += 2
 			return Token{Type: TokenDictEnd, Value: ">>"}
 		}
-		// Handle unexpected single '>' or end of hex string context
 		l.pos++
 		return Token{Type: TokenError, Value: ">"}
 	case '[':
@@ -84,12 +82,10 @@ func (l *Lexer) NextToken() Token {
 		return Token{Type: TokenArrayEnd, Value: "]"}
 	}
 
-	// Handle Numbers (Integers/Reals)
 	if unicode.IsDigit(rune(ch)) || ch == '+' || ch == '-' || ch == '.' {
 		return l.readNumber()
 	}
 
-	// Handle Keywords (true, false, null, obj, endobj, R, stream, etc.)
 	if unicode.IsLetter(rune(ch)) {
 		return l.readKeyword()
 	}
@@ -103,23 +99,7 @@ func (l *Lexer) skipWhitespace() {
 	for l.pos < len(l.data) {
 		ch := l.data[l.pos]
 		// PDF WhiteSpace: Null, Tab, LF, FF, CR, Space
-		if ch == 0 || ch == 9 || ch == 10 || ch == 12 || ch == 13 || ch == 32 {
-			l.pos++
-			continue
-		}
-		break
-	}
-}
-
-func (l *Lexer) skipToDict() {
-	for l.pos < len(l.data) {
-		ch1 := l.data[l.pos]
-		if ch1 != '<' {
-			l.pos++
-			continue
-		}
-		ch2 := l.data[l.pos]
-		if ch2 != '<' {
+		if isWhitespace(ch) {
 			l.pos++
 			continue
 		}
@@ -142,7 +122,7 @@ func (l *Lexer) readName() Token {
 	return Token{Type: TokenName, Value: string(l.data[start:l.pos])}
 }
 
-// readNumber handles Integers (123) and Reals (12.34)
+// readNumber handles integers (123) and reals (12.34)
 func (l *Lexer) readNumber() Token {
 	start := l.pos
 	isReal := false
@@ -182,15 +162,15 @@ func (l *Lexer) readKeyword() Token {
 }
 
 // readStringLiteral handles (Hello World)
-// Note: Does not currently handle nested parentheses or escaped chars for brevity
 func (l *Lexer) readStringLiteral() Token {
 	l.pos++ // skip '('
 	start := l.pos
 	depth := 1
 	for l.pos < len(l.data) {
-		if l.data[l.pos] == '(' {
+		switch l.data[l.pos] {
+		case '(':
 			depth++
-		} else if l.data[l.pos] == ')' {
+		case ')':
 			depth--
 			if depth == 0 {
 				val := string(l.data[start:l.pos])
@@ -203,22 +183,59 @@ func (l *Lexer) readStringLiteral() Token {
 	return Token{Type: TokenError, Value: "Unterminated String"}
 }
 
-// readHexString handles <AABB>
 func (l *Lexer) readHexString() Token {
 	l.pos++ // skip '<'
-	start := l.pos
+
+	var buf []byte
+
 	for l.pos < len(l.data) {
-		if l.data[l.pos] == '>' {
-			val := string(l.data[start:l.pos])
-			l.pos++                                     // skip '>'
-			return Token{Type: TokenString, Value: val} // In reality, decode hex here
+		ch := l.data[l.pos]
+
+		if ch == '>' {
+			l.pos++ // skip '>'
+			break
 		}
+
+		// Skip any PDF whitespace
+		if isWhitespace(ch) {
+			l.pos++
+			continue
+		}
+
+		// Only allow hex digits
+		if !isHexDigit(ch) {
+			return Token{Type: TokenError, Value: "Invalid character in hex string"}
+		}
+
+		buf = append(buf, ch)
 		l.pos++
 	}
-	return Token{Type: TokenError, Value: "Unterminated Hex String"}
+
+	// If we exited the loop without finding '>'
+	if l.pos >= len(l.data) {
+		return Token{Type: TokenError, Value: "Unterminated hex string"}
+	}
+
+	// if odd number of hex digits, pad with '0'
+	if len(buf)%2 == 1 {
+		buf = append(buf, '0')
+	}
+
+	decoded, err := hex.DecodeString(string(buf))
+	if err != nil {
+		return Token{Type: TokenError, Value: "Invalid hex data"}
+	}
+
+	return Token{Type: TokenString, Value: string(decoded)}
 }
 
 // --- Utilities ---
+
+func isHexDigit(ch byte) bool {
+	return (ch >= '0' && ch <= '9') ||
+		(ch >= 'A' && ch <= 'F') ||
+		(ch >= 'a' && ch <= 'f')
+}
 
 func isWhitespace(ch byte) bool {
 	return ch == 0 || ch == 9 || ch == 10 || ch == 12 || ch == 13 || ch == 32
