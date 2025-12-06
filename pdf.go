@@ -7,12 +7,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Document represents a PDF file.
 type Document struct {
 	file      *os.File
 	info      os.FileInfo
+	header    []byte
 	trailer   map[string]any
 	xrefTable map[int]int64
 }
@@ -30,19 +32,16 @@ func Open(path string) (*Document, error) {
 		return nil, err
 	}
 
-	doc := &Document{
-		file: f,
-		info: info,
-	}
-
 	header := make([]byte, 8)
 	if _, err := f.ReadAt(header, 0); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
-	if !bytes.HasPrefix(header, []byte("%PDF-")) {
-		f.Close()
-		return nil, errors.New("invalid file format: missing %PDF header")
+
+	doc := &Document{
+		file:   f,
+		info:   info,
+		header: header,
 	}
 
 	if err := doc.initializeStructure(); err != nil {
@@ -53,7 +52,18 @@ func Open(path string) (*Document, error) {
 	return doc, nil
 }
 
-// initializeStructure locates startxref, parses the xref table, then the trailer.
+// initializeStructure locates startxref, parses the xref table, then the trailer. Trailer structure:
+//
+//	trailer
+//		<<
+//			key1 value1
+//			key2 value2
+//	    	…
+//	    	keyn valuen
+//		>>
+//	startxref
+//	Byte_offset_of_last_cross-reference_section
+//	%%EOF
 func (d *Document) initializeStructure() error {
 	tailSize := min(d.info.Size(), int64(1500))
 
@@ -68,7 +78,7 @@ func (d *Document) initializeStructure() error {
 		return errors.New("startxref not found")
 	}
 
-	contentAfterStartXref := string(tail[startXrefIdx+9:]) // skip "startxref"
+	contentAfterStartXref := string(tail[startXrefIdx+9:])
 
 	tokens := strings.Fields(contentAfterStartXref)
 	if len(tokens) == 0 {
@@ -93,12 +103,10 @@ func (d *Document) initializeStructure() error {
 	// Parse the dictionary following "trailer"
 	l := NewLexer(searchBlock[trailerIdx:])
 
-	// Consume 'trailer'
 	if tok := l.NextToken(); tok.Value != "trailer" {
 		return errors.New("expected 'trailer' keyword")
 	}
 
-	// Consume Dictionary
 	dict, err := parseDictionary(l)
 	if err != nil {
 		return fmt.Errorf("failed to parse trailer dictionary: %w", err)
@@ -127,8 +135,8 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 	for {
 		// 1. Read Key (Name)
 		keyTok := l.NextToken()
-		if keyTok.Type == TokenDictEnd {
-			break // End of dictionary '>>'
+		if keyTok.Type == TokenDictEnd || keyTok.Type == TokenEOF {
+			break
 		}
 
 		// 2. Read Value
@@ -144,7 +152,6 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 				dict[keyTok.Value] = fmt.Sprintf("%s %s R", valTok.Value, tok2.Value)
 				continue
 			} else {
-				// Not a reference, backtrack
 				l.pos = savedPos
 			}
 		}
@@ -152,6 +159,32 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 		dict[keyTok.Value] = valTok.Value
 	}
 	return dict, nil
+}
+
+// GetVersion extracts the PDF version from the Document header
+func (d *Document) GetVersion() (string, error) {
+	if !bytes.HasPrefix(d.header, []byte("%PDF-")) {
+		return "", errors.New("invalid file format: missing PDF header")
+	}
+
+	rest := d.header[len("%PDF-"):]
+
+	end := bytes.IndexFunc(rest, func(r rune) bool {
+		return r == '\n' || r == '\r' || unicode.IsSpace(r)
+	})
+
+	var version string
+	if end == -1 {
+		version = string(rest)
+	} else {
+		version = string(rest[:end])
+	}
+
+	if version == "" {
+		return "", errors.New("invalid PDF header: missing version")
+	}
+
+	return version, nil
 }
 
 // GetMetadata extracts info from the Info dictionary.

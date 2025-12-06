@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+var test_dic = "test documents/"
+
 func TestLexer_BasicDictionary(t *testing.T) {
 	input := []byte("<< /Type /Catalog /Pages 1 0 R >>")
 	l := NewLexer(input)
@@ -125,7 +127,7 @@ func TestDocument_Open(t *testing.T) {
 func TestDocument_OpenReal(t *testing.T) {
 	filename := "test.pdf"
 
-	doc, err := Open(filename)
+	doc, err := Open(test_dic + filename)
 	if err != nil {
 		t.Fatalf("Failed to open valid PDF: %v", err)
 	}
@@ -143,6 +145,28 @@ func TestDocument_OpenReal(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("Expected 1 page, got %d", count)
+	}
+}
+
+func TestDocument_GetVersion(t *testing.T) {
+	filename := "test.pdf"
+
+	doc, err := Open(test_dic + filename)
+	if err != nil {
+		t.Fatalf("Failed to open valid PDF: %v", err)
+	}
+	defer doc.Close()
+
+	if doc.info.Size() == 0 {
+		t.Error("Document size should not be 0")
+	}
+
+	version, err := doc.GetVersion()
+	if err != nil {
+		t.Errorf("GetVersion error: %v", err)
+	}
+	if version != "1.7" {
+		t.Errorf("Expected PDF version 1.7, got %v", version)
 	}
 }
 

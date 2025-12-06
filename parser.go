@@ -33,7 +33,7 @@ func (d *Document) parseXRefTable(offset int64) error {
 		if err != nil {
 			return err
 		}
-		if peekBytes[0] == 't' { // 't' for trailer
+		if peekBytes[0] == 't' { // stop when reaching 't' for trailer
 			break
 		}
 
