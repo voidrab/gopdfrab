@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-var test_dic = "test documents/"
+var test_dir = "test documents/"
 
 func TestLexer_BasicDictionary(t *testing.T) {
 	input := []byte("<< /Type /Catalog /Pages 1 0 R >>")
@@ -114,7 +114,7 @@ func TestDocument_OpenAndRead(t *testing.T) {
 func TestDocument_OpenReal(t *testing.T) {
 	filename := "test.pdf"
 
-	doc, err := Open(test_dic + filename)
+	doc, err := Open(test_dir + filename)
 	if err != nil {
 		t.Fatalf("Failed to open valid PDF: %v", err)
 	}
@@ -123,8 +123,6 @@ func TestDocument_OpenReal(t *testing.T) {
 	if doc.info.Size() == 0 {
 		t.Error("Document size should not be 0")
 	}
-
-	fmt.Printf("Successfully opened PDF. Size: %d bytes. Modified: %v\n", doc.info.Size(), doc.info.ModTime())
 
 	count, err := doc.GetPageCount()
 	if err != nil {
@@ -138,7 +136,7 @@ func TestDocument_OpenReal(t *testing.T) {
 func TestDocument_GetVersion(t *testing.T) {
 	filename := "test.pdf"
 
-	doc, err := Open(test_dic + filename)
+	doc, err := Open(test_dir + filename)
 	if err != nil {
 		t.Fatalf("Failed to open valid PDF: %v", err)
 	}
