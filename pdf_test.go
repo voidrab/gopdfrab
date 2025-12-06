@@ -101,27 +101,14 @@ func TestDocument_OpenAndRead(t *testing.T) {
 	if count != 5 {
 		t.Errorf("Expected 5 pages, got %d", count)
 	}
-}
 
-func TestDocument_Open(t *testing.T) {
-	filename := "test_min.pdf"
-
-	if err := createValidPDF(filename); err != nil {
-		t.Fatalf("Failed to create test PDF: %v", err)
-	}
-	defer os.Remove(filename) // Cleanup after test
-
-	doc, err := Open(filename)
+	version, err := doc.GetVersion()
 	if err != nil {
-		t.Fatalf("Failed to open valid PDF: %v", err)
+		t.Errorf("GetVersion error: %v", err)
 	}
-	defer doc.Close()
-
-	if doc.info.Size() == 0 {
-		t.Error("Document size should not be 0")
+	if version != "1.7" {
+		t.Errorf("Expected PDF version 1.7, got %v", version)
 	}
-
-	fmt.Printf("Successfully opened PDF. Size: %d bytes\n", doc.info.Size())
 }
 
 func TestDocument_OpenReal(t *testing.T) {
