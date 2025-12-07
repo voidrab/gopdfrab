@@ -12,11 +12,12 @@ import (
 
 // Document represents a PDF file.
 type Document struct {
-	file      *os.File
-	info      os.FileInfo
-	header    []byte
-	trailer   map[string]any
-	xrefTable map[int]int64
+	file       *os.File
+	info       os.FileInfo
+	header     []byte
+	trailer    map[string]any
+	xrefTable  map[int]int64
+	xrefOffset int64
 }
 
 // Open initializes the PDF document.
@@ -89,6 +90,8 @@ func (d *Document) initializeStructure() error {
 	if err != nil {
 		return fmt.Errorf("could not parse startxref offset: %v", err)
 	}
+
+	d.xrefOffset = xrefOffset
 
 	if err := d.parseXRefTable(xrefOffset); err != nil {
 		return fmt.Errorf("failed to parse xref table: %w", err)

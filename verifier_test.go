@@ -29,7 +29,7 @@ func TestDocument_VerifyPDFA(t *testing.T) {
 // 6.1.2
 
 func TestDocument_VerifyPDFAHeader(t *testing.T) {
-	filename := "test_pdfa.pdf"
+	filename := "test.pdf"
 	content := []byte("%PDF-1.7\n%\xA0\xA1\xA2\xA3\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
@@ -45,7 +45,7 @@ func TestDocument_VerifyPDFAHeader(t *testing.T) {
 }
 
 func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
-	filename := "test_invalid_pdfa.pdf"
+	filename := "test.pdf"
 	content := []byte("1.7\n%\xA0\xA1\xA2\xA3\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
@@ -55,12 +55,12 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 	defer doc.Close()
 
 	if err := doc.verifyFileHeader(); err == nil {
-		t.Error("Expected error for non-binary comment, got nil")
+		t.Error("Expected error for invalid header, got nil")
 	}
 }
 
 func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
-	filename := "test_invalid_pdfa.pdf"
+	filename := "test.pdf"
 	content := []byte("%PDF-1.7\n%\xA0\xA1\xA2\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
@@ -70,12 +70,12 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 	defer doc.Close()
 
 	if err := doc.verifyFileHeader(); err == nil {
-		t.Error("Expected error for non-binary comment, got nil")
+		t.Error("Expected error for short comment, got nil")
 	}
 }
 
 func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
-	filename := "test_invalid_pdfa.pdf"
+	filename := "test.pdf"
 	content := []byte("%PDF-1.7\n%CommentWithoutBinary\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
@@ -86,5 +86,94 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 
 	if err := doc.verifyFileHeader(); err == nil {
 		t.Error("Expected error for non-binary comment, got nil")
+	}
+}
+
+// 6.1.3
+
+func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("trailer\n<</ID a>>\nstartxref\n1111\n%%EOF")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyFileTrailer(); err == nil {
+		t.Error("Expected error for missing ID, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("trailer\n<</Encrypt a>>\nstartxref\n1111\n%%EOF")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	trailer["ID"] = 'a'
+	trailer["Encrypt"] = 'a'
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyFileTrailer(); err == nil {
+		t.Error("Expected error for disallowed Encrypt, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("trailer\n<</ID a>>\nstartxref\n1111\n%EOF")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	trailer["ID"] = 'a'
+
+	f, _ := os.Open(filename)
+	info, _ := f.Stat()
+	doc := &Document{file: f, trailer: trailer, info: info}
+	defer doc.Close()
+
+	if err := doc.verifyFileTrailer(); err == nil {
+		t.Error("Expected error for invalid EOF, got nil")
+	}
+}
+
+// 6.1.4
+
+func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("xref\n\n0 10\n")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, xrefOffset: 0}
+	defer doc.Close()
+
+	if err := doc.verifyCrossReferenceTable(); err == nil {
+		t.Error("Expected error for invalid EOL, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFACrossReferenceTable_SubsectionHeader(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("xref\r\n0 10 10\n")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, xrefOffset: 0}
+	defer doc.Close()
+
+	if err := doc.verifyCrossReferenceTable(); err == nil {
+		t.Error("Expected error for invalid subsection header, got nil")
 	}
 }
