@@ -192,19 +192,14 @@ func (d *Document) GetVersion() (string, error) {
 
 // GetMetadata extracts info from the Info dictionary.
 func (d *Document) GetMetadata() (map[string]string, error) {
-	infoRef, ok := d.trailer["Info"].(string)
-	if !ok {
-		return nil, errors.New("no info dictionary in trailer")
-	}
-
-	obj, err := d.resolveObject(infoRef)
+	value, err := d.GetValueByPath([]string{"Info"})
 	if err != nil {
 		return nil, err
 	}
 
-	dict, ok := obj.(map[string]any)
+	dict, ok := value.(map[string]any)
 	if !ok {
-		return nil, errors.New("info object is not a dictionary")
+		return nil, errors.New("information object is not a dictionary")
 	}
 
 	metadata := make(map[string]string)
@@ -218,37 +213,65 @@ func (d *Document) GetMetadata() (map[string]string, error) {
 
 // GetPageCount parses the Page Tree Root to find the Count.
 func (d *Document) GetPageCount() (int, error) {
-	rootRef, ok := d.trailer["Root"].(string)
-	if !ok {
-		return 0, errors.New("no Root found in trailer")
-	}
-
-	rootObj, err := d.resolveObject(rootRef)
+	value, err := d.GetValueByPath([]string{"Root", "Pages", "Count"})
 	if err != nil {
-		return 0, fmt.Errorf("failed to resolve Root: %w", err)
+		return 0, err
 	}
-	rootDict := rootObj.(map[string]any)
-
-	pagesRef, ok := rootDict["Pages"].(string)
+	stringValue, ok := value.(string)
 	if !ok {
-		return 0, errors.New("root dictionary missing Pages")
+		return 0, nil
 	}
-
-	pagesObj, err := d.resolveObject(pagesRef)
+	count, err := strconv.Atoi(stringValue)
 	if err != nil {
-		return 0, fmt.Errorf("failed to resolve Pages: %w", err)
-	}
-	pagesDict := pagesObj.(map[string]any)
-
-	countStr, ok := pagesDict["Count"].(string)
-	if !ok {
-		return 0, errors.New("pages dictionary missing Count")
-	}
-
-	count, err := strconv.Atoi(countStr)
-	if err != nil {
-		return 0, fmt.Errorf("invalid page count format: %v", err)
+		return 0, err
 	}
 
 	return count, nil
+}
+
+// GetValueByPath retrieves a value by walking through nested PDF dictionaries,
+// resolving indirect references automatically.
+// Example path: []string{"Root", "Pages", "Count"}.
+func (d *Document) GetValueByPath(path []string) (any, error) {
+	if len(path) == 0 {
+		return nil, errors.New("path cannot be empty")
+	}
+
+	current := any(d.trailer)
+
+	for i, key := range path {
+		switch typed := current.(type) {
+
+		case map[string]any:
+			val, ok := typed[key]
+			if !ok {
+				return nil, fmt.Errorf("key '%s' not found in dictionary", key)
+			}
+
+			if ref, ok := val.(string); ok && isReference(ref) {
+				obj, err := d.resolveObject(ref)
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve reference '%s': %w", ref, err)
+				}
+				current = obj
+			} else {
+				current = val
+			}
+
+		default:
+			if i < len(path)-1 {
+				return nil, fmt.Errorf("expected dictionary at '%s', got %T", key, typed)
+			}
+			return typed, nil
+		}
+	}
+
+	return current, nil
+}
+
+func isReference(s string) bool {
+	var id, gen int
+	var r string
+	_, err := fmt.Sscanf(s, "%d %d %s", &id, &gen, &r)
+	return err == nil && r == "R"
 }

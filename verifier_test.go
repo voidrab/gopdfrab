@@ -100,7 +100,8 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	trailer := make(map[string]any)
 
 	f, _ := os.Open(filename)
-	doc := &Document{file: f, trailer: trailer}
+	info, _ := f.Stat()
+	doc := &Document{file: f, trailer: trailer, info: info}
 	defer doc.Close()
 
 	if err := doc.verifyFileTrailer(); err == nil {
@@ -119,7 +120,8 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	trailer["Encrypt"] = 'a'
 
 	f, _ := os.Open(filename)
-	doc := &Document{file: f, trailer: trailer}
+	info, _ := f.Stat()
+	doc := &Document{file: f, trailer: trailer, info: info}
 	defer doc.Close()
 
 	if err := doc.verifyFileTrailer(); err == nil {
@@ -176,4 +178,72 @@ func TestDocument_VerifyPDFACrossReferenceTable_SubsectionHeader(t *testing.T) {
 	if err := doc.verifyCrossReferenceTable(); err == nil {
 		t.Error("Expected error for invalid subsection header, got nil")
 	}
+}
+
+// 6.1.5
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	info := make(map[string]any)
+
+	info["Title"] = "Test"
+	info["Disallowed"] = "Wrong"
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyDocumentInformationDictionary(); err == nil {
+		t.Error("Expected error for disallowed field, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	info := make(map[string]any)
+
+	info["Title"] = ""
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyDocumentInformationDictionary(); err == nil {
+		t.Error("Expected error for empty field, got nil")
+	}
+}
+
+// 6.1.13
+
+func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {
+	filename := "test.pdf"
+	if err := createValidPDF(filename); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(filename)
+
+	doc, err := Open(filename)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer doc.Close()
+
+	if err := doc.verifyOptionalContent(); err == nil {
+		t.Error("Expected error for invalid OCProperties, got nil")
+	}
+
 }

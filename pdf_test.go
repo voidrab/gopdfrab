@@ -50,7 +50,7 @@ func TestLexer_ArraysAndStrings(t *testing.T) {
 func createValidPDF(filename string) error {
 	header := "%PDF-1.7\n"
 
-	obj1 := "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+	obj1 := "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OCProperties (Test) >>\nendobj\n"
 	obj2 := "2 0 obj\n<< /Type /Pages /Count 5 >>\nendobj\n"
 	obj3 := "3 0 obj\n<< /Title (Test PDF) /Producer (GoLib) >>\nendobj\n"
 
