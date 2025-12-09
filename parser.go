@@ -98,9 +98,127 @@ func (d *Document) resolveObject(ref string) (any, error) {
 
 	nextToken := l.NextToken()
 	if nextToken.Type == TokenDictStart {
-		l2 := NewLexer(chunk[l.pos-2 : n])
-		return parseDictionary(l2)
+		l.JumpBack(2)
+		return parseDictionary(l)
 	}
 
 	return nextToken.Value, nil
+}
+
+// parseDictionary consumes tokens to build a map.
+func parseDictionary(l *Lexer) (map[string]any, error) {
+	dict := make(map[string]any)
+
+	tok := l.NextToken()
+	if tok.Type != TokenDictStart {
+		return nil, fmt.Errorf("expected dictionary start '<<' but was %v", tok.Type)
+	}
+
+	for {
+		// get key
+		keyTok := l.NextToken()
+		if keyTok.Type == TokenDictEnd {
+			break
+		}
+		if keyTok.Type == TokenEOF {
+			return nil, errors.New("unexpected EOF while parsing dictionary")
+		}
+		if keyTok.Type != TokenName {
+			return nil, fmt.Errorf("expected dictionary key but got %v (%q)", keyTok.Type, keyTok.Value)
+		}
+
+		key := keyTok.Value
+
+		// get value
+		valTok := l.NextToken()
+
+		// Handle indirect references (e.g., "1 0 R")
+		if valTok.Type == TokenInteger {
+			save := l.pos
+			t2 := l.NextToken()
+			t3 := l.NextToken()
+
+			if t2.Type == TokenInteger && t3.Type == TokenKeyword && t3.Value == "R" {
+				dict[key] = fmt.Sprintf("%s %s R", valTok.Value, t2.Value)
+				continue
+			}
+
+			// Not a reference, restore lexer position
+			l.pos = save
+		}
+
+		if valTok.Type == TokenDictStart {
+			l.JumpBack(2)
+			subDict, err := parseDictionary(l)
+			if err != nil {
+				return nil, err
+			}
+			dict[key] = subDict
+			continue
+		}
+
+		if valTok.Type == TokenArrayStart {
+			arr, err := parseArray(l)
+			if err != nil {
+				return nil, err
+			}
+			dict[key] = arr
+			continue
+		}
+
+		dict[key] = valTok.Value
+	}
+	return dict, nil
+}
+
+func parseArray(l *Lexer) ([]any, error) {
+	var arr []any
+
+	for {
+		t := l.NextToken()
+
+		if t.Type == TokenArrayEnd {
+			return arr, nil
+		}
+		if t.Type == TokenEOF {
+			return nil, errors.New("unexpected EOF while parsing array")
+		}
+
+		// Nested dictionary inside array
+		if t.Type == TokenDictStart {
+			sub, err := parseDictionary(l)
+			if err != nil {
+				return nil, err
+			}
+			arr = append(arr, sub)
+			continue
+		}
+
+		// Nested array inside array
+		if t.Type == TokenArrayStart {
+			sub, err := parseArray(l)
+			if err != nil {
+				return nil, err
+			}
+			arr = append(arr, sub)
+			continue
+		}
+
+		// Indirect reference inside array
+		if t.Type == TokenInteger {
+			save := l.pos
+			t2 := l.NextToken()
+			t3 := l.NextToken()
+
+			if t2.Type == TokenInteger && t3.Type == TokenKeyword && t3.Value == "R" {
+				ref := fmt.Sprintf("%s %s R", t.Value, t2.Value)
+				arr = append(arr, ref)
+				continue
+			}
+
+			l.pos = save
+		}
+
+		arr = append(arr, t.Value)
+	}
 }

@@ -76,10 +76,14 @@ func (d *Document) verifyPdfA1b() map[string][]error {
 	if errs != nil {
 		issues["6.1.13"] = errs
 	}
+	errs = d.verifyOutputIntent()
+	if errs != nil {
+		issues["6.2.2"] = errs
+	}
 	return issues
 }
 
-// file structure tests
+// 6.1 File Structure
 
 // verifyFileHeader verifies requirements outlined in 6.1.2.
 func (d *Document) verifyFileHeader() []error {
@@ -241,5 +245,38 @@ func (d *Document) verifyOptionalContent() []error {
 	if err == nil {
 		return []error{fmt.Errorf("OCProperties are not allowed in document catalog")}
 	}
+	return nil
+}
+
+// 6.2 Graphics
+
+// verifyOutputIntent verifies requirements outlined in 6.2.2
+func (d *Document) verifyOutputIntent() []error {
+	values, err := d.GetValueByPath([]string{"Root", "OutputIntents", "*"})
+	if err != nil {
+		return []error{fmt.Errorf("failed to read OutputIntent: %v", err)}
+	}
+
+	intents, ok := values.([]any)
+	if !ok {
+		return []error{fmt.Errorf("output intent object is not an array")}
+	}
+
+	errs := []error{}
+
+	for _, v := range intents {
+		intent, ok := v.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Errorf("expected intent to be a map"))
+		}
+		if intent["Type"] == nil || intent["Type"] != "OutputIntent" || intent["S"] == nil || intent["S"] != "GTS_PDFA1" {
+			errs = append(errs, fmt.Errorf("expected value of S key not present"))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errs
+	}
+
 	return nil
 }

@@ -124,46 +124,6 @@ func (d *Document) Close() error {
 	return d.file.Close()
 }
 
-// parseDictionary consumes tokens to build a map.
-// It expects the current token to be '<<'.
-func parseDictionary(l *Lexer) (map[string]any, error) {
-	dict := make(map[string]any)
-
-	// Ensure we start with '<<'
-	tok := l.NextToken()
-	if tok.Type != TokenDictStart {
-		return nil, fmt.Errorf("expected dictionary start '<<' but was %v", tok.Type)
-	}
-
-	for {
-		// 1. Read Key (Name)
-		keyTok := l.NextToken()
-		if keyTok.Type == TokenDictEnd || keyTok.Type == TokenEOF {
-			break
-		}
-
-		// 2. Read Value
-		valTok := l.NextToken()
-
-		// Handle indirect references (e.g., "1 0 R")
-		if valTok.Type == TokenInteger {
-			savedPos := l.pos
-			tok2 := l.NextToken()
-			tok3 := l.NextToken()
-
-			if tok3.Type == TokenKeyword && tok3.Value == "R" {
-				dict[keyTok.Value] = fmt.Sprintf("%s %s R", valTok.Value, tok2.Value)
-				continue
-			} else {
-				l.pos = savedPos
-			}
-		}
-
-		dict[keyTok.Value] = valTok.Value
-	}
-	return dict, nil
-}
-
 // GetVersion extracts the PDF version from the Document header
 func (d *Document) GetVersion() (string, error) {
 	if !bytes.HasPrefix(d.header, []byte("%PDF-")) {
@@ -229,44 +189,88 @@ func (d *Document) GetPageCount() (int, error) {
 	return count, nil
 }
 
-// GetValueByPath retrieves a value by walking through nested PDF dictionaries,
-// resolving indirect references automatically.
-// Example path: []string{"Root", "Pages", "Count"}.
+// GetValueByPath retrieves a value by walking through nested PDF structures,
+// resolving references and supporting wildcards "*" for arrays and dictionaries.
 func (d *Document) GetValueByPath(path []string) (any, error) {
 	if len(path) == 0 {
 		return nil, errors.New("path cannot be empty")
 	}
 
-	current := any(d.trailer)
+	return d.walkNode(d.trailer, path)
+}
 
-	for i, key := range path {
-		switch typed := current.(type) {
-
-		case map[string]any:
-			val, ok := typed[key]
-			if !ok {
-				return nil, fmt.Errorf("key '%s' not found in dictionary", key)
-			}
-
-			if ref, ok := val.(string); ok && isReference(ref) {
-				obj, err := d.resolveObject(ref)
-				if err != nil {
-					return nil, fmt.Errorf("failed to resolve reference '%s': %w", ref, err)
-				}
-				current = obj
-			} else {
-				current = val
-			}
-
-		default:
-			if i < len(path)-1 {
-				return nil, fmt.Errorf("expected dictionary at '%s', got %T", key, typed)
-			}
-			return typed, nil
+func (d *Document) walkNode(current any, path []string) (any, error) {
+	if len(path) == 0 {
+		if ref, ok := current.(string); ok && isReference(ref) {
+			return d.resolveObject(ref)
 		}
+		return current, nil
 	}
 
-	return current, nil
+	key := path[0]
+	rest := path[1:]
+
+	for {
+		ref, ok := current.(string)
+		if !ok || !isReference(ref) {
+			break
+		}
+		resolved, err := d.resolveObject(ref)
+		if err != nil {
+			return nil, err
+		}
+		current = resolved
+	}
+
+	switch node := current.(type) {
+
+	case map[string]any:
+		if key == "*" {
+			results := []any{}
+			for _, v := range node {
+				out, err := d.walkNode(v, rest)
+				if err == nil {
+					results = append(results, out)
+				}
+			}
+			return results, nil
+		}
+
+		val, ok := node[key]
+		if !ok {
+			return nil, fmt.Errorf("dictionary key '%s' not found", key)
+		}
+		return d.walkNode(val, rest)
+
+	case []any:
+		if key == "*" {
+			results := []any{}
+			for _, item := range node {
+				out, err := d.walkNode(item, rest)
+				if err == nil {
+					results = append(results, out)
+				}
+			}
+			return results, nil
+		}
+
+		idx, err := strconv.Atoi(key)
+		if err != nil {
+			// not an index, return array itself
+			return node, nil
+		}
+		if idx < 0 || idx >= len(node) {
+			return nil, fmt.Errorf("array index %d out of bounds", idx)
+		}
+
+		return d.walkNode(node[idx], rest)
+
+	default:
+		if len(rest) > 0 {
+			return nil, fmt.Errorf("cannot descend into primitive type %T at '%s'", node, key)
+		}
+		return node, nil
+	}
 }
 
 func isReference(s string) bool {

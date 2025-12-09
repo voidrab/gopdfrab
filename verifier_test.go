@@ -245,5 +245,6 @@ func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {
 	if err := doc.verifyOptionalContent(); err == nil {
 		t.Error("Expected error for invalid OCProperties, got nil")
 	}
-
 }
+
+// 6.2.2

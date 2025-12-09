@@ -40,6 +40,12 @@ func NewLexer(data []byte) *Lexer {
 	return &Lexer{data: data, pos: 0}
 }
 
+func (l *Lexer) JumpBack(n int) {
+	if l.pos-n >= 0 {
+		l.pos -= n
+	}
+}
+
 // NextToken returns the next distinct token from the stream.
 func (l *Lexer) NextToken() Token {
 	l.skipWhitespace()
