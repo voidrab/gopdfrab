@@ -248,3 +248,123 @@ func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {
 }
 
 // 6.2.2
+
+func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	outputIntents := []any{}
+	outputIntent := make(map[string]any)
+
+	outputIntent["Type"] = "OutputIntent"
+	outputIntent["S"] = "GTS_PDFA1"
+	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyOutputIntent(); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_RealFile(t *testing.T) {
+	filename := "pdfa1b.pdf"
+	doc, err := Open(test_dir + filename)
+	if err != nil {
+		t.Fatalf("Failed to open PDF: %v", err)
+	}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+
+	if errs != nil {
+		t.Errorf("Verification failed for conforming PDF: %v", err)
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	outputIntents := []any{}
+	outputIntent := make(map[string]any)
+
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyOutputIntent(); err == nil {
+		t.Error("Expected error for no OutputConditionIdentifier, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	outputIntents := []any{}
+	outputIntent := make(map[string]any)
+
+	outputIntent["Type"] = "OutputIntent"
+	outputIntent["S"] = "Wrong"
+	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyOutputIntent(); err == nil {
+		t.Error("Expected error for wrong type, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(map[string]any)
+	outputIntents := []any{}
+	outputIntent := make(map[string]any)
+	destOutputProfile := make(map[string]any)
+
+	destOutputProfile["N"] = "5"
+
+	outputIntent["Type"] = "OutputIntent"
+	outputIntent["S"] = "GTS_PDFA1"
+	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["DestOutputProfile"] = destOutputProfile
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyOutputIntent(); err == nil {
+		t.Error("Expected error for wrong N, got nil")
+	}
+}

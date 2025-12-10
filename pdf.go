@@ -199,83 +199,48 @@ func (d *Document) GetValueByPath(path []string) (any, error) {
 	return d.walkNode(d.trailer, path)
 }
 
-func (d *Document) walkNode(current any, path []string) (any, error) {
-	if len(path) == 0 {
-		if ref, ok := current.(string); ok && isReference(ref) {
-			return d.resolveObject(ref)
-		}
-		return current, nil
+// walkNode walks a decoded PDF object (map/array/primitive) following a path.
+// Supports:
+//   - dictionary keys, like "Root", "Pages", "Count"
+//   - array indices, like "0", "1", "2"
+//
+// Starting point 'node' must already be a resolved object.
+func (d *Document) walkNode(node any, path []string) (any, error) {
+	current, err := d.resolveObject(node)
+	if err != nil {
+		return nil, err
 	}
 
-	key := path[0]
-	rest := path[1:]
+	for _, key := range path {
 
-	for {
-		ref, ok := current.(string)
-		if !ok || !isReference(ref) {
-			break
-		}
-		resolved, err := d.resolveObject(ref)
+		current, err = d.resolveObject(current)
 		if err != nil {
 			return nil, err
 		}
-		current = resolved
+
+		if arr, ok := current.([]any); ok {
+			idx, err := strconv.Atoi(key)
+			if err != nil {
+				return arr, nil
+			}
+			if idx < 0 || idx >= len(arr) {
+				return nil, fmt.Errorf("array index out of range: %d", idx)
+			}
+			current = arr[idx]
+			continue
+		}
+
+		if dict, ok := current.(map[string]any); ok {
+			val, found := dict[key]
+			if !found {
+				return nil, fmt.Errorf("key %q not found in dictionary", key)
+			}
+			current = val
+			continue
+		}
+
+		return current, nil
 	}
 
-	switch node := current.(type) {
-
-	case map[string]any:
-		if key == "*" {
-			results := []any{}
-			for _, v := range node {
-				out, err := d.walkNode(v, rest)
-				if err == nil {
-					results = append(results, out)
-				}
-			}
-			return results, nil
-		}
-
-		val, ok := node[key]
-		if !ok {
-			return nil, fmt.Errorf("dictionary key '%s' not found", key)
-		}
-		return d.walkNode(val, rest)
-
-	case []any:
-		if key == "*" {
-			results := []any{}
-			for _, item := range node {
-				out, err := d.walkNode(item, rest)
-				if err == nil {
-					results = append(results, out)
-				}
-			}
-			return results, nil
-		}
-
-		idx, err := strconv.Atoi(key)
-		if err != nil {
-			// not an index, return array itself
-			return node, nil
-		}
-		if idx < 0 || idx >= len(node) {
-			return nil, fmt.Errorf("array index %d out of bounds", idx)
-		}
-
-		return d.walkNode(node[idx], rest)
-
-	default:
-		if len(rest) > 0 {
-			return nil, fmt.Errorf("cannot descend into primitive type %T at '%s'", node, key)
-		}
-		return node, nil
-	}
-}
-
-func isReference(s string) bool {
-	var id, gen int
-	var r string
-	_, err := fmt.Sscanf(s, "%d %d %s", &id, &gen, &r)
-	return err == nil && r == "R"
+	return d.resolveObject(current)
 }

@@ -66,13 +66,61 @@ func (d *Document) parseXRefTable(offset int64) error {
 	return nil
 }
 
-// resolveObject takes a reference string like "1 0 R", finds the offset, and parses the object.
-func (d *Document) resolveObject(ref string) (any, error) {
+// resolveObject recursively resolves nested references, dictionaries, and arrays.
+func (d *Document) resolveObject(obj any) (any, error) {
+	switch v := obj.(type) {
+
+	case string:
+		if isReference(v) {
+			return d.resolveReference(v)
+		}
+		return v, nil
+
+	case map[any]any:
+		out := make(map[string]any)
+		for k, val := range v {
+			ks, ok := k.(string)
+			if !ok {
+				return nil, fmt.Errorf("dictionary key is not a string: %v", k)
+			}
+			resolved, err := d.resolveObject(val)
+			if err != nil {
+				return nil, err
+			}
+			out[ks] = resolved
+		}
+		return out, nil
+
+	case []any:
+		out := make([]any, len(v))
+		for i, elem := range v {
+			resolved, err := d.resolveObject(elem)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = resolved
+		}
+		return out, nil
+
+	default:
+		return v, nil
+	}
+}
+
+func isReference(s string) bool {
+	var id, gen int
+	var r string
+	_, err := fmt.Sscanf(s, "%d %d %s", &id, &gen, &r)
+	return err == nil && r == "R"
+}
+
+// resolveReference resolves references
+func (d *Document) resolveReference(ref string) (any, error) {
 	var id, gen int
 	var r string
 	_, err := fmt.Sscanf(ref, "%d %d %s", &id, &gen, &r)
 	if err != nil || r != "R" {
-		return nil, errors.New("invalid reference format")
+		return nil, fmt.Errorf("invalid reference: %s", ref)
 	}
 
 	offset, ok := d.xrefTable[id]
@@ -80,6 +128,7 @@ func (d *Document) resolveObject(ref string) (any, error) {
 		return nil, fmt.Errorf("object %d not found in xref table", id)
 	}
 
+	// Read chunk starting at offset
 	chunk := make([]byte, 4096)
 	n, err := d.file.ReadAt(chunk, offset)
 	if err != nil && err != io.EOF {
@@ -88,21 +137,37 @@ func (d *Document) resolveObject(ref string) (any, error) {
 
 	l := NewLexer(chunk[:n])
 
-	t1 := l.NextToken() // ID
-	l.NextToken()       // Gen
-	t3 := l.NextToken() // obj
+	// Expect "<id> <gen> obj"
+	t1 := l.NextToken()
+	l.NextToken()
+	t3 := l.NextToken()
 
 	if t1.Type != TokenInteger || t3.Value != "obj" {
-		return nil, fmt.Errorf("expected '%d %d obj' at offset %d", id, gen, offset)
+		return nil, fmt.Errorf("invalid object header %d %d", id, gen)
 	}
 
-	nextToken := l.NextToken()
-	if nextToken.Type == TokenDictStart {
+	t := l.NextToken()
+
+	switch t.Type {
+	case TokenDictStart:
 		l.JumpBack(2)
-		return parseDictionary(l)
-	}
+		m, err := parseDictionary(l)
+		if err != nil {
+			return nil, err
+		}
+		return d.resolveObject(m)
 
-	return nextToken.Value, nil
+	case TokenArrayStart:
+		l.JumpBack(2)
+		arr, err := parseArray(l)
+		if err != nil {
+			return nil, err
+		}
+		return d.resolveObject(arr)
+
+	default:
+		return d.resolveObject(t.Value)
+	}
 }
 
 // parseDictionary consumes tokens to build a map.

@@ -3,6 +3,7 @@ package pdfrab
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -252,27 +253,88 @@ func (d *Document) verifyOptionalContent() []error {
 
 // verifyOutputIntent verifies requirements outlined in 6.2.2
 func (d *Document) verifyOutputIntent() []error {
-	values, err := d.GetValueByPath([]string{"Root", "OutputIntents", "*"})
+	values, err := d.GetValueByPath([]string{"Root", "OutputIntents"})
 	if err != nil {
-		return []error{fmt.Errorf("failed to read OutputIntent: %v", err)}
+		// OutputIntents are optional
+		//return []error{fmt.Errorf("failed to read OutputIntents: %v", err)}
+		return nil
 	}
 
 	intents, ok := values.([]any)
 	if !ok {
-		return []error{fmt.Errorf("output intent object is not an array")}
+		return []error{fmt.Errorf("OutputIntents object is not an array")}
 	}
 
 	errs := []error{}
 
+	var indirectObject any
+
 	for _, v := range intents {
 		intent, ok := v.(map[string]any)
 		if !ok {
-			errs = append(errs, fmt.Errorf("expected intent to be a map"))
+			errs = append(errs, fmt.Errorf("expected OutputIntent to be a map"))
+			continue
 		}
-		if intent["Type"] == nil || intent["Type"] != "OutputIntent" || intent["S"] == nil || intent["S"] != "GTS_PDFA1" {
-			errs = append(errs, fmt.Errorf("expected value of S key not present"))
+		// optional
+		// if intent["Type"] != "OutputIntent" {
+		// 	errs = append(errs, fmt.Errorf("expected Type was not OutputIntent, but %v", intent["Type"]))
+		// }
+		if intent["S"] != "GTS_PDFA1" {
+			errs = append(errs, fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent["S"]))
+		}
+
+		if intent["OutputConditionIdentifier"] == nil {
+			errs = append(errs, fmt.Errorf("OutputConditionIdentifier is required but was nil"))
+			continue
+		}
+
+		destOutputProfile := intent["DestOutputProfile"]
+		if destOutputProfile == nil {
+			// optional?
+			//errs = append(errs, fmt.Errorf("DestOutputProfile is required but was nil"))
+			continue
+		}
+
+		// If a file's OutputIntents array contains more than one entry, then all entries that contain a DestOutputProfile
+		// key shall have as the value of that key the same indirect object, which shall be a valid ICC profile stream.
+		if indirectObject == nil {
+			indirectObject = destOutputProfile
+		} else {
+			if indirectObject != destOutputProfile {
+				errs = append(errs, fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile))
+				continue
+			}
+		}
+
+		profile, err := d.resolveObject(destOutputProfile)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("unable to resolve DestOutputProfile"))
+			continue
+		}
+
+		profileMap, ok := profile.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Errorf("unexpected format for DestOutputProfile encountered"))
+			continue
+		}
+
+		nValue, ok := profileMap["N"].(string)
+		if !ok {
+			errs = append(errs, fmt.Errorf("could not retrieve number of colour components N"))
+		}
+
+		n, err := strconv.Atoi(nValue)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("number of colour components N must be of type int"))
+			continue
+		}
+		// N shall be 1, 3, or 4
+		if !slices.Contains([]int{1, 3, 4}, n) {
+			errs = append(errs, fmt.Errorf("number of colour components N must be 1, 3, or 4"))
 		}
 	}
+
+	// TODO check if ICC profile stream is valid
 
 	if len(errs) > 0 {
 		return errs
