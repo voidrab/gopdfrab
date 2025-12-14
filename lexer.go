@@ -1,8 +1,10 @@
 package pdfrab
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
+	"io"
 	"unicode"
 )
 
@@ -31,35 +33,41 @@ type Token struct {
 
 // Lexer holds the state of the current chunk being parsed.
 type Lexer struct {
-	data []byte
-	pos  int
+	reader *bufio.Reader
+	pos    int
+	pushed []Token
 }
 
 // NewLexer creates a lexer for a specific chunk of data.
-func NewLexer(data []byte) *Lexer {
-	return &Lexer{data: data, pos: 0}
-}
-
-func (l *Lexer) JumpBack(n int) {
-	if l.pos-n >= 0 {
-		l.pos -= n
-	}
+func NewLexer(r io.Reader) *Lexer {
+	return &Lexer{reader: bufio.NewReader(r)}
 }
 
 // NextToken returns the next distinct token from the stream.
 func (l *Lexer) NextToken() Token {
-	l.skipWhitespace()
-
-	if l.pos >= len(l.data) {
-		return Token{Type: TokenEOF}
+	if len(l.pushed) > 0 {
+		t := l.pushed[len(l.pushed)-1]
+		l.pushed = l.pushed[:len(l.pushed)-1]
+		return t
 	}
 
-	ch := l.data[l.pos]
+	l.skipWhitespace()
+
+	ch, err := l.readByte()
+	if err == io.EOF {
+		return Token{Type: TokenEOF}
+	}
+	if err != nil {
+		return Token{Type: TokenError, Value: err.Error()}
+	}
 
 	switch ch {
-	case '%': // skip comment
-		for l.pos < len(l.data) && l.data[l.pos] != '\r' && l.data[l.pos] != '\n' {
-			l.pos++
+	case '%': // comment
+		for {
+			b, err := l.readByte()
+			if err != nil || b == '\n' || b == '\r' {
+				break
+			}
 		}
 		return l.NextToken()
 	case '/':
@@ -67,162 +75,182 @@ func (l *Lexer) NextToken() Token {
 	case '(':
 		return l.readStringLiteral()
 	case '<':
-		// Could be Dict Start (<<) or Hex String (<A0>)
-		if l.pos+1 < len(l.data) && l.data[l.pos+1] == '<' {
-			l.pos += 2
+		b, err := l.readByte()
+		if err == nil && b == '<' {
 			return Token{Type: TokenDictStart, Value: "<<"}
+		}
+		if err == nil {
+			l.unreadByte()
 		}
 		return l.readHexString()
 	case '>':
-		if l.pos+1 < len(l.data) && l.data[l.pos+1] == '>' {
-			l.pos += 2
+		b, err := l.readByte()
+		if err == nil && b == '>' {
 			return Token{Type: TokenDictEnd, Value: ">>"}
 		}
-		l.pos++
+		if err == nil {
+			l.unreadByte()
+		}
 		return Token{Type: TokenError, Value: ">"}
 	case '[':
-		l.pos++
 		return Token{Type: TokenArrayStart, Value: "["}
 	case ']':
-		l.pos++
 		return Token{Type: TokenArrayEnd, Value: "]"}
 	}
 
 	if unicode.IsDigit(rune(ch)) || ch == '+' || ch == '-' || ch == '.' {
+		l.unreadByte()
 		return l.readNumber()
 	}
 
 	if unicode.IsLetter(rune(ch)) {
+		l.unreadByte()
 		return l.readKeyword()
 	}
 
 	return Token{Type: TokenError, Value: string(ch)}
 }
 
+func (l *Lexer) UnreadToken(t Token) {
+	l.pushed = append(l.pushed, t)
+}
+
 // --- Helper Functions ---
 
-func (l *Lexer) skipWhitespace() {
-	for l.pos < len(l.data) {
-		ch := l.data[l.pos]
-		// PDF WhiteSpace: Null, Tab, LF, FF, CR, Space
-		if isWhitespace(ch) {
-			l.pos++
-			continue
-		}
-		break
-	}
-}
-
-// readName handles /Name tokens (e.g., /Type, /Pages)
-func (l *Lexer) readName() Token {
-	l.pos++ // skip '/'
-	start := l.pos
-	for l.pos < len(l.data) {
-		ch := l.data[l.pos]
-		// Names end at whitespace or delimiters
-		if isDelimiter(ch) || isWhitespace(ch) {
-			break
-		}
+func (l *Lexer) readByte() (byte, error) {
+	b, err := l.reader.ReadByte()
+	if err == nil {
 		l.pos++
 	}
-	return Token{Type: TokenName, Value: string(l.data[start:l.pos])}
+	return b, err
 }
 
-// readNumber handles integers (123) and reals (12.34)
+func (l *Lexer) unreadByte() error {
+	err := l.reader.UnreadByte()
+	if err == nil {
+		l.pos--
+	}
+	return err
+}
+
+func (l *Lexer) skipWhitespace() {
+	for {
+		b, err := l.readByte()
+		if err != nil {
+			return
+		}
+		if !isWhitespace(b) {
+			l.unreadByte()
+			return
+		}
+	}
+}
+
+// readName handles name tokens like /Name
+func (l *Lexer) readName() Token {
+	var buf []byte
+	for {
+		b, err := l.readByte()
+		if err != nil || isDelimiter(b) || isWhitespace(b) {
+			if err == nil {
+				l.unreadByte()
+			}
+			break
+		}
+		buf = append(buf, b)
+	}
+	return Token{Type: TokenName, Value: string(buf)}
+}
+
+// readNumber handles integers and reals
 func (l *Lexer) readNumber() Token {
-	start := l.pos
+	var buf []byte
 	isReal := false
-	for l.pos < len(l.data) {
-		ch := l.data[l.pos]
-		if ch == '.' {
+
+	for {
+		b, err := l.readByte()
+		if err != nil {
+			break
+		}
+		if b == '.' {
 			isReal = true
 		}
-		if !unicode.IsDigit(rune(ch)) && ch != '.' && ch != '+' && ch != '-' {
+		if !unicode.IsDigit(rune(b)) && b != '.' && b != '+' && b != '-' {
+			l.unreadByte()
 			break
 		}
-		l.pos++
+		buf = append(buf, b)
 	}
-	val := string(l.data[start:l.pos])
+
 	if isReal {
-		return Token{Type: TokenReal, Value: val}
+		return Token{Type: TokenReal, Value: string(buf)}
 	}
-	return Token{Type: TokenInteger, Value: val}
+	return Token{Type: TokenInteger, Value: string(buf)}
 }
 
-// readKeyword handles true, false, R, obj, etc.
+// readKeyword handles keywords like true, false, obj, etc.
 func (l *Lexer) readKeyword() Token {
-	start := l.pos
-	for l.pos < len(l.data) {
-		ch := l.data[l.pos]
-		if isDelimiter(ch) || isWhitespace(ch) {
+	var buf []byte
+	for {
+		b, err := l.readByte()
+		if err != nil || isDelimiter(b) || isWhitespace(b) {
+			if err == nil {
+				l.unreadByte()
+			}
 			break
 		}
-		l.pos++
+		buf = append(buf, b)
 	}
-	val := string(l.data[start:l.pos])
-
+	val := string(buf)
 	if val == "true" || val == "false" {
 		return Token{Type: TokenBoolean, Value: val}
 	}
 	return Token{Type: TokenKeyword, Value: val}
 }
 
-// readStringLiteral handles (Hello World)
+// readStringLiteral handles string literals like (Hello World)
 func (l *Lexer) readStringLiteral() Token {
-	l.pos++ // skip '('
-	start := l.pos
+	var buf []byte
 	depth := 1
-	for l.pos < len(l.data) {
-		switch l.data[l.pos] {
+
+	for {
+		b, err := l.readByte()
+		if err != nil {
+			return Token{Type: TokenError, Value: "Unterminated String"}
+		}
+		switch b {
 		case '(':
 			depth++
 		case ')':
 			depth--
 			if depth == 0 {
-				val := string(l.data[start:l.pos])
-				l.pos++ // skip closing ')'
-				return Token{Type: TokenString, Value: val}
+				return Token{Type: TokenString, Value: string(buf)}
 			}
 		}
-		l.pos++
+		buf = append(buf, b)
 	}
-	return Token{Type: TokenError, Value: "Unterminated String"}
 }
 
 func (l *Lexer) readHexString() Token {
-	l.pos++ // skip '<'
-
 	var buf []byte
 
-	for l.pos < len(l.data) {
-		ch := l.data[l.pos]
-
-		if ch == '>' {
-			l.pos++ // skip '>'
+	for {
+		b, err := l.readByte()
+		if err != nil {
+			return Token{Type: TokenError, Value: "Unterminated hex string"}
+		}
+		if b == '>' {
 			break
 		}
-
-		// Skip any PDF whitespace
-		if isWhitespace(ch) {
-			l.pos++
+		if isWhitespace(b) {
 			continue
 		}
-
-		// Only allow hex digits
-		if !isHexDigit(ch) {
+		if !isHexDigit(b) {
 			return Token{Type: TokenError, Value: "Invalid character in hex string"}
 		}
-
-		buf = append(buf, ch)
-		l.pos++
+		buf = append(buf, b)
 	}
 
-	// If we exited the loop without finding '>'
-	if l.pos >= len(l.data) {
-		return Token{Type: TokenError, Value: "Unterminated hex string"}
-	}
-
-	// if odd number of hex digits, pad with '0'
 	if len(buf)%2 == 1 {
 		buf = append(buf, '0')
 	}
@@ -231,7 +259,6 @@ func (l *Lexer) readHexString() Token {
 	if err != nil {
 		return Token{Type: TokenError, Value: "Invalid hex data"}
 	}
-
 	return Token{Type: TokenString, Value: string(decoded)}
 }
 

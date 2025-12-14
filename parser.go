@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -135,7 +136,7 @@ func (d *Document) resolveReference(ref string) (any, error) {
 		return nil, err
 	}
 
-	l := NewLexer(chunk[:n])
+	l := NewLexer(bytes.NewReader(chunk[:n]))
 
 	// Expect "<id> <gen> obj"
 	t1 := l.NextToken()
@@ -150,7 +151,6 @@ func (d *Document) resolveReference(ref string) (any, error) {
 
 	switch t.Type {
 	case TokenDictStart:
-		l.JumpBack(2)
 		m, err := parseDictionary(l)
 		if err != nil {
 			return nil, err
@@ -158,7 +158,6 @@ func (d *Document) resolveReference(ref string) (any, error) {
 		return d.resolveObject(m)
 
 	case TokenArrayStart:
-		l.JumpBack(2)
 		arr, err := parseArray(l)
 		if err != nil {
 			return nil, err
@@ -174,11 +173,6 @@ func (d *Document) resolveReference(ref string) (any, error) {
 func parseDictionary(l *Lexer) (map[string]any, error) {
 	dict := make(map[string]any)
 
-	tok := l.NextToken()
-	if tok.Type != TokenDictStart {
-		return nil, fmt.Errorf("expected dictionary start '<<' but was %v", tok.Type)
-	}
-
 	for {
 		// get key
 		keyTok := l.NextToken()
@@ -187,6 +181,9 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 		}
 		if keyTok.Type == TokenEOF {
 			return nil, errors.New("unexpected EOF while parsing dictionary")
+		}
+		if keyTok.Type == TokenDictStart { // skip dict start
+			continue
 		}
 		if keyTok.Type != TokenName {
 			return nil, fmt.Errorf("expected dictionary key but got %v (%q)", keyTok.Type, keyTok.Value)
@@ -199,7 +196,6 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 
 		// Handle indirect references (e.g., "1 0 R")
 		if valTok.Type == TokenInteger {
-			save := l.pos
 			t2 := l.NextToken()
 			t3 := l.NextToken()
 
@@ -209,11 +205,11 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 			}
 
 			// Not a reference, restore lexer position
-			l.pos = save
+			l.UnreadToken(t3)
+			l.UnreadToken(t2)
 		}
 
 		if valTok.Type == TokenDictStart {
-			l.JumpBack(2)
 			subDict, err := parseDictionary(l)
 			if err != nil {
 				return nil, err
@@ -271,7 +267,6 @@ func parseArray(l *Lexer) ([]any, error) {
 
 		// Indirect reference inside array
 		if t.Type == TokenInteger {
-			save := l.pos
 			t2 := l.NextToken()
 			t3 := l.NextToken()
 
@@ -281,7 +276,8 @@ func parseArray(l *Lexer) ([]any, error) {
 				continue
 			}
 
-			l.pos = save
+			l.UnreadToken(t3)
+			l.UnreadToken(t2)
 		}
 
 		arr = append(arr, t.Value)

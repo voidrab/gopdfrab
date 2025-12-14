@@ -240,6 +240,41 @@ func (d *Document) verifyDocumentInformationDictionary() []error {
 
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
+func (d *Document) verifyDocument() []error {
+	// iterate over the entire document
+	// go page by page
+	return nil
+}
+
+func (d *Document) verifyHexadecimalString(hex string) error {
+	// Hexadecimal strings shall contain an even number of non-white-space characters, each in the range 0 to 9, A to F or a to f.
+
+	hexCount := 0
+
+	pos := 0
+	for pos <= len(hex) {
+		ch := hex[pos]
+
+		// 1. Ignore Whitespace
+		if isWhitespace(ch) {
+			continue
+		}
+
+		// 2. Check for Invalid Characters
+		if !isHexDigit(ch) {
+			return fmt.Errorf("contains non-hex character: '%c'", ch)
+		}
+
+		if hexCount%2 != 0 {
+			return fmt.Errorf("contains an odd number of hex digits (%d), implied '0' padding is forbidden in PDF/A", hexCount)
+		}
+
+		hexCount++
+	}
+
+	return nil
+}
+
 // verifyOptionalContent verifies requirements outlined in 6.1.13
 func (d *Document) verifyOptionalContent() []error {
 	_, err := d.GetValueByPath([]string{"Root", "OCProperties"})
@@ -340,5 +375,11 @@ func (d *Document) verifyOutputIntent() []error {
 		return errs
 	}
 
+	return nil
+}
+
+// verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
+func (d *Document) verifyGeneralColourSpaces() []error {
+	// TODO check if document has OutputIntent or direct use of device-independent colour space
 	return nil
 }

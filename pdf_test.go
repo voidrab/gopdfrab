@@ -1,6 +1,7 @@
 package pdfrab
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"testing"
@@ -10,7 +11,7 @@ var test_dir = "test documents/"
 
 func TestLexer_BasicDictionary(t *testing.T) {
 	input := []byte("<< /Type /Catalog /Pages 1 0 R >>")
-	l := NewLexer(input)
+	l := NewLexer(bytes.NewReader(input))
 
 	expected := []string{"<<", "Type", "Catalog", "Pages", "1", "0", "R", ">>"}
 
@@ -24,7 +25,7 @@ func TestLexer_BasicDictionary(t *testing.T) {
 
 func TestLexer_ArraysAndStrings(t *testing.T) {
 	input := []byte("[ (Hello World) <41 41 42 42> ]")
-	l := NewLexer(input)
+	l := NewLexer(bytes.NewReader(input))
 
 	expectedTokens := []struct {
 		Type  TokenType

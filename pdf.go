@@ -104,7 +104,7 @@ func (d *Document) initializeStructure() error {
 	}
 
 	// Parse the dictionary following "trailer"
-	l := NewLexer(searchBlock[trailerIdx:])
+	l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
 
 	if tok := l.NextToken(); tok.Value != "trailer" {
 		return errors.New("expected 'trailer' keyword")
