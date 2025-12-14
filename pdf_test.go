@@ -33,7 +33,7 @@ func TestLexer_ArraysAndStrings(t *testing.T) {
 	}{
 		{TokenArrayStart, "["},
 		{TokenString, "Hello World"},
-		{TokenString, "AABB"},
+		{TokenHexString, fmt.Sprintf("%X", "AABB")},
 		{TokenArrayEnd, "]"},
 	}
 

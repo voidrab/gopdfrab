@@ -3,7 +3,7 @@ package pdfrab
 import (
 	"bufio"
 	"bytes"
-	"encoding/hex"
+	"fmt"
 	"io"
 	"unicode"
 )
@@ -16,8 +16,9 @@ const (
 	TokenBoolean
 	TokenInteger
 	TokenReal
-	TokenString // (literal) or <hex>
-	TokenName   // /Name
+	TokenString    // (literal)
+	TokenHexString // <hex>
+	TokenName      // /Name
 	TokenKeyword
 	TokenArrayStart // [
 	TokenArrayEnd   // ]
@@ -50,6 +51,9 @@ func (l *Lexer) NextToken() Token {
 		l.pushed = l.pushed[:len(l.pushed)-1]
 		return t
 	}
+
+	// add stream support
+	// skip content when stream is encountered?
 
 	l.skipWhitespace()
 
@@ -216,7 +220,7 @@ func (l *Lexer) readStringLiteral() Token {
 	for {
 		b, err := l.readByte()
 		if err != nil {
-			return Token{Type: TokenError, Value: "Unterminated String"}
+			return Token{Type: TokenError, Value: fmt.Sprintf("Unterminated String: %v", err)}
 		}
 		switch b {
 		case '(':
@@ -251,15 +255,7 @@ func (l *Lexer) readHexString() Token {
 		buf = append(buf, b)
 	}
 
-	if len(buf)%2 == 1 {
-		buf = append(buf, '0')
-	}
-
-	decoded, err := hex.DecodeString(string(buf))
-	if err != nil {
-		return Token{Type: TokenError, Value: "Invalid hex data"}
-	}
-	return Token{Type: TokenString, Value: string(decoded)}
+	return Token{Type: TokenHexString, Value: string(buf)}
 }
 
 // --- Utilities ---

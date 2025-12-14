@@ -73,6 +73,10 @@ func (d *Document) verifyPdfA1b() map[string][]error {
 	if errs != nil {
 		issues["6.1.5"] = errs
 	}
+	errs = d.verifyHexStrings()
+	if errs != nil {
+		issues["6.1.6"] = errs
+	}
 	errs = d.verifyOptionalContent()
 	if errs != nil {
 		issues["6.1.13"] = errs
@@ -240,36 +244,41 @@ func (d *Document) verifyDocumentInformationDictionary() []error {
 
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
-func (d *Document) verifyDocument() []error {
-	// iterate over the entire document
-	// go page by page
-	return nil
+// verifyHexStrings verifies requirements outlined in 6.1.6
+func (d *Document) verifyHexStrings() []error {
+	checkHexParity := func(t Token, pos int, errs []error) error {
+		if t.Type == TokenHexString {
+			if err := d.validateHexString(t.Value); err != nil {
+				return fmt.Errorf("hex validation failed at byte %d: %w", pos, err)
+			}
+		}
+		return nil
+	}
+
+	return d.TraverseTokens(checkHexParity)
 }
 
-func (d *Document) verifyHexadecimalString(hex string) error {
+func (d *Document) validateHexString(hex string) error {
 	// Hexadecimal strings shall contain an even number of non-white-space characters, each in the range 0 to 9, A to F or a to f.
 
 	hexCount := 0
 
-	pos := 0
-	for pos <= len(hex) {
-		ch := hex[pos]
+	for i := 0; i < len(hex); i++ {
+		ch := hex[i]
 
-		// 1. Ignore Whitespace
 		if isWhitespace(ch) {
 			continue
 		}
 
-		// 2. Check for Invalid Characters
 		if !isHexDigit(ch) {
-			return fmt.Errorf("contains non-hex character: '%c'", ch)
-		}
-
-		if hexCount%2 != 0 {
-			return fmt.Errorf("contains an odd number of hex digits (%d), implied '0' padding is forbidden in PDF/A", hexCount)
+			return fmt.Errorf("contains non-hex character: '%v'", ch)
 		}
 
 		hexCount++
+	}
+
+	if hexCount%2 != 0 {
+		return fmt.Errorf("contains an odd number of hex digits (%d)", hexCount)
 	}
 
 	return nil

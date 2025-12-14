@@ -26,7 +26,7 @@ func (d *Document) parseXRefTable(offset int64) error {
 		return err
 	}
 	if string(line) != "xref" {
-		return errors.New("expected 'xref' keyword (XRefStreams not supported in basic parser)")
+		return errors.New("expected 'xref' keyword")
 	}
 
 	for {

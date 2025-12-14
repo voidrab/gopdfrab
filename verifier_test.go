@@ -26,6 +26,29 @@ func TestDocument_VerifyPDFA(t *testing.T) {
 	}
 }
 
+func TestDocument_VerifyPDFA_Invalid(t *testing.T) {
+	filename := "pdfa1b_invalid.pdf"
+	doc, err := Open(test_dir + filename)
+	if err != nil {
+		t.Fatalf("Failed to open PDF: %v", err)
+	}
+	defer doc.Close()
+
+	res, err := doc.Verify(LevelType(A1_B))
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	if res.Valid {
+		t.Errorf("Verification succeeded for invalid PDF")
+	}
+
+	if res.Issues["6.1.6"] == nil {
+		t.Errorf("expected error due to odd number of hex digits")
+	}
+}
+
 // 6.1.2
 
 func TestDocument_VerifyPDFAHeader(t *testing.T) {
