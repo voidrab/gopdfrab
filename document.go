@@ -188,7 +188,7 @@ func (d *Document) GetPageCount() (int, error) {
 	return int(count), nil
 }
 
-// ResolveGraphByPath resolves PDF object graph values on the path,
+// ResolveGraphByPath resolves the PDF object graph by path,
 // starting from the document trailer.
 func (d *Document) ResolveGraphByPath(path []string) (PDFValue, error) {
 	if len(path) == 0 {
@@ -198,7 +198,7 @@ func (d *Document) ResolveGraphByPath(path []string) (PDFValue, error) {
 	return d.resolvePath(d.trailer, path)
 }
 
-// ResolveGraph resolves the entire reachable PDF object graph,
+// ResolveGraph resolves the PDF object graph,
 // starting from the document trailer.
 func (d *Document) ResolveGraph() (PDFValue, error) {
 	visited := make(map[int]PDFValue)

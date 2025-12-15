@@ -6,6 +6,7 @@ import (
 	"strconv"
 )
 
+// readStream verifies requirements outlined in 6.1.6.
 func (d *Document) readStream(l *Lexer, dict PDFDict) error {
 	if err := l.skipEOL(); err != nil {
 		return err

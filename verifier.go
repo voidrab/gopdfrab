@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -245,11 +246,65 @@ func (d *Document) verifyDocumentInformationDictionary() []error {
 
 // verifyHexStrings verifies requirements outlined in 6.1.6.
 func (d *Document) verifyHexStrings() []error {
+	root, err := d.ResolveGraph()
+	if err != nil {
+		return []error{err}
+	}
+
+	var errs []error
+	visited := make(map[uintptr]bool)
+
+	var walk func(node any)
+
+	walk = func(node any) {
+		if node == nil {
+			return
+		}
+
+		// Detect cycles (important for resolved graphs)
+		switch v := node.(type) {
+		case PDFDict:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			for _, val := range v {
+				walk(val)
+			}
+
+		case PDFArray:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			for _, item := range v {
+				walk(item)
+			}
+
+		case PDFHexString:
+			if err := validateHexString(v.Value); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	walk(root)
+
+	if len(errs) > 0 {
+		return errs
+	}
 	return nil
-	// TODO implement
 }
 
-func (d *Document) validateHexString(hex string) error {
+func pdfValuePointer(v PDFValue) uintptr {
+	return reflect.ValueOf(v).Pointer()
+}
+
+func validateHexString(hex string) error {
 	// Hexadecimal strings shall contain an even number of non-white-space characters, each in the range 0 to 9, A to F or a to f.
 
 	hexCount := 0
