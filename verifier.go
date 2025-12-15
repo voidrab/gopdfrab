@@ -55,6 +55,8 @@ func (d *Document) Verify(t LevelType) (Result, error) {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func (d *Document) verifyPdfA1b() map[string][]error {
+	// TODO pass the PDF page where the error occurred
+
 	issues := make(map[string][]error)
 
 	errs := d.verifyFileHeader()
