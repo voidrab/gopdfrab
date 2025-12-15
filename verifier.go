@@ -2,8 +2,8 @@ package pdfrab
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -55,6 +55,8 @@ func (d *Document) Verify(t LevelType) (Result, error) {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func (d *Document) verifyPdfA1b() map[string][]error {
+	// TODO pass the PDF page where the error occurred
+
 	issues := make(map[string][]error)
 
 	errs := d.verifyFileHeader()
@@ -72,6 +74,10 @@ func (d *Document) verifyPdfA1b() map[string][]error {
 	errs = d.verifyDocumentInformationDictionary()
 	if errs != nil {
 		issues["6.1.5"] = errs
+	}
+	errs = d.verifyHexStrings()
+	if errs != nil {
+		issues["6.1.6"] = errs
 	}
 	errs = d.verifyOptionalContent()
 	if errs != nil {
@@ -240,9 +246,117 @@ func (d *Document) verifyDocumentInformationDictionary() []error {
 
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
+// verifyHexStrings verifies requirements outlined in 6.1.6.
+func (d *Document) verifyHexStrings() []error {
+	root, err := d.ResolveGraph()
+	if err != nil {
+		return []error{err}
+	}
+
+	var errs []error
+	visited := make(map[uintptr]bool)
+
+	var walk func(node any)
+
+	walk = func(node any) {
+		if node == nil {
+			return
+		}
+
+		// Detect cycles (important for resolved graphs)
+		switch v := node.(type) {
+		case PDFDict:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			for _, val := range v {
+				walk(val)
+			}
+
+		case PDFStreamDict:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParams keys.
+			if v["F"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key F"))
+			}
+			if v["FFilter"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key FFilter"))
+			}
+			if v["FDecodeParams"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key FDecodeParams"))
+			}
+
+			for _, val := range v {
+				walk(val)
+			}
+
+		case PDFArray:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			for _, item := range v {
+				walk(item)
+			}
+
+		case PDFHexString:
+			if err := validateHexString(v.Value); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	walk(root)
+
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
+}
+
+func pdfValuePointer(v PDFValue) uintptr {
+	return reflect.ValueOf(v).Pointer()
+}
+
+func validateHexString(hex string) error {
+	// Hexadecimal strings shall contain an even number of non-white-space characters, each in the range 0 to 9, A to F or a to f.
+
+	hexCount := 0
+
+	for i := 0; i < len(hex); i++ {
+		ch := hex[i]
+
+		if isWhitespace(ch) {
+			continue
+		}
+
+		if !isHexDigit(ch) {
+			return fmt.Errorf("contains non-hex character: '%v'", ch)
+		}
+
+		hexCount++
+	}
+
+	if hexCount%2 != 0 {
+		return fmt.Errorf("contains an odd number of hex digits (%d)", hexCount)
+	}
+
+	return nil
+}
+
 // verifyOptionalContent verifies requirements outlined in 6.1.13
 func (d *Document) verifyOptionalContent() []error {
-	_, err := d.GetValueByPath([]string{"Root", "OCProperties"})
+	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
 		return []error{fmt.Errorf("OCProperties are not allowed in document catalog")}
 	}
@@ -253,14 +367,14 @@ func (d *Document) verifyOptionalContent() []error {
 
 // verifyOutputIntent verifies requirements outlined in 6.2.2
 func (d *Document) verifyOutputIntent() []error {
-	values, err := d.GetValueByPath([]string{"Root", "OutputIntents"})
+	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
 	if err != nil {
 		// OutputIntents are optional
 		//return []error{fmt.Errorf("failed to read OutputIntents: %v", err)}
 		return nil
 	}
 
-	intents, ok := values.([]any)
+	intents, ok := values.(PDFArray)
 	if !ok {
 		return []error{fmt.Errorf("OutputIntents object is not an array")}
 	}
@@ -270,16 +384,23 @@ func (d *Document) verifyOutputIntent() []error {
 	var indirectObject any
 
 	for _, v := range intents {
-		intent, ok := v.(map[string]any)
+		intent, ok := v.(PDFDict)
 		if !ok {
-			errs = append(errs, fmt.Errorf("expected OutputIntent to be a map"))
+			errs = append(errs, fmt.Errorf("expected OutputIntent to be a PDFDict"))
 			continue
 		}
 		// optional
 		// if intent["Type"] != "OutputIntent" {
 		// 	errs = append(errs, fmt.Errorf("expected Type was not OutputIntent, but %v", intent["Type"]))
 		// }
-		if intent["S"] != "GTS_PDFA1" {
+
+		s, ok := intent["S"].(PDFName)
+		if !ok {
+			errs = append(errs, fmt.Errorf("expected S to be a PDFName"))
+			continue
+		}
+
+		if s.Value != "GTS_PDFA1" {
 			errs = append(errs, fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent["S"]))
 		}
 
@@ -308,28 +429,23 @@ func (d *Document) verifyOutputIntent() []error {
 
 		profile, err := d.resolveObject(destOutputProfile)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to resolve DestOutputProfile"))
+			errs = append(errs, fmt.Errorf("unable to resolve DestOutputProfile: %v", err))
 			continue
 		}
 
-		profileMap, ok := profile.(map[string]any)
+		profileMap, ok := profile.(PDFStreamDict)
 		if !ok {
 			errs = append(errs, fmt.Errorf("unexpected format for DestOutputProfile encountered"))
 			continue
 		}
 
-		nValue, ok := profileMap["N"].(string)
+		nValue, ok := profileMap["N"].(PDFInteger)
 		if !ok {
 			errs = append(errs, fmt.Errorf("could not retrieve number of colour components N"))
 		}
 
-		n, err := strconv.Atoi(nValue)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("number of colour components N must be of type int"))
-			continue
-		}
 		// N shall be 1, 3, or 4
-		if !slices.Contains([]int{1, 3, 4}, n) {
+		if !slices.Contains([]int{1, 3, 4}, int(nValue)) {
 			errs = append(errs, fmt.Errorf("number of colour components N must be 1, 3, or 4"))
 		}
 	}
@@ -340,5 +456,11 @@ func (d *Document) verifyOutputIntent() []error {
 		return errs
 	}
 
+	return nil
+}
+
+// verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
+func (d *Document) verifyGeneralColourSpaces() []error {
+	// TODO check if document has OutputIntent or direct use of device-independent colour space
 	return nil
 }

@@ -15,12 +15,13 @@ type Document struct {
 	file       *os.File
 	info       os.FileInfo
 	header     []byte
-	trailer    map[string]any
+	trailer    PDFDict
 	xrefTable  map[int]int64
 	xrefOffset int64
 }
 
-// Open initializes the PDF document.
+// Open initializes the PDF document at path.
+// It returns a reference and any error encountered.
 func Open(path string) (*Document, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -53,7 +54,7 @@ func Open(path string) (*Document, error) {
 	return doc, nil
 }
 
-// initializeStructure locates startxref, parses the xref table, then the trailer. Trailer structure:
+// initializeStructure locates startxref, parses the xref table and, then the trailer. Trailer structure:
 //
 //	trailer
 //		<<
@@ -65,6 +66,8 @@ func Open(path string) (*Document, error) {
 //	startxref
 //	Byte_offset_of_last_cross-reference_section
 //	%%EOF
+//
+// It returns any error encountered.
 func (d *Document) initializeStructure() error {
 	tailSize := min(d.info.Size(), int64(1500))
 
@@ -104,17 +107,17 @@ func (d *Document) initializeStructure() error {
 	}
 
 	// Parse the dictionary following "trailer"
-	l := NewLexer(searchBlock[trailerIdx:])
+	l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
 
 	if tok := l.NextToken(); tok.Value != "trailer" {
 		return errors.New("expected 'trailer' keyword")
 	}
 
-	dict, err := parseDictionary(l)
+	trailer, err := parseDictionary(l)
 	if err != nil {
 		return fmt.Errorf("failed to parse trailer dictionary: %w", err)
 	}
-	d.trailer = dict
+	d.trailer = trailer
 
 	return nil
 }
@@ -132,7 +135,7 @@ func (d *Document) GetVersion() (string, error) {
 
 	rest := d.header[len("%PDF-"):]
 
-	end := bytes.IndexFunc(rest, func(r rune) bool {
+	end := bytes.LastIndexFunc(rest, func(r rune) bool {
 		return r == '\n' || r == '\r' || unicode.IsSpace(r)
 	})
 
@@ -152,60 +155,63 @@ func (d *Document) GetVersion() (string, error) {
 
 // GetMetadata extracts info from the Info dictionary.
 func (d *Document) GetMetadata() (map[string]string, error) {
-	value, err := d.GetValueByPath([]string{"Info"})
+	value, err := d.ResolveGraphByPath([]string{"Info"})
 	if err != nil {
 		return nil, err
 	}
 
-	dict, ok := value.(map[string]any)
+	dict, ok := value.(PDFDict)
 	if !ok {
 		return nil, errors.New("information object is not a dictionary")
 	}
 
 	metadata := make(map[string]string)
 	for k, v := range dict {
-		if s, ok := v.(string); ok {
-			metadata[k] = s
+		if s, ok := v.(PDFString); ok {
+			metadata[k] = s.Value
 		}
 	}
 	return metadata, nil
 }
 
-// GetPageCount parses the Page Tree Root to find the Count.
+// GetPageCount retrieves the page count.
 func (d *Document) GetPageCount() (int, error) {
-	value, err := d.GetValueByPath([]string{"Root", "Pages", "Count"})
+	value, err := d.ResolveGraphByPath([]string{"Root", "Pages", "Count"})
 	if err != nil {
 		return 0, err
 	}
-	stringValue, ok := value.(string)
+	count, ok := value.(PDFInteger)
 	if !ok {
 		return 0, nil
 	}
-	count, err := strconv.Atoi(stringValue)
-	if err != nil {
-		return 0, err
-	}
 
-	return count, nil
+	return int(count), nil
 }
 
-// GetValueByPath retrieves a value by walking through nested PDF structures,
-// resolving references and supporting wildcards "*" for arrays and dictionaries.
-func (d *Document) GetValueByPath(path []string) (any, error) {
+// ResolveGraphByPath resolves the PDF object graph by path,
+// starting from the document trailer.
+func (d *Document) ResolveGraphByPath(path []string) (PDFValue, error) {
 	if len(path) == 0 {
 		return nil, errors.New("path cannot be empty")
 	}
 
-	return d.walkNode(d.trailer, path)
+	return d.resolvePath(d.trailer, path)
 }
 
-// walkNode walks a decoded PDF object (map/array/primitive) following a path.
-// Supports:
+// ResolveGraph resolves the PDF object graph,
+// starting from the document trailer.
+func (d *Document) ResolveGraph() (PDFValue, error) {
+	visited := make(map[int]PDFValue)
+	return d.resolveAll(d.trailer, visited)
+}
+
+// resolvePath walks a PDF object (map/array/primitive) following a path.
+// It supports:
 //   - dictionary keys, like "Root", "Pages", "Count"
 //   - array indices, like "0", "1", "2"
 //
-// Starting point 'node' must already be a resolved object.
-func (d *Document) walkNode(node any, path []string) (any, error) {
+// Starting point 'node' must already be a resolved object, such as the document trailer.
+func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 	current, err := d.resolveObject(node)
 	if err != nil {
 		return nil, err
@@ -218,7 +224,7 @@ func (d *Document) walkNode(node any, path []string) (any, error) {
 			return nil, err
 		}
 
-		if arr, ok := current.([]any); ok {
+		if arr, ok := current.(PDFArray); ok {
 			idx, err := strconv.Atoi(key)
 			if err != nil {
 				return arr, nil
@@ -230,7 +236,7 @@ func (d *Document) walkNode(node any, path []string) (any, error) {
 			continue
 		}
 
-		if dict, ok := current.(map[string]any); ok {
+		if dict, ok := current.(PDFDict); ok {
 			val, found := dict[key]
 			if !found {
 				return nil, fmt.Errorf("key %q not found in dictionary", key)
@@ -243,4 +249,81 @@ func (d *Document) walkNode(node any, path []string) (any, error) {
 	}
 
 	return d.resolveObject(current)
+}
+
+// resolveAll recursively resolves a PDF object graph, including indirect references.
+func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue, error) {
+	switch v := obj.(type) {
+
+	// ------------------------
+	// Indirect reference
+	// ------------------------
+	case PDFRef:
+		id := v.ObjNum
+
+		if cached, ok := visited[id]; ok {
+			return cached, nil
+		}
+
+		indirect, err := d.resolveReference(v)
+		if err != nil {
+			return nil, err
+		}
+
+		// Mark as visited *before* recursive resolution to prevent cycles
+		visited[id] = indirect
+
+		resolved, err := d.resolveAll(indirect, visited)
+		if err != nil {
+			return nil, err
+		}
+
+		visited[id] = resolved
+		return resolved, nil
+
+	// ------------------------
+	// Dictionary
+	// ------------------------
+	case PDFDict:
+		out := make(PDFDict, len(v))
+		for k, val := range v {
+			r, err := d.resolveAll(val, visited)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = r
+		}
+		return out, nil
+
+	case PDFStreamDict:
+		out := make(PDFStreamDict, len(v))
+		for k, val := range v {
+			r, err := d.resolveAll(val, visited)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = r
+		}
+		return out, nil
+
+	// ------------------------
+	// Array
+	// ------------------------
+	case PDFArray:
+		out := make(PDFArray, len(v))
+		for i, elem := range v {
+			r, err := d.resolveAll(elem, visited)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = r
+		}
+		return out, nil
+
+	// ------------------------
+	// Primitives
+	// ------------------------
+	default:
+		return v, nil
+	}
 }

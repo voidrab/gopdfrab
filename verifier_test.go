@@ -26,6 +26,29 @@ func TestDocument_VerifyPDFA(t *testing.T) {
 	}
 }
 
+func TestDocument_VerifyPDFA_Invalid(t *testing.T) {
+	filename := "pdfa1b_invalid.pdf"
+	doc, err := Open(test_dir + filename)
+	if err != nil {
+		t.Fatalf("Failed to open PDF: %v", err)
+	}
+	defer doc.Close()
+
+	res, err := doc.Verify(LevelType(A1_B))
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	if res.Valid {
+		t.Errorf("Verification succeeded for invalid PDF")
+	}
+
+	if res.Issues["6.1.6"] == nil {
+		t.Errorf("expected error due to odd number of hex digits")
+	}
+}
+
 // 6.1.2
 
 func TestDocument_VerifyPDFAHeader(t *testing.T) {
@@ -97,7 +120,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
+	trailer := make(PDFDict)
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -115,9 +138,9 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	trailer["ID"] = 'a'
-	trailer["Encrypt"] = 'a'
+	trailer := make(PDFDict)
+	trailer["ID"] = PDFString{"a"}
+	trailer["Encrypt"] = PDFString{"a"}
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -135,8 +158,8 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	trailer["ID"] = 'a'
+	trailer := make(PDFDict)
+	trailer["ID"] = PDFString{"a"}
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -188,11 +211,11 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *tes
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	info := make(map[string]any)
+	trailer := make(PDFDict)
+	info := make(PDFDict)
 
-	info["Title"] = "Test"
-	info["Disallowed"] = "Wrong"
+	info["Title"] = PDFString{"Test"}
+	info["Disallowed"] = PDFString{"Wrong"}
 
 	trailer["Info"] = info
 
@@ -211,10 +234,10 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	info := make(map[string]any)
+	trailer := make(PDFDict)
+	info := make(PDFDict)
 
-	info["Title"] = ""
+	info["Title"] = PDFString{""}
 
 	trailer["Info"] = info
 
@@ -224,6 +247,30 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 
 	if err := doc.verifyDocumentInformationDictionary(); err == nil {
 		t.Error("Expected error for empty field, got nil")
+	}
+}
+
+// 6.1.7
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedKey(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFStreamDict)
+
+	info["FFilter"] = PDFString{"disallowed"}
+
+	trailer["Test"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyHexStrings(); err == nil {
+		t.Error("Expected error for disallowed FFilter, got nil")
 	}
 }
 
@@ -255,13 +302,13 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "GTS_PDFA1"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer["Root"] = outputIntents
@@ -296,9 +343,9 @@ func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
 	outputIntents = append(outputIntents, outputIntent)
 
@@ -319,13 +366,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "Wrong"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"Wrong"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer["Root"] = outputIntents
@@ -345,16 +392,16 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
-	destOutputProfile := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+	destOutputProfile := make(PDFDict)
 
-	destOutputProfile["N"] = "5"
+	destOutputProfile["N"] = PDFString{"5"}
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "GTS_PDFA1"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntent["DestOutputProfile"] = destOutputProfile
 	outputIntents = append(outputIntents, outputIntent)
 
