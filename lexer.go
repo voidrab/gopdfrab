@@ -8,24 +8,6 @@ import (
 	"unicode"
 )
 
-type TokenType int
-
-const (
-	TokenError TokenType = iota
-	TokenEOF
-	TokenBoolean
-	TokenInteger
-	TokenReal
-	TokenString    // (literal)
-	TokenHexString // <hex>
-	TokenName      // /Name
-	TokenKeyword
-	TokenArrayStart // [
-	TokenArrayEnd   // ]
-	TokenDictStart  // <<
-	TokenDictEnd    // >>
-)
-
 // Token represents a distinct piece of syntax from the PDF.
 type Token struct {
 	Type  TokenType
@@ -35,13 +17,17 @@ type Token struct {
 // Lexer holds the state of the current chunk being parsed.
 type Lexer struct {
 	reader *bufio.Reader
-	pos    int
+	pos    int64
 	pushed []Token
 }
 
 // NewLexer creates a lexer for a specific chunk of data.
 func NewLexer(r io.Reader) *Lexer {
 	return &Lexer{reader: bufio.NewReader(r)}
+}
+
+func NewLexerAt(r io.Reader, offset int64) *Lexer {
+	return &Lexer{reader: bufio.NewReader(r), pos: offset}
 }
 
 // NextToken returns the next distinct token from the stream.
@@ -209,6 +195,12 @@ func (l *Lexer) readKeyword() Token {
 	if val == "true" || val == "false" {
 		return Token{Type: TokenBoolean, Value: val}
 	}
+	if val == "stream" {
+		return Token{Type: TokenStreamStart, Value: val}
+	}
+	if val == "endstream" {
+		return Token{Type: TokenStreamEnd, Value: val}
+	}
 	return Token{Type: TokenKeyword, Value: val}
 }
 
@@ -256,6 +248,31 @@ func (l *Lexer) readHexString() Token {
 	}
 
 	return Token{Type: TokenHexString, Value: string(buf)}
+}
+
+func (l *Lexer) skipEOL() error {
+	b, err := l.reader.ReadByte()
+	if err != nil {
+		return err
+	}
+	l.pos++
+
+	if b == '\r' {
+		// Optional LF after CR
+		next, err := l.reader.Peek(1)
+		if err == nil && next[0] == '\n' {
+			l.reader.ReadByte()
+			l.pos++
+		}
+		return nil
+	}
+
+	if b == '\n' {
+		return nil
+	}
+
+	// Not EOL → unread
+	return l.reader.UnreadByte()
 }
 
 // --- Utilities ---

@@ -120,7 +120,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
+	trailer := make(PDFDict)
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -138,9 +138,9 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	trailer["ID"] = 'a'
-	trailer["Encrypt"] = 'a'
+	trailer := make(PDFDict)
+	trailer["ID"] = PDFString{"a"}
+	trailer["Encrypt"] = PDFString{"a"}
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -158,8 +158,8 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	trailer["ID"] = 'a'
+	trailer := make(PDFDict)
+	trailer["ID"] = PDFString{"a"}
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -211,11 +211,11 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *tes
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	info := make(map[string]any)
+	trailer := make(PDFDict)
+	info := make(PDFDict)
 
-	info["Title"] = "Test"
-	info["Disallowed"] = "Wrong"
+	info["Title"] = PDFString{"Test"}
+	info["Disallowed"] = PDFString{"Wrong"}
 
 	trailer["Info"] = info
 
@@ -234,10 +234,10 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	info := make(map[string]any)
+	trailer := make(PDFDict)
+	info := make(PDFDict)
 
-	info["Title"] = ""
+	info["Title"] = PDFString{""}
 
 	trailer["Info"] = info
 
@@ -278,13 +278,13 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "GTS_PDFA1"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer["Root"] = outputIntents
@@ -319,9 +319,9 @@ func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
 	outputIntents = append(outputIntents, outputIntent)
 
@@ -342,13 +342,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "Wrong"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"Wrong"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer["Root"] = outputIntents
@@ -368,16 +368,16 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
-	trailer := make(map[string]any)
-	outputIntents := []any{}
-	outputIntent := make(map[string]any)
-	destOutputProfile := make(map[string]any)
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+	destOutputProfile := make(PDFDict)
 
-	destOutputProfile["N"] = "5"
+	destOutputProfile["N"] = PDFString{"5"}
 
-	outputIntent["Type"] = "OutputIntent"
-	outputIntent["S"] = "GTS_PDFA1"
-	outputIntent["OutputConditionIdentifier"] = "Test"
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
 	outputIntent["DestOutputProfile"] = destOutputProfile
 	outputIntents = append(outputIntents, outputIntent)
 

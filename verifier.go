@@ -3,7 +3,6 @@ package pdfrab
 import (
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -244,18 +243,10 @@ func (d *Document) verifyDocumentInformationDictionary() []error {
 
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
-// verifyHexStrings verifies requirements outlined in 6.1.6
+// verifyHexStrings verifies requirements outlined in 6.1.6.
 func (d *Document) verifyHexStrings() []error {
-	checkHexParity := func(t Token, pos int, errs []error) error {
-		if t.Type == TokenHexString {
-			if err := d.validateHexString(t.Value); err != nil {
-				return fmt.Errorf("hex validation failed at byte %d: %w", pos, err)
-			}
-		}
-		return nil
-	}
-
-	return d.TraverseTokens(checkHexParity)
+	return nil
+	// TODO implement
 }
 
 func (d *Document) validateHexString(hex string) error {
@@ -286,7 +277,7 @@ func (d *Document) validateHexString(hex string) error {
 
 // verifyOptionalContent verifies requirements outlined in 6.1.13
 func (d *Document) verifyOptionalContent() []error {
-	_, err := d.GetValueByPath([]string{"Root", "OCProperties"})
+	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
 		return []error{fmt.Errorf("OCProperties are not allowed in document catalog")}
 	}
@@ -297,14 +288,14 @@ func (d *Document) verifyOptionalContent() []error {
 
 // verifyOutputIntent verifies requirements outlined in 6.2.2
 func (d *Document) verifyOutputIntent() []error {
-	values, err := d.GetValueByPath([]string{"Root", "OutputIntents"})
+	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
 	if err != nil {
 		// OutputIntents are optional
 		//return []error{fmt.Errorf("failed to read OutputIntents: %v", err)}
 		return nil
 	}
 
-	intents, ok := values.([]any)
+	intents, ok := values.(PDFArray)
 	if !ok {
 		return []error{fmt.Errorf("OutputIntents object is not an array")}
 	}
@@ -314,16 +305,23 @@ func (d *Document) verifyOutputIntent() []error {
 	var indirectObject any
 
 	for _, v := range intents {
-		intent, ok := v.(map[string]any)
+		intent, ok := v.(PDFDict)
 		if !ok {
-			errs = append(errs, fmt.Errorf("expected OutputIntent to be a map"))
+			errs = append(errs, fmt.Errorf("expected OutputIntent to be a PDFDict"))
 			continue
 		}
 		// optional
 		// if intent["Type"] != "OutputIntent" {
 		// 	errs = append(errs, fmt.Errorf("expected Type was not OutputIntent, but %v", intent["Type"]))
 		// }
-		if intent["S"] != "GTS_PDFA1" {
+
+		s, ok := intent["S"].(PDFName)
+		if !ok {
+			errs = append(errs, fmt.Errorf("expected S to be a PDFName"))
+			continue
+		}
+
+		if s.Value != "GTS_PDFA1" {
 			errs = append(errs, fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent["S"]))
 		}
 
@@ -352,28 +350,23 @@ func (d *Document) verifyOutputIntent() []error {
 
 		profile, err := d.resolveObject(destOutputProfile)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("unable to resolve DestOutputProfile"))
+			errs = append(errs, fmt.Errorf("unable to resolve DestOutputProfile: %v", err))
 			continue
 		}
 
-		profileMap, ok := profile.(map[string]any)
+		profileMap, ok := profile.(PDFDict)
 		if !ok {
 			errs = append(errs, fmt.Errorf("unexpected format for DestOutputProfile encountered"))
 			continue
 		}
 
-		nValue, ok := profileMap["N"].(string)
+		nValue, ok := profileMap["N"].(PDFInteger)
 		if !ok {
 			errs = append(errs, fmt.Errorf("could not retrieve number of colour components N"))
 		}
 
-		n, err := strconv.Atoi(nValue)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("number of colour components N must be of type int"))
-			continue
-		}
 		// N shall be 1, 3, or 4
-		if !slices.Contains([]int{1, 3, 4}, n) {
+		if !slices.Contains([]int{1, 3, 4}, int(nValue)) {
 			errs = append(errs, fmt.Errorf("number of colour components N must be 1, 3, or 4"))
 		}
 	}

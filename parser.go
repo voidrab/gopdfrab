@@ -2,7 +2,6 @@ package pdfrab
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -67,111 +66,60 @@ func (d *Document) parseXRefTable(offset int64) error {
 	return nil
 }
 
-// resolveObject recursively resolves nested references, dictionaries, and arrays.
-func (d *Document) resolveObject(obj any) (any, error) {
-	switch v := obj.(type) {
+func parseObject(l *Lexer, tok Token) (PDFValue, error) {
+	switch tok.Type {
 
-	case string:
-		if isReference(v) {
-			return d.resolveReference(v)
+	case TokenKeyword:
+		return PDFName{Value: tok.Value}, nil
+
+	case TokenBoolean:
+		return PDFBoolean(tok.Value == "true"), nil
+
+	case TokenInteger:
+		tok2 := l.NextToken()
+		tok3 := l.NextToken()
+
+		if tok2.Type == TokenInteger && tok3.Type == TokenKeyword && tok3.Value == "R" {
+			objNum, _ := strconv.Atoi(tok.Value)
+			genNum, _ := strconv.Atoi(tok2.Value)
+			return PDFRef{ObjNum: objNum, GenNum: genNum}, nil
+		} else {
+			l.UnreadToken(tok3)
+			l.UnreadToken(tok2)
+			i, _ := strconv.Atoi(tok.Value)
+			return PDFInteger(i), nil
 		}
-		return v, nil
 
-	case map[any]any:
-		out := make(map[string]any)
-		for k, val := range v {
-			ks, ok := k.(string)
-			if !ok {
-				return nil, fmt.Errorf("dictionary key is not a string: %v", k)
-			}
-			resolved, err := d.resolveObject(val)
-			if err != nil {
-				return nil, err
-			}
-			out[ks] = resolved
-		}
-		return out, nil
-
-	case []any:
-		out := make([]any, len(v))
-		for i, elem := range v {
-			resolved, err := d.resolveObject(elem)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = resolved
-		}
-		return out, nil
-
-	default:
-		return v, nil
-	}
-}
-
-func isReference(s string) bool {
-	var id, gen int
-	var r string
-	_, err := fmt.Sscanf(s, "%d %d %s", &id, &gen, &r)
-	return err == nil && r == "R"
-}
-
-// resolveReference resolves references
-func (d *Document) resolveReference(ref string) (any, error) {
-	var id, gen int
-	var r string
-	_, err := fmt.Sscanf(ref, "%d %d %s", &id, &gen, &r)
-	if err != nil || r != "R" {
-		return nil, fmt.Errorf("invalid reference: %s", ref)
-	}
-
-	offset, ok := d.xrefTable[id]
-	if !ok {
-		return nil, fmt.Errorf("object %d not found in xref table", id)
-	}
-
-	// Read chunk starting at offset
-	chunk := make([]byte, 4096)
-	n, err := d.file.ReadAt(chunk, offset)
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	l := NewLexer(bytes.NewReader(chunk[:n]))
-
-	// Expect "<id> <gen> obj"
-	t1 := l.NextToken()
-	l.NextToken()
-	t3 := l.NextToken()
-
-	if t1.Type != TokenInteger || t3.Value != "obj" {
-		return nil, fmt.Errorf("invalid object header %d %d", id, gen)
-	}
-
-	t := l.NextToken()
-
-	switch t.Type {
-	case TokenDictStart:
-		m, err := parseDictionary(l)
+	case TokenReal:
+		f, err := strconv.ParseFloat(tok.Value, 64)
 		if err != nil {
 			return nil, err
 		}
-		return d.resolveObject(m)
+		return PDFReal(f), nil
+
+	case TokenString:
+		return PDFString{Value: tok.Value}, nil
+
+	case TokenHexString:
+		return PDFHexString{Value: tok.Value}, nil
+
+	case TokenName:
+		return PDFName{Value: tok.Value}, nil
 
 	case TokenArrayStart:
-		arr, err := parseArray(l)
-		if err != nil {
-			return nil, err
-		}
-		return d.resolveObject(arr)
+		return parseArray(l)
+
+	case TokenDictStart:
+		return parseDictionary(l)
 
 	default:
-		return d.resolveObject(t.Value)
+		return nil, fmt.Errorf("unexpected token %v with value %v", tok.Type, tok.Value)
 	}
 }
 
 // parseDictionary consumes tokens to build a map.
-func parseDictionary(l *Lexer) (map[string]any, error) {
-	dict := make(map[string]any)
+func parseDictionary(l *Lexer) (PDFDict, error) {
+	dict := make(PDFDict)
 
 	for {
 		// get key
@@ -191,49 +139,19 @@ func parseDictionary(l *Lexer) (map[string]any, error) {
 
 		key := keyTok.Value
 
-		// get value
-		valTok := l.NextToken()
+		tok := l.NextToken()
 
-		// Handle indirect references (e.g., "1 0 R")
-		if valTok.Type == TokenInteger {
-			t2 := l.NextToken()
-			t3 := l.NextToken()
-
-			if t2.Type == TokenInteger && t3.Type == TokenKeyword && t3.Value == "R" {
-				dict[key] = fmt.Sprintf("%s %s R", valTok.Value, t2.Value)
-				continue
-			}
-
-			// Not a reference, restore lexer position
-			l.UnreadToken(t3)
-			l.UnreadToken(t2)
+		elem, err := parseObject(l, tok)
+		if err != nil {
+			return nil, err
 		}
-
-		if valTok.Type == TokenDictStart {
-			subDict, err := parseDictionary(l)
-			if err != nil {
-				return nil, err
-			}
-			dict[key] = subDict
-			continue
-		}
-
-		if valTok.Type == TokenArrayStart {
-			arr, err := parseArray(l)
-			if err != nil {
-				return nil, err
-			}
-			dict[key] = arr
-			continue
-		}
-
-		dict[key] = valTok.Value
+		dict[key] = elem
 	}
 	return dict, nil
 }
 
-func parseArray(l *Lexer) ([]any, error) {
-	var arr []any
+func parseArray(l *Lexer) (PDFArray, error) {
+	var arr PDFArray
 
 	for {
 		t := l.NextToken()
@@ -245,41 +163,10 @@ func parseArray(l *Lexer) ([]any, error) {
 			return nil, errors.New("unexpected EOF while parsing array")
 		}
 
-		// Nested dictionary inside array
-		if t.Type == TokenDictStart {
-			sub, err := parseDictionary(l)
-			if err != nil {
-				return nil, err
-			}
-			arr = append(arr, sub)
-			continue
+		elem, err := parseObject(l, t)
+		if err != nil {
+			return nil, err
 		}
-
-		// Nested array inside array
-		if t.Type == TokenArrayStart {
-			sub, err := parseArray(l)
-			if err != nil {
-				return nil, err
-			}
-			arr = append(arr, sub)
-			continue
-		}
-
-		// Indirect reference inside array
-		if t.Type == TokenInteger {
-			t2 := l.NextToken()
-			t3 := l.NextToken()
-
-			if t2.Type == TokenInteger && t3.Type == TokenKeyword && t3.Value == "R" {
-				ref := fmt.Sprintf("%s %s R", t.Value, t2.Value)
-				arr = append(arr, ref)
-				continue
-			}
-
-			l.UnreadToken(t3)
-			l.UnreadToken(t2)
-		}
-
-		arr = append(arr, t.Value)
+		arr = append(arr, elem)
 	}
 }
