@@ -75,6 +75,7 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 			if err != nil {
 				return nil, err
 			}
+			return PDFStreamDict(m), nil
 		} else {
 			l.UnreadToken(next)
 		}

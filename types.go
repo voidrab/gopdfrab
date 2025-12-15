@@ -12,22 +12,19 @@ type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue
 type PDFDict map[string]PDFValue
-type PDFStream struct {
-	Dict PDFDict
-	Data []byte
-}
+type PDFStreamDict PDFDict
 type PDFRef struct {
 	ObjNum int
 	GenNum int
 }
 
-func (PDFRef) isPDFValue()       {}
-func (PDFBoolean) isPDFValue()   {}
-func (PDFInteger) isPDFValue()   {}
-func (PDFReal) isPDFValue()      {}
-func (PDFString) isPDFValue()    {}
-func (PDFHexString) isPDFValue() {}
-func (PDFName) isPDFValue()      {}
-func (PDFArray) isPDFValue()     {}
-func (PDFDict) isPDFValue()      {}
-func (PDFStream) isPDFValue()    {}
+func (PDFRef) isPDFValue()        {}
+func (PDFBoolean) isPDFValue()    {}
+func (PDFInteger) isPDFValue()    {}
+func (PDFReal) isPDFValue()       {}
+func (PDFString) isPDFValue()     {}
+func (PDFHexString) isPDFValue()  {}
+func (PDFName) isPDFValue()       {}
+func (PDFArray) isPDFValue()      {}
+func (PDFDict) isPDFValue()       {}
+func (PDFStreamDict) isPDFValue() {}

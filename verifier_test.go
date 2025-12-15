@@ -250,6 +250,30 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	}
 }
 
+// 6.1.7
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedKey(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFStreamDict)
+
+	info["FFilter"] = PDFString{"disallowed"}
+
+	trailer["Test"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyHexStrings(); err == nil {
+		t.Error("Expected error for disallowed FFilter, got nil")
+	}
+}
+
 // 6.1.13
 
 func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {

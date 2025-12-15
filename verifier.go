@@ -276,6 +276,28 @@ func (d *Document) verifyHexStrings() []error {
 				walk(val)
 			}
 
+		case PDFStreamDict:
+			ptr := pdfValuePointer(v)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+
+			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParams keys.
+			if v["F"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key F"))
+			}
+			if v["FFilter"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key FFilter"))
+			}
+			if v["FDecodeParams"] != nil {
+				errs = append(errs, fmt.Errorf("stream object contains invalid key FDecodeParams"))
+			}
+
+			for _, val := range v {
+				walk(val)
+			}
+
 		case PDFArray:
 			ptr := pdfValuePointer(v)
 			if visited[ptr] {
@@ -411,7 +433,7 @@ func (d *Document) verifyOutputIntent() []error {
 			continue
 		}
 
-		profileMap, ok := profile.(PDFDict)
+		profileMap, ok := profile.(PDFStreamDict)
 		if !ok {
 			errs = append(errs, fmt.Errorf("unexpected format for DestOutputProfile encountered"))
 			continue
