@@ -250,9 +250,55 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	}
 }
 
+// 6.1.6
+
+func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFDict)
+
+	info["Title"] = PDFHexString{"XXXX"}
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyHexStrings(); err == nil {
+		t.Error("Expected error for invalid hex, got nil")
+	}
+}
+
+func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFDict)
+
+	info["Title"] = PDFHexString{"AAA"}
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	if err := doc.verifyHexStrings(); err == nil {
+		t.Error("Expected error for invalid hex, got nil")
+	}
+}
+
 // 6.1.7
 
-func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedKey(t *testing.T) {
+func TestDocument_VerifyPDFADocumentFilter_DisallowedKey(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
