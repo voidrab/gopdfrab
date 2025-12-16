@@ -44,7 +44,14 @@ func TestDocument_VerifyPDFA_Invalid(t *testing.T) {
 		t.Errorf("Verification succeeded for invalid PDF")
 	}
 
-	if res.Issues["6.1.6"] == nil {
+	count := 0
+	for _, issue := range res.Issues {
+		if issue.clause == "6.1.6" {
+			count++
+		}
+	}
+
+	if count == 0 {
 		t.Errorf("expected error due to odd number of hex digits")
 	}
 }
