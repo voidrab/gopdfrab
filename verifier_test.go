@@ -51,7 +51,7 @@ func TestDocument_VerifyPDFA_Invalid(t *testing.T) {
 		}
 	}
 
-	if count == 0 {
+	if count != 1 {
 		t.Errorf("expected error due to odd number of hex digits")
 	}
 }
@@ -84,8 +84,35 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 	doc := &Document{file: f}
 	defer doc.Close()
 
-	if err := doc.verifyFileHeader(); err == nil {
-		t.Error("Expected error for invalid header, got nil")
+	errs := doc.verifyFileHeader()
+
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid header, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.2" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAHeader_NoComment(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("%PDF-1.7\n\n")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f}
+	defer doc.Close()
+
+	errs := doc.verifyFileHeader()
+
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for missing comment, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.2" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -99,14 +126,19 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 	doc := &Document{file: f}
 	defer doc.Close()
 
-	if err := doc.verifyFileHeader(); err == nil {
-		t.Error("Expected error for short comment, got nil")
+	errs := doc.verifyFileHeader()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid comment length, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.2" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
 func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 	filename := "test.pdf"
-	content := []byte("%PDF-1.7\n%CommentWithoutBinary\n")
+	content := []byte("%PDF-1.7\n%wrong\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
@@ -114,8 +146,14 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 	doc := &Document{file: f}
 	defer doc.Close()
 
-	if err := doc.verifyFileHeader(); err == nil {
-		t.Error("Expected error for non-binary comment, got nil")
+	errs := doc.verifyFileHeader()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for non-binary characters in comment, got %v", errs)
+	}
+
+	// 5 errors expected, one for each invalid character
+	if errs[0].clause != "6.1.2" || errs[0].subclause != 4 || len(errs[0].errs) != 5 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -134,8 +172,13 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer, info: info}
 	defer doc.Close()
 
-	if err := doc.verifyFileTrailer(); err == nil {
-		t.Error("Expected error for missing ID, got nil")
+	errs := doc.verifyFileTrailer()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for missing ID key, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.3" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -154,8 +197,13 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer, info: info}
 	defer doc.Close()
 
-	if err := doc.verifyFileTrailer(); err == nil {
-		t.Error("Expected error for disallowed Encrypt, got nil")
+	errs := doc.verifyFileTrailer()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for forbidden Encrypt key, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.3" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -173,16 +221,21 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer, info: info}
 	defer doc.Close()
 
-	if err := doc.verifyFileTrailer(); err == nil {
-		t.Error("Expected error for invalid EOF, got nil")
+	errs := doc.verifyFileTrailer()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid EOF, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.3" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
 // 6.1.4
 
-func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing.T) {
+func TestDocument_VerifyPDFACrossReferenceTable_MissingXref(t *testing.T) {
 	filename := "test.pdf"
-	content := []byte("xref\n\n0 10\n")
+	content := []byte("\n0 10\n")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
@@ -190,12 +243,37 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 	doc := &Document{file: f, xrefOffset: 0}
 	defer doc.Close()
 
-	if err := doc.verifyCrossReferenceTable(); err == nil {
-		t.Error("Expected error for invalid EOL, got nil")
+	errs := doc.verifyCrossReferenceTable()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for missing xref keyword, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.4" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
-func TestDocument_VerifyPDFACrossReferenceTable_SubsectionHeader(t *testing.T) {
+func TestDocument_VerifyPDFACrossReferenceTable_MissingXrefHeader(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("xref")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, xrefOffset: 0}
+	defer doc.Close()
+
+	errs := doc.verifyCrossReferenceTable()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for missing xref header, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.4" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("xref\r\n0 10 10\n")
 	os.WriteFile(filename, content, 0644)
@@ -205,12 +283,42 @@ func TestDocument_VerifyPDFACrossReferenceTable_SubsectionHeader(t *testing.T) {
 	doc := &Document{file: f, xrefOffset: 0}
 	defer doc.Close()
 
-	if err := doc.verifyCrossReferenceTable(); err == nil {
-		t.Error("Expected error for invalid subsection header, got nil")
+	errs := doc.verifyCrossReferenceTable()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid EOL, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.4" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
 // 6.1.5
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFArray, 0)
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyDocumentInformationDictionary()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid metadata type, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.5" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
 
 func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *testing.T) {
 	filename := "test.pdf"
@@ -230,8 +338,13 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *tes
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyDocumentInformationDictionary(); err == nil {
-		t.Error("Expected error for disallowed field, got nil")
+	errs := doc.verifyDocumentInformationDictionary()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for disallowed field, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.5" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -252,8 +365,44 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyDocumentInformationDictionary(); err == nil {
-		t.Error("Expected error for empty field, got nil")
+	errs := doc.verifyDocumentInformationDictionary()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for empty metadata value, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.5" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedFieldAndEmptyValue(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFDict)
+
+	info["Wrong"] = PDFString{""}
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyDocumentInformationDictionary()
+	if len(errs) != 2 {
+		t.Errorf("Expected two errors for invalid field and empty metadata value, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.5" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+
+	if errs[1].clause != "6.1.5" || errs[1].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[1])
 	}
 }
 
@@ -276,8 +425,14 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyHexStrings(); err == nil {
-		t.Error("Expected error for invalid hex, got nil")
+	errs := doc.verifyHexStrings()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid hex, got %v", errs)
+	}
+
+	// expect 4 errors for 4 invalid hex chars
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 4 || len(errs[0].errs) != 4 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -298,32 +453,96 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyHexStrings(); err == nil {
-		t.Error("Expected error for invalid hex, got nil")
+	errs := doc.verifyHexStrings()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for odd number of hex chars, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 5 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
 // 6.1.7
 
-func TestDocument_VerifyPDFADocumentFilter_DisallowedKey(t *testing.T) {
+func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
 	defer os.Remove(filename)
 
 	trailer := make(PDFDict)
-	info := make(PDFStreamDict)
+	info := make(PDFDict)
 
-	info["FFilter"] = PDFString{"disallowed"}
+	info["F"] = PDFHexString{"aaaa"}
 
-	trailer["Test"] = info
+	trailer["Info"] = info
 
 	f, _ := os.Open(filename)
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyHexStrings(); err == nil {
-		t.Error("Expected error for disallowed FFilter, got nil")
+	errs := doc.verifyHexStrings()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid key F, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFDict)
+
+	info["FFilter"] = PDFHexString{"aaaa"}
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyHexStrings()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid key FFilter, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParams(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	info := make(PDFDict)
+
+	info["FDecodeParams"] = PDFHexString{"aaaa"}
+
+	trailer["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyHexStrings()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid key FDecodeParams, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -342,8 +561,13 @@ func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if err := doc.verifyOptionalContent(); err == nil {
-		t.Error("Expected error for invalid OCProperties, got nil")
+	errs := doc.verifyOptionalContent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid OCProperties, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.13" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -370,8 +594,9 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyOutputIntent(); err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 0 {
+		t.Errorf("Unexpected error: %v", errs)
 	}
 }
 
@@ -384,13 +609,40 @@ func TestDocument_VerifyPDFAOutputIntent_RealFile(t *testing.T) {
 	defer doc.Close()
 
 	errs := doc.verifyOutputIntent()
-
-	if errs != nil {
-		t.Errorf("Verification failed for conforming PDF: %v", err)
+	if len(errs) != 0 {
+		t.Errorf("Unexpected error: %v", errs)
 	}
 }
 
-func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.T) {
+func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntents(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := make(PDFDict)
+	outputIntent := make(PDFDict)
+
+	outputIntents["OutputIntents"] = outputIntent
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid OutputIntents type, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntent(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
@@ -398,7 +650,7 @@ func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.
 
 	trailer := make(PDFDict)
 	outputIntents := PDFArray{}
-	outputIntent := make(PDFDict)
+	outputIntent := PDFArray{}
 
 	outputIntents = append(outputIntents, outputIntent)
 
@@ -408,8 +660,42 @@ func TestDocument_VerifyPDFAOutputIntent_NoOutputConditionIdentifier(t *testing.
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyOutputIntent(); err == nil {
-		t.Error("Expected error for no OutputConditionIdentifier, got nil")
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid OutputIntent type, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_InvalidSType(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+	outputIntent["S"] = PDFInteger(1)
+
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid S type, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 3 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -434,8 +720,158 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyOutputIntent(); err == nil {
-		t.Error("Expected error for wrong type, got nil")
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for wrong S, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 4 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_WrongOutputConditionIdentifier(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = nil
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for nil OutputConditionIentifier, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 5 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_DifferingDestOutputProfiles(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent1 := make(PDFDict)
+	destOutputProfile1 := make(PDFDict)
+
+	destOutputProfile1["N"] = PDFInteger(1)
+
+	outputIntent1["Type"] = PDFString{"OutputIntent"}
+	outputIntent1["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent1["OutputConditionIdentifier"] = PDFString{"Test"}
+	outputIntent1["DestOutputProfile"] = destOutputProfile1
+
+	outputIntent2 := make(PDFDict)
+	destOutputProfile2 := make(PDFDict)
+
+	destOutputProfile2["N"] = PDFInteger(2)
+
+	outputIntent2["Type"] = PDFString{"OutputIntent"}
+	outputIntent2["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent2["OutputConditionIdentifier"] = PDFString{"Test"}
+	outputIntent2["DestOutputProfile"] = destOutputProfile2
+
+	outputIntents = append(outputIntents, outputIntent1, outputIntent2)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for differing DestOutputProfiles, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 6 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_DestOutputProfileWrongFormat(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+	destOutputProfile := PDFInteger(1)
+
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
+	outputIntent["DestOutputProfile"] = destOutputProfile
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for wrong DestOutputProfile format, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 8 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAOutputIntent_WrongNType(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := make(PDFDict)
+	outputIntents := PDFArray{}
+	outputIntent := make(PDFDict)
+	destOutputProfile := make(PDFDict)
+
+	destOutputProfile["N"] = PDFString{"3"}
+
+	outputIntent["Type"] = PDFString{"OutputIntent"}
+	outputIntent["S"] = PDFName{"GTS_PDFA1"}
+	outputIntent["OutputConditionIdentifier"] = PDFString{"Test"}
+	outputIntent["DestOutputProfile"] = destOutputProfile
+	outputIntents = append(outputIntents, outputIntent)
+
+	trailer["Root"] = outputIntents
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for wrong N, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 9 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
@@ -450,7 +886,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	outputIntent := make(PDFDict)
 	destOutputProfile := make(PDFDict)
 
-	destOutputProfile["N"] = PDFString{"5"}
+	destOutputProfile["N"] = PDFInteger(5)
 
 	outputIntent["Type"] = PDFString{"OutputIntent"}
 	outputIntent["S"] = PDFName{"GTS_PDFA1"}
@@ -464,7 +900,12 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	if err := doc.verifyOutputIntent(); err == nil {
-		t.Error("Expected error for wrong N, got nil")
+	errs := doc.verifyOutputIntent()
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for wrong N, got %v", errs)
+	}
+
+	if errs[0].clause != "6.2.2" || errs[0].subclause != 10 {
+		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }

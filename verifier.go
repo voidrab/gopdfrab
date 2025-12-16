@@ -102,7 +102,7 @@ func (d *Document) verifyFileHeader() []PDFError {
 	errs := []PDFError{}
 
 	header, ok := cur.ReadLine()
-	if !ok || header[0] != '%' {
+	if !ok || len(header) == 0 || header[0] != '%' {
 		err := PDFError{
 			clause:    "6.1.2",
 			subclause: 1,
@@ -113,7 +113,7 @@ func (d *Document) verifyFileHeader() []PDFError {
 	}
 
 	comment, ok := cur.ReadLine()
-	if !ok || comment[0] != '%' {
+	if !ok || len(comment) == 0 || comment[0] != '%' {
 		err := PDFError{
 			clause:    "6.1.2",
 			subclause: 2,
@@ -121,6 +121,7 @@ func (d *Document) verifyFileHeader() []PDFError {
 			page:      1,
 		}
 		errs = append(errs, err)
+		return errs
 	}
 
 	s := len(comment)
@@ -223,7 +224,7 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
-	if !ok || xRef != "xref" {
+	if !ok || len(xRef) == 0 || xRef != "xref" {
 		err := PDFError{
 			clause:    "6.1.4",
 			subclause: 1,
@@ -234,7 +235,7 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 	}
 
 	xRefHeader, ok := cur.ReadLine()
-	if !ok {
+	if !ok || len(xRefHeader) == 0 {
 		err := PDFError{
 			clause:    "6.1.4",
 			subclause: 2,
@@ -242,6 +243,7 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 			page:      0,
 		}
 		errs = append(errs, err)
+		return errs
 	}
 
 	// In a cross reference subsection header the starting object number and the range shall be separated
@@ -272,10 +274,10 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 
 	metadata, err := d.GetMetadata()
 	if err != nil {
-		return []PDFError{PDFError{
+		return []PDFError{{
 			clause:    "6.1.5",
 			subclause: 1,
-			errs:      []error{fmt.Errorf("failed to get document information dictionary")},
+			errs:      []error{fmt.Errorf("failed to get document information dictionary: %v", err)},
 			page:      0,
 		}}
 	}
@@ -331,7 +333,7 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 func (d *Document) verifyHexStrings() []PDFError {
 	root, err := d.ResolveGraph()
 	if err != nil {
-		return []PDFError{PDFError{
+		return []PDFError{{
 			clause:    "6.1.6",
 			subclause: 0,
 			errs:      []error{err},
@@ -352,17 +354,6 @@ func (d *Document) verifyHexStrings() []PDFError {
 		// Detect cycles (important for resolved graphs)
 		switch v := node.(type) {
 		case PDFDict:
-			ptr := pdfValuePointer(v)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-
-			for _, val := range v {
-				walk(val)
-			}
-
-		case PDFStreamDict:
 			ptr := pdfValuePointer(v)
 			if visited[ptr] {
 				return
@@ -472,7 +463,7 @@ func validateHexString(hex string) []PDFError {
 		err := PDFError{
 			clause:    "6.1.6",
 			subclause: 5,
-			errs:      []error{fmt.Errorf("contains an odd number of hex digits (%d)", hexCount)},
+			errs:      []error{fmt.Errorf("contains an odd number of hex chars (%d)", hexCount)},
 			page:      0,
 		}
 		errs = append(errs, err)
@@ -489,10 +480,10 @@ func validateHexString(hex string) []PDFError {
 func (d *Document) verifyOptionalContent() []PDFError {
 	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
-		return []PDFError{PDFError{
+		return []PDFError{{
 			clause:    "6.1.13",
 			subclause: 1,
-			errs:      []error{fmt.Errorf("OCProperties are not allowed in document catalog")},
+			errs:      []error{fmt.Errorf("OCProperties not allowed in document catalog")},
 			page:      0,
 		}}
 	}
@@ -504,7 +495,7 @@ func (d *Document) verifyOptionalContent() []PDFError {
 // verifyOutputIntent verifies requirements outlined in 6.2.2
 func (d *Document) verifyOutputIntent() []PDFError {
 	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
-	if err != nil {
+	if err != nil || values == nil {
 		// OutputIntents are optional
 		//return []error{fmt.Errorf("failed to read OutputIntents: %v", err)}
 		return nil
@@ -512,7 +503,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 
 	intents, ok := values.(PDFArray)
 	if !ok {
-		return []PDFError{PDFError{
+		return []PDFError{{
 			clause:    "6.2.2",
 			subclause: 1,
 			errs:      []error{fmt.Errorf("OutputIntents object is not an array")},
@@ -522,7 +513,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 
 	errs := []PDFError{}
 
-	var indirectObject any
+	var indirectObject PDFValue
 
 	for _, v := range intents {
 		intent, ok := v.(PDFDict)
@@ -586,7 +577,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		if indirectObject == nil {
 			indirectObject = destOutputProfile
 		} else {
-			if indirectObject != destOutputProfile {
+			if !EqualPDFValue(indirectObject, destOutputProfile) {
 				err := PDFError{
 					clause:    "6.2.2",
 					subclause: 6,
@@ -631,6 +622,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 				page:      0,
 			}
 			errs = append(errs, err)
+			continue
 		}
 
 		// N shall be 1, 3, or 4

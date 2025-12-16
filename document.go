@@ -295,17 +295,6 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 		}
 		return out, nil
 
-	case PDFStreamDict:
-		out := make(PDFStreamDict, len(v))
-		for k, val := range v {
-			r, err := d.resolveAll(val, visited)
-			if err != nil {
-				return nil, err
-			}
-			out[k] = r
-		}
-		return out, nil
-
 	// ------------------------
 	// Array
 	// ------------------------
