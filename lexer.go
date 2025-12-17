@@ -21,6 +21,11 @@ type Lexer struct {
 	pushed []Token
 }
 
+type ValidationContext struct {
+	PageIndex   map[int]int
+	CurrentPage int
+}
+
 // NewLexer creates a lexer for a specific chunk of data.
 func NewLexer(r io.Reader) *Lexer {
 	return &Lexer{reader: bufio.NewReader(r)}

@@ -122,6 +122,49 @@ func (d *Document) initializeStructure() error {
 	return nil
 }
 
+func (d *Document) buildPageIndex(graph PDFValue) (map[int]int, error) {
+	index := make(map[int]int)
+
+	root := graph.(PDFDict)["Root"]
+	if root == nil {
+		return nil, fmt.Errorf("dict Root is nil")
+	}
+	pages := root.(PDFDict)["Pages"]
+	if pages == nil {
+		return nil, fmt.Errorf("dict Pages is nil")
+	}
+
+	pageNum := 0
+
+	var walk func(node PDFValue) error
+	walk = func(node PDFValue) error {
+		dict, ok := node.(PDFDict)
+		if !ok {
+			return nil
+		}
+
+		if (dict["Type"] == PDFName{Value: "Page"}) {
+			pageNum++
+			if ref, ok := dict["_ref"].(PDFRef); ok {
+				index[ref.ObjNum] = pageNum
+			}
+			return nil
+		}
+
+		if kids, ok := dict["Kids"].(PDFArray); ok {
+			for _, kid := range kids {
+				if err := walk(kid); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	err := walk(pages)
+	return index, err
+}
+
 // Close ensures the file handle is released.
 func (d *Document) Close() error {
 	return d.file.Close()
@@ -157,7 +200,7 @@ func (d *Document) GetVersion() (string, error) {
 func (d *Document) GetMetadata() (map[string]string, error) {
 	value, err := d.ResolveGraphByPath([]string{"Info"})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("no information dictionary found: %v", err)
 	}
 
 	dict, ok := value.(PDFDict)

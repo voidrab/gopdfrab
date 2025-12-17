@@ -69,6 +69,8 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 			return nil, err
 		}
 
+		m["_ref"] = ref
+
 		next := l.NextToken()
 		if next.Type == TokenStreamStart {
 			err := d.readStream(l, m)

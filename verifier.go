@@ -55,8 +55,6 @@ func (d *Document) Verify(t LevelType) (Result, error) {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func (d *Document) verifyPdfA1b() []PDFError {
-	// TODO pass the PDF page where the error occurred
-
 	issues := []PDFError{}
 
 	errs := d.verifyFileHeader()
@@ -75,7 +73,36 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = d.verifyHexStrings()
+
+	graph, err := d.ResolveGraph()
+	if err != nil {
+		return []PDFError{{
+			clause:    "6.1.6",
+			subclause: 0,
+			errs:      []error{err},
+			page:      0,
+		}}
+	}
+
+	pageIndex, err := d.buildPageIndex(graph)
+	if err != nil {
+		return []PDFError{{
+			clause:    "6.1.6",
+			subclause: 0,
+			errs:      []error{err},
+			page:      0,
+		}}
+	}
+
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+
+	errs = d.verifyDocument(graph, ctx)
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+	errs = d.verifyIndirectObjects()
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -329,18 +356,8 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
-// verifyHexStrings verifies requirements outlined in 6.1.6.
-func (d *Document) verifyHexStrings() []PDFError {
-	root, err := d.ResolveGraph()
-	if err != nil {
-		return []PDFError{{
-			clause:    "6.1.6",
-			subclause: 0,
-			errs:      []error{err},
-			page:      0,
-		}}
-	}
-
+// verifyDocument verifies requirements outlined in 6.1.6, 6.1.7.
+func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) []PDFError {
 	var errs []PDFError
 	visited := make(map[uintptr]bool)
 
@@ -351,7 +368,6 @@ func (d *Document) verifyHexStrings() []PDFError {
 			return
 		}
 
-		// Detect cycles (important for resolved graphs)
 		switch v := node.(type) {
 		case PDFDict:
 			ptr := pdfValuePointer(v)
@@ -360,33 +376,16 @@ func (d *Document) verifyHexStrings() []PDFError {
 			}
 			visited[ptr] = true
 
+			if (v["Type"] == PDFName{Value: "Page"}) {
+				if ref, ok := v["_ref"].(PDFRef); ok {
+					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
+				}
+			}
+
 			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParams keys.
-			if v["F"] != nil {
-				err := PDFError{
-					clause:    "6.1.6",
-					subclause: 1,
-					errs:      []error{fmt.Errorf("stream object contains invalid key F")},
-					page:      0,
-				}
-				errs = append(errs, err)
-			}
-			if v["FFilter"] != nil {
-				err := PDFError{
-					clause:    "6.1.6",
-					subclause: 2,
-					errs:      []error{fmt.Errorf("stream object contains invalid key FFilter")},
-					page:      0,
-				}
-				errs = append(errs, err)
-			}
-			if v["FDecodeParams"] != nil {
-				err := PDFError{
-					clause:    "6.1.6",
-					subclause: 3,
-					errs:      []error{fmt.Errorf("stream object contains invalid key FDecodeParams")},
-					page:      0,
-				}
-				errs = append(errs, err)
+			streamErrs := validateStreamObject(v, ctx)
+			if streamErrs != nil {
+				errs = append(errs, streamErrs...)
 			}
 
 			for _, val := range v {
@@ -405,14 +404,16 @@ func (d *Document) verifyHexStrings() []PDFError {
 			}
 
 		case PDFHexString:
-			hexErrs := validateHexString(v.Value)
+			// Hexadecimal strings shall contain an even number of non-white-space characters,
+			// each in the range 0 to 9, A to F or a to f.
+			hexErrs := validateHexString(v, ctx)
 			if hexErrs != nil {
 				errs = append(errs, hexErrs...)
 			}
 		}
 	}
 
-	walk(root)
+	walk(graph)
 
 	if len(errs) > 0 {
 		return errs
@@ -424,14 +425,13 @@ func pdfValuePointer(v PDFValue) uintptr {
 	return reflect.ValueOf(v).Pointer()
 }
 
-func validateHexString(hex string) []PDFError {
-	// Hexadecimal strings shall contain an even number of non-white-space characters,
-	// each in the range 0 to 9, A to F or a to f.
-
+// validateHexStrings validates requirements outlined in 6.1.6.
+func validateHexString(v PDFHexString, ctx *ValidationContext) []PDFError {
 	hexCount := 0
 
 	hexErrs := []error{}
 
+	hex := v.Value
 	for i := 0; i < len(hex); i++ {
 		ch := hex[i]
 
@@ -450,28 +450,46 @@ func validateHexString(hex string) []PDFError {
 	errs := []PDFError{}
 
 	if len(hexErrs) > 0 {
-		err := PDFError{
-			clause:    "6.1.6",
-			subclause: 4,
-			errs:      hexErrs,
-			page:      0,
-		}
+		err := newErrors(ctx, v, "6.1.6", 1, hexErrs)
 		errs = append(errs, err)
 	}
 
 	if hexCount%2 != 0 {
-		err := PDFError{
-			clause:    "6.1.6",
-			subclause: 5,
-			errs:      []error{fmt.Errorf("contains an odd number of hex chars (%d)", hexCount)},
-			page:      0,
-		}
+		err := newError(ctx, v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
 		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
 		return errs
 	}
+
+	return nil
+}
+
+// validateStreamObject validates requirements outlined in 6.1.7.
+func validateStreamObject(v PDFDict, ctx *ValidationContext) []PDFError {
+	errs := []PDFError{}
+
+	if v["F"] != nil {
+		err := newError(ctx, v, "6.1.7", 1, "stream object contains invalid key F")
+		errs = append(errs, err)
+	}
+	if v["FFilter"] != nil {
+		err := newError(ctx, v, "6.1.7", 2, "stream object contains invalid key FFilter")
+		errs = append(errs, err)
+	}
+	if v["FDecodeParams"] != nil {
+		err := newError(ctx, v, "6.1.7", 3, "stream object contains invalid key FDecodeParams")
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
+}
+
+// verifyIndirectObjects verifies requirements outlined in 6.1.8
+func (d *Document) verifyIndirectObjects() []PDFError {
 
 	return nil
 }

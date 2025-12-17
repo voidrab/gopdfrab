@@ -1,6 +1,7 @@
 package pdfrab
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -10,6 +11,8 @@ type PDFError struct {
 	subclause int
 	errs      []error
 	page      int
+
+	objectRef *PDFRef
 }
 
 func (e PDFError) String() string {
@@ -31,6 +34,10 @@ func (e PDFError) String() string {
 		b.WriteString(", document-level")
 	}
 
+	if e.objectRef != nil {
+		fmt.Fprintf(&b, ", ref %v", e.objectRef)
+	}
+
 	// Error messages
 	if len(e.errs) > 0 {
 		b.WriteString(": \"")
@@ -48,4 +55,52 @@ func (e PDFError) String() string {
 
 func (e PDFError) Error() string {
 	return e.String()
+}
+
+func newError(ctx *ValidationContext, obj PDFValue, clause string, subclause int, msg string) PDFError {
+	var ref *PDFRef
+	if dict, ok := obj.(PDFDict); ok {
+		if r, ok := dict["_ref"].(PDFRef); ok {
+			ref = &r
+		}
+	}
+
+	var page int
+	if ctx == nil {
+		page = 0
+	} else {
+		page = ctx.CurrentPage
+	}
+
+	return PDFError{
+		clause:    clause,
+		subclause: subclause,
+		errs:      []error{errors.New(msg)},
+		objectRef: ref,
+		page:      page,
+	}
+}
+
+func newErrors(ctx *ValidationContext, obj PDFValue, clause string, subclause int, errs []error) PDFError {
+	var ref *PDFRef
+	if dict, ok := obj.(PDFDict); ok {
+		if r, ok := dict["_ref"].(PDFRef); ok {
+			ref = &r
+		}
+	}
+
+	var page int
+	if ctx == nil {
+		page = 0
+	} else {
+		page = ctx.CurrentPage
+	}
+
+	return PDFError{
+		clause:    clause,
+		subclause: subclause,
+		errs:      errs,
+		objectRef: ref,
+		page:      page,
+	}
 }

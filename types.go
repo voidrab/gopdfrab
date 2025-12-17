@@ -1,6 +1,6 @@
 package pdfrab
 
-type PDFValue interface{}
+type PDFValue any
 
 type PDFHexString struct{ Value string }
 type PDFString struct{ Value string }

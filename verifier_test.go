@@ -425,13 +425,18 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	errs := doc.verifyHexStrings()
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	errs := doc.verifyDocument(graph, ctx)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
 	}
 
 	// expect 4 errors for 4 invalid hex chars
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 4 || len(errs[0].errs) != 4 {
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -453,12 +458,17 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	errs := doc.verifyHexStrings()
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	errs := doc.verifyDocument(graph, ctx)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for odd number of hex chars, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 5 {
+	if errs[0].clause != "6.1.6" || errs[0].subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -482,12 +492,17 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	errs := doc.verifyHexStrings()
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	errs := doc.verifyDocument(graph, ctx)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key F, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 {
+	if errs[0].clause != "6.1.7" || errs[0].subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -509,12 +524,17 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	errs := doc.verifyHexStrings()
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	errs := doc.verifyDocument(graph, ctx)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key FFilter, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 2 {
+	if errs[0].clause != "6.1.7" || errs[0].subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -536,12 +556,17 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParams(t *testing.T) {
 	doc := &Document{file: f, trailer: trailer}
 	defer doc.Close()
 
-	errs := doc.verifyHexStrings()
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	errs := doc.verifyDocument(graph, ctx)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key FDecodeParams, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 3 {
+	if errs[0].clause != "6.1.7" || errs[0].subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
