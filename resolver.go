@@ -51,13 +51,9 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 
 	l := NewLexerAt(d.file, offset)
 
-	// Expect "<id> <gen> obj"
-	t1 := l.NextToken()
-	l.NextToken()
-	t3 := l.NextToken()
-
-	if t1.Type != TokenInteger || t3.Value != "obj" {
-		return nil, fmt.Errorf("invalid object header %d %d", ref.ObjNum, ref.GenNum)
+	err := l.validateObjectStart()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse reference: %v", err)
 	}
 
 	t := l.NextToken()
@@ -72,13 +68,17 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 		m["_ref"] = ref
 
 		next := l.NextToken()
-		if next.Type == TokenStreamStart {
-			err := d.readStream(l, m)
+
+		switch next.Type {
+		case TokenStreamStart:
+			err := d.validateStream(l, m)
 			if err != nil {
 				return nil, err
 			}
 			return PDFStreamDict(m), nil
-		} else {
+		case TokenObjectEnd:
+			l.validateObjectEnd()
+		default:
 			l.UnreadToken(next)
 		}
 

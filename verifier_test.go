@@ -430,7 +430,8 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	errs := doc.verifyDocument(graph, ctx)
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
 	}
@@ -463,7 +464,8 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	errs := doc.verifyDocument(graph, ctx)
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for odd number of hex chars, got %v", errs)
 	}
@@ -497,7 +499,8 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	errs := doc.verifyDocument(graph, ctx)
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key F, got %v", errs)
 	}
@@ -529,7 +532,8 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	errs := doc.verifyDocument(graph, ctx)
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key FFilter, got %v", errs)
 	}
@@ -539,7 +543,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	}
 }
 
-func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParams(t *testing.T) {
+func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
@@ -548,7 +552,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParams(t *testing.T) {
 	trailer := make(PDFDict)
 	info := make(PDFDict)
 
-	info["FDecodeParams"] = PDFHexString{"aaaa"}
+	info["FDecodeParms"] = PDFHexString{"aaaa"}
 
 	trailer["Info"] = info
 
@@ -561,9 +565,10 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParams(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	errs := doc.verifyDocument(graph, ctx)
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
 	if len(errs) != 1 {
-		t.Errorf("Expected one error for invalid key FDecodeParams, got %v", errs)
+		t.Errorf("Expected one error for invalid key FDecodeParms, got %v", errs)
 	}
 
 	if errs[0].clause != "6.1.7" || errs[0].subclause != 3 {

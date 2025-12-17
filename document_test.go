@@ -10,12 +10,12 @@ var test_dir = "test documents/"
 
 func createValidPDF(filename string) error {
 	header := "%PDF-1.7\n"
-
+	comment := "%äüöß\n"
 	obj1 := "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OCProperties (Test) >>\nendobj\n"
 	obj2 := "2 0 obj\n<< /Type /Pages /Count 5 >>\nendobj\n"
 	obj3 := "3 0 obj\n<< /Title (Test PDF) /Producer (GoLib) >>\nendobj\n"
 
-	offset1 := len(header)
+	offset1 := len(header) + len(comment)
 	offset2 := offset1 + len(obj1)
 	offset3 := offset2 + len(obj2)
 	xrefOffset := offset3 + len(obj3)
@@ -26,7 +26,7 @@ func createValidPDF(filename string) error {
 	trailer := "trailer\n<< /Size 4 /Root 1 0 R /Info 3 0 R >>\n"
 	startxref := fmt.Sprintf("startxref\n%d\n%%EOF", xrefOffset)
 
-	content := header + obj1 + obj2 + obj3 + xref + trailer + startxref
+	content := header + comment + obj1 + obj2 + obj3 + xref + trailer + startxref
 	return os.WriteFile(filename, []byte(content), 0644)
 }
 

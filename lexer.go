@@ -21,11 +21,6 @@ type Lexer struct {
 	pushed []Token
 }
 
-type ValidationContext struct {
-	PageIndex   map[int]int
-	CurrentPage int
-}
-
 // NewLexer creates a lexer for a specific chunk of data.
 func NewLexer(r io.Reader) *Lexer {
 	return &Lexer{reader: bufio.NewReader(r)}
@@ -108,6 +103,46 @@ func (l *Lexer) NextToken() Token {
 
 func (l *Lexer) UnreadToken(t Token) {
 	l.pushed = append(l.pushed, t)
+}
+
+// validateObjectStart partially validates requirements 6.1.8
+func (l *Lexer) validateObjectStart() error {
+	objTok := l.NextToken()
+	if objTok.Type != TokenInteger {
+		return fmt.Errorf("invalid object number")
+	}
+
+	if err := l.requireSingleSpace(); err != nil {
+		return err
+	}
+
+	genTok := l.NextToken()
+	if genTok.Type != TokenInteger {
+		return fmt.Errorf("invalid generation number")
+	}
+
+	if err := l.requireSingleSpace(); err != nil {
+		return err
+	}
+
+	objKw := l.NextToken()
+	if objKw.Type != TokenObjectStart {
+		return fmt.Errorf("expected 'obj' keyword")
+	}
+
+	if err := l.requireEOL(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateObjectEnd partially validates requirements 6.1.8
+func (l *Lexer) validateObjectEnd() error {
+	if err := l.requireEOL(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // --- Helper Functions ---
@@ -200,12 +235,21 @@ func (l *Lexer) readKeyword() Token {
 	if val == "true" || val == "false" {
 		return Token{Type: TokenBoolean, Value: val}
 	}
+
+	if val == "obj" {
+		return Token{Type: TokenObjectStart, Value: val}
+	}
+	if val == "endobj" {
+		return Token{Type: TokenObjectEnd, Value: val}
+	}
+
 	if val == "stream" {
 		return Token{Type: TokenStreamStart, Value: val}
 	}
 	if val == "endstream" {
 		return Token{Type: TokenStreamEnd, Value: val}
 	}
+
 	return Token{Type: TokenKeyword, Value: val}
 }
 
@@ -256,18 +300,15 @@ func (l *Lexer) readHexString() Token {
 }
 
 func (l *Lexer) skipEOL() error {
-	b, err := l.reader.ReadByte()
+	b, err := l.readByte()
 	if err != nil {
 		return err
 	}
-	l.pos++
 
 	if b == '\r' {
-		// Optional LF after CR
 		next, err := l.reader.Peek(1)
-		if err == nil && next[0] == '\n' {
-			l.reader.ReadByte()
-			l.pos++
+		if err == nil && len(next) > 0 && next[0] == '\n' {
+			l.readByte()
 		}
 		return nil
 	}
@@ -276,8 +317,49 @@ func (l *Lexer) skipEOL() error {
 		return nil
 	}
 
-	// Not EOL → unread
-	return l.reader.UnreadByte()
+	return l.unreadByte()
+}
+
+func (l *Lexer) requireSingleSpace() error {
+	b, err := l.readByte()
+	if err != nil {
+		return err
+	}
+	if !isWhitespace(b) {
+		return fmt.Errorf("expected single space, got 0x%02X", b)
+	}
+
+	// next byte must NOT be whitespace
+	next, err := l.reader.Peek(1)
+	if err == nil && len(next) > 0 && isWhitespace(next[0]) {
+		return fmt.Errorf("multiple whitespace characters not allowed")
+	}
+	return nil
+}
+
+func (l *Lexer) requireEOL() error {
+	b, err := l.readByte()
+	if err != nil {
+		return err
+	}
+
+	if b == '\r' {
+		next, err := l.reader.Peek(1)
+		if err == nil && len(next) > 0 && next[0] == '\n' {
+			l.readByte()
+		}
+		return nil
+	}
+
+	if b == '\n' {
+		return nil
+	}
+
+	err = l.unreadByte()
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("expected EOL, got 0x%02X", b)
 }
 
 // --- Utilities ---

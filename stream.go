@@ -6,8 +6,8 @@ import (
 	"strconv"
 )
 
-// readStream verifies requirements outlined in 6.1.6.
-func (d *Document) readStream(l *Lexer, dict PDFDict) error {
+// validateStream performs a partial validation of requirements 6.1.7
+func (d *Document) validateStream(l *Lexer, dict PDFDict) error {
 	if err := l.skipEOL(); err != nil {
 		return err
 	}

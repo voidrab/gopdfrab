@@ -98,7 +98,8 @@ func (d *Document) verifyPdfA1b() []PDFError {
 		PageIndex: pageIndex,
 	}
 
-	errs = d.verifyDocument(graph, ctx)
+	d.verifyDocument(graph, ctx)
+	errs = ctx.errs
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -357,8 +358,7 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 // require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
 
 // verifyDocument verifies requirements outlined in 6.1.6, 6.1.7.
-func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) []PDFError {
-	var errs []PDFError
+func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
 	var walk func(node any)
@@ -382,11 +382,8 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) []PDFE
 				}
 			}
 
-			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParams keys.
-			streamErrs := validateStreamObject(v, ctx)
-			if streamErrs != nil {
-				errs = append(errs, streamErrs...)
-			}
+			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParms keys.
+			validateStreamObject(v, ctx)
 
 			for _, val := range v {
 				walk(val)
@@ -406,19 +403,11 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) []PDFE
 		case PDFHexString:
 			// Hexadecimal strings shall contain an even number of non-white-space characters,
 			// each in the range 0 to 9, A to F or a to f.
-			hexErrs := validateHexString(v, ctx)
-			if hexErrs != nil {
-				errs = append(errs, hexErrs...)
-			}
+			validateHexString(v, ctx)
 		}
 	}
 
 	walk(graph)
-
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
 }
 
 func pdfValuePointer(v PDFValue) uintptr {
@@ -426,7 +415,7 @@ func pdfValuePointer(v PDFValue) uintptr {
 }
 
 // validateHexStrings validates requirements outlined in 6.1.6.
-func validateHexString(v PDFHexString, ctx *ValidationContext) []PDFError {
+func validateHexString(v PDFHexString, ctx *ValidationContext) {
 	hexCount := 0
 
 	hexErrs := []error{}
@@ -447,51 +436,59 @@ func validateHexString(v PDFHexString, ctx *ValidationContext) []PDFError {
 		hexCount++
 	}
 
-	errs := []PDFError{}
-
 	if len(hexErrs) > 0 {
-		err := newErrors(ctx, v, "6.1.6", 1, hexErrs)
-		errs = append(errs, err)
+		ctx.PersistErrors(v, "6.1.6", 1, hexErrs)
 	}
 
 	if hexCount%2 != 0 {
-		err := newError(ctx, v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
-		errs = append(errs, err)
+		ctx.PersistError(v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
 	}
-
-	if len(errs) > 0 {
-		return errs
-	}
-
-	return nil
 }
 
 // validateStreamObject validates requirements outlined in 6.1.7.
-func validateStreamObject(v PDFDict, ctx *ValidationContext) []PDFError {
-	errs := []PDFError{}
-
+func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 	if v["F"] != nil {
-		err := newError(ctx, v, "6.1.7", 1, "stream object contains invalid key F")
-		errs = append(errs, err)
+		ctx.PersistError(v, "6.1.7", 1, "stream object contains invalid key F")
 	}
 	if v["FFilter"] != nil {
-		err := newError(ctx, v, "6.1.7", 2, "stream object contains invalid key FFilter")
-		errs = append(errs, err)
+		ctx.PersistError(v, "6.1.7", 2, "stream object contains invalid key FFilter")
 	}
-	if v["FDecodeParams"] != nil {
-		err := newError(ctx, v, "6.1.7", 3, "stream object contains invalid key FDecodeParams")
-		errs = append(errs, err)
+	if v["FDecodeParms"] != nil {
+		ctx.PersistError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
 	}
-	if len(errs) > 0 {
-		return errs
-	}
-	return nil
 }
 
 // verifyIndirectObjects verifies requirements outlined in 6.1.8
 func (d *Document) verifyIndirectObjects() []PDFError {
-
 	return nil
+
+	// objTok := l.NextToken()
+	// if objTok.Type != TokenInteger {
+	// 	return nil, fmt.Errorf("invalid object number")
+	// }
+
+	// if err := l.requireSingleSpace(); err != nil {
+	// 	return nil, err
+	// }
+
+	// genTok := l.NextToken()
+	// if genTok.Type != TokenInteger {
+	// 	return nil, fmt.Errorf("invalid generation number")
+	// }
+
+	// if err := l.requireSingleSpace(); err != nil {
+	// 	return nil, err
+	// }
+
+	// objKw := l.NextToken()
+	// if objKw.Type != TokenKeyword || objKw.Value != "obj" {
+	// 	return nil, fmt.Errorf("expected 'obj' keyword")
+	// }
+
+	// if err := l.requireEOL(); err != nil {
+	// 	return nil, err
+	// }
+
 }
 
 // verifyOptionalContent verifies requirements outlined in 6.1.13
