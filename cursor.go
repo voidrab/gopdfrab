@@ -19,6 +19,10 @@ func (c *Cursor) ReadLine() (string, bool) {
 	}
 	line := string(c.data[start:c.pos])
 
+	if c.pos > len(c.data)-1 {
+		return line, true
+	}
+
 	switch c.data[c.pos] {
 	case '\r':
 		c.pos++

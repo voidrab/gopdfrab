@@ -16,6 +16,8 @@ const (
 	TokenArrayEnd
 	TokenDictStart
 	TokenDictEnd
+	TokenObjectStart
+	TokenObjectEnd
 	TokenStreamStart
 	TokenStreamEnd
 )
