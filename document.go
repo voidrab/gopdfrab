@@ -125,11 +125,11 @@ func (d *Document) initializeStructure() error {
 func (d *Document) buildPageIndex(graph PDFValue) (map[int]int, error) {
 	index := make(map[int]int)
 
-	root := graph.(PDFDict)["Root"]
+	root := graph.(PDFDict).Entries["Root"]
 	if root == nil {
 		return nil, fmt.Errorf("dict Root is nil")
 	}
-	pages := root.(PDFDict)["Pages"]
+	pages := root.(PDFDict).Entries["Pages"]
 	if pages == nil {
 		return nil, fmt.Errorf("dict Pages is nil")
 	}
@@ -143,15 +143,15 @@ func (d *Document) buildPageIndex(graph PDFValue) (map[int]int, error) {
 			return nil
 		}
 
-		if (dict["Type"] == PDFName{Value: "Page"}) {
+		if (dict.Entries["Type"] == PDFName{Value: "Page"}) {
 			pageNum++
-			if ref, ok := dict["_ref"].(PDFRef); ok {
+			if ref, ok := dict.Entries["_ref"].(PDFRef); ok {
 				index[ref.ObjNum] = pageNum
 			}
 			return nil
 		}
 
-		if kids, ok := dict["Kids"].(PDFArray); ok {
+		if kids, ok := dict.Entries["Kids"].(PDFArray); ok {
 			for _, kid := range kids {
 				if err := walk(kid); err != nil {
 					return err
@@ -209,7 +209,7 @@ func (d *Document) GetMetadata() (map[string]string, error) {
 	}
 
 	metadata := make(map[string]string)
-	for k, v := range dict {
+	for k, v := range dict.Entries {
 		if s, ok := v.(PDFString); ok {
 			metadata[k] = s.Value
 		}
@@ -280,7 +280,7 @@ func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 		}
 
 		if dict, ok := current.(PDFDict); ok {
-			val, found := dict[key]
+			val, found := dict.Entries[key]
 			if !found {
 				return nil, fmt.Errorf("key %q not found in dictionary", key)
 			}
@@ -328,13 +328,14 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 	// Dictionary
 	// ------------------------
 	case PDFDict:
-		out := make(PDFDict, len(v))
-		for k, val := range v {
+		out := NewPDFDict()
+		out.HasStream = v.HasStream
+		for k, val := range v.Entries {
 			r, err := d.resolveAll(val, visited)
 			if err != nil {
 				return nil, err
 			}
-			out[k] = r
+			out.Entries[k] = r
 		}
 		return out, nil
 

@@ -12,13 +12,14 @@ func (d *Document) resolveObject(obj PDFValue) (PDFValue, error) {
 		return d.resolveReference(v)
 
 	case PDFDict:
-		out := make(PDFDict)
-		for k, val := range v {
+		out := NewPDFDict()
+		out.HasStream = v.HasStream
+		for k, val := range v.Entries {
 			resolved, err := d.resolveObject(val)
 			if err != nil {
 				return nil, err
 			}
-			out[k] = resolved
+			out.Entries[k] = resolved
 		}
 		return out, nil
 
@@ -65,17 +66,18 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 			return nil, err
 		}
 
-		m["_ref"] = ref
+		m.Entries["_ref"] = ref
 
 		next := l.NextToken()
 
 		switch next.Type {
 		case TokenStreamStart:
+			m.HasStream = true
 			err := d.validateStream(l, m)
 			if err != nil {
 				return nil, err
 			}
-			return PDFStreamDict(m), nil
+			return m, nil
 		case TokenObjectEnd:
 			l.validateObjectEnd()
 		default:

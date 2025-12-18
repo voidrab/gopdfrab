@@ -9,8 +9,19 @@ type PDFReal float32
 type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue
-type PDFDict map[string]PDFValue
-type PDFStreamDict = PDFDict
+
+type PDFDict struct {
+	Entries   map[string]PDFValue
+	HasStream bool
+}
+
+func NewPDFDict() PDFDict {
+	return PDFDict{
+		Entries:   map[string]PDFValue{},
+		HasStream: false,
+	}
+}
+
 type PDFRef struct {
 	ObjNum int
 	GenNum int
@@ -67,11 +78,11 @@ func EqualPDFValue(a, b PDFValue) bool {
 
 	case PDFDict:
 		vb, ok := b.(PDFDict)
-		if !ok || len(va) != len(vb) {
+		if !ok || len(va.Entries) != len(vb.Entries) || va.HasStream != vb.HasStream {
 			return false
 		}
-		for k, vaVal := range va {
-			vbVal, ok := vb[k]
+		for k, vaVal := range va.Entries {
+			vbVal, ok := vb.Entries[k]
 			if !ok {
 				return false
 			}

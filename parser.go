@@ -119,7 +119,7 @@ func parseObject(l *Lexer, tok Token) (PDFValue, error) {
 
 // parseDictionary consumes tokens to build a map.
 func parseDictionary(l *Lexer) (PDFDict, error) {
-	dict := make(PDFDict)
+	dict := NewPDFDict()
 
 	for {
 		// get key
@@ -128,13 +128,13 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 			break
 		}
 		if keyTok.Type == TokenEOF {
-			return nil, errors.New("unexpected EOF while parsing dictionary")
+			return dict, errors.New("unexpected EOF while parsing dictionary")
 		}
 		if keyTok.Type == TokenDictStart { // skip dict start
 			continue
 		}
 		if keyTok.Type != TokenName {
-			return nil, fmt.Errorf("expected dictionary key but got %v (%q)", keyTok.Type, keyTok.Value)
+			return dict, fmt.Errorf("expected dictionary key but got %v (%q)", keyTok.Type, keyTok.Value)
 		}
 
 		key := keyTok.Value
@@ -143,9 +143,9 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 
 		elem, err := parseObject(l, tok)
 		if err != nil {
-			return nil, err
+			return dict, err
 		}
-		dict[key] = elem
+		dict.Entries[key] = elem
 	}
 	return dict, nil
 }
