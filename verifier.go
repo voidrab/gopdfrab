@@ -103,10 +103,6 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = d.verifyIndirectObjects()
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
 	errs = d.verifyOptionalContent()
 	if errs != nil {
 		issues = append(issues, errs...)
@@ -189,7 +185,7 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	errs := []PDFError{}
 
 	// The file trailer dictionary shall contain the ID keyword.
-	if d.trailer["ID"] == nil {
+	if d.trailer.Entries["ID"] == nil {
 		err := PDFError{
 			clause:    "6.1.3",
 			subclause: 1,
@@ -200,7 +196,7 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	}
 
 	// The keyword Encrypt shall not be used in the trailer dictionary.
-	if d.trailer["Encrypt"] != nil {
+	if d.trailer.Entries["Encrypt"] != nil {
 		err := PDFError{
 			clause:    "6.1.3",
 			subclause: 2,
@@ -296,7 +292,7 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 
 // verifyDocumentInformationDictionary verifies requirements outlined in 6.1.5
 func (d *Document) verifyDocumentInformationDictionary() []PDFError {
-	if d.trailer["Info"] == nil {
+	if d.trailer.Entries["Info"] == nil {
 		return nil
 	}
 
@@ -370,22 +366,25 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 
 		switch v := node.(type) {
 		case PDFDict:
-			ptr := pdfValuePointer(v)
+			ptr := pdfValuePointer(v.Entries)
 			if visited[ptr] {
 				return
 			}
 			visited[ptr] = true
 
-			if (v["Type"] == PDFName{Value: "Page"}) {
-				if ref, ok := v["_ref"].(PDFRef); ok {
+			if (v.Entries["Type"] == PDFName{Value: "Page"}) {
+				if ref, ok := v.Entries["_ref"].(PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 			}
 
-			// A stream object dictionary shall not contain the F, FFilter, or FDecodeParms keys.
-			validateStreamObject(v, ctx)
+			if v.HasStream {
+				validateStreamObject(v, ctx)
+			}
 
-			for _, val := range v {
+			validateObject(v, ctx)
+
+			for _, val := range v.Entries {
 				walk(val)
 			}
 
@@ -437,58 +436,38 @@ func validateHexString(v PDFHexString, ctx *ValidationContext) {
 	}
 
 	if len(hexErrs) > 0 {
-		ctx.PersistErrors(v, "6.1.6", 1, hexErrs)
+		ctx.ReportErrors(v, "6.1.6", 1, hexErrs)
 	}
 
 	if hexCount%2 != 0 {
-		ctx.PersistError(v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
+		ctx.ReportError(v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
 	}
 }
 
-// validateStreamObject validates requirements outlined in 6.1.7.
+// validateStreamObject validates requirements outlined in 6.1.7 and 6.1.10.
 func validateStreamObject(v PDFDict, ctx *ValidationContext) {
-	if v["F"] != nil {
-		ctx.PersistError(v, "6.1.7", 1, "stream object contains invalid key F")
+	if v.Entries["F"] != nil {
+		ctx.ReportError(v, "6.1.7", 1, "stream object contains invalid key F")
 	}
-	if v["FFilter"] != nil {
-		ctx.PersistError(v, "6.1.7", 2, "stream object contains invalid key FFilter")
+	if v.Entries["FFilter"] != nil {
+		ctx.ReportError(v, "6.1.7", 2, "stream object contains invalid key FFilter")
 	}
-	if v["FDecodeParms"] != nil {
-		ctx.PersistError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
+	if v.Entries["FDecodeParms"] != nil {
+		ctx.ReportError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
+	}
+	if (v.Entries["Filter"] == PDFString{"LZWDecode"}) {
+		ctx.ReportError(v, "6.1.10", 1, "stream object contains invalid Filter LZWDecode")
 	}
 }
 
-// verifyIndirectObjects verifies requirements outlined in 6.1.8
-func (d *Document) verifyIndirectObjects() []PDFError {
-	return nil
-
-	// objTok := l.NextToken()
-	// if objTok.Type != TokenInteger {
-	// 	return nil, fmt.Errorf("invalid object number")
-	// }
-
-	// if err := l.requireSingleSpace(); err != nil {
-	// 	return nil, err
-	// }
-
-	// genTok := l.NextToken()
-	// if genTok.Type != TokenInteger {
-	// 	return nil, fmt.Errorf("invalid generation number")
-	// }
-
-	// if err := l.requireSingleSpace(); err != nil {
-	// 	return nil, err
-	// }
-
-	// objKw := l.NextToken()
-	// if objKw.Type != TokenKeyword || objKw.Value != "obj" {
-	// 	return nil, fmt.Errorf("expected 'obj' keyword")
-	// }
-
-	// if err := l.requireEOL(); err != nil {
-	// 	return nil, err
-	// }
-
+// validateObject validates requirements outlined in 6.1.11
+func validateObject(v PDFDict, ctx *ValidationContext) {
+	if v.Entries["EF"] != nil {
+		ctx.ReportError(v, "6.1.11", 1, "dictionary shall not contain EF key")
+	}
+	if v.Entries["EmbeddedFiles"] != nil {
+		ctx.ReportError(v, "6.1.11", 2, "dictionary shall not contain EmbeddedFiles key")
+	}
 }
 
 // verifyOptionalContent verifies requirements outlined in 6.1.13
@@ -547,7 +526,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		// 	errs = append(errs, fmt.Errorf("expected Type was not OutputIntent, but %v", intent["Type"]))
 		// }
 
-		s, ok := intent["S"].(PDFName)
+		s, ok := intent.Entries["S"].(PDFName)
 		if !ok {
 			err := PDFError{
 				clause:    "6.2.2",
@@ -563,13 +542,13 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			err := PDFError{
 				clause:    "6.2.2",
 				subclause: 4,
-				errs:      []error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent["S"])},
+				errs:      []error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])},
 				page:      0,
 			}
 			errs = append(errs, err)
 		}
 
-		if intent["OutputConditionIdentifier"] == nil {
+		if intent.Entries["OutputConditionIdentifier"] == nil {
 			err := PDFError{
 				clause:    "6.2.2",
 				subclause: 5,
@@ -580,7 +559,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			continue
 		}
 
-		destOutputProfile := intent["DestOutputProfile"]
+		destOutputProfile := intent.Entries["DestOutputProfile"]
 		if destOutputProfile == nil {
 			// optional?
 			//errs = append(errs, fmt.Errorf("DestOutputProfile is required but was nil"))
@@ -616,7 +595,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			continue
 		}
 
-		profileMap, ok := profile.(PDFStreamDict)
+		profileMap, ok := profile.(PDFDict)
 		if !ok {
 			err := PDFError{
 				clause:    "6.2.2",
@@ -628,7 +607,7 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			continue
 		}
 
-		nValue, ok := profileMap["N"].(PDFInteger)
+		nValue, ok := profileMap.Entries["N"].(PDFInteger)
 		if !ok {
 			err := PDFError{
 				clause:    "6.2.2",

@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	path := "test documents/pdfa1b_alt.pdf"
+	path := "test documents/pdfa1b_invalid.pdf"
 	doc, err := pdfrab.Open(path)
 	if err != nil {
 		log.Fatal(err)

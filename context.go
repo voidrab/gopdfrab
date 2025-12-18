@@ -12,10 +12,10 @@ func (ctx *ValidationContext) report(err PDFError) {
 	ctx.errs = append(ctx.errs, err)
 }
 
-func (ctx *ValidationContext) PersistError(obj PDFValue, clause string, subclause int, msg string) {
+func (ctx *ValidationContext) ReportError(obj PDFValue, clause string, subclause int, msg string) {
 	var ref *PDFRef
 	if dict, ok := obj.(PDFDict); ok {
-		if r, ok := dict["_ref"].(PDFRef); ok {
+		if r, ok := dict.Entries["_ref"].(PDFRef); ok {
 			ref = &r
 		}
 	}
@@ -38,10 +38,10 @@ func (ctx *ValidationContext) PersistError(obj PDFValue, clause string, subclaus
 	ctx.report(err)
 }
 
-func (ctx *ValidationContext) PersistErrors(obj PDFValue, clause string, subclause int, errs []error) {
+func (ctx *ValidationContext) ReportErrors(obj PDFValue, clause string, subclause int, errs []error) {
 	var ref *PDFRef
 	if dict, ok := obj.(PDFDict); ok {
-		if r, ok := dict["_ref"].(PDFRef); ok {
+		if r, ok := dict.Entries["_ref"].(PDFRef); ok {
 			ref = &r
 		}
 	}

@@ -12,7 +12,7 @@ func (d *Document) validateStream(l *Lexer, dict PDFDict) error {
 		return err
 	}
 
-	lengthRef, ok := dict["Length"]
+	lengthRef, ok := dict.Entries["Length"]
 	if !ok {
 		return fmt.Errorf("stream missing Length")
 	}
