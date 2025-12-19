@@ -351,9 +351,7 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 	return nil
 }
 
-// require scanning of document: 6.1.6, 6.1.7, 6.1.8, 6.1.10, 6.1.11, 6.1.12
-
-// verifyDocument verifies requirements outlined in 6.1.6, 6.1.7.
+// verifyDocument verifies requirements outlined in 6.1.6, 6.1.7, 6.1.11, 6.1.12.
 func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
@@ -404,6 +402,8 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 			// each in the range 0 to 9, A to F or a to f.
 			validateHexString(v, ctx)
 		}
+
+		validateArchitecturalLimits(node, ctx)
 	}
 
 	walk(graph)
@@ -467,6 +467,28 @@ func validateObject(v PDFDict, ctx *ValidationContext) {
 	}
 	if v.Entries["EmbeddedFiles"] != nil {
 		ctx.ReportError(v, "6.1.11", 2, "dictionary shall not contain EmbeddedFiles key")
+	}
+}
+
+// validateArchitecturalLimits validates requirements outlined in 6.1.12
+func validateArchitecturalLimits(node PDFValue, ctx *ValidationContext) {
+	switch v := node.(type) {
+	case PDFName:
+		// Maximum length of a name, in bytes: 127
+		nameLen := len(v.Value)
+		if nameLen > 127 {
+			ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("maximum length of name (127) exceeded: %v", nameLen))
+		}
+	case PDFInteger:
+		// Largest integer value; equal to 231 − 1
+		// Smallest integer value; equal to −231
+		if v < -2_147_483_648 || v > 2_147_483_647 {
+			ctx.ReportError(v, "6.1.12", 2, fmt.Sprintf("integer value exceeded limits: %v", v))
+		}
+		// TODO Maximum number of colorants or tint components in a DeviceN colour space: 32
+		// TODO Maximum value of a CID (character identifier): 65535
+
+		// wont implement: real, string (in content stream), indirect object, q/Q nesting
 	}
 }
 
