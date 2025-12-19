@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -680,6 +681,79 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 
 	if errs[0].clause != "6.1.11" || errs[0].subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+// 6.1.12
+
+func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := NewPDFDict()
+	info := NewPDFDict()
+
+	info.Entries["TooLarge"] = PDFName{Value: strings.Repeat("a", 128)}
+
+	trailer.Entries["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
+	if len(errs) != 1 {
+		t.Errorf("Expected one error for invalid name length, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.12" || errs[0].subclause != 1 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+}
+
+func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
+	filename := "test.pdf"
+	content := []byte("")
+	os.WriteFile(filename, content, 0644)
+	defer os.Remove(filename)
+
+	trailer := NewPDFDict()
+	info := NewPDFDict()
+
+	info.Entries["TooLarge"] = PDFInteger(2_147_483_648)
+	info.Entries["TooSmall"] = PDFInteger(-2_147_483_649)
+
+	trailer.Entries["Info"] = info
+
+	f, _ := os.Open(filename)
+	doc := &Document{file: f, trailer: trailer}
+	defer doc.Close()
+
+	graph, _ := doc.ResolveGraph()
+	pageIndex, _ := doc.buildPageIndex(graph)
+	ctx := &ValidationContext{
+		PageIndex: pageIndex,
+	}
+	doc.verifyDocument(graph, ctx)
+	errs := ctx.errs
+	if len(errs) != 2 {
+		t.Errorf("Expected two errors for invalid integer value sizes, got %v", errs)
+	}
+
+	if errs[0].clause != "6.1.12" || errs[0].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[0])
+	}
+
+	if errs[1].clause != "6.1.12" || errs[1].subclause != 2 {
+		t.Errorf("Got unexpected error %v", errs[1])
 	}
 }
 
