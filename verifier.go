@@ -460,13 +460,37 @@ func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// validateObject validates requirements outlined in 6.1.11
+// validateObject validates requirements outlined in 6.1.11, 6.2.4, 6.2.9
 func validateObject(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["EF"] != nil {
 		ctx.ReportError(v, "6.1.11", 1, "dictionary shall not contain EF key")
 	}
 	if v.Entries["EmbeddedFiles"] != nil {
 		ctx.ReportError(v, "6.1.11", 2, "dictionary shall not contain EmbeddedFiles key")
+	}
+
+	// 6.2.4
+	if (v.Entries["Subtype"] == PDFString{Value: "Image"}) {
+		if v.Entries["Alternates"] != nil {
+			ctx.ReportError(v, "6.2.4", 1, "image dictionary shall not contain Alternates key")
+		}
+		if v.Entries["OPI"] != nil {
+			ctx.ReportError(v, "6.2.4", 2, "image dictionary shall not contain OPI key")
+		}
+		if v.Entries["Interpolate"] != PDFBoolean(false) {
+			ctx.ReportError(v, "6.2.4", 3, "image dictionary shall not contain non-false Interpolate key")
+		}
+	}
+
+	// 6.2.9
+	if v.Entries["Intent"] != nil {
+		intent := v.Entries["Intent"]
+		if (intent != PDFString{Value: "RelativeColorimetric"} &&
+			intent != PDFString{Value: "AbsoluteColorimetric,"} &&
+			intent != PDFString{Value: "Perceptual"} &&
+			intent != PDFString{Value: "Saturation"}) {
+			ctx.ReportError(v, "6.2.9", 1, "Value for Intent key must be RelativeColorimetric, AbsoluteColorimetric, Perceptual or Saturation.")
+		}
 	}
 }
 
@@ -494,8 +518,8 @@ func validateArchitecturalLimits(node PDFValue, ctx *ValidationContext) {
 
 // verifyOptionalContent verifies requirements outlined in 6.1.13
 func (d *Document) verifyOptionalContent() []PDFError {
-	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
-	if err == nil {
+	v, _ := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
+	if v != nil {
 		return []PDFError{{
 			clause:    "6.1.13",
 			subclause: 1,
