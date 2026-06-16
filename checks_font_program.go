@@ -24,17 +24,14 @@ func parseSfnt(data []byte) (map[string][]byte, bool) {
 		return nil, false
 	}
 	tables := map[string][]byte{}
-	for i := 0; i < num; i++ {
+	for i := range num {
 		rec := data[12+i*16:]
 		off := binary.BigEndian.Uint32(rec[8:12])
 		ln := binary.BigEndian.Uint32(rec[12:16])
 		if int(off) > len(data) {
 			continue
 		}
-		end := int(off) + int(ln)
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(int(off)+int(ln), len(data))
 		tables[string(rec[:4])] = data[off:end]
 	}
 	return tables, true

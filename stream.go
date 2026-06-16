@@ -96,10 +96,7 @@ func (d *Document) checkEndstreamFraming(objNum int, streamStart int64, length i
 	n, _ := d.file.ReadAt(window, streamStart)
 	window = window[:n]
 
-	start := length - 2
-	if start < 0 {
-		start = 0
-	}
+	start := max(length-2, 0)
 	if start > len(window) {
 		return
 	}
