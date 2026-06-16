@@ -3,9 +3,14 @@ package pdfrab
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 )
+
+// xrefHeaderRe matches a well-formed cross-reference subsection header
+// ("start count" separated by a single space, no leading white space).
+var xrefHeaderRe = regexp.MustCompile(`^[0-9]+ [0-9]+$`)
 
 type LevelType int
 
@@ -97,6 +102,7 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
+	d.computeColourCoverage(ctx)
 
 	d.verifyDocument(graph, ctx)
 	errs = ctx.errs
@@ -110,6 +116,19 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	errs = d.verifyOutputIntent()
 	if errs != nil {
 		issues = append(issues, errs...)
+	}
+	errs = d.verifyInteractiveForms()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+	errs = d.verifyXMPMetadata()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+
+	// Object-framing violations (6.1.8) collected lazily during resolution.
+	if len(d.structErrs) > 0 {
+		issues = append(issues, d.structErrs...)
 	}
 	return issues
 }
@@ -271,13 +290,12 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 	}
 
 	// In a cross reference subsection header the starting object number and the range shall be separated
-	// by a single SPACE character (20h).
-	parts := strings.Fields(xRefHeader)
-	if len(parts) != 2 {
+	// by a single SPACE character (20h), with no leading white space.
+	if !xrefHeaderRe.MatchString(xRefHeader) {
 		err := PDFError{
 			clause:    "6.1.4",
 			subclause: 3,
-			errs:      []error{fmt.Errorf("cross reference subsection header should consist of two parts")},
+			errs:      []error{fmt.Errorf("malformed cross reference subsection header: %q", xRefHeader)},
 			page:      0,
 		}
 		errs = append(errs, err)
@@ -381,8 +399,23 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 			}
 
 			validateObject(v, ctx)
+			validateActions(v, ctx)
+			validateAdditionalActions(v, ctx)
+			validateExtGState(v, ctx)
+			validateTransparencyGroup(v, ctx)
+			validateXObjectDict(v, ctx)
+			validateAnnotation(v, ctx)
+			validateFormField(v, ctx)
+			validateColourSpaceUsage(v, ctx)
+			validateContentStreams(v, ctx)
+			validateFontDict(v, ctx)
 
-			for _, val := range v.Entries {
+			for k, val := range v.Entries {
+				// 6.1.12: a name used as a dictionary key is also subject to the
+				// 127-byte limit.
+				if k != "_ref" && len(k) > 127 {
+					ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(k)))
+				}
 				walk(val)
 			}
 
@@ -392,6 +425,13 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 				return
 			}
 			visited[ptr] = true
+
+			validateColourSpaceArray(v, ctx)
+
+			// 6.1.12: maximum number of elements in an array is 8191.
+			if len(v) > 8191 {
+				ctx.ReportError(v, "6.1.12", 3, fmt.Sprintf("array exceeds 8191 elements: %d", len(v)))
+			}
 
 			for _, item := range v {
 				walk(item)
@@ -455,8 +495,10 @@ func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["FDecodeParms"] != nil {
 		ctx.ReportError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
 	}
-	if (v.Entries["Filter"] == PDFString{"LZWDecode"}) {
-		ctx.ReportError(v, "6.1.10", 1, "stream object contains invalid Filter LZWDecode")
+	for _, f := range filterNames(v.Entries["Filter"]) {
+		if f == "LZWDecode" || f == "LZW" {
+			ctx.ReportError(v, "6.1.10", 1, "stream object uses forbidden LZWDecode filter")
+		}
 	}
 }
 

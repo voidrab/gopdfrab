@@ -13,6 +13,9 @@ type PDFArray []PDFValue
 type PDFDict struct {
 	Entries   map[string]PDFValue
 	HasStream bool
+	// RawStream holds the undecoded bytes of a stream object, retained for
+	// content-stream and metadata inspection.
+	RawStream []byte
 }
 
 func NewPDFDict() PDFDict {

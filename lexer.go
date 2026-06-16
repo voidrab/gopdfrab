@@ -105,42 +105,78 @@ func (l *Lexer) UnreadToken(t Token) {
 	l.pushed = append(l.pushed, t)
 }
 
-// validateObjectStart partially validates requirements 6.1.8
-func (l *Lexer) validateObjectStart() error {
+// validateObjectStart validates the "N G obj" header framing required by 6.1.8.
+// It advances the lexer past the header even when violations are present
+// (so resolution can continue) and returns any violations found.
+func (l *Lexer) validateObjectStart() []error {
+	var errs []error
+
+	// The object shall begin at the cross-reference offset with no leading
+	// white space.
+	if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && isWhitespace(b[0]) {
+		errs = append(errs, fmt.Errorf("object header preceded by white space"))
+	}
+
 	objTok := l.NextToken()
 	if objTok.Type != TokenInteger {
-		return fmt.Errorf("invalid object number")
+		return append(errs, fmt.Errorf("invalid object number: %q", objTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	genTok := l.NextToken()
 	if genTok.Type != TokenInteger {
-		return fmt.Errorf("invalid generation number")
+		return append(errs, fmt.Errorf("invalid generation number: %q", genTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	objKw := l.NextToken()
 	if objKw.Type != TokenObjectStart {
-		return fmt.Errorf("expected 'obj' keyword")
+		return append(errs, fmt.Errorf("expected 'obj' keyword, got %q", objKw.Value))
 	}
 
 	if err := l.requireEOL(); err != nil {
-		return err
+		errs = append(errs, fmt.Errorf("'obj' keyword not followed by single EOL: %v", err))
 	}
 
-	return nil
+	return errs
 }
 
-// validateObjectEnd partially validates requirements 6.1.8
-func (l *Lexer) validateObjectEnd() error {
+// validateEndObj validates the framing around the endobj keyword (6.1.8) for an
+// object whose endobj has not yet been consumed (e.g. a stream object). The
+// lexer must be positioned immediately after the object body.
+func (l *Lexer) validateEndObj() []error {
+	var errs []error
+
 	if err := l.requireEOL(); err != nil {
-		return err
+		errs = append(errs, fmt.Errorf("endobj not preceded by single EOL: %v", err))
+	}
+
+	if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && isWhitespace(b[0]) {
+		errs = append(errs, fmt.Errorf("white space before endobj keyword"))
+	}
+
+	tok := l.NextToken()
+	if tok.Type != TokenObjectEnd {
+		return append(errs, fmt.Errorf("expected endobj, got %q", tok.Value))
+	}
+
+	if err := l.requireEOL(); err != nil {
+		errs = append(errs, fmt.Errorf("endobj not followed by single EOL: %v", err))
+	}
+
+	return errs
+}
+
+// validateObjectEnd validates the EOL after an already-consumed endobj keyword (6.1.8).
+func (l *Lexer) validateObjectEnd() []error {
+	if err := l.requireEOL(); err != nil {
+		return []error{fmt.Errorf("endobj not followed by single EOL: %v", err)}
 	}
 	return nil
 }

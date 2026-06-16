@@ -6,6 +6,29 @@ type ValidationContext struct {
 	PageIndex   map[int]int
 	CurrentPage int
 	errs        []PDFError
+
+	// OutputIntent colour-model coverage (6.2.2 / 6.2.3.3). hasOutputIntent is
+	// true when a GTS_PDFA1 output intent exists; the *Covered flags indicate the
+	// destination profile colour model (N = 1/3/4).
+	hasOutputIntent bool
+	rgbCovered      bool
+	cmykCovered     bool
+	grayCovered     bool
+}
+
+// deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
+// "gray") may be used given the document's OutputIntent coverage (6.2.3.3).
+func (ctx *ValidationContext) deviceColourAllowed(model string) bool {
+	switch model {
+	case "rgb":
+		return ctx.rgbCovered
+	case "cmyk":
+		return ctx.cmykCovered
+	case "gray":
+		// DeviceGray is permitted in the presence of any PDF/A output intent.
+		return ctx.hasOutputIntent
+	}
+	return true
 }
 
 func (ctx *ValidationContext) report(err PDFError) {
