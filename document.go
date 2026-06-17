@@ -18,6 +18,53 @@ type Document struct {
 	trailer    PDFDict
 	xrefTable  map[int]int64
 	xrefOffset int64
+	// pdfStart is the byte offset of the "%PDF-" header. Non-zero when the
+	// file begins with garbage bytes before the PDF header (6.1.2).
+	pdfStart int64
+
+	// structErrs collects document-structure violations (e.g. 6.1.8 object
+	// framing) discovered lazily during object resolution. framingChecked
+	// deduplicates per object number so repeated resolution does not double-report.
+	structErrs     []PDFError
+	framingChecked map[int]bool
+	streamChecked  map[int]bool
+}
+
+// recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated per
+// object number and subclause.
+func (d *Document) recordStreamFraming(objNum, sub int, msg string) {
+	if d.streamChecked == nil {
+		d.streamChecked = map[int]bool{}
+	}
+	key := objNum*1000 + sub
+	if d.streamChecked[key] {
+		return
+	}
+	d.streamChecked[key] = true
+	d.structErrs = append(d.structErrs, PDFError{
+		clause: "6.1.7", subclause: sub, errs: []error{errors.New(msg)}, page: 0,
+	})
+}
+
+// recordFraming records 6.1.8 object-framing violations for an object, at most
+// once per object number.
+func (d *Document) recordFraming(objNum int, errs []error) {
+	if len(errs) == 0 {
+		return
+	}
+	if d.framingChecked == nil {
+		d.framingChecked = map[int]bool{}
+	}
+	if d.framingChecked[objNum] {
+		return
+	}
+	d.framingChecked[objNum] = true
+	d.structErrs = append(d.structErrs, PDFError{
+		clause:    "6.1.8",
+		subclause: 1,
+		errs:      errs,
+		page:      0,
+	})
 }
 
 // Open initializes the PDF document at path.
@@ -69,6 +116,16 @@ func Open(path string) (*Document, error) {
 //
 // It returns any error encountered.
 func (d *Document) initializeStructure() error {
+	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
+	// xref offsets in such files are relative to the PDF content start.
+	scanSize := min(d.info.Size(), 1024)
+	scanBuf := make([]byte, scanSize)
+	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
+		if idx := bytes.Index(scanBuf, []byte("%PDF-")); idx > 0 {
+			d.pdfStart = int64(idx)
+		}
+	}
+
 	tailSize := min(d.info.Size(), int64(1500))
 
 	tailOffset := d.info.Size() - tailSize
@@ -96,7 +153,7 @@ func (d *Document) initializeStructure() error {
 
 	d.xrefOffset = xrefOffset
 
-	if err := d.parseXRefTable(xrefOffset); err != nil {
+	if err := d.parseXRefTable(xrefOffset + d.pdfStart); err != nil {
 		return fmt.Errorf("failed to parse xref table: %w", err)
 	}
 
@@ -313,16 +370,38 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 			return nil, err
 		}
 
-		// Mark as visited *before* recursive resolution to prevent cycles
-		visited[id] = indirect
+		// Allocate the resolved container and cache it *before* recursing so that
+		// cyclic references (e.g. Popup/Parent, Page/Parent) resolve to the same,
+		// fully-populated instance rather than a dangling reference.
+		switch inner := indirect.(type) {
+		case PDFDict:
+			out := PDFDict{Entries: make(map[string]PDFValue, len(inner.Entries)), HasStream: inner.HasStream, RawStream: inner.RawStream}
+			visited[id] = out
+			for k, val := range inner.Entries {
+				r, err := d.resolveAll(val, visited)
+				if err != nil {
+					return nil, err
+				}
+				out.Entries[k] = r
+			}
+			return out, nil
 
-		resolved, err := d.resolveAll(indirect, visited)
-		if err != nil {
-			return nil, err
+		case PDFArray:
+			out := make(PDFArray, len(inner))
+			visited[id] = out
+			for i, elem := range inner {
+				r, err := d.resolveAll(elem, visited)
+				if err != nil {
+					return nil, err
+				}
+				out[i] = r
+			}
+			return out, nil
+
+		default:
+			visited[id] = inner
+			return inner, nil
 		}
-
-		visited[id] = resolved
-		return resolved, nil
 
 	// ------------------------
 	// Dictionary
@@ -330,6 +409,7 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 	case PDFDict:
 		out := NewPDFDict()
 		out.HasStream = v.HasStream
+		out.RawStream = v.RawStream
 		for k, val := range v.Entries {
 			r, err := d.resolveAll(val, visited)
 			if err != nil {

@@ -14,6 +14,7 @@ func (d *Document) resolveObject(obj PDFValue) (PDFValue, error) {
 	case PDFDict:
 		out := NewPDFDict()
 		out.HasStream = v.HasStream
+		out.RawStream = v.RawStream
 		for k, val := range v.Entries {
 			resolved, err := d.resolveObject(val)
 			if err != nil {
@@ -52,10 +53,7 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 
 	l := NewLexerAt(d.file, offset)
 
-	err := l.validateObjectStart()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse reference: %v", err)
-	}
+	d.recordFraming(ref.ObjNum, l.validateObjectStart())
 
 	t := l.NextToken()
 
@@ -73,13 +71,14 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 		switch next.Type {
 		case TokenStreamStart:
 			m.HasStream = true
-			err := d.validateStream(l, m)
+			err := d.validateStream(l, &m, ref.ObjNum)
 			if err != nil {
 				return nil, err
 			}
+			d.recordFraming(ref.ObjNum, l.validateEndObj())
 			return m, nil
 		case TokenObjectEnd:
-			l.validateObjectEnd()
+			d.recordFraming(ref.ObjNum, l.validateObjectEnd())
 		default:
 			l.UnreadToken(next)
 		}

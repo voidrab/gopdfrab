@@ -2,54 +2,58 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
+	"path/filepath"
+	"strings"
 
 	pdfrab "github.com/voidrab/gopdfrab"
 )
 
 func main() {
-	path := "test documents/pdfa1b_invalid.pdf"
-	doc, err := pdfrab.Open(path)
+	root := "test documents/Isartor testsuite"
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	count, err := doc.GetPageCount()
-	if err != nil {
-		log.Println(err)
-	}
+	pass, fail, errCount := 0, 0, 0
+	for _, path := range paths {
+		doc, err := pdfrab.Open(path)
+		if err != nil {
+			fmt.Printf("[ERROR] %s: %v\n", path, err)
+			errCount++
+			continue
+		}
 
-	fmt.Printf("%d page(s) in PDF\n", count)
+		v, err := doc.Verify(pdfrab.A1_B)
+		doc.Close()
+		if err != nil {
+			fmt.Printf("[ERROR] %s: %v\n", path, err)
+			errCount++
+			continue
+		}
 
-	metadata, err := doc.GetMetadata()
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	fmt.Println("PDF metadata:")
-	for k, v := range metadata {
-		fmt.Printf("%v: %v\n", k, v)
-	}
-
-	version, err := doc.GetVersion()
-	if err != nil {
-		log.Println(err)
-	}
-	fmt.Printf("PDF version is: %v\n", version)
-
-	v, err := doc.Verify(pdfrab.A1_B)
-	if err != nil {
-		log.Println(err)
-	}
-	if v.Valid {
-		fmt.Println("Document is PDF/A-1b compliant")
-	} else {
-		fmt.Println("Document is not PDF/A-1b compliant")
-		fmt.Println("Issues:")
-		for i, v := range v.Issues {
-			fmt.Printf("#%v: %v\n", i+1, v)
+		if v.Valid {
+			fmt.Printf("[PASS] %s\n", path)
+			pass++
+		} else {
+			fmt.Printf("[FAIL] %s\n", path)
+			for i, issue := range v.Issues {
+				fmt.Printf("       #%d: %s\n", i+1, issue)
+			}
+			fail++
 		}
 	}
 
-	doc.Close()
+	fmt.Printf("\n--- Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
 }

@@ -1,15 +1,18 @@
 package pdfrab
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strconv"
 )
 
-// validateStream performs a partial validation of requirements 6.1.7
-func (d *Document) validateStream(l *Lexer, dict PDFDict) error {
-	if err := l.skipEOL(); err != nil {
-		return err
+// validateStream performs a partial validation of requirements 6.1.7 and
+// captures the raw stream bytes.
+func (d *Document) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
+	// 6.1.7: the 'stream' keyword shall be followed by CRLF or a single LF.
+	if d.consumeStreamEOL(l) {
+		d.recordStreamFraming(objNum, 4, "'stream' keyword not followed by a single EOL marker")
 	}
 
 	lengthRef, ok := dict.Entries["Length"]
@@ -44,6 +47,18 @@ func (d *Document) validateStream(l *Lexer, dict PDFDict) error {
 	if err != nil {
 		return err
 	}
+	dict.RawStream = data
+
+	// 6.1.7: declared Length must not include the EOL marker that precedes endstream.
+	// If the byte immediately after the declared-length region is 'e' (start of
+	// "endstream"), the length count consumed the mandatory EOL — a violation.
+	var peek [9]byte
+	if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
+		d.recordStreamFraming(objNum, 6, "stream Length value includes the EOL marker before endstream")
+	}
+
+	// 6.1.7: the endstream keyword shall be preceded by an EOL marker.
+	d.checkEndstreamFraming(objNum, streamStart, length)
 
 	if _, err := d.file.Seek(streamStart+int64(length), io.SeekStart); err != nil {
 		return err
@@ -58,4 +73,47 @@ func (d *Document) validateStream(l *Lexer, dict PDFDict) error {
 	}
 
 	return nil
+}
+
+// consumeStreamEOL advances the lexer past the EOL following the 'stream'
+// keyword, returning true if non-EOL bytes preceded the line break (6.1.7).
+func (d *Document) consumeStreamEOL(l *Lexer) bool {
+	bad := false
+	for {
+		b, err := l.readByte()
+		if err != nil {
+			return bad
+		}
+		if b == '\n' {
+			return bad
+		}
+		if b == '\r' {
+			if nb, e := l.reader.Peek(1); e == nil && len(nb) > 0 && nb[0] == '\n' {
+				l.readByte()
+			}
+			return bad
+		}
+		bad = true
+	}
+}
+
+// checkEndstreamFraming verifies that the endstream keyword is preceded by an
+// EOL marker (6.1.7).
+func (d *Document) checkEndstreamFraming(objNum int, streamStart int64, length int) {
+	window := make([]byte, length+64)
+	n, _ := d.file.ReadAt(window, streamStart)
+	window = window[:n]
+
+	start := max(length-2, 0)
+	if start > len(window) {
+		return
+	}
+	rel := bytes.Index(window[start:], []byte("endstream"))
+	if rel < 0 {
+		return
+	}
+	idx := start + rel
+	if idx == 0 || (window[idx-1] != '\n' && window[idx-1] != '\r') {
+		d.recordStreamFraming(objNum, 5, "endstream keyword not preceded by an EOL marker")
+	}
 }

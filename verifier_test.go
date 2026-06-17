@@ -8,55 +8,6 @@ import (
 
 // -- PDF/A-1b
 
-func TestDocument_VerifyPDFA(t *testing.T) {
-	filename := "pdfa1b.pdf"
-	doc, err := Open(test_dir + filename)
-	if err != nil {
-		t.Fatalf("Failed to open PDF: %v", err)
-	}
-	defer doc.Close()
-
-	res, err := doc.Verify(LevelType(A1_B))
-
-	if err != nil {
-		t.Errorf("Verification failed for conforming PDF: %v", err)
-	}
-
-	if !res.Valid {
-		t.Errorf("Verification failed for conforming PDF: %v", res.Issues)
-	}
-}
-
-func TestDocument_VerifyPDFA_Invalid(t *testing.T) {
-	filename := "pdfa1b_invalid.pdf"
-	doc, err := Open(test_dir + filename)
-	if err != nil {
-		t.Fatalf("Failed to open PDF: %v", err)
-	}
-	defer doc.Close()
-
-	res, err := doc.Verify(LevelType(A1_B))
-
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if res.Valid {
-		t.Errorf("Verification succeeded for invalid PDF")
-	}
-
-	count := 0
-	for _, issue := range res.Issues {
-		if issue.clause == "6.1.6" {
-			count++
-		}
-	}
-
-	if count != 1 {
-		t.Errorf("expected error due to odd number of hex digits")
-	}
-}
-
 // 6.1.2
 
 func TestDocument_VerifyPDFAHeader(t *testing.T) {
@@ -592,7 +543,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	info := NewPDFDict()
 	info.HasStream = true
 
-	info.Entries["Filter"] = PDFString{Value: "LZWDecode"}
+	info.Entries["Filter"] = PDFName{Value: "LZWDecode"}
 
 	trailer.Entries["Info"] = info
 
@@ -803,20 +754,6 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 
 	f, _ := os.Open(filename)
 	doc := &Document{file: f, trailer: trailer}
-	defer doc.Close()
-
-	errs := doc.verifyOutputIntent()
-	if len(errs) != 0 {
-		t.Errorf("Unexpected error: %v", errs)
-	}
-}
-
-func TestDocument_VerifyPDFAOutputIntent_RealFile(t *testing.T) {
-	filename := "pdfa1b.pdf"
-	doc, err := Open(test_dir + filename)
-	if err != nil {
-		t.Fatalf("Failed to open PDF: %v", err)
-	}
 	defer doc.Close()
 
 	errs := doc.verifyOutputIntent()

@@ -3,9 +3,14 @@ package pdfrab
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 )
+
+// xrefHeaderRe matches a well-formed cross-reference subsection header
+// ("start count" separated by a single space, no leading white space).
+var xrefHeaderRe = regexp.MustCompile(`^[0-9]+ [0-9]+$`)
 
 type LevelType int
 
@@ -61,6 +66,10 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
+	errs = d.checkLinearizedFileID()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
 	errs = d.verifyFileTrailer()
 	if errs != nil {
 		issues = append(issues, errs...)
@@ -76,27 +85,28 @@ func (d *Document) verifyPdfA1b() []PDFError {
 
 	graph, err := d.ResolveGraph()
 	if err != nil {
-		return []PDFError{{
+		return append(issues, PDFError{
 			clause:    "6.1.6",
 			subclause: 0,
 			errs:      []error{err},
 			page:      0,
-		}}
+		})
 	}
 
 	pageIndex, err := d.buildPageIndex(graph)
 	if err != nil {
-		return []PDFError{{
+		return append(issues, PDFError{
 			clause:    "6.1.6",
 			subclause: 0,
 			errs:      []error{err},
 			page:      0,
-		}}
+		})
 	}
 
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
+	d.computeColourCoverage(ctx)
 
 	d.verifyDocument(graph, ctx)
 	errs = ctx.errs
@@ -110,6 +120,19 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	errs = d.verifyOutputIntent()
 	if errs != nil {
 		issues = append(issues, errs...)
+	}
+	errs = d.verifyInteractiveForms()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+	errs = d.verifyXMPMetadata()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+
+	// Object-framing violations (6.1.8) collected lazily during resolution.
+	if len(d.structErrs) > 0 {
+		issues = append(issues, d.structErrs...)
 	}
 	return issues
 }
@@ -271,13 +294,12 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 	}
 
 	// In a cross reference subsection header the starting object number and the range shall be separated
-	// by a single SPACE character (20h).
-	parts := strings.Fields(xRefHeader)
-	if len(parts) != 2 {
+	// by a single SPACE character (20h), with no leading white space.
+	if !xrefHeaderRe.MatchString(xRefHeader) {
 		err := PDFError{
 			clause:    "6.1.4",
 			subclause: 3,
-			errs:      []error{fmt.Errorf("cross reference subsection header should consist of two parts")},
+			errs:      []error{fmt.Errorf("malformed cross reference subsection header: %q", xRefHeader)},
 			page:      0,
 		}
 		errs = append(errs, err)
@@ -381,8 +403,23 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 			}
 
 			validateObject(v, ctx)
+			validateActions(v, ctx)
+			validateAdditionalActions(v, ctx)
+			validateExtGState(v, ctx)
+			validateTransparencyGroup(v, ctx)
+			validateXObjectDict(v, ctx)
+			validateAnnotation(v, ctx)
+			validateFormField(v, ctx)
+			validateColourSpaceUsage(v, ctx)
+			validateContentStreams(v, ctx)
+			validateFontDict(v, ctx)
 
-			for _, val := range v.Entries {
+			for k, val := range v.Entries {
+				// 6.1.12: a name used as a dictionary key is also subject to the
+				// 127-byte limit.
+				if k != "_ref" && len(k) > 127 {
+					ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(k)))
+				}
 				walk(val)
 			}
 
@@ -392,6 +429,13 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 				return
 			}
 			visited[ptr] = true
+
+			validateColourSpaceArray(v, ctx)
+
+			// 6.1.12: maximum number of elements in an array is 8191.
+			if len(v) > 8191 {
+				ctx.ReportError(v, "6.1.12", 3, fmt.Sprintf("array exceeds 8191 elements: %d", len(v)))
+			}
 
 			for _, item := range v {
 				walk(item)
@@ -455,8 +499,10 @@ func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["FDecodeParms"] != nil {
 		ctx.ReportError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
 	}
-	if (v.Entries["Filter"] == PDFString{"LZWDecode"}) {
-		ctx.ReportError(v, "6.1.10", 1, "stream object contains invalid Filter LZWDecode")
+	for _, f := range filterNames(v.Entries["Filter"]) {
+		if f == "LZWDecode" || f == "LZW" {
+			ctx.ReportError(v, "6.1.10", 1, "stream object uses forbidden LZWDecode filter")
+		}
 	}
 }
 
@@ -651,9 +697,19 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			}
 			errs = append(errs, err)
 		}
-	}
 
-	// TODO check if ICC profile stream is valid
+		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
+		if profileMap.HasStream {
+			if iccErr := validateICCProfileStream(profileMap); iccErr != nil {
+				errs = append(errs, PDFError{
+					clause:    "6.2.2",
+					subclause: 11,
+					errs:      []error{iccErr},
+					page:      0,
+				})
+			}
+		}
+	}
 
 	if len(errs) > 0 {
 		return errs
@@ -662,8 +718,58 @@ func (d *Document) verifyOutputIntent() []PDFError {
 	return nil
 }
 
+// validateICCProfileStream checks that a DestOutputProfile stream is a valid
+// ICC profile version 2.x as required by PDF/A-1 (6.2.2 / ICC.1:2003-09).
+func validateICCProfileStream(dict PDFDict) error {
+	data, err := decodeStream(dict)
+	if err != nil {
+		return fmt.Errorf("cannot decode ICC profile stream: %v", err)
+	}
+	if len(data) < 128 {
+		return fmt.Errorf("ICC profile too short (%d bytes)", len(data))
+	}
+	if string(data[36:40]) != "acsp" {
+		return fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")
+	}
+	major := data[8]
+	if major > 2 {
+		return fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be ≤ 2.x)", major)
+	}
+	return nil
+}
+
 // verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
 func (d *Document) verifyGeneralColourSpaces() []PDFError {
 	// TODO check if document has OutputIntent or direct use of device-independent colour space
+	return nil
+}
+
+// trailerIDRe finds the first hex string in any /ID array in the file.
+var trailerIDRe = regexp.MustCompile(`/ID\s*\[<([0-9A-Fa-f]+)>`)
+
+// checkLinearizedFileID detects the 6.1.3 violation where a linearized PDF has
+// different ID[0] values in its first-page and final trailers (ISO 19005-1:2005 §6.1.3).
+func (d *Document) checkLinearizedFileID() []PDFError {
+	size := d.info.Size()
+	raw := make([]byte, size)
+	if _, err := d.file.ReadAt(raw, 0); err != nil {
+		return nil
+	}
+	matches := trailerIDRe.FindAllSubmatch(raw, -1)
+	if len(matches) < 2 {
+		return nil
+	}
+	first := strings.ToLower(string(matches[0][1]))
+	for _, m := range matches[1:] {
+		id := strings.ToLower(string(m[1]))
+		if id != first {
+			return []PDFError{{
+				clause:    "6.1.3",
+				subclause: 1,
+				errs:      []error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)},
+				page:      0,
+			}}
+		}
+	}
 	return nil
 }

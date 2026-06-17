@@ -58,7 +58,7 @@ func (d *Document) parseXRefTable(offset int64) error {
 			if entryLine[17] == 'n' { // flag ('n' = used) is usually at index 17
 				offsetStr := string(entryLine[:10])
 				offsetVal, _ := strconv.ParseInt(offsetStr, 10, 64)
-				d.xrefTable[startObjID+i] = offsetVal
+				d.xrefTable[startObjID+i] = offsetVal + d.pdfStart
 			}
 		}
 	}
