@@ -86,7 +86,7 @@ func TestProfile_PDFA1BIsFullProfile(t *testing.T) {
 }
 
 func TestProfile_NewProfileIsEmpty(t *testing.T) {
-	p := NewProfile(A1_B)
+	p := NewProfile(A_1B)
 	if len(p.Checks()) != 0 {
 		t.Errorf("NewProfile should have 0 checks, got %d", len(p.Checks()))
 	}
@@ -108,7 +108,7 @@ func TestProfile_CopyOnWrite(t *testing.T) {
 		t.Error("RemoveCheck() modified PDFA_1B")
 	}
 
-	empty := NewProfile(A1_B)
+	empty := NewProfile(A_1B)
 	_ = empty.AddCheck(Checks.Structure.FileHeaderSignature)
 	if empty.Has(Checks.Structure.FileHeaderSignature) {
 		t.Error("AddCheck() modified the original empty profile")
@@ -168,11 +168,11 @@ func TestProfile_ChecksOrder(t *testing.T) {
 }
 
 func TestProfile_AllowsUnknownPairs(t *testing.T) {
-	empty := NewProfile(A1_B)
+	empty := NewProfile(A_1B)
 	if !empty.allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in an empty profile")
 	}
-	full := newFullProfile(A1_B)
+	full := newFullProfile(A_1B)
 	if !full.allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in a full profile")
 	}
@@ -181,7 +181,7 @@ func TestProfile_AllowsUnknownPairs(t *testing.T) {
 func TestProfile_AllowsCatalogPairs(t *testing.T) {
 	check := Checks.Transparency.ImageWithSoftMask
 
-	full := newFullProfile(A1_B)
+	full := newFullProfile(A_1B)
 	if !full.allows(check.clause, check.subclause) {
 		t.Error("enabled check pair should be allowed")
 	}
@@ -243,7 +243,7 @@ func TestVerifyProfile_FullProfileMatchesVerify(t *testing.T) {
 	}
 	defer doc.Close()
 
-	resVerify, err := doc.Verify(A1_B)
+	resVerify, err := doc.Verify(A_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestVerifyProfile_EmptyProfileReturnsValid(t *testing.T) {
 	defer doc.Close()
 
 	// An empty profile enables no checks, so no violations can be reported.
-	p := NewProfile(A1_B)
+	p := NewProfile(A_1B)
 	res, err := doc.VerifyProfile(p)
 	if err != nil {
 		t.Fatalf("VerifyProfile: %v", err)

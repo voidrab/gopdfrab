@@ -12,11 +12,11 @@ import (
 // ("start count" separated by a single space, no leading white space).
 var xrefHeaderRe = regexp.MustCompile(`^[0-9]+ [0-9]+$`)
 
-type LevelType int
+type LevelType string
 
 const (
-	Undefined LevelType = iota
-	A1_B
+	Undefined LevelType = "undefined"
+	A_1B      LevelType = "A-1b"
 )
 
 type Result struct {
@@ -28,7 +28,7 @@ type Result struct {
 // Verify verifies d to conformance level t.
 func (d *Document) Verify(t LevelType) (Result, error) {
 	switch t {
-	case A1_B:
+	case A_1B:
 		return d.VerifyProfile(PDFA_1B)
 	default:
 		return Result{Type: t, Valid: false}, fmt.Errorf("cannot verify PDF to undefined conformance level")
@@ -45,7 +45,7 @@ func (d *Document) VerifyProfile(p *Profile) (Result, error) {
 	}
 
 	var issues []PDFError
-	if p.Level == A1_B {
+	if p.Level == A_1B {
 		issues = d.verifyPdfA1b()
 	}
 	issues = filterByProfile(issues, p)

@@ -30,7 +30,7 @@ type Profile struct {
 var PDFA_1B *Profile
 
 func init() {
-	PDFA_1B = newFullProfile(A1_B)
+	PDFA_1B = newFullProfile(A_1B)
 }
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -111,5 +111,5 @@ func (p *Profile) allows(clause string, subclause int) bool {
 
 // String returns a human-readable summary of the profile.
 func (p *Profile) String() string {
-	return fmt.Sprintf("Profile{Level:%d enabled:%d/%d}", p.Level, len(p.enabled), len(allChecksCatalog))
+	return fmt.Sprintf("Profile{Level:%s enabled:%d/%d}", p.Level, len(p.enabled), len(allChecksCatalog))
 }

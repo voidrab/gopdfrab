@@ -117,7 +117,7 @@ if err != nil {
 ### PDF/A Validation
 
 ```go
-v, err := doc.Verify(pdfrab.A1_B)
+v, err := doc.Verify(pdfrab.A_1B)
 if err != nil {
   log.Println(err)
 }
