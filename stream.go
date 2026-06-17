@@ -49,6 +49,14 @@ func (d *Document) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	}
 	dict.RawStream = data
 
+	// 6.1.7: declared Length must not include the EOL marker that precedes endstream.
+	// If the byte immediately after the declared-length region is 'e' (start of
+	// "endstream"), the length count consumed the mandatory EOL — a violation.
+	var peek [9]byte
+	if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
+		d.recordStreamFraming(objNum, 6, "stream Length value includes the EOL marker before endstream")
+	}
+
 	// 6.1.7: the endstream keyword shall be preceded by an EOL marker.
 	d.checkEndstreamFraming(objNum, streamStart, length)
 

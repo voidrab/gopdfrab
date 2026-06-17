@@ -18,6 +18,9 @@ type Document struct {
 	trailer    PDFDict
 	xrefTable  map[int]int64
 	xrefOffset int64
+	// pdfStart is the byte offset of the "%PDF-" header. Non-zero when the
+	// file begins with garbage bytes before the PDF header (6.1.2).
+	pdfStart int64
 
 	// structErrs collects document-structure violations (e.g. 6.1.8 object
 	// framing) discovered lazily during object resolution. framingChecked
@@ -113,6 +116,16 @@ func Open(path string) (*Document, error) {
 //
 // It returns any error encountered.
 func (d *Document) initializeStructure() error {
+	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
+	// xref offsets in such files are relative to the PDF content start.
+	scanSize := min(d.info.Size(), 1024)
+	scanBuf := make([]byte, scanSize)
+	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
+		if idx := bytes.Index(scanBuf, []byte("%PDF-")); idx > 0 {
+			d.pdfStart = int64(idx)
+		}
+	}
+
 	tailSize := min(d.info.Size(), int64(1500))
 
 	tailOffset := d.info.Size() - tailSize
@@ -140,7 +153,7 @@ func (d *Document) initializeStructure() error {
 
 	d.xrefOffset = xrefOffset
 
-	if err := d.parseXRefTable(xrefOffset); err != nil {
+	if err := d.parseXRefTable(xrefOffset + d.pdfStart); err != nil {
 		return fmt.Errorf("failed to parse xref table: %w", err)
 	}
 

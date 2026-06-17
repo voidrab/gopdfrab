@@ -73,39 +73,39 @@ func TestDocument_OpenAndRead(t *testing.T) {
 }
 
 func TestDocument_GetPageCount(t *testing.T) {
-	filename := "test.pdf"
+	filename := "test_getpagecount.pdf"
+	if err := createValidPDF(filename); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(filename)
 
-	doc, err := Open(test_dir + filename)
+	doc, err := Open(filename)
 	if err != nil {
 		t.Fatalf("Failed to open valid PDF: %v", err)
 	}
 	defer doc.Close()
-
-	if doc.info.Size() == 0 {
-		t.Error("Document size should not be 0")
-	}
 
 	count, err := doc.GetPageCount()
 	if err != nil {
 		t.Errorf("GetPageCount error: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("Expected 1 page, got %d", count)
+	if count != 5 {
+		t.Errorf("Expected 5 pages, got %d", count)
 	}
 }
 
 func TestDocument_GetVersion(t *testing.T) {
-	filename := "test.pdf"
+	filename := "test_getversion.pdf"
+	if err := createValidPDF(filename); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(filename)
 
-	doc, err := Open(test_dir + filename)
+	doc, err := Open(filename)
 	if err != nil {
 		t.Fatalf("Failed to open valid PDF: %v", err)
 	}
 	defer doc.Close()
-
-	if doc.info.Size() == 0 {
-		t.Error("Document size should not be 0")
-	}
 
 	version, err := doc.GetVersion()
 	if err != nil {

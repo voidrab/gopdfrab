@@ -66,6 +66,10 @@ func (d *Document) verifyPdfA1b() []PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
+	errs = d.checkLinearizedFileID()
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
 	errs = d.verifyFileTrailer()
 	if errs != nil {
 		issues = append(issues, errs...)
@@ -81,22 +85,22 @@ func (d *Document) verifyPdfA1b() []PDFError {
 
 	graph, err := d.ResolveGraph()
 	if err != nil {
-		return []PDFError{{
+		return append(issues, PDFError{
 			clause:    "6.1.6",
 			subclause: 0,
 			errs:      []error{err},
 			page:      0,
-		}}
+		})
 	}
 
 	pageIndex, err := d.buildPageIndex(graph)
 	if err != nil {
-		return []PDFError{{
+		return append(issues, PDFError{
 			clause:    "6.1.6",
 			subclause: 0,
 			errs:      []error{err},
 			page:      0,
-		}}
+		})
 	}
 
 	ctx := &ValidationContext{
@@ -693,9 +697,19 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			}
 			errs = append(errs, err)
 		}
-	}
 
-	// TODO check if ICC profile stream is valid
+		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
+		if profileMap.HasStream {
+			if iccErr := validateICCProfileStream(profileMap); iccErr != nil {
+				errs = append(errs, PDFError{
+					clause:    "6.2.2",
+					subclause: 11,
+					errs:      []error{iccErr},
+					page:      0,
+				})
+			}
+		}
+	}
 
 	if len(errs) > 0 {
 		return errs
@@ -704,8 +718,58 @@ func (d *Document) verifyOutputIntent() []PDFError {
 	return nil
 }
 
+// validateICCProfileStream checks that a DestOutputProfile stream is a valid
+// ICC profile version 2.x as required by PDF/A-1 (6.2.2 / ICC.1:2003-09).
+func validateICCProfileStream(dict PDFDict) error {
+	data, err := decodeStream(dict)
+	if err != nil {
+		return fmt.Errorf("cannot decode ICC profile stream: %v", err)
+	}
+	if len(data) < 128 {
+		return fmt.Errorf("ICC profile too short (%d bytes)", len(data))
+	}
+	if string(data[36:40]) != "acsp" {
+		return fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")
+	}
+	major := data[8]
+	if major > 2 {
+		return fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be ≤ 2.x)", major)
+	}
+	return nil
+}
+
 // verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
 func (d *Document) verifyGeneralColourSpaces() []PDFError {
 	// TODO check if document has OutputIntent or direct use of device-independent colour space
+	return nil
+}
+
+// trailerIDRe finds the first hex string in any /ID array in the file.
+var trailerIDRe = regexp.MustCompile(`/ID\s*\[<([0-9A-Fa-f]+)>`)
+
+// checkLinearizedFileID detects the 6.1.3 violation where a linearized PDF has
+// different ID[0] values in its first-page and final trailers (ISO 19005-1:2005 §6.1.3).
+func (d *Document) checkLinearizedFileID() []PDFError {
+	size := d.info.Size()
+	raw := make([]byte, size)
+	if _, err := d.file.ReadAt(raw, 0); err != nil {
+		return nil
+	}
+	matches := trailerIDRe.FindAllSubmatch(raw, -1)
+	if len(matches) < 2 {
+		return nil
+	}
+	first := strings.ToLower(string(matches[0][1]))
+	for _, m := range matches[1:] {
+		id := strings.ToLower(string(m[1]))
+		if id != first {
+			return []PDFError{{
+				clause:    "6.1.3",
+				subclause: 1,
+				errs:      []error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)},
+				page:      0,
+			}}
+		}
+	}
 	return nil
 }
