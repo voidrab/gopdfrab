@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -24,25 +25,25 @@ const (
 // knownXMPNamespaces lists the XMP namespace URIs predefined by PDF/A-1b
 // that do not require extension schema descriptions.
 var knownXMPNamespaces = map[string]bool{
-	"http://www.w3.org/1999/02/22-rdf-syntax-ns#":   true,
-	"adobe:ns:meta/":                                  true,
-	"http://ns.adobe.com/xap/1.0/":                  true,
-	"http://ns.adobe.com/xap/1.0/mm/":               true,
-	"http://ns.adobe.com/xap/1.0/rights/":           true,
-	"http://ns.adobe.com/xap/1.0/t/pg/":             true,
-	"http://ns.adobe.com/pdf/1.3/":                  true,
-	"http://purl.org/dc/elements/1.1/":              true,
-	"http://www.aiim.org/pdfa/ns/id/":               true,
-	"http://www.aiim.org/pdfa/ns/extension/":        true,
-	"http://www.aiim.org/pdfa/ns/schema#":           true,
-	"http://www.aiim.org/pdfa/ns/property#":         true,
-	"http://www.aiim.org/pdfa/ns/type#":             true,
-	"http://www.aiim.org/pdfa/ns/field#":            true,
-	"http://ns.adobe.com/photoshop/1.0/":            true,
-	"http://ns.adobe.com/tiff/1.0/":                 true,
-	"http://ns.adobe.com/exif/1.0/":                 true,
-	"http://ns.adobe.com/exif/1.0/aux/":             true,
-	"http://ns.adobe.com/camera-raw-settings/1.0/":  true,
+	"http://www.w3.org/1999/02/22-rdf-syntax-ns#": true,
+	"adobe:ns:meta/":                               true,
+	"http://ns.adobe.com/xap/1.0/":                 true,
+	"http://ns.adobe.com/xap/1.0/mm/":              true,
+	"http://ns.adobe.com/xap/1.0/rights/":          true,
+	"http://ns.adobe.com/xap/1.0/t/pg/":            true,
+	"http://ns.adobe.com/pdf/1.3/":                 true,
+	"http://purl.org/dc/elements/1.1/":             true,
+	"http://www.aiim.org/pdfa/ns/id/":              true,
+	"http://www.aiim.org/pdfa/ns/extension/":       true,
+	"http://www.aiim.org/pdfa/ns/schema#":          true,
+	"http://www.aiim.org/pdfa/ns/property#":        true,
+	"http://www.aiim.org/pdfa/ns/type#":            true,
+	"http://www.aiim.org/pdfa/ns/field#":           true,
+	"http://ns.adobe.com/photoshop/1.0/":           true,
+	"http://ns.adobe.com/tiff/1.0/":                true,
+	"http://ns.adobe.com/exif/1.0/":                true,
+	"http://ns.adobe.com/exif/1.0/aux/":            true,
+	"http://ns.adobe.com/camera-raw-settings/1.0/": true,
 }
 
 // xmpBuiltinTypes lists the predefined XMP value types valid for
@@ -68,12 +69,12 @@ type extSchema struct {
 
 type extProperty struct {
 	name, valueType, category, description string
-	nameCount                               int // >1 means duplicate (t02-f)
+	nameCount                              int // >1 means duplicate (t02-f)
 }
 
 type extType struct {
 	typeName, namespaceURI, prefix, description string
-	fields                                       []extField
+	fields                                      []extField
 }
 
 type extField struct {
@@ -92,13 +93,7 @@ func checkExtensionSchemas(xmp string) []PDFError {
 		if _, exists := bindPrefixToURI[prefix]; !exists {
 			bindPrefixToURI[prefix] = uri
 		}
-		found := false
-		for _, p := range bindURIToPrefixes[uri] {
-			if p == prefix {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(bindURIToPrefixes[uri], prefix)
 		if !found {
 			bindURIToPrefixes[uri] = append(bindURIToPrefixes[uri], prefix)
 		}
@@ -664,10 +659,10 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 }
 
 var (
-	xpacketRe     = regexp.MustCompile(`<\?xpacket[^>]*>`)
-	pdfaNSRe      = regexp.MustCompile(`xmlns:pdfaid\s*=\s*"([^"]*)"`)
-	pdfaPartRe    = regexp.MustCompile(`pdfaid:part\s*=\s*"([^"]*)"|<pdfaid:part>\s*([^<\s]+)\s*</pdfaid:part>`)
-	pdfaConfRe    = regexp.MustCompile(`pdfaid:conformance\s*=\s*"([^"]*)"|<pdfaid:conformance>\s*([^<\s]+)\s*</pdfaid:conformance>`)
+	xpacketRe  = regexp.MustCompile(`<\?xpacket[^>]*>`)
+	pdfaNSRe   = regexp.MustCompile(`xmlns:pdfaid\s*=\s*"([^"]*)"`)
+	pdfaPartRe = regexp.MustCompile(`pdfaid:part\s*=\s*"([^"]*)"|<pdfaid:part>\s*([^<\s]+)\s*</pdfaid:part>`)
+	pdfaConfRe = regexp.MustCompile(`pdfaid:conformance\s*=\s*"([^"]*)"|<pdfaid:conformance>\s*([^<\s]+)\s*</pdfaid:conformance>`)
 )
 
 func xmpErr(clause string, sub int, msg string) PDFError {

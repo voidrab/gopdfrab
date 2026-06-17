@@ -73,7 +73,7 @@ func ttWindowsBMPCmap(tables map[string][]byte) []byte {
 		return nil
 	}
 	n := int(binary.BigEndian.Uint16(cmap[2:4]))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		rec := cmap[4+i*8:]
 		if len(rec) < 8 {
 			break
@@ -105,7 +105,7 @@ func parseCmapFormat4(sub []byte) map[uint16]uint16 {
 	}
 
 	result := map[uint16]uint16{}
-	for i := 0; i < segCount; i++ {
+	for i := range segCount {
 		endCount := binary.BigEndian.Uint16(sub[endOff+i*2:])
 		startCount := binary.BigEndian.Uint16(sub[startOff+i*2:])
 		delta := int(int16(binary.BigEndian.Uint16(sub[deltaOff+i*2:])))
@@ -283,7 +283,7 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 // splitGlyphNames splits a CharSet string like "/a/b/c" into ["a", "b", "c"].
 func splitGlyphNames(cs string) []string {
 	var result []string
-	for _, part := range strings.Split(cs, "/") {
+	for part := range strings.SplitSeq(cs, "/") {
 		if part != "" {
 			result = append(result, part)
 		}

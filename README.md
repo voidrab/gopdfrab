@@ -49,6 +49,48 @@ PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes the full [Isa
 | 6.7.11 | PDF/A identifier | ✓ |
 | 6.9 | Interactive forms | ✓ |
 
+## Selective Check Profiles
+
+Verification can be narrowed to a specific set of rules using `VerifyProfile`.
+
+### Start from the full profile and remove checks
+
+```go
+p := pdfrab.PDFA_1B.
+    RemoveCheck(pdfrab.Checks.Structure.FileHeaderSignature).
+    RemoveCheck(pdfrab.Checks.Font.SimpleNotEmbedded)
+
+res, err := doc.VerifyProfile(p)
+```
+
+### Start from an empty profile and add checks
+
+```go
+p := pdfrab.PDFA_1B.Clear().
+    AddCheck(
+        pdfrab.Checks.Transparency.ImageWithSoftMask,
+        pdfrab.Checks.Metadata.PDFAIdentifierMissing,
+    )
+
+res, err := doc.VerifyProfile(p)
+```
+
+### Available check groups
+
+| Registry field | Spec area |
+|---|---|
+| `Checks.Structure` | 6.1.x — file header, trailer, xref, object framing, limits |
+| `Checks.Colour` | 6.2.2 OutputIntent, 6.2.3.x device colours, 6.2.9–10 |
+| `Checks.Image` | 6.2.4–6.2.7 image/form/PostScript XObjects |
+| `Checks.Transparency` | 6.2.8 transfer functions, 6.4 soft masks/blend modes/alpha |
+| `Checks.Font` | 6.3.x embedding, subsets, metrics, encoding |
+| `Checks.Annotation` | 6.5.x annotation types and dictionaries |
+| `Checks.Action` | 6.6.x action types and additional actions |
+| `Checks.Metadata` | 6.7.x XMP metadata, extension schemas, PDF/A identifier |
+| `Checks.Form` | 6.9 interactive forms |
+
+Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers.
+
 ## Getting Started
 
 A full example can be found under `main/main.go`

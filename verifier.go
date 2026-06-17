@@ -27,34 +27,45 @@ type Result struct {
 
 // Verify verifies d to conformance level t.
 func (d *Document) Verify(t LevelType) (Result, error) {
-	basicResult := Result{
-		Type:   t,
-		Valid:  false,
-		Issues: nil,
+	switch t {
+	case A1_B:
+		return d.VerifyProfile(PDFA_1B)
+	default:
+		return Result{Type: t, Valid: false}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	}
+}
+
+// VerifyProfile verifies d against the checks enabled in profile p.
+func (d *Document) VerifyProfile(p *Profile) (Result, error) {
+	if p == nil {
+		return Result{}, fmt.Errorf("nil profile")
+	}
+	if p.Level == Undefined {
+		return Result{Type: p.Level, Valid: false}, fmt.Errorf("cannot verify PDF to undefined conformance level")
 	}
 
-	if t == Undefined {
-		return basicResult, fmt.Errorf("cannot verify PDF to undefined conformance level")
-	}
-
-	var issues = []PDFError{}
-	if t == A1_B {
+	var issues []PDFError
+	if p.Level == A1_B {
 		issues = d.verifyPdfA1b()
 	}
+	issues = filterByProfile(issues, p)
 
 	if len(issues) > 0 {
-		return Result{
-			Type:   t,
-			Valid:  false,
-			Issues: issues,
-		}, nil
+		return Result{Type: p.Level, Valid: false, Issues: issues}, nil
 	}
+	return Result{Type: p.Level, Valid: true}, nil
+}
 
-	return Result{
-		Type:   t,
-		Valid:  true,
-		Issues: nil,
-	}, nil
+// filterByProfile removes from issues any PDFError whose (clause, subclause)
+// pair is registered in the catalog but disabled in p.
+func filterByProfile(issues []PDFError, p *Profile) []PDFError {
+	out := make([]PDFError, 0, len(issues))
+	for _, e := range issues {
+		if p.allows(e.clause, e.subclause) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // PDF/A-1b (ISO 19005-1:2005)
