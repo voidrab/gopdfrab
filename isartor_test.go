@@ -81,7 +81,7 @@ func TestIsartorSuite(t *testing.T) {
 			}
 			defer doc.Close()
 
-			res, verr := doc.Verify(A_1B)
+			res, verr := doc.VerifyProfile(Legacy_1B)
 			if verr != nil {
 				caught++
 				t.Logf("Verify returned error (treated as caught): %v", verr)

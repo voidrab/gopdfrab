@@ -72,77 +72,9 @@ func namedColourModel(name PDFName, resources PDFDict) string {
 	return ""
 }
 
-// validateContentHexStrings scans decoded content-stream bytes for invalid hex
-// strings (6.1.6): odd number of non-whitespace chars, or non-hex characters.
-func validateContentHexStrings(data []byte, obj PDFValue, ctx *ValidationContext) {
-	i := 0
-	for i < len(data) {
-		b := data[i]
-		// Skip comments (% to end of line).
-		if b == '%' {
-			for i < len(data) && data[i] != '\n' && data[i] != '\r' {
-				i++
-			}
-			continue
-		}
-		// Skip literal strings (balanced parens, handling backslash escapes).
-		if b == '(' {
-			i++
-			depth := 1
-			for i < len(data) && depth > 0 {
-				c := data[i]
-				if c == '\\' {
-					i += 2
-				} else if c == '(' {
-					depth++
-					i++
-				} else if c == ')' {
-					depth--
-					i++
-				} else {
-					i++
-				}
-			}
-			continue
-		}
-		// << is dictionary start, not a hex string.
-		if b == '<' && i+1 < len(data) && data[i+1] == '<' {
-			i += 2
-			continue
-		}
-		// Single < starts a hex string.
-		if b == '<' {
-			i++
-			nonws := 0
-			hasInvalid := false
-			for i < len(data) && data[i] != '>' {
-				c := data[i]
-				if !isWhitespaceByte(c) {
-					if hexDigit(c) == -1 {
-						hasInvalid = true
-					}
-					nonws++
-				}
-				i++
-			}
-			if i < len(data) {
-				i++ // consume >
-			}
-			if hasInvalid {
-				ctx.ReportError(obj, "6.1.6", 2, "hex string contains non-hexadecimal character")
-			} else if nonws%2 != 0 {
-				ctx.ReportError(obj, "6.1.6", 1, "hex string has odd number of non-whitespace characters")
-			}
-			continue
-		}
-		i++
-	}
-}
-
 // scanContent runs the content-stream checks (6.2.3.3 colour, 6.2.9 rendering
 // intent, 6.2.10 operators) over decoded content bytes.
 func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationContext) {
-	validateContentHexStrings(data, obj, ctx)
 	cs := newContentScanner(data)
 	colourSet := false
 	qDepth := 0
@@ -159,6 +91,11 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 			}
 			if s, ok := operand.(PDFString); ok && pdfStringDecodedLen(s.Value) > 65535 {
 				ctx.ReportError(obj, "6.1.12", 6, "string in content stream exceeds maximum length of 65535 bytes")
+			}
+			// 6.1.6: hex string operands must contain only hex digits and an
+			// even count of them.
+			if hs, ok := operand.(PDFHexString); ok {
+				validateHexString(hs, ctx)
 			}
 		}
 		// 6.1.12: maximum nesting depth of q/Q operators is 28.

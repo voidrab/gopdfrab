@@ -16,16 +16,22 @@ func TestT03PassA(t *testing.T) {
 	findLongStrings = func(v PDFValue, path string, visited map[uintptr]bool) {
 		switch d := v.(type) {
 		case PDFDict:
-			if d.Entries == nil { return }
+			if d.Entries == nil {
+				return
+			}
 			ptr := pdfValuePointer(d.Entries)
-			if visited[ptr] { return }
+			if visited[ptr] {
+				return
+			}
 			visited[ptr] = true
 			for k, val := range d.Entries {
 				findLongStrings(val, path+"/"+k, visited)
 			}
 		case PDFArray:
 			ptr := pdfValuePointer(d)
-			if visited[ptr] { return }
+			if visited[ptr] {
+				return
+			}
 			visited[ptr] = true
 			for i, item := range d {
 				findLongStrings(item, fmt.Sprintf("%s[%d]", path, i), visited)
@@ -40,6 +46,8 @@ func TestT03PassA(t *testing.T) {
 }
 
 func min2(a, b int) int {
-	if a < b { return a }
+	if a < b {
+		return a
+	}
 	return b
 }

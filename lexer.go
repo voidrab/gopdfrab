@@ -312,6 +312,13 @@ func (l *Lexer) readStringLiteral() Token {
 	}
 }
 
+// readHexString reads a hex string up to the closing '>'. Invalid hex digits
+// are preserved in the token value rather than aborting the scan: 6.1.6
+// requires hex strings to contain only hex digits and an even count of them,
+// but a single malformed string should not prevent the rest of the document
+// (or content stream) from being parsed and checked. Callers validate the
+// returned value (see validateHexString) and report a precise 6.1.6
+// violation instead.
 func (l *Lexer) readHexString() Token {
 	var buf []byte
 
@@ -325,9 +332,6 @@ func (l *Lexer) readHexString() Token {
 		}
 		if isWhitespace(b) {
 			continue
-		}
-		if !isHexDigit(b) {
-			return Token{Type: TokenError, Value: "Invalid character in hex string"}
 		}
 		buf = append(buf, b)
 	}

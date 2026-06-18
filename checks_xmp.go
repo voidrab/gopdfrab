@@ -28,22 +28,22 @@ const (
 // that do not require extension schema descriptions.
 var knownXMPNamespaces = map[string]bool{
 	"http://www.w3.org/1999/02/22-rdf-syntax-ns#": true,
-	"adobe:ns:meta/":                               true,
-	"http://ns.adobe.com/xap/1.0/":                 true,
-	"http://ns.adobe.com/xap/1.0/mm/":              true,
-	"http://ns.adobe.com/xap/1.0/rights/":          true,
-	"http://ns.adobe.com/xap/1.0/t/pg/":            true,
-	"http://ns.adobe.com/pdf/1.3/":                 true,
-	"http://purl.org/dc/elements/1.1/":             true,
-	"http://www.aiim.org/pdfa/ns/id/":              true,
-	"http://www.aiim.org/pdfa/ns/extension/":       true,
-	"http://www.aiim.org/pdfa/ns/schema#":          true,
-	"http://www.aiim.org/pdfa/ns/property#":        true,
-	"http://www.aiim.org/pdfa/ns/type#":            true,
-	"http://www.aiim.org/pdfa/ns/field#":           true,
-	"http://ns.adobe.com/photoshop/1.0/":           true,
-	"http://ns.adobe.com/tiff/1.0/":                true,
-	"http://ns.adobe.com/exif/1.0/":                true,
+	"adobe:ns:meta/":                         true,
+	"http://ns.adobe.com/xap/1.0/":           true,
+	"http://ns.adobe.com/xap/1.0/mm/":        true,
+	"http://ns.adobe.com/xap/1.0/rights/":    true,
+	"http://ns.adobe.com/xap/1.0/t/pg/":      true,
+	"http://ns.adobe.com/pdf/1.3/":           true,
+	"http://purl.org/dc/elements/1.1/":       true,
+	"http://www.aiim.org/pdfa/ns/id/":        true,
+	"http://www.aiim.org/pdfa/ns/extension/": true,
+	"http://www.aiim.org/pdfa/ns/schema#":    true,
+	"http://www.aiim.org/pdfa/ns/property#":  true,
+	"http://www.aiim.org/pdfa/ns/type#":      true,
+	"http://www.aiim.org/pdfa/ns/field#":     true,
+	"http://ns.adobe.com/photoshop/1.0/":     true,
+	"http://ns.adobe.com/tiff/1.0/":          true,
+	"http://ns.adobe.com/exif/1.0/":          true,
 	// aux: and xmpDM: are not standard XMP 2004 schemas; omit so undeclared use is flagged.
 	// Camera Raw is not a standard XMP 2004 schema; omit so undeclared use is flagged.
 	// XMP structured-type namespaces (st* prefixes) — these are standard Adobe XMP
@@ -61,9 +61,9 @@ var knownXMPNamespaces = map[string]bool{
 	"http://ns.adobe.com/xap/1.0/bj/":                  true,
 	"http://ns.adobe.com/xmp/Identifier/qual/1.0/":     true,
 	// xmpDM: is not a standard XMP 2004 schema; omit.
-	"http://ns.adobe.com/InDesign/1.0/":                true,
-	"http://ns.adobe.com/illustrator/1.0/":             true,
-	"http://ns.adobe.com/swf/1.0/":                     true,
+	"http://ns.adobe.com/InDesign/1.0/":    true,
+	"http://ns.adobe.com/illustrator/1.0/": true,
+	"http://ns.adobe.com/swf/1.0/":         true,
 }
 
 // xmpBuiltinTypes lists the predefined XMP value types valid for
@@ -1182,7 +1182,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"ICCProfile": xmpKindScalar, "Instructions": xmpKindScalar,
 		"Source": xmpKindScalar, "State": xmpKindScalar,
 		"SupplementalCategories": xmpKindScalar,
-		"TransmissionReference": xmpKindScalar, "Urgency": xmpKindInteger,
+		"TransmissionReference":  xmpKindScalar, "Urgency": xmpKindInteger,
 		// Author, Copyright, History, Title not valid in XMP 2004
 	},
 	// TIFF (tiff:)
@@ -1215,13 +1215,13 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"FNumber": xmpKindScalar, "FileSource": xmpKindInteger,
 		"Flash": xmpKindStruct, "FlashEnergy": xmpKindScalar,
 		"FlashpixVersion": xmpKindScalar, "FocalLength": xmpKindScalar,
-		"FocalLengthIn35mmFilm": xmpKindInteger,
+		"FocalLengthIn35mmFilm":    xmpKindInteger,
 		"FocalPlaneResolutionUnit": xmpKindInteger,
-		"FocalPlaneXResolution": xmpKindScalar, "FocalPlaneYResolution": xmpKindScalar,
+		"FocalPlaneXResolution":    xmpKindScalar, "FocalPlaneYResolution": xmpKindScalar,
 		"GainControl": xmpKindInteger,
 		"GPSAltitude": xmpKindScalar, "GPSAltitudeRef": xmpKindInteger,
 		"GPSAreaInformation": xmpKindScalar,
-		"GPSDOP": xmpKindScalar, "GPSDestBearing": xmpKindScalar,
+		"GPSDOP":             xmpKindScalar, "GPSDestBearing": xmpKindScalar,
 		"GPSDestBearingRef": xmpKindScalar, "GPSDestDistance": xmpKindScalar,
 		"GPSDestDistanceRef": xmpKindScalar, "GPSDestLatitude": xmpKindScalar,
 		"GPSDestLongitude": xmpKindScalar, "GPSDifferential": xmpKindInteger,
@@ -1232,7 +1232,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"GPSSpeed": xmpKindScalar, "GPSSpeedRef": xmpKindScalar,
 		"GPSStatus": xmpKindScalar, "GPSTimeStamp": xmpKindScalar,
 		"GPSTrack": xmpKindScalar, "GPSTrackRef": xmpKindScalar,
-		"GPSVersionID": xmpKindScalar,
+		"GPSVersionID":    xmpKindScalar,
 		"ISOSpeedRatings": xmpKindSeq, "ImageUniqueID": xmpKindScalar,
 		"LightSource": xmpKindInteger, "MakerNote": xmpKindScalar,
 		"MaxApertureValue": xmpKindScalar, "MeteringMode": xmpKindInteger,
@@ -1252,10 +1252,10 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"Names": xmpKindSeq, "Values": xmpKindSeq, "Settings": xmpKindSeq,
 	},
 	// PDF/A Identification Schema (pdfaid:) — only part, conformance, and amd are defined.
-	"http://www.aiim.org/pdfa/ns/id/": {
-		"part":         xmpKindInteger,
-		"conformance":  xmpKindScalar,
-		"amd":          xmpKindScalar,
+	pdfaIDNamespace: {
+		"part":        xmpKindInteger,
+		"conformance": xmpKindScalar,
+		"amd":         xmpKindScalar,
 	},
 }
 
@@ -1371,21 +1371,28 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 	if schema == nil {
 		return nil
 	}
+	// The pdfaid namespace is part of the PDF/A identification requirements
+	// (6.7.11), not the general XMP 2004 schema check (6.7.2): a malformed
+	// pdfaid property is reported under the more specific clause.
+	clause, sub := "6.7.2", 2
+	if nsURI == pdfaIDNamespace {
+		clause, sub = "6.7.11", 5
+	}
 	expected, defined := schema[propName]
 	if !defined {
-		return []PDFError{xmpErr("6.7.2", 2,
+		return []PDFError{xmpErr(clause, sub,
 			fmt.Sprintf("property %q is not defined in XMP 2004 schema %s", propName, nsURI))}
 	}
 	if !xmpContainerOK(expected, actual) {
-		return []PDFError{xmpErr("6.7.2", 2,
+		return []PDFError{xmpErr(clause, sub,
 			fmt.Sprintf("property %q used with wrong container type", propName))}
 	}
 	if expected == xmpKindInteger && actual == xmpKindScalar && value != "" && !xmpIsInteger(value) {
-		return []PDFError{xmpErr("6.7.2", 2,
+		return []PDFError{xmpErr(clause, sub,
 			fmt.Sprintf("property %q must be an integer, got %q", propName, value))}
 	}
 	if expected == xmpKindBoolean && actual == xmpKindScalar && value != "" && value != "True" && value != "False" {
-		return []PDFError{xmpErr("6.7.2", 2,
+		return []PDFError{xmpErr(clause, sub,
 			fmt.Sprintf("property %q must be a boolean (True/False), got %q", propName, value))}
 	}
 	return nil

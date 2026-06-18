@@ -73,14 +73,14 @@ func TestCatalog_KnownChecks(t *testing.T) {
 	}
 }
 
-func TestProfile_PDFA1BIsFullProfile(t *testing.T) {
+func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
 	all := AllChecks()
-	if len(PDFA_1B.Checks()) != len(all) {
-		t.Errorf("PDFA_1B has %d checks, catalog has %d", len(PDFA_1B.Checks()), len(all))
+	if len(Legacy_1B.Checks()) != len(all) {
+		t.Errorf("Legacy_1B has %d checks, catalog has %d", len(Legacy_1B.Checks()), len(all))
 	}
 	for _, c := range all {
-		if !PDFA_1B.Has(c) {
-			t.Errorf("PDFA_1B missing check %q", c.name)
+		if !Legacy_1B.Has(c) {
+			t.Errorf("Legacy_1B missing check %q", c.name)
 		}
 	}
 }
@@ -156,7 +156,7 @@ func TestProfile_RemoveCheck(t *testing.T) {
 
 func TestProfile_ChecksOrder(t *testing.T) {
 	all := AllChecks()
-	got := PDFA_1B.Checks()
+	got := Legacy_1B.Checks()
 	if len(got) != len(all) {
 		t.Fatalf("Checks() length mismatch: %d vs %d", len(got), len(all))
 	}

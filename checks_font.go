@@ -41,6 +41,11 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 	// 6.3.2: where a font program is embedded, it shall be valid.
 	validateFontProgram(v, desc, baseFont.Value, ctx)
 
+	// Fonts that are only ever used to show invisible text (rendering mode 3
+	// or 7) are never actually rendered, so glyph-coverage and metric
+	// checks (6.3.3.2, 6.3.5, 6.3.6) do not apply to them.
+	invisibleOnly := ctx.isInvisibleOnlyFont(v)
+
 	switch subtype.Value {
 	case "Type1", "MMType1", "TrueType":
 		// 6.3.4: the font program shall be embedded.
@@ -49,7 +54,7 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 		}
 		if subtype.Value == "TrueType" {
 			validateTrueTypeEncoding(v, desc, ctx)
-			if ff, ok := desc.Entries["FontFile2"].(PDFDict); ok {
+			if ff, ok := desc.Entries["FontFile2"].(PDFDict); ok && !invisibleOnly {
 				firstChar, fcOK := v.Entries["FirstChar"].(PDFInteger)
 				lastChar, lcOK := v.Entries["LastChar"].(PDFInteger)
 				widths, wOK := v.Entries["Widths"].(PDFArray)
@@ -63,7 +68,7 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 			}
 		} else if !subset {
 			// 6.3.6: advance widths in the embedded font program must match PDF Widths.
-			if ff, ok := desc.Entries["FontFile"].(PDFDict); ok {
+			if ff, ok := desc.Entries["FontFile"].(PDFDict); ok && !invisibleOnly {
 				firstChar, fcOK := v.Entries["FirstChar"].(PDFInteger)
 				lastChar, lcOK := v.Entries["LastChar"].(PDFInteger)
 				widths, wOK := v.Entries["Widths"].(PDFArray)
@@ -76,7 +81,7 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 			if desc.Entries != nil && desc.Entries["CharSet"] == nil {
 				// 6.3.5: a Type 1 subset descriptor shall include CharSet.
 				ctx.ReportError(v, "6.3.5", 2, "Type 1 subset font descriptor lacks CharSet")
-			} else {
+			} else if !invisibleOnly {
 				// 6.3.5: every character code with non-zero width must map to a glyph in CharSet.
 				firstChar, fcOK := v.Entries["FirstChar"].(PDFInteger)
 				lastChar, lcOK := v.Entries["LastChar"].(PDFInteger)
@@ -93,16 +98,20 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 			ctx.ReportError(v, "6.3.4", 2, fmt.Sprintf("CID font %s is not embedded", baseFont.Value))
 		}
 		// 6.3.3.2: CIDFontType2 shall specify CIDToGIDMap.
-		if subtype.Value == "CIDFontType2" && v.Entries["CIDToGIDMap"] == nil {
+		if subtype.Value == "CIDFontType2" && v.Entries["CIDToGIDMap"] == nil && !invisibleOnly {
 			ctx.ReportError(v, "6.3.3.2", 1, "CIDFontType2 lacks CIDToGIDMap")
 		}
 		// 6.3.5: a CID subset descriptor shall include CIDSet.
 		if subset && desc.Entries != nil && desc.Entries["CIDSet"] == nil {
 			ctx.ReportError(v, "6.3.5", 3, "CID subset font descriptor lacks CIDSet")
+		} else if subset && subtype.Value == "CIDFontType0" && !invisibleOnly {
+			if ff, ok := desc.Entries["FontFile3"].(PDFDict); ok {
+				validateCIDSetBitmap(v, desc, ff, ctx)
+			}
 		}
 		// 6.3.5 / 6.3.6: glyph coverage (subset only) and metric consistency
 		// for embedded CID fonts.
-		if w, ok2 := v.Entries["W"].(PDFArray); ok2 {
+		if w, ok2 := v.Entries["W"].(PDFArray); ok2 && !invisibleOnly {
 			switch subtype.Value {
 			case "CIDFontType2":
 				if ff, ok := desc.Entries["FontFile2"].(PDFDict); ok {

@@ -16,7 +16,7 @@ const veraDir = "test documents/veraPDF/PDF_A-1b"
 // Examples:
 //
 //	"veraPDF test suite 6-1-2-t01-fail-a.pdf"  → clause 6.1.2, fail
-//	"6-3-5-t02-fail-a.pdf"                       → clause 6.3.5, fail
+//	"6-3-5-t02-fail-a.pdf"                     → clause 6.3.5, fail
 var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
 
 // veraClauseAndKind returns the expected clause and whether the file is a
@@ -85,7 +85,7 @@ func TestVeraPDFSuite(t *testing.T) {
 				}
 				defer doc.Close()
 
-				res, verr := doc.VerifyProfile(VeraPDF_1B)
+				res, verr := doc.Verify(A_1B)
 				if verr != nil {
 					passFalsePos++
 					t.Errorf("Verify returned error on conformant file: %v", verr)
@@ -111,7 +111,7 @@ func TestVeraPDFSuite(t *testing.T) {
 			}
 			defer doc.Close()
 
-			res, verr := doc.VerifyProfile(VeraPDF_1B)
+			res, verr := doc.Verify(A_1B)
 			if verr != nil {
 				failCaught++
 				t.Logf("Verify returned error (treated as caught): %v", verr)

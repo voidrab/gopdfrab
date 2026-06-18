@@ -20,6 +20,21 @@ type ValidationContext struct {
 	// streams. Nil means unknown (treat everything as reachable).
 	ReachableXObjectPtrs map[uintptr]bool
 
+	// InvisibleOnlyFontPtrs is the set of font dictionary Entries-map pointers
+	// that are used for text showing exclusively under rendering mode 3 or 7
+	// (invisible) somewhere in the document, and never under any other mode.
+	// Such fonts are never actually rendered, so 6.3.3.2 (CIDToGIDMap), 6.3.5
+	// (glyph coverage) and 6.3.6 (advance width consistency) do not apply.
+	InvisibleOnlyFontPtrs map[uintptr]bool
+
+	// UsedCharCodes maps a simple (non-composite) font's Entries-map pointer
+	// to the set of single-byte character codes actually passed to a
+	// text-showing operator somewhere in the document. A subset font's
+	// CharSet only needs to list glyphs "used for rendering" (6.3.5); a code
+	// with a non-zero Widths entry that is never actually shown need not be
+	// present. Nil for a font means no usage info was collected for it.
+	UsedCharCodes map[uintptr]map[int]bool
+
 	// pageResources is the Resources dict of the current page. Default* colour
 	// spaces defined at page level are inherited by patterns and Form XObjects
 	// that do not define their own Default*.
@@ -34,6 +49,30 @@ func (ctx *ValidationContext) isReachableXObject(v PDFDict) bool {
 		return true
 	}
 	return ctx.ReachableXObjectPtrs[pdfValuePointer(v.Entries)]
+}
+
+// isInvisibleOnlyFont returns true if font dictionary v is used for text
+// showing only under an invisible rendering mode (3 or 7), and is therefore
+// exempt from glyph-coverage and metric-consistency checks (6.3.3.2, 6.3.5,
+// 6.3.6). If usage info is absent, the font is treated as visible (checked).
+func (ctx *ValidationContext) isInvisibleOnlyFont(v PDFDict) bool {
+	if ctx.InvisibleOnlyFontPtrs == nil {
+		return false
+	}
+	return ctx.InvisibleOnlyFontPtrs[pdfValuePointer(v.Entries)]
+}
+
+// usedCodesFor returns the set of character codes actually shown for font v,
+// and whether usage info was collected for it at all. When known is false,
+// callers should fall back to a broader check (e.g. every code with a
+// non-zero Widths entry), since the font's content-stream usage could not be
+// determined.
+func (ctx *ValidationContext) usedCodesFor(v PDFDict) (codes map[int]bool, known bool) {
+	if ctx.UsedCharCodes == nil {
+		return nil, false
+	}
+	codes, known = ctx.UsedCharCodes[pdfValuePointer(v.Entries)]
+	return codes, known
 }
 
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",

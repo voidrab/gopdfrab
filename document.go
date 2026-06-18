@@ -353,8 +353,14 @@ func (d *Document) GetMetadata() (map[string]string, error) {
 
 	metadata := make(map[string]string)
 	for k, v := range dict.Entries {
-		if s, ok := v.(PDFString); ok {
+		switch s := v.(type) {
+		case PDFString:
 			metadata[k] = s.Value
+		case PDFHexString:
+			// A hex string is a legitimate (if unusual) way to encode info
+			// dict text; decode it so XMP-sync comparisons (6.7.3/6.1.5) see
+			// the actual text value instead of silently dropping the entry.
+			metadata[k] = string(decodePDFHexStringBytes(s.Value))
 		}
 	}
 	return metadata, nil

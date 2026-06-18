@@ -123,9 +123,10 @@ type imageChecks struct {
 }
 
 type transparencyChecks struct {
-	// 6.2.8 Transfer functions
-	TransferFunction        Check
-	DefaultTransferFunction Check
+	// 6.2.8 Graphics state
+	TransferFunction         Check
+	DefaultTransferFunction  Check
+	ExtGStateRenderingIntent Check
 	// 6.4 Transparency (soft masks, blend modes, alpha, groups)
 	SoftMaskExtGState Check
 	BlendMode         Check
@@ -210,18 +211,19 @@ type metadataChecks struct {
 	XMPStreamUnreadable Check
 	XMPNotWellFormed    Check
 	// 6.7.11 PDF/A identifier
-	PDFAIdentifierMissing   Check
-	PDFAIdentifierNamespace Check
-	PDFAConformanceLevel    Check
-	PDFAPartNumber          Check
+	PDFAIdentifierMissing           Check
+	PDFAIdentifierNamespace         Check
+	PDFAConformanceLevel            Check
+	PDFAPartNumber                  Check
+	PDFAIdentifierUndefinedProperty Check
 }
 
 type formChecks struct {
 	// 6.9 Interactive forms
-	NeedAppearances        Check
-	XFA                    Check
-	FieldAction            Check
-	FieldAdditionalActions Check
+	NeedAppearances         Check
+	XFA                     Check
+	FieldAction             Check
+	FieldAdditionalActions  Check
 	WidgetMissingAppearance Check
 }
 
@@ -520,6 +522,10 @@ func init() {
 				"DefaultTransferFunction",
 				"ExtGState TR2 entry, when present, must be /Default",
 				"6.2.8", 2),
+			ExtGStateRenderingIntent: newCheck(
+				"ExtGStateRenderingIntent",
+				"ExtGState RI entry, when present, must be one of the four standard rendering intents",
+				"6.2.8", 3),
 			SoftMaskExtGState: newCheck(
 				"SoftMaskExtGState",
 				"ExtGState SMask entry must be /None (soft masks introduce transparency)",
@@ -760,6 +766,10 @@ func init() {
 				"PDFAPartNumber",
 				"The pdfaid:part value must be '1'",
 				"6.7.11", 4),
+			PDFAIdentifierUndefinedProperty: newCheck(
+				"PDFAIdentifierUndefinedProperty",
+				"The pdfaid namespace must only contain the part, conformance, and amd properties",
+				"6.7.11", 5),
 		},
 
 		Form: formChecks{

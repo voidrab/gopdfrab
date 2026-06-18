@@ -108,9 +108,11 @@ func validateExtGState(v PDFDict, ctx *ValidationContext) {
 			ctx.ReportError(v, "6.2.8", 2, "ExtGState shall not contain a TR2 key other than /Default")
 		}
 	}
-	// 6.2.9: rendering intent in ExtGState must be one of the four standard values.
+	// 6.2.8: rendering intent in ExtGState must be one of the four standard
+	// values. (The 6.2.9 RenderingIntent check covers the content-stream `ri`
+	// operator specifically; this is the ExtGState dictionary's RI key.)
 	if ri, ok := v.Entries["RI"].(PDFName); ok && !allowedIntents[ri.Value] {
-		ctx.ReportError(v, "6.2.9", 1, fmt.Sprintf("ExtGState rendering intent /%s is not a standard rendering intent", ri.Value))
+		ctx.ReportError(v, "6.2.8", 3, fmt.Sprintf("ExtGState rendering intent /%s is not a standard rendering intent", ri.Value))
 	}
 
 	// 6.4: transparency soft masks, blend modes and non-opaque alpha.
@@ -197,8 +199,8 @@ func validateXObjectDict(v PDFDict, ctx *ValidationContext) {
 			}
 		}
 	case "Form":
-		// Skip unreachable Form XObjects in lenient profiles (VeraPDF_1B).
-		// In strict profiles (PDFA_1B), ReachableXObjectPtrs is nil and every
+		// Skip unreachable Form XObjects in lenient profiles (PDFA_1B).
+		// In strict profiles (Legacy_1B), ReachableXObjectPtrs is nil and every
 		// Form XObject is considered reachable.
 		if !ctx.isReachableXObject(v) {
 			return
