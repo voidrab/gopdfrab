@@ -11,7 +11,10 @@ PDF/A processing for go
 
 ### PDF/A-1b Validation
 
-PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes the full [Isartor test suite](https://www.pdfa.org/resource/isartor-test-suite/) — **204/204** negative test files correctly detected by their intended clause.
+PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes both reference test corpora in full:
+
+- [Isartor test suite](https://www.pdfa.org/resource/isartor-test-suite/) — **204/204** negative test files correctly detected by their intended clause.
+- [veraPDF test suite](https://github.com/veraPDF/veraPDF-corpus) (PDF_A-1b) — **569/569** files verified correctly.
 
 | Clause | Area | Status |
 |--------|------|--------|
@@ -19,13 +22,14 @@ PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes the full [Isa
 | 6.1.3 | File trailer | ✓ |
 | 6.1.4 | Cross-reference table | ✓ |
 | 6.1.5 | Document information dictionary | ✓ |
-| 6.1.6 | Metadata streams | ✓ |
+| 6.1.6 | String objects | ✓ |
 | 6.1.7 | Stream objects | ✓ |
 | 6.1.8 | Indirect objects | ✓ |
 | 6.1.10 | Filters | ✓ |
-| 6.1.11 | Character encoding | ✓ |
+| 6.1.11 | Embedded files | ✓ |
 | 6.1.12 | Architectural limits | ✓ |
-| 6.1.13 | Colours | ✓ |
+| 6.1.13 | Optional content | ✓ |
+| 6.2.2 | Output intent | ✓ |
 | 6.2.3 | Device colour spaces | ✓ |
 | 6.2.4 | Image dictionaries | ✓ |
 | 6.2.5–6.2.7 | XObjects | ✓ |
@@ -90,6 +94,11 @@ res, err := doc.VerifyProfile(p)
 | `Checks.Form` | 6.9 interactive forms |
 
 Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers.
+
+## Isartor Compatibility
+
+The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
+If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy_1B` profile.
 
 ## Getting Started
 
