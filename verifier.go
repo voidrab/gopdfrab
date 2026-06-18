@@ -120,7 +120,7 @@ func (d *Document) verifyPdfA1b(p *Profile) []PDFError {
 	if p.SkipUnreachableXObjects {
 		ctx.ReachableXObjectPtrs = computeReachableXObjects(graph)
 	}
-	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes = computeFontUsage(graph)
+	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = computeFontUsage(graph)
 	d.computeColourCoverage(ctx)
 
 	d.verifyDocument(graph, ctx)
@@ -145,11 +145,29 @@ func (d *Document) verifyPdfA1b(p *Profile) []PDFError {
 		issues = append(issues, errs...)
 	}
 
+	// 6.1.8 requires correct object framing for every indirect object in the
+	// file, not just the ones reachable from the document root while walking
+	// the graph above — force-resolve any object the graph walk never
+	// visited so its framing still gets checked.
+	d.verifyAllObjectFraming()
+
 	// Object-framing violations (6.1.8) collected lazily during resolution.
 	if len(d.structErrs) > 0 {
 		issues = append(issues, d.structErrs...)
 	}
 	return issues
+}
+
+// verifyAllObjectFraming force-resolves every object number listed in the
+// cross-reference table, including ones never reached from the document
+// root (e.g. an object orphaned in the xref but never linked into the page
+// tree or any other structure). recordFraming (document.go:58) dedups per
+// object number, so objects already visited during graph resolution are not
+// double-reported.
+func (d *Document) verifyAllObjectFraming() {
+	for objNum := range d.xrefTable {
+		d.resolveReference(PDFRef{ObjNum: objNum})
+	}
 }
 
 // 6.1 File Structure
@@ -660,12 +678,14 @@ func collectReachableFromBytes(data []byte, resources PDFDict, reachable map[uin
 
 // fontUsage accumulates how fonts are actually used across a document's
 // content streams: which are ever shown under a visible vs. invisible-only
-// rendering mode, and which single-byte character codes are actually shown
-// for simple (non-composite) fonts.
+// rendering mode, which single-byte character codes are actually shown for
+// simple (non-composite) fonts, and which CIDs are actually shown for
+// Identity-H/V composite fonts.
 type fontUsage struct {
 	visible     map[uintptr]bool
 	invisible   map[uintptr]bool
 	usedCodes   map[uintptr]map[int]bool
+	usedCIDs    map[uintptr]map[int]bool
 	visitedXObj map[uintptr]bool
 }
 
@@ -682,11 +702,16 @@ type fontUsage struct {
 //     Widths entry that are never actually shown are not required to be
 //     present, so 6.3.5 coverage checks should consult this set rather than
 //     the full Widths range when usage info is available for a font.
-func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes map[uintptr]map[int]bool) {
+//   - usedCIDs: the composite-font analogue of usedCodes — for each
+//     Identity-H/V CIDFont, the set of CIDs actually shown. A CID listed only
+//     in the W width array but never shown need not have a glyph in the
+//     embedded font program.
+func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes, usedCIDs map[uintptr]map[int]bool) {
 	fu := &fontUsage{
 		visible:     map[uintptr]bool{},
 		invisible:   map[uintptr]bool{},
 		usedCodes:   map[uintptr]map[int]bool{},
+		usedCIDs:    map[uintptr]map[int]bool{},
 		visitedXObj: map[uintptr]bool{},
 	}
 	visitedPtrs := map[uintptr]bool{}
@@ -728,7 +753,7 @@ func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes
 			invisibleOnly[ptr] = true
 		}
 	}
-	return invisibleOnly, fu.usedCodes
+	return invisibleOnly, fu.usedCodes, fu.usedCIDs
 }
 
 func collectFontUsageFromContent(contents PDFValue, resources PDFDict, fu *fontUsage) {
@@ -764,6 +789,8 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 	var currentFontPtrs []uintptr
 	var simpleFontPtr uintptr
 	haveSimpleFont := false
+	var compositeFontPtr uintptr
+	haveCompositeFont := false
 	cs.scan(func(op string, operands []PDFValue) {
 		switch op {
 		case "q":
@@ -782,6 +809,7 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 		case "Tf":
 			currentFontPtrs = nil
 			haveSimpleFont = false
+			haveCompositeFont = false
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(PDFName); ok {
 					if fd, ok := fonts.Entries[name.Value].(PDFDict); ok {
@@ -792,6 +820,17 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 						if df, ok := fd.Entries["DescendantFonts"].(PDFArray); ok && len(df) > 0 {
 							if desc, ok := df[0].(PDFDict); ok {
 								currentFontPtrs = append(currentFontPtrs, pdfValuePointer(desc.Entries))
+								// Codes shown via Tj/TJ can only be decoded into
+								// CIDs here for the Identity-H/V encodings (a
+								// direct 2-byte-big-endian-code-equals-CID
+								// mapping); any other CMap leaves usage unknown
+								// for this font, so coverage checks fall back
+								// to checking every W entry.
+								if enc, ok := fd.Entries["Encoding"].(PDFName); ok &&
+									(enc.Value == "Identity-H" || enc.Value == "Identity-V") {
+									compositeFontPtr = pdfValuePointer(desc.Entries)
+									haveCompositeFont = true
+								}
 							}
 						} else {
 							// Simple font: codes shown via Tj/TJ are single bytes.
@@ -817,6 +856,17 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 				}
 				for _, b := range shownStringBytes(op, operands) {
 					set[int(b)] = true
+				}
+			}
+			if haveCompositeFont {
+				set := fu.usedCIDs[compositeFontPtr]
+				if set == nil {
+					set = map[int]bool{}
+					fu.usedCIDs[compositeFontPtr] = set
+				}
+				shown := shownStringBytes(op, operands)
+				for i := 0; i+1 < len(shown); i += 2 {
+					set[int(shown[i])<<8|int(shown[i+1])] = true
 				}
 			}
 		case "Do":

@@ -1259,6 +1259,102 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 	},
 }
 
+// xmpValueKind constrains the plain-text value of an XMP property beyond its
+// container shape (6.7.2): e.g. a Date-typed property must hold an ISO 8601
+// date, not arbitrary text.
+type xmpValueKind uint8
+
+const (
+	xmpVTDate       xmpValueKind = iota // ISO 8601 date/time
+	xmpVTInteger                        // integer (reuses xmpIsInteger)
+	xmpVTClosedText                     // text restricted to a fixed set of choices
+)
+
+// xmpValueRule describes a value-type constraint for a property; choices is
+// only populated for xmpVTClosedText.
+type xmpValueRule struct {
+	kind    xmpValueKind
+	choices []string
+}
+
+// xmpValueRules maps namespace URI → property name → value-type constraint,
+// for the subset of XMP 2004 properties whose container shape alone (handled
+// by xmpNSSchemas) does not capture their full value-type requirement.
+var xmpValueRules = map[string]map[string]xmpValueRule{
+	"http://purl.org/dc/elements/1.1/": {
+		"date": {kind: xmpVTDate},
+	},
+	"http://ns.adobe.com/xap/1.0/": {
+		"CreateDate":   {kind: xmpVTDate},
+		"ModifyDate":   {kind: xmpVTDate},
+		"MetadataDate": {kind: xmpVTDate},
+	},
+	"http://ns.adobe.com/photoshop/1.0/": {
+		"DateCreated": {kind: xmpVTDate},
+	},
+	"http://ns.adobe.com/tiff/1.0/": {
+		"DateTime":      {kind: xmpVTDate},
+		"BitsPerSample": {kind: xmpVTInteger},
+	},
+	"http://ns.adobe.com/exif/1.0/": {
+		"DateTimeOriginal": {kind: xmpVTDate},
+		"GPSTimeStamp":     {kind: xmpVTDate},
+		"ISOSpeedRatings":  {kind: xmpVTInteger},
+		"GPSMeasureMode":   {kind: xmpVTClosedText, choices: []string{"2", "3"}},
+	},
+}
+
+// xmpLangAltProps marks the XMP 2004 properties whose Alt container is
+// specifically a "Language Alternative" (LangAlt): every rdf:li item must
+// carry an xml:lang qualifier. Plain Alt properties (e.g. xmp:Thumbnails,
+// an alternative set of images rather than language variants) are not
+// listed here and are exempt from this requirement.
+var xmpLangAltProps = map[string]map[string]bool{
+	"http://purl.org/dc/elements/1.1/": {
+		"description": true, "rights": true, "title": true,
+	},
+	"http://ns.adobe.com/xap/1.0/rights/": {
+		"UsageTerms": true,
+	},
+	"http://ns.adobe.com/tiff/1.0/": {
+		"Copyright": true, "ImageDescription": true,
+	},
+	"http://ns.adobe.com/exif/1.0/": {
+		"UserComment": true,
+	},
+}
+
+// xmpDateRe matches a valid XMP/ISO 8601 date value: a year, optionally
+// extended with month, day, and time-of-day, where the time-of-day's
+// timezone designator is either "Z" or a single "±hh:mm" offset (not both).
+var xmpDateRe = regexp.MustCompile(
+	`^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?)?)?$`)
+
+// xmpIsDate reports whether s is a validly formatted XMP date/time value.
+func xmpIsDate(s string) bool {
+	return xmpDateRe.MatchString(s)
+}
+
+// xmpCheckValueRule validates value against rule, returning a human-readable
+// description of the violation, or "" if value satisfies the rule.
+func xmpCheckValueRule(rule xmpValueRule, value string) string {
+	switch rule.kind {
+	case xmpVTDate:
+		if !xmpIsDate(value) {
+			return fmt.Sprintf("must be a valid ISO 8601 date, got %q", value)
+		}
+	case xmpVTInteger:
+		if !xmpIsInteger(value) {
+			return fmt.Sprintf("must be an integer, got %q", value)
+		}
+	case xmpVTClosedText:
+		if !slices.Contains(rule.choices, value) {
+			return fmt.Sprintf("must be one of %v, got %q", rule.choices, value)
+		}
+	}
+	return ""
+}
+
 // checkXMPPropertySchemas validates that XMP properties are used in accordance
 // with their definitions in XMP 2004 (PDF/A-1b clause 6.7.2).
 func checkXMPPropertySchemas(data []byte) []PDFError {
@@ -1285,36 +1381,46 @@ func checkXMPPropertySchemas(data []byte) []PDFError {
 					a.Name.Space == "http://www.w3.org/XML/1998/namespace" {
 					continue
 				}
-				errs = append(errs, xmpValidateProp(a.Name.Space, a.Name.Local, xmpKindScalar, a.Value)...)
+				errs = append(errs, xmpValidateProp(a.Name.Space, a.Name.Local, xmpKindScalar, a.Value, nil)...)
 			}
 		} else if _, inSchema := xmpNSSchemas[se.Name.Space]; inSchema {
 			// Element-style property from a known schema.
-			container, textVal := xmpConsumeProperty(dec, se)
-			errs = append(errs, xmpValidateProp(se.Name.Space, se.Name.Local, container, textVal)...)
+			container, textVal, items := xmpConsumeProperty(dec, se)
+			errs = append(errs, xmpValidateProp(se.Name.Space, se.Name.Local, container, textVal, items)...)
 		}
 	}
 	return errs
 }
 
-// xmpConsumeProperty reads the content of a property element and returns
-// the container kind and plain-text value (if scalar). It consumes all child tokens.
-func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (xmpContainerKind, string) {
+// xmpPropItem is one rdf:li item of a Bag/Seq/Alt container property: its
+// plain-text value, and whether it carried an xml:lang qualifier (relevant
+// for LangAlt properties, 6.7.2).
+type xmpPropItem struct {
+	text    string
+	hasLang bool
+}
+
+// xmpConsumeProperty reads the content of a property element and returns the
+// container kind, plain-text value (if scalar), and the list of rdf:li items
+// (if a Bag/Seq/Alt container). It consumes all child tokens.
+func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (kind xmpContainerKind, scalarText string, items []xmpPropItem) {
 	for _, a := range elem.Attr {
 		if a.Name.Space == nsRDF {
 			if a.Name.Local == "parseType" && a.Value == "Resource" {
 				xmpSkipElem(dec)
-				return xmpKindStruct, ""
+				return xmpKindStruct, "", nil
 			}
 			if a.Name.Local == "resource" {
 				xmpSkipElem(dec)
-				return xmpKindScalar, a.Value
+				return xmpKindScalar, a.Value, nil
 			}
 		}
 	}
 
 	var text strings.Builder
-	kind := xmpKindScalar
+	kind = xmpKindScalar
 	depth := 1
+	var curItem *xmpPropItem
 	for depth > 0 {
 		tok, err := dec.Token()
 		if err != nil {
@@ -1336,16 +1442,31 @@ func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (xmpContainerKi
 				default:
 					kind = xmpKindStruct // non-rdf child → inline struct
 				}
+			} else if depth == 3 && t.Name.Space == nsRDF && t.Name.Local == "li" &&
+				(kind == xmpKindBag || kind == xmpKindSeq || kind == xmpKindAlt) {
+				item := xmpPropItem{}
+				for _, a := range t.Attr {
+					if a.Name.Space == "http://www.w3.org/XML/1998/namespace" && a.Name.Local == "lang" {
+						item.hasLang = true
+					}
+				}
+				items = append(items, item)
+				curItem = &items[len(items)-1]
 			}
 		case xml.EndElement:
 			depth--
+			if depth == 2 {
+				curItem = nil
+			}
 		case xml.CharData:
 			if depth == 1 {
 				text.Write([]byte(t))
+			} else if depth == 3 && curItem != nil {
+				curItem.text += string(t)
 			}
 		}
 	}
-	return kind, strings.TrimSpace(text.String())
+	return kind, strings.TrimSpace(text.String()), items
 }
 
 // xmpSkipElem consumes tokens until the current element is closed.
@@ -1366,7 +1487,9 @@ func xmpSkipElem(dec *xml.Decoder) {
 }
 
 // xmpValidateProp validates a single XMP property usage against the schema.
-func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value string) []PDFError {
+// items is the list of rdf:li entries when actual is a Bag/Seq/Alt container
+// (nil for a scalar attribute or element).
+func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value string, items []xmpPropItem) []PDFError {
 	schema := xmpNSSchemas[nsURI]
 	if schema == nil {
 		return nil
@@ -1395,6 +1518,40 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 		return []PDFError{xmpErr(clause, sub,
 			fmt.Sprintf("property %q must be a boolean (True/False), got %q", propName, value))}
 	}
+
+	// Value-type constraints beyond container shape (6.7.2): dates, integer
+	// items inside a Bag/Seq, and closed-choice text values.
+	if rule, ok := xmpValueRules[nsURI][propName]; ok {
+		switch actual {
+		case xmpKindScalar:
+			if value != "" {
+				if msg := xmpCheckValueRule(rule, value); msg != "" {
+					return []PDFError{xmpErr(clause, sub, fmt.Sprintf("property %q %s", propName, msg))}
+				}
+			}
+		case xmpKindBag, xmpKindSeq:
+			for _, item := range items {
+				if item.text == "" {
+					continue
+				}
+				if msg := xmpCheckValueRule(rule, item.text); msg != "" {
+					return []PDFError{xmpErr(clause, sub, fmt.Sprintf("property %q item %s", propName, msg))}
+				}
+			}
+		}
+	}
+
+	// LangAlt properties (6.7.2): every rdf:li in an Alt container must carry
+	// an xml:lang qualifier.
+	if actual == xmpKindAlt && xmpLangAltProps[nsURI][propName] {
+		for _, item := range items {
+			if !item.hasLang {
+				return []PDFError{xmpErr(clause, sub,
+					fmt.Sprintf("property %q is LangAlt but an rdf:li item lacks xml:lang", propName))}
+			}
+		}
+	}
+
 	return nil
 }
 

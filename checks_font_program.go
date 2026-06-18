@@ -686,6 +686,9 @@ func parseCFFCharStringLengths(cff []byte, csOffset int) []int {
 
 // validateCIDCFFSubset checks that all CIDs referenced in the W array are
 // defined in the embedded CFF program (CharStrings count ≥ max CID + 1) (6.3.5).
+// A CID that is declared in W only to specify a width, and never actually
+// shown by a text-showing operator, is exempt — checked via ctx.usedCIDsFor
+// when usage info is available (Identity-H/V encoding).
 func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -696,6 +699,12 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 		return
 	}
 	csCount := int(binary.BigEndian.Uint16(data[td.csOffset : td.csOffset+2]))
+
+	var used map[int]bool
+	var knownUsage bool
+	if desc, ok := obj.(PDFDict); ok {
+		used, knownUsage = ctx.usedCIDsFor(desc)
+	}
 
 	// CID-keyed CFFs (ROS present) remap glyph IDs to CIDs via the Charset
 	// table — GID index and CID are not the same number, so a referenced CID
@@ -717,6 +726,9 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 		lens := parseCFFCharStringLengths(data, td.csOffset)
 		for _, pair := range parseCIDWidths(w) {
 			cid := pair[0]
+			if knownUsage && !used[cid] {
+				continue
+			}
 			gid, ok := gidOfCID[cid]
 			if !ok || (lens != nil && gid < len(lens) && lens[gid] <= 1) {
 				ctx.ReportError(obj, "6.3.5", 1,
@@ -729,6 +741,9 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 
 	for _, pair := range parseCIDWidths(w) {
 		cid := pair[0]
+		if knownUsage && !used[cid] {
+			continue
+		}
 		if cid >= csCount {
 			ctx.ReportError(obj, "6.3.5", 1,
 				fmt.Sprintf("CID %d referenced in font W array is not defined in CFF CharStrings (count=%d)", cid, csCount))
@@ -775,7 +790,10 @@ func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *Validatio
 
 // validateCIDTrueTypeSubset checks that all CIDs referenced in the W array
 // are present in the embedded TrueType program (6.3.5). A glyph with an empty
-// outline but zero advance width (e.g. space) is still considered present.
+// outline but zero advance width (e.g. space) is still considered present. A
+// CID that is declared in W only to specify a width, and never actually
+// shown by a text-showing operator, is exempt — checked via ctx.usedCIDsFor
+// when usage info is available (Identity-H/V encoding).
 func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -785,9 +803,17 @@ func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *Valida
 	if !ok {
 		return
 	}
+	var used map[int]bool
+	var knownUsage bool
+	if desc, ok := obj.(PDFDict); ok {
+		used, knownUsage = ctx.usedCIDsFor(desc)
+	}
 	glyphPresent := ttGlyphPresent(tables)
 	for _, pair := range parseCIDWidths(w) {
 		cid := pair[0]
+		if knownUsage && !used[cid] {
+			continue
+		}
 		if !glyphPresent(cid) {
 			ctx.ReportError(obj, "6.3.5", 1,
 				fmt.Sprintf("CID %d referenced in font W array has no glyph in embedded program", cid))

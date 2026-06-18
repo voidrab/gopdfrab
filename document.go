@@ -160,28 +160,60 @@ func (d *Document) initializeStructure() error {
 
 	d.xrefOffset = xrefOffset
 
-	if err := d.parseXRefTable(xrefOffset + d.pdfStart); err != nil {
-		return fmt.Errorf("failed to parse xref table: %w", err)
+	xrefErr := d.parseXRefTable(xrefOffset + d.pdfStart)
+	if xrefErr != nil && d.pdfStart != 0 {
+		// The pdfStart adjustment assumes the file's xref offsets are
+		// recorded relative to the "%PDF-" marker; at least one malformed
+		// (6.1.2) file instead records them relative to true byte 0 even
+		// with leading garbage present. Retry unadjusted before falling
+		// back further.
+		xrefErr = d.parseXRefTable(xrefOffset)
+	}
+	if xrefErr != nil {
+		// 6.1.4: the classic cross-reference table could not be parsed
+		// (e.g. a cross-reference stream instead of a table, or a malformed
+		// subsection header). Record the structural defect and recover
+		// enough of the object table via a brute-force scan so the document
+		// can still be opened and verified under its correct clause.
+		d.structErrs = append(d.structErrs, PDFError{
+			clause: "6.1.4", subclause: 1,
+			errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
+			page: 0,
+		})
+		if err := d.recoverXRefByBruteForceScan(); err != nil {
+			return fmt.Errorf("failed to parse xref table: %w", xrefErr)
+		}
 	}
 
 	searchBlock := tail[:startXrefIdx]
 	trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
 	if trailerIdx == -1 {
-		return errors.New("trailer keyword not found")
-	}
+		if xrefErr == nil {
+			return errors.New("trailer keyword not found")
+		}
+		// No literal "trailer" keyword — e.g. a file using only a
+		// cross-reference stream, which combines the xref and trailer roles
+		// in one object. Recover /Root, /Info, and /ID from the
+		// brute-force-scanned object that declares /Type /XRef.
+		trailer, err := d.recoverTrailerFromXRefStream()
+		if err != nil {
+			return errors.New("trailer keyword not found")
+		}
+		d.trailer = trailer
+	} else {
+		// Parse the dictionary following "trailer"
+		l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
 
-	// Parse the dictionary following "trailer"
-	l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+		if tok := l.NextToken(); tok.Value != "trailer" {
+			return errors.New("expected 'trailer' keyword")
+		}
 
-	if tok := l.NextToken(); tok.Value != "trailer" {
-		return errors.New("expected 'trailer' keyword")
+		trailer, err := parseDictionary(l)
+		if err != nil {
+			return fmt.Errorf("failed to parse trailer dictionary: %w", err)
+		}
+		d.trailer = trailer
 	}
-
-	trailer, err := parseDictionary(l)
-	if err != nil {
-		return fmt.Errorf("failed to parse trailer dictionary: %w", err)
-	}
-	d.trailer = trailer
 
 	// Follow the /Prev chain in the xref to build a complete object table
 	// for incrementally-updated PDFs.  Newer revisions already in d.xrefTable
@@ -227,6 +259,60 @@ func (d *Document) followXRefPrevChain() {
 // the "xref" suffix inside "startxref", which is always preceded by 't').
 // Group 1 captures "xref" itself so its position can be found via loc[1].
 var xrefLineRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)
+
+// bruteForceObjRe matches an "N G obj" indirect-object header at a line
+// boundary, used to rebuild the object table when the cross-reference table
+// itself cannot be parsed (6.1.4).
+var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
+
+// recoverXRefByBruteForceScan rebuilds d.xrefTable by scanning the entire
+// file for "N G obj" headers. It is used as a fallback when the
+// cross-reference table cannot be parsed (6.1.4) — e.g. the file uses a
+// cross-reference stream instead of a classic table, or a subsection header
+// is malformed. Later occurrences of the same object number (as in an
+// incrementally-updated file) take precedence, matching how a real xref's
+// /Prev chain would resolve the same ambiguity.
+func (d *Document) recoverXRefByBruteForceScan() error {
+	raw := make([]byte, d.info.Size())
+	if _, err := d.file.ReadAt(raw, 0); err != nil {
+		return err
+	}
+
+	d.xrefTable = make(map[int]int64)
+	for _, loc := range bruteForceObjRe.FindAllSubmatchIndex(raw, -1) {
+		objNum, err := strconv.Atoi(string(raw[loc[2]:loc[3]]))
+		if err != nil {
+			continue
+		}
+		d.xrefTable[objNum] = int64(loc[2])
+	}
+	if len(d.xrefTable) == 0 {
+		return errors.New("no indirect objects found")
+	}
+	return nil
+}
+
+// recoverTrailerFromXRefStream locates a brute-force-scanned object whose
+// dictionary declares "/Type /XRef" — a cross-reference stream combines the
+// roles of the classic xref table and trailer dictionary in one object — and
+// returns its dictionary so /Root, /Info, and /ID can be recovered from it.
+// Used when the file has no literal "trailer" keyword at all.
+func (d *Document) recoverTrailerFromXRefStream() (PDFDict, error) {
+	for objNum := range d.xrefTable {
+		v, err := d.resolveReference(PDFRef{ObjNum: objNum})
+		if err != nil {
+			continue
+		}
+		dict, ok := v.(PDFDict)
+		if !ok {
+			continue
+		}
+		if dict.Entries["Type"] == (PDFName{Value: "XRef"}) {
+			return dict, nil
+		}
+	}
+	return PDFDict{}, errors.New("no cross-reference stream object found")
+}
 
 // findAndLoadFirstPageTrailer is called when the main (overflow) trailer lacks
 // /Root, indicating a linearized PDF.  It scans the raw file for every

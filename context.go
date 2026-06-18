@@ -35,6 +35,16 @@ type ValidationContext struct {
 	// present. Nil for a font means no usage info was collected for it.
 	UsedCharCodes map[uintptr]map[int]bool
 
+	// UsedCIDs maps a composite CIDFont's descendant-dict Entries-map pointer
+	// to the set of CIDs actually passed to a text-showing operator somewhere
+	// in the document (decoded as 2-byte big-endian codes, valid for the
+	// Identity-H/Identity-V encodings the verifier can decode). A CID listed
+	// in the W width array but never shown need not have a glyph in the
+	// embedded font program (6.3.5); only collected when the font's Encoding
+	// is Identity-H/V — for any other CMap, usage is left unknown so callers
+	// fall back to checking every W entry.
+	UsedCIDs map[uintptr]map[int]bool
+
 	// pageResources is the Resources dict of the current page. Default* colour
 	// spaces defined at page level are inherited by patterns and Form XObjects
 	// that do not define their own Default*.
@@ -73,6 +83,19 @@ func (ctx *ValidationContext) usedCodesFor(v PDFDict) (codes map[int]bool, known
 	}
 	codes, known = ctx.UsedCharCodes[pdfValuePointer(v.Entries)]
 	return codes, known
+}
+
+// usedCIDsFor returns the set of CIDs actually shown for composite font v,
+// and whether usage info was collected for it at all. When known is false,
+// callers should fall back to a broader check (e.g. every CID in the W
+// array), since the font's content-stream usage could not be determined
+// (e.g. a non-Identity CMap).
+func (ctx *ValidationContext) usedCIDsFor(v PDFDict) (cids map[int]bool, known bool) {
+	if ctx.UsedCIDs == nil {
+		return nil, false
+	}
+	cids, known = ctx.UsedCIDs[pdfValuePointer(v.Entries)]
+	return cids, known
 }
 
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",

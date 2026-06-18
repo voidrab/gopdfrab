@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-var test_dir = "test documents/"
-
 func createValidPDF(filename string) error {
 	header := "%PDF-1.7\n"
 	comment := "%äüöß\n"
