@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -21,6 +22,12 @@ type Document struct {
 	// pdfStart is the byte offset of the "%PDF-" header. Non-zero when the
 	// file begins with garbage bytes before the PDF header (6.1.2).
 	pdfStart int64
+
+	// firstPageTrailer is set for linearized PDFs whose main (overflow) trailer
+	// at the end of the file lacks /Root.  In those files the complete trailer
+	// (containing /Root, /Info, /ID) resides in the first-page section near the
+	// start of the file.  effectiveTrailer() returns this field when it is set.
+	firstPageTrailer PDFDict
 
 	// structErrs collects document-structure violations (e.g. 6.1.8 object
 	// framing) discovered lazily during object resolution. framingChecked
@@ -176,7 +183,86 @@ func (d *Document) initializeStructure() error {
 	}
 	d.trailer = trailer
 
+	// Follow the /Prev chain in the xref to build a complete object table
+	// for incrementally-updated PDFs.  Newer revisions already in d.xrefTable
+	// take precedence; older entries are added only when missing.
+	d.followXRefPrevChain()
+
+	// For linearized PDFs whose main (overflow) trailer lacks /Root, locate the
+	// complete first-page trailer so that the verifier can find /Root and /ID.
+	if d.trailer.Entries["Root"] == nil {
+		d.findAndLoadFirstPageTrailer()
+	}
+
 	return nil
+}
+
+// followXRefPrevChain walks the /Prev chain from d.trailer and fills in
+// d.xrefTable with object offsets from older xref sections. Entries already
+// present (from the most-recent revision) are never overwritten.
+func (d *Document) followXRefPrevChain() {
+	visited := map[int64]bool{d.xrefOffset: true}
+	prev := d.trailer.Entries["Prev"]
+	for {
+		prevInt, ok := prev.(PDFInteger)
+		if !ok {
+			return
+		}
+		offset := int64(prevInt) + d.pdfStart
+		if visited[offset] {
+			return
+		}
+		visited[offset] = true
+
+		prevTrailer, err := d.parseXRefSectionAt(offset, true /* fillIn */)
+		if err != nil {
+			return
+		}
+		prev = prevTrailer.Entries["Prev"]
+	}
+}
+
+// xrefLineRe matches the keyword "xref" at a line boundary.  It captures "xref"
+// preceded by the start of input or by a carriage-return or newline (to exclude
+// the "xref" suffix inside "startxref", which is always preceded by 't').
+// Group 1 captures "xref" itself so its position can be found via loc[1].
+var xrefLineRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)
+
+// findAndLoadFirstPageTrailer is called when the main (overflow) trailer lacks
+// /Root, indicating a linearized PDF.  It scans the raw file for every
+// cross-reference section (identified as "xref" at a line boundary),
+// parses each one to fill missing object entries into d.xrefTable, and sets
+// d.firstPageTrailer to the first trailer dictionary that contains /Root.
+func (d *Document) findAndLoadFirstPageTrailer() {
+	size := d.info.Size()
+	raw := make([]byte, size)
+	if _, err := d.file.ReadAt(raw, 0); err != nil {
+		return
+	}
+
+	for _, loc := range xrefLineRe.FindAllSubmatchIndex(raw, -1) {
+		// loc[2] and loc[3] delimit the captured group 1 ("xref\r" or "xref\n").
+		// The "xref" keyword itself starts at loc[2].
+		offset := int64(loc[2])
+		trailer, err := d.parseXRefSectionAt(offset, true /* fillIn */)
+		if err != nil {
+			continue
+		}
+		// Keep the first trailer that supplies /Root (the first-page trailer).
+		if trailer.Entries["Root"] != nil && d.firstPageTrailer.Entries == nil {
+			d.firstPageTrailer = trailer
+		}
+	}
+}
+
+// effectiveTrailer returns the trailer dictionary to use for document-level
+// checks (/Root, /ID, /Info, etc.).  For ordinary PDFs this is d.trailer; for
+// linearized PDFs whose overflow trailer lacks /Root, it is d.firstPageTrailer.
+func (d *Document) effectiveTrailer() PDFDict {
+	if d.firstPageTrailer.Entries != nil {
+		return d.firstPageTrailer
+	}
+	return d.trailer
 }
 
 func (d *Document) buildPageIndex(graph PDFValue) (map[int]int, error) {
@@ -289,20 +375,20 @@ func (d *Document) GetPageCount() (int, error) {
 }
 
 // ResolveGraphByPath resolves the PDF object graph by path,
-// starting from the document trailer.
+// starting from the effective trailer (firstPageTrailer if set, else trailer).
 func (d *Document) ResolveGraphByPath(path []string) (PDFValue, error) {
 	if len(path) == 0 {
 		return nil, errors.New("path cannot be empty")
 	}
 
-	return d.resolvePath(d.trailer, path)
+	return d.resolvePath(d.effectiveTrailer(), path)
 }
 
 // ResolveGraph resolves the PDF object graph,
-// starting from the document trailer.
+// starting from the effective trailer (firstPageTrailer if set, else trailer).
 func (d *Document) ResolveGraph() (PDFValue, error) {
 	visited := make(map[int]PDFValue)
-	return d.resolveAll(d.trailer, visited)
+	return d.resolveAll(d.effectiveTrailer(), visited)
 }
 
 // resolvePath walks a PDF object (map/array/primitive) following a path.

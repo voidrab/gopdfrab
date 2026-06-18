@@ -54,6 +54,7 @@ type structureChecks struct {
 	InfoDictUnreadable     Check
 	InfoDictDisallowedKeys Check
 	InfoDictEmptyValues    Check
+	InfoDictXMPMismatch    Check
 	// 6.1.6 Metadata stream
 	GraphResolutionFailure Check
 	HexStringInvalidChar   Check
@@ -74,6 +75,8 @@ type structureChecks struct {
 	NameTooLong       Check
 	IntegerOutOfRange Check
 	ArrayTooLarge     Check
+	DictTooLarge      Check
+	CMapCIDOutOfRange Check
 	// 6.1.13 Optional content
 	OptionalContent Check
 }
@@ -109,7 +112,9 @@ type imageChecks struct {
 	ImageOPI             Check
 	ImageRenderingIntent Check
 	// 6.2.5 Form XObjects
-	FormOPI Check
+	FormOPI        Check
+	FormSubtype2PS Check // Subtype2=PS additional entry
+	FormPSEntry    Check // PS passthrough key (also caught as 6.2.7 in strict profile)
 	// 6.2.6 Reference XObjects
 	ReferenceXObject Check
 	// 6.2.7 PostScript XObjects
@@ -181,9 +186,10 @@ type actionChecks struct {
 
 type metadataChecks struct {
 	// 6.7.2 Metadata stream
-	MetadataMissing      Check
-	MetadataFiltered     Check
-	MetadataPropertyType Check
+	MetadataMissing            Check
+	MetadataFiltered           Check
+	MetadataPropertyType       Check
+	MetadataUndeclaredProperty Check
 	// 6.7.3 Info / XMP synchronisation
 	InfoXMPSync Check
 	// 6.7.5 xpacket header
@@ -216,6 +222,7 @@ type formChecks struct {
 	XFA                    Check
 	FieldAction            Check
 	FieldAdditionalActions Check
+	WidgetMissingAppearance Check
 }
 
 type checksRegistry struct {
@@ -320,6 +327,10 @@ func init() {
 				"InfoDictEmptyValues",
 				"Document information dictionary entries must not have empty string values",
 				"6.1.5", 3),
+			InfoDictXMPMismatch: newCheck(
+				"InfoDictXMPMismatch",
+				"Document information dictionary entries must match the corresponding XMP metadata values",
+				"6.1.5", 4),
 			GraphResolutionFailure: newCheck(
 				"GraphResolutionFailure",
 				"The document object graph must be fully resolvable",
@@ -376,6 +387,14 @@ func init() {
 				"ArrayTooLarge",
 				"Arrays must not contain more than 8191 elements",
 				"6.1.12", 3),
+			DictTooLarge: newCheck(
+				"DictTooLarge",
+				"Dictionaries must not contain more than 4096 entries",
+				"6.1.12", 4),
+			CMapCIDOutOfRange: newCheck(
+				"CMapCIDOutOfRange",
+				"CMap character identifier (CID) values must not exceed 65535",
+				"6.1.12", 5),
 			OptionalContent: newCheck(
 				"OptionalContent",
 				"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",
@@ -470,6 +489,14 @@ func init() {
 				"FormOPI",
 				"Form XObjects must not contain an OPI entry",
 				"6.2.5", 1),
+			FormSubtype2PS: newCheck(
+				"FormSubtype2PS",
+				"Form XObjects must not have a Subtype2=PS entry",
+				"6.2.5", 2),
+			FormPSEntry: newCheck(
+				"FormPSEntry",
+				"Form XObjects must not contain a PostScript passthrough (PS) entry",
+				"6.2.5", 3),
 			ReferenceXObject: newCheck(
 				"ReferenceXObject",
 				"Reference XObjects (/Ref) are not permitted in PDF/A-1",
@@ -653,6 +680,10 @@ func init() {
 				"MetadataPropertyType",
 				"dc:description must use the LangAlt (rdf:Alt) value type, not plain text",
 				"6.7.2", 3),
+			MetadataUndeclaredProperty: newCheck(
+				"MetadataUndeclaredProperty",
+				"Custom-namespace XMP properties require an extension schema declaration (pdfaExtension:schemas)",
+				"6.7.2", 4),
 			InfoXMPSync: newCheck(
 				"InfoXMPSync",
 				"Document information dictionary text and date entries must be synchronized with their XMP counterparts",
@@ -748,6 +779,10 @@ func init() {
 				"FieldAdditionalActions",
 				"Form fields and widget annotations must not contain an AA (additional actions) entry",
 				"6.9", 4),
+			WidgetMissingAppearance: newCheck(
+				"WidgetMissingAppearance",
+				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
+				"6.9", 5),
 		},
 	}
 }

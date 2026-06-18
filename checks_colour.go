@@ -14,7 +14,12 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		return
 	}
 	for _, it := range intents {
-		intent, ok := it.(PDFDict)
+		// Individual items may be indirect references; resolve to PDFDict.
+		itResolved, err := d.resolveObject(it)
+		if err != nil {
+			continue
+		}
+		intent, ok := itResolved.(PDFDict)
 		if !ok {
 			continue
 		}
@@ -23,7 +28,16 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		}
 		ctx.hasOutputIntent = true
 
-		profile, ok := intent.Entries["DestOutputProfile"].(PDFDict)
+		// DestOutputProfile is typically an indirect object reference; resolve it.
+		destRef := intent.Entries["DestOutputProfile"]
+		if destRef == nil {
+			continue
+		}
+		profileObj, err := d.resolveObject(destRef)
+		if err != nil {
+			continue
+		}
+		profile, ok := profileObj.(PDFDict)
 		if !ok {
 			continue
 		}
@@ -79,11 +93,35 @@ func deviceColourModel(cs PDFValue) string {
 	return ""
 }
 
+// defaultColorSpaceDefined returns true if the named Default colour space
+// (DefaultRGB, DefaultGray, DefaultCMYK) is present in resources/ColorSpace,
+// which means any use of the corresponding device colour space is substituted
+// by the named calibrated space and therefore does NOT violate 6.2.3.3.
+func defaultColorSpaceDefined(model string, resources PDFDict) bool {
+	cs, ok := resources.Entries["ColorSpace"].(PDFDict)
+	if !ok {
+		return false
+	}
+	switch model {
+	case "rgb":
+		return cs.Entries["DefaultRGB"] != nil
+	case "cmyk":
+		return cs.Entries["DefaultCMYK"] != nil
+	case "gray":
+		return cs.Entries["DefaultGray"] != nil
+	}
+	return false
+}
+
 // checkDeviceColour reports a 6.2.3.3 violation if the colour space reduces to a
-// device colour model not covered by an output intent.
+// device colour model not covered by an output intent and not overridden by a
+// Default* colour space in the current resources.
 func checkDeviceColour(obj PDFValue, cs PDFValue, ctx *ValidationContext, context string) {
 	model := deviceColourModel(cs)
 	if model == "" || ctx.deviceColourAllowed(model) {
+		return
+	}
+	if defaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
 	ctx.ReportError(obj, "6.2.3.3", 1,
@@ -120,6 +158,12 @@ func validateColourSpaceArray(arr PDFArray, ctx *ValidationContext) {
 	}
 	// [/Separation name alternateSpace tintTransform]
 	// [/DeviceN names alternateSpace tintTransform]
+	if head.Value == "DeviceN" {
+		// 6.1.12: DeviceN colour space shall not have more than 8 colorants.
+		if names, ok := arr[1].(PDFArray); ok && len(names) > 8 {
+			ctx.ReportError(arr, "6.1.12", 7, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
+		}
+	}
 	alt := arr[2]
 	model := deviceColourModel(alt)
 	if model == "" || ctx.deviceColourAllowed(model) {

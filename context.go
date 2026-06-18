@@ -14,6 +14,26 @@ type ValidationContext struct {
 	rgbCovered      bool
 	cmykCovered     bool
 	grayCovered     bool
+
+	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
+	// that are actually invoked (via Do) from page or other reachable content
+	// streams. Nil means unknown (treat everything as reachable).
+	ReachableXObjectPtrs map[uintptr]bool
+
+	// pageResources is the Resources dict of the current page. Default* colour
+	// spaces defined at page level are inherited by patterns and Form XObjects
+	// that do not define their own Default*.
+	pageResources PDFDict
+}
+
+// isReachableXObject returns true if v is a Form XObject that is reachable
+// from page content via Do operators.  If reachability info is absent,
+// everything is considered reachable (safe fallback).
+func (ctx *ValidationContext) isReachableXObject(v PDFDict) bool {
+	if ctx.ReachableXObjectPtrs == nil {
+		return true
+	}
+	return ctx.ReachableXObjectPtrs[pdfValuePointer(v.Entries)]
 }
 
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",

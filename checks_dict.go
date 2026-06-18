@@ -29,6 +29,13 @@ func asFloat(v PDFValue) (float64, bool) {
 	return 0, false
 }
 
+func abs64(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}
+
 // --- 6.6 Actions ---
 
 // actionTypes is the set of /S values that identify an action dictionary.
@@ -88,7 +95,7 @@ func validateExtGState(v PDFDict, ctx *ValidationContext) {
 	if t, ok := v.Entries["Type"].(PDFName); ok && t.Value != "ExtGState" {
 		return
 	}
-	if !hasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca") {
+	if !hasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI") {
 		return
 	}
 
@@ -101,6 +108,10 @@ func validateExtGState(v PDFDict, ctx *ValidationContext) {
 			ctx.ReportError(v, "6.2.8", 2, "ExtGState shall not contain a TR2 key other than /Default")
 		}
 	}
+	// 6.2.9: rendering intent in ExtGState must be one of the four standard values.
+	if ri, ok := v.Entries["RI"].(PDFName); ok && !allowedIntents[ri.Value] {
+		ctx.ReportError(v, "6.2.9", 1, fmt.Sprintf("ExtGState rendering intent /%s is not a standard rendering intent", ri.Value))
+	}
 
 	// 6.4: transparency soft masks, blend modes and non-opaque alpha.
 	if sm, ok := v.Entries["SMask"]; ok {
@@ -112,12 +123,14 @@ func validateExtGState(v PDFDict, ctx *ValidationContext) {
 		ctx.ReportError(v, "6.4", 2, "ExtGState uses a non-Normal blend mode")
 	}
 	if ca, ok := v.Entries["CA"]; ok {
-		if f, num := asFloat(ca); num && f != 1.0 {
+		// Allow values within 1e-5 of 1.0 to handle floating-point rounding
+		// (e.g. 1.0000001 or 0.9999999 round to 1.0 in practice).
+		if f, num := asFloat(ca); num && abs64(f-1.0) > 1e-5 {
 			ctx.ReportError(v, "6.4", 3, "ExtGState stroking alpha (CA) shall be 1.0")
 		}
 	}
 	if ca, ok := v.Entries["ca"]; ok {
-		if f, num := asFloat(ca); num && f != 1.0 {
+		if f, num := asFloat(ca); num && abs64(f-1.0) > 1e-5 {
 			ctx.ReportError(v, "6.4", 4, "ExtGState non-stroking alpha (ca) shall be 1.0")
 		}
 	}
@@ -184,6 +197,12 @@ func validateXObjectDict(v PDFDict, ctx *ValidationContext) {
 			}
 		}
 	case "Form":
+		// Skip unreachable Form XObjects in lenient profiles (VeraPDF_1B).
+		// In strict profiles (PDFA_1B), ReachableXObjectPtrs is nil and every
+		// Form XObject is considered reachable.
+		if !ctx.isReachableXObject(v) {
+			return
+		}
 		if v.Entries["Ref"] != nil {
 			// 6.2.6 reference XObject
 			ctx.ReportError(v, "6.2.6", 1, "reference XObject (/Ref) not allowed")
@@ -193,8 +212,14 @@ func validateXObjectDict(v PDFDict, ctx *ValidationContext) {
 			ctx.ReportError(v, "6.2.5", 1, "form XObject shall not contain OPI")
 		}
 		if v.Entries["PS"] != nil {
-			// 6.2.7 PostScript XObject passthrough
+			// 6.2.7/1: strict profile (Isartor). 6.2.5/3: lenient profile (veraPDF).
+			// Both are reported; filterByProfile selects which clause is active.
 			ctx.ReportError(v, "6.2.7", 1, "form XObject shall not contain PostScript (PS)")
+			ctx.ReportError(v, "6.2.5", 3, "form XObject shall not contain PostScript passthrough (PS)")
+		}
+		if v.Entries["Subtype2"] == (PDFName{Value: "PS"}) {
+			// 6.2.5/2: additional Subtype2=PS entry forbidden in Form XObjects
+			ctx.ReportError(v, "6.2.5", 2, "form XObject shall not have Subtype2=PS")
 		}
 	case "PS":
 		// 6.2.7 PostScript XObject
@@ -269,10 +294,17 @@ func validateAnnotation(v PDFDict, ctx *ValidationContext) {
 	// entry and N shall be an appearance stream. Non-Popup/Link annotations
 	// require an appearance.
 	ap, hasAP := v.Entries["AP"].(PDFDict)
+	isFormField := v.Entries["FT"] != nil
 	switch {
 	case !hasAP:
 		if subtype.Value != "Popup" && subtype.Value != "Link" {
-			ctx.ReportError(v, "6.5.3", 6, "annotation lacks a normal (N) appearance stream")
+			if isFormField {
+				// Widget annotation that is also a form field (FT present): missing AP
+				// is a 6.9 violation (form field appearance requirement), not just 6.5.3.
+				ctx.ReportError(v, "6.9", 5, "form field widget annotation lacks an appearance dictionary (AP)")
+			} else {
+				ctx.ReportError(v, "6.5.3", 6, "annotation lacks a normal (N) appearance stream")
+			}
 		}
 	default:
 		n, hasN := ap.Entries["N"]
@@ -286,7 +318,16 @@ func validateAnnotation(v PDFDict, ctx *ValidationContext) {
 			}
 		}
 		if hasN {
-			if nd, ok := n.(PDFDict); !ok || !nd.HasStream {
+			isBtn := v.Entries["FT"] == (PDFName{Value: "Btn"})
+			if nd, ok := n.(PDFDict); !ok {
+				ctx.ReportError(v, "6.5.3", 9, "appearance N value is not a stream or subdictionary")
+			} else if isBtn {
+				// Btn widget: N shall be an appearance subdictionary (state-name → stream),
+				// not a direct appearance stream.
+				if nd.HasStream {
+					ctx.ReportError(v, "6.5.3", 9, "Btn widget appearance N shall be a subdictionary, not a direct stream")
+				}
+			} else if !nd.HasStream {
 				ctx.ReportError(v, "6.5.3", 9, "appearance N value is not a stream")
 			}
 		}

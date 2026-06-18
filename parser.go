@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -64,6 +65,80 @@ func (d *Document) parseXRefTable(offset int64) error {
 	}
 
 	return nil
+}
+
+// parseXRefSectionAt parses the cross-reference table and its following trailer
+// dict at the given absolute file offset. When fillIn is true, only object
+// entries NOT already present in d.xrefTable are added, preserving entries from
+// newer (already-parsed) revisions. It returns the parsed trailer dictionary.
+func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) {
+	if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
+		return PDFDict{}, err
+	}
+
+	reader := bufio.NewReader(d.file)
+
+	// Consume the "xref" line.
+	line, _, err := reader.ReadLine()
+	if err != nil {
+		return PDFDict{}, err
+	}
+	if strings.TrimRight(string(line), "\r\n") != "xref" {
+		return PDFDict{}, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
+	}
+
+	// Parse cross-reference subsections.
+	for {
+		peekBytes, err := reader.Peek(1)
+		if err != nil || len(peekBytes) == 0 {
+			break
+		}
+		if peekBytes[0] == 't' { // trailer keyword
+			break
+		}
+
+		subHeader, _, err := reader.ReadLine()
+		if err != nil {
+			break
+		}
+		parts := strings.Fields(string(subHeader))
+		if len(parts) != 2 {
+			break
+		}
+
+		startObjID, _ := strconv.Atoi(parts[0])
+		numObjs, _ := strconv.Atoi(parts[1])
+
+		for i := range numObjs {
+			entryLine := make([]byte, 20)
+			if _, err := io.ReadFull(reader, entryLine); err != nil {
+				break
+			}
+			if entryLine[17] == 'n' {
+				offsetStr := strings.TrimSpace(string(entryLine[:10]))
+				objOffset, _ := strconv.ParseInt(offsetStr, 10, 64)
+				objNum := startObjID + i
+				if !fillIn || d.xrefTable[objNum] == 0 {
+					d.xrefTable[objNum] = objOffset + d.pdfStart
+				}
+			}
+		}
+	}
+
+	// Consume the "trailer" keyword line.
+	trailerLine, _, err := reader.ReadLine()
+	if err != nil {
+		return PDFDict{}, fmt.Errorf("expected 'trailer' keyword: %w", err)
+	}
+	if strings.TrimRight(string(trailerLine), "\r\n") != "trailer" {
+		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", string(trailerLine))
+	}
+
+	// Read up to 2 KB for the trailer dictionary (more than enough in practice).
+	limited := io.LimitReader(reader, 2048)
+	buf, _ := io.ReadAll(limited)
+	l := NewLexer(bytes.NewReader(buf))
+	return parseDictionary(l)
 }
 
 func parseObject(l *Lexer, tok Token) (PDFValue, error) {

@@ -54,7 +54,10 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 				lastChar, lcOK := v.Entries["LastChar"].(PDFInteger)
 				widths, wOK := v.Entries["Widths"].(PDFArray)
 				if fcOK && lcOK && wOK {
-					validateSimpleTrueTypeSubset(v, ff, int(firstChar), int(lastChar), widths, ctx)
+					// 6.3.5: subset glyph-coverage check only applies to subset fonts.
+					if subset {
+						validateSimpleTrueTypeSubset(v, ff, int(firstChar), int(lastChar), widths, ctx)
+					}
 					validateSimpleTrueTypeMetrics(v, ff, int(firstChar), int(lastChar), widths, ctx)
 				}
 			}
@@ -97,24 +100,120 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 		if subset && desc.Entries != nil && desc.Entries["CIDSet"] == nil {
 			ctx.ReportError(v, "6.3.5", 3, "CID subset font descriptor lacks CIDSet")
 		}
-		// 6.3.5 / 6.3.6: glyph coverage and metric consistency for embedded CID fonts.
+		// 6.3.5 / 6.3.6: glyph coverage (subset only) and metric consistency
+		// for embedded CID fonts.
 		if w, ok2 := v.Entries["W"].(PDFArray); ok2 {
 			switch subtype.Value {
 			case "CIDFontType2":
 				if ff, ok := desc.Entries["FontFile2"].(PDFDict); ok {
-					validateCIDTrueTypeSubset(v, ff, w, ctx)
+					// 6.3.5: subset glyph-coverage applies only to subset fonts.
+					if subset {
+						validateCIDTrueTypeSubset(v, ff, w, ctx)
+					}
 					validateCIDTrueTypeMetrics(v, ff, w, ctx)
 				}
 			case "CIDFontType0":
 				if ff, ok := desc.Entries["FontFile3"].(PDFDict); ok {
-					validateCIDCFFSubset(v, ff, w, ctx)
+					// 6.3.5: subset glyph-coverage applies only to subset fonts.
+					if subset {
+						validateCIDCFFSubset(v, ff, w, ctx)
+					}
 				}
 			}
 		}
 
+	case "Type3":
+		validateType3Metrics(v, ctx)
+
 	case "Type0":
 		validateType0Font(v, ctx)
 	}
+}
+
+// validateType3Metrics checks that the Widths array of a Type3 font is
+// consistent with the wx value declared in each glyph's d0 or d1 operator (6.3.6).
+func validateType3Metrics(v PDFDict, ctx *ValidationContext) {
+	firstChar, fcOK := v.Entries["FirstChar"].(PDFInteger)
+	lastChar, lcOK := v.Entries["LastChar"].(PDFInteger)
+	widths, wOK := v.Entries["Widths"].(PDFArray)
+	charProcs, cpOK := v.Entries["CharProcs"].(PDFDict)
+	enc, encOK := v.Entries["Encoding"].(PDFDict)
+	if !fcOK || !lcOK || !wOK || !cpOK || !encOK {
+		return
+	}
+	diffs, _ := enc.Entries["Differences"].(PDFArray)
+	if diffs == nil {
+		return
+	}
+
+	// Build code→glyphName from the Differences array.
+	codeToGlyph := map[int]string{}
+	code := 0
+	for _, item := range diffs {
+		switch d := item.(type) {
+		case PDFInteger:
+			code = int(d)
+		case PDFName:
+			codeToGlyph[code] = d.Value
+			code++
+		}
+	}
+
+	for i, w := range widths {
+		var pdfWidth float64
+		switch wv := w.(type) {
+		case PDFInteger:
+			pdfWidth = float64(wv)
+		case PDFReal:
+			pdfWidth = float64(wv)
+		}
+		cc := int(firstChar) + i
+		if cc > int(lastChar) {
+			break
+		}
+		glyphName := codeToGlyph[cc]
+		if glyphName == "" {
+			continue
+		}
+		proc, ok := charProcs.Entries[glyphName].(PDFDict)
+		if !ok || !proc.HasStream {
+			continue
+		}
+		data, err := decodeStream(proc)
+		if err != nil {
+			continue
+		}
+		procWidth := type3GlyphWidth(data)
+		if procWidth < 0 {
+			continue // no d0/d1 found
+		}
+		if abs64(procWidth-pdfWidth) > 1.0 {
+			ctx.ReportError(v, "6.3.6", 1,
+				fmt.Sprintf("Type3 glyph /%s: Widths entry %g does not match d0/d1 width %g", glyphName, pdfWidth, procWidth))
+			return
+		}
+	}
+}
+
+// type3GlyphWidth extracts the wx (horizontal advance) from the first d0 or d1
+// operator in a Type3 glyph procedure. Returns -1 if not found.
+func type3GlyphWidth(data []byte) float64 {
+	cs := newContentScanner(data)
+	result := -1.0
+	cs.scan(func(op string, operands []PDFValue) {
+		if result >= 0 {
+			return
+		}
+		if (op == "d0" || op == "d1") && len(operands) >= 1 {
+			switch wv := operands[0].(type) {
+			case PDFInteger:
+				result = float64(wv)
+			case PDFReal:
+				result = float64(wv)
+			}
+		}
+	})
+	return result
 }
 
 // validateTrueTypeEncoding checks symbolic/non-symbolic TrueType encodings (6.3.7).
@@ -195,4 +294,147 @@ func cidInfoField(d PDFDict, key string) string {
 		return s.Value
 	}
 	return ""
+}
+
+// validateCMapStream checks an embedded CMap stream for CID values exceeding
+// the architectural limit of 65535 (PDF/A-1, 6.1.12 / PDF Reference Table H.1).
+func validateCMapStream(v PDFDict, ctx *ValidationContext) {
+	if v.Entries["Type"] != (PDFName{Value: "CMap"}) || !v.HasStream {
+		return
+	}
+	data, err := decodeStream(v)
+	if err != nil {
+		return
+	}
+	checkCMapCIDLimits(v, data, ctx)
+}
+
+// checkCMapCIDLimits scans CMap PostScript content for CID values > 65535.
+func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
+	tokens := cmapTokenize(data)
+	const maxCID = 65535
+
+	inCIDRange := false
+	inCIDChar := false
+	pos := 0 // position within the current block entry (0-indexed token within triplet/pair)
+
+	for _, tok := range tokens {
+		switch tok {
+		case "begincidrange":
+			inCIDRange = true
+			inCIDChar = false
+			pos = 0
+		case "endcidrange":
+			inCIDRange = false
+			pos = 0
+		case "begincidchar":
+			inCIDChar = true
+			inCIDRange = false
+			pos = 0
+		case "endcidchar":
+			inCIDChar = false
+			pos = 0
+		default:
+			if inCIDRange {
+				// cidrange entries: <start-code> <end-code> start-CID  (repeat)
+				pos++
+				if pos == 3 {
+					// third token is the starting CID
+					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
+						ctx.ReportError(obj, "6.1.12", 5,
+							fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+					}
+					pos = 0
+				}
+			} else if inCIDChar {
+				// cidchar entries: <code> CID  (repeat)
+				pos++
+				if pos == 2 {
+					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
+						ctx.ReportError(obj, "6.1.12", 5,
+							fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+					}
+					pos = 0
+				}
+			}
+		}
+	}
+}
+
+// cmapTokenize splits CMap PostScript content into tokens, skipping comments.
+func cmapTokenize(data []byte) []string {
+	var tokens []string
+	i := 0
+	for i < len(data) {
+		// skip whitespace
+		for i < len(data) && isWhitespace(data[i]) {
+			i++
+		}
+		if i >= len(data) {
+			break
+		}
+		// skip line comments
+		if data[i] == '%' {
+			for i < len(data) && data[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if data[i] == '<' {
+			// hex string token: <...> (stop at first >)
+			j := i + 1
+			for j < len(data) && data[j] != '>' {
+				j++
+			}
+			if j < len(data) {
+				j++ // include '>'
+			}
+			tokens = append(tokens, string(data[i:j]))
+			i = j
+		} else if data[i] == '(' {
+			// literal string: skip to matching ')'
+			j := i + 1
+			depth := 1
+			for j < len(data) && depth > 0 {
+				if data[j] == '\\' {
+					j += 2
+					continue
+				}
+				if data[j] == '(' {
+					depth++
+				} else if data[j] == ')' {
+					depth--
+				}
+				j++
+			}
+			tokens = append(tokens, string(data[i:j]))
+			i = j
+		} else {
+			// regular token: read until whitespace or delimiter
+			j := i
+			for j < len(data) && !isWhitespace(data[j]) && data[j] != '<' && data[j] != '(' && data[j] != ')' {
+				j++
+			}
+			if j > i {
+				tokens = append(tokens, string(data[i:j]))
+			}
+			i = j
+		}
+	}
+	return tokens
+}
+
+// cmapParseInt parses a decimal integer token from a CMap stream.
+func cmapParseInt(tok string) (int64, bool) {
+	if len(tok) == 0 {
+		return 0, false
+	}
+	var n int64
+	for _, c := range []byte(tok) {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n, true
 }

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const pdfaIDNamespace = "http://www.aiim.org/pdfa/ns/id/"
@@ -42,8 +44,26 @@ var knownXMPNamespaces = map[string]bool{
 	"http://ns.adobe.com/photoshop/1.0/":           true,
 	"http://ns.adobe.com/tiff/1.0/":                true,
 	"http://ns.adobe.com/exif/1.0/":                true,
-	"http://ns.adobe.com/exif/1.0/aux/":            true,
-	"http://ns.adobe.com/camera-raw-settings/1.0/": true,
+	// aux: and xmpDM: are not standard XMP 2004 schemas; omit so undeclared use is flagged.
+	// Camera Raw is not a standard XMP 2004 schema; omit so undeclared use is flagged.
+	// XMP structured-type namespaces (st* prefixes) — these are standard Adobe XMP
+	// namespaces used for structured properties (e.g., xmpMM:DerivedFrom uses stRef).
+	// None of them require extension schema declarations.
+	"http://ns.adobe.com/xap/1.0/sType/ResourceRef#":   true,
+	"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#": true,
+	"http://ns.adobe.com/xap/1.0/sType/Version#":       true,
+	"http://ns.adobe.com/xap/1.0/sType/Font#":          true,
+	"http://ns.adobe.com/xap/1.0/sType/Dimensions#":    true,
+	"http://ns.adobe.com/xap/1.0/sType/Thumbnail#":     true,
+	"http://ns.adobe.com/xap/1.0/sType/Job#":           true,
+	"http://ns.adobe.com/xap/1.0/sType/ManifestItem#":  true,
+	"http://ns.adobe.com/xap/1.0/g/img/":               true,
+	"http://ns.adobe.com/xap/1.0/bj/":                  true,
+	"http://ns.adobe.com/xmp/Identifier/qual/1.0/":     true,
+	// xmpDM: is not a standard XMP 2004 schema; omit.
+	"http://ns.adobe.com/InDesign/1.0/":                true,
+	"http://ns.adobe.com/illustrator/1.0/":             true,
+	"http://ns.adobe.com/swf/1.0/":                     true,
 }
 
 // xmpBuiltinTypes lists the predefined XMP value types valid for
@@ -139,13 +159,15 @@ func checkExtensionSchemas(xmp string) []PDFError {
 		return errs
 	}
 
-	// Find custom namespace prefixes that are actually used as elements in the XMP.
+	// Find custom namespace prefixes that are actually used (element or attribute style).
 	customNSUsed := false
 	for prefix, uri := range bindPrefixToURI {
 		if knownXMPNamespaces[uri] {
 			continue
 		}
-		if strings.Contains(xmp, "<"+prefix+":") {
+		if strings.Contains(xmp, "<"+prefix+":") ||
+			strings.Contains(xmp, " "+prefix+":") ||
+			strings.Contains(xmp, "\t"+prefix+":") {
 			customNSUsed = true
 			break
 		}
@@ -155,8 +177,11 @@ func checkExtensionSchemas(xmp string) []PDFError {
 
 	// Custom namespace properties without any extension schema → t01.
 	if customNSUsed && !hasSchemas {
-		return append(errs, xmpErr("6.7.8", 1,
-			"custom-namespace properties used without extension schema"))
+		msg := "custom-namespace properties used without extension schema"
+		return append(errs,
+			xmpErr("6.7.8", 1, msg),
+			xmpErr("6.7.2", 4, msg),
+		)
 	}
 
 	if !hasSchemas {
@@ -705,6 +730,8 @@ func (d *Document) verifyXMPMetadata() []PDFError {
 	if err != nil {
 		return append(errs, xmpErr("6.7.9", 1, "unable to read XMP metadata stream"))
 	}
+	// Normalise UTF-16 LE/BE XMP streams to UTF-8 before any further processing.
+	data = decodeXMPEncoding(data)
 	xmp := string(data)
 
 	errs = append(errs, checkXMPHeader(xmp)...)
@@ -713,6 +740,7 @@ func (d *Document) verifyXMPMetadata() []PDFError {
 		errs = append(errs, xmpErr("6.7.9", 2, "XMP metadata is not well-formed XML"))
 	}
 	errs = append(errs, checkXMPPropertyTypes(xmp)...)
+	errs = append(errs, checkXMPPropertySchemas(data)...)
 	errs = append(errs, d.checkInfoXMPSync(xmp)...)
 	errs = append(errs, checkExtensionSchemas(xmp)...)
 
@@ -762,6 +790,111 @@ func checkPDFAIdentifier(xmp string) []PDFError {
 	}
 
 	return errs
+}
+
+// decodeXMPEncoding converts an XMP stream to UTF-8 if it is UTF-16 or
+// UTF-32 encoded. Encoding is detected by BOM or the leading '<' pattern:
+//
+//   - UTF-32 LE BOM  : FF FE 00 00
+//   - UTF-32 BE BOM  : 00 00 FE FF
+//   - UTF-32 LE      : 3C 00 00 00
+//   - UTF-32 BE      : 00 00 00 3C
+//   - UTF-16 LE BOM  : FF FE (not followed by 00 00)
+//   - UTF-16 BE BOM  : FE FF
+//   - UTF-16 LE      : 3C 00
+//   - UTF-16 BE      : 00 3C
+//   - UTF-8          : anything else
+func decodeXMPEncoding(data []byte) []byte {
+	if len(data) < 4 {
+		if len(data) >= 2 {
+			return decodeXMPEncoding16(data, 0)
+		}
+		return data
+	}
+
+	// UTF-32 BOM detection (must come before UTF-16 BOM check because
+	// UTF-32 LE BOM starts with the same two bytes as UTF-16 LE BOM).
+	if data[0] == 0xFF && data[1] == 0xFE && data[2] == 0x00 && data[3] == 0x00 {
+		return decodeUTF32(data[4:], true) // UTF-32 LE BOM
+	}
+	if data[0] == 0x00 && data[1] == 0x00 && data[2] == 0xFE && data[3] == 0xFF {
+		return decodeUTF32(data[4:], false) // UTF-32 BE BOM
+	}
+	// UTF-32 without BOM: '<' followed by three NUL bytes.
+	if data[0] == 0x3C && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x00 {
+		return decodeUTF32(data, true) // UTF-32 LE
+	}
+	if data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x3C {
+		return decodeUTF32(data, false) // UTF-32 BE
+	}
+	// UTF-16 BOM or bare '<' + 0x00 pattern.
+	return decodeXMPEncoding16(data, 0)
+}
+
+// decodeUTF32 converts a UTF-32 stream (offset bytes already stripped) to UTF-8.
+func decodeUTF32(raw []byte, le bool) []byte {
+	n := len(raw) / 4
+	buf := make([]byte, 0, n*3)
+	var tmp [4]byte
+	for i := range n {
+		b := raw[i*4 : i*4+4]
+		var cp uint32
+		if le {
+			cp = uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
+		} else {
+			cp = uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+		}
+		r := rune(cp)
+		if r > 0x10FFFF {
+			r = 0xFFFD
+		}
+		sz := utf8.EncodeRune(tmp[:], r)
+		buf = append(buf, tmp[:sz]...)
+	}
+	return buf
+}
+
+// decodeXMPEncoding16 handles UTF-16 detection and conversion.
+func decodeXMPEncoding16(data []byte, _ int) []byte {
+	if len(data) < 2 {
+		return data
+	}
+	var le bool
+	offset := 0
+	if data[0] == 0xFF && data[1] == 0xFE {
+		le = true
+		offset = 2
+	} else if data[0] == 0xFE && data[1] == 0xFF {
+		le = false
+		offset = 2
+	} else if data[0] == 0x3C && data[1] == 0x00 {
+		le = true
+	} else if data[0] == 0x00 && data[1] == 0x3C {
+		le = false
+	} else {
+		return data // Already UTF-8
+	}
+	raw := data[offset:]
+	if len(raw)%2 != 0 {
+		raw = raw[:len(raw)-1]
+	}
+	u16 := make([]uint16, len(raw)/2)
+	for i := range u16 {
+		b0, b1 := raw[i*2], raw[i*2+1]
+		if le {
+			u16[i] = uint16(b0) | uint16(b1)<<8
+		} else {
+			u16[i] = uint16(b0)<<8 | uint16(b1)
+		}
+	}
+	runes := utf16.Decode(u16)
+	buf := make([]byte, 0, len(runes)*3)
+	var tmp [4]byte
+	for _, r := range runes {
+		n := utf8.EncodeRune(tmp[:], r)
+		buf = append(buf, tmp[:n]...)
+	}
+	return buf
 }
 
 // xmpWellFormed reports whether the XMP packet is well-formed XML (6.7.9).
@@ -848,6 +981,27 @@ func checkXMPPropertyTypes(xmp string) []PDFError {
 	return errs
 }
 
+// xmpScalarValueRe builds a regex that matches a named XMP property as either
+// an attribute (prop="value") or a simple element (<prop>value</prop>).
+func xmpScalarValueRe(prop string) *regexp.Regexp {
+	q := regexp.QuoteMeta(prop)
+	return regexp.MustCompile(`(?s)` + q + `\s*=\s*"([^"]*)"` +
+		`|<` + q + `[^>]*>\s*([^<]*?)\s*</` + q + `>`)
+}
+
+// xmpScalarValue extracts an XMP scalar property value, checking both
+// attribute style (prop="value") and element style (<prop>value</prop>).
+func xmpScalarValue(xmp, prop string) (string, bool) {
+	m := xmpScalarValueRe(prop).FindStringSubmatch(xmp)
+	if m == nil {
+		return "", false
+	}
+	if m[1] != "" {
+		return m[1], true
+	}
+	return strings.TrimSpace(m[2]), true
+}
+
 // checkInfoXMPSync verifies that document information dictionary entries are
 // reflected in the XMP metadata (6.7.3).
 func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
@@ -858,47 +1012,417 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 	var errs []PDFError
 
 	// Each Info text property must equal the matching XMP property value.
+	// The PDF null keyword is resolved to the string "null" by the parser;
+	// treat that as absent so it doesn't trigger a false sync mismatch.
 	for key, prop := range map[string]string{
 		"Title":   "dc:title",
 		"Subject": "dc:description",
 	} {
 		val := strings.TrimSpace(info[key])
-		if val == "" {
+		if val == "" || val == "null" {
 			continue
 		}
 		got, ok := xmpPropValue(xmp, prop)
 		if !ok || got != val {
-			errs = append(errs, xmpErr("6.7.3", 1,
-				fmt.Sprintf("document info %s not synchronized with XMP %s", key, prop)))
+			msg := fmt.Sprintf("document info %s not synchronized with XMP %s", key, prop)
+			errs = append(errs, xmpErr("6.7.3", 1, msg))
+			errs = append(errs, xmpErr("6.1.5", 4, msg))
 		}
 	}
 
-	// Dates use different representations (PDF "D:YYYYMMDD..." vs ISO 8601);
-	// compare their numeric components.
-	if cd := strings.TrimSpace(info["CreationDate"]); cd != "" {
-		xmpDate, _ := firstGroup(xmpCreateDateRe, xmp)
-		infoDigits := digitsOf(cd)
-		xmpDigits := digitsOf(xmpDate)
-		n := min(len(infoDigits), len(xmpDigits), 14)
-		if n < 8 || infoDigits[:n] != xmpDigits[:n] {
-			errs = append(errs, xmpErr("6.7.3", 1,
-				"document info CreationDate not synchronized with XMP xmp:CreateDate"))
-		}
-	}
-
-	// ModDate must equal xmp:ModifyDate to second precision (14 digits).
-	if md := strings.TrimSpace(info["ModDate"]); md != "" {
-		xmpDate, _ := firstGroup(xmpModifyDateRe, xmp)
-		if xmpDate != "" {
-			infoDigits := digitsOf(md)
-			xmpDigits := digitsOf(xmpDate)
-			n := min(len(infoDigits), len(xmpDigits), 14)
-			if n < 8 || infoDigits[:n] != xmpDigits[:n] {
-				errs = append(errs, xmpErr("6.7.3", 1,
-					"document info ModDate not synchronized with XMP xmp:ModifyDate"))
+	// Author vs dc:creator: dc:creator is a Seq; Author must match the single item.
+	if author := info["Author"]; author != "" && author != "null" {
+		if m := regexp.MustCompile(`(?s)<dc:creator[^>]*>(.*?)</dc:creator>`).FindStringSubmatch(xmp); m != nil {
+			items := rdfLiRe.FindAllStringSubmatch(m[1], -1)
+			var msg string
+			if len(items) > 1 {
+				msg = "document info Author not synchronized with XMP dc:creator (multiple entries)"
+			} else if len(items) == 1 && strings.TrimSpace(items[0][1]) != author {
+				msg = "document info Author not synchronized with XMP dc:creator"
+			}
+			if msg != "" {
+				errs = append(errs, xmpErr("6.7.3", 1, msg))
+				errs = append(errs, xmpErr("6.1.5", 4, msg))
 			}
 		}
 	}
 
+	// Creator vs xmp:CreatorTool (scalar attribute).
+	if creator := info["Creator"]; creator != "" && creator != "null" {
+		if xmpCreator, ok := xmpScalarValue(xmp, "xmp:CreatorTool"); ok && xmpCreator != creator {
+			msg := "document info Creator not synchronized with XMP xmp:CreatorTool"
+			errs = append(errs, xmpErr("6.7.3", 1, msg))
+			errs = append(errs, xmpErr("6.1.5", 4, msg))
+		}
+	}
+
+	// Producer vs pdf:Producer (scalar attribute).
+	if producer := info["Producer"]; producer != "" && producer != "null" {
+		if xmpProducer, ok := xmpScalarValue(xmp, "pdf:Producer"); ok && xmpProducer != producer {
+			msg := "document info Producer not synchronized with XMP pdf:Producer"
+			errs = append(errs, xmpErr("6.7.3", 1, msg))
+			errs = append(errs, xmpErr("6.1.5", 4, msg))
+		}
+	}
+
+	// Keywords vs pdf:Keywords (scalar attribute).
+	if kw := info["Keywords"]; kw != "" && kw != "null" {
+		if xmpKW, ok := xmpScalarValue(xmp, "pdf:Keywords"); ok && xmpKW != kw {
+			msg := "document info Keywords not synchronized with XMP pdf:Keywords"
+			errs = append(errs, xmpErr("6.7.3", 1, msg))
+			errs = append(errs, xmpErr("6.1.5", 4, msg))
+		}
+	}
+
+	// Dates use different representations (PDF "D:YYYYMMDD..." vs ISO 8601);
+	// compare their numeric components at the same precision.
+	infoDateMismatch := func(infoKey, label string, xmpDateRe *regexp.Regexp) {
+		cd := strings.TrimSpace(info[infoKey])
+		if cd == "" {
+			return
+		}
+		// PDF dates must start with "D:" — an ISO 8601 format is invalid.
+		if !strings.HasPrefix(cd, "D:") {
+			errs = append(errs, xmpErr("6.1.5", 4,
+				fmt.Sprintf("document info %s is not in PDF date format", infoKey)))
+			return
+		}
+		xmpDate, _ := firstGroup(xmpDateRe, xmp)
+		infoDigits := digitsOf(cd)
+		xmpDigits := digitsOf(xmpDate)
+		n := min(len(infoDigits), len(xmpDigits), 14)
+		if n < 8 || infoDigits[:n] != xmpDigits[:n] || len(infoDigits) < len(xmpDigits) {
+			errs = append(errs, xmpErr("6.7.3", 1,
+				fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
+			errs = append(errs, xmpErr("6.1.5", 4,
+				fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
+		}
+	}
+	infoDateMismatch("CreationDate", "xmp:CreateDate", xmpCreateDateRe)
+	infoDateMismatch("ModDate", "xmp:ModifyDate", xmpModifyDateRe)
+
 	return errs
+}
+
+// xmpContainerKind describes how an XMP property must be structured.
+type xmpContainerKind uint8
+
+const (
+	xmpKindScalar  xmpContainerKind = iota // plain text / attribute
+	xmpKindInteger                         // integer scalar value
+	xmpKindBoolean                         // boolean scalar ("True" or "False")
+	xmpKindBag                             // rdf:Bag required
+	xmpKindSeq                             // rdf:Seq required
+	xmpKindAlt                             // rdf:Alt required (including LangAlt)
+	xmpKindStruct                          // rdf:parseType="Resource" or nested rdf:Description
+)
+
+// xmpNSSchemas maps namespace URI to a map of (propertyName → expected container kind).
+// A namespace present in this map is a "known 2004 schema"; any property from that
+// namespace that is not listed is reported as not permitted (6.7.2).
+var xmpNSSchemas = map[string]map[string]xmpContainerKind{
+	// Dublin Core (dc:)
+	"http://purl.org/dc/elements/1.1/": {
+		"contributor": xmpKindBag, "coverage": xmpKindScalar,
+		"creator": xmpKindSeq, "date": xmpKindSeq,
+		"description": xmpKindAlt, "format": xmpKindScalar,
+		"identifier": xmpKindScalar, "language": xmpKindBag,
+		"publisher": xmpKindBag, "relation": xmpKindBag,
+		"rights": xmpKindAlt, "source": xmpKindScalar,
+		"subject": xmpKindBag, "title": xmpKindAlt,
+		"type": xmpKindBag,
+	},
+	// XMP Basic (xmp:) — XMP 2004 valid subset only
+	"http://ns.adobe.com/xap/1.0/": {
+		"Advisory": xmpKindBag, "BaseURL": xmpKindScalar,
+		"CreateDate": xmpKindScalar, "CreatorTool": xmpKindScalar,
+		"Format": xmpKindScalar, "Identifier": xmpKindBag,
+		"MetadataDate": xmpKindScalar, "ModifyDate": xmpKindScalar,
+		"Nickname": xmpKindScalar, "Thumbnails": xmpKindAlt,
+		// Author, Description, Label, Rating, Title are not valid in XMP 2004
+	},
+	// PDF schema (pdf:) — XMP 2004 valid subset only
+	"http://ns.adobe.com/pdf/1.3/": {
+		"Keywords": xmpKindScalar, "PDFVersion": xmpKindScalar, "Producer": xmpKindScalar,
+		// Author, BaseURL, CreationDate, Creator, ModDate, Subject, Title, Trapped not valid in XMP 2004
+	},
+	// XMP Rights Management (xmpRights:)
+	"http://ns.adobe.com/xap/1.0/rights/": {
+		"Certificate": xmpKindScalar, "Marked": xmpKindBoolean,
+		"Owner": xmpKindBag, "UsageTerms": xmpKindAlt, "WebStatement": xmpKindScalar,
+		// Copyright is not valid in XMP 2004
+	},
+	// XMP Media Management (xmpMM:)
+	"http://ns.adobe.com/xap/1.0/mm/": {
+		"DerivedFrom": xmpKindStruct, "DocumentID": xmpKindScalar,
+		"History": xmpKindSeq, "Ingredients": xmpKindBag,
+		"InstanceID": xmpKindScalar, "LastURL": xmpKindScalar,
+		"ManagedFrom": xmpKindStruct, "Manager": xmpKindScalar,
+		"ManageTo": xmpKindScalar, "ManageUI": xmpKindScalar,
+		"ManagerVariant": xmpKindScalar, "RenditionClass": xmpKindScalar,
+		"RenditionOf": xmpKindStruct, "RenditionParams": xmpKindScalar,
+		"SaveID": xmpKindInteger, "VersionID": xmpKindScalar, "Versions": xmpKindSeq,
+		// Manifest, Pantry, placedXResolution not valid in XMP 2004
+	},
+	// XMP Basic Job Ticket (xmpBJ:)
+	"http://ns.adobe.com/xap/1.0/bj/": {
+		"JobRef": xmpKindBag,
+	},
+	// XMP Paged-Text (xmpTPg:) — XMP 2004 valid subset only
+	"http://ns.adobe.com/xap/1.0/t/pg/": {
+		"MaxPageSize": xmpKindStruct, "NPages": xmpKindInteger,
+		// Fonts, Colorants, PlateNames not valid in XMP 2004
+	},
+	// Photoshop (photoshop:) — XMP 2004 valid subset only
+	"http://ns.adobe.com/photoshop/1.0/": {
+		"AuthorsPosition": xmpKindScalar, "CaptionWriter": xmpKindScalar,
+		"Category": xmpKindScalar, "City": xmpKindScalar,
+		"Country": xmpKindScalar, "Credit": xmpKindScalar,
+		"DateCreated": xmpKindScalar, "Headline": xmpKindScalar,
+		"ICCProfile": xmpKindScalar, "Instructions": xmpKindScalar,
+		"Source": xmpKindScalar, "State": xmpKindScalar,
+		"SupplementalCategories": xmpKindScalar,
+		"TransmissionReference": xmpKindScalar, "Urgency": xmpKindInteger,
+		// Author, Copyright, History, Title not valid in XMP 2004
+	},
+	// TIFF (tiff:)
+	"http://ns.adobe.com/tiff/1.0/": {
+		"Artist": xmpKindScalar, "BitsPerSample": xmpKindSeq,
+		"Compression": xmpKindInteger, "Copyright": xmpKindAlt,
+		"DateTime": xmpKindScalar, "ImageDescription": xmpKindAlt,
+		"ImageLength": xmpKindInteger, "ImageWidth": xmpKindInteger,
+		"Make": xmpKindScalar, "Model": xmpKindScalar,
+		"Orientation": xmpKindInteger, "PhotometricInterpretation": xmpKindInteger,
+		"PlanarConfiguration": xmpKindInteger, "PrimaryChromaticities": xmpKindSeq,
+		"ReferenceBlackWhite": xmpKindSeq, "ResolutionUnit": xmpKindInteger,
+		"SamplesPerPixel": xmpKindInteger, "Software": xmpKindScalar,
+		"TransferFunction": xmpKindSeq, "WhitePoint": xmpKindSeq,
+		"XResolution": xmpKindScalar, "YCbCrCoefficients": xmpKindSeq,
+		"YCbCrPositioning": xmpKindInteger, "YCbCrSubSampling": xmpKindSeq,
+		"YResolution": xmpKindScalar,
+	},
+	// EXIF (exif:) — includes struct field sub-properties
+	"http://ns.adobe.com/exif/1.0/": {
+		"ApertureValue": xmpKindScalar, "BrightnessValue": xmpKindScalar,
+		"CFAPattern": xmpKindStruct, "ColorSpace": xmpKindInteger,
+		"ComponentsConfiguration": xmpKindSeq, "CompressedBitsPerPixel": xmpKindScalar,
+		"Contrast": xmpKindInteger, "CustomRendered": xmpKindInteger,
+		"DateTimeDigitized": xmpKindScalar, "DateTimeOriginal": xmpKindScalar,
+		"DeviceSettingDescription": xmpKindStruct, "DigitalZoomRatio": xmpKindScalar,
+		"ExifVersion": xmpKindScalar, "ExposureBiasValue": xmpKindScalar,
+		"ExposureIndex": xmpKindScalar, "ExposureMode": xmpKindInteger,
+		"ExposureProgram": xmpKindInteger, "ExposureTime": xmpKindScalar,
+		"FNumber": xmpKindScalar, "FileSource": xmpKindInteger,
+		"Flash": xmpKindStruct, "FlashEnergy": xmpKindScalar,
+		"FlashpixVersion": xmpKindScalar, "FocalLength": xmpKindScalar,
+		"FocalLengthIn35mmFilm": xmpKindInteger,
+		"FocalPlaneResolutionUnit": xmpKindInteger,
+		"FocalPlaneXResolution": xmpKindScalar, "FocalPlaneYResolution": xmpKindScalar,
+		"GainControl": xmpKindInteger,
+		"GPSAltitude": xmpKindScalar, "GPSAltitudeRef": xmpKindInteger,
+		"GPSAreaInformation": xmpKindScalar,
+		"GPSDOP": xmpKindScalar, "GPSDestBearing": xmpKindScalar,
+		"GPSDestBearingRef": xmpKindScalar, "GPSDestDistance": xmpKindScalar,
+		"GPSDestDistanceRef": xmpKindScalar, "GPSDestLatitude": xmpKindScalar,
+		"GPSDestLongitude": xmpKindScalar, "GPSDifferential": xmpKindInteger,
+		"GPSImgDirection": xmpKindScalar, "GPSImgDirectionRef": xmpKindScalar,
+		"GPSLatitude": xmpKindScalar, "GPSLongitude": xmpKindScalar,
+		"GPSMapDatum": xmpKindScalar, "GPSMeasureMode": xmpKindScalar,
+		"GPSProcessingMethod": xmpKindScalar, "GPSSatellites": xmpKindScalar,
+		"GPSSpeed": xmpKindScalar, "GPSSpeedRef": xmpKindScalar,
+		"GPSStatus": xmpKindScalar, "GPSTimeStamp": xmpKindScalar,
+		"GPSTrack": xmpKindScalar, "GPSTrackRef": xmpKindScalar,
+		"GPSVersionID": xmpKindScalar,
+		"ISOSpeedRatings": xmpKindSeq, "ImageUniqueID": xmpKindScalar,
+		"LightSource": xmpKindInteger, "MakerNote": xmpKindScalar,
+		"MaxApertureValue": xmpKindScalar, "MeteringMode": xmpKindInteger,
+		"OECF": xmpKindStruct, "PixelXDimension": xmpKindInteger,
+		"PixelYDimension": xmpKindInteger, "RelatedSoundFile": xmpKindScalar,
+		"Saturation": xmpKindInteger, "SceneCaptureType": xmpKindInteger,
+		"SceneType": xmpKindInteger, "SensingMethod": xmpKindInteger,
+		"Sharpness": xmpKindInteger, "ShutterSpeedValue": xmpKindScalar,
+		"SpatialFrequencyResponse": xmpKindStruct, "SpectralSensitivity": xmpKindScalar,
+		"SubjectArea": xmpKindSeq, "SubjectDistance": xmpKindScalar,
+		"SubjectDistanceRange": xmpKindInteger, "SubjectLocation": xmpKindSeq,
+		"UserComment": xmpKindAlt, "WhiteBalance": xmpKindInteger,
+		// Struct sub-fields (Flash, OECF/SFR, CFAPattern, DeviceSettingDescription):
+		"Fired": xmpKindScalar, "Return": xmpKindInteger,
+		"Mode": xmpKindInteger, "Function": xmpKindScalar, "RedEyeMode": xmpKindScalar,
+		"Columns": xmpKindInteger, "Rows": xmpKindInteger,
+		"Names": xmpKindSeq, "Values": xmpKindSeq, "Settings": xmpKindSeq,
+	},
+	// PDF/A Identification Schema (pdfaid:) — only part, conformance, and amd are defined.
+	"http://www.aiim.org/pdfa/ns/id/": {
+		"part":         xmpKindInteger,
+		"conformance":  xmpKindScalar,
+		"amd":          xmpKindScalar,
+	},
+}
+
+// checkXMPPropertySchemas validates that XMP properties are used in accordance
+// with their definitions in XMP 2004 (PDF/A-1b clause 6.7.2).
+func checkXMPPropertySchemas(data []byte) []PDFError {
+	if i := bytes.IndexByte(data, '<'); i > 0 {
+		data = data[i:]
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec.Strict = false
+
+	var errs []PDFError
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if se.Name.Space == nsRDF && se.Name.Local == "Description" {
+			// Check attribute-style properties on rdf:Description.
+			for _, a := range se.Attr {
+				if a.Name.Space == "" || a.Name.Space == nsRDF ||
+					a.Name.Space == "http://www.w3.org/XML/1998/namespace" {
+					continue
+				}
+				errs = append(errs, xmpValidateProp(a.Name.Space, a.Name.Local, xmpKindScalar, a.Value)...)
+			}
+		} else if _, inSchema := xmpNSSchemas[se.Name.Space]; inSchema {
+			// Element-style property from a known schema.
+			container, textVal := xmpConsumeProperty(dec, se)
+			errs = append(errs, xmpValidateProp(se.Name.Space, se.Name.Local, container, textVal)...)
+		}
+	}
+	return errs
+}
+
+// xmpConsumeProperty reads the content of a property element and returns
+// the container kind and plain-text value (if scalar). It consumes all child tokens.
+func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (xmpContainerKind, string) {
+	for _, a := range elem.Attr {
+		if a.Name.Space == nsRDF {
+			if a.Name.Local == "parseType" && a.Value == "Resource" {
+				xmpSkipElem(dec)
+				return xmpKindStruct, ""
+			}
+			if a.Name.Local == "resource" {
+				xmpSkipElem(dec)
+				return xmpKindScalar, a.Value
+			}
+		}
+	}
+
+	var text strings.Builder
+	kind := xmpKindScalar
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			if depth == 2 && kind == xmpKindScalar {
+				switch {
+				case t.Name.Space == nsRDF && t.Name.Local == "Bag":
+					kind = xmpKindBag
+				case t.Name.Space == nsRDF && t.Name.Local == "Seq":
+					kind = xmpKindSeq
+				case t.Name.Space == nsRDF && t.Name.Local == "Alt":
+					kind = xmpKindAlt
+				case t.Name.Space == nsRDF && t.Name.Local == "Description":
+					kind = xmpKindStruct
+				default:
+					kind = xmpKindStruct // non-rdf child → inline struct
+				}
+			}
+		case xml.EndElement:
+			depth--
+		case xml.CharData:
+			if depth == 1 {
+				text.Write([]byte(t))
+			}
+		}
+	}
+	return kind, strings.TrimSpace(text.String())
+}
+
+// xmpSkipElem consumes tokens until the current element is closed.
+func xmpSkipElem(dec *xml.Decoder) {
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch tok.(type) {
+		case xml.StartElement:
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
+
+// xmpValidateProp validates a single XMP property usage against the schema.
+func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value string) []PDFError {
+	schema := xmpNSSchemas[nsURI]
+	if schema == nil {
+		return nil
+	}
+	expected, defined := schema[propName]
+	if !defined {
+		return []PDFError{xmpErr("6.7.2", 2,
+			fmt.Sprintf("property %q is not defined in XMP 2004 schema %s", propName, nsURI))}
+	}
+	if !xmpContainerOK(expected, actual) {
+		return []PDFError{xmpErr("6.7.2", 2,
+			fmt.Sprintf("property %q used with wrong container type", propName))}
+	}
+	if expected == xmpKindInteger && actual == xmpKindScalar && value != "" && !xmpIsInteger(value) {
+		return []PDFError{xmpErr("6.7.2", 2,
+			fmt.Sprintf("property %q must be an integer, got %q", propName, value))}
+	}
+	if expected == xmpKindBoolean && actual == xmpKindScalar && value != "" && value != "True" && value != "False" {
+		return []PDFError{xmpErr("6.7.2", 2,
+			fmt.Sprintf("property %q must be a boolean (True/False), got %q", propName, value))}
+	}
+	return nil
+}
+
+func xmpContainerOK(expected, actual xmpContainerKind) bool {
+	switch expected {
+	case xmpKindScalar, xmpKindInteger, xmpKindBoolean:
+		return actual == xmpKindScalar
+	case xmpKindBag:
+		return actual == xmpKindBag
+	case xmpKindSeq:
+		return actual == xmpKindSeq
+	case xmpKindAlt:
+		return actual == xmpKindAlt
+	case xmpKindStruct:
+		return actual == xmpKindStruct
+	}
+	return false
+}
+
+// xmpIsInteger reports whether s is a valid integer value (optional sign, then digits only).
+func xmpIsInteger(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	i := 0
+	if s[0] == '+' || s[0] == '-' {
+		i = 1
+	}
+	if i == len(s) {
+		return false
+	}
+	for ; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

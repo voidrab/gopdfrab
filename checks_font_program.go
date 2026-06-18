@@ -37,6 +37,52 @@ func ttLocaHasGlyph(tables map[string][]byte) func(gid int) bool {
 	}
 }
 
+// ttNumGlyphs returns the number of glyphs in the font from the maxp table,
+// or 0 if unavailable. A glyph ID is valid (present in the font) when it is
+// in [0, numGlyphs-1]; empty outlines (space/whitespace) are still valid.
+func ttNumGlyphs(tables map[string][]byte) int {
+	maxp := tables["maxp"]
+	if len(maxp) < 6 {
+		return 0
+	}
+	return int(binary.BigEndian.Uint16(maxp[4:6]))
+}
+
+// ttGlyphInRange returns a function that reports whether a glyph ID is within
+// the font's valid glyph range [0, numGlyphs-1]. Unlike ttLocaHasGlyph, this
+// accepts glyphs with empty outlines (e.g. the space character).
+func ttGlyphInRange(tables map[string][]byte) func(gid int) bool {
+	n := ttNumGlyphs(tables)
+	if n == 0 {
+		return func(int) bool { return false }
+	}
+	return func(gid int) bool {
+		return gid >= 0 && gid < n
+	}
+}
+
+// ttGlyphPresent returns a function that reports whether a glyph ID is
+// "present" in the font for coverage purposes (6.3.5). A glyph is present if:
+//   - it has non-empty outline data (loca entries differ), OR
+//   - it exists in the valid range AND has zero advance width in hmtx
+//     (pure whitespace like space — valid to have no outline).
+func ttGlyphPresent(tables map[string][]byte) func(gid int) bool {
+	hasData := ttLocaHasGlyph(tables)
+	inRange := ttGlyphInRange(tables)
+	return func(gid int) bool {
+		if hasData(gid) {
+			return true
+		}
+		// Glyph has no outline — acceptable only if it has zero advance width
+		// (whitespace glyph). This avoids flagging space while still catching
+		// subset fonts that omit outline data for non-whitespace glyphs.
+		if !inRange(gid) {
+			return false
+		}
+		return ttAdvanceWidth(tables, gid) == 0
+	}
+}
+
 // ttAdvanceWidth returns the advance width for glyph gid from the hmtx table,
 // scaled to PDF units (1/1000 of em). Returns -1 if unavailable.
 func ttAdvanceWidth(tables map[string][]byte, gid int) int {
@@ -225,8 +271,8 @@ func init() {
 }
 
 // validateType1SubsetCoverage verifies that every character code with a non-zero
-// width in the Widths array maps (via WinAnsiEncoding or MacRomanEncoding) to a
-// glyph name that is present in the font's CharSet (6.3.5).
+// width in the Widths array maps to a glyph name that is present in the font's
+// CharSet (6.3.5). Handles WinAnsiEncoding by name and custom encoding dicts.
 func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstChar, lastChar int, widths PDFArray, ctx *ValidationContext) {
 	charSetVal, ok := desc.Entries["CharSet"]
 	if !ok {
@@ -239,6 +285,13 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 	default:
 		return
 	}
+
+	// 6.3.5: an empty CharSet is a violation — a subset must list the glyphs it contains.
+	if charSetStr == "" {
+		ctx.ReportError(obj, "6.3.5", 2, "Type 1 subset font descriptor has an empty CharSet")
+		return
+	}
+
 	// Parse CharSet: "/glyph1/glyph2/..."
 	charSet := map[string]bool{}
 	charSet[".notdef"] = true
@@ -246,12 +299,41 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 		charSet[part] = true
 	}
 
-	// Determine encoding glyph name table. Only WinAnsiEncoding is supported.
-	enc, _ := v.Entries["Encoding"].(PDFName)
-	if enc.Value != "WinAnsiEncoding" {
+	// Build a code→glyphName table from the font's encoding.
+	var glyphNames [256]string
+	switch enc := v.Entries["Encoding"].(type) {
+	case PDFName:
+		switch enc.Value {
+		case "WinAnsiEncoding":
+			glyphNames = winAnsiGlyphName
+		default:
+			return // unsupported named encoding
+		}
+	case PDFDict:
+		// Custom encoding: start from base (StandardEncoding or as named by BaseEncoding)
+		// then apply Differences.
+		base, _ := enc.Entries["BaseEncoding"].(PDFName)
+		switch base.Value {
+		case "WinAnsiEncoding":
+			glyphNames = winAnsiGlyphName
+		}
+		if diffs, ok := enc.Entries["Differences"].(PDFArray); ok {
+			code := 0
+			for _, item := range diffs {
+				switch d := item.(type) {
+				case PDFInteger:
+					code = int(d)
+				case PDFName:
+					if code >= 0 && code < 256 {
+						glyphNames[code] = d.Value
+					}
+					code++
+				}
+			}
+		}
+	default:
 		return
 	}
-	glyphNames := winAnsiGlyphName
 
 	for i, w := range widths {
 		var width int
@@ -491,7 +573,8 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 }
 
 // validateCIDTrueTypeSubset checks that all CIDs referenced in the W array
-// have glyph data in the embedded TrueType program (6.3.5).
+// are present in the embedded TrueType program (6.3.5). A glyph with an empty
+// outline but zero advance width (e.g. space) is still considered present.
 func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -501,10 +584,10 @@ func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *Valida
 	if !ok {
 		return
 	}
-	hasGlyph := ttLocaHasGlyph(tables)
+	glyphPresent := ttGlyphPresent(tables)
 	for _, pair := range parseCIDWidths(w) {
 		cid := pair[0]
-		if !hasGlyph(cid) {
+		if !glyphPresent(cid) {
 			ctx.ReportError(obj, "6.3.5", 1,
 				fmt.Sprintf("CID %d referenced in font W array has no glyph in embedded program", cid))
 			return
@@ -573,13 +656,12 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 		return
 	}
 
-	hasGlyph := ttLocaHasGlyph(tables)
-
 	// Try cmap-based lookup first.
 	cmapSub := ttWindowsBMPCmap(tables)
 	if cmapSub != nil {
 		gidMap := parseCmapFormat4(cmapSub)
 		if gidMap != nil {
+			numGlyphs := ttNumGlyphs(tables)
 			for i, w := range widths {
 				var isNonZero bool
 				switch wv := w.(type) {
@@ -597,7 +679,11 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 					continue
 				}
 				gid, exists := gidMap[unicode]
-				if !exists || !hasGlyph(int(gid)) {
+				// A glyph is present in the subset if it maps to a non-.notdef GID
+				// within the font's valid range. GID 0 is .notdef, which means the
+				// character was not included in the subset. Outline data may be absent
+				// for whitespace glyphs (e.g. space) — that is still conformant.
+				if !exists || gid == 0 || (numGlyphs > 0 && int(gid) >= numGlyphs) {
 					ctx.ReportError(obj, "6.3.5", 1,
 						fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, unicode))
 					return
