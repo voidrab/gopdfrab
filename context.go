@@ -108,7 +108,8 @@ func (ctx *ValidationContext) report(err PDFError) {
 	ctx.errs = append(ctx.errs, err)
 }
 
-func (ctx *ValidationContext) ReportError(obj PDFValue, clause string, subclause int, msg string) {
+// Report records a single violation of c against obj.
+func (ctx *ValidationContext) Report(c Check, obj PDFValue, msg string) {
 	var ref *PDFRef
 	if dict, ok := obj.(PDFDict); ok {
 		if r, ok := dict.Entries["_ref"].(PDFRef); ok {
@@ -124,8 +125,7 @@ func (ctx *ValidationContext) ReportError(obj PDFValue, clause string, subclause
 	}
 
 	err := PDFError{
-		clause:    clause,
-		subclause: subclause,
+		check:     c,
 		errs:      []error{errors.New(msg)},
 		objectRef: ref,
 		page:      page,
@@ -134,7 +134,9 @@ func (ctx *ValidationContext) ReportError(obj PDFValue, clause string, subclause
 	ctx.report(err)
 }
 
-func (ctx *ValidationContext) ReportErrors(obj PDFValue, clause string, subclause int, errs []error) {
+// ReportErrs records a violation of c against obj carrying multiple
+// underlying error messages.
+func (ctx *ValidationContext) ReportErrs(c Check, obj PDFValue, errs []error) {
 	var ref *PDFRef
 	if dict, ok := obj.(PDFDict); ok {
 		if r, ok := dict.Entries["_ref"].(PDFRef); ok {
@@ -150,8 +152,7 @@ func (ctx *ValidationContext) ReportErrors(obj PDFValue, clause string, subclaus
 	}
 
 	err := PDFError{
-		clause:    clause,
-		subclause: subclause,
+		check:     c,
 		errs:      errs,
 		objectRef: ref,
 		page:      page,

@@ -82,13 +82,13 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			if n, ok := operand.(PDFInteger); ok && (n > 2147483647 || n < -2147483648) {
-				ctx.ReportError(obj, "6.1.12", 2, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
+				ctx.Report(Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
 			}
 			if r, ok := operand.(PDFReal); ok && math.Abs(float64(r)) > 32767 {
-				ctx.ReportError(obj, "6.1.12", 2, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
+				ctx.Report(Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
 			}
 			if s, ok := operand.(PDFString); ok && pdfStringDecodedLen(s.Value) > 65535 {
-				ctx.ReportError(obj, "6.1.12", 6, "string in content stream exceeds maximum length of 65535 bytes")
+				ctx.Report(Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
 			}
 			// 6.1.6: hex string operands must be valid hex digits, even count.
 			if hs, ok := operand.(PDFHexString); ok {
@@ -100,7 +100,7 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 		case "q":
 			qDepth++
 			if qDepth > 28 {
-				ctx.ReportError(obj, "6.1.12", 6, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+				ctx.Report(Checks.Structure.StringTooLong, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
 			}
 		case "Q":
 			if qDepth > 0 {
@@ -131,7 +131,7 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 		case "ri":
 			if len(operands) > 0 {
 				if name, ok := operands[len(operands)-1].(PDFName); ok && !allowedIntents[name.Value] {
-					ctx.ReportError(obj, "6.2.9", 1, fmt.Sprintf("undefined rendering intent /%s", name.Value))
+					ctx.Report(Checks.Colour.RenderingIntent, obj, fmt.Sprintf("undefined rendering intent /%s", name.Value))
 				}
 			}
 		case "INLINEIMAGE":
@@ -144,7 +144,7 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 				reportContentColour(obj, "gray", resources, ctx)
 			}
 			if !pdfOperators[op] {
-				ctx.ReportError(obj, "6.2.10", 1, fmt.Sprintf("undefined content operator %q", op))
+				ctx.Report(Checks.Colour.UndefinedOperator, obj, fmt.Sprintf("undefined content operator %q", op))
 			}
 		}
 	})
@@ -162,8 +162,7 @@ func reportContentColour(obj PDFValue, model string, resources PDFDict, ctx *Val
 	if defaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
-	ctx.ReportError(obj, "6.2.3.3", 2,
-		fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
+	ctx.Report(Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
 }
 
 // checkInlineImageColour inspects inline image parameters for a device colour
@@ -203,7 +202,7 @@ func checkInlineImageFilter(obj PDFValue, params []PDFValue, ctx *ValidationCont
 		}
 		for _, f := range filterNames(params[i+1]) {
 			if f == "LZW" || f == "LZWDecode" {
-				ctx.ReportError(obj, "6.1.10", 2, "inline image uses forbidden LZW filter")
+				ctx.Report(Checks.Structure.InlineImageLZWFilter, obj, "inline image uses forbidden LZW filter")
 			}
 		}
 	}
@@ -221,11 +220,11 @@ func checkInlineImageOther(obj PDFValue, params []PDFValue, ctx *ValidationConte
 		switch key.Value {
 		case "I", "Interpolate":
 			if b, ok := val.(PDFBoolean); ok && bool(b) {
-				ctx.ReportError(obj, "6.2.4", 1, "inline image Interpolate shall not be true")
+				ctx.Report(Checks.Image.ImageInterpolate, obj, "inline image Interpolate shall not be true")
 			}
 		case "Intent":
 			if name, ok := val.(PDFName); ok && !allowedIntents[name.Value] {
-				ctx.ReportError(obj, "6.2.9", 1, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
+				ctx.Report(Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}
 	}

@@ -6,10 +6,9 @@ import (
 )
 
 type PDFError struct {
-	clause    string
-	subclause int
-	errs      []error
-	page      int
+	check Check
+	errs  []error
+	page  int
 
 	objectRef *PDFRef
 }
@@ -18,11 +17,11 @@ func (e PDFError) String() string {
 	var b strings.Builder
 
 	b.WriteString("PDF/A violation")
-	if e.clause != "" {
+	if e.check.clause != "" {
 		b.WriteString(" (")
-		b.WriteString(e.clause)
-		if e.subclause > 0 {
-			fmt.Fprintf(&b, "/%d", e.subclause)
+		b.WriteString(e.check.clause)
+		if e.check.subclause > 0 {
+			fmt.Fprintf(&b, "/%d", e.check.subclause)
 		}
 		b.WriteString(")")
 	}
@@ -53,4 +52,40 @@ func (e PDFError) String() string {
 
 func (e PDFError) Error() string {
 	return e.String()
+}
+
+// Page returns the 1-based page number this violation was found on, or 0 if
+// the violation is document-level (see IsDocumentLevel).
+func (e PDFError) Page() int {
+	return e.page
+}
+
+// IsDocumentLevel reports whether this violation applies to the document as a
+// whole rather than to a specific page.
+func (e PDFError) IsDocumentLevel() bool {
+	return e.page == 0
+}
+
+// ObjectRef returns the indirect object this violation was reported against,
+// and whether one was recorded. Not every violation is tied to a single object
+// (e.g. file-header or trailer issues), in which case ok is false.
+func (e PDFError) ObjectRef() (ref PDFRef, ok bool) {
+	if e.objectRef == nil {
+		return PDFRef{}, false
+	}
+	return *e.objectRef, true
+}
+
+// Messages returns the underlying error messages for this violation.
+func (e PDFError) Messages() []string {
+	out := make([]string, len(e.errs))
+	for i, err := range e.errs {
+		out[i] = err.Error()
+	}
+	return out
+}
+
+// Check returns the registered Check this violation corresponds to.
+func (e PDFError) Check() Check {
+	return e.check
 }

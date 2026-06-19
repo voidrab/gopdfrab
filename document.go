@@ -35,18 +35,18 @@ type Document struct {
 }
 
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated per
-// object number and subclause.
-func (d *Document) recordStreamFraming(objNum, sub int, msg string) {
+// object number and check.
+func (d *Document) recordStreamFraming(objNum int, c Check, msg string) {
 	if d.streamChecked == nil {
 		d.streamChecked = map[int]bool{}
 	}
-	key := objNum*1000 + sub
+	key := objNum*1000 + c.subclause
 	if d.streamChecked[key] {
 		return
 	}
 	d.streamChecked[key] = true
 	d.structErrs = append(d.structErrs, PDFError{
-		clause: "6.1.7", subclause: sub, errs: []error{errors.New(msg)}, page: 0,
+		check: c, errs: []error{errors.New(msg)}, page: 0,
 	})
 }
 
@@ -64,10 +64,9 @@ func (d *Document) recordFraming(objNum int, errs []error) {
 	}
 	d.framingChecked[objNum] = true
 	d.structErrs = append(d.structErrs, PDFError{
-		clause:    "6.1.8",
-		subclause: 1,
-		errs:      errs,
-		page:      0,
+		check: Checks.Structure.ObjectFraming,
+		errs:  errs,
+		page:  0,
 	})
 }
 
@@ -153,9 +152,9 @@ func (d *Document) initializeStructure() error {
 		// 6.1.4: classic xref table unparseable (e.g. it's actually a
 		// cross-reference stream). Recover the object table via brute-force scan.
 		d.structErrs = append(d.structErrs, PDFError{
-			clause: "6.1.4", subclause: 1,
-			errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
-			page: 0,
+			check: Checks.Structure.XRefKeyword,
+			errs:  []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
+			page:  0,
 		})
 		if err := d.recoverXRefByBruteForceScan(); err != nil {
 			return fmt.Errorf("failed to parse xref table: %w", xrefErr)
@@ -407,6 +406,48 @@ func (d *Document) GetMetadata() (map[string]string, error) {
 		}
 	}
 	return metadata, nil
+}
+
+// IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
+// calling Verify(A_1B) and checking the result's Valid field, for callers who
+// only need a yes/no answer.
+func (d *Document) IsPDFA() (bool, error) {
+	res, err := d.Verify(A_1B)
+	if err != nil {
+		return false, err
+	}
+	return res.Valid, nil
+}
+
+// XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
+// decoded and normalised to UTF-8. It returns an error if the document has no
+// XMP metadata stream, regardless of whether the document otherwise validates
+// as PDF/A.
+func (d *Document) XMPMetadata() ([]byte, error) {
+	data, _, err := d.rawXMP()
+	return data, err
+}
+
+// ClaimedConformance returns the PDF/A part and conformance level the
+// document's XMP metadata claims (e.g. "1", "B"), read from the pdfaid
+// namespace. This reflects what the file claims, not whether it actually
+// validates — use Verify or IsPDFA to check actual compliance.
+func (d *Document) ClaimedConformance() (part, conformance string, err error) {
+	data, _, err := d.rawXMP()
+	if err != nil {
+		return "", "", err
+	}
+	xmp := string(data)
+
+	part, hasPart := firstGroup(pdfaPartRe, xmp)
+	if !hasPart {
+		return "", "", errors.New("no PDF/A part identifier in XMP metadata")
+	}
+	conformance, hasConf := firstGroup(pdfaConfRe, xmp)
+	if !hasConf {
+		return part, "", errors.New("no PDF/A conformance level in XMP metadata")
+	}
+	return part, conformance, nil
 }
 
 // GetPageCount retrieves the page count.

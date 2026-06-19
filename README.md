@@ -93,7 +93,7 @@ res, err := doc.VerifyProfile(p)
 | `Checks.Metadata` | 6.7.x XMP metadata, extension schemas, PDF/A identifier |
 | `Checks.Form` | 6.9 interactive forms |
 
-Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers.
+Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `pdfrab.CheckByClause("6.3.4", 1)` and `pdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
 
 ## Isartor Compatibility
 
@@ -146,4 +146,35 @@ Finally, close doc.
 
 ```
 doc.close()
+```
+
+### Inspecting Issues
+
+Each `PDFError` in `v.Issues` exposes the `Check` that flagged it, along with its page and underlying messages.
+
+```go
+for _, issue := range v.Issues {
+    c := issue.Check()
+    fmt.Println(c.Clause(), c.Subclause(), c.Name(), c.Description())
+    fmt.Println(issue.Page(), issue.Messages())
+}
+```
+
+`Result` has helpers for grouping and summarizing issues:
+
+```go
+fmt.Println(v.Summary())          // human-readable report, one line per Check
+v.Checks()                        // distinct Checks violated, sorted by clause
+v.IssuesByCheck()                 // map[Check][]PDFError
+v.IssuesOnPage(1)                 // issues found on page 1 (0 = document-level)
+```
+
+### Document Helpers
+
+```go
+ok, err := doc.IsPDFA()           // shorthand for Verify(A_1B).Valid
+
+part, level, err := doc.ClaimedConformance() // e.g. "1", "B" — what the file claims, not whether it's valid
+
+xmp, err := doc.XMPMetadata()     // raw XMP packet bytes, decoded to UTF-8
 ```

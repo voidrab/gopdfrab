@@ -3,6 +3,7 @@ package pdfrab
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -10,6 +11,14 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+)
+
+// errNoXMPMetadata and errXMPMetadataNotStream are returned by rawXMP when the
+// document catalog has no usable Metadata stream at all (as opposed to one
+// that exists but fails to decode).
+var (
+	errNoXMPMetadata        = errors.New("document catalog lacks a Metadata entry")
+	errXMPMetadataNotStream = errors.New("document Metadata is not a metadata stream")
 )
 
 const pdfaIDNamespace = "http://www.aiim.org/pdfa/ns/id/"
@@ -134,8 +143,7 @@ func checkExtensionSchemas(xmp string) []PDFError {
 	// If a conventional prefix is declared but bound to the wrong URI → t02-b family.
 	for prefix, expectedURI := range convPrefixToURI {
 		if uri, ok := bindPrefixToURI[prefix]; ok && uri != expectedURI {
-			errs = append(errs, xmpErr("6.7.8", 2,
-				"extension-schema prefix "+prefix+" bound to wrong namespace URI"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtSchemaWrongPrefixURI, "extension-schema prefix "+prefix+" bound to wrong namespace URI"))
 		}
 	}
 
@@ -147,8 +155,7 @@ func checkExtensionSchemas(xmp string) []PDFError {
 		}
 		for _, prefix := range prefixes {
 			if prefix != conv {
-				errs = append(errs, xmpErr("6.7.8", 1,
-					"extension-schema namespace "+uri+" bound with non-standard prefix "+prefix))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtSchemaNamespace, "extension-schema namespace "+uri+" bound with non-standard prefix "+prefix))
 			}
 		}
 	}
@@ -177,8 +184,8 @@ func checkExtensionSchemas(xmp string) []PDFError {
 	if customNSUsed && !hasSchemas {
 		msg := "custom-namespace properties used without extension schema"
 		return append(errs,
-			xmpErr("6.7.8", 1, msg),
-			xmpErr("6.7.2", 4, msg),
+			xmpErr(Checks.Metadata.ExtSchemaNamespace, msg),
+			xmpErr(Checks.Metadata.MetadataUndeclaredProperty, msg),
 		)
 	}
 
@@ -228,7 +235,7 @@ func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []PDFErr
 
 	// The schemas container must be rdf:Bag, not rdf:Seq → t02-c.
 	if schemasContainerType == "Seq" {
-		errs = append(errs, xmpErr("6.7.8", 3, "pdfaExtension:schemas must use rdf:Bag, not rdf:Seq"))
+		errs = append(errs, xmpErr(Checks.Metadata.ExtSchemasNotBag, "pdfaExtension:schemas must use rdf:Bag, not rdf:Seq"))
 	}
 
 	docNS := map[string]bool{}
@@ -583,22 +590,21 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 	for _, p := range s.properties {
 		// t02-f: multiple pdfaProperty:name elements in same rdf:li
 		if p.nameCount > 1 {
-			errs = append(errs, xmpErr("6.7.8", 4,
-				"multiple pdfaProperty:name elements in a single property entry"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyMultipleName, "multiple pdfaProperty:name elements in a single property entry"))
 		}
 		if p.name == "" {
-			errs = append(errs, xmpErr("6.7.8", 5, "pdfaProperty entry missing name"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyMissingField, "pdfaProperty entry missing name"))
 		}
 		// t02-e: missing pdfaProperty:valueType
 		if p.valueType == "" {
-			errs = append(errs, xmpErr("6.7.8", 5, "pdfaProperty "+p.name+" missing valueType"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyMissingField, "pdfaProperty "+p.name+" missing valueType"))
 		}
 		// t02-i: missing pdfaProperty:category
 		if p.category == "" {
-			errs = append(errs, xmpErr("6.7.8", 5, "pdfaProperty "+p.name+" missing category"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyMissingField, "pdfaProperty "+p.name+" missing category"))
 		}
 		if p.description == "" {
-			errs = append(errs, xmpErr("6.7.8", 5, "pdfaProperty "+p.name+" missing description"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyMissingField, "pdfaProperty "+p.name+" missing description"))
 		}
 		// t02-k: if property's valueType is a non-primitive custom type, its actual
 		// usage in the XMP data must use rdf:parseType="Resource"
@@ -607,8 +613,7 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 			if strings.Contains(xmp, propTag) &&
 				!strings.Contains(xmp, propTag+` rdf:parseType="Resource"`) &&
 				!strings.Contains(xmp, propTag+" rdf:parseType='Resource'") {
-				errs = append(errs, xmpErr("6.7.8", 6,
-					"property "+p.name+" declared as complex type but used as simple value"))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyComplexAsSimple, "property "+p.name+" declared as complex type but used as simple value"))
 			}
 		}
 	}
@@ -616,32 +621,31 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 	for _, tp := range s.valueTypes {
 		// t02-g: pdfaType:type name must match a property valueType or be self-consistent
 		if tp.typeName == "" {
-			errs = append(errs, xmpErr("6.7.8", 7, "pdfaType entry missing type name"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtTypeInvalid, "pdfaType entry missing type name"))
 		}
 		// t02-h: missing pdfaType:namespaceURI
 		if tp.namespaceURI == "" {
-			errs = append(errs, xmpErr("6.7.8", 7, "pdfaType "+tp.typeName+" missing namespaceURI"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtTypeInvalid, "pdfaType "+tp.typeName+" missing namespaceURI"))
 		}
 		if tp.prefix == "" {
-			errs = append(errs, xmpErr("6.7.8", 7, "pdfaType "+tp.typeName+" missing prefix"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtTypeInvalid, "pdfaType "+tp.typeName+" missing prefix"))
 		}
 		if tp.description == "" {
-			errs = append(errs, xmpErr("6.7.8", 7, "pdfaType "+tp.typeName+" missing description"))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtTypeInvalid, "pdfaType "+tp.typeName+" missing description"))
 		}
 		for _, f := range tp.fields {
 			if f.name == "" {
-				errs = append(errs, xmpErr("6.7.8", 8, "pdfaField entry missing name"))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtFieldInvalid, "pdfaField entry missing name"))
 			}
 			// t02-j: pdfaField:valueType must be a predefined type or a defined custom type
 			if f.valueType != "" && !xmpBuiltinTypes[f.valueType] && !definedTypes[f.valueType] {
-				errs = append(errs, xmpErr("6.7.8", 8,
-					"pdfaField "+f.name+" has invalid valueType "+f.valueType))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtFieldInvalid, "pdfaField "+f.name+" has invalid valueType "+f.valueType))
 			}
 			if f.valueType == "" {
-				errs = append(errs, xmpErr("6.7.8", 8, "pdfaField "+f.name+" missing valueType"))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtFieldInvalid, "pdfaField "+f.name+" missing valueType"))
 			}
 			if f.description == "" {
-				errs = append(errs, xmpErr("6.7.8", 8, "pdfaField "+f.name+" missing description"))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtFieldInvalid, "pdfaField "+f.name+" missing description"))
 			}
 		}
 	}
@@ -656,8 +660,7 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 				continue
 			}
 			if !docProps[propName] {
-				errs = append(errs, xmpErr("6.7.8", 9,
-					"property "+s.prefix+":"+propName+" used but not documented in extension schema"))
+				errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyUndocumented, "property "+s.prefix+":"+propName+" used but not documented in extension schema"))
 			}
 		}
 	}
@@ -665,8 +668,7 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 	// t02-g: check that all referenced custom value types are defined.
 	for _, p := range s.properties {
 		if p.valueType != "" && !xmpBuiltinTypes[p.valueType] && !definedTypes[p.valueType] {
-			errs = append(errs, xmpErr("6.7.8", 10,
-				"property "+p.name+" references undefined value type "+p.valueType))
+			errs = append(errs, xmpErr(Checks.Metadata.ExtPropertyUndefinedType, "property "+p.name+" references undefined value type "+p.valueType))
 		}
 	}
 
@@ -680,8 +682,8 @@ var (
 	pdfaConfRe = regexp.MustCompile(`pdfaid:conformance\s*=\s*"([^"]*)"|<pdfaid:conformance>\s*([^<\s]+)\s*</pdfaid:conformance>`)
 )
 
-func xmpErr(clause string, sub int, msg string) PDFError {
-	return PDFError{clause: clause, subclause: sub, errs: []error{fmt.Errorf("%s", msg)}, page: 0}
+func xmpErr(c Check, msg string) PDFError {
+	return PDFError{check: c, errs: []error{fmt.Errorf("%s", msg)}, page: 0}
 }
 
 // firstGroup returns the first non-empty capture group of a regexp match.
@@ -698,36 +700,52 @@ func firstGroup(re *regexp.Regexp, s string) (string, bool) {
 	return "", true
 }
 
-// verifyXMPMetadata validates the document's XMP metadata (6.7).
-func (d *Document) verifyXMPMetadata() []PDFError {
+// rawXMP resolves the document's Metadata stream (Root/Metadata) and returns
+// its decoded XMP packet bytes, normalised to UTF-8, along with the metadata
+// stream's own dictionary (so callers can inspect entries like Filter). meta
+// is returned even on a decode error, but is zero-valued if no Metadata
+// stream exists at all (errNoXMPMetadata / errXMPMetadataNotStream).
+func (d *Document) rawXMP() (data []byte, meta PDFDict, err error) {
 	value, err := d.ResolveGraphByPath([]string{"Root", "Metadata"})
 	if err != nil || value == nil {
-		return []PDFError{xmpErr("6.7.2", 1, "document catalog lacks a Metadata entry")}
+		return nil, PDFDict{}, errNoXMPMetadata
 	}
 	meta, ok := value.(PDFDict)
 	if !ok || !meta.HasStream {
-		return []PDFError{xmpErr("6.7.2", 1, "document Metadata is not a metadata stream")}
+		return nil, PDFDict{}, errXMPMetadataNotStream
+	}
+
+	data, err = decodeStream(meta)
+	if err != nil {
+		return nil, meta, fmt.Errorf("unable to read XMP metadata stream: %w", err)
+	}
+	// Normalise UTF-16/UTF-32 XMP streams to UTF-8 before any further processing.
+	return decodeXMPEncoding(data), meta, nil
+}
+
+// verifyXMPMetadata validates the document's XMP metadata (6.7).
+func (d *Document) verifyXMPMetadata() []PDFError {
+	data, meta, err := d.rawXMP()
+	if errors.Is(err, errNoXMPMetadata) || errors.Is(err, errXMPMetadataNotStream) {
+		return []PDFError{xmpErr(Checks.Metadata.MetadataMissing, err.Error())}
 	}
 
 	var errs []PDFError
 
 	// 6.7.2: the metadata stream shall not be filtered.
 	if meta.Entries["Filter"] != nil {
-		errs = append(errs, xmpErr("6.7.2", 2, "Metadata stream shall not specify a Filter"))
+		errs = append(errs, xmpErr(Checks.Metadata.MetadataFiltered, "Metadata stream shall not specify a Filter"))
 	}
 
-	data, err := decodeStream(meta)
 	if err != nil {
-		return append(errs, xmpErr("6.7.9", 1, "unable to read XMP metadata stream"))
+		return append(errs, xmpErr(Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream"))
 	}
-	// Normalise UTF-16/UTF-32 XMP streams to UTF-8 before any further processing.
-	data = decodeXMPEncoding(data)
 	xmp := string(data)
 
 	errs = append(errs, checkXMPHeader(xmp)...)
 	errs = append(errs, checkPDFAIdentifier(xmp)...)
 	if !xmpWellFormed(data) {
-		errs = append(errs, xmpErr("6.7.9", 2, "XMP metadata is not well-formed XML"))
+		errs = append(errs, xmpErr(Checks.Metadata.XMPNotWellFormed, "XMP metadata is not well-formed XML"))
 	}
 	errs = append(errs, checkXMPPropertyTypes(xmp)...)
 	errs = append(errs, checkXMPPropertySchemas(data)...)
@@ -745,10 +763,10 @@ func checkXMPHeader(xmp string) []PDFError {
 	}
 	var errs []PDFError
 	if strings.Contains(pi, "bytes=") {
-		errs = append(errs, xmpErr("6.7.5", 1, "xpacket header shall not contain a bytes attribute"))
+		errs = append(errs, xmpErr(Checks.Metadata.XPacketBytesAttribute, "xpacket header shall not contain a bytes attribute"))
 	}
 	if strings.Contains(pi, "encoding=") {
-		errs = append(errs, xmpErr("6.7.5", 2, "xpacket header shall not contain an encoding attribute"))
+		errs = append(errs, xmpErr(Checks.Metadata.XPacketEncodingAttribute, "xpacket header shall not contain an encoding attribute"))
 	}
 	return errs
 }
@@ -759,24 +777,24 @@ func checkPDFAIdentifier(xmp string) []PDFError {
 
 	ns, hasNS := firstGroup(pdfaNSRe, xmp)
 	if !hasNS {
-		return []PDFError{xmpErr("6.7.11", 1, "missing PDF/A identifier (pdfaid namespace)")}
+		return []PDFError{xmpErr(Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A identifier (pdfaid namespace)")}
 	}
 	if ns != pdfaIDNamespace {
-		errs = append(errs, xmpErr("6.7.11", 2, "invalid PDF/A identifier namespace"))
+		errs = append(errs, xmpErr(Checks.Metadata.PDFAIdentifierNamespace, "invalid PDF/A identifier namespace"))
 	}
 
 	part, hasPart := firstGroup(pdfaPartRe, xmp)
 	if !hasPart {
-		errs = append(errs, xmpErr("6.7.11", 1, "missing PDF/A part identifier"))
+		errs = append(errs, xmpErr(Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A part identifier"))
 	} else if part != "1" {
-		errs = append(errs, xmpErr("6.7.11", 4, fmt.Sprintf("invalid PDF/A part number %q", part)))
+		errs = append(errs, xmpErr(Checks.Metadata.PDFAPartNumber, fmt.Sprintf("invalid PDF/A part number %q", part)))
 	}
 
 	conf, hasConf := firstGroup(pdfaConfRe, xmp)
 	if !hasConf {
-		errs = append(errs, xmpErr("6.7.11", 1, "missing PDF/A conformance level"))
+		errs = append(errs, xmpErr(Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A conformance level"))
 	} else if conf != "A" && conf != "B" {
-		errs = append(errs, xmpErr("6.7.11", 3, fmt.Sprintf("invalid PDF/A conformance level %q", conf)))
+		errs = append(errs, xmpErr(Checks.Metadata.PDFAConformanceLevel, fmt.Sprintf("invalid PDF/A conformance level %q", conf)))
 	}
 
 	return errs
@@ -939,22 +957,19 @@ func checkXMPPropertyTypes(xmp string) []PDFError {
 	// wrong/undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
 	if strings.Contains(xmp, `xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"`) &&
 		!strings.Contains(xmp, "<rdf:RDF") {
-		errs = append(errs, xmpErr("6.7.2", 1,
-			"rdf namespace declared but rdf:RDF root element is missing or uses wrong prefix"))
+		errs = append(errs, xmpErr(Checks.Metadata.MetadataMissing, "rdf namespace declared but rdf:RDF root element is missing or uses wrong prefix"))
 	}
 
 	// t02-fail-b: xmp:Title is not a valid property in the xmp: namespace.
 	if strings.Contains(xmp, "<xmp:Title") {
-		errs = append(errs, xmpErr("6.7.2", 2,
-			"xmp:Title is not a defined property in the xmp namespace; use dc:title instead"))
+		errs = append(errs, xmpErr(Checks.Metadata.MetadataFiltered, "xmp:Title is not a defined property in the xmp namespace; use dc:title instead"))
 	}
 
 	// t02-fail-c: dc:description must be of value type LangAlt (rdf:Alt with
 	// xml:lang attributes), not plain text.
 	if m := dcDescRe.FindStringSubmatch(xmp); m != nil {
 		if !strings.Contains(m[1], "<rdf:Alt") {
-			errs = append(errs, xmpErr("6.7.2", 3,
-				"dc:description must be of type LangAlt, not plain text"))
+			errs = append(errs, xmpErr(Checks.Metadata.MetadataPropertyType, "dc:description must be of type LangAlt, not plain text"))
 		}
 	}
 
@@ -1004,8 +1019,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 		got, ok := xmpPropValue(xmp, prop)
 		if !ok || got != val {
 			msg := fmt.Sprintf("document info %s not synchronized with XMP %s", key, prop)
-			errs = append(errs, xmpErr("6.7.3", 1, msg))
-			errs = append(errs, xmpErr("6.1.5", 4, msg))
+			errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, msg))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, msg))
 		}
 	}
 
@@ -1020,8 +1035,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 				msg = "document info Author not synchronized with XMP dc:creator"
 			}
 			if msg != "" {
-				errs = append(errs, xmpErr("6.7.3", 1, msg))
-				errs = append(errs, xmpErr("6.1.5", 4, msg))
+				errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, msg))
+				errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, msg))
 			}
 		}
 	}
@@ -1030,8 +1045,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 	if creator := info["Creator"]; creator != "" && creator != "null" {
 		if xmpCreator, ok := xmpScalarValue(xmp, "xmp:CreatorTool"); ok && xmpCreator != creator {
 			msg := "document info Creator not synchronized with XMP xmp:CreatorTool"
-			errs = append(errs, xmpErr("6.7.3", 1, msg))
-			errs = append(errs, xmpErr("6.1.5", 4, msg))
+			errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, msg))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, msg))
 		}
 	}
 
@@ -1039,8 +1054,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 	if producer := info["Producer"]; producer != "" && producer != "null" {
 		if xmpProducer, ok := xmpScalarValue(xmp, "pdf:Producer"); ok && xmpProducer != producer {
 			msg := "document info Producer not synchronized with XMP pdf:Producer"
-			errs = append(errs, xmpErr("6.7.3", 1, msg))
-			errs = append(errs, xmpErr("6.1.5", 4, msg))
+			errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, msg))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, msg))
 		}
 	}
 
@@ -1048,8 +1063,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 	if kw := info["Keywords"]; kw != "" && kw != "null" {
 		if xmpKW, ok := xmpScalarValue(xmp, "pdf:Keywords"); ok && xmpKW != kw {
 			msg := "document info Keywords not synchronized with XMP pdf:Keywords"
-			errs = append(errs, xmpErr("6.7.3", 1, msg))
-			errs = append(errs, xmpErr("6.1.5", 4, msg))
+			errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, msg))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, msg))
 		}
 	}
 
@@ -1062,8 +1077,7 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 		}
 		// PDF dates must start with "D:" — an ISO 8601 format is invalid.
 		if !strings.HasPrefix(cd, "D:") {
-			errs = append(errs, xmpErr("6.1.5", 4,
-				fmt.Sprintf("document info %s is not in PDF date format", infoKey)))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, fmt.Sprintf("document info %s is not in PDF date format", infoKey)))
 			return
 		}
 		xmpDate, _ := firstGroup(xmpDateRe, xmp)
@@ -1071,10 +1085,8 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 		xmpDigits := digitsOf(xmpDate)
 		n := min(len(infoDigits), len(xmpDigits), 14)
 		if n < 8 || infoDigits[:n] != xmpDigits[:n] || len(infoDigits) < len(xmpDigits) {
-			errs = append(errs, xmpErr("6.7.3", 1,
-				fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
-			errs = append(errs, xmpErr("6.1.5", 4,
-				fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
+			errs = append(errs, xmpErr(Checks.Metadata.InfoXMPSync, fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
+			errs = append(errs, xmpErr(Checks.Structure.InfoDictXMPMismatch, fmt.Sprintf("document info %s not synchronized with XMP %s", infoKey, label)))
 		}
 	}
 	infoDateMismatch("CreationDate", "xmp:CreateDate", xmpCreateDateRe)
@@ -1465,25 +1477,25 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 	}
 	// pdfaid falls under the PDF/A identification clause (6.7.11), not the
 	// general XMP 2004 schema check (6.7.2).
-	clause, sub := "6.7.2", 2
+	check := Checks.Metadata.MetadataFiltered
 	if nsURI == pdfaIDNamespace {
-		clause, sub = "6.7.11", 5
+		check = Checks.Metadata.PDFAIdentifierUndefinedProperty
 	}
 	expected, defined := schema[propName]
 	if !defined {
-		return []PDFError{xmpErr(clause, sub,
+		return []PDFError{xmpErr(check,
 			fmt.Sprintf("property %q is not defined in XMP 2004 schema %s", propName, nsURI))}
 	}
 	if !xmpContainerOK(expected, actual) {
-		return []PDFError{xmpErr(clause, sub,
+		return []PDFError{xmpErr(check,
 			fmt.Sprintf("property %q used with wrong container type", propName))}
 	}
 	if expected == xmpKindInteger && actual == xmpKindScalar && value != "" && !xmpIsInteger(value) {
-		return []PDFError{xmpErr(clause, sub,
+		return []PDFError{xmpErr(check,
 			fmt.Sprintf("property %q must be an integer, got %q", propName, value))}
 	}
 	if expected == xmpKindBoolean && actual == xmpKindScalar && value != "" && value != "True" && value != "False" {
-		return []PDFError{xmpErr(clause, sub,
+		return []PDFError{xmpErr(check,
 			fmt.Sprintf("property %q must be a boolean (True/False), got %q", propName, value))}
 	}
 
@@ -1494,7 +1506,7 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 		case xmpKindScalar:
 			if value != "" {
 				if msg := xmpCheckValueRule(rule, value); msg != "" {
-					return []PDFError{xmpErr(clause, sub, fmt.Sprintf("property %q %s", propName, msg))}
+					return []PDFError{xmpErr(check, fmt.Sprintf("property %q %s", propName, msg))}
 				}
 			}
 		case xmpKindBag, xmpKindSeq:
@@ -1503,7 +1515,7 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 					continue
 				}
 				if msg := xmpCheckValueRule(rule, item.text); msg != "" {
-					return []PDFError{xmpErr(clause, sub, fmt.Sprintf("property %q item %s", propName, msg))}
+					return []PDFError{xmpErr(check, fmt.Sprintf("property %q item %s", propName, msg))}
 				}
 			}
 		}
@@ -1514,7 +1526,7 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 	if actual == xmpKindAlt && xmpLangAltProps[nsURI][propName] {
 		for _, item := range items {
 			if !item.hasLang {
-				return []PDFError{xmpErr(clause, sub,
+				return []PDFError{xmpErr(check,
 					fmt.Sprintf("property %q is LangAlt but an rdf:li item lacks xml:lang", propName))}
 			}
 		}

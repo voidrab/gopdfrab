@@ -61,7 +61,7 @@ func (d *Document) VerifyProfile(p *Profile) (Result, error) {
 func filterByProfile(issues []PDFError, p *Profile) []PDFError {
 	out := make([]PDFError, 0, len(issues))
 	for _, e := range issues {
-		if p.allows(e.clause, e.subclause) {
+		if p.allows(e.check.clause, e.check.subclause) {
 			out = append(out, e)
 		}
 	}
@@ -97,20 +97,18 @@ func (d *Document) verifyPdfA1b(p *Profile) []PDFError {
 	graph, err := d.ResolveGraph()
 	if err != nil {
 		return append(issues, PDFError{
-			clause:    "6.1.6",
-			subclause: 0,
-			errs:      []error{err},
-			page:      0,
+			check: Checks.Structure.GraphResolutionFailure,
+			errs:  []error{err},
+			page:  0,
 		})
 	}
 
 	pageIndex, err := d.buildPageIndex(graph)
 	if err != nil {
 		return append(issues, PDFError{
-			clause:    "6.1.6",
-			subclause: 0,
-			errs:      []error{err},
-			page:      0,
+			check: Checks.Structure.GraphResolutionFailure,
+			errs:  []error{err},
+			page:  0,
 		})
 	}
 
@@ -176,20 +174,18 @@ func (d *Document) verifyFileHeader() []PDFError {
 	header, ok := cur.ReadLine()
 	if !ok || !pdfVersionRe.MatchString(header) {
 		errs = append(errs, PDFError{
-			clause:    "6.1.2",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)},
-			page:      1,
+			check: Checks.Structure.FileHeaderSignature,
+			errs:  []error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)},
+			page:  1,
 		})
 	}
 
 	comment, ok := cur.ReadLine()
 	if !ok || len(comment) == 0 || comment[0] != '%' {
 		errs = append(errs, PDFError{
-			clause:    "6.1.2",
-			subclause: 2,
-			errs:      []error{fmt.Errorf("header must be followed by comment, but was: %v", comment)},
-			page:      1,
+			check: Checks.Structure.FileHeaderComment,
+			errs:  []error{fmt.Errorf("header must be followed by comment, but was: %v", comment)},
+			page:  1,
 		})
 		return errs
 	}
@@ -199,10 +195,9 @@ func (d *Document) verifyFileHeader() []PDFError {
 	commentBytes := []byte(comment[1:])
 	if len(commentBytes) < 4 {
 		errs = append(errs, PDFError{
-			clause:    "6.1.2",
-			subclause: 3,
-			errs:      []error{fmt.Errorf("comment line must consist of at least 5 characters, but was: %d", len(comment))},
-			page:      1,
+			check: Checks.Structure.FileHeaderCommentLength,
+			errs:  []error{fmt.Errorf("comment line must consist of at least 5 characters, but was: %d", len(comment))},
+			page:  1,
 		})
 	} else {
 		// 6.1.2/4: each of the first four bytes after % must be > 127 (binary
@@ -215,10 +210,9 @@ func (d *Document) verifyFileHeader() []PDFError {
 		}
 		if len(badBytes) > 0 {
 			errs = append(errs, PDFError{
-				clause:    "6.1.2",
-				subclause: 4,
-				errs:      badBytes,
-				page:      1,
+				check: Checks.Structure.FileHeaderCommentBytes,
+				errs:  badBytes,
+				page:  1,
 			})
 		}
 	}
@@ -240,20 +234,18 @@ func (d *Document) verifyFileTrailer() []PDFError {
 
 	if eff.Entries["ID"] == nil {
 		err := PDFError{
-			clause:    "6.1.3",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("trailer does not contain the required ID keyword")},
-			page:      0,
+			check: Checks.Structure.TrailerID,
+			errs:  []error{fmt.Errorf("trailer does not contain the required ID keyword")},
+			page:  0,
 		}
 		errs = append(errs, err)
 	}
 
 	if eff.Entries["Encrypt"] != nil {
 		err := PDFError{
-			clause:    "6.1.3",
-			subclause: 2,
-			errs:      []error{fmt.Errorf("trailer contains the forbidden Encrypt keyword")},
-			page:      0,
+			check: Checks.Structure.TrailerEncrypt,
+			errs:  []error{fmt.Errorf("trailer contains the forbidden Encrypt keyword")},
+			page:  0,
 		}
 		errs = append(errs, err)
 	}
@@ -275,10 +267,9 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	}
 	if !found {
 		err := PDFError{
-			clause:    "6.1.3",
-			subclause: 3,
-			errs:      []error{fmt.Errorf("no EOF marker found: %v", string(eof))},
-			page:      0,
+			check: Checks.Structure.TrailerEOF,
+			errs:  []error{fmt.Errorf("no EOF marker found: %v", string(eof))},
+			page:  0,
 		}
 		errs = append(errs, err)
 	}
@@ -334,9 +325,8 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 	xRef, ok := cur.ReadLine()
 	if !ok || len(xRef) == 0 || xRef != "xref" {
 		return []PDFError{{
-			clause:    "6.1.4",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("expected 'xref' keyword at offset %d", offset)},
+			check: Checks.Structure.XRefKeyword,
+			errs:  []error{fmt.Errorf("expected 'xref' keyword at offset %d", offset)},
 		}}
 	}
 
@@ -354,9 +344,8 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 				// 6.1.4: an extra blank line here means no header directly
 				// follows the xref keyword.
 				return []PDFError{{
-					clause:    "6.1.4",
-					subclause: 2,
-					errs:      []error{fmt.Errorf("blank line between 'xref' keyword and first cross reference subsection header")},
+					check: Checks.Structure.XRefSubsectionHeader,
+					errs:  []error{fmt.Errorf("blank line between 'xref' keyword and first cross reference subsection header")},
 				}}
 			}
 			continue
@@ -366,9 +355,8 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 		// the range shall be separated by a single SPACE (20h), no leading whitespace.
 		if !xrefHeaderRe.MatchString(line) {
 			return []PDFError{{
-				clause:    "6.1.4",
-				subclause: 3,
-				errs:      []error{fmt.Errorf("malformed cross reference subsection header: %q", line)},
+				check: Checks.Structure.XRefSubsectionHeaderFormat,
+				errs:  []error{fmt.Errorf("malformed cross reference subsection header: %q", line)},
 			}}
 		}
 		if firstHeader {
@@ -386,9 +374,8 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 
 	if firstHeader {
 		return []PDFError{{
-			clause:    "6.1.4",
-			subclause: 2,
-			errs:      []error{fmt.Errorf("expected cross reference subsection header after xref keyword at offset %d", offset)},
+			check: Checks.Structure.XRefSubsectionHeader,
+			errs:  []error{fmt.Errorf("expected cross reference subsection header after xref keyword at offset %d", offset)},
 		}}
 	}
 
@@ -404,10 +391,9 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 	metadata, err := d.GetMetadata()
 	if err != nil {
 		return []PDFError{{
-			clause:    "6.1.5",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("failed to get document information dictionary: %v", err)},
-			page:      0,
+			check: Checks.Structure.InfoDictUnreadable,
+			errs:  []error{fmt.Errorf("failed to get document information dictionary: %v", err)},
+			page:  0,
 		}}
 	}
 
@@ -445,7 +431,7 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 				}
 			}
 			if len(typeErrs) > 0 {
-				errs = append(errs, PDFError{clause: "6.1.5", subclause: 4, errs: typeErrs, page: 0})
+				errs = append(errs, PDFError{check: Checks.Structure.InfoDictXMPMismatch, errs: typeErrs, page: 0})
 			}
 		}
 	}
@@ -461,7 +447,7 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 	}
 
 	if len(emptyErrs) > 0 {
-		err := PDFError{clause: "6.1.5", subclause: 3, errs: emptyErrs, page: 0}
+		err := PDFError{check: Checks.Structure.InfoDictEmptyValues, errs: emptyErrs, page: 0}
 		errs = append(errs, err)
 	}
 
@@ -520,7 +506,7 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 				if k != "_ref" && len(k) > 127 {
 					decoded := decodePDFName(k)
 					if len(decoded) > 127 {
-						ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)))
+						ctx.Report(Checks.Structure.NameTooLong, v, fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)))
 					}
 				}
 				walk(val)
@@ -537,7 +523,7 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 
 			// 6.1.12: maximum number of elements in an array is 8191.
 			if len(v) > 8191 {
-				ctx.ReportError(v, "6.1.12", 3, fmt.Sprintf("array exceeds 8191 elements: %d", len(v)))
+				ctx.Report(Checks.Structure.ArrayTooLarge, v, fmt.Sprintf("array exceeds 8191 elements: %d", len(v)))
 			}
 
 			for _, item := range v {
@@ -1006,28 +992,28 @@ func validateHexString(v PDFHexString, ctx *ValidationContext) {
 	}
 
 	if len(hexErrs) > 0 {
-		ctx.ReportErrors(v, "6.1.6", 1, hexErrs)
+		ctx.ReportErrs(Checks.Structure.HexStringInvalidChar, v, hexErrs)
 	}
 
 	if hexCount%2 != 0 {
-		ctx.ReportError(v, "6.1.6", 2, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
+		ctx.Report(Checks.Structure.HexStringOddLength, v, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
 	}
 }
 
 // validateStreamObject validates requirements outlined in 6.1.7 and 6.1.10.
 func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["F"] != nil {
-		ctx.ReportError(v, "6.1.7", 1, "stream object contains invalid key F")
+		ctx.Report(Checks.Structure.StreamFileSpec, v, "stream object contains invalid key F")
 	}
 	if v.Entries["FFilter"] != nil {
-		ctx.ReportError(v, "6.1.7", 2, "stream object contains invalid key FFilter")
+		ctx.Report(Checks.Structure.StreamFileFilter, v, "stream object contains invalid key FFilter")
 	}
 	if v.Entries["FDecodeParms"] != nil {
-		ctx.ReportError(v, "6.1.7", 3, "stream object contains invalid key FDecodeParms")
+		ctx.Report(Checks.Structure.StreamFileDecodeParams, v, "stream object contains invalid key FDecodeParms")
 	}
 	for _, f := range filterNames(v.Entries["Filter"]) {
 		if f == "LZWDecode" || f == "LZW" {
-			ctx.ReportError(v, "6.1.10", 1, "stream object uses forbidden LZWDecode filter")
+			ctx.Report(Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 		}
 	}
 }
@@ -1035,10 +1021,10 @@ func validateStreamObject(v PDFDict, ctx *ValidationContext) {
 // validateObject validates requirements outlined in 6.1.11
 func validateObject(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["EF"] != nil {
-		ctx.ReportError(v, "6.1.11", 1, "dictionary shall not contain EF key")
+		ctx.Report(Checks.Structure.EmbeddedFileSpec, v, "dictionary shall not contain EF key")
 	}
 	if v.Entries["EmbeddedFiles"] != nil {
-		ctx.ReportError(v, "6.1.11", 2, "dictionary shall not contain EmbeddedFiles key")
+		ctx.Report(Checks.Structure.EmbeddedFiles, v, "dictionary shall not contain EmbeddedFiles key")
 	}
 }
 
@@ -1049,23 +1035,23 @@ func validateArchitecturalLimits(node PDFValue, ctx *ValidationContext) {
 		// Maximum length of a name, in bytes: 127
 		nameLen := len(v.Value)
 		if nameLen > 127 {
-			ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("maximum length of name (127) exceeded: %v", nameLen))
+			ctx.Report(Checks.Structure.NameTooLong, v, fmt.Sprintf("maximum length of name (127) exceeded: %v", nameLen))
 		}
 	case PDFInteger:
 		// 6.1.12: integer values are limited to the 32-bit signed range.
 		if v < -2_147_483_648 || v > 2_147_483_647 {
-			ctx.ReportError(v, "6.1.12", 2, fmt.Sprintf("integer value exceeded limits: %v", v))
+			ctx.Report(Checks.Structure.IntegerOutOfRange, v, fmt.Sprintf("integer value exceeded limits: %v", v))
 		}
 	case PDFReal:
 		// 6.1.12: magnitude of real numbers shall not exceed 32767.
 		if v < -32767 || v > 32767 {
-			ctx.ReportError(v, "6.1.12", 2, fmt.Sprintf("real number out of range: %g", float64(v)))
+			ctx.Report(Checks.Structure.IntegerOutOfRange, v, fmt.Sprintf("real number out of range: %g", float64(v)))
 		}
 	case PDFString:
 		// 6.1.12: maximum length of a string object is 65535 bytes.
 		// The parser stores raw (unescaped) bytes; compute the decoded length.
 		if pdfStringDecodedLen(v.Value) > 65535 {
-			ctx.ReportError(v, "6.1.12", 6, "string exceeds maximum length of 65535 bytes")
+			ctx.Report(Checks.Structure.StringTooLong, v, "string exceeds maximum length of 65535 bytes")
 		}
 	case PDFDict:
 		// Maximum number of entries in a dictionary: 4096
@@ -1074,7 +1060,7 @@ func validateArchitecturalLimits(node PDFValue, ctx *ValidationContext) {
 			realCount--
 		}
 		if realCount > 4096 {
-			ctx.ReportError(v, "6.1.12", 4, fmt.Sprintf("dictionary exceeds 4096 entries: %d", realCount))
+			ctx.Report(Checks.Structure.DictTooLarge, v, fmt.Sprintf("dictionary exceeds 4096 entries: %d", realCount))
 		}
 	}
 }
@@ -1131,10 +1117,9 @@ func (d *Document) verifyOptionalContent() []PDFError {
 	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
 		return []PDFError{{
-			clause:    "6.1.13",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("OCProperties not allowed in document catalog")},
-			page:      0,
+			check: Checks.Structure.OptionalContent,
+			errs:  []error{fmt.Errorf("OCProperties not allowed in document catalog")},
+			page:  0,
 		}}
 	}
 	return nil
@@ -1153,10 +1138,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 	intents, ok := values.(PDFArray)
 	if !ok {
 		return []PDFError{{
-			clause:    "6.2.2",
-			subclause: 1,
-			errs:      []error{fmt.Errorf("OutputIntents object is not an array")},
-			page:      0,
+			check: Checks.Colour.OutputIntentNotArray,
+			errs:  []error{fmt.Errorf("OutputIntents object is not an array")},
+			page:  0,
 		}}
 	}
 
@@ -1168,10 +1152,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		intent, ok := v.(PDFDict)
 		if !ok {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 2,
-				errs:      []error{fmt.Errorf("expected OutputIntent to be a PDFDict")},
-				page:      0,
+				check: Checks.Colour.OutputIntentNotDict,
+				errs:  []error{fmt.Errorf("expected OutputIntent to be a PDFDict")},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1179,10 +1162,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		s, ok := intent.Entries["S"].(PDFName)
 		if !ok {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 3,
-				errs:      []error{fmt.Errorf("expected S to be a PDFName")},
-				page:      0,
+				check: Checks.Colour.OutputIntentInvalidS,
+				errs:  []error{fmt.Errorf("expected S to be a PDFName")},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1190,20 +1172,18 @@ func (d *Document) verifyOutputIntent() []PDFError {
 
 		if s.Value != "GTS_PDFA1" {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 4,
-				errs:      []error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])},
-				page:      0,
+				check: Checks.Colour.OutputIntentWrongS,
+				errs:  []error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])},
+				page:  0,
 			}
 			errs = append(errs, err)
 		}
 
 		if intent.Entries["OutputConditionIdentifier"] == nil {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 5,
-				errs:      []error{fmt.Errorf("OutputConditionIdentifier is required but was nil")},
-				page:      0,
+				check: Checks.Colour.OutputIntentMissingIdentifier,
+				errs:  []error{fmt.Errorf("OutputConditionIdentifier is required but was nil")},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1214,10 +1194,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			// 6.2.2: DestOutputProfile shall be present unless OutputConditionIdentifier
 			// names a standard ICC registry profile, which is not the case for "Custom".
 			errs = append(errs, PDFError{
-				clause:    "6.2.2",
-				subclause: 7,
-				errs:      []error{fmt.Errorf("DestOutputProfile is required when OutputConditionIdentifier does not specify a standard production condition")},
-				page:      0,
+				check: Checks.Colour.OutputIntentUnresolvedProfile,
+				errs:  []error{fmt.Errorf("DestOutputProfile is required when OutputConditionIdentifier does not specify a standard production condition")},
+				page:  0,
 			})
 			continue
 		}
@@ -1229,10 +1208,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		} else {
 			if !EqualPDFValue(indirectObject, destOutputProfile) {
 				err := PDFError{
-					clause:    "6.2.2",
-					subclause: 6,
-					errs:      []error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)},
-					page:      0,
+					check: Checks.Colour.OutputIntentMultipleProfiles,
+					errs:  []error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)},
+					page:  0,
 				}
 				errs = append(errs, err)
 				continue
@@ -1242,10 +1220,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		profile, err := d.resolveObject(destOutputProfile)
 		if err != nil {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 7,
-				errs:      []error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)},
-				page:      0,
+				check: Checks.Colour.OutputIntentUnresolvedProfile,
+				errs:  []error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1254,10 +1231,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		profileMap, ok := profile.(PDFDict)
 		if !ok {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 8,
-				errs:      []error{fmt.Errorf("unexpected format for DestOutputProfile encountered")},
-				page:      0,
+				check: Checks.Colour.OutputIntentInvalidProfile,
+				errs:  []error{fmt.Errorf("unexpected format for DestOutputProfile encountered")},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1266,10 +1242,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		nValue, ok := profileMap.Entries["N"].(PDFInteger)
 		if !ok {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 9,
-				errs:      []error{fmt.Errorf("could not retrieve number of colour components N")},
-				page:      0,
+				check: Checks.Colour.OutputIntentMissingN,
+				errs:  []error{fmt.Errorf("could not retrieve number of colour components N")},
+				page:  0,
 			}
 			errs = append(errs, err)
 			continue
@@ -1278,10 +1253,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		// N shall be 1, 3, or 4
 		if !slices.Contains([]int{1, 3, 4}, int(nValue)) {
 			err := PDFError{
-				clause:    "6.2.2",
-				subclause: 10,
-				errs:      []error{fmt.Errorf("number of colour components N must be 1, 3, or 4")},
-				page:      0,
+				check: Checks.Colour.OutputIntentInvalidN,
+				errs:  []error{fmt.Errorf("number of colour components N must be 1, 3, or 4")},
+				page:  0,
 			}
 			errs = append(errs, err)
 		}
@@ -1290,10 +1264,9 @@ func (d *Document) verifyOutputIntent() []PDFError {
 		if profileMap.HasStream {
 			if iccErr := validateICCProfileStream(profileMap); iccErr != nil {
 				errs = append(errs, PDFError{
-					clause:    "6.2.2",
-					subclause: 11,
-					errs:      []error{iccErr},
-					page:      0,
+					check: Checks.Colour.OutputIntentICCVersion,
+					errs:  []error{iccErr},
+					page:  0,
 				})
 			}
 		}
@@ -1381,10 +1354,9 @@ func (d *Document) checkLinearizedFileID() []PDFError {
 		id := strings.ToLower(string(m[1]))
 		if id != first {
 			return []PDFError{{
-				clause:    "6.1.3",
-				subclause: 1,
-				errs:      []error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)},
-				page:      0,
+				check: Checks.Structure.TrailerID,
+				errs:  []error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)},
+				page:  0,
 			}}
 		}
 	}

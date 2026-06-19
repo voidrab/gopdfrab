@@ -52,10 +52,13 @@ type structureChecks struct {
 	GraphResolutionFailure Check
 	HexStringInvalidChar   Check
 	HexStringOddLength     Check
-	// 6.1.7 Stream objects (external file references)
-	StreamFileSpec         Check
-	StreamFileFilter       Check
-	StreamFileDecodeParams Check
+	// 6.1.7 Stream objects (external file references, EOL framing)
+	StreamFileSpec          Check
+	StreamFileFilter        Check
+	StreamFileDecodeParams  Check
+	StreamKeywordEOL        Check
+	EndstreamEOL            Check
+	StreamLengthIncludesEOL Check
 	// 6.1.8 Object framing
 	ObjectFraming Check
 	// 6.1.10 LZW compression
@@ -70,6 +73,8 @@ type structureChecks struct {
 	ArrayTooLarge     Check
 	DictTooLarge      Check
 	CMapCIDOutOfRange Check
+	StringTooLong     Check
+	DeviceNColorants  Check
 	// 6.1.13 Optional content
 	OptionalContent Check
 }
@@ -247,6 +252,27 @@ func AllChecks() []Check {
 	return out
 }
 
+// CheckByClause looks up the registered check for a specific (clause,
+// subclause) pair, e.g. CheckByClause("6.3.4", 1). ok is false if no check is
+// registered for that pair.
+func CheckByClause(clause string, subclause int) (c Check, ok bool) {
+	key := clause + "/" + strconv.Itoa(subclause)
+	c, ok = catalogByPair[key]
+	return c, ok
+}
+
+// ChecksForClause returns every registered check under the given clause
+// (e.g. "6.3.4"), in catalog order.
+func ChecksForClause(clause string) []Check {
+	var out []Check
+	for _, c := range allChecksCatalog {
+		if c.clause == clause {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func newCheck(name, description, clause string, subclause int) Check {
 	checkIDCounter++
 	c := Check{
@@ -350,6 +376,18 @@ func init() {
 				"StreamFileDecodeParams",
 				"Stream objects must not specify external decode parameters via the FDecodeParms key",
 				"6.1.7", 3),
+			StreamKeywordEOL: newCheck(
+				"StreamKeywordEOL",
+				"The 'stream' keyword must be followed by a single EOL marker (CRLF or LF)",
+				"6.1.7", 4),
+			EndstreamEOL: newCheck(
+				"EndstreamEOL",
+				"The 'endstream' keyword must be preceded by an EOL marker",
+				"6.1.7", 5),
+			StreamLengthIncludesEOL: newCheck(
+				"StreamLengthIncludesEOL",
+				"The stream Length value must not include the EOL marker preceding endstream",
+				"6.1.7", 6),
 			ObjectFraming: newCheck(
 				"ObjectFraming",
 				"Objects must follow the 'N G obj … endobj' framing syntax",
@@ -390,6 +428,14 @@ func init() {
 				"CMapCIDOutOfRange",
 				"CMap character identifier (CID) values must not exceed 65535",
 				"6.1.12", 5),
+			StringTooLong: newCheck(
+				"StringTooLong",
+				"String objects must not exceed 65535 bytes, and content-stream q/Q nesting must not exceed 28 levels",
+				"6.1.12", 6),
+			DeviceNColorants: newCheck(
+				"DeviceNColorants",
+				"DeviceN colour spaces must not exceed 8 colorants",
+				"6.1.12", 7),
 			OptionalContent: newCheck(
 				"OptionalContent",
 				"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",

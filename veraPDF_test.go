@@ -119,7 +119,7 @@ func TestVeraPDFSuite(t *testing.T) {
 
 			failCaught++
 			for _, iss := range res.Issues {
-				if clauseMatches(iss.clause, expectedClause) {
+				if clauseMatches(iss.check.clause, expectedClause) {
 					failCorrect++
 					return
 				}
