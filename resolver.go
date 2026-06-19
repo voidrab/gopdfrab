@@ -66,19 +66,9 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 
 		m.Entries["_ref"] = ref
 
-		// 6.1.8: peek the EOL/whitespace situation between the dictionary's
-		// closing '>>' and whatever follows, before NextToken's whitespace
-		// skipping silently swallows it. Only relevant if the next token
-		// turns out to be 'endobj' — a stream object's leading whitespace
-		// before 'stream' is governed by 6.1.7 instead, so those captured
-		// values are simply discarded in that branch.
-		//
-		// Only valid when l.pushed is empty: parseDictionary's own trailing-
-		// integer lookahead (disambiguating "N G R" from a bare integer
-		// value, parser.go's parseObject) can already have read past '>>'
-		// into the real next token and pushed it back — in that case l.pos
-		// no longer points right after '>>', so the boundary cannot be
-		// inspected here and the pre-check is skipped.
+		// 6.1.8: capture EOL/whitespace right after '>>' before NextToken swallows it;
+		// only used if next token is 'endobj'. Skipped when l.pushed is non-empty, since
+		// parseDictionary's trailing-integer lookahead may have already read past '>>'.
 		var preEOLErr error
 		var leadingWS bool
 		if len(l.pushed) == 0 {

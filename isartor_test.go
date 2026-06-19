@@ -13,8 +13,8 @@ const isartorDir = "test documents/Isartor testsuite/PDFA-1b"
 
 var isartorNameRe = regexp.MustCompile(`^isartor-((?:\d+-)+)t\d+`)
 
-// expectedClauseFromName maps an Isartor file name such as
-// "isartor-6-6-1-t01-fail-a.pdf" to the clause it targets, e.g. "6.6.1".
+// expectedClauseFromName maps a name like "isartor-6-6-1-t01-fail-a.pdf"
+// to its target clause, e.g. "6.6.1".
 func expectedClauseFromName(name string) string {
 	m := isartorNameRe.FindStringSubmatch(name)
 	if m == nil {
@@ -43,9 +43,8 @@ func issueClauses(issues []PDFError) []string {
 	return out
 }
 
-// TestIsartorSuite runs every negative PDF in the Isartor test suite through the
-// PDF/A-1b verifier and asserts each is detected as non-conformant by the clause
-// it is designed to test. A per-run scoreboard is logged to track progress.
+// TestIsartorSuite runs every negative PDF in the Isartor test suite and asserts
+// each is rejected by the clause it is designed to test.
 func TestIsartorSuite(t *testing.T) {
 	if _, err := os.Stat(isartorDir); err != nil {
 		t.Skip("Isartor suite not present")

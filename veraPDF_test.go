@@ -12,11 +12,8 @@ import (
 const veraDir = "test documents/veraPDF/PDF_A-1b"
 
 // veraPDF filenames: optional "veraPDF test suite " prefix, then clause
-// segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf.
-// Examples:
-//
-//	"veraPDF test suite 6-1-2-t01-fail-a.pdf"  → clause 6.1.2, fail
-//	"6-3-5-t02-fail-a.pdf"                     → clause 6.3.5, fail
+// segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf, e.g.
+// "veraPDF test suite 6-1-2-t01-fail-a.pdf" → clause 6.1.2, fail.
 var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
 
 // veraClauseAndKind returns the expected clause and whether the file is a
@@ -26,18 +23,14 @@ func veraClauseAndKind(name string) (clause string, wantFail bool) {
 	if m == nil {
 		return "", false
 	}
-	// m[1] is e.g. "6-1-2-" – trim trailing dash, split, join with dots.
 	segs := strings.Split(strings.TrimSuffix(m[1], "-"), "-")
 	clause = strings.Join(segs, ".")
 	wantFail = m[2] == "fail"
 	return clause, wantFail
 }
 
-// TestVeraPDFSuite runs every PDF in the veraPDF PDF/A-1b test corpus.
-//   - fail files must be reported non-conformant, ideally by the matching clause.
-//   - pass files must validate cleanly (Valid == true).
-//
-// A per-run scoreboard is logged so progress can be tracked over time.
+// TestVeraPDFSuite runs every PDF in the veraPDF PDF/A-1b corpus: fail files
+// must be reported non-conformant (ideally by the matching clause), pass files must validate cleanly.
 func TestVeraPDFSuite(t *testing.T) {
 	if _, err := os.Stat(veraDir); err != nil {
 		t.Skip("veraPDF suite not present")
@@ -59,14 +52,14 @@ func TestVeraPDFSuite(t *testing.T) {
 
 	var (
 		total           int
-		passClean       int // pass file → Valid==true  ✓
-		passFalsePos    int // pass file → Valid==false ✗ (false positive)
-		openErrPass     int // pass file → Open failed   ✗
-		failCaught      int // fail file → non-conformant (any clause)
-		failCorrect     int // fail file → non-conformant by correct clause
-		failFalseNeg    int // fail file → Valid==true   ✗
-		failWrongClause int // fail file → caught but wrong clause ✗
-		openErrFail     int // fail file → Open failed (counts as caught)
+		passClean       int // pass file, Valid==true
+		passFalsePos    int // pass file, reported non-conformant (false positive)
+		openErrPass     int // pass file, Open failed
+		failCaught      int // fail file, non-conformant (any clause)
+		failCorrect     int // fail file, non-conformant by correct clause
+		failFalseNeg    int // fail file, Valid==true (false negative)
+		failWrongClause int // fail file, caught but wrong clause
+		openErrFail     int // fail file, Open failed (counts as caught)
 	)
 
 	for _, path := range files {

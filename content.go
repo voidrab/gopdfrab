@@ -25,9 +25,8 @@ func filterNames(filter PDFValue) []string {
 	return nil
 }
 
-// decodeStream returns the decoded bytes of a stream dictionary. Only the
-// FlateDecode filter (and unfiltered data) is supported, which is sufficient for
-// the content and metadata streams PDF/A inspection requires.
+// decodeStream returns the decoded bytes of a stream dictionary, applying
+// FlateDecode, ASCIIHexDecode, and ASCII85Decode filters as needed.
 func decodeStream(dict PDFDict) ([]byte, error) {
 	if !dict.HasStream {
 		return nil, fmt.Errorf("object is not a stream")
@@ -70,7 +69,6 @@ func decodeASCIIHex(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data)/2)
 	i := 0
 	for i < len(data) {
-		// Skip whitespace.
 		for i < len(data) && isWhitespaceByte(data[i]) {
 			i++
 		}
@@ -85,7 +83,6 @@ func decodeASCIIHex(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("invalid hex digit %q in ASCIIHexDecode", data[i])
 		}
 		i++
-		// Skip whitespace between nibbles.
 		for i < len(data) && isWhitespaceByte(data[i]) {
 			i++
 		}
@@ -109,7 +106,6 @@ func decodeASCII85(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data)*4/5)
 	i := 0
 	for i < len(data) {
-		// Skip whitespace.
 		for i < len(data) && isWhitespaceByte(data[i]) {
 			i++
 		}
@@ -224,8 +220,6 @@ func (cs *ContentScanner) scan(fn func(op string, operands []PDFValue)) {
 		case TokenKeyword:
 			op := tok.Value
 			if op == "BI" {
-				// Inline image: collect parameters up to ID, then skip binary
-				// image data up to EI.
 				cs.scanInlineImage(fn)
 				cs.stack = nil
 				continue

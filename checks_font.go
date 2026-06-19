@@ -41,9 +41,8 @@ func validateFontDict(v PDFDict, ctx *ValidationContext) {
 	// 6.3.2: where a font program is embedded, it shall be valid.
 	validateFontProgram(v, desc, baseFont.Value, ctx)
 
-	// Fonts that are only ever used to show invisible text (rendering mode 3
-	// or 7) are never actually rendered, so glyph-coverage and metric
-	// checks (6.3.3.2, 6.3.5, 6.3.6) do not apply to them.
+	// Invisible-only fonts (render mode 3/7) are never rendered, so glyph
+	// coverage/metric checks (6.3.3.2, 6.3.5, 6.3.6) don't apply.
 	invisibleOnly := ctx.isInvisibleOnlyFont(v)
 
 	switch subtype.Value {
@@ -155,7 +154,6 @@ func validateType3Metrics(v PDFDict, ctx *ValidationContext) {
 		return
 	}
 
-	// Build code→glyphName from the Differences array.
 	codeToGlyph := map[int]string{}
 	code := 0
 	for _, item := range diffs {
@@ -345,10 +343,9 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 			pos = 0
 		default:
 			if inCIDRange {
-				// cidrange entries: <start-code> <end-code> start-CID  (repeat)
+				// cidrange entries: <start-code> <end-code> start-CID (repeat).
 				pos++
 				if pos == 3 {
-					// third token is the starting CID
 					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
 						ctx.ReportError(obj, "6.1.12", 5,
 							fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
@@ -356,7 +353,7 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 					pos = 0
 				}
 			} else if inCIDChar {
-				// cidchar entries: <code> CID  (repeat)
+				// cidchar entries: <code> CID (repeat).
 				pos++
 				if pos == 2 {
 					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
@@ -375,14 +372,12 @@ func cmapTokenize(data []byte) []string {
 	var tokens []string
 	i := 0
 	for i < len(data) {
-		// skip whitespace
 		for i < len(data) && isWhitespace(data[i]) {
 			i++
 		}
 		if i >= len(data) {
 			break
 		}
-		// skip line comments
 		if data[i] == '%' {
 			for i < len(data) && data[i] != '\n' {
 				i++
@@ -396,7 +391,7 @@ func cmapTokenize(data []byte) []string {
 				j++
 			}
 			if j < len(data) {
-				j++ // include '>'
+				j++
 			}
 			tokens = append(tokens, string(data[i:j]))
 			i = j

@@ -96,7 +96,6 @@ func EqualPDFValue(a, b PDFValue) bool {
 		return true
 
 	default:
-		// Unknown or unsupported PDFValue
 		return false
 	}
 }

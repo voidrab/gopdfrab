@@ -5,15 +5,8 @@ import (
 	"strconv"
 )
 
-// Check represents a named, selectable PDF/A validation rule. Each Check
-// corresponds to one (clause, subclause) violation pair in the PDF/A-1
-// specification. Checks are grouped into categories accessible via the Checks
-// registry.
-//
-// Example:
-//
-//	Checks.Transparency.ImageWithSoftMask   // clause 6.4, subclause 6
-//	Checks.Structure.FileHeaderSignature    // clause 6.1.2, subclause 1
+// Check is a named, selectable PDF/A validation rule, identified by a
+// (clause, subclause) pair and grouped into categories under Checks.
 type Check struct {
 	id          int    // unique sequential ID (never 0 for registered checks)
 	name        string // CamelCase identifier

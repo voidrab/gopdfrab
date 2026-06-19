@@ -273,9 +273,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 	}
 }
 
-// Non-standard info dictionary keys are permitted (e.g. veraPDF's
-// 6-1-5-t02-pass-a.pdf has a conformant /Description entry alongside the
-// standard keys), so a custom key by itself must not be flagged.
+// Non-standard info dict keys are permitted (veraPDF's 6-1-5-t02-pass-a.pdf
+// has a conformant /Description entry), so a custom key alone is not flagged.
 func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
@@ -382,7 +381,6 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
 	}
 
-	// expect 4 errors for 4 invalid hex chars
 	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}

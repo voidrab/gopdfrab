@@ -23,15 +23,12 @@ type Document struct {
 	// file begins with garbage bytes before the PDF header (6.1.2).
 	pdfStart int64
 
-	// firstPageTrailer is set for linearized PDFs whose main (overflow) trailer
-	// at the end of the file lacks /Root.  In those files the complete trailer
-	// (containing /Root, /Info, /ID) resides in the first-page section near the
-	// start of the file.  effectiveTrailer() returns this field when it is set.
+	// firstPageTrailer holds the linearized first-page trailer (with /Root,
+	// /Info, /ID) when the main trailer lacks /Root. See effectiveTrailer().
 	firstPageTrailer PDFDict
 
 	// structErrs collects document-structure violations (e.g. 6.1.8 object
-	// framing) discovered lazily during object resolution. framingChecked
-	// deduplicates per object number so repeated resolution does not double-report.
+	// framing) found lazily during resolution; framingChecked dedupes per object.
 	structErrs     []PDFError
 	framingChecked map[int]bool
 	streamChecked  map[int]bool
@@ -75,7 +72,6 @@ func (d *Document) recordFraming(objNum int, errs []error) {
 }
 
 // Open initializes the PDF document at path.
-// It returns a reference and any error encountered.
 func Open(path string) (*Document, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -108,20 +104,7 @@ func Open(path string) (*Document, error) {
 	return doc, nil
 }
 
-// initializeStructure locates startxref, parses the xref table and, then the trailer. Trailer structure:
-//
-//	trailer
-//		<<
-//			key1 value1
-//			key2 value2
-//	    	…
-//	    	keyn valuen
-//		>>
-//	startxref
-//	Byte_offset_of_last_cross-reference_section
-//	%%EOF
-//
-// It returns any error encountered.
+// initializeStructure locates startxref, then parses the xref table and trailer.
 func (d *Document) initializeStructure() error {
 	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
 	// xref offsets in such files are relative to the PDF content start.
@@ -162,19 +145,13 @@ func (d *Document) initializeStructure() error {
 
 	xrefErr := d.parseXRefTable(xrefOffset + d.pdfStart)
 	if xrefErr != nil && d.pdfStart != 0 {
-		// The pdfStart adjustment assumes the file's xref offsets are
-		// recorded relative to the "%PDF-" marker; at least one malformed
-		// (6.1.2) file instead records them relative to true byte 0 even
-		// with leading garbage present. Retry unadjusted before falling
-		// back further.
+		// Some malformed (6.1.2) files record xref offsets relative to true
+		// byte 0 instead of the "%PDF-" marker; retry unadjusted.
 		xrefErr = d.parseXRefTable(xrefOffset)
 	}
 	if xrefErr != nil {
-		// 6.1.4: the classic cross-reference table could not be parsed
-		// (e.g. a cross-reference stream instead of a table, or a malformed
-		// subsection header). Record the structural defect and recover
-		// enough of the object table via a brute-force scan so the document
-		// can still be opened and verified under its correct clause.
+		// 6.1.4: classic xref table unparseable (e.g. it's actually a
+		// cross-reference stream). Recover the object table via brute-force scan.
 		d.structErrs = append(d.structErrs, PDFError{
 			clause: "6.1.4", subclause: 1,
 			errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
@@ -191,17 +168,14 @@ func (d *Document) initializeStructure() error {
 		if xrefErr == nil {
 			return errors.New("trailer keyword not found")
 		}
-		// No literal "trailer" keyword — e.g. a file using only a
-		// cross-reference stream, which combines the xref and trailer roles
-		// in one object. Recover /Root, /Info, and /ID from the
-		// brute-force-scanned object that declares /Type /XRef.
+		// No literal "trailer" keyword: file likely uses a cross-reference
+		// stream object instead, which combines the xref and trailer roles.
 		trailer, err := d.recoverTrailerFromXRefStream()
 		if err != nil {
 			return errors.New("trailer keyword not found")
 		}
 		d.trailer = trailer
 	} else {
-		// Parse the dictionary following "trailer"
 		l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
 
 		if tok := l.NextToken(); tok.Value != "trailer" {
@@ -215,13 +189,12 @@ func (d *Document) initializeStructure() error {
 		d.trailer = trailer
 	}
 
-	// Follow the /Prev chain in the xref to build a complete object table
-	// for incrementally-updated PDFs.  Newer revisions already in d.xrefTable
-	// take precedence; older entries are added only when missing.
+	// Build a complete object table for incrementally-updated PDFs; newer
+	// revisions already in d.xrefTable take precedence over older entries.
 	d.followXRefPrevChain()
 
-	// For linearized PDFs whose main (overflow) trailer lacks /Root, locate the
-	// complete first-page trailer so that the verifier can find /Root and /ID.
+	// Linearized PDFs may have a main trailer lacking /Root; locate the
+	// first-page trailer instead so /Root and /ID can be found.
 	if d.trailer.Entries["Root"] == nil {
 		d.findAndLoadFirstPageTrailer()
 	}
@@ -229,9 +202,8 @@ func (d *Document) initializeStructure() error {
 	return nil
 }
 
-// followXRefPrevChain walks the /Prev chain from d.trailer and fills in
-// d.xrefTable with object offsets from older xref sections. Entries already
-// present (from the most-recent revision) are never overwritten.
+// followXRefPrevChain walks the /Prev chain from d.trailer, filling in
+// d.xrefTable from older xref sections without overwriting newer entries.
 func (d *Document) followXRefPrevChain() {
 	visited := map[int64]bool{d.xrefOffset: true}
 	prev := d.trailer.Entries["Prev"]
@@ -254,24 +226,17 @@ func (d *Document) followXRefPrevChain() {
 	}
 }
 
-// xrefLineRe matches the keyword "xref" at a line boundary.  It captures "xref"
-// preceded by the start of input or by a carriage-return or newline (to exclude
-// the "xref" suffix inside "startxref", which is always preceded by 't').
-// Group 1 captures "xref" itself so its position can be found via loc[1].
+// xrefLineRe matches "xref" at a line boundary, capturing it in group 1
+// (excludes the "xref" suffix inside "startxref").
 var xrefLineRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)
 
 // bruteForceObjRe matches an "N G obj" indirect-object header at a line
-// boundary, used to rebuild the object table when the cross-reference table
-// itself cannot be parsed (6.1.4).
+// boundary, used to rebuild the object table when xref parsing fails (6.1.4).
 var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
 
-// recoverXRefByBruteForceScan rebuilds d.xrefTable by scanning the entire
-// file for "N G obj" headers. It is used as a fallback when the
-// cross-reference table cannot be parsed (6.1.4) — e.g. the file uses a
-// cross-reference stream instead of a classic table, or a subsection header
-// is malformed. Later occurrences of the same object number (as in an
-// incrementally-updated file) take precedence, matching how a real xref's
-// /Prev chain would resolve the same ambiguity.
+// recoverXRefByBruteForceScan rebuilds d.xrefTable by scanning the file for
+// "N G obj" headers, used when the xref table cannot be parsed (6.1.4).
+// Later occurrences win, matching how a real /Prev chain resolves duplicates.
 func (d *Document) recoverXRefByBruteForceScan() error {
 	raw := make([]byte, d.info.Size())
 	if _, err := d.file.ReadAt(raw, 0); err != nil {
@@ -292,11 +257,8 @@ func (d *Document) recoverXRefByBruteForceScan() error {
 	return nil
 }
 
-// recoverTrailerFromXRefStream locates a brute-force-scanned object whose
-// dictionary declares "/Type /XRef" — a cross-reference stream combines the
-// roles of the classic xref table and trailer dictionary in one object — and
-// returns its dictionary so /Root, /Info, and /ID can be recovered from it.
-// Used when the file has no literal "trailer" keyword at all.
+// recoverTrailerFromXRefStream finds a brute-force-scanned object declaring
+// "/Type /XRef" and returns its dict, recovering /Root, /Info, and /ID.
 func (d *Document) recoverTrailerFromXRefStream() (PDFDict, error) {
 	for objNum := range d.xrefTable {
 		v, err := d.resolveReference(PDFRef{ObjNum: objNum})
@@ -314,11 +276,8 @@ func (d *Document) recoverTrailerFromXRefStream() (PDFDict, error) {
 	return PDFDict{}, errors.New("no cross-reference stream object found")
 }
 
-// findAndLoadFirstPageTrailer is called when the main (overflow) trailer lacks
-// /Root, indicating a linearized PDF.  It scans the raw file for every
-// cross-reference section (identified as "xref" at a line boundary),
-// parses each one to fill missing object entries into d.xrefTable, and sets
-// d.firstPageTrailer to the first trailer dictionary that contains /Root.
+// findAndLoadFirstPageTrailer scans every xref section in a linearized PDF,
+// filling d.xrefTable and setting d.firstPageTrailer to the first one with /Root.
 func (d *Document) findAndLoadFirstPageTrailer() {
 	size := d.info.Size()
 	raw := make([]byte, size)
@@ -334,16 +293,14 @@ func (d *Document) findAndLoadFirstPageTrailer() {
 		if err != nil {
 			continue
 		}
-		// Keep the first trailer that supplies /Root (the first-page trailer).
 		if trailer.Entries["Root"] != nil && d.firstPageTrailer.Entries == nil {
 			d.firstPageTrailer = trailer
 		}
 	}
 }
 
-// effectiveTrailer returns the trailer dictionary to use for document-level
-// checks (/Root, /ID, /Info, etc.).  For ordinary PDFs this is d.trailer; for
-// linearized PDFs whose overflow trailer lacks /Root, it is d.firstPageTrailer.
+// effectiveTrailer returns d.trailer, or d.firstPageTrailer for linearized
+// PDFs whose overflow trailer lacks /Root.
 func (d *Document) effectiveTrailer() PDFDict {
 	if d.firstPageTrailer.Entries != nil {
 		return d.firstPageTrailer
@@ -483,12 +440,8 @@ func (d *Document) ResolveGraph() (PDFValue, error) {
 	return d.resolveAll(d.effectiveTrailer(), visited)
 }
 
-// resolvePath walks a PDF object (map/array/primitive) following a path.
-// It supports:
-//   - dictionary keys, like "Root", "Pages", "Count"
-//   - array indices, like "0", "1", "2"
-//
-// Starting point 'node' must already be a resolved object, such as the document trailer.
+// resolvePath walks a PDF object following path elements, which may be
+// dictionary keys or array indices. node must already be a resolved object.
 func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 	current, err := d.resolveObject(node)
 	if err != nil {
@@ -532,10 +485,6 @@ func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 // resolveAll recursively resolves a PDF object graph, including indirect references.
 func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue, error) {
 	switch v := obj.(type) {
-
-	// ------------------------
-	// Indirect reference
-	// ------------------------
 	case PDFRef:
 		id := v.ObjNum
 
@@ -548,9 +497,8 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 			return nil, err
 		}
 
-		// Allocate the resolved container and cache it *before* recursing so that
-		// cyclic references (e.g. Popup/Parent, Page/Parent) resolve to the same,
-		// fully-populated instance rather than a dangling reference.
+		// Cache the container before recursing so cyclic references (e.g.
+		// Popup/Parent, Page/Parent) resolve to the same instance, not a dangling one.
 		switch inner := indirect.(type) {
 		case PDFDict:
 			out := PDFDict{Entries: make(map[string]PDFValue, len(inner.Entries)), HasStream: inner.HasStream, RawStream: inner.RawStream}
@@ -581,9 +529,6 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 			return inner, nil
 		}
 
-	// ------------------------
-	// Dictionary
-	// ------------------------
 	case PDFDict:
 		out := NewPDFDict()
 		out.HasStream = v.HasStream
@@ -597,9 +542,6 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 		}
 		return out, nil
 
-	// ------------------------
-	// Array
-	// ------------------------
 	case PDFArray:
 		out := make(PDFArray, len(v))
 		for i, elem := range v {
@@ -611,9 +553,6 @@ func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue,
 		}
 		return out, nil
 
-	// ------------------------
-	// Primitives
-	// ------------------------
 	default:
 		return v, nil
 	}

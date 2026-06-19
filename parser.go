@@ -51,12 +51,12 @@ func (d *Document) parseXRefTable(offset int64) error {
 		numObjs, _ := strconv.Atoi(parts[1])
 
 		for i := range numObjs {
-			entryLine := make([]byte, 20) // each row is 20 bytes
+			entryLine := make([]byte, 20)
 			if _, err := io.ReadFull(reader, entryLine); err != nil {
 				return err
 			}
 
-			if entryLine[17] == 'n' { // flag ('n' = used) is usually at index 17
+			if entryLine[17] == 'n' { // 'n' = used entry
 				offsetStr := string(entryLine[:10])
 				offsetVal, _ := strconv.ParseInt(offsetStr, 10, 64)
 				d.xrefTable[startObjID+i] = offsetVal + d.pdfStart
@@ -67,10 +67,8 @@ func (d *Document) parseXRefTable(offset int64) error {
 	return nil
 }
 
-// parseXRefSectionAt parses the cross-reference table and its following trailer
-// dict at the given absolute file offset. When fillIn is true, only object
-// entries NOT already present in d.xrefTable are added, preserving entries from
-// newer (already-parsed) revisions. It returns the parsed trailer dictionary.
+// parseXRefSectionAt parses the xref table and trailer dict at offset.
+// If fillIn is true, only entries not already in d.xrefTable are added, preserving newer revisions.
 func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) {
 	if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
 		return PDFDict{}, err
@@ -78,7 +76,6 @@ func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error
 
 	reader := bufio.NewReader(d.file)
 
-	// Consume the "xref" line.
 	line, _, err := reader.ReadLine()
 	if err != nil {
 		return PDFDict{}, err
@@ -87,7 +84,6 @@ func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error
 		return PDFDict{}, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
 	}
 
-	// Parse cross-reference subsections.
 	for {
 		peekBytes, err := reader.Peek(1)
 		if err != nil || len(peekBytes) == 0 {
@@ -125,7 +121,6 @@ func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error
 		}
 	}
 
-	// Consume the "trailer" keyword line.
 	trailerLine, _, err := reader.ReadLine()
 	if err != nil {
 		return PDFDict{}, fmt.Errorf("expected 'trailer' keyword: %w", err)
@@ -197,7 +192,6 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 	dict := NewPDFDict()
 
 	for {
-		// get key
 		keyTok := l.NextToken()
 		if keyTok.Type == TokenDictEnd {
 			break
@@ -205,7 +199,7 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 		if keyTok.Type == TokenEOF {
 			return dict, errors.New("unexpected EOF while parsing dictionary")
 		}
-		if keyTok.Type == TokenDictStart { // skip dict start
+		if keyTok.Type == TokenDictStart {
 			continue
 		}
 		if keyTok.Type != TokenName {

@@ -51,9 +51,8 @@ type ValidationContext struct {
 	pageResources PDFDict
 }
 
-// isReachableXObject returns true if v is a Form XObject that is reachable
-// from page content via Do operators.  If reachability info is absent,
-// everything is considered reachable (safe fallback).
+// isReachableXObject reports whether v is a Form XObject reachable from page
+// content via Do operators. Absent reachability info, everything is reachable.
 func (ctx *ValidationContext) isReachableXObject(v PDFDict) bool {
 	if ctx.ReachableXObjectPtrs == nil {
 		return true
@@ -61,10 +60,8 @@ func (ctx *ValidationContext) isReachableXObject(v PDFDict) bool {
 	return ctx.ReachableXObjectPtrs[pdfValuePointer(v.Entries)]
 }
 
-// isInvisibleOnlyFont returns true if font dictionary v is used for text
-// showing only under an invisible rendering mode (3 or 7), and is therefore
-// exempt from glyph-coverage and metric-consistency checks (6.3.3.2, 6.3.5,
-// 6.3.6). If usage info is absent, the font is treated as visible (checked).
+// isInvisibleOnlyFont reports whether font v is shown only under invisible
+// rendering modes (3/7), exempting it from 6.3.3.2/6.3.5/6.3.6 checks.
 func (ctx *ValidationContext) isInvisibleOnlyFont(v PDFDict) bool {
 	if ctx.InvisibleOnlyFontPtrs == nil {
 		return false
@@ -72,11 +69,8 @@ func (ctx *ValidationContext) isInvisibleOnlyFont(v PDFDict) bool {
 	return ctx.InvisibleOnlyFontPtrs[pdfValuePointer(v.Entries)]
 }
 
-// usedCodesFor returns the set of character codes actually shown for font v,
-// and whether usage info was collected for it at all. When known is false,
-// callers should fall back to a broader check (e.g. every code with a
-// non-zero Widths entry), since the font's content-stream usage could not be
-// determined.
+// usedCodesFor returns the character codes shown for font v and whether usage
+// info was collected; if known is false, callers fall back to checking every Widths entry.
 func (ctx *ValidationContext) usedCodesFor(v PDFDict) (codes map[int]bool, known bool) {
 	if ctx.UsedCharCodes == nil {
 		return nil, false
@@ -85,11 +79,8 @@ func (ctx *ValidationContext) usedCodesFor(v PDFDict) (codes map[int]bool, known
 	return codes, known
 }
 
-// usedCIDsFor returns the set of CIDs actually shown for composite font v,
-// and whether usage info was collected for it at all. When known is false,
-// callers should fall back to a broader check (e.g. every CID in the W
-// array), since the font's content-stream usage could not be determined
-// (e.g. a non-Identity CMap).
+// usedCIDsFor returns the CIDs shown for composite font v and whether usage
+// info was collected; if known is false, callers fall back to checking every W entry.
 func (ctx *ValidationContext) usedCIDsFor(v PDFDict) (cids map[int]bool, known bool) {
 	if ctx.UsedCIDs == nil {
 		return nil, false

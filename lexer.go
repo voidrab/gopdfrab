@@ -38,9 +38,6 @@ func (l *Lexer) NextToken() Token {
 		return t
 	}
 
-	// add stream support
-	// skip content when stream is encountered?
-
 	l.skipWhitespace()
 
 	ch, err := l.readByte()
@@ -52,7 +49,7 @@ func (l *Lexer) NextToken() Token {
 	}
 
 	switch ch {
-	case '%': // comment
+	case '%':
 		for {
 			b, err := l.readByte()
 			if err != nil || b == '\n' || b == '\r' {
@@ -106,8 +103,7 @@ func (l *Lexer) UnreadToken(t Token) {
 }
 
 // validateObjectStart validates the "N G obj" header framing required by 6.1.8.
-// It advances the lexer past the header even when violations are present
-// (so resolution can continue) and returns any violations found.
+// Advances past the header even on violations, so resolution can continue.
 func (l *Lexer) validateObjectStart() []error {
 	var errs []error
 
@@ -147,9 +143,8 @@ func (l *Lexer) validateObjectStart() []error {
 	return errs
 }
 
-// validateEndObj validates the framing around the endobj keyword (6.1.8) for an
-// object whose endobj has not yet been consumed (e.g. a stream object). The
-// lexer must be positioned immediately after the object body.
+// validateEndObj validates the framing around an unconsumed endobj keyword (6.1.8).
+// The lexer must be positioned immediately after the object body.
 func (l *Lexer) validateEndObj() []error {
 	var errs []error
 
@@ -313,12 +308,7 @@ func (l *Lexer) readStringLiteral() Token {
 }
 
 // readHexString reads a hex string up to the closing '>'. Invalid hex digits
-// are preserved in the token value rather than aborting the scan: 6.1.6
-// requires hex strings to contain only hex digits and an even count of them,
-// but a single malformed string should not prevent the rest of the document
-// (or content stream) from being parsed and checked. Callers validate the
-// returned value (see validateHexString) and report a precise 6.1.6
-// violation instead.
+// are preserved so callers (validateHexString) can report a precise 6.1.6 violation.
 func (l *Lexer) readHexString() Token {
 	var buf []byte
 
@@ -369,7 +359,6 @@ func (l *Lexer) requireSingleSpace() error {
 		return fmt.Errorf("expected single space, got 0x%02X", b)
 	}
 
-	// next byte must NOT be whitespace
 	next, err := l.reader.Peek(1)
 	if err == nil && len(next) > 0 && isWhitespace(next[0]) {
 		return fmt.Errorf("multiple whitespace characters not allowed")

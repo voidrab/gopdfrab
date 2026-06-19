@@ -46,9 +46,8 @@ var knownXMPNamespaces = map[string]bool{
 	"http://ns.adobe.com/exif/1.0/":          true,
 	// aux: and xmpDM: are not standard XMP 2004 schemas; omit so undeclared use is flagged.
 	// Camera Raw is not a standard XMP 2004 schema; omit so undeclared use is flagged.
-	// XMP structured-type namespaces (st* prefixes) — these are standard Adobe XMP
-	// namespaces used for structured properties (e.g., xmpMM:DerivedFrom uses stRef).
-	// None of them require extension schema declarations.
+	// XMP structured-type namespaces (st* prefixes) are standard Adobe XMP
+	// namespaces for structured properties (e.g. xmpMM:DerivedFrom uses stRef).
 	"http://ns.adobe.com/xap/1.0/sType/ResourceRef#":   true,
 	"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#": true,
 	"http://ns.adobe.com/xap/1.0/sType/Version#":       true,
@@ -154,7 +153,6 @@ func checkExtensionSchemas(xmp string) []PDFError {
 		}
 	}
 
-	// If errors already found (wrong prefix/URI), return early.
 	if len(errs) > 0 {
 		return errs
 	}
@@ -233,7 +231,6 @@ func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []PDFErr
 		errs = append(errs, xmpErr("6.7.8", 3, "pdfaExtension:schemas must use rdf:Bag, not rdf:Seq"))
 	}
 
-	// Build a map of all documented namespaceURIs for cross-reference.
 	docNS := map[string]bool{}
 	for _, s := range schemas {
 		docNS[s.namespaceURI] = true
@@ -573,19 +570,16 @@ func xmlSkipElem(dec *xml.Decoder) {
 func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp string) []PDFError {
 	var errs []PDFError
 
-	// Build set of defined custom type names for cross-reference.
 	definedTypes := map[string]bool{}
 	for _, tp := range s.valueTypes {
 		definedTypes[tp.typeName] = true
 	}
 
-	// Build set of documented property names.
 	docProps := map[string]bool{}
 	for _, p := range s.properties {
 		docProps[p.name] = true
 	}
 
-	// Validate each property entry.
 	for _, p := range s.properties {
 		// t02-f: multiple pdfaProperty:name elements in same rdf:li
 		if p.nameCount > 1 {
@@ -609,7 +603,6 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 		// t02-k: if property's valueType is a non-primitive custom type, its actual
 		// usage in the XMP data must use rdf:parseType="Resource"
 		if p.valueType != "" && !xmpBuiltinTypes[p.valueType] {
-			// Find the actual usage of this property under the schema's prefix
 			propTag := "<" + s.prefix + ":" + p.name
 			if strings.Contains(xmp, propTag) &&
 				!strings.Contains(xmp, propTag+` rdf:parseType="Resource"`) &&
@@ -620,7 +613,6 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 		}
 	}
 
-	// Validate each valueType entry.
 	for _, tp := range s.valueTypes {
 		// t02-g: pdfaType:type name must match a property valueType or be self-consistent
 		if tp.typeName == "" {
@@ -636,7 +628,6 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 		if tp.description == "" {
 			errs = append(errs, xmpErr("6.7.8", 7, "pdfaType "+tp.typeName+" missing description"))
 		}
-		// Validate field entries.
 		for _, f := range tp.fields {
 			if f.name == "" {
 				errs = append(errs, xmpErr("6.7.8", 8, "pdfaField entry missing name"))
@@ -656,7 +647,6 @@ func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp strin
 	}
 
 	// t02-d: cross-check documented property names against actual used properties.
-	// Find properties actually used under this schema's prefix.
 	if s.prefix != "" {
 		usedRe := regexp.MustCompile(`<` + regexp.QuoteMeta(s.prefix) + `:(\w[\w.-]*)`)
 		for _, m := range usedRe.FindAllStringSubmatch(xmp, -1) {
@@ -730,7 +720,7 @@ func (d *Document) verifyXMPMetadata() []PDFError {
 	if err != nil {
 		return append(errs, xmpErr("6.7.9", 1, "unable to read XMP metadata stream"))
 	}
-	// Normalise UTF-16 LE/BE XMP streams to UTF-8 before any further processing.
+	// Normalise UTF-16/UTF-32 XMP streams to UTF-8 before any further processing.
 	data = decodeXMPEncoding(data)
 	xmp := string(data)
 
@@ -793,17 +783,7 @@ func checkPDFAIdentifier(xmp string) []PDFError {
 }
 
 // decodeXMPEncoding converts an XMP stream to UTF-8 if it is UTF-16 or
-// UTF-32 encoded. Encoding is detected by BOM or the leading '<' pattern:
-//
-//   - UTF-32 LE BOM  : FF FE 00 00
-//   - UTF-32 BE BOM  : 00 00 FE FF
-//   - UTF-32 LE      : 3C 00 00 00
-//   - UTF-32 BE      : 00 00 00 3C
-//   - UTF-16 LE BOM  : FF FE (not followed by 00 00)
-//   - UTF-16 BE BOM  : FE FF
-//   - UTF-16 LE      : 3C 00
-//   - UTF-16 BE      : 00 3C
-//   - UTF-8          : anything else
+// UTF-32 encoded, detected by BOM or the leading '<' byte pattern.
 func decodeXMPEncoding(data []byte) []byte {
 	if len(data) < 4 {
 		if len(data) >= 2 {
@@ -1011,7 +991,6 @@ func (d *Document) checkInfoXMPSync(xmp string) []PDFError {
 	}
 	var errs []PDFError
 
-	// Each Info text property must equal the matching XMP property value.
 	// The PDF null keyword is resolved to the string "null" by the parser;
 	// treat that as absent so it doesn't trigger a false sync mismatch.
 	for key, prop := range map[string]string{
@@ -1117,9 +1096,8 @@ const (
 	xmpKindStruct                          // rdf:parseType="Resource" or nested rdf:Description
 )
 
-// xmpNSSchemas maps namespace URI to a map of (propertyName → expected container kind).
-// A namespace present in this map is a "known 2004 schema"; any property from that
-// namespace that is not listed is reported as not permitted (6.7.2).
+// xmpNSSchemas maps namespace URI to property name to expected container kind.
+// A property from a listed namespace but not in its map is not permitted (6.7.2).
 var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 	// Dublin Core (dc:)
 	"http://purl.org/dc/elements/1.1/": {
@@ -1260,8 +1238,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 }
 
 // xmpValueKind constrains the plain-text value of an XMP property beyond its
-// container shape (6.7.2): e.g. a Date-typed property must hold an ISO 8601
-// date, not arbitrary text.
+// container shape (6.7.2), e.g. a Date-typed property must hold an ISO 8601 date.
 type xmpValueKind uint8
 
 const (
@@ -1277,9 +1254,8 @@ type xmpValueRule struct {
 	choices []string
 }
 
-// xmpValueRules maps namespace URI → property name → value-type constraint,
-// for the subset of XMP 2004 properties whose container shape alone (handled
-// by xmpNSSchemas) does not capture their full value-type requirement.
+// xmpValueRules maps namespace URI to property name to value-type constraint,
+// for properties whose container shape alone (xmpNSSchemas) is insufficient.
 var xmpValueRules = map[string]map[string]xmpValueRule{
 	"http://purl.org/dc/elements/1.1/": {
 		"date": {kind: xmpVTDate},
@@ -1304,11 +1280,8 @@ var xmpValueRules = map[string]map[string]xmpValueRule{
 	},
 }
 
-// xmpLangAltProps marks the XMP 2004 properties whose Alt container is
-// specifically a "Language Alternative" (LangAlt): every rdf:li item must
-// carry an xml:lang qualifier. Plain Alt properties (e.g. xmp:Thumbnails,
-// an alternative set of images rather than language variants) are not
-// listed here and are exempt from this requirement.
+// xmpLangAltProps marks properties whose Alt container is a LangAlt, where
+// every rdf:li item must carry an xml:lang qualifier (plain Alt is exempt).
 var xmpLangAltProps = map[string]map[string]bool{
 	"http://purl.org/dc/elements/1.1/": {
 		"description": true, "rights": true, "title": true,
@@ -1324,9 +1297,8 @@ var xmpLangAltProps = map[string]map[string]bool{
 	},
 }
 
-// xmpDateRe matches a valid XMP/ISO 8601 date value: a year, optionally
-// extended with month, day, and time-of-day, where the time-of-day's
-// timezone designator is either "Z" or a single "±hh:mm" offset (not both).
+// xmpDateRe matches a valid XMP/ISO 8601 date: a year optionally extended
+// with month, day, and time, with timezone "Z" or a single "±hh:mm" offset.
 var xmpDateRe = regexp.MustCompile(
 	`^\d{4}(-\d{2}(-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?)?)?$`)
 
@@ -1393,16 +1365,14 @@ func checkXMPPropertySchemas(data []byte) []PDFError {
 }
 
 // xmpPropItem is one rdf:li item of a Bag/Seq/Alt container property: its
-// plain-text value, and whether it carried an xml:lang qualifier (relevant
-// for LangAlt properties, 6.7.2).
+// text value and whether it carried an xml:lang qualifier (LangAlt, 6.7.2).
 type xmpPropItem struct {
 	text    string
 	hasLang bool
 }
 
-// xmpConsumeProperty reads the content of a property element and returns the
-// container kind, plain-text value (if scalar), and the list of rdf:li items
-// (if a Bag/Seq/Alt container). It consumes all child tokens.
+// xmpConsumeProperty consumes a property element's content and returns its
+// container kind, plain-text value (if scalar), and rdf:li items (if a container).
 func xmpConsumeProperty(dec *xml.Decoder, elem xml.StartElement) (kind xmpContainerKind, scalarText string, items []xmpPropItem) {
 	for _, a := range elem.Attr {
 		if a.Name.Space == nsRDF {
@@ -1487,16 +1457,14 @@ func xmpSkipElem(dec *xml.Decoder) {
 }
 
 // xmpValidateProp validates a single XMP property usage against the schema.
-// items is the list of rdf:li entries when actual is a Bag/Seq/Alt container
-// (nil for a scalar attribute or element).
+// items holds the rdf:li entries when actual is a Bag/Seq/Alt container.
 func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value string, items []xmpPropItem) []PDFError {
 	schema := xmpNSSchemas[nsURI]
 	if schema == nil {
 		return nil
 	}
-	// The pdfaid namespace is part of the PDF/A identification requirements
-	// (6.7.11), not the general XMP 2004 schema check (6.7.2): a malformed
-	// pdfaid property is reported under the more specific clause.
+	// pdfaid falls under the PDF/A identification clause (6.7.11), not the
+	// general XMP 2004 schema check (6.7.2).
 	clause, sub := "6.7.2", 2
 	if nsURI == pdfaIDNamespace {
 		clause, sub = "6.7.11", 5

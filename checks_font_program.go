@@ -61,11 +61,9 @@ func ttGlyphInRange(tables map[string][]byte) func(gid int) bool {
 	}
 }
 
-// ttGlyphPresent returns a function that reports whether a glyph ID is
-// "present" in the font for coverage purposes (6.3.5). A glyph is present if:
-//   - it has non-empty outline data (loca entries differ), OR
-//   - it exists in the valid range AND has zero advance width in hmtx
-//     (pure whitespace like space — valid to have no outline).
+// ttGlyphPresent returns a function reporting whether a glyph ID counts as
+// present for coverage purposes (6.3.5): non-empty outline, or in-range with
+// zero advance width (whitespace glyphs are exempt from needing outline data).
 func ttGlyphPresent(tables map[string][]byte) func(gid int) bool {
 	hasData := ttLocaHasGlyph(tables)
 	inRange := ttGlyphInRange(tables)
@@ -73,9 +71,6 @@ func ttGlyphPresent(tables map[string][]byte) func(gid int) bool {
 		if hasData(gid) {
 			return true
 		}
-		// Glyph has no outline — acceptable only if it has zero advance width
-		// (whitespace glyph). This avoids flagging space while still catching
-		// subset fonts that omit outline data for non-whitespace glyphs.
 		if !inRange(gid) {
 			return false
 		}
@@ -270,9 +265,8 @@ func init() {
 	}
 }
 
-// validateType1SubsetCoverage verifies that every character code with a non-zero
-// width in the Widths array maps to a glyph name that is present in the font's
-// CharSet (6.3.5). Handles WinAnsiEncoding by name and custom encoding dicts.
+// validateType1SubsetCoverage verifies that every used character code maps to
+// a glyph name present in the font's CharSet (6.3.5).
 func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstChar, lastChar int, widths PDFArray, ctx *ValidationContext) {
 	charSetVal, ok := desc.Entries["CharSet"]
 	if !ok {
@@ -286,7 +280,6 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 		return
 	}
 
-	// 6.3.5: an empty CharSet is a violation — a subset must list the glyphs it contains.
 	if charSetStr == "" {
 		ctx.ReportError(obj, "6.3.5", 2, "Type 1 subset font descriptor has an empty CharSet")
 		return
@@ -307,11 +300,10 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 		case "WinAnsiEncoding":
 			glyphNames = winAnsiGlyphName
 		default:
-			return // unsupported named encoding
+			return
 		}
 	case PDFDict:
-		// Custom encoding: start from base (StandardEncoding or as named by BaseEncoding)
-		// then apply Differences.
+		// Custom encoding: start from BaseEncoding, then apply Differences.
 		base, _ := enc.Entries["BaseEncoding"].(PDFName)
 		switch base.Value {
 		case "WinAnsiEncoding":
@@ -351,12 +343,9 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 		return true
 	}
 
-	// CharSet must list every glyph actually "used for rendering" — check
-	// codes actually shown in content streams regardless of their Widths
-	// entry (a missing glyph is sometimes given width 0 as a placeholder,
-	// which would otherwise hide the violation). Fall back to checking every
-	// non-zero-width code in the declared range when usage info could not be
-	// collected for this font.
+	// Prefer codes actually shown in content streams (a missing glyph is
+	// sometimes given width 0 as a placeholder, hiding the violation);
+	// fall back to non-zero-width codes if usage info is unavailable.
 	if usedCodes, knownUsage := ctx.usedCodesFor(v); knownUsage {
 		for cc := range usedCodes {
 			if !checkCode(cc) {
@@ -450,8 +439,7 @@ func parseCIDWidths(w PDFArray) [][2]int {
 }
 
 // cffTopDict holds the Top DICT operands relevant to CID-keyed subset
-// validation (6.3.5): the CharStrings INDEX location, whether the font is
-// CID-keyed (has a ROS operator), and the Charset table offset.
+// validation (6.3.5).
 type cffTopDict struct {
 	csOffset      int // CharStrings INDEX offset, -1 if not found
 	charsetOffset int // Charset table offset, -1 if not found / predefined
@@ -459,7 +447,7 @@ type cffTopDict struct {
 }
 
 // parseCFFTopDict parses a CFF binary stream's Top DICT and returns the
-// operands needed to validate CID coverage. ok is false on parse failure.
+// operands needed to validate CID coverage.
 func parseCFFTopDict(cff []byte) (td cffTopDict, ok bool) {
 	td.csOffset = -1
 	td.charsetOffset = -1
@@ -600,10 +588,8 @@ func parseCFFCharStringsCount(cff []byte) int {
 }
 
 // parseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
-// here instead of SIDs) and returns the CID for each glyph ID. GID 0 is
-// always .notdef (CID 0). Returns nil if the charset is one of the three
-// predefined tables (offsets 0, 1, 2) or otherwise unparsable — predefined
-// charsets are not used by CID-keyed fonts in practice.
+// here instead of SIDs) and returns the CID for each glyph ID. Returns nil
+// for predefined charsets (offsets 0-2) or on parse failure.
 func parseCFFCharsetCIDs(cff []byte, charsetOffset, numGlyphs int) []int {
 	if charsetOffset <= 2 || charsetOffset >= len(cff) || numGlyphs <= 0 {
 		return nil
@@ -685,10 +671,8 @@ func parseCFFCharStringLengths(cff []byte, csOffset int) []int {
 }
 
 // validateCIDCFFSubset checks that all CIDs referenced in the W array are
-// defined in the embedded CFF program (CharStrings count ≥ max CID + 1) (6.3.5).
-// A CID that is declared in W only to specify a width, and never actually
-// shown by a text-showing operator, is exempt — checked via ctx.usedCIDsFor
-// when usage info is available (Identity-H/V encoding).
+// defined in the embedded CFF program (6.3.5). CIDs only used to declare a
+// width, never shown, are exempt when usage info is available.
 func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -706,10 +690,8 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 		used, knownUsage = ctx.usedCIDsFor(desc)
 	}
 
-	// CID-keyed CFFs (ROS present) remap glyph IDs to CIDs via the Charset
-	// table — GID index and CID are not the same number, so a referenced CID
-	// is valid as long as some glyph in the subset maps to it. Non-CID-keyed
-	// CFFs (Identity ordering) use the GID directly as the CID.
+	// CID-keyed CFFs remap glyph IDs to CIDs via the Charset table (GID and
+	// CID differ); non-CID-keyed CFFs use the GID directly as the CID.
 	if td.isCIDKeyed {
 		cids := parseCFFCharsetCIDs(data, td.charsetOffset, csCount)
 		if cids == nil {
@@ -719,10 +701,8 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 		for gid, c := range cids {
 			gidOfCID[c] = gid
 		}
-		// A glyph mapped by the charset can still be functionally undefined if
-		// its CharString is a bare/near-empty stub (no drawing operators) —
-		// e.g. a single-byte "endchar" with no preceding hsbw/width. Treat
-		// such stubs as not present, the same way a missing charset entry is.
+		// A bare/near-empty CharString (e.g. a single "endchar" byte, no
+		// hsbw/width) is functionally undefined despite the charset entry.
 		lens := parseCFFCharStringLengths(data, td.csOffset)
 		for _, pair := range parseCIDWidths(w) {
 			cid := pair[0]
@@ -753,9 +733,8 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 }
 
 // validateCIDSetBitmap checks that the FontDescriptor's CIDSet bitmap marks
-// every CID that actually has a glyph in the embedded CID-keyed CFF program
-// (6.3.5/3). Each byte covers 8 CIDs, most-significant bit first: bit j of
-// byte i corresponds to CID i*8+j.
+// every CID that has a glyph in the embedded CID-keyed CFF program (6.3.5/3).
+// Each byte covers 8 CIDs, MSB first: bit j of byte i is CID i*8+j.
 func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries["CIDSet"].(PDFDict)
 	if !ok || !cidSet.HasStream {
@@ -789,11 +768,8 @@ func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *Validatio
 }
 
 // validateCIDTrueTypeSubset checks that all CIDs referenced in the W array
-// are present in the embedded TrueType program (6.3.5). A glyph with an empty
-// outline but zero advance width (e.g. space) is still considered present. A
-// CID that is declared in W only to specify a width, and never actually
-// shown by a text-showing operator, is exempt — checked via ctx.usedCIDsFor
-// when usage info is available (Identity-H/V encoding).
+// are present in the embedded TrueType program (6.3.5). Width-only CIDs that
+// are never shown are exempt when usage info is available.
 func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -858,8 +834,6 @@ func abs(x int) int {
 
 // validateSimpleTrueTypeSubset checks that all referenced character codes have
 // a corresponding glyph in the embedded TrueType program (6.3.5).
-// For fonts without a cmap (common in subsets), uses a heuristic: the number
-// of non-empty glyphs must be at least the number of referenced character codes.
 func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar int, widths PDFArray, ctx *ValidationContext) {
 	data, err := decodeStream(ff)
 	if err != nil {
@@ -883,7 +857,6 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 		return
 	}
 
-	// Try cmap-based lookup first.
 	cmapSub := ttWindowsBMPCmap(tables)
 	if cmapSub == nil {
 		return
@@ -900,10 +873,8 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 			return true
 		}
 		gid, exists := gidMap[unicode]
-		// A glyph is present in the subset if it maps to a non-.notdef GID
-		// within the font's valid range. GID 0 is .notdef, which means the
-		// character was not included in the subset. Outline data may be absent
-		// for whitespace glyphs (e.g. space) — that is still conformant.
+		// GID 0 is .notdef (character not in subset); absent outline data
+		// for whitespace glyphs is still conformant.
 		if !exists || gid == 0 || (numGlyphs > 0 && int(gid) >= numGlyphs) {
 			ctx.ReportError(obj, "6.3.5", 1,
 				fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, unicode))
@@ -912,11 +883,8 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 		return true
 	}
 
-	// CharSet coverage only needs to hold for codes actually "used for
-	// rendering" — check codes actually shown in content streams regardless
-	// of their Widths entry (a missing glyph is sometimes given width 0 as a
-	// placeholder). Fall back to checking every non-zero-width code in the
-	// declared range when usage info could not be collected for this font.
+	// Prefer codes actually shown in content streams; fall back to
+	// non-zero-width codes if usage info is unavailable.
 	if fontDict, ok := obj.(PDFDict); ok {
 		if usedCodes, knownUsage := ctx.usedCodesFor(fontDict); knownUsage {
 			for cc := range usedCodes {
@@ -1242,13 +1210,10 @@ func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, wid
 		return
 	}
 
-	// Determine the character-code → glyph-name mapping.
-	// Prefer the encoding declared in the PDF font dict; fall back to the
-	// font's own /Encoding declaration in the clear-text section.
+	// Prefer the PDF-declared encoding; fall back to the font's own
+	// /Encoding declaration in the clear-text section before "eexec".
 	encName := pdfEncoding
 	if encName == "" {
-		// Parse the text portion of the Type1 program for /Encoding <name> def.
-		// The text portion is everything before the eexec keyword.
 		eexecIdx := bytes.Index(fontData, []byte("eexec"))
 		textPart := fontData
 		if eexecIdx > 0 {
@@ -1268,8 +1233,7 @@ func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, wid
 		return
 	}
 
-	// Locate the boundary between the ASCII and binary sections by finding
-	// the "eexec" keyword; the binary data starts on the next byte.
+	// Binary data starts after "eexec" and its trailing whitespace.
 	eexecIdx := bytes.Index(fontData, []byte("eexec"))
 	if eexecIdx < 0 {
 		return

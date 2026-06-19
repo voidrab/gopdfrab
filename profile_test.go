@@ -199,7 +199,7 @@ func TestProfile_AllowsCatalogPairs(t *testing.T) {
 
 const header61dir = isartorDir + "/6.1 File structure/6.1.2 File header"
 
-// header62checks is the group of all four 6.1.2 checks used in behavioural tests.
+// header61checks returns the four 6.1.2 file-header checks.
 func header61checks() []Check {
 	s := Checks.Structure
 	return []Check{
@@ -215,7 +215,6 @@ func findFirstIsartor612File(t *testing.T) string {
 	if _, err := os.Stat(isartorDir); os.IsNotExist(err) {
 		t.Skip("Isartor test suite not present")
 	}
-	// Walk the 6.1.2 subdirectory for any fail file.
 	var found string
 	_ = filepath.WalkDir(header61dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || found != "" {

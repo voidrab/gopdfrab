@@ -6,67 +6,38 @@ import (
 	"strconv"
 )
 
-// Profile is a mutable set of enabled PDF/A checks associated with a
-// conformance level. It determines which rules are enforced when
-// VerifyProfile is called.
-//
-// Mutators (Clear, AddCheck, RemoveCheck) return a new *Profile, leaving the
-// receiver unchanged:
-//
-//	// Start from the full profile and remove checks:
-//	p := gopdfrab.PDFA_1B.RemoveCheck(
-//	    gopdfrab.Checks.Structure.FileHeaderSignature,
-//	    gopdfrab.Checks.Font.SimpleNotEmbedded,
-//	)
-//
-//	// Start from an empty profile and add checks:
-//	p := gopdfrab.PDFA_1B.Clear().
-//	    AddCheck(gopdfrab.Checks.Transparency.ImageWithSoftMask)
+// Profile is a mutable set of enabled PDF/A checks for a conformance level,
+// used by VerifyProfile. Mutators (Clear, AddCheck, RemoveCheck) return a new
+// *Profile, leaving the receiver unchanged.
 type Profile struct {
 	Level   LevelType
 	enabled map[int]bool // set of enabled check IDs
 
 	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
-	// that are never invoked via Do from any reachable content stream. The ISO
-	// 19005-1 spec applies rules to "every Form XObject in the file" (e.g.
-	// 6.2.3.3, 6.2.10), so the default (false) checks all of them — which is
-	// what the strict Legacy_1B/Isartor interpretation expects. veraPDF's
-	// corpus takes the lenient interpretation (unreachable objects are out of
-	// scope), so the default PDFA_1B profile sets this to true.
+	// never invoked via Do from a reachable content stream. ISO 19005-1
+	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy_1B keeps this
+	// false; PDFA_1B sets it true to match veraPDF's lenient interpretation.
 	SkipUnreachableXObjects bool
 }
 
-// PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's (the
-// modern reference implementation's) interpretation of the spec. This is
-// what Verify(A_1B) uses.
+// PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
+// interpretation of the spec. Used by Verify(A_1B).
 var PDFA_1B *Profile
 
-// Legacy_1B is the strict, fully spec-literal PDF/A-1b profile: every
-// catalogued check enabled, and every Form XObject checked regardless of
-// whether it is reachable via Do from a content stream. This matches the
-// Isartor test suite's interpretation of ISO 19005-1, which in a few places
-// is stricter than veraPDF's. Use VerifyProfile(Legacy_1B) to validate
-// against this interpretation instead of the default.
+// Legacy_1B is the strict, fully spec-literal PDF/A-1b profile: every check
+// enabled, every Form XObject checked regardless of reachability. Matches the
+// Isartor suite's interpretation, which is stricter than veraPDF's in places.
 var Legacy_1B *Profile
 
 func init() {
 	Legacy_1B = newFullProfile(A_1B)
 
-	// PDFA_1B starts from the full profile then adjusts for the small set of
-	// genuine divergences between veraPDF's interpretation and the stricter
-	// legacy/Isartor one:
-	//   • SkipUnreachableXObjects: veraPDF treats unreachable Form XObjects as
-	//     out-of-scope (6.2.3.3, 6.2.10); the legacy interpretation checks all
-	//     Form XObjects per a literal reading of the spec.
-	//   • 6.2.7 (FormPostScript, PostScriptXObject): the veraPDF corpus has no
-	//     6.2.7 fail files, and its 6-2-5-t03-pass-a.pdf intentionally includes
-	//     PostScript XObjects as part of the Form XObject test structure, so
-	//     those checks are disabled here to avoid false positives without
-	//     affecting fail-file coverage.
-	//   • 6.3.4/1 (SimpleNotEmbedded): standard Type1 fonts (Helvetica,
-	//     ZapfDingbats, …) referenced only in AcroForm DR / widget DA strings
-	//     are never "used for rendering" when the widget has a proper AP
-	//     stream. veraPDF does not flag them.
+	// PDFA_1B adjusts the full profile for veraPDF's divergences from the
+	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
+	// out-of-scope (6.2.3.3, 6.2.10); 6.2.7 PostScript XObject checks are
+	// disabled (veraPDF's own corpus intentionally includes one in a pass
+	// file); and standard Type1 fonts referenced only in AcroForm DR/widget DA
+	// strings aren't flagged as unembedded (6.3.4/1).
 	PDFA_1B = newFullProfile(A_1B)
 	PDFA_1B.SkipUnreachableXObjects = true
 	PDFA_1B = PDFA_1B.RemoveCheck(

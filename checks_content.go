@@ -79,9 +79,7 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 	colourSet := false
 	qDepth := 0
 	cs.scan(func(op string, operands []PDFValue) {
-		// 6.1.12: integer operands are limited to 2^31 - 1.
-		// 6.1.12: real number operands must have magnitude ≤ 32767.
-		// 6.1.12: string operands must not exceed 65535 bytes.
+		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			if n, ok := operand.(PDFInteger); ok && (n > 2147483647 || n < -2147483648) {
 				ctx.ReportError(obj, "6.1.12", 2, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
@@ -92,8 +90,7 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 			if s, ok := operand.(PDFString); ok && pdfStringDecodedLen(s.Value) > 65535 {
 				ctx.ReportError(obj, "6.1.12", 6, "string in content stream exceeds maximum length of 65535 bytes")
 			}
-			// 6.1.6: hex string operands must contain only hex digits and an
-			// even count of them.
+			// 6.1.6: hex string operands must be valid hex digits, even count.
 			if hs, ok := operand.(PDFHexString); ok {
 				validateHexString(hs, ctx)
 			}
@@ -153,10 +150,8 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 	})
 }
 
-// reportContentColour flags use of a device colour model not covered by an
-// output intent (6.2.3.3). resources is the current content stream's resource
-// dict; Default* colour space overrides defined there (or in the page resources)
-// make the device colour space conformant.
+// reportContentColour flags a device colour model not covered by an output
+// intent (6.2.3.3), unless a Default* colour space override applies.
 func reportContentColour(obj PDFValue, model string, resources PDFDict, ctx *ValidationContext) {
 	if ctx.deviceColourAllowed(model) {
 		return

@@ -145,25 +145,14 @@ func (d *Document) verifyPdfA1b(p *Profile) []PDFError {
 		issues = append(issues, errs...)
 	}
 
-	// 6.1.8 requires correct object framing for every indirect object in the
-	// file, not just the ones reachable from the document root while walking
-	// the graph above — force-resolve any object the graph walk never
-	// visited so its framing still gets checked.
 	d.verifyAllObjectFraming()
 
-	// Object-framing violations (6.1.8) collected lazily during resolution.
 	if len(d.structErrs) > 0 {
 		issues = append(issues, d.structErrs...)
 	}
 	return issues
 }
 
-// verifyAllObjectFraming force-resolves every object number listed in the
-// cross-reference table, including ones never reached from the document
-// root (e.g. an object orphaned in the xref but never linked into the page
-// tree or any other structure). recordFraming (document.go:58) dedups per
-// object number, so objects already visited during graph resolution are not
-// double-reported.
 func (d *Document) verifyAllObjectFraming() {
 	for objNum := range d.xrefTable {
 		d.resolveReference(PDFRef{ObjNum: objNum})
@@ -216,10 +205,8 @@ func (d *Document) verifyFileHeader() []PDFError {
 			page:      1,
 		})
 	} else {
-		// 6.1.2/4: the first four bytes following the % shall each have a
-		// value greater than 127 (binary file indicator). Bytes beyond the
-		// first four are unconstrained — e.g. a human-readable suffix is
-		// permitted after the required binary run.
+		// 6.1.2/4: each of the first four bytes after % must be > 127 (binary
+		// indicator); bytes beyond that are unconstrained.
 		var badBytes []error
 		for _, b := range commentBytes[:4] {
 			if b <= 127 {
@@ -251,7 +238,6 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	// trailer (no /Root), this is the first-page trailer that holds /ID, /Root, etc.
 	eff := d.effectiveTrailer()
 
-	// The file trailer dictionary shall contain the ID keyword.
 	if eff.Entries["ID"] == nil {
 		err := PDFError{
 			clause:    "6.1.3",
@@ -262,7 +248,6 @@ func (d *Document) verifyFileTrailer() []PDFError {
 		errs = append(errs, err)
 	}
 
-	// The keyword Encrypt shall not be used in the trailer dictionary.
 	if eff.Entries["Encrypt"] != nil {
 		err := PDFError{
 			clause:    "6.1.3",
@@ -304,16 +289,13 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	return nil
 }
 
-// verifyCrossReferenceTable verifies requirements outlined in 6.1.4
-// It checks both the most recent xref section and all previous sections
-// linked via the Prev pointer in the trailer dictionary.
+// verifyCrossReferenceTable verifies requirements outlined in 6.1.4 for the
+// current xref section and all prior sections linked via Prev.
 func (d *Document) verifyCrossReferenceTable() []PDFError {
-	// Check the most-recent xref section first.
 	if errs := d.checkXRefSectionFormat(d.xrefOffset); len(errs) > 0 {
 		return errs
 	}
 
-	// Walk the Prev chain to check older xref sections (incremental updates).
 	visited := map[int64]bool{d.xrefOffset: true}
 	prev := d.trailer.Entries["Prev"]
 	for {
@@ -331,7 +313,6 @@ func (d *Document) verifyCrossReferenceTable() []PDFError {
 			return errs
 		}
 
-		// Read the trailer of this older section to follow the next Prev link.
 		prevTrailer, err := d.parseXRefSectionAt(prevOffset+d.pdfStart, false)
 		if err != nil {
 			break
@@ -370,9 +351,8 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 		}
 		if line == "" {
 			if firstHeader {
-				// The xref keyword and the first subsection header shall be
-				// separated by a single EOL marker; an extra blank line here
-				// means no header directly follows 'xref'.
+				// 6.1.4: an extra blank line here means no header directly
+				// follows the xref keyword.
 				return []PDFError{{
 					clause:    "6.1.4",
 					subclause: 2,
@@ -395,7 +375,6 @@ func (d *Document) checkXRefSectionFormat(offset int64) []PDFError {
 			firstHeader = false
 		}
 
-		// Parse the entry count and skip that many entry lines.
 		var start, count int
 		fmt.Sscanf(line, "%d %d", &start, &count)
 		for i := 0; i < count; i++ {
@@ -446,12 +425,8 @@ func (d *Document) verifyDocumentInformationDictionary() []PDFError {
 
 	errs := []PDFError{}
 
-	// 6.1.5: validate value types for the standard info dict entries.
-	// Custom keys are permitted; only entries present in Table 10.2 of
-	// PDF Reference 4th ed. are type-checked (all must be text strings or
-	// dates, except Trapped which is a name). A standard entry whose value
-	// is neither a string nor a hex string (e.g. a direct or indirect
-	// reference to a stream/dict/array) is itself a 6.1.5 violation.
+	// 6.1.5: standard entries (Table 10.2, PDF Reference 4th ed.) must be
+	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
 	if infoVal, err := d.ResolveGraphByPath([]string{"Info"}); err == nil {
 		if infoDict, ok := infoVal.(PDFDict); ok {
 			var typeErrs []error
@@ -540,10 +515,8 @@ func (d *Document) verifyDocument(graph PDFValue, ctx *ValidationContext) {
 			validateCMapStream(v, ctx)
 
 			for k, val := range v.Entries {
-				// 6.1.12: a name object (used as a dictionary key) shall not exceed
-				// 127 characters. "Characters" means bytes after decoding PDF
-				// name-escape sequences (#XX). The raw (escaped) byte count may
-				// be larger; we count the decoded length.
+				// 6.1.12: a dictionary key shall not exceed 127 bytes after
+				// decoding PDF name-escape sequences (#XX).
 				if k != "_ref" && len(k) > 127 {
 					decoded := decodePDFName(k)
 					if len(decoded) > 127 {
@@ -587,10 +560,8 @@ func pdfValuePointer(v PDFValue) uintptr {
 	return reflect.ValueOf(v).Pointer()
 }
 
-// computeReachableXObjects returns the set of Entries-map pointers for
-// Form XObjects that are actually invoked (via the Do operator) from page
-// content streams or from other reachable Form XObjects.  Unreferenced Form
-// XObjects present in a Resources dictionary are excluded.
+// computeReachableXObjects returns Entries-map pointers for Form XObjects
+// invoked (via Do) from page content or other reachable Form XObjects.
 func computeReachableXObjects(graph PDFValue) map[uintptr]bool {
 	reachable := map[uintptr]bool{}
 	visitedPtrs := map[uintptr]bool{}
@@ -676,11 +647,8 @@ func collectReachableFromBytes(data []byte, resources PDFDict, reachable map[uin
 	})
 }
 
-// fontUsage accumulates how fonts are actually used across a document's
-// content streams: which are ever shown under a visible vs. invisible-only
-// rendering mode, which single-byte character codes are actually shown for
-// simple (non-composite) fonts, and which CIDs are actually shown for
-// Identity-H/V composite fonts.
+// fontUsage tracks visible vs. invisible-only rendering per font, plus the
+// character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
 type fontUsage struct {
 	visible     map[uintptr]bool
 	invisible   map[uintptr]bool
@@ -689,23 +657,9 @@ type fontUsage struct {
 	visitedXObj map[uintptr]bool
 }
 
-// computeFontUsage walks every page's content (and any Form XObjects it
-// invokes) and returns:
-//   - invisibleOnly: font dictionary Entries-map pointers that are used for
-//     text showing exclusively under rendering mode 3 or 7 (invisible), and
-//     never under any other mode. Such fonts are never actually rendered, so
-//     the 6.3.3.2 CIDToGIDMap requirement and the 6.3.5/6.3.6 glyph-coverage
-//     and metric-consistency checks do not apply to them.
-//   - usedCodes: for each font, the set of single-byte character codes
-//     actually passed to a text-showing operator. A subset font's CharSet
-//     only needs to list glyphs "used for rendering" — codes with a non-zero
-//     Widths entry that are never actually shown are not required to be
-//     present, so 6.3.5 coverage checks should consult this set rather than
-//     the full Widths range when usage info is available for a font.
-//   - usedCIDs: the composite-font analogue of usedCodes — for each
-//     Identity-H/V CIDFont, the set of CIDs actually shown. A CID listed only
-//     in the W width array but never shown need not have a glyph in the
-//     embedded font program.
+// computeFontUsage walks every page's content (and invoked Form XObjects) to
+// find fonts shown only under invisible rendering modes (3/7), and the
+// character codes / CIDs actually shown per font, for use in 6.3.x coverage checks.
 func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes, usedCIDs map[uintptr]map[int]bool) {
 	fu := &fontUsage{
 		visible:     map[uintptr]bool{},
@@ -776,10 +730,8 @@ func collectFontUsageFromContent(contents PDFValue, resources PDFDict, fu *fontU
 }
 
 // collectFontUsageFromBytes scans decoded content-stream bytes, tracking the
-// current text rendering mode (Tr, saved/restored across q/Q) and the font
-// selected by the most recent Tf, and records each font as visible or
-// invisible-only — and the character codes it actually shows — whenever a
-// text-showing operator paints with it.
+// rendering mode (Tr, saved/restored across q/Q) and the font set by the most
+// recent Tf, and records visibility and shown codes per font.
 func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 	fonts, _ := resources.Entries["Font"].(PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(PDFDict)
@@ -814,18 +766,13 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 				if name, ok := operands[len(operands)-2].(PDFName); ok {
 					if fd, ok := fonts.Entries[name.Value].(PDFDict); ok {
 						currentFontPtrs = append(currentFontPtrs, pdfValuePointer(fd.Entries))
-						// Composite (Type0) fonts are selected by Tf, but the
 						// 6.3.3.2/6.3.5/6.3.6 checks run on the descendant
-						// CIDFont dict — track that pointer too.
+						// CIDFont dict, not the Type0 font selected by Tf.
 						if df, ok := fd.Entries["DescendantFonts"].(PDFArray); ok && len(df) > 0 {
 							if desc, ok := df[0].(PDFDict); ok {
 								currentFontPtrs = append(currentFontPtrs, pdfValuePointer(desc.Entries))
-								// Codes shown via Tj/TJ can only be decoded into
-								// CIDs here for the Identity-H/V encodings (a
-								// direct 2-byte-big-endian-code-equals-CID
-								// mapping); any other CMap leaves usage unknown
-								// for this font, so coverage checks fall back
-								// to checking every W entry.
+								// Only Identity-H/V map codes directly to CIDs;
+								// other CMaps leave usage unknown for the font.
 								if enc, ok := fd.Entries["Encoding"].(PDFName); ok &&
 									(enc.Value == "Identity-H" || enc.Value == "Identity-V") {
 									compositeFontPtr = pdfValuePointer(desc.Entries)
@@ -897,9 +844,8 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 	})
 }
 
-// shownStringBytes returns the raw decoded bytes of all string operands a
-// text-showing operator passes to the font (Tj/'/" take one string; TJ takes
-// an array of strings interleaved with numeric adjustments).
+// shownStringBytes returns the decoded bytes of all string operands a
+// text-showing operator passes to the font.
 func shownStringBytes(op string, operands []PDFValue) []byte {
 	var out []byte
 	appendOperand := func(v PDFValue) {
@@ -928,8 +874,7 @@ func shownStringBytes(op string, operands []PDFValue) []byte {
 }
 
 // decodePDFLiteralStringBytes decodes a PDF literal string's backslash escape
-// sequences (the lexer stores the raw, unescaped text) into the bytes it
-// actually represents.
+// sequences into the bytes it represents.
 func decodePDFLiteralStringBytes(s string) []byte {
 	out := make([]byte, 0, len(s))
 	for i := 0; i < len(s); {
@@ -1038,7 +983,7 @@ func hexVal(c byte) int {
 	return -1
 }
 
-// validateHexStrings validates requirements outlined in 6.1.6.
+// validateHexString validates requirements outlined in 6.1.6.
 func validateHexString(v PDFHexString, ctx *ValidationContext) {
 	hexCount := 0
 
@@ -1107,8 +1052,7 @@ func validateArchitecturalLimits(node PDFValue, ctx *ValidationContext) {
 			ctx.ReportError(v, "6.1.12", 1, fmt.Sprintf("maximum length of name (127) exceeded: %v", nameLen))
 		}
 	case PDFInteger:
-		// Largest integer value; equal to 231 − 1
-		// Smallest integer value; equal to −231
+		// 6.1.12: integer values are limited to the 32-bit signed range.
 		if v < -2_147_483_648 || v > 2_147_483_647 {
 			ctx.ReportError(v, "6.1.12", 2, fmt.Sprintf("integer value exceeded limits: %v", v))
 		}
@@ -1202,8 +1146,7 @@ func (d *Document) verifyOptionalContent() []PDFError {
 func (d *Document) verifyOutputIntent() []PDFError {
 	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
 	if err != nil || values == nil {
-		// OutputIntents are optional
-		//return []error{fmt.Errorf("failed to read OutputIntents: %v", err)}
+		// OutputIntents are optional.
 		return nil
 	}
 
@@ -1233,11 +1176,6 @@ func (d *Document) verifyOutputIntent() []PDFError {
 			errs = append(errs, err)
 			continue
 		}
-		// optional
-		// if intent["Type"] != "OutputIntent" {
-		// 	errs = append(errs, fmt.Errorf("expected Type was not OutputIntent, but %v", intent["Type"]))
-		// }
-
 		s, ok := intent.Entries["S"].(PDFName)
 		if !ok {
 			err := PDFError{
@@ -1420,18 +1358,12 @@ func (d *Document) verifyGeneralColourSpaces() []PDFError {
 // trailerIDRe finds the first hex string in any /ID array in the file.
 var trailerIDRe = regexp.MustCompile(`/ID\s*\[<([0-9A-Fa-f]+)>`)
 
-// checkLinearizedFileID detects the 6.1.3 violation where a linearized PDF has
-// different ID[0] values in its first-page and overflow trailers
-// (ISO 19005-1:2005 §6.1.3). The check only applies when the main (overflow)
-// trailer is minimal (lacks /Root), which is the characteristic of a linearized
-// overflow section whose peer first-page trailer must have a matching /ID.
-// When the main trailer is complete (has /Root), cross-trailer ID consistency is
-// not enforced (per veraPDF's lenient interpretation for incremental updates).
+// checkLinearizedFileID detects the 6.1.3 violation where a linearized PDF's
+// first-page and overflow trailers carry different ID[0] values. Applies only
+// when the main trailer is minimal (lacks /Root), the mark of a linearized overflow section.
 func (d *Document) checkLinearizedFileID() []PDFError {
-	// Skip when the main trailer is complete: a full main trailer with /Root
-	// indicates either an ordinary PDF or an incrementally-updated PDF where
-	// the current revision's ID is in d.trailer and consistency with older
-	// revisions is not required.
+	// A main trailer with /Root is either an ordinary PDF or an
+	// incrementally-updated one; cross-trailer ID consistency does not apply.
 	if d.trailer.Entries["Root"] != nil {
 		return nil
 	}

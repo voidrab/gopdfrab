@@ -14,7 +14,6 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		return
 	}
 	for _, it := range intents {
-		// Individual items may be indirect references; resolve to PDFDict.
 		itResolved, err := d.resolveObject(it)
 		if err != nil {
 			continue
@@ -28,7 +27,6 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		}
 		ctx.hasOutputIntent = true
 
-		// DestOutputProfile is typically an indirect object reference; resolve it.
 		destRef := intent.Entries["DestOutputProfile"]
 		if destRef == nil {
 			continue
@@ -93,10 +91,8 @@ func deviceColourModel(cs PDFValue) string {
 	return ""
 }
 
-// defaultColorSpaceDefined returns true if the named Default colour space
-// (DefaultRGB, DefaultGray, DefaultCMYK) is present in resources/ColorSpace,
-// which means any use of the corresponding device colour space is substituted
-// by the named calibrated space and therefore does NOT violate 6.2.3.3.
+// defaultColorSpaceDefined reports whether a Default* colour space is present in
+// resources/ColorSpace, substituting the device space and avoiding a 6.2.3.3 violation.
 func defaultColorSpaceDefined(model string, resources PDFDict) bool {
 	cs, ok := resources.Entries["ColorSpace"].(PDFDict)
 	if !ok {
@@ -131,14 +127,12 @@ func checkDeviceColour(obj PDFValue, cs PDFValue, ctx *ValidationContext, contex
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
 // shading colour spaces (6.2.3.3) and Separation/DeviceN alternate spaces (6.2.3.4).
 func validateColourSpaceUsage(v PDFDict, ctx *ValidationContext) {
-	// Image XObject colour space.
 	if (v.Entries["Subtype"] == PDFName{Value: "Image"}) {
 		if cs := v.Entries["ColorSpace"]; cs != nil {
 			checkDeviceColour(v, cs, ctx, "image")
 		}
 	}
 
-	// Shading colour space.
 	if v.Entries["ShadingType"] != nil {
 		if cs := v.Entries["ColorSpace"]; cs != nil {
 			checkDeviceColour(v, cs, ctx, "shading")
