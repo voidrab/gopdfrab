@@ -42,7 +42,7 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 		t.Errorf("Expected one error for invalid header, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.2" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.2" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -63,7 +63,7 @@ func TestDocument_VerifyPDFAHeader_NoComment(t *testing.T) {
 		t.Errorf("Expected one error for missing comment, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.2" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.2" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -83,7 +83,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 		t.Errorf("Expected one error for invalid comment length, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.2" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.1.2" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -105,7 +105,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 
 	// Only the first four bytes following '%' are required to be binary
 	// (bytes beyond that are unconstrained), so 4 errors are expected here.
-	if errs[0].clause != "6.1.2" || errs[0].subclause != 4 || len(errs[0].errs) != 4 {
+	if errs[0].check.clause != "6.1.2" || errs[0].check.subclause != 4 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -130,7 +130,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 		t.Errorf("Expected one error for missing ID key, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.3" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.3" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -155,7 +155,7 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 		t.Errorf("Expected one error for forbidden Encrypt key, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.3" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.3" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -179,7 +179,7 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 		t.Errorf("Expected one error for invalid EOF, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.3" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.1.3" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -201,7 +201,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXref(t *testing.T) {
 		t.Errorf("Expected one error for missing xref keyword, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.4" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.4" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -221,7 +221,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXrefHeader(t *testing.T) 
 		t.Errorf("Expected one error for missing xref header, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.4" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.4" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -241,7 +241,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 		t.Errorf("Expected one error for invalid EOL, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.4" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.1.4" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -268,7 +268,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 		t.Errorf("Expected one error for invalid metadata type, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.5" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.5" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -321,7 +321,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 		t.Errorf("Expected one error for empty metadata value, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.5" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.1.5" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -381,7 +381,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 || len(errs[0].errs) != 4 {
+	if errs[0].check.clause != "6.1.6" || errs[0].check.subclause != 1 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -414,7 +414,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 		t.Errorf("Expected one error for odd number of hex chars, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.6" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.6" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -450,7 +450,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 		t.Errorf("Expected one error for invalid key F, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.7" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.7" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -484,7 +484,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 		t.Errorf("Expected one error for invalid key FFilter, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.7" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.7" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -518,7 +518,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 		t.Errorf("Expected one error for invalid key FDecodeParms, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.7" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.1.7" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -554,7 +554,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 		t.Errorf("Expected one error for invalid Filter LZWDecode, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.10" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.10" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -589,7 +589,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 		t.Errorf("Expected one error for invalid key EF, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.11" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.11" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -622,7 +622,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 		t.Errorf("Expected one error for invalid key EF, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.11" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.11" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -657,7 +657,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 		t.Errorf("Expected one error for invalid name length, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.12" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.12" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -691,11 +691,11 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 		t.Errorf("Expected two errors for invalid integer value sizes, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.12" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.1.12" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 
-	if errs[1].clause != "6.1.12" || errs[1].subclause != 2 {
+	if errs[1].check.clause != "6.1.12" || errs[1].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[1])
 	}
 }
@@ -720,7 +720,7 @@ func TestDocument_VerifyPDFAOptionalContent_OCProperties(t *testing.T) {
 		t.Errorf("Expected one error for invalid OCProperties, got %v", errs)
 	}
 
-	if errs[0].clause != "6.1.13" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.1.13" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -782,7 +782,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntents(t *testing.T) {
 		t.Errorf("Expected one error for invalid OutputIntents type, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 1 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 1 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -810,7 +810,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntent(t *testing.T) {
 		t.Errorf("Expected one error for invalid OutputIntent type, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 2 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -839,7 +839,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidSType(t *testing.T) {
 		t.Errorf("Expected one error for invalid S type, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 3 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 3 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -873,7 +873,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 		t.Errorf("Expected one error for wrong S, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 4 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -904,7 +904,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongOutputConditionIdentifier(t *testi
 		t.Errorf("Expected one error for nil OutputConditionIentifier, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 5 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 5 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -950,7 +950,7 @@ func TestDocument_VerifyPDFAOutputIntent_DifferingDestOutputProfiles(t *testing.
 		t.Errorf("Expected one error for differing DestOutputProfiles, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 6 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 6 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -983,7 +983,7 @@ func TestDocument_VerifyPDFAOutputIntent_DestOutputProfileWrongFormat(t *testing
 		t.Errorf("Expected one error for wrong DestOutputProfile format, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 8 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 8 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -1018,7 +1018,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongNType(t *testing.T) {
 		t.Errorf("Expected one error for wrong N, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 9 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 9 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -1053,7 +1053,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 		t.Errorf("Expected one error for wrong N, got %v", errs)
 	}
 
-	if errs[0].clause != "6.2.2" || errs[0].subclause != 10 {
+	if errs[0].check.clause != "6.2.2" || errs[0].check.subclause != 10 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }

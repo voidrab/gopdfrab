@@ -38,7 +38,7 @@ func clauseMatches(got, expected string) bool {
 func issueClauses(issues []PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
-		out = append(out, iss.clause)
+		out = append(out, iss.check.clause)
 	}
 	return out
 }
@@ -94,7 +94,7 @@ func TestIsartorSuite(t *testing.T) {
 
 			caught++
 			for _, iss := range res.Issues {
-				if clauseMatches(iss.clause, expected) {
+				if clauseMatches(iss.check.clause, expected) {
 					correct++
 					return
 				}

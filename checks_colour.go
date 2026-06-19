@@ -120,8 +120,7 @@ func checkDeviceColour(obj PDFValue, cs PDFValue, ctx *ValidationContext, contex
 	if defaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
-	ctx.ReportError(obj, "6.2.3.3", 1,
-		fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
+	ctx.Report(Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
 }
 
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
@@ -155,7 +154,7 @@ func validateColourSpaceArray(arr PDFArray, ctx *ValidationContext) {
 	if head.Value == "DeviceN" {
 		// 6.1.12: DeviceN colour space shall not have more than 8 colorants.
 		if names, ok := arr[1].(PDFArray); ok && len(names) > 8 {
-			ctx.ReportError(arr, "6.1.12", 7, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
+			ctx.Report(Checks.Structure.DeviceNColorants, arr, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
 		}
 	}
 	alt := arr[2]
@@ -163,6 +162,5 @@ func validateColourSpaceArray(arr PDFArray, ctx *ValidationContext) {
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	ctx.ReportError(arr, "6.2.3.4", 1,
-		fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+	ctx.Report(Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
 }

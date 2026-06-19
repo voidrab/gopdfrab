@@ -12,7 +12,7 @@ import (
 func (d *Document) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	// 6.1.7: the 'stream' keyword shall be followed by CRLF or a single LF.
 	if d.consumeStreamEOL(l) {
-		d.recordStreamFraming(objNum, 4, "'stream' keyword not followed by a single EOL marker")
+		d.recordStreamFraming(objNum, Checks.Structure.StreamKeywordEOL, "'stream' keyword not followed by a single EOL marker")
 	}
 
 	lengthRef, ok := dict.Entries["Length"]
@@ -52,7 +52,7 @@ func (d *Document) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	// of "endstream") appears right after the declared-length region, that's a violation.
 	var peek [9]byte
 	if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
-		d.recordStreamFraming(objNum, 6, "stream Length value includes the EOL marker before endstream")
+		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL, "stream Length value includes the EOL marker before endstream")
 	}
 
 	// 6.1.7: the endstream keyword shall be preceded by an EOL marker.
@@ -111,6 +111,6 @@ func (d *Document) checkEndstreamFraming(objNum int, streamStart int64, length i
 	}
 	idx := start + rel
 	if idx == 0 || (window[idx-1] != '\n' && window[idx-1] != '\r') {
-		d.recordStreamFraming(objNum, 5, "endstream keyword not preceded by an EOL marker")
+		d.recordStreamFraming(objNum, Checks.Structure.EndstreamEOL, "endstream keyword not preceded by an EOL marker")
 	}
 }

@@ -47,10 +47,7 @@ func main() {
 			fmt.Printf("[PASS] %s\n", path)
 			pass++
 		} else {
-			fmt.Printf("[FAIL] %s\n", path)
-			for i, issue := range v.Issues {
-				fmt.Printf("       #%d: %s\n", i+1, issue)
-			}
+			fmt.Printf("[FAIL] %s: %s\n", path, v.Summary())
 			fail++
 		}
 	}

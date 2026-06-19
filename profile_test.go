@@ -275,7 +275,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	}
 	caught := false
 	for _, iss := range full.Issues {
-		if clauseMatches(iss.clause, "6.1.2") {
+		if clauseMatches(iss.check.clause, "6.1.2") {
 			caught = true
 			break
 		}
@@ -288,7 +288,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	p := PDFA_1B.RemoveCheck(header61checks()...)
 	res, _ := doc.VerifyProfile(p)
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.clause, "6.1.2") {
+		if clauseMatches(iss.check.clause, "6.1.2") {
 			t.Errorf("disabled 6.1.2 check still reported: %s", iss)
 		}
 	}
@@ -306,13 +306,13 @@ func TestVerifyProfile_ClearThenAddOnlyFiresEnabledCheck(t *testing.T) {
 	p := PDFA_1B.Clear().AddCheck(header61checks()...)
 	res, _ := doc.VerifyProfile(p)
 	for _, iss := range res.Issues {
-		if !clauseMatches(iss.clause, "6.1.2") {
-			t.Errorf("unexpected clause %q reported with only 6.1.2 checks enabled", iss.clause)
+		if !clauseMatches(iss.check.clause, "6.1.2") {
+			t.Errorf("unexpected clause %q reported with only 6.1.2 checks enabled", iss.check.clause)
 		}
 	}
 	caught := false
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.clause, "6.1.2") {
+		if clauseMatches(iss.check.clause, "6.1.2") {
 			caught = true
 			break
 		}

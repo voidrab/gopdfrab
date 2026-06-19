@@ -281,7 +281,7 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 	}
 
 	if charSetStr == "" {
-		ctx.ReportError(obj, "6.3.5", 2, "Type 1 subset font descriptor has an empty CharSet")
+		ctx.Report(Checks.Font.Type1SubsetCharSet, obj, "Type 1 subset font descriptor has an empty CharSet")
 		return
 	}
 
@@ -336,8 +336,7 @@ func validateType1SubsetCoverage(obj PDFValue, v PDFDict, desc PDFDict, firstCha
 			return true
 		}
 		if !charSet[glyph] {
-			ctx.ReportError(obj, "6.3.5", 1,
-				fmt.Sprintf("character code %d maps to glyph /%s which is not defined in the embedded font subset (CharSet)", cc, glyph))
+			ctx.Report(Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d maps to glyph /%s which is not defined in the embedded font subset (CharSet)", cc, glyph))
 			return false
 		}
 		return true
@@ -711,8 +710,7 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 			}
 			gid, ok := gidOfCID[cid]
 			if !ok || (lens != nil && gid < len(lens) && lens[gid] <= 1) {
-				ctx.ReportError(obj, "6.3.5", 1,
-					fmt.Sprintf("CID %d referenced in font W array is not defined in CFF charset", cid))
+				ctx.Report(Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array is not defined in CFF charset", cid))
 				return
 			}
 		}
@@ -725,8 +723,7 @@ func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationC
 			continue
 		}
 		if cid >= csCount {
-			ctx.ReportError(obj, "6.3.5", 1,
-				fmt.Sprintf("CID %d referenced in font W array is not defined in CFF CharStrings (count=%d)", cid, csCount))
+			ctx.Report(Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array is not defined in CFF CharStrings (count=%d)", cid, csCount))
 			return
 		}
 	}
@@ -760,8 +757,7 @@ func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *Validatio
 	for _, cid := range cids {
 		byteIdx, bitIdx := cid/8, 7-cid%8
 		if byteIdx >= len(bitmap) || bitmap[byteIdx]&(1<<bitIdx) == 0 {
-			ctx.ReportError(obj, "6.3.5", 3,
-				fmt.Sprintf("CIDSet does not list CID %d, which has a glyph in the embedded font program", cid))
+			ctx.Report(Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which has a glyph in the embedded font program", cid))
 			return
 		}
 	}
@@ -791,8 +787,7 @@ func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *Valida
 			continue
 		}
 		if !glyphPresent(cid) {
-			ctx.ReportError(obj, "6.3.5", 1,
-				fmt.Sprintf("CID %d referenced in font W array has no glyph in embedded program", cid))
+			ctx.Report(Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array has no glyph in embedded program", cid))
 			return
 		}
 	}
@@ -817,9 +812,8 @@ func validateCIDTrueTypeMetrics(obj PDFValue, ff PDFDict, w PDFArray, ctx *Valid
 		}
 		// Allow ±1 rounding tolerance.
 		if abs(fontWidth-pdfWidth) > 1 {
-			ctx.ReportError(obj, "6.3.6", 1,
-				fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
-					cid, pdfWidth, fontWidth))
+			ctx.Report(Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
+				cid, pdfWidth, fontWidth))
 			return
 		}
 	}
@@ -876,8 +870,7 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 		// GID 0 is .notdef (character not in subset); absent outline data
 		// for whitespace glyphs is still conformant.
 		if !exists || gid == 0 || (numGlyphs > 0 && int(gid) >= numGlyphs) {
-			ctx.ReportError(obj, "6.3.5", 1,
-				fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, unicode))
+			ctx.Report(Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, unicode))
 			return false
 		}
 		return true
@@ -959,9 +952,8 @@ func validateSimpleTrueTypeMetrics(obj PDFValue, ff PDFDict, firstChar, lastChar
 			continue
 		}
 		if abs(fontWidth-pdfWidth) > 1 {
-			ctx.ReportError(obj, "6.3.6", 1,
-				fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %d",
-					cc, pdfWidth, fontWidth))
+			ctx.Report(Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %d",
+				cc, pdfWidth, fontWidth))
 			return
 		}
 	}
@@ -1028,7 +1020,7 @@ func validateFontProgram(obj PDFValue, desc PDFDict, name string, ctx *Validatio
 			continue
 		}
 		if !fontProgramValid(ff, key) {
-			ctx.ReportError(obj, "6.3.2", 1, fmt.Sprintf("embedded font program for %s is damaged", name))
+			ctx.Report(Checks.Font.InvalidProgram, obj, fmt.Sprintf("embedded font program for %s is damaged", name))
 		}
 	}
 }
@@ -1274,9 +1266,8 @@ func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, wid
 			continue
 		}
 		if abs(pdfWidth-csWidth) > 1 {
-			ctx.ReportError(obj, "6.3.6", 1,
-				fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %d",
-					cc, glyph, pdfWidth, csWidth))
+			ctx.Report(Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %d",
+				cc, glyph, pdfWidth, csWidth))
 			return
 		}
 	}
@@ -1304,6 +1295,6 @@ func validateCMapWMode(obj PDFValue, cmap PDFDict, ctx *ValidationContext) {
 	}
 	streamWMode, _ := strconv.Atoi(string(m[1]))
 	if int(dictWMode) != streamWMode {
-		ctx.ReportError(obj, "6.3.3.3", 2, "WMode in CMap dictionary and stream are inconsistent")
+		ctx.Report(Checks.Font.CMapWModeInconsistent, obj, "WMode in CMap dictionary and stream are inconsistent")
 	}
 }
