@@ -14,7 +14,11 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		return
 	}
 	for _, it := range intents {
-		intent, ok := it.(PDFDict)
+		itResolved, err := d.resolveObject(it)
+		if err != nil {
+			continue
+		}
+		intent, ok := itResolved.(PDFDict)
 		if !ok {
 			continue
 		}
@@ -23,7 +27,15 @@ func (d *Document) computeColourCoverage(ctx *ValidationContext) {
 		}
 		ctx.hasOutputIntent = true
 
-		profile, ok := intent.Entries["DestOutputProfile"].(PDFDict)
+		destRef := intent.Entries["DestOutputProfile"]
+		if destRef == nil {
+			continue
+		}
+		profileObj, err := d.resolveObject(destRef)
+		if err != nil {
+			continue
+		}
+		profile, ok := profileObj.(PDFDict)
 		if !ok {
 			continue
 		}
@@ -79,11 +91,33 @@ func deviceColourModel(cs PDFValue) string {
 	return ""
 }
 
+// defaultColorSpaceDefined reports whether a Default* colour space is present in
+// resources/ColorSpace, substituting the device space and avoiding a 6.2.3.3 violation.
+func defaultColorSpaceDefined(model string, resources PDFDict) bool {
+	cs, ok := resources.Entries["ColorSpace"].(PDFDict)
+	if !ok {
+		return false
+	}
+	switch model {
+	case "rgb":
+		return cs.Entries["DefaultRGB"] != nil
+	case "cmyk":
+		return cs.Entries["DefaultCMYK"] != nil
+	case "gray":
+		return cs.Entries["DefaultGray"] != nil
+	}
+	return false
+}
+
 // checkDeviceColour reports a 6.2.3.3 violation if the colour space reduces to a
-// device colour model not covered by an output intent.
+// device colour model not covered by an output intent and not overridden by a
+// Default* colour space in the current resources.
 func checkDeviceColour(obj PDFValue, cs PDFValue, ctx *ValidationContext, context string) {
 	model := deviceColourModel(cs)
 	if model == "" || ctx.deviceColourAllowed(model) {
+		return
+	}
+	if defaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
 	ctx.ReportError(obj, "6.2.3.3", 1,
@@ -93,14 +127,12 @@ func checkDeviceColour(obj PDFValue, cs PDFValue, ctx *ValidationContext, contex
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
 // shading colour spaces (6.2.3.3) and Separation/DeviceN alternate spaces (6.2.3.4).
 func validateColourSpaceUsage(v PDFDict, ctx *ValidationContext) {
-	// Image XObject colour space.
 	if (v.Entries["Subtype"] == PDFName{Value: "Image"}) {
 		if cs := v.Entries["ColorSpace"]; cs != nil {
 			checkDeviceColour(v, cs, ctx, "image")
 		}
 	}
 
-	// Shading colour space.
 	if v.Entries["ShadingType"] != nil {
 		if cs := v.Entries["ColorSpace"]; cs != nil {
 			checkDeviceColour(v, cs, ctx, "shading")
@@ -120,6 +152,12 @@ func validateColourSpaceArray(arr PDFArray, ctx *ValidationContext) {
 	}
 	// [/Separation name alternateSpace tintTransform]
 	// [/DeviceN names alternateSpace tintTransform]
+	if head.Value == "DeviceN" {
+		// 6.1.12: DeviceN colour space shall not have more than 8 colorants.
+		if names, ok := arr[1].(PDFArray); ok && len(names) > 8 {
+			ctx.ReportError(arr, "6.1.12", 7, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
+		}
+	}
 	alt := arr[2]
 	model := deviceColourModel(alt)
 	if model == "" || ctx.deviceColourAllowed(model) {

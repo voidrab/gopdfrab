@@ -103,8 +103,9 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 		t.Errorf("Expected one error for non-binary characters in comment, got %v", errs)
 	}
 
-	// 5 errors expected, one for each invalid character
-	if errs[0].clause != "6.1.2" || errs[0].subclause != 4 || len(errs[0].errs) != 5 {
+	// Only the first four bytes following '%' are required to be binary
+	// (bytes beyond that are unconstrained), so 4 errors are expected here.
+	if errs[0].clause != "6.1.2" || errs[0].subclause != 4 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
@@ -272,7 +273,9 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 	}
 }
 
-func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *testing.T) {
+// Non-standard info dict keys are permitted (veraPDF's 6-1-5-t02-pass-a.pdf
+// has a conformant /Description entry), so a custom key alone is not flagged.
+func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
@@ -282,7 +285,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *tes
 	info := NewPDFDict()
 
 	info.Entries["Title"] = PDFString{"Test"}
-	info.Entries["Disallowed"] = PDFString{"Wrong"}
+	info.Entries["CustomKey"] = PDFString{"Value"}
 
 	trailer.Entries["Info"] = info
 
@@ -291,12 +294,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedField(t *tes
 	defer doc.Close()
 
 	errs := doc.verifyDocumentInformationDictionary()
-	if len(errs) != 1 {
-		t.Errorf("Expected one error for disallowed field, got %v", errs)
-	}
-
-	if errs[0].clause != "6.1.5" || errs[0].subclause != 2 {
-		t.Errorf("Got unexpected error %v", errs[0])
+	if len(errs) != 0 {
+		t.Errorf("Expected no errors for a custom info dict key, got %v", errs)
 	}
 }
 
@@ -327,7 +326,9 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	}
 }
 
-func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedFieldAndEmptyValue(t *testing.T) {
+// The empty-value check (6.1.5/3) only applies to the standard info dict
+// fields (Table 10.2); a custom key's value, empty or not, is unconstrained.
+func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyEmptyValueAllowed(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
 	os.WriteFile(filename, content, 0644)
@@ -336,7 +337,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedFieldAndEmpt
 	trailer := NewPDFDict()
 	info := NewPDFDict()
 
-	info.Entries["Wrong"] = PDFString{""}
+	info.Entries["CustomKey"] = PDFString{""}
 
 	trailer.Entries["Info"] = info
 
@@ -345,16 +346,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_DisallowedFieldAndEmpt
 	defer doc.Close()
 
 	errs := doc.verifyDocumentInformationDictionary()
-	if len(errs) != 2 {
-		t.Errorf("Expected two errors for invalid field and empty metadata value, got %v", errs)
-	}
-
-	if errs[0].clause != "6.1.5" || errs[0].subclause != 2 {
-		t.Errorf("Got unexpected error %v", errs[0])
-	}
-
-	if errs[1].clause != "6.1.5" || errs[1].subclause != 3 {
-		t.Errorf("Got unexpected error %v", errs[1])
+	if len(errs) != 0 {
+		t.Errorf("Expected no errors for an empty-valued custom key, got %v", errs)
 	}
 }
 
@@ -388,7 +381,6 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
 	}
 
-	// expect 4 errors for 4 invalid hex chars
 	if errs[0].clause != "6.1.6" || errs[0].subclause != 1 || len(errs[0].errs) != 4 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
@@ -744,10 +736,15 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	trailer := NewPDFDict()
 	outputIntents := PDFArray{}
 	outputIntent := NewPDFDict()
+	destOutputProfile := NewPDFDict()
+	destOutputProfile.Entries["N"] = PDFInteger(3)
 
 	outputIntent.Entries["Type"] = PDFString{"OutputIntent"}
 	outputIntent.Entries["S"] = PDFName{"GTS_PDFA1"}
 	outputIntent.Entries["OutputConditionIdentifier"] = PDFString{"Test"}
+	// "Test" does not name a standard production condition, so a
+	// DestOutputProfile must be present (6.2.2/7).
+	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer.Entries["Root"] = outputIntents
@@ -856,10 +853,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	trailer := NewPDFDict()
 	outputIntents := PDFArray{}
 	outputIntent := NewPDFDict()
+	destOutputProfile := NewPDFDict()
+	destOutputProfile.Entries["N"] = PDFInteger(3)
 
 	outputIntent.Entries["Type"] = PDFString{"OutputIntent"}
 	outputIntent.Entries["S"] = PDFName{"Wrong"}
 	outputIntent.Entries["OutputConditionIdentifier"] = PDFString{"Test"}
+	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
 	outputIntents = append(outputIntents, outputIntent)
 
 	trailer.Entries["Root"] = outputIntents

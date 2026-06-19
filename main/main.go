@@ -35,7 +35,7 @@ func main() {
 			continue
 		}
 
-		v, err := doc.Verify(pdfrab.A1_B)
+		v, err := doc.Verify(pdfrab.A_1B)
 		doc.Close()
 		if err != nil {
 			fmt.Printf("[ERROR] %s: %v\n", path, err)

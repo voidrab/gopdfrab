@@ -14,6 +14,79 @@ type ValidationContext struct {
 	rgbCovered      bool
 	cmykCovered     bool
 	grayCovered     bool
+
+	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
+	// that are actually invoked (via Do) from page or other reachable content
+	// streams. Nil means unknown (treat everything as reachable).
+	ReachableXObjectPtrs map[uintptr]bool
+
+	// InvisibleOnlyFontPtrs is the set of font dictionary Entries-map pointers
+	// that are used for text showing exclusively under rendering mode 3 or 7
+	// (invisible) somewhere in the document, and never under any other mode.
+	// Such fonts are never actually rendered, so 6.3.3.2 (CIDToGIDMap), 6.3.5
+	// (glyph coverage) and 6.3.6 (advance width consistency) do not apply.
+	InvisibleOnlyFontPtrs map[uintptr]bool
+
+	// UsedCharCodes maps a simple (non-composite) font's Entries-map pointer
+	// to the set of single-byte character codes actually passed to a
+	// text-showing operator somewhere in the document. A subset font's
+	// CharSet only needs to list glyphs "used for rendering" (6.3.5); a code
+	// with a non-zero Widths entry that is never actually shown need not be
+	// present. Nil for a font means no usage info was collected for it.
+	UsedCharCodes map[uintptr]map[int]bool
+
+	// UsedCIDs maps a composite CIDFont's descendant-dict Entries-map pointer
+	// to the set of CIDs actually passed to a text-showing operator somewhere
+	// in the document (decoded as 2-byte big-endian codes, valid for the
+	// Identity-H/Identity-V encodings the verifier can decode). A CID listed
+	// in the W width array but never shown need not have a glyph in the
+	// embedded font program (6.3.5); only collected when the font's Encoding
+	// is Identity-H/V — for any other CMap, usage is left unknown so callers
+	// fall back to checking every W entry.
+	UsedCIDs map[uintptr]map[int]bool
+
+	// pageResources is the Resources dict of the current page. Default* colour
+	// spaces defined at page level are inherited by patterns and Form XObjects
+	// that do not define their own Default*.
+	pageResources PDFDict
+}
+
+// isReachableXObject reports whether v is a Form XObject reachable from page
+// content via Do operators. Absent reachability info, everything is reachable.
+func (ctx *ValidationContext) isReachableXObject(v PDFDict) bool {
+	if ctx.ReachableXObjectPtrs == nil {
+		return true
+	}
+	return ctx.ReachableXObjectPtrs[pdfValuePointer(v.Entries)]
+}
+
+// isInvisibleOnlyFont reports whether font v is shown only under invisible
+// rendering modes (3/7), exempting it from 6.3.3.2/6.3.5/6.3.6 checks.
+func (ctx *ValidationContext) isInvisibleOnlyFont(v PDFDict) bool {
+	if ctx.InvisibleOnlyFontPtrs == nil {
+		return false
+	}
+	return ctx.InvisibleOnlyFontPtrs[pdfValuePointer(v.Entries)]
+}
+
+// usedCodesFor returns the character codes shown for font v and whether usage
+// info was collected; if known is false, callers fall back to checking every Widths entry.
+func (ctx *ValidationContext) usedCodesFor(v PDFDict) (codes map[int]bool, known bool) {
+	if ctx.UsedCharCodes == nil {
+		return nil, false
+	}
+	codes, known = ctx.UsedCharCodes[pdfValuePointer(v.Entries)]
+	return codes, known
+}
+
+// usedCIDsFor returns the CIDs shown for composite font v and whether usage
+// info was collected; if known is false, callers fall back to checking every W entry.
+func (ctx *ValidationContext) usedCIDsFor(v PDFDict) (cids map[int]bool, known bool) {
+	if ctx.UsedCIDs == nil {
+		return nil, false
+	}
+	cids, known = ctx.UsedCIDs[pdfValuePointer(v.Entries)]
+	return cids, known
 }
 
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",

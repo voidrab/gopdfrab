@@ -1,6 +1,9 @@
 package pdfrab
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // pdfOperators is the set of content-stream operators defined by the PDF
 // Reference (PDF 32000 Annex A). Any other operator violates 6.2.10.
@@ -74,29 +77,52 @@ func namedColourModel(name PDFName, resources PDFDict) string {
 func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationContext) {
 	cs := newContentScanner(data)
 	colourSet := false
+	qDepth := 0
 	cs.scan(func(op string, operands []PDFValue) {
-		// 6.1.12: integer operands are limited to 2^31 - 1.
+		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			if n, ok := operand.(PDFInteger); ok && (n > 2147483647 || n < -2147483648) {
 				ctx.ReportError(obj, "6.1.12", 2, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
+			}
+			if r, ok := operand.(PDFReal); ok && math.Abs(float64(r)) > 32767 {
+				ctx.ReportError(obj, "6.1.12", 2, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
+			}
+			if s, ok := operand.(PDFString); ok && pdfStringDecodedLen(s.Value) > 65535 {
+				ctx.ReportError(obj, "6.1.12", 6, "string in content stream exceeds maximum length of 65535 bytes")
+			}
+			// 6.1.6: hex string operands must be valid hex digits, even count.
+			if hs, ok := operand.(PDFHexString); ok {
+				validateHexString(hs, ctx)
+			}
+		}
+		// 6.1.12: maximum nesting depth of q/Q operators is 28.
+		switch op {
+		case "q":
+			qDepth++
+			if qDepth > 28 {
+				ctx.ReportError(obj, "6.1.12", 6, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+			}
+		case "Q":
+			if qDepth > 0 {
+				qDepth--
 			}
 		}
 		switch op {
 		case "rg", "RG":
 			colourSet = true
-			reportContentColour(obj, "rgb", ctx)
+			reportContentColour(obj, "rgb", resources, ctx)
 		case "g", "G":
 			colourSet = true
-			reportContentColour(obj, "gray", ctx)
+			reportContentColour(obj, "gray", resources, ctx)
 		case "k", "K":
 			colourSet = true
-			reportContentColour(obj, "cmyk", ctx)
+			reportContentColour(obj, "cmyk", resources, ctx)
 		case "cs", "CS":
 			colourSet = true
 			if len(operands) > 0 {
 				if name, ok := operands[len(operands)-1].(PDFName); ok {
 					if model := namedColourModel(name, resources); model != "" {
-						reportContentColour(obj, model, ctx)
+						reportContentColour(obj, model, resources, ctx)
 					}
 				}
 			}
@@ -111,10 +137,11 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 		case "INLINEIMAGE":
 			checkInlineImageColour(obj, operands, resources, ctx)
 			checkInlineImageFilter(obj, operands, ctx)
+			checkInlineImageOther(obj, operands, ctx)
 		default:
 			if paintingOps[op] && !colourSet {
 				// Default fill/stroke colour is DeviceGray.
-				reportContentColour(obj, "gray", ctx)
+				reportContentColour(obj, "gray", resources, ctx)
 			}
 			if !pdfOperators[op] {
 				ctx.ReportError(obj, "6.2.10", 1, fmt.Sprintf("undefined content operator %q", op))
@@ -123,10 +150,16 @@ func scanContent(data []byte, obj PDFValue, resources PDFDict, ctx *ValidationCo
 	})
 }
 
-// reportContentColour flags use of a device colour model not covered by an
-// output intent (6.2.3.3).
-func reportContentColour(obj PDFValue, model string, ctx *ValidationContext) {
+// reportContentColour flags a device colour model not covered by an output
+// intent (6.2.3.3), unless a Default* colour space override applies.
+func reportContentColour(obj PDFValue, model string, resources PDFDict, ctx *ValidationContext) {
 	if ctx.deviceColourAllowed(model) {
+		return
+	}
+	if defaultColorSpaceDefined(model, resources) {
+		return
+	}
+	if defaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
 	ctx.ReportError(obj, "6.2.3.3", 2,
@@ -156,7 +189,7 @@ func checkInlineImageColour(obj PDFValue, params []PDFValue, resources PDFDict, 
 			model = deviceColourModel(val)
 		}
 		if model != "" && !ctx.deviceColourAllowed(model) {
-			reportContentColour(obj, model, ctx)
+			reportContentColour(obj, model, resources, ctx)
 		}
 	}
 }
@@ -176,14 +209,43 @@ func checkInlineImageFilter(obj PDFValue, params []PDFValue, ctx *ValidationCont
 	}
 }
 
+// checkInlineImageOther checks inline image parameters for 6.2.4 (Interpolate)
+// and 6.2.9 (rendering intent).
+func checkInlineImageOther(obj PDFValue, params []PDFValue, ctx *ValidationContext) {
+	for i := 0; i+1 < len(params); i += 2 {
+		key, ok := params[i].(PDFName)
+		if !ok {
+			continue
+		}
+		val := params[i+1]
+		switch key.Value {
+		case "I", "Interpolate":
+			if b, ok := val.(PDFBoolean); ok && bool(b) {
+				ctx.ReportError(obj, "6.2.4", 1, "inline image Interpolate shall not be true")
+			}
+		case "Intent":
+			if name, ok := val.(PDFName); ok && !allowedIntents[name.Value] {
+				ctx.ReportError(obj, "6.2.9", 1, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
+			}
+		}
+	}
+}
+
 // validateContentStreams dispatches content-stream inspection for pages, form
 // XObjects, Type3 glyph procedures and tiling patterns.
 func validateContentStreams(v PDFDict, ctx *ValidationContext) {
 	resources, _ := v.Entries["Resources"].(PDFDict)
 	switch {
 	case v.Entries["Type"] == PDFName{Value: "Page"}:
+		ctx.pageResources = resources
 		scanContentValue(v.Entries["Contents"], resources, ctx)
+	case v.Entries["PatternType"] == PDFInteger(1) && v.HasStream:
+		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).
+		scanContentDict(v, resources, ctx)
 	case v.Entries["Subtype"] == PDFName{Value: "Form"} && v.HasStream:
+		if !ctx.isReachableXObject(v) {
+			return
+		}
 		scanContentDict(v, resources, ctx)
 	case v.Entries["Subtype"] == PDFName{Value: "Type3"}:
 		if cp, ok := v.Entries["CharProcs"].(PDFDict); ok {
@@ -193,7 +255,5 @@ func validateContentStreams(v PDFDict, ctx *ValidationContext) {
 				}
 			}
 		}
-	case v.Entries["PatternType"] == PDFInteger(1) && v.HasStream:
-		scanContentDict(v, resources, ctx)
 	}
 }

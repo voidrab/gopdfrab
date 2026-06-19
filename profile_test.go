@@ -73,20 +73,20 @@ func TestCatalog_KnownChecks(t *testing.T) {
 	}
 }
 
-func TestProfile_PDFA1BIsFullProfile(t *testing.T) {
+func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
 	all := AllChecks()
-	if len(PDFA_1B.Checks()) != len(all) {
-		t.Errorf("PDFA_1B has %d checks, catalog has %d", len(PDFA_1B.Checks()), len(all))
+	if len(Legacy_1B.Checks()) != len(all) {
+		t.Errorf("Legacy_1B has %d checks, catalog has %d", len(Legacy_1B.Checks()), len(all))
 	}
 	for _, c := range all {
-		if !PDFA_1B.Has(c) {
-			t.Errorf("PDFA_1B missing check %q", c.name)
+		if !Legacy_1B.Has(c) {
+			t.Errorf("Legacy_1B missing check %q", c.name)
 		}
 	}
 }
 
 func TestProfile_NewProfileIsEmpty(t *testing.T) {
-	p := NewProfile(A1_B)
+	p := NewProfile(A_1B)
 	if len(p.Checks()) != 0 {
 		t.Errorf("NewProfile should have 0 checks, got %d", len(p.Checks()))
 	}
@@ -108,7 +108,7 @@ func TestProfile_CopyOnWrite(t *testing.T) {
 		t.Error("RemoveCheck() modified PDFA_1B")
 	}
 
-	empty := NewProfile(A1_B)
+	empty := NewProfile(A_1B)
 	_ = empty.AddCheck(Checks.Structure.FileHeaderSignature)
 	if empty.Has(Checks.Structure.FileHeaderSignature) {
 		t.Error("AddCheck() modified the original empty profile")
@@ -156,7 +156,7 @@ func TestProfile_RemoveCheck(t *testing.T) {
 
 func TestProfile_ChecksOrder(t *testing.T) {
 	all := AllChecks()
-	got := PDFA_1B.Checks()
+	got := Legacy_1B.Checks()
 	if len(got) != len(all) {
 		t.Fatalf("Checks() length mismatch: %d vs %d", len(got), len(all))
 	}
@@ -168,11 +168,11 @@ func TestProfile_ChecksOrder(t *testing.T) {
 }
 
 func TestProfile_AllowsUnknownPairs(t *testing.T) {
-	empty := NewProfile(A1_B)
+	empty := NewProfile(A_1B)
 	if !empty.allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in an empty profile")
 	}
-	full := newFullProfile(A1_B)
+	full := newFullProfile(A_1B)
 	if !full.allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in a full profile")
 	}
@@ -181,7 +181,7 @@ func TestProfile_AllowsUnknownPairs(t *testing.T) {
 func TestProfile_AllowsCatalogPairs(t *testing.T) {
 	check := Checks.Transparency.ImageWithSoftMask
 
-	full := newFullProfile(A1_B)
+	full := newFullProfile(A_1B)
 	if !full.allows(check.clause, check.subclause) {
 		t.Error("enabled check pair should be allowed")
 	}
@@ -199,7 +199,7 @@ func TestProfile_AllowsCatalogPairs(t *testing.T) {
 
 const header61dir = isartorDir + "/6.1 File structure/6.1.2 File header"
 
-// header62checks is the group of all four 6.1.2 checks used in behavioural tests.
+// header61checks returns the four 6.1.2 file-header checks.
 func header61checks() []Check {
 	s := Checks.Structure
 	return []Check{
@@ -215,7 +215,6 @@ func findFirstIsartor612File(t *testing.T) string {
 	if _, err := os.Stat(isartorDir); os.IsNotExist(err) {
 		t.Skip("Isartor test suite not present")
 	}
-	// Walk the 6.1.2 subdirectory for any fail file.
 	var found string
 	_ = filepath.WalkDir(header61dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || found != "" {
@@ -243,7 +242,7 @@ func TestVerifyProfile_FullProfileMatchesVerify(t *testing.T) {
 	}
 	defer doc.Close()
 
-	resVerify, err := doc.Verify(A1_B)
+	resVerify, err := doc.Verify(A_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -332,7 +331,7 @@ func TestVerifyProfile_EmptyProfileReturnsValid(t *testing.T) {
 	defer doc.Close()
 
 	// An empty profile enables no checks, so no violations can be reported.
-	p := NewProfile(A1_B)
+	p := NewProfile(A_1B)
 	res, err := doc.VerifyProfile(p)
 	if err != nil {
 		t.Fatalf("VerifyProfile: %v", err)

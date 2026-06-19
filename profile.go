@@ -6,31 +6,45 @@ import (
 	"strconv"
 )
 
-// Profile is a mutable set of enabled PDF/A checks associated with a
-// conformance level. It determines which rules are enforced when
-// VerifyProfile is called.
-//
-// Mutators (Clear, AddCheck, RemoveCheck) return a new *Profile, leaving the
-// receiver unchanged:
-//
-//	// Start from the full profile and remove checks:
-//	p := gopdfrab.PDFA_1B.RemoveCheck(
-//	    gopdfrab.Checks.Structure.FileHeaderSignature,
-//	    gopdfrab.Checks.Font.SimpleNotEmbedded,
-//	)
-//
-//	// Start from an empty profile and add checks:
-//	p := gopdfrab.PDFA_1B.Clear().
-//	    AddCheck(gopdfrab.Checks.Transparency.ImageWithSoftMask)
+// Profile is a mutable set of enabled PDF/A checks for a conformance level,
+// used by VerifyProfile. Mutators (Clear, AddCheck, RemoveCheck) return a new
+// *Profile, leaving the receiver unchanged.
 type Profile struct {
 	Level   LevelType
 	enabled map[int]bool // set of enabled check IDs
+
+	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
+	// never invoked via Do from a reachable content stream. ISO 19005-1
+	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy_1B keeps this
+	// false; PDFA_1B sets it true to match veraPDF's lenient interpretation.
+	SkipUnreachableXObjects bool
 }
 
+// PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
+// interpretation of the spec. Used by Verify(A_1B).
 var PDFA_1B *Profile
 
+// Legacy_1B is the strict, fully spec-literal PDF/A-1b profile: every check
+// enabled, every Form XObject checked regardless of reachability. Matches the
+// Isartor suite's interpretation, which is stricter than veraPDF's in places.
+var Legacy_1B *Profile
+
 func init() {
-	PDFA_1B = newFullProfile(A1_B)
+	Legacy_1B = newFullProfile(A_1B)
+
+	// PDFA_1B adjusts the full profile for veraPDF's divergences from the
+	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
+	// out-of-scope (6.2.3.3, 6.2.10); 6.2.7 PostScript XObject checks are
+	// disabled (veraPDF's own corpus intentionally includes one in a pass
+	// file); and standard Type1 fonts referenced only in AcroForm DR/widget DA
+	// strings aren't flagged as unembedded (6.3.4/1).
+	PDFA_1B = newFullProfile(A_1B)
+	PDFA_1B.SkipUnreachableXObjects = true
+	PDFA_1B = PDFA_1B.RemoveCheck(
+		Checks.Image.FormPostScript,
+		Checks.Image.PostScriptXObject,
+		Checks.Font.SimpleNotEmbedded,
+	)
 }
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -51,17 +65,22 @@ func newFullProfile(level LevelType) *Profile {
 
 func (p *Profile) clone() *Profile {
 	out := &Profile{
-		Level:   p.Level,
-		enabled: make(map[int]bool, len(p.enabled)),
+		Level:                   p.Level,
+		enabled:                 make(map[int]bool, len(p.enabled)),
+		SkipUnreachableXObjects: p.SkipUnreachableXObjects,
 	}
 	maps.Copy(out.enabled, p.enabled)
 	return out
 }
 
 // Clear returns a new profile with the same conformance level but no checks
-// enabled.
+// enabled. Behavioral flags (SkipUnreachableXObjects) are preserved.
 func (p *Profile) Clear() *Profile {
-	return &Profile{Level: p.Level, enabled: make(map[int]bool)}
+	return &Profile{
+		Level:                   p.Level,
+		enabled:                 make(map[int]bool),
+		SkipUnreachableXObjects: p.SkipUnreachableXObjects,
+	}
 }
 
 // AddCheck returns a new profile with the given checks added to the enabled
@@ -111,5 +130,5 @@ func (p *Profile) allows(clause string, subclause int) bool {
 
 // String returns a human-readable summary of the profile.
 func (p *Profile) String() string {
-	return fmt.Sprintf("Profile{Level:%d enabled:%d/%d}", p.Level, len(p.enabled), len(allChecksCatalog))
+	return fmt.Sprintf("Profile{Level:%s enabled:%d/%d}", p.Level, len(p.enabled), len(allChecksCatalog))
 }

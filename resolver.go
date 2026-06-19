@@ -66,6 +66,18 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 
 		m.Entries["_ref"] = ref
 
+		// 6.1.8: capture EOL/whitespace right after '>>' before NextToken swallows it;
+		// only used if next token is 'endobj'. Skipped when l.pushed is non-empty, since
+		// parseDictionary's trailing-integer lookahead may have already read past '>>'.
+		var preEOLErr error
+		var leadingWS bool
+		if len(l.pushed) == 0 {
+			preEOLErr = l.requireEOL()
+			if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && isWhitespace(b[0]) {
+				leadingWS = true
+			}
+		}
+
 		next := l.NextToken()
 
 		switch next.Type {
@@ -78,7 +90,15 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 			d.recordFraming(ref.ObjNum, l.validateEndObj())
 			return m, nil
 		case TokenObjectEnd:
-			d.recordFraming(ref.ObjNum, l.validateObjectEnd())
+			var errs []error
+			if preEOLErr != nil {
+				errs = append(errs, fmt.Errorf("endobj not preceded by single EOL: %v", preEOLErr))
+			}
+			if leadingWS {
+				errs = append(errs, fmt.Errorf("white space before endobj keyword"))
+			}
+			errs = append(errs, l.validateObjectEnd()...)
+			d.recordFraming(ref.ObjNum, errs)
 		default:
 			l.UnreadToken(next)
 		}

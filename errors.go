@@ -37,7 +37,6 @@ func (e PDFError) String() string {
 		fmt.Fprintf(&b, ", ref %v", e.objectRef)
 	}
 
-	// Error messages
 	if len(e.errs) > 0 {
 		b.WriteString(": \"")
 		for i, err := range e.errs {
