@@ -6,39 +6,7 @@ import (
 )
 
 func (d *Document) resolveObject(obj PDFValue) (PDFValue, error) {
-	switch v := obj.(type) {
-
-	case PDFRef:
-		return d.resolveReference(v)
-
-	case PDFDict:
-		out := NewPDFDict()
-		out.HasStream = v.HasStream
-		out.RawStream = v.RawStream
-		for k, val := range v.Entries {
-			resolved, err := d.resolveObject(val)
-			if err != nil {
-				return nil, err
-			}
-			out.Entries[k] = resolved
-		}
-		return out, nil
-
-	case PDFArray:
-		out := make(PDFArray, len(v))
-		for i, elem := range v {
-			resolved, err := d.resolveObject(elem)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = resolved
-		}
-		return out, nil
-
-	default:
-		return v, nil
-
-	}
+	return d.resolveInPlace(obj)
 }
 
 // resolveShallow dereferences obj if it is a PDFRef, without recursing into

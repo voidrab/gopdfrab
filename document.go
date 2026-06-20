@@ -34,6 +34,10 @@ type Document struct {
 	streamChecked  map[int]bool
 
 	objCache map[int]PDFValue
+
+	resolvedPtrs  map[uintptr]bool
+	resolvedGraph PDFValue
+	graphResolved bool
 }
 
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated per
@@ -480,8 +484,15 @@ func (d *Document) ResolveGraphByPath(path []string) (PDFValue, error) {
 // ResolveGraph resolves the PDF object graph,
 // starting from the effective trailer (firstPageTrailer if set, else trailer).
 func (d *Document) ResolveGraph() (PDFValue, error) {
-	visited := make(map[int]PDFValue)
-	return d.resolveAll(d.effectiveTrailer(), visited)
+	if d.graphResolved {
+		return d.resolvedGraph, nil
+	}
+	g, err := d.resolveInPlace(d.effectiveTrailer())
+	if err != nil {
+		return nil, err
+	}
+	d.resolvedGraph, d.graphResolved = g, true
+	return g, nil
 }
 
 // resolvePath walks a PDF object following path elements, which may be
@@ -526,76 +537,54 @@ func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 	return d.resolveObject(current)
 }
 
-// resolveAll recursively resolves a PDF object graph, including indirect references.
-func (d *Document) resolveAll(obj PDFValue, visited map[int]PDFValue) (PDFValue, error) {
+// resolveInPlace returns obj fully resolved.
+func (d *Document) resolveInPlace(obj PDFValue) (PDFValue, error) {
 	switch v := obj.(type) {
 	case PDFRef:
-		id := v.ObjNum
-
-		if cached, ok := visited[id]; ok {
-			return cached, nil
-		}
-
-		indirect, err := d.resolveReference(v)
+		target, err := d.resolveReference(v)
 		if err != nil {
 			return nil, err
 		}
-
-		// Cache the container before recursing so cyclic references (e.g.
-		// Popup/Parent, Page/Parent) resolve to the same instance, not a dangling one.
-		switch inner := indirect.(type) {
-		case PDFDict:
-			out := PDFDict{Entries: make(map[string]PDFValue, len(inner.Entries)), HasStream: inner.HasStream, RawStream: inner.RawStream}
-			visited[id] = out
-			for k, val := range inner.Entries {
-				r, err := d.resolveAll(val, visited)
-				if err != nil {
-					return nil, err
-				}
-				out.Entries[k] = r
-			}
-			return out, nil
-
-		case PDFArray:
-			out := make(PDFArray, len(inner))
-			visited[id] = out
-			for i, elem := range inner {
-				r, err := d.resolveAll(elem, visited)
-				if err != nil {
-					return nil, err
-				}
-				out[i] = r
-			}
-			return out, nil
-
-		default:
-			visited[id] = inner
-			return inner, nil
-		}
+		return d.resolveInPlace(target)
 
 	case PDFDict:
-		out := NewPDFDict()
-		out.HasStream = v.HasStream
-		out.RawStream = v.RawStream
+		ptr := pdfValuePointer(v.Entries)
+		if d.resolvedPtrs[ptr] {
+			return v, nil
+		}
+		if d.resolvedPtrs == nil {
+			d.resolvedPtrs = map[uintptr]bool{}
+		}
+		d.resolvedPtrs[ptr] = true // mark before recursing, so cycles terminate
 		for k, val := range v.Entries {
-			r, err := d.resolveAll(val, visited)
+			if k == "_ref" {
+				continue
+			}
+			r, err := d.resolveInPlace(val)
 			if err != nil {
 				return nil, err
 			}
-			out.Entries[k] = r
+			v.Entries[k] = r
 		}
-		return out, nil
+		return v, nil
 
 	case PDFArray:
-		out := make(PDFArray, len(v))
+		ptr := pdfValuePointer(v)
+		if d.resolvedPtrs[ptr] {
+			return v, nil
+		}
+		if d.resolvedPtrs == nil {
+			d.resolvedPtrs = map[uintptr]bool{}
+		}
+		d.resolvedPtrs[ptr] = true
 		for i, elem := range v {
-			r, err := d.resolveAll(elem, visited)
+			r, err := d.resolveInPlace(elem)
 			if err != nil {
 				return nil, err
 			}
-			out[i] = r
+			v[i] = r
 		}
-		return out, nil
+		return v, nil
 
 	default:
 		return v, nil
