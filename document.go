@@ -178,6 +178,7 @@ func (d *Document) initializeStructure() error {
 		d.trailer = trailer
 	} else {
 		l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+		defer l.Release()
 
 		if tok := l.NextToken(); tok.Value != "trailer" {
 			return errors.New("expected 'trailer' keyword")

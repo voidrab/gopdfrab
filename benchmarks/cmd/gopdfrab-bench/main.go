@@ -24,8 +24,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -72,9 +74,6 @@ func main() {
 		}
 		paths = []string{flag.Arg(0)}
 	case "batch":
-		// Batch accepts multiple roots (e.g. two separate corpus
-		// directories) so callers don't need a shared parent directory
-		// that might pull in unrelated files.
 		for _, target := range flag.Args() {
 			err := filepath.WalkDir(target, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
@@ -93,14 +92,17 @@ func main() {
 		log.Fatalf("unknown -mode=%q (want single|batch)", *mode)
 	}
 
+	wallStart := time.Now()
+	results := runAll(paths)
+	wallElapsed := time.Since(wallStart)
+
 	csvW := csv.NewWriter(os.Stdout)
 	if !*jsonOut {
 		_ = csvW.Write([]string{"path", "size_bytes", "nanos", "valid", "err", "issues"})
 	}
 
 	sum := summary{Tool: "gopdfrab", Mode: *mode}
-	for _, path := range paths {
-		res := runOne(path)
+	for _, res := range results {
 		sum.Files++
 		sum.TotalBytes += res.Size
 		sum.TotalNanos += res.Nanos
@@ -131,18 +133,46 @@ func main() {
 		csvW.Flush()
 	}
 
-	if sum.TotalNanos > 0 {
-		secs := float64(sum.TotalNanos) / 1e9
+	if wallElapsed > 0 {
+		secs := wallElapsed.Seconds()
 		sum.FilesPerSec = float64(sum.Files) / secs
 		sum.MBPerSec = (float64(sum.TotalBytes) / (1024 * 1024)) / secs
 	}
 	sum.MaxRSSKB = maxRSSKB()
 
-	// The summary always goes to stderr, tagged "#summary ", so stdout stays
-	// pure per-file data (CSV or JSONL) and the summary line is grep-able the
-	// same way across gopdfrab/PDFBox/JS runners regardless of -json.
 	b, _ := json.Marshal(sum)
 	fmt.Fprintf(os.Stderr, "#summary %s\n", string(b))
+}
+
+// runAll verifies every path through a worker pool bounded to NumCPU,
+// returning results in the same order as paths regardless of which worker
+// finished first.
+func runAll(paths []string) []fileResult {
+	results := make([]fileResult, len(paths))
+
+	workers := min(runtime.NumCPU(), len(paths))
+	if workers < 1 {
+		return results
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				results[i] = runOne(paths[i])
+			}
+		}()
+	}
+	for i := range paths {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	return results
 }
 
 func runOne(path string) fileResult {

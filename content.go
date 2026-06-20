@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"sync"
 )
 
 // filterNames returns the list of filter names applied to a stream.
@@ -25,6 +26,34 @@ func filterNames(filter PDFValue) []string {
 	return nil
 }
 
+var zlibReaderPool = sync.Pool{}
+
+// inflateZlib decodes a zlib (FlateDecode/Fl) stream using a pooled decoder.
+func inflateZlib(data []byte) ([]byte, error) {
+	br := bytes.NewReader(data)
+
+	var zr io.ReadCloser
+	if pooled, ok := zlibReaderPool.Get().(io.ReadCloser); ok {
+		if resetter, ok := pooled.(zlib.Resetter); ok && resetter.Reset(br, nil) == nil {
+			zr = pooled
+		}
+	}
+	if zr == nil {
+		var err error
+		zr, err = zlib.NewReader(br)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := io.ReadAll(zr)
+	zlibReaderPool.Put(zr)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // decodeStream returns the decoded bytes of a stream dictionary, applying
 // FlateDecode, ASCIIHexDecode, and ASCII85Decode filters as needed.
 func decodeStream(dict PDFDict) ([]byte, error) {
@@ -35,11 +64,7 @@ func decodeStream(dict PDFDict) ([]byte, error) {
 	for _, f := range filterNames(dict.Entries["Filter"]) {
 		switch f {
 		case "FlateDecode", "Fl":
-			r, err := zlib.NewReader(bytes.NewReader(data))
-			if err != nil {
-				return nil, err
-			}
-			out, err := io.ReadAll(r)
+			out, err := inflateZlib(data)
 			if err != nil {
 				return nil, err
 			}
@@ -190,6 +215,7 @@ func newContentScanner(data []byte) *ContentScanner {
 // scan iterates the content stream, invoking fn for each operator with the
 // operands collected since the previous operator.
 func (cs *ContentScanner) scan(fn func(op string, operands []PDFValue)) {
+	defer cs.lex.Release()
 	for {
 		tok := cs.lex.NextToken()
 		switch tok.Type {

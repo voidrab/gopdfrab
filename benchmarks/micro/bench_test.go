@@ -80,13 +80,17 @@ func BenchmarkOpenVerify(b *testing.B) {
 // per-object re-parsing and re-decoding blowup this count used to track:
 // ~4.64M allocs/op before resolveReference/decodeStream results were
 // memoized on Document/ValidationContext (resolver.go, content.go,
-// context.go), down to ~1.76M after. Allocs/op is deterministic and
-// environment-independent, unlike wall-clock timing, so this check is not
-// flaky. The remaining allocs are dominated by ResolveGraph's one-time deep
-// copy of the (still large) resolved object graph, not by re-parsing.
+// context.go), down to ~1.76M after. Pooling the zlib decoder (content.go's
+// zlibReaderPool) and the per-object lexer's bufio.Reader (lexer.go's
+// bufioReaderPool) cut both allocs and bytes/op further: ~1.76M allocs /
+// ~1.18GB bytes down to ~1.55M allocs / ~80MB bytes. Allocs/op is
+// deterministic and environment-independent, unlike wall-clock timing, so
+// this check is not flaky. The remaining allocs are dominated by
+// ResolveGraph's one-time deep copy of the (still large) resolved object
+// graph and ContentScanner's per-token operand boxing, not by re-parsing.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 2_000_000
+const maxLargeFileAllocs = 1_700_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See

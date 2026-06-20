@@ -83,6 +83,7 @@ func (d *Document) parseReference(ref PDFRef) (PDFValue, error) {
 	}
 
 	l := NewLexerAt(d.file, offset)
+	defer l.Release()
 
 	d.recordFraming(ref.ObjNum, l.validateObjectStart())
 

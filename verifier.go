@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // xrefHeaderRe matches a well-formed cross-reference subsection header
@@ -54,6 +56,54 @@ func (d *Document) VerifyProfile(p *Profile) (Result, error) {
 		return Result{Type: p.Level, Valid: false, Issues: issues}, nil
 	}
 	return Result{Type: p.Level, Valid: true}, nil
+}
+
+type FileResult struct {
+	Path   string
+	Result Result
+	Err    error
+}
+
+// VerifyAll opens and verifies multiple PDF files concurrently against
+// conformance level t.
+func VerifyAll(paths []string, t LevelType) []FileResult {
+	results := make([]FileResult, len(paths))
+
+	workers := min(runtime.NumCPU(), len(paths))
+	if workers < 1 {
+		return results
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				results[i] = verifyFile(paths[i], t)
+			}
+		}()
+	}
+	for i := range paths {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	return results
+}
+
+// verifyFile opens, verifies, and closes a single file.
+func verifyFile(path string, t LevelType) FileResult {
+	doc, err := Open(path)
+	if err != nil {
+		return FileResult{Path: path, Err: err}
+	}
+	defer doc.Close()
+
+	res, err := doc.Verify(t)
+	return FileResult{Path: path, Result: res, Err: err}
 }
 
 // filterByProfile removes from issues any PDFError whose (clause, subclause)
