@@ -115,10 +115,11 @@ func (d *Document) verifyPdfA1b(p *Profile) []PDFError {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
+	reachable, invisibleOnly, usedCodes, usedCIDs := computeContentUsage(graph, ctx)
 	if p.SkipUnreachableXObjects {
-		ctx.ReachableXObjectPtrs = computeReachableXObjects(graph)
+		ctx.ReachableXObjectPtrs = reachable
 	}
-	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = computeFontUsage(graph)
+	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 	d.computeColourCoverage(ctx)
 
 	d.verifyDocument(graph, ctx)
@@ -546,107 +547,15 @@ func pdfValuePointer(v PDFValue) uintptr {
 	return reflect.ValueOf(v).Pointer()
 }
 
-// computeReachableXObjects returns Entries-map pointers for Form XObjects
-// invoked (via Do) from page content or other reachable Form XObjects.
-func computeReachableXObjects(graph PDFValue) map[uintptr]bool {
-	reachable := map[uintptr]bool{}
-	visitedPtrs := map[uintptr]bool{}
-
-	var walkGraph func(v PDFValue)
-	walkGraph = func(v PDFValue) {
-		switch val := v.(type) {
-		case PDFDict:
-			ptr := pdfValuePointer(val.Entries)
-			if visitedPtrs[ptr] {
-				return
-			}
-			visitedPtrs[ptr] = true
-
-			if val.Entries["Type"] == (PDFName{Value: "Page"}) {
-				resources, _ := val.Entries["Resources"].(PDFDict)
-				collectReachableFromContent(val.Entries["Contents"], resources, reachable)
-				return
-			}
-			for _, child := range val.Entries {
-				walkGraph(child)
-			}
-		case PDFArray:
-			ptr := pdfValuePointer(val)
-			if visitedPtrs[ptr] {
-				return
-			}
-			visitedPtrs[ptr] = true
-			for _, item := range val {
-				walkGraph(item)
-			}
-		}
-	}
-	walkGraph(graph)
-	return reachable
-}
-
-func collectReachableFromContent(contents PDFValue, resources PDFDict, reachable map[uintptr]bool) {
-	switch v := contents.(type) {
-	case PDFDict:
-		if v.HasStream {
-			if data, err := decodeStream(v); err == nil {
-				collectReachableFromBytes(data, resources, reachable)
-			}
-		}
-	case PDFArray:
-		for _, item := range v {
-			if d, ok := item.(PDFDict); ok && d.HasStream {
-				if data, err := decodeStream(d); err == nil {
-					collectReachableFromBytes(data, resources, reachable)
-				}
-			}
-		}
-	}
-}
-
-func collectReachableFromBytes(data []byte, resources PDFDict, reachable map[uintptr]bool) {
-	xobjects, _ := resources.Entries["XObject"].(PDFDict)
-	cs := newContentScanner(data)
-	cs.scan(func(op string, operands []PDFValue) {
-		if op != "Do" || len(operands) == 0 {
-			return
-		}
-		name, ok := operands[len(operands)-1].(PDFName)
-		if !ok || xobjects.Entries == nil {
-			return
-		}
-		xobj, ok := xobjects.Entries[name.Value].(PDFDict)
-		if !ok {
-			return
-		}
-		ptr := pdfValuePointer(xobj.Entries)
-		if reachable[ptr] {
-			return
-		}
-		reachable[ptr] = true
-		if xobj.Entries["Subtype"] == (PDFName{Value: "Form"}) && xobj.HasStream {
-			subResources, _ := xobj.Entries["Resources"].(PDFDict)
-			if subData, err := decodeStream(xobj); err == nil {
-				collectReachableFromBytes(subData, subResources, reachable)
-			}
-		}
-	})
-}
-
-// fontUsage tracks visible vs. invisible-only rendering per font, plus the
-// character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
-type fontUsage struct {
-	visible     map[uintptr]bool
-	invisible   map[uintptr]bool
-	usedCodes   map[uintptr]map[int]bool
-	usedCIDs    map[uintptr]map[int]bool
-	visitedXObj map[uintptr]bool
-}
-
-// computeFontUsage walks every page's content (and invoked Form XObjects) to
-// find fonts shown only under invisible rendering modes (3/7), and the
-// character codes / CIDs actually shown per font, for use in 6.3.x coverage checks.
-func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes, usedCIDs map[uintptr]map[int]bool) {
+// computeContentUsage walks the resolved graph once, decoding each page's
+// content stream (and any Form XObjects it invokes) at most once via ctx's
+// decode cache, and computes two things checks need:
+//   - reachable: Entries-map pointers of Form XObjects invoked (via Do) from
+//     page content or other reachable Form XObjects.
+//   - invisibleOnly, usedCodes, usedCIDs: font usage, as computed by
+//     collectFontUsageFromBytes.
+func computeContentUsage(graph PDFValue, ctx *ValidationContext) (reachable map[uintptr]bool, invisibleOnly map[uintptr]bool, usedCodes, usedCIDs map[uintptr]map[int]bool) {
+	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
 		visible:     map[uintptr]bool{},
 		invisible:   map[uintptr]bool{},
@@ -668,7 +577,7 @@ func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes
 
 			if val.Entries["Type"] == (PDFName{Value: "Page"}) {
 				resources, _ := val.Entries["Resources"].(PDFDict)
-				collectFontUsageFromContent(val.Entries["Contents"], resources, fu)
+				collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu)
 				return
 			}
 			for _, child := range val.Entries {
@@ -693,32 +602,73 @@ func computeFontUsage(graph PDFValue) (invisibleOnly map[uintptr]bool, usedCodes
 			invisibleOnly[ptr] = true
 		}
 	}
-	return invisibleOnly, fu.usedCodes, fu.usedCIDs
+	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs
 }
 
-func collectFontUsageFromContent(contents PDFValue, resources PDFDict, fu *fontUsage) {
+func collectContentUsage(ctx *ValidationContext, contents PDFValue, resources PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
 	switch v := contents.(type) {
 	case PDFDict:
 		if v.HasStream {
-			if data, err := decodeStream(v); err == nil {
-				collectFontUsageFromBytes(data, resources, fu)
+			if data, err := ctx.decodeStreamCached(v); err == nil {
+				collectReachableFromBytes(ctx, data, resources, reachable)
+				collectFontUsageFromBytes(ctx, data, resources, fu)
 			}
 		}
 	case PDFArray:
 		for _, item := range v {
 			if d, ok := item.(PDFDict); ok && d.HasStream {
-				if data, err := decodeStream(d); err == nil {
-					collectFontUsageFromBytes(data, resources, fu)
+				if data, err := ctx.decodeStreamCached(d); err == nil {
+					collectReachableFromBytes(ctx, data, resources, reachable)
+					collectFontUsageFromBytes(ctx, data, resources, fu)
 				}
 			}
 		}
 	}
 }
 
+func collectReachableFromBytes(ctx *ValidationContext, data []byte, resources PDFDict, reachable map[uintptr]bool) {
+	xobjects, _ := resources.Entries["XObject"].(PDFDict)
+	cs := newContentScanner(data)
+	cs.scan(func(op string, operands []PDFValue) {
+		if op != "Do" || len(operands) == 0 {
+			return
+		}
+		name, ok := operands[len(operands)-1].(PDFName)
+		if !ok || xobjects.Entries == nil {
+			return
+		}
+		xobj, ok := xobjects.Entries[name.Value].(PDFDict)
+		if !ok {
+			return
+		}
+		ptr := pdfValuePointer(xobj.Entries)
+		if reachable[ptr] {
+			return
+		}
+		reachable[ptr] = true
+		if xobj.Entries["Subtype"] == (PDFName{Value: "Form"}) && xobj.HasStream {
+			subResources, _ := xobj.Entries["Resources"].(PDFDict)
+			if subData, err := ctx.decodeStreamCached(xobj); err == nil {
+				collectReachableFromBytes(ctx, subData, subResources, reachable)
+			}
+		}
+	})
+}
+
+// fontUsage tracks visible vs. invisible-only rendering per font, plus the
+// character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
+type fontUsage struct {
+	visible     map[uintptr]bool
+	invisible   map[uintptr]bool
+	usedCodes   map[uintptr]map[int]bool
+	usedCIDs    map[uintptr]map[int]bool
+	visitedXObj map[uintptr]bool
+}
+
 // collectFontUsageFromBytes scans decoded content-stream bytes, tracking the
 // rendering mode (Tr, saved/restored across q/Q) and the font set by the most
 // recent Tf, and records visibility and shown codes per font.
-func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
+func collectFontUsageFromBytes(ctx *ValidationContext, data []byte, resources PDFDict, fu *fontUsage) {
 	fonts, _ := resources.Entries["Font"].(PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(PDFDict)
 	cs := newContentScanner(data)
@@ -823,8 +773,8 @@ func collectFontUsageFromBytes(data []byte, resources PDFDict, fu *fontUsage) {
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if subData, err := decodeStream(xobj); err == nil {
-				collectFontUsageFromBytes(subData, subResources, fu)
+			if subData, err := ctx.decodeStreamCached(xobj); err == nil {
+				collectFontUsageFromBytes(ctx, subData, subResources, fu)
 			}
 		}
 	})

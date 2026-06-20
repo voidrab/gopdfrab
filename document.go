@@ -32,6 +32,8 @@ type Document struct {
 	structErrs     []PDFError
 	framingChecked map[int]bool
 	streamChecked  map[int]bool
+
+	objCache map[int]PDFValue
 }
 
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated per
@@ -491,7 +493,7 @@ func (d *Document) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 
 	for _, key := range path {
 
-		current, err = d.resolveObject(current)
+		current, err = d.resolveShallow(current)
 		if err != nil {
 			return nil, err
 		}

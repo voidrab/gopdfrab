@@ -38,7 +38,7 @@ var inlineCSAbbrev = map[string]string{
 
 // scanContentDict decodes and inspects a single content stream dictionary.
 func scanContentDict(dict PDFDict, resources PDFDict, ctx *ValidationContext) {
-	data, err := decodeStream(dict)
+	data, err := ctx.decodeStreamCached(dict)
 	if err != nil {
 		return
 	}
