@@ -1,6 +1,6 @@
 tool,artifact,bytes,description
-gopdfrab,binary_plain,4525989,go build; static; zero deps
-gopdfrab,binary_stripped,3063970,go build -ldflags '-s -w'
+gopdfrab,binary_plain,4522141,go build; static; zero deps
+gopdfrab,binary_stripped,3059874,go build -ldflags '-s -w'
 veraPDF,install_dir,34635675,full greenfield install (GUI+CLI+docs); requires a separate JRE
 veraPDF,cli_jar,16038834,CLI jar only; excl. GUI/docs
 pdfbox-preflight,jar,12315217,shaded preflight-app jar incl. deps; requires a separate JRE
