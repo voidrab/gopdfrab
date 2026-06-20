@@ -20,8 +20,6 @@ gives both:
 - **batch** (`run_batch.sh`, metrics 3-5, 7): one process for the whole
   corpus. Isolates the engine from startup.
 
-
-
 ## Prerequisites
 
 Run `scripts/setup.sh` first. It installs/downloads everything below into
