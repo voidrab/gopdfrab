@@ -52,16 +52,6 @@ if [ -n "$PDFBOX_JAR" ]; then
     add_row pdfbox-preflight jar "$(stat -c%s "$PDFBOX_JAR")" "shaded preflight-app jar incl. deps; requires a separate JRE"
 fi
 
-# JS: node_modules for the mupdf package (includes the WASM blob).
-if [ -d "$BENCH_DIR/js/node_modules/mupdf" ]; then
-    js_bytes="$(du -sb "$BENCH_DIR/js/node_modules/mupdf" | cut -f1)"
-    add_row js-mupdf node_modules "$js_bytes" "mupdf npm package incl. WASM blob; requires a separate Node runtime"
-    wasm_file="$(find "$BENCH_DIR/js/node_modules/mupdf" -iname '*.wasm' | head -1)"
-    if [ -n "$wasm_file" ]; then
-        add_row js-mupdf wasm_blob "$(stat -c%s "$wasm_file")" "$(basename "$wasm_file")"
-    fi
-fi
-
 column -s, -t "$FOOTPRINT_CSV"
 echo
 echo "Done. $FOOTPRINT_CSV, $RESULTS_DIR/micro_*.txt"

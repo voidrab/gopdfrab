@@ -37,12 +37,4 @@ hyperfine \
     --command-name pdfbox-preflight \
     "java -jar '$PDFBOX_JAR'"
 
-hyperfine \
-    --shell=none \
-    --warmup 5 --min-runs 20 \
-    --ignore-failure \
-    --export-json "$RESULTS_DIR/startup_js.json" \
-    --command-name js-mupdf \
-    "node '$BENCH_DIR/js/startup_probe.mjs'"
-
 echo "Done. Raw results: $RESULTS_DIR/startup_*.json"

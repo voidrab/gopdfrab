@@ -46,6 +46,5 @@ require_all_tools() {
     require_tool "$VERAPDF_BIN" "veraPDF CLI"
     require_tool "$PDFBOX_JAR" "PDFBox preflight-app.jar"
     require_tool "$PREFLIGHT_BATCH_CLASS" "compiled PreflightBatch.class"
-    require_tool "$BENCH_DIR/js/node_modules/mupdf" "mupdf npm package"
     command -v hyperfine >/dev/null 2>&1 || { echo "missing hyperfine — run setup.sh first" >&2; exit 1; }
 }

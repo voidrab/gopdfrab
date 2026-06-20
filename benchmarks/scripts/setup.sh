@@ -2,7 +2,6 @@
 # Installs/downloads everything the benchmark suite needs:
 #   - hyperfine, GNU time, benchstat (measurement tooling)
 #   - veraPDF greenfield CLI, Apache PDFBox preflight-app.jar (competitors)
-#   - npm deps for the JS runner
 #
 # Idempotent: re-running skips anything already present. Everything
 # downloaded/installed lands under benchmarks/tools/ (gitignored).
@@ -125,12 +124,7 @@ javac -classpath "$PREFLIGHT_JAR" -d "$TOOLS_DIR/pdfbox" "$TOOLS_DIR/pdfbox/Pref
 echo "compiled: $TOOLS_DIR/pdfbox/PreflightBatch.class"
 
 # ---------------------------------------------------------------------------
-log "JS runner dependencies"
-( cd "$BENCH_DIR/js" && npm install --no-audit --no-fund )
-
-# ---------------------------------------------------------------------------
 log "Setup complete — installed/downloaded sizes"
 du -sh "$TOOLS_DIR/verapdf" 2>/dev/null || true
 du -sh "$PREFLIGHT_JAR" 2>/dev/null || true
-du -sh "$BENCH_DIR/js/node_modules" 2>/dev/null || true
 echo "All set. See benchmarks/README.md to run the benchmarks."

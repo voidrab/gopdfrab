@@ -39,14 +39,6 @@ run_for_size() {
         --export-json "$RESULTS_DIR/cold_pdfbox_${size}.json" \
         --command-name pdfbox-preflight \
         "java -jar '$PDFBOX_JAR' '$file'"
-
-    hyperfine \
-        --shell=none \
-        --warmup 3 --min-runs 15 \
-        --ignore-failure \
-        --export-json "$RESULTS_DIR/cold_js_${size}.json" \
-        --command-name js-mupdf \
-        "node '$JS_RUNNER' --mode=single '$file'"
 }
 
 run_for_size small  "$SAMPLE_SMALL"

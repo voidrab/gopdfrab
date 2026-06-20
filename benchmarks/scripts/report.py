@@ -19,12 +19,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BENCH_DIR = SCRIPT_DIR.parent
 REPO_DIR = BENCH_DIR.parent
 RESULTS_DIR = BENCH_DIR / "results"
-TOOLS = ["gopdfrab", "verapdf", "pdfbox", "js"]
+TOOLS = ["gopdfrab", "verapdf", "pdfbox"]
 TOOL_LABEL = {
     "gopdfrab": "gopdfrab",
     "verapdf": "veraPDF",
     "pdfbox": "PDFBox Preflight",
-    "js": "js-mupdf (load only)",
 }
 SIZES = ["small", "median", "large"]
 

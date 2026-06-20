@@ -66,7 +66,4 @@ run_batch verapdf json \
 run_batch pdfbox csv \
     java -classpath "$PDFBOX_JAR:$(dirname "$PREFLIGHT_BATCH_CLASS")" PreflightBatch "${CORPUS_ROOTS[@]}"
 
-run_batch js csv \
-    node "$JS_RUNNER" --mode=batch "${CORPUS_ROOTS[@]}"
-
 echo "Done. Per-file CSVs + time reports: $RESULTS_DIR/batch_*"

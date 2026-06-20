@@ -4,5 +4,3 @@ gopdfrab,binary_stripped,3072162,go build -ldflags '-s -w'
 veraPDF,install_dir,34635675,full greenfield install (GUI+CLI+docs); requires a separate JRE
 veraPDF,cli_jar,16038834,CLI jar only; excl. GUI/docs
 pdfbox-preflight,jar,12315217,shaded preflight-app jar incl. deps; requires a separate JRE
-js-mupdf,node_modules,13788717,mupdf npm package incl. WASM blob; requires a separate Node runtime
-js-mupdf,wasm_blob,9991587,mupdf-wasm.wasm
