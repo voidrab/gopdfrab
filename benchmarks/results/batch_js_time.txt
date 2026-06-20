@@ -13,22 +13,22 @@ warning: repairing PDF document
 format error: expected trailer marker
 warning: trying to repair broken xref
 warning: repairing PDF document
-#summary {"tool":"js-mupdf-load-only","caveat":"no PDF/A conformance check performed; measures document load+parse only","mode":"batch","files":773,"errors":0,"total_bytes":16907649,"total_nanos":122442914,"files_per_sec":6313.146059232142,"mb_per_sec":131.68904655529366,"max_rss_kb":194244}
+#summary {"tool":"js-mupdf-load-only","caveat":"no PDF/A conformance check performed; measures document load+parse only","mode":"batch","files":773,"errors":0,"total_bytes":16907649,"total_nanos":132399706,"files_per_sec":5838.381544442402,"mb_per_sec":121.78569793887469,"max_rss_kb":194520}
 	Command being timed: "node /home/thomas/Documents/projects/gopdfrab/benchmarks/js/runner.mjs --mode=batch /home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b /home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b"
-	User time (seconds): 0.39
-	System time (seconds): 0.11
-	Percent of CPU this job got: 184%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.27
+	User time (seconds): 0.42
+	System time (seconds): 0.10
+	Percent of CPU this job got: 187%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.28
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 194244
+	Maximum resident set size (kbytes): 194520
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 18985
-	Voluntary context switches: 397
-	Involuntary context switches: 3
+	Minor (reclaiming a frame) page faults: 18570
+	Voluntary context switches: 401
+	Involuntary context switches: 26
 	Swaps: 0
 	File system inputs: 0
 	File system outputs: 272

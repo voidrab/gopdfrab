@@ -1,4 +1,4 @@
-Jun 20, 2026 7:32:35 PM org.apache.pdfbox.pdmodel.font.PDType1Font <init>
+Jun 20, 2026 7:46:11 PM org.apache.pdfbox.pdmodel.font.PDType1Font <init>
 SEVERE: Can't read the embedded Type1 font LuciduxSans-Oblique
 java.io.IOException: Invalid start of ASCII segment of type 1 font
 	at org.apache.fontbox.type1.Type1Parser.parseASCII(Type1Parser.java:90)
@@ -24,7 +24,7 @@ java.io.IOException: Invalid start of ASCII segment of type 1 font
 	at org.apache.pdfbox.preflight.parser.PreflightParser.validate(PreflightParser.java:867)
 	at PreflightBatch.main(PreflightBatch.java:66)
 
-Jun 20, 2026 7:32:35 PM org.apache.pdfbox.pdmodel.font.PDType1Font <init>
+Jun 20, 2026 7:46:11 PM org.apache.pdfbox.pdmodel.font.PDType1Font <init>
 SEVERE: Can't read the embedded Type1 font LuciduxSans-Oblique
 java.io.IOException: Invalid start of ASCII segment of type 1 font
 	at org.apache.fontbox.type1.Type1Parser.parseASCII(Type1Parser.java:90)
@@ -52,22 +52,22 @@ java.io.IOException: Invalid start of ASCII segment of type 1 font
 	at org.apache.pdfbox.preflight.parser.PreflightParser.validate(PreflightParser.java:867)
 	at PreflightBatch.main(PreflightBatch.java:66)
 
-#summary {"tool":"pdfbox-preflight","mode":"batch","files":773,"valid":107,"invalid":666,"errors":0,"total_bytes":16907649,"total_nanos":5325204801,"files_per_sec":145.1587,"mb_per_sec":3.0279,"max_rss_kb":839140}
+#summary {"tool":"pdfbox-preflight","mode":"batch","files":773,"valid":107,"invalid":666,"errors":0,"total_bytes":16907649,"total_nanos":5206195655,"files_per_sec":148.4769,"mb_per_sec":3.0972,"max_rss_kb":834396}
 	Command being timed: "java -classpath /home/thomas/Documents/projects/gopdfrab/benchmarks/tools/pdfbox/preflight-app-3.0.7.jar:/home/thomas/Documents/projects/gopdfrab/benchmarks/tools/pdfbox PreflightBatch /home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b /home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b"
-	User time (seconds): 24.51
-	System time (seconds): 0.81
-	Percent of CPU this job got: 455%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:05.56
+	User time (seconds): 24.38
+	System time (seconds): 0.88
+	Percent of CPU this job got: 465%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:05.42
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 838096
+	Maximum resident set size (kbytes): 833496
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 74667
-	Voluntary context switches: 26396
-	Involuntary context switches: 394
+	Minor (reclaiming a frame) page faults: 83080
+	Voluntary context switches: 28849
+	Involuntary context switches: 393
 	Swaps: 0
 	File system inputs: 0
 	File system outputs: 272

@@ -25,13 +25,9 @@ SAMPLE_SMALL="$ISARTOR_DIR/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t01-fail-
 SAMPLE_MEDIAN="$VERA_DIR/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-g.pdf"
 SAMPLE_LARGE="$ISARTOR_DIR/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-a.pdf"
 
-# build_gopdfrab_bench compiles cmd/gopdfrab-bench into tools/ if not already
-# built (it's a gitignored build artifact, same as the downloaded jars).
 build_gopdfrab_bench() {
-    if [ ! -x "$GOPDFRAB_BIN" ]; then
-        echo "building gopdfrab-bench..." >&2
-        ( cd "$REPO_DIR" && go build -o "$GOPDFRAB_BIN" ./benchmarks/cmd/gopdfrab-bench )
-    fi
+    echo "building gopdfrab-bench..." >&2
+    ( cd "$REPO_DIR" && go build -o "$GOPDFRAB_BIN" ./benchmarks/cmd/gopdfrab-bench )
 }
 
 # require_tool exits with a clear message if a prerequisite from setup.sh is
