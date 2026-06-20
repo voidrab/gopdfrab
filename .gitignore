@@ -39,6 +39,8 @@ benchmarks/tools/verapdf/
 benchmarks/tools/gopdfrab-bench
 benchmarks/tools/pdfbox/*.jar
 benchmarks/tools/pdfbox/*.class
+benchmarks/results/*
+!benchmarks/results/report.md
 
 # Python cache (benchmarks/scripts/report.py)
 __pycache__/
