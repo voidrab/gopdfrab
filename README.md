@@ -118,9 +118,13 @@ If you require PDF/A-1b compatibility based on Isartor for your application, use
 
 A full example can be found under `main/main.go`
 
-### Import pdfrab
+### Add pdfrab
 
-Import pdfrab for your go project.
+```bash
+go get github.com/voidrab/gopdfrab
+```
+
+### Import pdfrab
 
 ```go
 import (
