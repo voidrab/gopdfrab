@@ -1,19 +1,19 @@
-#summary {"tool":"gopdfrab","mode":"batch","files":773,"valid":266,"invalid":507,"errors":0,"total_bytes":16907649,"total_nanos":2251948294,"files_per_sec":1656.976199695462,"mb_per_sec":34.563688825734104,"max_rss_kb":75988}
+#summary {"tool":"gopdfrab","mode":"batch","files":773,"valid":266,"invalid":507,"errors":0,"total_bytes":16907649,"total_nanos":2219040987,"files_per_sec":1735.7307066217415,"mb_per_sec":36.20646816772123,"max_rss_kb":63252}
 	Command being timed: "/home/thomas/Documents/projects/gopdfrab/benchmarks/tools/gopdfrab-bench -mode=batch /home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b /home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b"
-	User time (seconds): 1.61
-	System time (seconds): 0.18
-	Percent of CPU this job got: 377%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.47
+	User time (seconds): 1.45
+	System time (seconds): 0.20
+	Percent of CPU this job got: 363%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.45
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 75988
+	Maximum resident set size (kbytes): 63252
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 4912
-	Voluntary context switches: 4700
-	Involuntary context switches: 366
+	Minor (reclaiming a frame) page faults: 7020
+	Voluntary context switches: 4596
+	Involuntary context switches: 325
 	Swaps: 0
 	File system inputs: 0
 	File system outputs: 264

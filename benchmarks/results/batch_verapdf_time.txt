@@ -1,4 +1,4 @@
-Jun 20, 2026 7:46:04 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
+Jun 20, 2026 9:24:00 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
 WARNING: Problems with parsing metadata. XML parsing failure
 org.verapdf.xmp.XMPException: XML parsing failure
 	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:306)
@@ -30,7 +30,7 @@ Caused by: org.xml.sax.SAXParseException; lineNumber: 22; columnNumber: 20; XML 
 	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:302)
 	... 22 more
 
-Jun 20, 2026 7:46:04 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
+Jun 20, 2026 9:24:00 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
 WARNING: Problems with parsing metadata. XML parsing failure
 org.verapdf.xmp.XMPException: XML parsing failure
 	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:306)
@@ -62,7 +62,7 @@ Caused by: org.xml.sax.SAXParseException; lineNumber: 3; columnNumber: 70; The p
 	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:302)
 	... 22 more
 
-Jun 20, 2026 7:46:05 PM org.verapdf.gf.model.impl.pd.font.GFPDTrueTypeFont <init>
+Jun 20, 2026 9:24:01 PM org.verapdf.gf.model.impl.pd.font.GFPDTrueTypeFont <init>
 WARNING: Can't parse font program of font RKAJXV+ArialMT
 java.io.IOException: True type font doesn't contain hhea table.(object key = 17 0 obj)
 	at org.verapdf.pd.font.truetype.TrueTypeFontParser.readTables(TrueTypeFontParser.java:99)
@@ -95,7 +95,7 @@ java.io.IOException: True type font doesn't contain hhea table.(object key = 17 
 	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
 	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
 
-Jun 20, 2026 7:46:05 PM org.verapdf.gf.model.impl.pd.font.GFPDType1Font <init>
+Jun 20, 2026 9:24:01 PM org.verapdf.gf.model.impl.pd.font.GFPDType1Font <init>
 WARNING: Can't parse font program of font LuciduxSans-Oblique
 java.io.IOException: Unknown symbol 9 after '>'(offset = 748 in stream 17 0 obj)
 	at org.verapdf.parser.BaseParser.nextToken(BaseParser.java:218)
@@ -129,7 +129,7 @@ java.io.IOException: Unknown symbol 9 after '>'(offset = 748 in stream 17 0 obj)
 	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
 	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
 
-Jun 20, 2026 7:46:05 PM org.verapdf.gf.model.impl.pd.font.GFPDCIDFont <init>
+Jun 20, 2026 9:24:01 PM org.verapdf.gf.model.impl.pd.font.GFPDCIDFont <init>
 WARNING: Can't parse font program of font QFOGKX+ArialMT
 java.io.IOException: True type font doesn't contain hhea table.(object key = 17 0 obj)
 	at org.verapdf.pd.font.truetype.TrueTypeFontParser.readTables(TrueTypeFontParser.java:99)
@@ -163,44 +163,44 @@ java.io.IOException: True type font doesn't contain hhea table.(object key = 17 
 	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
 	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
 
-Jun 20, 2026 7:46:05 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+Jun 20, 2026 9:24:01 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
 WARNING: Stream has no EOL marker(object key = 11 0 obj, offset = 68)
-Jun 20, 2026 7:46:05 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
+Jun 20, 2026 9:24:01 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
 WARNING: Couldn't find expected endstream keyword(object key = 11 0 obj, offset = 75)
-Jun 20, 2026 7:46:05 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+Jun 20, 2026 9:24:01 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
 WARNING: Stream has no EOL marker(object key = 11 0 obj, offset = 68)
-Jun 20, 2026 7:46:05 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
+Jun 20, 2026 9:24:01 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
 WARNING: Couldn't find expected endstream keyword(object key = 11 0 obj, offset = 75)
-Jun 20, 2026 7:46:05 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+Jun 20, 2026 9:24:01 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
 WARNING: Stream has no EOL marker(object key = 13 0 obj, offset = 159)
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.BaseParser readLitString
+Jun 20, 2026 9:24:02 PM org.verapdf.parser.BaseParser readLitString
 WARNING: Content stream string token exceeds 65535 bytes(offset = 70066)
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.BaseParser readLitString
+Jun 20, 2026 9:24:02 PM org.verapdf.parser.BaseParser readLitString
 WARNING: Content stream string token exceeds 65535 bytes(offset = 132725)
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.BaseParser readLitString
+Jun 20, 2026 9:24:03 PM org.verapdf.parser.BaseParser readLitString
 WARNING: Content stream string token exceeds 65535 bytes
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.BaseParser readLitString
+Jun 20, 2026 9:24:03 PM org.verapdf.parser.BaseParser readLitString
 WARNING: Content stream string token exceeds 65535 bytes(offset = 65680)
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.BaseParser readLitString
+Jun 20, 2026 9:24:03 PM org.verapdf.parser.BaseParser readLitString
 WARNING: Content stream string token exceeds 65535 bytes(offset = 65680)
-Jun 20, 2026 7:46:07 PM org.verapdf.parser.PDFParser getXRefInfo
+Jun 20, 2026 9:24:03 PM org.verapdf.parser.PDFParser getXRefInfo
 WARNING: Actual startxref offset 8880 is different from the specified offset 8881
 Command exited with non-zero status 1
 	Command being timed: "/home/thomas/Documents/projects/gopdfrab/benchmarks/tools/verapdf/verapdf -f 1b --format json -r /home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b /home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b"
-	User time (seconds): 36.69
+	User time (seconds): 36.25
 	System time (seconds): 1.28
-	Percent of CPU this job got: 543%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:06.99
+	Percent of CPU this job got: 535%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:07.00
 	Average shared text size (kbytes): 0
 	Average unshared data size (kbytes): 0
 	Average stack size (kbytes): 0
 	Average total size (kbytes): 0
-	Maximum resident set size (kbytes): 863212
+	Maximum resident set size (kbytes): 848704
 	Average resident set size (kbytes): 0
 	Major (requiring I/O) page faults: 0
-	Minor (reclaiming a frame) page faults: 92981
-	Voluntary context switches: 48472
-	Involuntary context switches: 643
+	Minor (reclaiming a frame) page faults: 89600
+	Voluntary context switches: 49763
+	Involuntary context switches: 705
 	Swaps: 0
 	File system inputs: 0
 	File system outputs: 2112
