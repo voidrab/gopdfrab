@@ -237,7 +237,7 @@ func validateTrueTypeEncoding(v PDFDict, desc PDFDict, ctx *ValidationContext) {
 			ctx.Report(Checks.Font.SymbolicTrueTypeEncoding, v, "symbolic TrueType font shall not specify Encoding")
 		}
 		// 6.3.7: a symbolic TrueType cmap shall contain exactly one subtable.
-		if n, ok := trueTypeCmapSubtables(desc); ok && n != 1 {
+		if n, ok := trueTypeCmapSubtables(ctx, desc); ok && n != 1 {
 			ctx.Report(Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", n))
 		}
 		return
@@ -308,7 +308,7 @@ func validateCMapStream(v PDFDict, ctx *ValidationContext) {
 	if v.Entries["Type"] != (PDFName{Value: "CMap"}) || !v.HasStream {
 		return
 	}
-	data, err := decodeStream(v)
+	data, err := ctx.decodeStreamCached(v)
 	if err != nil {
 		return
 	}

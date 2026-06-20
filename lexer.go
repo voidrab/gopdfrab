@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sync"
 	"unicode"
 )
 
@@ -21,13 +22,41 @@ type Lexer struct {
 	pushed []Token
 }
 
+// bufioReaderPool reuses buffers across Lexer construction.
+var bufioReaderPool = sync.Pool{
+	New: func() any { return bufio.NewReaderSize(emptyLexerReader, 4096) },
+}
+
+// emptyLexerReader is a shared, never-mutated zero-length reader used to
+// detach a released bufio.Reader from its previous source before returning
+// it to the pool, so the pool doesn't pin large byte slices in memory.
+var emptyLexerReader = bytes.NewReader(nil)
+
+func acquireBufioReader(r io.Reader) *bufio.Reader {
+	br := bufioReaderPool.Get().(*bufio.Reader)
+	br.Reset(r)
+	return br
+}
+
 // NewLexer creates a lexer for a specific chunk of data.
 func NewLexer(r io.Reader) *Lexer {
-	return &Lexer{reader: bufio.NewReader(r)}
+	return &Lexer{reader: acquireBufioReader(r)}
 }
 
 func NewLexerAt(r io.Reader, offset int64) *Lexer {
-	return &Lexer{reader: bufio.NewReader(r), pos: offset}
+	return &Lexer{reader: acquireBufioReader(r), pos: offset}
+}
+
+// Release returns l's underlying bufio.Reader to the pool for reuse by a
+// later Lexer. Callers that construct a short-lived Lexer (the common case)
+// should defer Release once the lexer is no longer needed.
+func (l *Lexer) Release() {
+	if l.reader == nil {
+		return
+	}
+	l.reader.Reset(emptyLexerReader)
+	bufioReaderPool.Put(l.reader)
+	l.reader = nil
 }
 
 // NextToken returns the next distinct token from the stream.

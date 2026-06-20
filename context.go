@@ -49,6 +49,30 @@ type ValidationContext struct {
 	// spaces defined at page level are inherited by patterns and Form XObjects
 	// that do not define their own Default*.
 	pageResources PDFDict
+
+	decodedStreams map[int][]byte
+}
+
+// decodeStreamCached decodes dict's stream, caching the result by the
+// indirect object number. Dicts without a
+// recorded object number are decoded uncached.
+func (ctx *ValidationContext) decodeStreamCached(dict PDFDict) ([]byte, error) {
+	ref, ok := dict.Entries["_ref"].(PDFRef)
+	if !ok {
+		return decodeStream(dict)
+	}
+	if data, ok := ctx.decodedStreams[ref.ObjNum]; ok {
+		return data, nil
+	}
+	data, err := decodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	if ctx.decodedStreams == nil {
+		ctx.decodedStreams = map[int][]byte{}
+	}
+	ctx.decodedStreams[ref.ObjNum] = data
+	return data, nil
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page

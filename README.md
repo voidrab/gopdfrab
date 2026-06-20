@@ -95,6 +95,20 @@ res, err := doc.VerifyProfile(p)
 
 Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `pdfrab.CheckByClause("6.3.4", 1)` and `pdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
 
+## Performance
+
+gopdfrab's PDF/A-1b verification performance is (unfairily) measured against the Java-based [veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/) on the combined Isartor + veraPDF corpora (773 files); see `benchmarks/README.md` for methodology.
+
+| Benchmark | gopdfrab vs veraPDF | gopdfrab vs PDFBox Preflight |
+|---|---|---|
+| Startup time | 222x faster | 32x faster |
+| Single file throughput | 261x faster | 80x faster |
+| Batch throughput | 16x faster | 12x faster |
+| Batch peak memory | 13x smaller | 14x smaller |
+| Binary size | 5x smaller | 4x smaller |
+
+Due to JVM startup overhead, the startup time and single file verification throughput are significantly slower for veraPFD and Preflight.
+
 ## Isartor Compatibility
 
 The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
@@ -146,6 +160,21 @@ Finally, close doc.
 
 ```
 doc.close()
+```
+
+### Verifying Multiple Files
+
+`VerifyAll` opens, verifies, and closes a batch of files concurrently.
+
+```go
+results := pdfrab.VerifyAll(paths, pdfrab.A_1B)
+for _, r := range results {
+    if r.Err != nil {
+        log.Println(r.Path, r.Err)
+        continue
+    }
+    fmt.Println(r.Path, r.Result.Valid)
+}
 ```
 
 ### Inspecting Issues

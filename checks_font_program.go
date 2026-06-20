@@ -673,7 +673,7 @@ func parseCFFCharStringLengths(cff []byte, csOffset int) []int {
 // defined in the embedded CFF program (6.3.5). CIDs only used to declare a
 // width, never shown, are exempt when usage info is available.
 func validateCIDCFFSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -737,11 +737,11 @@ func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *Validatio
 	if !ok || !cidSet.HasStream {
 		return
 	}
-	bitmap, err := decodeStream(cidSet)
+	bitmap, err := ctx.decodeStreamCached(cidSet)
 	if err != nil {
 		return
 	}
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -767,7 +767,7 @@ func validateCIDSetBitmap(obj PDFValue, desc PDFDict, ff PDFDict, ctx *Validatio
 // are present in the embedded TrueType program (6.3.5). Width-only CIDs that
 // are never shown are exempt when usage info is available.
 func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -796,7 +796,7 @@ func validateCIDTrueTypeSubset(obj PDFValue, ff PDFDict, w PDFArray, ctx *Valida
 // validateCIDTrueTypeMetrics checks that CID advance widths in W match the
 // embedded TrueType hmtx table (6.3.6).
 func validateCIDTrueTypeMetrics(obj PDFValue, ff PDFDict, w PDFArray, ctx *ValidationContext) {
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -829,7 +829,7 @@ func abs(x int) int {
 // validateSimpleTrueTypeSubset checks that all referenced character codes have
 // a corresponding glyph in the embedded TrueType program (6.3.5).
 func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar int, widths PDFArray, ctx *ValidationContext) {
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -909,7 +909,7 @@ func validateSimpleTrueTypeSubset(obj PDFValue, ff PDFDict, firstChar, lastChar 
 // validateSimpleTrueTypeMetrics checks that advance widths in the PDF Widths
 // array match the embedded TrueType hmtx table (6.3.6).
 func validateSimpleTrueTypeMetrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, widths PDFArray, ctx *ValidationContext) {
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
 	}
@@ -990,8 +990,8 @@ func parseSfnt(data []byte) (map[string][]byte, bool) {
 
 // fontProgramValid reports whether the embedded font program in a FontFile is a
 // structurally valid font of its expected type (6.3.2).
-func fontProgramValid(stream PDFDict, key string) bool {
-	data, err := decodeStream(stream)
+func fontProgramValid(ctx *ValidationContext, stream PDFDict, key string) bool {
+	data, err := ctx.decodeStreamCached(stream)
 	if err != nil || len(data) == 0 {
 		return false
 	}
@@ -1019,7 +1019,7 @@ func validateFontProgram(obj PDFValue, desc PDFDict, name string, ctx *Validatio
 		if !ok {
 			continue
 		}
-		if !fontProgramValid(ff, key) {
+		if !fontProgramValid(ctx, ff, key) {
 			ctx.Report(Checks.Font.InvalidProgram, obj, fmt.Sprintf("embedded font program for %s is damaged", name))
 		}
 	}
@@ -1027,12 +1027,12 @@ func validateFontProgram(obj PDFValue, desc PDFDict, name string, ctx *Validatio
 
 // trueTypeCmapSubtables returns the number of cmap subtables in an embedded
 // TrueType font, and whether it could be determined.
-func trueTypeCmapSubtables(desc PDFDict) (int, bool) {
+func trueTypeCmapSubtables(ctx *ValidationContext, desc PDFDict) (int, bool) {
 	ff, ok := desc.Entries["FontFile2"].(PDFDict)
 	if !ok {
 		return 0, false
 	}
-	data, err := decodeStream(ff)
+	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return 0, false
 	}
@@ -1197,7 +1197,7 @@ var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
 func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, widths PDFArray, pdfEncoding string, ctx *ValidationContext) {
-	fontData, err := decodeStream(ff)
+	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return
 	}
@@ -1285,7 +1285,7 @@ func validateCMapWMode(obj PDFValue, cmap PDFDict, ctx *ValidationContext) {
 	if !ok {
 		return
 	}
-	data, err := decodeStream(cmap)
+	data, err := ctx.decodeStreamCached(cmap)
 	if err != nil {
 		return
 	}

@@ -133,6 +133,7 @@ func (d *Document) parseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error
 	limited := io.LimitReader(reader, 2048)
 	buf, _ := io.ReadAll(limited)
 	l := NewLexer(bytes.NewReader(buf))
+	defer l.Release()
 	return parseDictionary(l)
 }
 

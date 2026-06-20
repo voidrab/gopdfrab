@@ -26,28 +26,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	results := pdfrab.VerifyAll(paths, pdfrab.A_1B)
+
 	pass, fail, errCount := 0, 0, 0
-	for _, path := range paths {
-		doc, err := pdfrab.Open(path)
-		if err != nil {
-			fmt.Printf("[ERROR] %s: %v\n", path, err)
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			fmt.Printf("[ERROR] %s: %v\n", r.Path, r.Err)
 			errCount++
-			continue
-		}
-
-		v, err := doc.Verify(pdfrab.A_1B)
-		doc.Close()
-		if err != nil {
-			fmt.Printf("[ERROR] %s: %v\n", path, err)
-			errCount++
-			continue
-		}
-
-		if v.Valid {
-			fmt.Printf("[PASS] %s\n", path)
+		case r.Result.Valid:
+			fmt.Printf("[PASS] %s\n", r.Path)
 			pass++
-		} else {
-			fmt.Printf("[FAIL] %s: %s\n", path, v.Summary())
+		default:
+			fmt.Printf("[FAIL] %s: %s\n", r.Path, r.Result.Summary())
 			fail++
 		}
 	}
