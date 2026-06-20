@@ -30,3 +30,17 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Benchmarking
+benchmarks/tools/*.jar
+benchmarks/tools/*.zip
+benchmarks/tools/*.class
+benchmarks/tools/verapdf/
+benchmarks/tools/gopdfrab-bench
+benchmarks/tools/pdfbox/*.jar
+benchmarks/tools/pdfbox/*.class
+benchmarks/js/node_modules/
+
+# Python cache (benchmarks/scripts/report.py)
+__pycache__/
+*.pyc

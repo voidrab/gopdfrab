@@ -1,0 +1,211 @@
+Jun 20, 2026 4:11:53 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
+WARNING: Problems with parsing metadata. XML parsing failure
+org.verapdf.xmp.XMPException: XML parsing failure
+	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:306)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXmlFromBytebuffer(XMPMetaParser.java:239)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXmlFromInputStream(XMPMetaParser.java:189)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXml(XMPMetaParser.java:154)
+	at org.verapdf.xmp.impl.XMPMetaParser.parse(XMPMetaParser.java:97)
+	at org.verapdf.xmp.XMPMetaFactory.parse(XMPMetaFactory.java:120)
+	at org.verapdf.xmp.impl.VeraPDFMeta.parse(VeraPDFMeta.java:125)
+	at org.verapdf.gf.model.impl.pd.GFPDMetadata.getXMPPackage(GFPDMetadata.java:109)
+	at org.verapdf.gf.model.impl.pd.GFPDMetadata.getLinkedObjects(GFPDMetadata.java:96)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.addAllLinkedObjects(BaseValidator.java:285)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.checkNext(BaseValidator.java:250)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validate(BaseValidator.java:185)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validateAll(BaseValidator.java:149)
+	at org.verapdf.processor.ProcessorImpl.validate(ProcessorImpl.java:241)
+	at org.verapdf.processor.ProcessorImpl.process(ProcessorImpl.java:119)
+	at org.verapdf.processor.BatchFileProcessor.processItem(BatchFileProcessor.java:167)
+	at org.verapdf.processor.BatchFileProcessor.processList(BatchFileProcessor.java:85)
+	at org.verapdf.processor.AbstractBatchProcessor.process(AbstractBatchProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCliProcessor.processFilePaths(VeraPdfCliProcessor.java:143)
+	at org.verapdf.cli.VeraPdfCliProcessor.processPaths(VeraPdfCliProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCli.singleThreadProcess(VeraPdfCli.java:143)
+	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
+	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
+Caused by: org.xml.sax.SAXParseException; lineNumber: 22; columnNumber: 20; XML document structures must start and end within the same entity.
+	at java.xml/com.sun.org.apache.xerces.internal.parsers.DOMParser.parse(DOMParser.java:262)
+	at java.xml/com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderImpl.parse(DocumentBuilderImpl.java:342)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:302)
+	... 22 more
+
+Jun 20, 2026 4:11:53 PM org.verapdf.gf.model.impl.pd.GFPDMetadata getXMPPackage
+WARNING: Problems with parsing metadata. XML parsing failure
+org.verapdf.xmp.XMPException: XML parsing failure
+	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:306)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXmlFromBytebuffer(XMPMetaParser.java:239)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXmlFromInputStream(XMPMetaParser.java:189)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseXml(XMPMetaParser.java:154)
+	at org.verapdf.xmp.impl.XMPMetaParser.parse(XMPMetaParser.java:97)
+	at org.verapdf.xmp.XMPMetaFactory.parse(XMPMetaFactory.java:120)
+	at org.verapdf.xmp.impl.VeraPDFMeta.parse(VeraPDFMeta.java:125)
+	at org.verapdf.gf.model.impl.pd.GFPDMetadata.getXMPPackage(GFPDMetadata.java:109)
+	at org.verapdf.gf.model.impl.pd.GFPDMetadata.getLinkedObjects(GFPDMetadata.java:96)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.addAllLinkedObjects(BaseValidator.java:285)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.checkNext(BaseValidator.java:250)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validate(BaseValidator.java:185)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validateAll(BaseValidator.java:149)
+	at org.verapdf.processor.ProcessorImpl.validate(ProcessorImpl.java:241)
+	at org.verapdf.processor.ProcessorImpl.process(ProcessorImpl.java:119)
+	at org.verapdf.processor.BatchFileProcessor.processItem(BatchFileProcessor.java:167)
+	at org.verapdf.processor.BatchFileProcessor.processList(BatchFileProcessor.java:85)
+	at org.verapdf.processor.AbstractBatchProcessor.process(AbstractBatchProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCliProcessor.processFilePaths(VeraPdfCliProcessor.java:143)
+	at org.verapdf.cli.VeraPdfCliProcessor.processPaths(VeraPdfCliProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCli.singleThreadProcess(VeraPdfCli.java:143)
+	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
+	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
+Caused by: org.xml.sax.SAXParseException; lineNumber: 3; columnNumber: 70; The prefix "RDF" for element "RDF:RDF" is not bound.
+	at java.xml/com.sun.org.apache.xerces.internal.parsers.DOMParser.parse(DOMParser.java:262)
+	at java.xml/com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderImpl.parse(DocumentBuilderImpl.java:342)
+	at org.verapdf.xmp.impl.XMPMetaParser.parseInputSource(XMPMetaParser.java:302)
+	... 22 more
+
+Jun 20, 2026 4:11:54 PM org.verapdf.gf.model.impl.pd.font.GFPDTrueTypeFont <init>
+WARNING: Can't parse font program of font RKAJXV+ArialMT
+java.io.IOException: True type font doesn't contain hhea table.(object key = 17 0 obj)
+	at org.verapdf.pd.font.truetype.TrueTypeFontParser.readTables(TrueTypeFontParser.java:99)
+	at org.verapdf.pd.font.truetype.BaseTrueTypeProgram.parseFont(BaseTrueTypeProgram.java:71)
+	at org.verapdf.pd.font.truetype.TrueTypeFontProgram.parseFont(TrueTypeFontProgram.java:74)
+	at org.verapdf.gf.model.impl.pd.font.GFPDTrueTypeFont.<init>(GFPDTrueTypeFont.java:57)
+	at org.verapdf.gf.model.factory.fonts.FontFactory.parseFont(FontFactory.java:81)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.parseFont(GFOpTextShow.java:193)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.getVeraModelFont(GFOpTextShow.java:133)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.addFontAndColorSpace(OperatorParser.java:659)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.parseOperator(OperatorParser.java:340)
+	at org.verapdf.gf.model.factory.operators.OperatorFactory.operatorsFromTokens(OperatorFactory.java:114)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.parseOperators(GFPDContentStream.java:154)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.isContainsTransparency(GFPDContentStream.java:197)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.parseContentStream(GFPDPage.java:253)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getContentStream(GFPDPage.java:234)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getLinkedObjects(GFPDPage.java:133)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.addAllLinkedObjects(BaseValidator.java:285)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.checkNext(BaseValidator.java:250)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validate(BaseValidator.java:185)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validateAll(BaseValidator.java:149)
+	at org.verapdf.processor.ProcessorImpl.validate(ProcessorImpl.java:241)
+	at org.verapdf.processor.ProcessorImpl.process(ProcessorImpl.java:119)
+	at org.verapdf.processor.BatchFileProcessor.processItem(BatchFileProcessor.java:167)
+	at org.verapdf.processor.BatchFileProcessor.processList(BatchFileProcessor.java:85)
+	at org.verapdf.processor.AbstractBatchProcessor.process(AbstractBatchProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCliProcessor.processFilePaths(VeraPdfCliProcessor.java:143)
+	at org.verapdf.cli.VeraPdfCliProcessor.processPaths(VeraPdfCliProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCli.singleThreadProcess(VeraPdfCli.java:143)
+	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
+	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
+
+Jun 20, 2026 4:11:54 PM org.verapdf.gf.model.impl.pd.font.GFPDType1Font <init>
+WARNING: Can't parse font program of font LuciduxSans-Oblique
+java.io.IOException: Unknown symbol 9 after '>'(offset = 748 in stream 17 0 obj)
+	at org.verapdf.parser.BaseParser.nextToken(BaseParser.java:218)
+	at org.verapdf.pd.font.type1.Type1PrivateParser.parse(Type1PrivateParser.java:85)
+	at org.verapdf.pd.font.type1.Type1FontProgram.processObject(Type1FontProgram.java:177)
+	at org.verapdf.pd.font.type1.Type1FontProgram.parseFont(Type1FontProgram.java:150)
+	at org.verapdf.gf.model.impl.pd.font.GFPDType1Font.<init>(GFPDType1Font.java:70)
+	at org.verapdf.gf.model.factory.fonts.FontFactory.parseFont(FontFactory.java:78)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.parseFont(GFOpTextShow.java:193)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.getVeraModelFont(GFOpTextShow.java:133)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.addFontAndColorSpace(OperatorParser.java:659)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.parseOperator(OperatorParser.java:340)
+	at org.verapdf.gf.model.factory.operators.OperatorFactory.operatorsFromTokens(OperatorFactory.java:114)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.parseOperators(GFPDContentStream.java:154)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.isContainsTransparency(GFPDContentStream.java:197)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.parseContentStream(GFPDPage.java:253)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getContentStream(GFPDPage.java:234)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getLinkedObjects(GFPDPage.java:133)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.addAllLinkedObjects(BaseValidator.java:285)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.checkNext(BaseValidator.java:250)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validate(BaseValidator.java:185)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validateAll(BaseValidator.java:149)
+	at org.verapdf.processor.ProcessorImpl.validate(ProcessorImpl.java:241)
+	at org.verapdf.processor.ProcessorImpl.process(ProcessorImpl.java:119)
+	at org.verapdf.processor.BatchFileProcessor.processItem(BatchFileProcessor.java:167)
+	at org.verapdf.processor.BatchFileProcessor.processList(BatchFileProcessor.java:85)
+	at org.verapdf.processor.AbstractBatchProcessor.process(AbstractBatchProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCliProcessor.processFilePaths(VeraPdfCliProcessor.java:143)
+	at org.verapdf.cli.VeraPdfCliProcessor.processPaths(VeraPdfCliProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCli.singleThreadProcess(VeraPdfCli.java:143)
+	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
+	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
+
+Jun 20, 2026 4:11:54 PM org.verapdf.gf.model.impl.pd.font.GFPDCIDFont <init>
+WARNING: Can't parse font program of font QFOGKX+ArialMT
+java.io.IOException: True type font doesn't contain hhea table.(object key = 17 0 obj)
+	at org.verapdf.pd.font.truetype.TrueTypeFontParser.readTables(TrueTypeFontParser.java:99)
+	at org.verapdf.pd.font.truetype.BaseTrueTypeProgram.parseFont(BaseTrueTypeProgram.java:71)
+	at org.verapdf.gf.model.impl.pd.font.GFPDCIDFont.<init>(GFPDCIDFont.java:72)
+	at org.verapdf.gf.model.impl.pd.font.GFPDType0Font.calculateDescendantFont(GFPDType0Font.java:101)
+	at org.verapdf.gf.model.impl.pd.font.GFPDType0Font.<init>(GFPDType0Font.java:59)
+	at org.verapdf.gf.model.factory.fonts.FontFactory.parseFont(FontFactory.java:74)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.parseFont(GFOpTextShow.java:193)
+	at org.verapdf.gf.model.impl.operator.textshow.GFOpTextShow.getVeraModelFont(GFOpTextShow.java:133)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.addFontAndColorSpace(OperatorParser.java:659)
+	at org.verapdf.gf.model.factory.operators.OperatorParser.parseOperator(OperatorParser.java:340)
+	at org.verapdf.gf.model.factory.operators.OperatorFactory.operatorsFromTokens(OperatorFactory.java:114)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.parseOperators(GFPDContentStream.java:154)
+	at org.verapdf.gf.model.impl.pd.GFPDContentStream.isContainsTransparency(GFPDContentStream.java:197)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.parseContentStream(GFPDPage.java:253)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getContentStream(GFPDPage.java:234)
+	at org.verapdf.gf.model.impl.pd.GFPDPage.getLinkedObjects(GFPDPage.java:133)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.addAllLinkedObjects(BaseValidator.java:285)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.checkNext(BaseValidator.java:250)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validate(BaseValidator.java:185)
+	at org.verapdf.pdfa.validation.validators.BaseValidator.validateAll(BaseValidator.java:149)
+	at org.verapdf.processor.ProcessorImpl.validate(ProcessorImpl.java:241)
+	at org.verapdf.processor.ProcessorImpl.process(ProcessorImpl.java:119)
+	at org.verapdf.processor.BatchFileProcessor.processItem(BatchFileProcessor.java:167)
+	at org.verapdf.processor.BatchFileProcessor.processList(BatchFileProcessor.java:85)
+	at org.verapdf.processor.AbstractBatchProcessor.process(AbstractBatchProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCliProcessor.processFilePaths(VeraPdfCliProcessor.java:143)
+	at org.verapdf.cli.VeraPdfCliProcessor.processPaths(VeraPdfCliProcessor.java:104)
+	at org.verapdf.cli.VeraPdfCli.singleThreadProcess(VeraPdfCli.java:143)
+	at org.verapdf.cli.VeraPdfCli.main(VeraPdfCli.java:112)
+	at org.verapdf.apps.GreenfieldCliWrapper.main(GreenfieldCliWrapper.java:54)
+
+Jun 20, 2026 4:11:54 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+WARNING: Stream has no EOL marker(object key = 11 0 obj, offset = 68)
+Jun 20, 2026 4:11:54 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
+WARNING: Couldn't find expected endstream keyword(object key = 11 0 obj, offset = 75)
+Jun 20, 2026 4:11:54 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+WARNING: Stream has no EOL marker(object key = 11 0 obj, offset = 68)
+Jun 20, 2026 4:11:54 PM org.verapdf.parser.SeekableCOSParser checkStreamLength
+WARNING: Couldn't find expected endstream keyword(object key = 11 0 obj, offset = 75)
+Jun 20, 2026 4:11:54 PM org.verapdf.parser.SeekableCOSParser checkStreamSpacings
+WARNING: Stream has no EOL marker(object key = 13 0 obj, offset = 159)
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.BaseParser readLitString
+WARNING: Content stream string token exceeds 65535 bytes(offset = 70066)
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.BaseParser readLitString
+WARNING: Content stream string token exceeds 65535 bytes(offset = 132725)
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.BaseParser readLitString
+WARNING: Content stream string token exceeds 65535 bytes
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.BaseParser readLitString
+WARNING: Content stream string token exceeds 65535 bytes(offset = 65680)
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.BaseParser readLitString
+WARNING: Content stream string token exceeds 65535 bytes(offset = 65680)
+Jun 20, 2026 4:11:55 PM org.verapdf.parser.PDFParser getXRefInfo
+WARNING: Actual startxref offset 8880 is different from the specified offset 8881
+Command exited with non-zero status 1
+	Command being timed: "/home/thomas/Documents/projects/gopdfrab/benchmarks/tools/verapdf/verapdf -f 1b --format json -r /home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b /home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b"
+	User time (seconds): 26.24
+	System time (seconds): 0.87
+	Percent of CPU this job got: 539%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:05.02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 733616
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 221307
+	Voluntary context switches: 62190
+	Involuntary context switches: 2831
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 2112
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 1

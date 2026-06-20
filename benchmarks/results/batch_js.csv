@@ -1,0 +1,774 @@
+path,size_bytes,nanos,valid,err,issues
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-a.pdf,9264,8660145,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf,9137,482901,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-c.pdf,9219,337380,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.11 Embedded Files/isartor-6-1-11-t01-fail-a.pdf,2632,290695,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.11 Embedded Files/isartor-6-1-11-t02-fail-a.pdf,3643,310479,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-a.pdf,4010934,17843706,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-b.pdf,3548,274887,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf,3448,96468,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-d.pdf,3449,112386,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.13 Optional content/isartor-6-1-13-t01-fail-a.pdf,3479,142998,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.2 File header/isartor-6-1-2-t01-fail-a.pdf,2536,1083958,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.2 File header/isartor-6-1-2-t02-fail-a.pdf,2514,103703,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t01-fail-a.pdf,2423,102220,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t02-fail-a.pdf,2887,530334,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t03-fail-a.pdf,2522,100425,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.3 File trailer/isartor-6-1-3-t04-fail-a.pdf,3261,119370,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.4 Cross reference trailer/isartor-6-1-4-t01-fail-a.pdf,2541,1588570,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.4 Cross reference trailer/isartor-6-1-4-t02-fail-a.pdf,2545,113694,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.6 String objects/isartor-6-1-6-t01-fail-a.pdf,2641,87344,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t01-fail-a.pdf,2521,90185,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t02-fail-a.pdf,2504,80129,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t03-fail-a.pdf,2511,79830,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t04-fail-a.pdf,2745,81689,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t04-fail-b.pdf,2793,75780,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.7 Stream objects/isartor-6-1-7-t04-fail-c.pdf,2857,88712,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t01-fail-a.pdf,2540,80094,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t02-fail-a.pdf,2532,79111,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t03-fail-a.pdf,2509,73960,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t04-fail-a.pdf,2504,76031,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t05-fail-a.pdf,2501,73438,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.8 Indirect objects/isartor-6-1-8-t06-fail-a.pdf,2504,77214,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf,2536,76966,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-b.pdf,2557,74030,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-c.pdf,5843,95981,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.2 Output intent/isartor-6-2-2-t01-fail-a.pdf,5642,115199,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.2 Output intent/isartor-6-2-2-t02-fail-a.pdf,3023,84610,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.2 Output intent/isartor-6-2-2-t02-fail-b.pdf,5002,624947,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.2 Output intent/isartor-6-2-2-t03-fail-a.pdf,8525,83347,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t01-fail-a.pdf,5672,82760,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-a.pdf,2715,83014,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-b.pdf,389112,478335,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-c.pdf,20201,109335,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-d.pdf,406597,667307,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-e.pdf,5091,92009,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-f.pdf,3707,77056,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-g.pdf,2948,87968,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-h.pdf,3251,83581,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-i.pdf,3241,83118,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t02-fail-j.pdf,2917,76085,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t03-fail-a.pdf,2718,82551,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t03-fail-b.pdf,5654,98057,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t03-fail-c.pdf,26008,117652,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t03-fail-d.pdf,28944,134370,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t03-fail-e.pdf,9776,91451,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t04-fail-a.pdf,2712,76771,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t04-fail-b.pdf,8591,92063,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t04-fail-c.pdf,5095,87521,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t04-fail-d.pdf,2717,81214,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t05-fail-a.pdf,9468,96747,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.3 Uncalibrated colour spaces/isartor-6-2-3-3-t05-fail-b.pdf,4653,95076,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.4 Separation and DeviceN colour spaces/isartor-6-2-3-4-t01-fail-a.pdf,3011,83859,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.3 Colour spaces/6.2.3.4 Separation and DeviceN colour spaces/isartor-6-2-3-4-t01-fail-b.pdf,3005,88107,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.4 Images/isartor-6-2-4-t01-fail-a.pdf,29135,120281,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.4 Images/isartor-6-2-4-t02-fail-a.pdf,23199,113061,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.4 Images/isartor-6-2-4-t03-fail-a.pdf,23098,112246,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.4 Images/isartor-6-2-4-t04-fail-a.pdf,23094,109699,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.5 Form Xobjects/isartor-6-2-5-t01-fail-a.pdf,2818,76766,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.6 Reference XObjects/isartor-6-2-6-t01-fail-a.pdf,3748,96304,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.7 PostScript XObjects/isartor-6-2-7-t01-fail-a.pdf,2721,78107,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.7 PostScript XObjects/isartor-6-2-7-t02-fail-a.pdf,2858,78112,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t01-fail-a.pdf,5888,87598,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t01-fail-b.pdf,5871,86591,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t01-fail-c.pdf,5685,86421,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t01-fail-d.pdf,5683,88386,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t02-fail-a.pdf,5909,86395,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t02-fail-b.pdf,5892,83550,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.8 Extended graphics state/isartor-6-2-8-t02-fail-c.pdf,5706,84385,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf,5614,98804,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.2 Font types/isartor-6-3-2-t01-fail-a.pdf,34951,132807,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.2 Font types/isartor-6-3-2-t01-fail-b.pdf,42594,140570,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.2 Font types/isartor-6-3-2-t01-fail-c.pdf,32885,123767,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.1 General/isartor-6-3-3-1-t01-fail-a.pdf,65076,168316,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.1 General/isartor-6-3-3-1-t01-fail-b.pdf,65076,172209,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.2 CIDFonts/isartor-6-3-3-2-t01-fail-a.pdf,16792,101346,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.3 CMaps/isartor-6-3-3-3-t01-fail-a.pdf,6951,89277,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.3 Composite fonts/6.3.3.3 CMaps/isartor-6-3-3-3-t02-fail-a.pdf,65068,176241,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-a.pdf,4901,83802,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-b.pdf,4955,84101,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-c.pdf,63588,165716,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-d.pdf,4915,84033,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-e.pdf,5297,86018,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-f.pdf,9780,96302,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-g.pdf,7784,608518,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-h.pdf,5276,80972,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t01-fail-a.pdf,10172,87382,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t01-fail-b.pdf,21678,104080,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t01-fail-c.pdf,19443,110232,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t01-fail-d.pdf,20511,104350,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf,19088,102436,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t03-fail-a.pdf,20256,109539,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-a.pdf,42615,139987,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf,203097,379319,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-c.pdf,204327,384921,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.7 Character encodings/isartor-6-3-7-t01-fail-a.pdf,21419,111698,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.7 Character encodings/isartor-6-3-7-t02-fail-a.pdf,9245,89308,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.7 Character encodings/isartor-6-3-7-t03-fail-a.pdf,54926,159151,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t01-fail-a.pdf,6075,86686,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t01-fail-b.pdf,7035,88617,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t02-fail-a.pdf,6018,96406,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t03-fail-a.pdf,5694,92976,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t04-fail-a.pdf,5683,86994,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t05-fail-a.pdf,5680,82669,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-a.pdf,114221,250505,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-b.pdf,15816,103377,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-c.pdf,11371,93645,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-d.pdf,11357,103568,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-e.pdf,9737,92092,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-f.pdf,9572,94645,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-g.pdf,8838,407215,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t01-fail-h.pdf,10332,102768,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-a.pdf,10733,118607,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-b.pdf,8916,97719,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-c.pdf,86380,236736,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t01-fail-a.pdf,9524,94189,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t02-fail-a.pdf,9489,97850,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t02-fail-b.pdf,9506,96795,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t02-fail-c.pdf,9509,91545,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t02-fail-d.pdf,9512,94299,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t02-fail-e.pdf,9510,94621,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t03-fail-a.pdf,6508,93638,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t03-fail-b.pdf,398541,699308,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t03-fail-c.pdf,6509,86523,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t03-fail-d.pdf,398544,1192053,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t04-fail-a.pdf,16287,98587,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t04-fail-b.pdf,21052,105763,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t04-fail-c.pdf,21018,105129,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.5 Annotations/6.5.3 Annotation dictionaries/isartor-6-5-3-t04-fail-d.pdf,16297,99017,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-a.pdf,3733,85722,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-b.pdf,3662,78657,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-c.pdf,3845,80023,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-d.pdf,3643,76784,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-e.pdf,3683,82796,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-f.pdf,3675,87283,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-g.pdf,3640,82472,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-h.pdf,3625,82657,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t01-fail-i.pdf,3661,78964,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-a.pdf,3626,84763,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-b.pdf,3556,76933,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-c.pdf,3824,83426,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-d.pdf,3568,79969,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-e.pdf,3608,84353,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-f.pdf,3605,85529,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-g.pdf,3565,85369,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-h.pdf,3550,82244,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t02-fail-i.pdf,3586,77489,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-a.pdf,3511,86817,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-b.pdf,3442,79128,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-c.pdf,3710,93926,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-d.pdf,3450,86937,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-e.pdf,3489,91449,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-f.pdf,3486,79089,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-g.pdf,3448,95680,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-h.pdf,3438,79491,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t03-fail-i.pdf,3472,78222,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-a.pdf,3513,77540,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-b.pdf,3444,82348,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-c.pdf,3712,79035,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-d.pdf,3452,82332,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-e.pdf,3491,73448,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-f.pdf,3488,124945,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-g.pdf,3450,78470,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-h.pdf,3440,86704,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.1 General/isartor-6-6-1-t04-fail-i.pdf,3474,80902,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.6 Actions/6.6.2 Trigger events/isartor-6-6-2-t01-fail-a.pdf,3487,83079,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.11 Version and conformance level identification/isartor-6-7-11-t01-fail-a.pdf,3409,74590,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.11 Version and conformance level identification/isartor-6-7-11-t01-fail-b.pdf,3419,78223,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.11 Version and conformance level identification/isartor-6-7-11-t01-fail-c.pdf,3416,75987,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.11 Version and conformance level identification/isartor-6-7-11-t01-fail-d.pdf,3410,78531,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t01-fail-a.pdf,2021,72475,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t02-fail-a.pdf,3369,87744,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t02-fail-b.pdf,3598,75986,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t02-fail-c.pdf,3773,76089,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.2 Properties/isartor-6-7-2-t03-fail-a.pdf,2701,75141,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.3 Document information dictionary/isartor-6-7-3-t01-fail-a.pdf,4029,79488,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.3 Document information dictionary/isartor-6-7-3-t01-fail-b.pdf,4031,85722,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.3 Document information dictionary/isartor-6-7-3-t01-fail-c.pdf,4036,81985,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.5 XMP header/isartor-6-7-5-t01-fail-a.pdf,3405,75903,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.5 XMP header/isartor-6-7-5-t02-fail-a.pdf,3414,79913,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t01-fail-a.pdf,3573,76407,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-a.pdf,4793,80272,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-b.pdf,4780,82209,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-c.pdf,4777,80426,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-d.pdf,4792,83196,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-e.pdf,4721,87058,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-f.pdf,6805,84781,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-g.pdf,6888,82471,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-h.pdf,6774,86064,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-i.pdf,6805,83367,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-j.pdf,6887,87624,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.8 Extension schemas/isartor-6-7-8-t02-fail-k.pdf,6766,97027,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.7 Metadata/6.7.9 Validation/isartor-6-7-9-t01-fail-a.pdf,3380,81053,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t01-fail-a.pdf,47977,166704,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t02-fail-a.pdf,48396,154973,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/Isartor testsuite/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t02-fail-b.pdf,48397,150871,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-a.pdf,41262,132870,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-b.pdf,42013,140861,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-c.pdf,3651,77159,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-d.pdf,41718,141760,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t01-fail-a.pdf,9730,90015,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-c.pdf,49913,148484,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-d.pdf,50014,150052,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-e.pdf,49913,676282,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-f.pdf,50015,134608,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-l.pdf,9411,83027,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-g.pdf,49892,129786,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-h.pdf,49991,135896,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-i.pdf,49894,134791,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-j.pdf,49995,135027,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-k.pdf,9734,82462,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-pass-l.pdf,49981,140701,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf,75387,174428,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-b.pdf,140811,266661,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-c.pdf,74973,187376,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-d.pdf,75010,738200,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-pass-a.pdf,75177,205023,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-pass-b.pdf,75175,184290,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t04-fail-a.pdf,3401,84875,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t04-pass-a.pdf,9748,144253,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t06-fail-a.pdf,481952,1318461,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-fail-a.pdf,9554,290360,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-pass-a.pdf,11108,207903,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-pass-b.pdf,3772,173120,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-pass-c.pdf,11913,197167,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t09-fail-a.pdf,12492,192314,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t10-fail-a.pdf,12192,195558,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t10-fail-b.pdf,12545,207235,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t01-fail-a.pdf,9393,1386815,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t01-fail-b.pdf,9402,427254,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t01-pass-a.pdf,4048,193664,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t02-fail-a.pdf,9437,199013,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t02-fail-b.pdf,9420,177554,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t02-fail-c.pdf,9461,190769,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.2 File header/veraPDF test suite 6-1-2-t02-pass-a.pdf,9469,200173,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t01-fail-a.pdf,5670,184585,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t01-pass-a.pdf,5923,1508644,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t02-fail-a.pdf,8548,246837,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.3 File trailer/veraPDF test suite 6-1-3-t02-pass-a.pdf,8951,200818,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t01-fail-a.pdf,5858,535906,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t01-fail-b.pdf,5858,471902,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-a.pdf,5481,205248,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf,5875,207191,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t03-fail-a.pdf,8581,2078797,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t03-pass-a.pdf,9573,223295,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t03-pass-b.pdf,9521,175692,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-a.pdf,10083,185440,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-b.pdf,10086,182555,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-c.pdf,10268,165890,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-d.pdf,10099,158251,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-e.pdf,10085,158989,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-f.pdf,10086,154700,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-g.pdf,10077,157093,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-h.pdf,10087,170226,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-i.pdf,10220,159347,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t01-fail-j.pdf,10122,180502,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t02-pass-a.pdf,10130,157036,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t02-pass-b.pdf,10150,161383,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t02-pass-c.pdf,10198,176306,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.5 Document information dictionary/veraPDF test suite 6-1-5-t02-pass-d.pdf,10160,159805,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf,41296,224762,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf,41306,212918,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-pass-a.pdf,41630,203832,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.8 Indirect objects/veraPDF test suite 6-1-8-t01-fail-a.pdf,5665,163432,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.10 Content streams/veraPDF test suite 6-2-10-t02-pass-a.pdf,10049,154091,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.2 Output intent/veraPDF test suite 6-2-2-t01-pass-a.pdf,3024,140788,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.2 Output intent/veraPDF test suite 6-2-2-t02-fail-a.pdf,6788,149218,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.2 Output intent/veraPDF test suite 6-2-2-t03-fail-a.pdf,5544,147769,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.2 Output intent/veraPDF test suite 6-2-2-t03-fail-b.pdf,5463,145727,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.2 ICCBased colour spaces/veraPDF test suite 6-2-3-2-t01-pass-a.pdf,3463,148192,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-a.pdf,391823,695759,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-b.pdf,387811,689848,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-c.pdf,2676,146165,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-d.pdf,22871,168688,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-e.pdf,22824,175796,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-f.pdf,22851,167791,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-h.pdf,3686,138263,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-i.pdf,3687,141084,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-j.pdf,3690,139990,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-k.pdf,3688,146613,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-l.pdf,3727,155620,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-m.pdf,3726,148698,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-n.pdf,3690,261955,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-o.pdf,3728,139593,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-p.pdf,3728,144171,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-t.pdf,8731,160304,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-u.pdf,22857,171131,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-v.pdf,22824,244451,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-pass-a.pdf,7572,127385,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-pass-b.pdf,451308,651875,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-pass-c.pdf,41339,165472,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t02-fail-a.pdf,8717,126038,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t02-fail-b.pdf,8764,126140,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t02-fail-c.pdf,8764,122808,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t02-pass-a.pdf,105367,249163,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t02-pass-b.pdf,41348,153355,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-fail-a.pdf,4456,124905,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-fail-b.pdf,3800,121135,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-a.pdf,3691,113241,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-b.pdf,2660,102896,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-c.pdf,387431,573689,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-d.pdf,2564,104240,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-e.pdf,392267,564779,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-f.pdf,444468,593614,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-g.pdf,387742,534716,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-i.pdf,3295,99291,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-j.pdf,388437,494498,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t03-pass-k.pdf,3359,85434,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.4 Separation and DeviceN colour spaces/veraPDF test suite 6-2-3-4-t01-pass-a.pdf,392848,490539,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.4 Separation and DeviceN colour spaces/veraPDF test suite 6-2-3-4-t01-pass-b.pdf,491877,565903,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.4 Images/veraPDF test suite 6-2-4-t03-fail-a.pdf,10473,90295,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.4 Images/veraPDF test suite 6-2-4-t03-pass-a.pdf,77857,155770,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.5 Form XObjects/veraPDF test suite 6-2-5-t02-fail-a.pdf,9572,86104,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.5 Form XObjects/veraPDF test suite 6-2-5-t02-pass-a.pdf,9709,86019,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.5 Form XObjects/veraPDF test suite 6-2-5-t03-fail-a.pdf,9709,84849,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.5 Form XObjects/veraPDF test suite 6-2-5-t03-pass-a.pdf,9836,156655,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.8 Extended graphics state/veraPDF test suite 6-2-8-t02-pass-a.pdf,9588,88013,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.8 Extended graphics state/veraPDF test suite 6-2-8-t03-fail-a.pdf,9559,86103,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.8 Extended graphics state/veraPDF test suite 6-2-8-t03-pass-a.pdf,10124,92227,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-fail-a.pdf,10472,84485,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-pass-a.pdf,9740,86417,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-pass-b.pdf,13867,92946,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.3.1 General/veraPDF test suite 6-3-3-1-t01-fail-a.pdf,12368,95469,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.3.1 General/veraPDF test suite 6-3-3-1-t01-fail-b.pdf,12368,89268,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.3.1 General/veraPDF test suite 6-3-3-1-t01-pass-a.pdf,12379,83550,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.3.2 CIDFonts/veraPDF test suite 6-3-3-2-t01-pass-a.pdf,15905,85018,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.3.2 CIDFonts/veraPDF test suite 6-3-3-2-t01-pass-b.pdf,15854,83909,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-a.pdf,10324,87444,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-b.pdf,10359,84177,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-c.pdf,10400,83100,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-pass-a.pdf,10452,86793,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-pass-b.pdf,10461,93430,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-a.pdf,16933,96094,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-b.pdf,17134,91088,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-c.pdf,17019,88768,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.6 Font metrics/veraPDF test suite 6-3-6-t01-fail-a.pdf,3631,73159,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.6 Font metrics/veraPDF test suite 6-3-6-t01-pass-a.pdf,29813,99292,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t01-pass-a.pdf,9527,79051,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t02-fail-b.pdf,9880,78956,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t03-pass-a.pdf,5865,77334,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t03-pass-b.pdf,5815,75963,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t04-fail-a.pdf,5795,80258,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.5 Annotations/6.5.3 Annotation dictionaries/veraPDF test suite 6-5-3-t01-fail-a.pdf,5737,85373,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.5 Annotations/6.5.3 Annotation dictionaries/veraPDF test suite 6-5-3-t01-pass-a.pdf,6065,86201,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.6 Actions/6.6.1 General/veraPDF test suite 6-6-1-t01-fail-a.pdf,6213,86868,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.6 Actions/6.6.1 General/veraPDF test suite 6-6-1-t02-pass-a.pdf,10231,91095,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.6 Actions/6.6.2 Trigger events/veraPDF test suite 6-6-2-t01-fail-a.pdf,24317,148640,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.11 Version and conformance level identification/veraPDF test suite 6-7-11-t02-fail-a.pdf,3145,70593,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.11 Version and conformance level identification/veraPDF test suite 6-7-11-t03-fail-a.pdf,3145,69031,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.11 Version and conformance level identification/veraPDF test suite 6-7-11-t04-fail-a.pdf,3256,72766,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.11 Version and conformance level identification/veraPDF test suite 6-7-11-t05-fail-a.pdf,3154,71662,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-a.pdf,3412,69254,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-b.pdf,3632,71174,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-c.pdf,3454,67690,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-d.pdf,3448,69471,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-e.pdf,3783,69523,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-f.pdf,3563,70570,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-g.pdf,3602,71736,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-h.pdf,3840,75679,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-i.pdf,3987,70407,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-j.pdf,3532,66859,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-k.pdf,3409,67796,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-l.pdf,3463,67690,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-m.pdf,3480,68733,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-n.pdf,3475,68277,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-o.pdf,3465,66231,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-p.pdf,3523,71567,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-q.pdf,3515,66256,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-r.pdf,3443,68687,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-s.pdf,3470,68669,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-t.pdf,3490,67526,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-u.pdf,3994,69083,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t03-fail-v.pdf,3467,68246,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t04-fail-a.pdf,3409,75128,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t04-fail-b.pdf,3427,67210,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t04-fail-c.pdf,3417,83964,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t05-pass-a.pdf,3682,90291,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-a.pdf,3552,70063,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-b.pdf,3588,66997,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-c.pdf,3325,71724,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-d.pdf,3594,73921,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-e.pdf,3632,67556,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-f.pdf,3591,68808,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-g.pdf,3605,98177,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-i.pdf,3543,68567,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-j.pdf,3634,66506,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-k.pdf,3549,73899,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-l.pdf,3603,69319,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-m.pdf,3654,77322,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-n.pdf,3706,78718,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-o.pdf,3517,68127,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-fail-p.pdf,3375,68483,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-a.pdf,3588,70934,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-b.pdf,3483,84636,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-c.pdf,3345,72659,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-d.pdf,3846,71789,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-e.pdf,3665,69372,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-f.pdf,3478,86016,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-g.pdf,3501,156629,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-h.pdf,3553,73536,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-i.pdf,3614,77001,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-j.pdf,3674,69838,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-k.pdf,3650,79025,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-l.pdf,3485,72177,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-m.pdf,3602,71240,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-n.pdf,3645,79196,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-o.pdf,3575,77859,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t06-pass-p.pdf,3609,83886,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-a.pdf,3757,80362,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-b.pdf,3599,152201,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-c.pdf,3399,71755,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-d.pdf,3561,81632,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-e.pdf,3710,70987,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-f.pdf,3565,70799,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-g.pdf,3400,70753,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-h.pdf,3608,67693,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-i.pdf,31796,106156,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-fail-j.pdf,3836,80198,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-a.pdf,3702,76214,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-b.pdf,3501,71038,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-c.pdf,3343,71896,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-d.pdf,3344,68835,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-e.pdf,3657,68080,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-f.pdf,3504,88963,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-g.pdf,3342,67376,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-h.pdf,3480,69794,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-i.pdf,31741,223621,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t07-pass-j.pdf,3931,66984,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-fail-a.pdf,3657,69756,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-fail-b.pdf,3558,67439,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-fail-c.pdf,3560,68331,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-fail-d.pdf,3663,74457,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-fail-e.pdf,3650,67940,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-pass-a.pdf,3548,67294,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-pass-b.pdf,3502,67342,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-pass-c.pdf,3592,68619,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-pass-d.pdf,3697,67255,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t08-pass-e.pdf,3544,69754,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-a.pdf,3621,71195,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-b.pdf,3606,65807,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-c.pdf,4075,74625,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-d.pdf,3621,69513,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-e.pdf,3755,70826,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-f.pdf,3651,69600,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-g.pdf,3631,84461,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-h.pdf,3742,69964,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-i.pdf,3742,69070,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-k.pdf,3780,69582,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-l.pdf,3743,68758,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-m.pdf,3732,73598,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-n.pdf,3609,78449,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-o.pdf,3621,75964,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-p.pdf,3716,79661,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-fail-q.pdf,3819,71379,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-a.pdf,4215,76221,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-b.pdf,3534,71617,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-c.pdf,4352,76849,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-d.pdf,4215,71577,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-e.pdf,3623,68478,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-f.pdf,3514,67910,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-g.pdf,3525,67826,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-h.pdf,3651,67906,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-i.pdf,3636,69558,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-k.pdf,3657,69207,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-l.pdf,3637,67701,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-m.pdf,5006,74680,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-n.pdf,3503,66682,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-o.pdf,4215,73721,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-p.pdf,3660,68087,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t09-pass-q.pdf,3712,75485,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t10-fail-a.pdf,3607,71197,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t10-pass-a.pdf,3918,72677,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t11-fail-a.pdf,3619,74334,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t11-fail-b.pdf,3611,66291,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t11-pass-a.pdf,3670,70102,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t11-pass-b.pdf,3539,209780,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-fail-a.pdf,3585,73999,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-fail-b.pdf,3582,70174,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-fail-c.pdf,3482,67954,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-pass-a.pdf,3480,70254,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-pass-b.pdf,3476,127970,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t12-pass-c.pdf,3339,72038,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-a.pdf,3638,66083,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-b.pdf,3659,72254,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-c.pdf,3610,68033,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-d.pdf,3594,70969,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-e.pdf,3609,77170,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-f.pdf,3602,69485,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-g.pdf,3585,218742,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-h.pdf,3610,3172063,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-i.pdf,3626,115205,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-j.pdf,3602,79875,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-k.pdf,3598,69337,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-l.pdf,3652,70270,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-m.pdf,3650,78629,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-fail-n.pdf,3545,73105,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-a.pdf,3532,77674,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-b.pdf,3517,70730,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-c.pdf,3494,89066,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-d.pdf,3488,93817,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-e.pdf,3500,66963,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-f.pdf,3496,72303,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-g.pdf,3525,81202,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-h.pdf,3504,69594,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-i.pdf,3520,70221,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-j.pdf,3496,73887,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-k.pdf,3492,78136,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-l.pdf,3561,110192,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-m.pdf,3557,64826,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t13-pass-n.pdf,3489,67698,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-a.pdf,3552,74323,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-b.pdf,3554,70401,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-c.pdf,3653,67477,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-d.pdf,3552,67346,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-e.pdf,3594,69101,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-f.pdf,3552,65128,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-g.pdf,3564,66760,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-h.pdf,3576,72672,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-i.pdf,3571,72872,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-j.pdf,3571,67838,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-k.pdf,3604,68506,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-l.pdf,3604,130798,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-m.pdf,3561,68474,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-n.pdf,21260,94849,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-o.pdf,3640,67360,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-p.pdf,3789,77061,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-q.pdf,3688,73266,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-r.pdf,3765,68247,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-s.pdf,3571,71018,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-t.pdf,3696,68001,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-u.pdf,3620,72567,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-v.pdf,3598,65299,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-w.pdf,3616,75751,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-x.pdf,3597,71608,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-fail-y.pdf,3557,66652,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-a.pdf,3495,68562,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-b.pdf,3498,70368,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-c.pdf,3593,67010,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-d.pdf,3496,67876,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-e.pdf,3538,67511,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-f.pdf,3496,66701,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-g.pdf,3508,70448,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-h.pdf,3520,68783,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-i.pdf,3583,80511,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-j.pdf,3511,72709,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-k.pdf,3498,69722,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-l.pdf,3499,70244,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-m.pdf,3505,65822,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-n.pdf,21206,90399,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-o.pdf,3586,73509,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-p.pdf,3738,188360,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-q.pdf,3634,69177,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-r.pdf,3714,67712,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-s.pdf,3511,73165,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-t.pdf,3709,68448,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-u.pdf,3514,67485,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-v.pdf,3492,71929,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-w.pdf,3510,69894,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-x.pdf,3498,70163,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t14-pass-y.pdf,3688,66993,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-a.pdf,3614,76298,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-b.pdf,3623,67337,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-c.pdf,3554,67981,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-d.pdf,3605,72178,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-e.pdf,3650,91287,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-f.pdf,3576,70092,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-g.pdf,3571,67966,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-h.pdf,3611,69292,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-i.pdf,3618,69999,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-j.pdf,3632,148654,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-k.pdf,3599,69339,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-l.pdf,3651,70868,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-m.pdf,3562,85936,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-n.pdf,3620,71627,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-o.pdf,3605,73813,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-p.pdf,3569,67297,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-q.pdf,3641,69111,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-r.pdf,3644,68391,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-s.pdf,3543,68071,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-t.pdf,3635,69752,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-u.pdf,3623,69866,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-v.pdf,3629,76978,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-w.pdf,3635,70209,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-x.pdf,3632,68458,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-fail-y.pdf,3629,67369,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-a.pdf,3511,77736,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-b.pdf,3520,67756,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-c.pdf,3502,70738,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-d.pdf,3662,69317,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-e.pdf,3540,68209,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-f.pdf,3519,68391,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-g.pdf,3519,68830,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-h.pdf,3507,67697,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-i.pdf,3691,68587,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-j.pdf,3531,69290,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-k.pdf,3544,68808,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-l.pdf,3547,69365,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-m.pdf,3510,69109,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-n.pdf,3511,66465,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-o.pdf,3498,73608,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-p.pdf,3517,66990,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-q.pdf,3553,67918,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-r.pdf,3592,68588,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-s.pdf,3768,69476,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-t.pdf,3528,65779,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-u.pdf,3515,68751,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-v.pdf,3525,67456,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-w.pdf,3525,65922,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-x.pdf,3531,321626,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t15-pass-y.pdf,3519,71493,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-a.pdf,3558,69457,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-b.pdf,3546,68034,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-c.pdf,3621,65636,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-d.pdf,3658,75869,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-e.pdf,3611,67775,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-f.pdf,3603,68552,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-g.pdf,3640,67286,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-h.pdf,3640,68783,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-i.pdf,3596,65522,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-j.pdf,3558,69933,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-k.pdf,3646,66506,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-l.pdf,3623,69124,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-m.pdf,3564,67532,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-n.pdf,3559,70474,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-o.pdf,3552,67779,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-p.pdf,3561,69017,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-q.pdf,3573,66403,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-r.pdf,3560,68956,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-s.pdf,3561,67823,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-t.pdf,3625,67248,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-u.pdf,3587,65889,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-v.pdf,3579,67858,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-w.pdf,3557,64602,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-x.pdf,3548,69003,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-fail-y.pdf,3554,65482,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-a.pdf,3506,67077,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-b.pdf,3689,66399,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-c.pdf,3513,73200,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-d.pdf,3608,67194,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-e.pdf,3510,67583,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-f.pdf,3828,68448,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-g.pdf,3537,66933,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-h.pdf,3537,115565,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-i.pdf,3544,68123,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-j.pdf,3499,72504,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-k.pdf,3596,68580,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-l.pdf,3513,64604,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-m.pdf,3511,70272,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-n.pdf,3502,66484,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-o.pdf,3499,67266,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-p.pdf,3681,67879,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-q.pdf,3514,68411,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-r.pdf,3508,66598,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-s.pdf,3508,71403,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-t.pdf,3522,74603,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-u.pdf,3535,68569,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-v.pdf,3520,68855,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-w.pdf,3505,66648,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-x.pdf,3496,68525,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t16-pass-y.pdf,3502,68435,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-a.pdf,3603,73061,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-b.pdf,3587,66836,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-c.pdf,3626,72898,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-d.pdf,3620,84718,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-e.pdf,3618,68684,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-f.pdf,3623,70155,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-g.pdf,3569,65759,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-h.pdf,3613,80908,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-i.pdf,3590,66294,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-j.pdf,3626,67723,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-k.pdf,3602,70598,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-l.pdf,3566,67184,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-m.pdf,3597,67978,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-n.pdf,3608,69673,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-o.pdf,3602,70234,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-p.pdf,3608,68319,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-q.pdf,3603,121389,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-r.pdf,3629,69885,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-s.pdf,3623,70229,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-t.pdf,3617,69558,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-u.pdf,3627,65083,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-v.pdf,3630,69940,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-w.pdf,3626,65380,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-x.pdf,3619,67097,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-y.pdf,3629,66484,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-fail-z.pdf,3629,68385,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-a.pdf,3737,68131,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-b.pdf,3535,67161,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-c.pdf,3545,67775,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-d.pdf,3517,71527,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-e.pdf,3516,67653,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-f.pdf,3519,66711,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-g.pdf,3517,68387,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-h.pdf,3510,66706,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-i.pdf,3535,66939,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-j.pdf,3539,69256,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-k.pdf,3499,65959,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-l.pdf,3514,68451,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-m.pdf,3494,67771,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-n.pdf,3505,68248,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-o.pdf,3499,65896,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-p.pdf,3505,69787,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-q.pdf,3500,66082,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-r.pdf,3526,75153,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-s.pdf,3520,70106,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-t.pdf,3529,67320,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-u.pdf,3525,68715,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-v.pdf,3528,67685,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-w.pdf,3523,67669,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-x.pdf,3516,67185,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-y.pdf,3526,70235,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t17-pass-z.pdf,3520,69620,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-fail-a.pdf,3641,67620,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-fail-b.pdf,3638,71387,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-fail-c.pdf,3569,66253,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-pass-a.pdf,3539,78454,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-pass-b.pdf,3546,69363,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.2 Properties/veraPDF test suite 6-7-2-t18-pass-c.pdf,3517,68639,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t01-fail-a.pdf,9955,79255,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t01-pass-a.pdf,9743,76220,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t02-fail-a.pdf,9942,78126,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t02-pass-a.pdf,9710,75421,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t03-fail-a.pdf,10133,78177,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t03-fail-b.pdf,9945,320757,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t03-pass-a.pdf,9722,80314,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t04-fail-a.pdf,9950,85155,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t04-pass-a.pdf,9726,80452,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t05-fail-a.pdf,9949,83715,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t05-pass-a.pdf,9723,85057,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t06-fail-a.pdf,9735,76487,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t06-pass-a.pdf,9731,76171,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t07-fail-a.pdf,9942,75372,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t07-pass-a.pdf,9727,75432,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t08-fail-a.pdf,9943,83366,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.3 Document information dictionary/veraPDF test suite 6-7-3-t08-pass-a.pdf,9726,76716,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.8 Extension schemas/veraPDF test suite 6-7-8-t04-fail-a.pdf,5805,74183,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.8 Extension schemas/veraPDF test suite 6-7-8-t05-fail-a.pdf,5817,73176,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.8 Extension schemas/veraPDF test suite 6-7-8-t06-fail-a.pdf,5831,79280,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.8 Extension schemas/veraPDF test suite 6-7-8-t07-fail-a.pdf,5820,73297,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t01-pass-a.pdf,3346,69680,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t02-pass-a.pdf,4181,71114,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-a.pdf,3396,66878,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-b.pdf,3396,70291,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-c.pdf,3440,65495,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-d.pdf,3440,70850,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-e.pdf,4262,73495,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-f.pdf,4262,68920,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-g.pdf,4305,72887,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-h.pdf,4305,68696,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-i.pdf,4259,72801,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-j.pdf,4249,76275,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-k.pdf,4302,73130,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-l.pdf,4302,70213,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-m.pdf,6004,69887,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-n.pdf,6004,73909,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-o.pdf,6049,71374,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-p.pdf,6049,73257,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-q.pdf,6000,72793,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-r.pdf,5999,72612,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-s.pdf,6044,73269,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.7 Metadata/6.7.9 Validation/veraPDF test suite 6-7-9-t04-pass-t.pdf,6048,73007,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.9 Interactive Forms/veraPDF test suite 6-9-t01-fail-a.pdf,7397,74943,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.9 Interactive Forms/veraPDF test suite 6-9-t01-fail-b.pdf,7614,75562,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.9 Interactive Forms/veraPDF test suite 6-9-t01-fail-c.pdf,7564,78387,load_only,,0
+/home/thomas/Documents/projects/gopdfrab/test documents/veraPDF/PDF_A-1b/6.9 Interactive Forms/veraPDF test suite 6-9-t01-fail-d.pdf,7719,76757,load_only,,0

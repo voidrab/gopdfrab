@@ -1,0 +1,36 @@
+goos: linux
+goarch: amd64
+pkg: github.com/voidrab/gopdfrab/benchmarks/micro
+cpu: Intel(R) Core(TM) Ultra 7 255H
+BenchmarkOpenVerify/small-16         	     756	   1418273 ns/op	  874875 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     782	   1401182 ns/op	  874896 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     955	   1391511 ns/op	  874868 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     904	   1417977 ns/op	  874871 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     800	   1364947 ns/op	  874868 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     856	   1458126 ns/op	  874875 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     980	   1467228 ns/op	  874868 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     807	   1425000 ns/op	  874893 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     805	   1381920 ns/op	  874908 B/op	    3622 allocs/op
+BenchmarkOpenVerify/small-16         	     781	   1447994 ns/op	  874900 B/op	    3622 allocs/op
+BenchmarkOpenVerify/median-16        	     638	   1892244 ns/op	  914095 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     571	   1870586 ns/op	  914249 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     517	   2000277 ns/op	  913637 B/op	    4393 allocs/op
+BenchmarkOpenVerify/median-16        	     628	   1938943 ns/op	  913687 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     620	   1900484 ns/op	  914290 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     601	   1996082 ns/op	  913432 B/op	    4393 allocs/op
+BenchmarkOpenVerify/median-16        	     618	   1975472 ns/op	  913839 B/op	    4393 allocs/op
+BenchmarkOpenVerify/median-16        	     619	   1965121 ns/op	  913655 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     601	   1781551 ns/op	  913571 B/op	    4394 allocs/op
+BenchmarkOpenVerify/median-16        	     636	   1849015 ns/op	  913303 B/op	    4393 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2124934621 ns/op	2133376952 B/op	 4636359 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2144642641 ns/op	2133355560 B/op	 4636334 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2294943001 ns/op	2133362240 B/op	 4636348 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2255921815 ns/op	2133356376 B/op	 4636339 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2236466921 ns/op	2133357528 B/op	 4636342 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2123661398 ns/op	2133355464 B/op	 4636331 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2159583627 ns/op	2133356888 B/op	 4636337 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2182333958 ns/op	2133357256 B/op	 4636346 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2260713192 ns/op	2133393208 B/op	 4636339 allocs/op
+BenchmarkOpenVerify/large-16         	       1	2170997273 ns/op	2133356392 B/op	 4636337 allocs/op
+PASS
+ok  	github.com/voidrab/gopdfrab/benchmarks/micro	50.055s

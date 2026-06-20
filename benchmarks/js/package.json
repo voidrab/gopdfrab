@@ -1,0 +1,10 @@
+{
+  "name": "gopdfrab-bench-js",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "JS-ecosystem reference point for the gopdfrab benchmark suite. See runner.mjs for important caveats about what this actually measures.",
+  "dependencies": {
+    "mupdf": "1.27.0"
+  }
+}

@@ -1,0 +1,24 @@
+goos: linux
+goarch: amd64
+pkg: github.com/voidrab/gopdfrab/benchmarks/micro
+cpu: Intel(R) Core(TM) Ultra 7 255H
+                     │ /home/thomas/Documents/projects/gopdfrab/benchmarks/results/micro_raw.txt │
+                     │                                  sec/op                                   │
+OpenVerify/small-16                                                                  1.418m ± 3%
+OpenVerify/median-16                                                                 1.920m ± 4%
+OpenVerify/large-16                                                                   2.177 ± 4%
+geomean                                                                              18.10m
+
+                     │ /home/thomas/Documents/projects/gopdfrab/benchmarks/results/micro_raw.txt │
+                     │                                   B/op                                    │
+OpenVerify/small-16                                                                 854.4Ki ± 0%
+OpenVerify/median-16                                                                892.3Ki ± 0%
+OpenVerify/large-16                                                                 1.987Gi ± 0%
+geomean                                                                             11.39Mi
+
+                     │ /home/thomas/Documents/projects/gopdfrab/benchmarks/results/micro_raw.txt │
+                     │                                 allocs/op                                 │
+OpenVerify/small-16                                                                  3.622k ± 0%
+OpenVerify/median-16                                                                 4.394k ± 0%
+OpenVerify/large-16                                                                  4.636M ± 0%
+geomean                                                                              41.94k
