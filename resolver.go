@@ -39,13 +39,22 @@ func (d *Document) resolveReference(ref PDFRef) (PDFValue, error) {
 
 // parseReference performs the actual disk read and parse for an indirect
 // object. Callers should go through resolveReference, which caches the
-// result.
+// result. It dispatches between objects found at a classic byte offset (xref
+// type 1) and objects packed inside a compressed object stream (xref type 2,
+// PDF 1.5+; see objstm.go).
 func (d *Document) parseReference(ref PDFRef) (PDFValue, error) {
-	offset, ok := d.xrefTable[ref.ObjNum]
-	if !ok {
-		return nil, fmt.Errorf("object %d not found in xref table", ref.ObjNum)
+	if offset, ok := d.xrefTable[ref.ObjNum]; ok {
+		return d.parseClassicReference(ref, offset)
 	}
+	if entry, ok := d.compressedXref[ref.ObjNum]; ok {
+		return d.resolveCompressedObject(ref, entry)
+	}
+	return nil, fmt.Errorf("object %d not found in xref table", ref.ObjNum)
+}
 
+// parseClassicReference performs the actual disk read and parse for an
+// indirect object stored at a classic byte offset.
+func (d *Document) parseClassicReference(ref PDFRef, offset int64) (PDFValue, error) {
 	if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
 		return nil, err
 	}

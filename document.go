@@ -35,6 +35,14 @@ type Document struct {
 
 	objCache map[int]PDFValue
 
+	// compressedXref maps an object number to its location inside a
+	// compressed object stream (xref type 2, PDF 1.5+), for objects not
+	// found in xrefTable. See xrefstream.go / objstm.go.
+	compressedXref map[int]compressedXrefEntry
+	// objStmCache memoizes the decoded contents of an object stream, keyed
+	// by the object stream's own object number.
+	objStmCache map[int][]objStmEntry
+
 	resolvedPtrs  map[uintptr]bool
 	resolvedGraph PDFValue
 	graphResolved bool
@@ -154,45 +162,68 @@ func (d *Document) initializeStructure() error {
 		// byte 0 instead of the "%PDF-" marker; retry unadjusted.
 		xrefErr = d.parseXRefTable(xrefOffset)
 	}
+
+	// usedXRefStream is set when the classic parser failed but the object at
+	// xrefOffset turned out to be a genuine cross-reference stream (PDF
+	// 1.5+); its own dictionary then doubles as the trailer, so the literal
+	// "trailer" keyword search below is skipped entirely.
+	var xrefStreamTrailer PDFDict
+	usedXRefStream := false
+
 	if xrefErr != nil {
 		// 6.1.4: classic xref table unparseable (e.g. it's actually a
-		// cross-reference stream). Recover the object table via brute-force scan.
+		// cross-reference stream, which PDF/A-1b does not permit). Record the
+		// violation, then recover the object table as accurately as possible
+		// so an otherwise-valid modern PDF can still be read.
 		d.structErrs = append(d.structErrs, PDFError{
 			check: Checks.Structure.XRefKeyword,
 			errs:  []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
 			page:  0,
 		})
-		if err := d.recoverXRefByBruteForceScan(); err != nil {
+
+		d.xrefTable = make(map[int]int64)
+		trailer, xsErr := d.tryParseXRefStream(xrefOffset+d.pdfStart, false)
+		if xsErr != nil && d.pdfStart != 0 {
+			trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
+		}
+		if xsErr == nil {
+			xrefStreamTrailer, usedXRefStream = trailer, true
+		} else if err := d.recoverXRefByBruteForceScan(); err != nil {
 			return fmt.Errorf("failed to parse xref table: %w", xrefErr)
 		}
 	}
 
-	searchBlock := tail[:startXrefIdx]
-	trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
-	if trailerIdx == -1 {
-		if xrefErr == nil {
-			return errors.New("trailer keyword not found")
-		}
-		// No literal "trailer" keyword: file likely uses a cross-reference
-		// stream object instead, which combines the xref and trailer roles.
-		trailer, err := d.recoverTrailerFromXRefStream()
-		if err != nil {
-			return errors.New("trailer keyword not found")
-		}
-		d.trailer = trailer
+	if usedXRefStream {
+		d.trailer = xrefStreamTrailer
 	} else {
-		l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
-		defer l.Release()
+		searchBlock := tail[:startXrefIdx]
+		trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
+		if trailerIdx == -1 {
+			if xrefErr == nil {
+				return errors.New("trailer keyword not found")
+			}
+			// No literal "trailer" keyword and no parseable cross-reference
+			// stream either: fall back to locating a brute-force-scanned
+			// "/Type /XRef" object to recover /Root.
+			trailer, err := d.recoverTrailerFromXRefStream()
+			if err != nil {
+				return errors.New("trailer keyword not found")
+			}
+			d.trailer = trailer
+		} else {
+			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+			defer l.Release()
 
-		if tok := l.NextToken(); tok.Value != "trailer" {
-			return errors.New("expected 'trailer' keyword")
-		}
+			if tok := l.NextToken(); tok.Value != "trailer" {
+				return errors.New("expected 'trailer' keyword")
+			}
 
-		trailer, err := parseDictionary(l)
-		if err != nil {
-			return fmt.Errorf("failed to parse trailer dictionary: %w", err)
+			trailer, err := parseDictionary(l)
+			if err != nil {
+				return fmt.Errorf("failed to parse trailer dictionary: %w", err)
+			}
+			d.trailer = trailer
 		}
-		d.trailer = trailer
 	}
 
 	// Build a complete object table for incrementally-updated PDFs; newer
@@ -226,7 +257,13 @@ func (d *Document) followXRefPrevChain() {
 
 		prevTrailer, err := d.parseXRefSectionAt(offset, true /* fillIn */)
 		if err != nil {
-			return
+			// The previous revision may itself be a cross-reference stream
+			// rather than a classic table (e.g. a chain of incremental
+			// updates that all use xref streams).
+			prevTrailer, err = d.tryParseXRefStream(offset, true /* fillIn */)
+			if err != nil {
+				return
+			}
 		}
 		prev = prevTrailer.Entries["Prev"]
 	}
@@ -562,6 +599,12 @@ func (d *Document) resolveInPlace(obj PDFValue) (PDFValue, error) {
 			}
 			r, err := d.resolveInPlace(val)
 			if err != nil {
+				// Unmark: this dict did not actually finish resolving (some
+				// entries past the failing key are still raw PDFRefs), so a
+				// subsequent ResolveGraph call (e.g. a caller retrying after
+				// this error) must redo it rather than short-circuit-return
+				// the partially-resolved value as if it were complete.
+				delete(d.resolvedPtrs, ptr)
 				return nil, err
 			}
 			v.Entries[k] = r
@@ -580,6 +623,7 @@ func (d *Document) resolveInPlace(obj PDFValue) (PDFValue, error) {
 		for i, elem := range v {
 			r, err := d.resolveInPlace(elem)
 			if err != nil {
+				delete(d.resolvedPtrs, ptr) // see the PDFDict case above
 				return nil, err
 			}
 			v[i] = r
