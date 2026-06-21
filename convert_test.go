@@ -440,12 +440,11 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 // minConvertedFully is a regression floor on how many of both corpora's
 // "fail" fixtures Convert turns fully conformant, recorded empirically after
-// Phase 6 landed (annotation subtype/colour, file-spec/embedded-file,
-// PostScript form XObject, optional content, Type0 CIDSystemInfo/WMode, and
-// Info/XMP normalization fixers, plus writer-synthesized trailer /ID): 419
+// Phase 7 landed (lzwStreamFixer, decoding forbidden LZWDecode streams and
+// re-encoding them Flate, on top of Phase 6's dictionary-level fixers): 424
 // of 510. Should only ever increase as later phases add more fixups; a drop
 // means something regressed.
-const minConvertedFully = 419
+const minConvertedFully = 424
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome into three buckets: fully

@@ -1,7 +1,7 @@
 # PDF/A-1b Conversion — Roadmap to Completeness
 
 > **Purpose.** This document is the high-level roadmap for taking gopdfrab's PDF/A-1b
-> *conversion* from its current state (419/510 corpus fixtures fully converted) to as close to
+> *conversion* from its current state (424/510 corpus fixtures fully converted) to as close to
 > *complete* as the format allows. Each phase below is scoped to be the input for a later,
 > more specific implementation plan (`/plan`). It states the goal, the exact checks targeted,
 > the approach, any external assets/tooling required, the test bar, and risk — but deliberately
@@ -9,7 +9,7 @@
 >
 > **How to read it.** Phases are ordered by value-per-unit-effort: cheap, asset-free,
 > rendering-neutral wins first; font/content-stream/rasterization work (which needs new
-> infrastructure and bundled assets) last. Phases 1–6 are **done**; 7+ are the roadmap.
+> infrastructure and bundled assets) last. Phases 1–7 are **done**; 8+ are the roadmap.
 
 ---
 
@@ -28,9 +28,10 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 4 | Pre-emptive fixups | `regenerateXMP` (6.7), `injectOutputIntent` + embedded ICC (6.2.2, device colour 6.2.3) |
 | 5 | ICC embed + font dict fixer | embed `assets/sRGB2014.icc`; `fontDictFixer` adds `/CIDToGIDMap /Identity` (6.3.3.2) |
 | 6 | Dictionary-level fixer expansion (family A) | see §1.1 below — annotation subtype/colour, file specs/embedded files, PostScript form XObjects, optional content, Type0 CIDSystemInfo/WMode, Info-dict normalization, writer-synthesized `/ID` |
+| 7 | LZW stream re-encoding (family A') | `lzwStreamFixer` (`fixups_stream.go`) decodes `LZWDecode` streams (hand-rolled decoder, `lzw.go`) and marks them dirty for Flate re-encoding |
 
-**Regression floor:** `minConvertedFully = 419` of 510 (`convert_test.go`). Latest corpus
-sweep: **419 fully conformant · 49 known-hard residual · 42 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 424` of 510 (`convert_test.go`). Latest corpus
+sweep: **424 fully conformant · 49 known-hard residual · 37 other residual · 0 errored**.
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
@@ -84,7 +85,9 @@ Re-measured after Phase 6 landed, by converting every corpus "fail" fixture and 
 checks still present. `FIX` = distinct fixtures affected; `HARD` = currently classified as
 needing re-encoding/rasterization by `ResidualCategory`. Every check Phase 6 targeted (§1.1) is
 gone from this table except the two single-fixture XMP edge cases noted above, which now show
-under their own (no longer family-**A**) root cause.
+under their own (no longer family-**A**) root cause. (Phase 7 has since closed the
+`StreamLZWFilter` row below — table otherwise left as the pre-Phase-7 snapshot; re-measure at
+the start of Phase 8.)
 
 | Check | Clause | FIX | HARD | Fix family |
 |-------|--------|-----|------|-----------|
@@ -94,7 +97,7 @@ under their own (no longer family-**A**) root cause.
 | IntegerOutOfRange | 6.1.12 | 7 | yes | **C** content-stream / **A** structure |
 | AppearanceNNotStream | 6.5.3 | 6 | no | **B** appearance synth |
 | WidgetMissingAppearance | 6.9 | 5 | no | **B** appearance synth |
-| StreamLZWFilter | 6.1.10 | 5 | no | **A'** stream re-encode |
+| ~~StreamLZWFilter~~ | 6.1.10 | ~~5~~ | no | **✅ done, Phase 7** |
 | StringTooLong | 6.1.12 | 5 | yes | **C** content-stream |
 | CIDSubsetCIDSet | 6.3.5 | 4 | yes | **D** font subset meta |
 | Type1SubsetCharSet | 6.3.5 | 3 | yes | **D** font subset meta |
@@ -204,11 +207,15 @@ optional content, Type0 CIDSystemInfo/WMode, Info-dict normalization, writer `/I
 root-caused in §1.1. CW-2 (single batched walk) was **not** done — left as a pure-perf
 follow-up now that the family-A fixer count has grown to ~13; see §4.
 
-### Phase 7 — Object-stream filter re-encoding (family A')
-**Goal:** `StreamLZWFilter` 6.1.10 (5). LZW is forbidden; decode the LZW stream and re-emit it
-Flate-encoded. The writer already Flate-encodes streams marked dirty, so the work is: add an
-**LZW decoder**, decode on detection, drop `/LZWDecode`, mark the stream dirty.
-**Assets:** none. **Infra:** small (LZW decoder). **Risk:** low — lossless filter swap.
+### Phase 7 — Object-stream filter re-encoding (family A') — ✅ **done**
+Landed: a hand-rolled PDF LZW decoder (`lzw.go` — stdlib `compress/lzw` targets GIF's
+LSB packing and doesn't correctly decode PDF/TIFF's MSB + early-change variant, confirmed
+against a real Isartor fixture before settling on a custom decoder) and `lzwStreamFixer`
+(`fixups_stream.go`), which decodes any stream whose filter chain includes `LZWDecode`
+(undoing TIFF/PNG predictors via the existing `predictor.go` helpers) and marks it dirty so
+the writer re-emits it Flate-encoded. Needed a parent-aware graph walk (`walkStreamDicts`)
+rather than `walkDicts`, since `RawStream` is a value field `walkDicts`' by-value callback
+cannot persist back to the shared graph. 5 fixtures moved to fully conformant (419 → 424).
 **Note:** inline-image LZW (`InlineImageLZWFilter`) lives in content bytes → Phase 11.
 
 ### Phase 8 — Appearance-stream synthesis (family B)
@@ -346,7 +353,7 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | Order | Phase | Family | New assets | New infra | Approx. fixtures |
 |------:|-------|--------|-----------|-----------|-----------------:|
 | ✅ done | 6 Dict expansion | A | — | (CW-2 still open) | 33 landed / ~40 targeted |
-| 1 | 7 LZW re-encode | A' | — | LZW decoder | ~6 |
+| ✅ done | 7 LZW re-encode | A' | — | LZW decoder | 5 landed |
 | 2 | 8 Appearance synth | B | — | CW-3 | ~15 |
 | 3 | 9 Font metadata repair | D | — | CW-4 (read) | ~16+ |
 | 4 | 11 Content rewriter | C | CMYK ICC | CW-3, CMYK | ~20 |
