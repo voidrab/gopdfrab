@@ -7,14 +7,8 @@ import (
 
 // srgbICCProfile is the ICC's official sRGB v2 profile (color.org), used as
 // the base ICC stream for any OutputIntent this package injects.
-// withICCColorSpace below overwrites its colour-space signature (bytes
-// 16:20) per document, so only its header needs to satisfy
-// validateICCProfileStream: version <= 2.x and a valid deviceClass/acsp
-// signature. It must stay v2 -- PDF/A-1 (ISO 19005-1) requires ICC.1:2003-09
-// and validateICCProfileStream rejects any major version above 2, which
-// rules out v4 profiles such as sRGB_v4_ICC_preference.icc.
 //
-//go:embed assets/sRGB2014.icc
+//go:embed assets/profiles/sRGB2014.icc
 var srgbICCProfile []byte
 
 func init() {
