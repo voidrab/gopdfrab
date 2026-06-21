@@ -3,19 +3,20 @@ package pdfrab
 // This file registers Fixers for the dictionary-level violations classified
 // as "easy" (pure key deletion/normalization, no resource synthesis) in the
 // converter plan: actions (6.6), ExtGState transparency keys (6.2.8/6.4),
-// annotation flags (6.5.3), interactive forms (6.9), and image/form XObject
-// metadata keys (6.2.4-6.2.7). Each Fixer walks the whole graph via
-// walkDicts rather than targeting issues' ObjectRef -- see convert_fixers.go
-// for why -- mirroring, in reverse, the exact detection logic in
-// checks_dict.go so a Fixer only ever "fixes" what its matching check would
-// actually flag.
+// annotation flags (6.5.3), interactive forms (6.9), image/form XObject
+// metadata keys (6.2.4-6.2.7), PostScript form XObjects (6.2.5/6.2.7), and
+// optional content (6.1.13). Each Fixer walks the whole graph via walkDicts
+// rather than targeting issues' ObjectRef -- see convert_fixers.go for why
+// -- mirroring, in reverse, the exact detection logic in checks_dict.go so a
+// Fixer only ever "fixes" what its matching check would actually flag.
 //
 // Deliberately out of scope here (see checks_dict.go and the converter
 // plan's difficulty classification): annotation appearance-stream
-// generation, annotation/Separation colour-without-intent, transparency
-// groups and image soft masks (removing the key is easy but changes
-// rendered appearance), and PostScript XObjects/passthrough (already
-// disabled in the default PDFA_1B profile).
+// generation, transparency groups and image soft masks (removing the key is
+// easy but changes rendered appearance), and a literal Subtype /PS XObject
+// (no PDF/A-permitted substitute subtype exists, so fixing it would require
+// editing every reference to the object, not just the object itself).
+// Annotation subtype/colour fixers live in fixups_annot.go.
 
 func init() {
 	registerFixer(actionFixer{})
@@ -23,6 +24,8 @@ func init() {
 	registerFixer(annotationFlagsFixer{})
 	registerFixer(formFixer{})
 	registerFixer(imageMetadataFixer{})
+	registerFixer(postScriptXObjectFixer{})
+	registerFixer(optionalContentFixer{})
 }
 
 // walkDicts calls fn for every PDFDict reachable from v, recursing into dict
@@ -340,4 +343,63 @@ func (imageMetadataFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error)
 		}
 	})
 	return changed, nil
+}
+
+// --- 6.2.5 / 6.2.7 PostScript form XObjects ---
+
+// postScriptXObjectFixer remediates the Form-XObject PostScript checks,
+// mirroring the Form case of validateXObjectDict in checks_dict.go.
+type postScriptXObjectFixer struct{}
+
+func (postScriptXObjectFixer) Applies(c Check) bool {
+	switch c {
+	case Checks.Image.FormPSEntry, Checks.Image.FormPostScript, Checks.Image.FormSubtype2PS:
+		return true
+	}
+	return false
+}
+
+func (postScriptXObjectFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
+	changed := false
+	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+		if (d.Entries["Subtype"] != PDFName{Value: "Form"}) {
+			return
+		}
+		if _, ok := d.Entries["PS"]; ok {
+			delete(d.Entries, "PS")
+			changed = true
+		}
+		if (d.Entries["Subtype2"] == PDFName{Value: "PS"}) {
+			delete(d.Entries, "Subtype2")
+			changed = true
+		}
+	})
+	return changed, nil
+}
+
+// --- 6.1.13 Optional content ---
+
+// optionalContentFixer remediates Checks.Structure.OptionalContent by
+// deleting the catalog's /OCProperties entry, mirroring
+// (*Document).verifyOptionalContent in verifier.go. Marked-content BDC/EMC
+// wrappers in content streams that reference the removed OCGs are left in
+// place: rewriting content-stream bytes is out of scope for a
+// dictionary-level fix, and they have no PDF/A-meaningful effect once
+// OCProperties is gone.
+type optionalContentFixer struct{}
+
+func (optionalContentFixer) Applies(c Check) bool {
+	return c == Checks.Structure.OptionalContent
+}
+
+func (optionalContentFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
+	root, ok := trailer.Entries["Root"].(PDFDict)
+	if !ok {
+		return false, nil
+	}
+	if _, ok := root.Entries["OCProperties"]; !ok {
+		return false, nil
+	}
+	delete(root.Entries, "OCProperties")
+	return true, nil
 }

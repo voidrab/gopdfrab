@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -21,17 +22,13 @@ func init() {
 // an arbitrary existing one into compliance, and doing so resolves the large
 // majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
 // 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
-//
-// Known residual: if the Info dictionary's CreationDate/ModDate is not
-// itself in valid "D:YYYYMMDD..." PDF date form, checkInfoXMPSync flags that
-// independently of XMP content; fixing the Info dictionary itself is out of
-// scope here.
 func regenerateXMP(trailer *PDFDict) error {
 	root, ok := trailer.Entries["Root"].(PDFDict)
 	if !ok {
 		return fmt.Errorf("regenerateXMP: Root is not a dictionary")
 	}
 
+	normalizeInfoDict(trailer)
 	info, _ := trailer.Entries["Info"].(PDFDict)
 	xmp := buildXMPPacket(info)
 
@@ -53,6 +50,89 @@ func regenerateXMP(trailer *PDFDict) error {
 	root.Entries["Metadata"] = meta
 	trailer.Entries["Root"] = root
 	return nil
+}
+
+// normalizeInfoDict coerces the Info dictionary's standard entries (Table
+// 10.2, PDF Reference 4th ed.) to the types and formats clause 6.1.5
+// requires -- text string for every field except Trapped (a name), and a
+// "D:"-prefixed PDF date for CreationDate/ModDate -- deleting any entry that
+// can't be coerced. regenerateXMP calls this first, before building the XMP
+// packet from Info, so the packet never re-embeds the same non-conformance
+// it would otherwise inherit (this is what closes 6.1.5/6.7.3 for a
+// non-"D:" date, since checkInfoXMPSync flags that independently of XMP
+// content).
+func normalizeInfoDict(trailer *PDFDict) {
+	info, ok := trailer.Entries["Info"].(PDFDict)
+	if !ok {
+		return
+	}
+	for _, key := range []string{"Title", "Author", "Subject", "Keywords", "Creator", "Producer"} {
+		switch info.Entries[key].(type) {
+		case nil, PDFString, PDFHexString:
+		default:
+			delete(info.Entries, key)
+		}
+	}
+	if v, ok := info.Entries["Trapped"]; ok {
+		if _, isName := v.(PDFName); !isName {
+			delete(info.Entries, "Trapped")
+		}
+	}
+	for _, key := range []string{"CreationDate", "ModDate"} {
+		v, present := info.Entries[key]
+		if !present {
+			continue
+		}
+		s, ok := v.(PDFString)
+		if !ok {
+			delete(info.Entries, key)
+			continue
+		}
+		if normalized, ok := normalizePDFDate(s.Value); ok {
+			info.Entries[key] = PDFString{Value: normalized}
+		} else {
+			delete(info.Entries, key)
+		}
+	}
+}
+
+// isoDateRe loosely matches an ISO-8601-ish date/time, every component but
+// the year optional, as a fallback for a CreationDate/ModDate that's valid
+// data but missing the PDF "D:" prefix (e.g. "2008-05-13T09:00:00+02:00").
+var isoDateRe = regexp.MustCompile(`^(\d{4})-?(\d{2})?-?(\d{2})?[T ]?(\d{2})?:?(\d{2})?:?(\d{2})?(Z|[+-]\d{2}:?\d{2})?$`)
+
+// normalizePDFDate coerces s to a "D:YYYY[MMDDHHmmSSOHH'mm']" PDF date
+// string (ISO 32000-1 7.9.4). ok is false if s isn't already "D:"-prefixed
+// and doesn't match isoDateRe, in which case the caller should drop the
+// Info entry rather than keep an unfixable non-conformant date.
+func normalizePDFDate(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "D:") {
+		return s, true
+	}
+	m := isoDateRe.FindStringSubmatch(s)
+	if m == nil {
+		return "", false
+	}
+	out := "D:" + m[1]
+	for _, g := range m[2:7] {
+		if g == "" {
+			return out, true
+		}
+		out += g
+	}
+	tz := m[7]
+	switch {
+	case tz == "":
+	case tz == "Z":
+		out += "Z"
+	default:
+		rest := strings.ReplaceAll(tz[1:], ":", "")
+		if len(rest) >= 4 {
+			out += string(tz[0]) + rest[:2] + "'" + rest[2:4] + "'"
+		}
+	}
+	return out, true
 }
 
 // infoString reads a text value from the Info dictionary, decoding a hex
@@ -180,13 +260,17 @@ func writeScalarAttr(b *strings.Builder, prop, value string) {
 func xmlEscapeText(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '&':
+		switch c := s[i]; {
+		case c == '&':
 			b.WriteString("&amp;")
-		case '<':
+		case c == '<':
 			b.WriteString("&lt;")
-		case '>':
+		case c == '>':
 			b.WriteString("&gt;")
+		case c < 0x20 && c != '\t' && c != '\n' && c != '\r':
+			// XML 1.0 forbids these control characters outright -- no entity
+			// escaping makes them legal -- so drop them rather than emit a
+			// byte xmpWellFormed's XML decoder will always reject (6.7.9).
 		default:
 			b.WriteByte(c)
 		}
@@ -200,15 +284,17 @@ func xmlEscapeText(s string) string {
 func xmlEscapeAttr(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '&':
+		switch c := s[i]; {
+		case c == '&':
 			b.WriteString("&amp;")
-		case '<':
+		case c == '<':
 			b.WriteString("&lt;")
-		case '>':
+		case c == '>':
 			b.WriteString("&gt;")
-		case '"':
+		case c == '"':
 			b.WriteString("&quot;")
+		case c < 0x20 && c != '\t' && c != '\n' && c != '\r':
+			// See xmlEscapeText: an illegal XML control character, dropped.
 		default:
 			b.WriteByte(c)
 		}

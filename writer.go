@@ -3,6 +3,8 @@ package pdfrab
 import (
 	"bytes"
 	"compress/zlib"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"maps"
@@ -27,32 +29,8 @@ func (d *Document) WritePDF(w io.Writer) error {
 }
 
 // WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
-// self-contained PDF with a classic cross-reference table (never a
-// cross-reference stream, which PDF/A-1b does not permit; see xrefstream.go).
-// trailer is the resolved graph's root dictionary as returned by
-// Document.ResolveGraph -- it carries /Root, /Info and /ID exactly like a
-// parsed trailer, but is itself never written as an indirect object (it
-// never was one).
-//
-// Every indirect object reachable from /Root and /Info is renumbered from
-// scratch starting at 1, in first-encounter (depth-first) order; an object's
-// original number, generation, and position in the source file are not
-// preserved. A value is indirect if its dict carries the synthetic "_ref"
-// entry (set by resolver.go/objstm.go for every object read from disk) or has
-// HasStream set (every stream must be indirect, including ones synthesized
-// fresh by a future fixup with no "_ref" of its own). Streams are written
-// back with their original bytes and /Filter verbatim, except ones marked
-// dirty (see MarkStreamDirty), which are Flate-encoded fresh.
-//
-// Because the resolver replaces every PDFRef with its resolved target in
-// place (see resolveInPlace in document.go), only dicts retain any record of
-// having been indirect; a PDFArray or scalar that was originally an indirect
-// object is written inline. This is a known limitation: the result is still
-// valid PDF, just structured differently from the source.
-//
-// WriteDocument requires trailer to be fully resolved (no remaining PDFRef
-// values); it returns an error rather than emitting a dangling reference if
-// it encounters one.
+// self-contained PDF with a cross-reference table.
+
 func WriteDocument(w io.Writer, trailer PDFDict) error {
 	wr := &pdfWriter{
 		numbers: map[objectIdentity]int{},
@@ -99,6 +77,14 @@ func WriteDocument(w io.Writer, trailer PDFDict) error {
 	}
 	if id, ok := trailer.Entries["ID"]; ok {
 		newTrailer["ID"] = id
+	} else {
+		// 6.1.3: the trailer shall contain an ID. Synthesize one deterministically
+		// from content already fixed at this point (object count and xref offset)
+		// rather than wall-clock time, so re-running WriteDocument on the same
+		// input is reproducible; PDF/A permits ID[0] == ID[1].
+		sum := md5.Sum(fmt.Appendf(nil, "gopdfrab:%d:%d", len(wr.order), xrefOffset))
+		id := PDFHexString{Value: hex.EncodeToString(sum[:])}
+		newTrailer["ID"] = PDFArray{id, id}
 	}
 
 	if _, err := fmt.Fprint(cw, "trailer\n"); err != nil {
