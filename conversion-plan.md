@@ -9,7 +9,7 @@
 >
 > **How to read it.** Phases are ordered by value-per-unit-effort: cheap, asset-free,
 > rendering-neutral wins first; font/content-stream/rasterization work (which needs new
-> infrastructure and bundled assets) last. Phases 1–9 and Phase 11 (Stages A–C) are **done**;
+> infrastructure and bundled assets) last. Phases 1–10 and Phase 11 (Stages A–D) are **done**;
 > the rest is the roadmap.
 
 ---
@@ -34,9 +34,12 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 9 | Font metric & subset-metadata repair (family D, read) | `fontMetricFixer`/`fontSubsetMetaFixer` (`fixups_font_program.go`) recompute `/Widths`/`/W`/`/CharSet`/`/CIDSet` from the embedded program |
 | 11 A | Real CMYK profile + `Default*` colour-space injection | `deviceColourFixer` (`fixups_content_colour.go`); embedded FOGRA39 v2 profile (`fixups_colour.go`) |
 | 11 B | Content-stream rewriter + lossless inline-image round-trip | `contentLimitsFixer` (`fixups_content.go`); `inlineImageRaw` (`content.go`/`content_writer.go`) |
+| 11 C | Inline-image fixes | `imageMetadataFixer`/`contentLimitsFixer` (`ImageInterpolate`, inline `/Intent`); `inlineImageLZWFixer` (`fixups_inline_image.go`) |
+| 10 | TrueType subsetter + font substitution/re-embed (family D'') | `subsetTrueType`/`subsetTrueTypeForCID`/`trimTrueTypeCmapToSingleSubtable` (`fonttool_subset.go`); `fontSubstitutionFixer`/`trueTypeEncodingFixer` (`fixups_font_subst.go`) |
+| 11 D | Remaining 6.1.12 limits (page-tree rebalance, resource pruning, name fixes, CMap CID clamp) | `pagesTreeArrayFixer`/`resourceDictPruneFixer`/`nameTooLongFixer`/`cmapCIDClampFixer` (`fixups_limits.go`) |
 
-**Regression floor:** `minConvertedFully = 475` of 510 (`convert_test.go`). Latest corpus
-sweep: **475 fully conformant · 26 known-hard residual · 9 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 496` of 510 (`convert_test.go`). Latest corpus
+sweep: **496 fully conformant · 10 known-hard residual · 4 other residual · 0 errored**.
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
@@ -46,6 +49,7 @@ Key reusable infrastructure already present:
 - `writeContentStream`/`contentOp` (content-stream **writer**, CW-3, landed Phase 8, inline-image support landed Phase 11B) — `content_writer.go`, sharing scalar serialization with `writer.go` via `writeScalar`/`writeOperand`
 - `appearanceFont()` — bundled, embedded, conformant Liberation Sans simple TrueType font for synthesized appearance text — `fixups_appearance_font.go`
 - Font-program parsers for TrueType/CFF/Type1 (glyph coverage, widths, cmap) — `checks_font_program.go` (~1300 lines, used for both validation and Phase 9's repair fixers)
+- TrueType subsetter/sfnt repacker (CW-4 write side: glyf/loca/hmtx/cmap emission, checksums) — `fonttool_subset.go`, landed Phase 10
 - `Fixer` registry + pre-emptive fixup registry — `convert_fixers.go`
 - `ResidualCategory` — classifies a leftover check as font/content-stream/transparency-hard — `residual.go`
 - `decodeStream` / `decodeStreamCached`, predictor & filter handling — `stream.go`, `predictor.go`
@@ -256,18 +260,35 @@ bucket (12 fixtures). No CFF/Type1C charstring advance-width reader exists, so C
 `AdvanceWidthMismatch` is neither checked nor fixed; a small open gap, not yet hit by the corpus.
 Floor raised 424 → 449.
 
-### Phase 10 — Font embedding & substitution (family D'', **needs bundled fonts**)
-**Goal:** `CIDNotEmbedded` 6.3.4, `CMapNotEmbedded` 6.3.3.3, and standard-14 `SimpleNotEmbedded`
-(currently excused in `PDFA_1B`) — embed a metric-compatible face for fonts the input only
-references; re-subset where glyphs are missing.
-**Targets:** non-embedded simple/CID fonts; the standard-14 referenced without embedding.
-**Assets:** `assets/fonts/*` (Liberation + Symbol/Dingbats substitutes, §3.2).
-**Infra:** CW-4 (font toolkit, **write/subset** side) — TrueType/CFF subsetter, encoding→glyph
-mapping, `/FontFile2`/`/FontFile3` emission, descriptor synthesis.
-**Risk:** high — substitution changes exact glyph shapes/metrics; needs careful encoding
-mapping. This is the largest single-feature effort. Also a `D'` sub-task: the rendering-affecting
-TrueType encoding normalizations (6.3.7, 3 fixtures) — gate behind an explicit opt-in flag
-because they can change glyph mapping (deferred from Phase 5 by project precedent).
+### Phase 10 — Font embedding & substitution (family D'', **needs bundled fonts**) — ✅ **done**
+Landed: a TrueType subsetter/sfnt repacker (`fonttool_subset.go` — `subsetTrueType`,
+`subsetTrueTypeForCID`, `trimTrueTypeCmapToSingleSubtable`, the shared `buildSubsetTables`/
+`packSfnt` table emission — CW-4's write side) plus `fontSubstitutionFixer` and
+`trueTypeEncodingFixer` (`fixups_font_subst.go`), registered always-on (no opt-in flag, per
+project decision this phase). `fontSubstitutionFixer` clears `SubsetGlyphCoverage`,
+`SimpleNotEmbedded`, `CIDNotEmbedded` and `InvalidProgram` by substituting a subsetted bundled
+Liberation face (Sans/Serif/Mono × regular/bold/italic/bold-italic, chosen from descriptor flags/
+BaseFont) wherever a font's own program is missing, damaged, or doesn't cover a glyph it needs —
+reusing the existing detection functions (`validateFontProgram`/`validateSimpleTrueTypeSubset`/
+`validateType1SubsetCoverage`/`validateCIDTrueTypeSubset`/`validateCIDCFFSubset`) against a
+throwaway `ValidationContext` so it only ever replaces what was genuinely flagged. Composite-font
+substitution (`substituteCIDFont`) rebuilds the descendant as a `CIDFontType2` with
+`/CIDToGIDMap /Identity` and the substitute glyph for each used CID placed at that *exact* glyph
+ID (`subsetTrueTypeForCID`) — required because the CID TrueType checks
+(`validateCIDTrueTypeSubset`/`Metrics`) look up a CID as a glyph ID directly with no
+`/CIDToGIDMap` indirection, so only a CID==GID substitute passes them. CID->Unicode recovery uses
+the font's own `/ToUnicode` CMap (`parseToUnicodeCMap`), so substitution only fires when
+`/Encoding` is `Identity-H`/`Identity-V` and `/ToUnicode` is present and parseable — a CJK CID-keyed
+font with neither (no bundled Adobe CMap resources to fall back on) is left residual, same as
+`CMapNotEmbedded` (a non-Identity, non-embedded named CMap), which is deliberately not claimed at
+all. `trueTypeEncodingFixer` clears the 6.3.7 trio: dropping a stray `/Encoding` from a symbolic
+font, trimming a symbolic font's cmap to the single subtable the spec requires
+(`trimTrueTypeCmapToSingleSubtable`, glyf/loca/hmtx untouched) and setting a non-symbolic font's
+`/Encoding` to `WinAnsiEncoding` when neither permitted encoding is named. 13 fixtures moved to
+fully conformant. Floor 478 → 491.
+**Known limitation:** standard-14 `SimpleNotEmbedded` is claimed for completeness but inert under
+the default `PDFA_1B` profile, which already excuses it (`profile.go`). No CFF subsetter exists —
+every substitution target is a bundled TrueType face, so nothing needs one.
 
 ### Phase 11 — Content-stream rewriter (family C, **needs content-stream writer**) — **Stages A+B done**
 **Goal:** fix violations that live inside content bytes, the largest "hard" cluster.
@@ -320,11 +341,44 @@ extracted from Stage B's `contentLimitsFixer` into shared, reusable helpers for 
 3 fixtures moved to fully conformant (`ImageInterpolate`, `InlineImageLZWFilter`, and the inline
 `/Intent` `RenderingIntent` case). Floor 475 → 478.
 
-**Remaining 6.1.12 limits out of Phase 11's scope** (not attempted): `ArrayTooLarge` (1),
-`DictTooLarge` (1), `NameTooLong` (2), `CMapCIDOutOfRange` (2), `DeviceNColorants` (1) — these
-either live in plain dictionaries (no content-stream component) or weren't part of this phase's
-brief; candidates for a small follow-up dictionary-level fixer (family **A**), not content
-rewriting.
+**Stage D — done.** The remaining 6.1.12 limit checks Stage B/C left out of scope, in new
+`fixups_limits.go`, each needing a different repair shape rather than a single scalar clamp:
+- `ArrayTooLarge` (1) — the one corpus instance is a `/Pages` node's `/Kids` array with 10000
+  flat leaf-page entries. `pagesTreeArrayFixer` splits it into a tree of new intermediate
+  `/Pages` nodes (≤4096 kids each, re-pointing each kid's `/Parent`) — the standard technique
+  real PDF writers use for huge page counts; `buildPageIndex` (document.go) and any other `/Kids`
+  walker already recurse through arbitrary depth, so page count/order/content never changes.
+  New intermediate nodes need a real indirect-object identity (so `/Parent` can reference them
+  as required by PDF 32000-1 7.7.3.2) despite never having been read from disk; `nextAvailableObjNum`
+  synthesizes a collision-free `_ref` by scanning the graph for the highest existing object number.
+- `DictTooLarge` (1) — the one corpus instance is a `/Resources/ExtGState` sub-dictionary with
+  4100 entries, none referenced by the page's content. `resourceDictPruneFixer` deletes entries a
+  new resource-usage scanner (`computeResourceUsage`, walking `Do`/`Tf`/`gs`/`cs`/`CS`/`scn`/`SCN`/
+  `sh`/`BDC`/`DP` across pages and invoked Form XObjects) confirms nothing references, down to the
+  4096-entry limit — safe by construction; left residual if pruning every unused entry still isn't
+  enough.
+- `NameTooLong` (2) — `nameTooLongFixer` handles both flavours: an overlong name *value* is
+  truncated in place via `walkScalars` (mirroring `contentLimitsFixer`'s other scalar clamps); an
+  overlong dictionary *key* (the corpus case: a `/Resources/ColorSpace` key referenced by the
+  page's content via `CS`/`cs`) is renamed to a short, collision-free replacement, with every
+  content-stream operator selecting the old name rewritten to the new one via a new
+  `walkResourceAwareContent` — a Resources-aware sibling of `walkContentStreams` that threads the
+  in-effect `/Resources` dict through Page→Form `Do` recursion, since renaming without resyncing
+  references would silently break the page's appearance.
+- `CMapCIDOutOfRange` (2) — `cmapCIDClampFixer` clamps any cidrange/cidchar CID value over 65535
+  down to 65535 directly within a CMap stream's PostScript bytes, splicing the replacement via
+  token byte-offsets (`cmapTokenize` extended to record them) rather than re-serializing the
+  whole stream — mirrors `checkCMapCIDLimits`' own token-position state machine exactly so it only
+  ever touches what that check would flag.
+- `DeviceNColorants` (1) — **not attempted, confirmed infeasible by inspection**: the one corpus
+  fixture's `DeviceN` array lists 12 colorants, 3 of which are the spec's `/None` placeholder (no
+  visual effect) — but the remaining 9 *real* colorants still exceed the 8-colorant maximum, and
+  reducing them further would require rewriting the tint-transform function's input arity to
+  match. `ResidualCategory` now classifies it explicitly rather than leaving it unclassified.
+
+5 fixtures moved to fully conformant (the sixth, `CMapCIDOutOfRange`'s other instance, shares a
+fixture with the unrelated, separately-residual CJK `SubsetGlyphCoverage` case — `CMapCIDOutOfRange`
+itself is still cleared from it). Floor 491 → 496.
 
 ### Phase 12 — Transparency flattening (family E)
 **Goal:** `TransparencyGroup` 6.4 (2), `ImageWithSoftMask` 6.4 (1). Removing `/Group`/`/SMask`
@@ -389,8 +443,10 @@ The pipeline today optimizes for correctness; before/with the heavier phases, ad
   metadata, appearance, font-metadata, and most content-stream violations — the bulk of the
   remaining 91 non-conformant fixtures (Phase 6 closed 33 of the original 124).
 - **Achievable only with bundled assets (Phase 10) or external tools (Phase 13):** font
-  substitution and rasterization. These change appearance and/or pull dependencies, so they
-  should be **opt-in** with clear reporting via `ConvertResult.Residual()` / `ResidualCategory`.
+  substitution and rasterization. Font substitution changes glyph shapes but always runs (project
+  decision, Phase 10) since a substituted-but-conformant font beats a non-conformant one;
+  rasterization is more invasive (text becomes image) and should be **opt-in**. Either way, clear
+  reporting via `ConvertResult.Residual()` / `ResidualCategory` covers what's left.
 - **Fundamentally unconvertible:** inputs whose object graph cannot be resolved
   (`GraphResolutionFailure`) — there is nothing to rewrite. These belong to parser-recovery
   work, not conversion, and should continue to degrade gracefully (return best-effort `Result`,
@@ -414,12 +470,13 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 11A CMYK + Default* colour | C | FOGRA39 v2 ICC | reuses CW-3 | 10 landed |
 | ✅ done | 11B Content rewriter + inline-image round-trip | C | — | CW-3 inline-image support | 16 landed |
 | ✅ done | 11C Inline-image fixes (ImageInterpolate, InlineImageLZWFilter, inline /Intent) | C | — | extracted `walkContentStreams`/`contentOpRewriter` | 3 landed |
-| next | 10 Font embed/subset | D'' | fonts (already bundled, §3.2) | CW-4 (write) | ~5+ (opt-in) |
+| ✅ done | 10 Font embed/subset | D'' | fonts (already bundled, §3.2) | CW-4 (write): TrueType subsetter | 13 landed |
+| ✅ done | 11D Remaining 6.1.12 limits | A/C | — | resource-usage scanner, Resources-aware content walk | 5 landed |
 | next | 12 Transparency | E | — | CW-5 | ~3 |
 | next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
-→ 478 (Phase 11C), of 510 total corpus fixtures.
+→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D), of 510 total corpus fixtures.
 
 Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
 to pick exact fixtures, and §3–4 to pull in the required assets/infra.

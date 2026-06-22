@@ -325,7 +325,7 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 	pos := 0 // position within the current block entry (0-indexed token within triplet/pair)
 
 	for _, tok := range tokens {
-		switch tok {
+		switch tok.text {
 		case "begincidrange":
 			inCIDRange = true
 			inCIDChar = false
@@ -345,7 +345,7 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 				// cidrange entries: <start-code> <end-code> start-CID (repeat).
 				pos++
 				if pos == 3 {
-					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
+					if cid, ok := cmapParseInt(tok.text); ok && cid > maxCID {
 						ctx.Report(Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
@@ -354,7 +354,7 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 				// cidchar entries: <code> CID (repeat).
 				pos++
 				if pos == 2 {
-					if cid, ok := cmapParseInt(tok); ok && cid > maxCID {
+					if cid, ok := cmapParseInt(tok.text); ok && cid > maxCID {
 						ctx.Report(Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
@@ -364,9 +364,17 @@ func checkCMapCIDLimits(obj PDFValue, data []byte, ctx *ValidationContext) {
 	}
 }
 
+// cmapToken pairs a cmapTokenize token with its byte range in the source
+// data, so a fixer can splice a replacement in place (fixups_limits.go)
+// without disturbing anything else (comments, whitespace, formatting).
+type cmapToken struct {
+	text       string
+	start, end int
+}
+
 // cmapTokenize splits CMap PostScript content into tokens, skipping comments.
-func cmapTokenize(data []byte) []string {
-	var tokens []string
+func cmapTokenize(data []byte) []cmapToken {
+	var tokens []cmapToken
 	i := 0
 	for i < len(data) {
 		for i < len(data) && isWhitespace(data[i]) {
@@ -381,6 +389,7 @@ func cmapTokenize(data []byte) []string {
 			}
 			continue
 		}
+		start := i
 		if data[i] == '<' {
 			// hex string token: <...> (stop at first >)
 			j := i + 1
@@ -390,7 +399,7 @@ func cmapTokenize(data []byte) []string {
 			if j < len(data) {
 				j++
 			}
-			tokens = append(tokens, string(data[i:j]))
+			tokens = append(tokens, cmapToken{string(data[i:j]), start, j})
 			i = j
 		} else if data[i] == '(' {
 			// literal string: skip to matching ')'
@@ -408,7 +417,7 @@ func cmapTokenize(data []byte) []string {
 				}
 				j++
 			}
-			tokens = append(tokens, string(data[i:j]))
+			tokens = append(tokens, cmapToken{string(data[i:j]), start, j})
 			i = j
 		} else {
 			// regular token: read until whitespace or delimiter
@@ -417,7 +426,7 @@ func cmapTokenize(data []byte) []string {
 				j++
 			}
 			if j > i {
-				tokens = append(tokens, string(data[i:j]))
+				tokens = append(tokens, cmapToken{string(data[i:j]), start, j})
 			}
 			i = j
 		}

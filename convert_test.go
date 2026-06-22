@@ -197,6 +197,19 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					if strings.Contains(iss.Error(), "q/Q nesting depth") {
 						continue
 					}
+					// SubsetGlyphCoverage/CIDNotEmbedded on a composite font
+					// with no recoverable code/CID->Unicode mapping (no
+					// /ToUnicode, or a non-Identity-H/V encoding -- typically
+					// a CJK CID-keyed CFF font) can't be substituted: see
+					// cidFontSubstitutionEligible's doc comment
+					// (fixups_font_subst.go). Gated on the *original*
+					// document genuinely having no eligible composite font,
+					// not just on message wording, so a real regression in
+					// the fixable (Identity-H + ToUnicode) case still fails.
+					if (c == Checks.Font.SubsetGlyphCoverage || c == Checks.Font.CIDNotEmbedded) &&
+						strings.Contains(iss.Error(), "CID") && !cidSubstitutionPossible(t, path) {
+						continue
+					}
 					t.Errorf("check %s (%s/%d) still present after conversion: %v",
 						c.Name(), c.Clause(), c.Subclause(), iss)
 					ok = false
@@ -209,6 +222,39 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 	}
 
 	t.Logf("Phase 3 fixer sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
+}
+
+// cidSubstitutionPossible reports whether the document at path contains at
+// least one Type0 font eligible for CID substitution
+// (cidFontSubstitutionEligible, fixups_font_subst.go). Used only to excuse a
+// residual CID-flavoured check on fixtures with no such font at all (every
+// composite font in the current corpus is fully eligible or fully
+// ineligible, never a mix, so this fixture-level check is precise enough).
+func cidSubstitutionPossible(t *testing.T, path string) bool {
+	t.Helper()
+	doc, err := Open(path)
+	if err != nil {
+		return false
+	}
+	defer doc.Close()
+	graph, err := doc.ResolveGraph()
+	if err != nil {
+		return false
+	}
+	trailer, ok := graph.(PDFDict)
+	if !ok {
+		return false
+	}
+	possible := false
+	walkDicts(trailer, map[uintptr]bool{}, func(d PDFDict) {
+		if possible || (d.Entries["Type"] != PDFName{Value: "Font"}) || (d.Entries["Subtype"] != PDFName{Value: "Type0"}) {
+			return
+		}
+		if _, ok := cidFontSubstitutionEligible(d); ok {
+			possible = true
+		}
+	})
+	return possible
 }
 
 // isKnownUnfixableXMPSync reports whether an Info/XMP sync error message
@@ -447,13 +493,11 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 // minConvertedFully is a regression floor on how many of both corpora's
 // "fail" fixtures Convert turns fully conformant, recorded empirically after
-// Phase 11 Stage C landed (fixInlineImageInterpolate, folded into
-// imageMetadataFixer; inlineImageLZWFixer; and the inline /Intent case
-// folded into contentLimitsFixer -- all in fixups_inline_image.go/
-// fixups_content.go, on top of Stage B's content-stream rewriter): 478 of
-// 510. Should only ever increase as later phases add more fixups; a drop
-// means something regressed.
-const minConvertedFully = 478
+// the 6.1.12 limit fixers landed (pagesTreeArrayFixer, resourceDictPruneFixer,
+// nameTooLongFixer, cmapCIDClampFixer -- fixups_limits.go): 496 of 510, up
+// from 491. Should only ever increase as later phases add more fixups; a
+// drop means something regressed.
+const minConvertedFully = 496
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome into three buckets: fully

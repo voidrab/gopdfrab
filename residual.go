@@ -4,34 +4,42 @@ package pdfrab
 // Residual() as a hint toward what remediation it would need beyond this
 // package's current fixups -- in particular, whether rasterizing the
 // affected content is the only way to resolve it, since gopdfrab has no
-// content-stream rewriter or font re-subsetter (see the converter plan's
+// content-stream rewriter for these cases (see the converter plan's
 // difficulty classification). Returns "" for anything not specifically
 // classified here; that covers both genuinely novel violations and ones
 // theoretically fixable by a future dictionary-level fixup that just
-// doesn't exist yet (e.g. CIDToGIDMapMissing, TrueTypeEncoding) -- being
-// unclassified is not itself evidence that rasterization is needed.
+// doesn't exist yet -- being unclassified is not itself evidence that
+// rasterization is needed.
 func ResidualCategory(c Check) string {
 	switch c {
 	case Checks.Font.SimpleNotEmbedded, Checks.Font.CIDNotEmbedded,
 		Checks.Font.SubsetGlyphCoverage, Checks.Font.InvalidProgram,
 		Checks.Font.CMapNotEmbedded:
-		// The glyph/program/width data this needs simply isn't in the file
-		// (or is corrupt); fixing it means re-subsetting/re-embedding the
-		// original font, which gopdfrab cannot do, or rasterizing the
-		// affected text.
+		// fontSubstitutionFixer (fixups_font_subst.go) clears most of these
+		// by substituting a bundled face, but only when a code/CID->Unicode
+		// mapping is recoverable (Identity-H/V plus /ToUnicode for composite
+		// fonts); a CID-keyed font with neither -- typically a CJK font with
+		// no /ToUnicode -- has no tractable fix: there's nothing left in the
+		// file to tell it what glyph any given CID was supposed to be, so a
+		// remaining instance still means re-embedding the original (which
+		// gopdfrab cannot do without it) or rasterizing the affected text.
 		return "font: requires re-embedding/re-subsetting the original font, or rasterizing the affected text"
 
-	case Checks.Structure.InlineImageLZWFilter, Checks.Structure.StringTooLong,
-		Checks.Structure.ArrayTooLarge, Checks.Structure.DictTooLarge,
-		Checks.Structure.NameTooLong, Checks.Structure.CMapCIDOutOfRange:
+	case Checks.Structure.InlineImageLZWFilter, Checks.Structure.StringTooLong:
 		// inlineImageLZWFixer (fixups_inline_image.go) handles the common
 		// case but bails out when a /DP or /DecodeParms predictor is
 		// present (no inline-image-aware predictor-undo exists), and the
 		// q/Q-nesting-depth flavour of StringTooLong is a structural defect
-		// contentLimitsFixer (fixups_content.go) deliberately leaves open;
-		// the rest (Array/Dict/Name/CMapCID) live in content or
-		// dictionaries this package doesn't yet rewrite.
+		// contentLimitsFixer (fixups_content.go) deliberately leaves open --
+		// both live in content this package doesn't rewrite for these cases.
 		return "content-stream: requires re-tokenizing/re-encoding the content stream"
+
+	case Checks.Structure.DeviceNColorants:
+		// pruning colorant names to fit the 8-colorant maximum would leave
+		// the DeviceN array shorter than the tint-transform function's
+		// declared input arity -- fixing it means rewriting that function,
+		// which this package has no machinery for.
+		return "content-stream: requires rewriting the colour-space tint-transform function"
 
 	case Checks.Transparency.TransparencyGroup, Checks.Transparency.ImageWithSoftMask:
 		// Removing the offending key (/Group, /SMask) is trivial, but doing
