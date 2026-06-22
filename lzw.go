@@ -13,7 +13,7 @@ const (
 func decodeLZW(data []byte) ([]byte, error) {
 	br := lzwBitReader{data: data}
 	table := make([][]byte, lzwMaxCode)
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		table[i] = []byte{byte(i)}
 	}
 
@@ -73,7 +73,7 @@ func (r *lzwBitReader) read(n int) (code int, ok bool) {
 	if r.pos+n > len(r.data)*8 {
 		return 0, false
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		b := r.data[r.pos/8]
 		bit := (b >> (7 - r.pos%8)) & 1
 		code = code<<1 | int(bit)

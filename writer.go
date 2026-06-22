@@ -306,39 +306,102 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v PDFValue) error {
 		_, err := fmt.Fprint(cw, "]")
 		return err
 
+	case PDFRef:
+		return fmt.Errorf("encountered an unresolved reference %v; WriteDocument requires a fully-resolved graph (see Document.ResolveGraph)", val)
+
+	default:
+		ok, err := writeScalar(cw, v)
+		if !ok && err == nil {
+			err = fmt.Errorf("unsupported value type %T", v)
+		}
+		return err
+	}
+}
+
+// writeScalar serializes a PDFName/PDFString/PDFHexString/PDFInteger/
+// PDFReal/PDFBoolean -- the value kinds with no indirect-object semantics,
+// shared between writeValue (the full-document writer) and writeOperand
+// (the content-stream writer, content_writer.go). ok is false for any other
+// type, letting each caller apply its own array/dict/nil handling.
+func writeScalar(w io.Writer, v PDFValue) (ok bool, err error) {
+	switch val := v.(type) {
 	case PDFName:
-		_, err := fmt.Fprintf(cw, "/%s", val.Value)
-		return err
-
+		_, err = fmt.Fprintf(w, "/%s", val.Value)
 	case PDFString:
-		_, err := fmt.Fprintf(cw, "(%s)", val.Value)
-		return err
-
+		_, err = fmt.Fprintf(w, "(%s)", val.Value)
 	case PDFHexString:
-		_, err := fmt.Fprintf(cw, "<%s>", val.Value)
-		return err
-
+		_, err = fmt.Fprintf(w, "<%s>", val.Value)
 	case PDFInteger:
-		_, err := fmt.Fprintf(cw, "%d", int(val))
-		return err
-
+		_, err = fmt.Fprintf(w, "%d", int(val))
 	case PDFReal:
 		// Plain decimal, never scientific notation: lexer.go's readNumber
 		// only accumulates digits/'.'/'+'/'-', so "1e+10" would not
 		// round-trip through our own reader.
-		_, err := fmt.Fprint(cw, strconv.FormatFloat(float64(val), 'f', -1, 32))
-		return err
-
+		_, err = fmt.Fprint(w, strconv.FormatFloat(float64(val), 'f', -1, 32))
 	case PDFBoolean:
 		s := "false"
 		if bool(val) {
 			s = "true"
 		}
-		_, err := fmt.Fprint(cw, s)
+		_, err = fmt.Fprint(w, s)
+	default:
+		return false, nil
+	}
+	return true, err
+}
+
+// writeOperand serializes a content-stream operand: any value writeScalar
+// handles, plus arrays and inline dictionaries (e.g. a BI inline-image
+// parameter dict, or a BDC property list) -- operands are never indirect
+// references, so unlike writeValue this never consults isIndirectDict.
+func writeOperand(w io.Writer, v PDFValue) error {
+	if ok, err := writeScalar(w, v); ok {
+		return err
+	}
+	switch val := v.(type) {
+	case PDFArray:
+		if _, err := fmt.Fprint(w, "["); err != nil {
+			return err
+		}
+		for i, child := range val {
+			if i > 0 {
+				if _, err := fmt.Fprint(w, " "); err != nil {
+					return err
+				}
+			}
+			if err := writeOperand(w, child); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprint(w, "]")
 		return err
 
-	case PDFRef:
-		return fmt.Errorf("encountered an unresolved reference %v; WriteDocument requires a fully-resolved graph (see Document.ResolveGraph)", val)
+	case PDFDict:
+		keys := make([]string, 0, len(val.Entries))
+		for k := range val.Entries {
+			if k == "_ref" || k == "_dirty" {
+				continue
+			}
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		if _, err := fmt.Fprint(w, "<<"); err != nil {
+			return err
+		}
+		for _, k := range keys {
+			if _, err := fmt.Fprintf(w, " /%s ", k); err != nil {
+				return err
+			}
+			if err := writeOperand(w, val.Entries[k]); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprint(w, " >>")
+		return err
+
+	case nil:
+		_, err := fmt.Fprint(w, "null")
+		return err
 
 	default:
 		return fmt.Errorf("unsupported value type %T", v)

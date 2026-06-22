@@ -1,7 +1,7 @@
 # PDF/A-1b Conversion — Roadmap to Completeness
 
 > **Purpose.** This document is the high-level roadmap for taking gopdfrab's PDF/A-1b
-> *conversion* from its current state (424/510 corpus fixtures fully converted) to as close to
+> *conversion* from its current state (435/510 corpus fixtures fully converted) to as close to
 > *complete* as the format allows. Each phase below is scoped to be the input for a later,
 > more specific implementation plan (`/plan`). It states the goal, the exact checks targeted,
 > the approach, any external assets/tooling required, the test bar, and risk — but deliberately
@@ -9,7 +9,7 @@
 >
 > **How to read it.** Phases are ordered by value-per-unit-effort: cheap, asset-free,
 > rendering-neutral wins first; font/content-stream/rasterization work (which needs new
-> infrastructure and bundled assets) last. Phases 1–7 are **done**; 8+ are the roadmap.
+> infrastructure and bundled assets) last. Phases 1–8 are **done**; 9+ are the roadmap.
 
 ---
 
@@ -36,6 +36,8 @@ sweep: **424 fully conformant · 49 known-hard residual · 37 other residual · 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
 - `newContentScanner(...).scan(...)` (content-stream **reader**/tokenizer) — `content.go`
+- `writeContentStream`/`contentOp` (content-stream **writer**, CW-3, landed Phase 8) — `content_writer.go`, sharing scalar serialization with `writer.go` via `writeScalar`/`writeOperand`
+- `appearanceFont()` — bundled, embedded, conformant Liberation Sans simple TrueType font for synthesized appearance text — `fixups_appearance_font.go`
 - Font-program parsers for TrueType/CFF/Type1 (glyph coverage, widths, cmap) — `checks_font_program.go` (~1300 lines, used today only for *validation*)
 - `Fixer` registry + pre-emptive fixup registry — `convert_fixers.go`
 - `ResidualCategory` — classifies a leftover check as font/content-stream/transparency-hard — `residual.go`
@@ -95,8 +97,8 @@ the start of Phase 8.)
 | DeviceColourContentStream | 6.2.3.3 | 10 | no | **C** content-stream colour |
 | AdvanceWidthMismatch | 6.3.6 | 9 | yes | **D** font metrics |
 | IntegerOutOfRange | 6.1.12 | 7 | yes | **C** content-stream / **A** structure |
-| AppearanceNNotStream | 6.5.3 | 6 | no | **B** appearance synth |
-| WidgetMissingAppearance | 6.9 | 5 | no | **B** appearance synth |
+| ~~AppearanceNNotStream~~ | 6.5.3 | ~~6~~ | no | **✅ done, Phase 8** |
+| ~~WidgetMissingAppearance~~ | 6.9 | ~~5~~ | no | **✅ done, Phase 8** |
 | ~~StreamLZWFilter~~ | 6.1.10 | ~~5~~ | no | **✅ done, Phase 7** |
 | StringTooLong | 6.1.12 | 5 | yes | **C** content-stream |
 | CIDSubsetCIDSet | 6.3.5 | 4 | yes | **D** font subset meta |
@@ -105,7 +107,7 @@ the start of Phase 8.)
 | UndefinedOperator | 6.2.10 | 2 | yes | **C** content-stream |
 | HexStringOddLength | 6.1.6 | 2 | no | **C** content-stream |
 | RenderingIntent | 6.2.9 | 2 | no | **C** content-stream (`ri`) |
-| AppearanceMissingN / AppearanceExtraEntries | 6.5.3 | 2/2 | no | **B** appearance synth |
+| ~~AppearanceMissingN / AppearanceExtraEntries~~ | 6.5.3 | ~~2/2~~ | no | **✅ done, Phase 8** |
 | TransparencyGroup | 6.4 | 2 | yes | **E** flatten/raster |
 | NameTooLong / CMapCIDOutOfRange | 6.1.12 | 2/2 | yes | **C** limits |
 | TrueTypeEncoding / SymbolicTrueTypeEncoding / SymbolicTrueTypeCmap | 6.3.7 | 1/1/1 | no | **D'** font encoding (rendering-affecting) |
@@ -218,15 +220,23 @@ rather than `walkDicts`, since `RawStream` is a value field `walkDicts`' by-valu
 cannot persist back to the shared graph. 5 fixtures moved to fully conformant (419 → 424).
 **Note:** inline-image LZW (`InlineImageLZWFilter`) lives in content bytes → Phase 11.
 
-### Phase 8 — Appearance-stream synthesis (family B)
-**Goal:** `WidgetMissingAppearance` 6.9 (5), `AppearanceNNotStream`/`AppearanceMissingN`/
-`AppearanceExtraEntries` 6.5.3 (10). Generate a minimal valid normal-appearance (`/AP /N`)
-form XObject for annotations/widgets lacking one, and normalize malformed `/AP`.
-**Assets:** none (uses a standard-14-substitute font only if text APs are needed → may pull a
-small dependency on Phase 10 for field text; start with empty/box APs).
-**Infra:** CW-3 (content-stream **writer**) — first consumer.
-**Risk:** medium — synthesized appearance may not match the original intent visually, but a
-conformant empty/neutral AP is acceptable for 1b and better than non-conformance.
+### Phase 8 — Appearance-stream synthesis (family B) — ✅ **done**
+Landed (full-fidelity, not the minimal empty-AP version originally scoped here): a new
+content-stream writer (`content_writer.go`, CW-3 — `writeContentStream`/`contentOp`, sharing
+scalar serialization with `writer.go` via the extracted `writeScalar`/`writeOperand` helpers) and
+`appearanceFixer` (`fixups_appearance.go`), which rebuilds `/AP` as `<< /N <value> >>` for any
+annotation/widget violating `WidgetMissingAppearance` (6.9), `MissingAppearance`,
+`AppearanceMissingN`, `AppearanceExtraEntries`, or `AppearanceNNotStream` (6.5.3) — preserving an
+already-valid `/N` value where one exists (e.g. when the only fault was an extra `/D`/`/R` key)
+rather than discarding it. Text/choice field widgets render their current `/V` as a single line
+of text using a bundled, embedded Liberation Sans face (`fixups_appearance_font.go` —
+`assets/fonts/LiberationSans-Regular.ttf`, SIL OFL, pulled forward from Phase 10's asset list);
+button widgets get a state-name-to-stream subdictionary; everything else gets a structurally
+valid empty Form XObject. The embedded font is deliberately **not** subset-tagged (so
+`SubsetGlyphCoverage` 6.3.5 never applies to it) and its `/Widths` are built directly from the
+font's own `hmtx` table (so `AdvanceWidthMismatch` 6.3.6 cannot fire — AP-only fonts get no
+content-usage narrowing from the verifier, so every `Widths` entry is checked). 11 fixtures moved
+to fully conformant (424 → 435).
 
 ### Phase 9 — Font metric & subset-metadata repair from the embedded program (family D, no new fonts)
 **Goal:** fix font issues using data already inside the file, by reading the embedded program.
@@ -354,7 +364,7 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 |------:|-------|--------|-----------|-----------|-----------------:|
 | ✅ done | 6 Dict expansion | A | — | (CW-2 still open) | 33 landed / ~40 targeted |
 | ✅ done | 7 LZW re-encode | A' | — | LZW decoder | 5 landed |
-| 2 | 8 Appearance synth | B | — | CW-3 | ~15 |
+| ✅ done | 8 Appearance synth | B | LiberationSans-Regular.ttf (pulled forward) | CW-3 (landed) | 11 landed / ~15 targeted |
 | 3 | 9 Font metadata repair | D | — | CW-4 (read) | ~16+ |
 | 4 | 11 Content rewriter | C | CMYK ICC | CW-3, CMYK | ~20 |
 | 5 | 10 Font embed/subset | D'' | fonts | CW-4 (write) | ~5+ (opt-in) |
