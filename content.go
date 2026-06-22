@@ -200,16 +200,34 @@ func hexDigit(b byte) int {
 	return -1
 }
 
+// inlineImageRaw carries an inline image's verbatim "BI...EI" byte span,
+// appended as the last element of the "INLINEIMAGE" pseudo-operator's
+// operands so writeContentStream can re-emit it unchanged. Existing
+// consumers that scan operands in (key, value) pairs are unaffected: the
+// trailing odd element falls outside every "i+1 < len(operands)" loop.
+//
+// Data holds just the image bytes between ID's separator and EI's separator
+// (excluding both), for a fixer that needs to inspect or replace them (e.g.
+// re-encoding LZW to Flate) without textually searching Bytes for "ID"/"EI"
+// -- which would be unsafe, since arbitrary binary image data can itself
+// contain those bytes. buildInlineImageBytes (content_writer.go) is the
+// inverse: it rebuilds a fresh Bytes span from edited params and Data.
+type inlineImageRaw struct {
+	Bytes []byte
+	Data  []byte
+}
+
 // ContentScanner walks a decoded content stream, exposing each operator together
 // with its operands. It reuses the object Lexer for tokenising; bare operators
 // arrive as keyword tokens.
 type ContentScanner struct {
 	lex   *Lexer
 	stack []PDFValue
+	data  []byte
 }
 
 func newContentScanner(data []byte) *ContentScanner {
-	return &ContentScanner{lex: NewLexer(bytes.NewReader(data))}
+	return &ContentScanner{lex: NewLexer(bytes.NewReader(data)), data: data}
 }
 
 // scan iterates the content stream, invoking fn for each operator with the
@@ -260,9 +278,11 @@ func (cs *ContentScanner) scan(fn func(op string, operands []PDFValue)) {
 }
 
 // scanInlineImage handles a BI ... ID <data> EI sequence: it reads the inline
-// image parameters, reports them via the "INLINEIMAGE" pseudo-operator, then
-// skips the binary data.
+// image parameters, then skips the binary data and reports the parameters,
+// the verbatim "BI...EI" byte span, and the image data alone (via
+// inlineImageRaw) through the "INLINEIMAGE" pseudo-operator.
 func (cs *ContentScanner) scanInlineImage(fn func(op string, operands []PDFValue)) {
+	start := cs.lex.pos - 2 // "BI" was already consumed by the caller's NextToken
 	var params []PDFValue
 	for {
 		tok := cs.lex.NextToken()
@@ -289,27 +309,41 @@ func (cs *ContentScanner) scanInlineImage(fn func(op string, operands []PDFValue
 			}
 		}
 	}
-	fn("INLINEIMAGE", params)
-	cs.skipToEI()
+	// Exactly one whitespace byte separates "ID" from the image data (PDF
+	// 32000 Table 92); consume it so dataStart points at the data itself.
+	if b, err := cs.lex.readByte(); err == nil && !isWhitespace(b) {
+		cs.lex.unreadByte()
+	}
+	dataStart := cs.lex.pos
+	dataEnd := cs.skipToEI()
+	if dataEnd < dataStart {
+		dataEnd = dataStart
+	}
+	fn("INLINEIMAGE", append(params, inlineImageRaw{
+		Bytes: cs.data[start:cs.lex.pos],
+		Data:  cs.data[dataStart:dataEnd],
+	}))
 }
 
 // skipToEI consumes raw bytes up to and including the EI operator that
-// terminates inline image data.
-func (cs *ContentScanner) skipToEI() {
-	r := cs.lex.reader
+// terminates inline image data, via cs.lex.readByte so cs.lex.pos -- which
+// scanInlineImage uses to slice the verbatim image span -- stays accurate.
+// It returns the offset of the single whitespace byte required immediately
+// before "EI" (i.e. the end of the image data, exclusive).
+func (cs *ContentScanner) skipToEI() (dataEnd int64) {
 	var prev byte = ' '
 	for {
-		b, err := r.ReadByte()
+		b, err := cs.lex.readByte()
 		if err != nil {
-			return
+			return cs.lex.pos
 		}
 		if isWhitespace(prev) && b == 'E' {
-			next, err := r.Peek(1)
+			next, err := cs.lex.reader.Peek(1)
 			if err == nil && len(next) == 1 && next[0] == 'I' {
-				r.ReadByte() // consume 'I'
-				after, err := r.Peek(1)
+				cs.lex.readByte() // consume 'I'
+				after, err := cs.lex.reader.Peek(1)
 				if err != nil || isWhitespace(after[0]) || isDelimiter(after[0]) {
-					return
+					return cs.lex.pos - 3 // pos minus "I", "E", and the separator
 				}
 			}
 		}

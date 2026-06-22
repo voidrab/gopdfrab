@@ -5,11 +5,19 @@ import (
 	"fmt"
 )
 
-// srgbICCProfile is the ICC's official sRGB v2 profile (color.org), used as
-// the base ICC stream for any OutputIntent this package injects.
+// srgbICCProfile is the ICC's official sRGB v2 profile (color.org), embedded
+// for any RGB OutputIntent/DefaultRGB colour space this package injects.
 //
 //go:embed assets/profiles/sRGB2014.icc
 var srgbICCProfile []byte
+
+// cmykICCProfile is a small-footprint FOGRA39 v2 CMYK profile, embedded for
+// any CMYK OutputIntent/DefaultCMYK colour space this package injects. PDF/A-1
+// requires ICC profiles no newer than v2.x (validateICCProfileStream); the
+// "fogra39.icc" asset alongside it is v4 and therefore unusable here.
+//
+//go:embed assets/profiles/Small-footprint_FOGRA39v2.icc
+var cmykICCProfile []byte
 
 func init() {
 	registerPreemptiveFixup(injectOutputIntent)
@@ -35,22 +43,22 @@ func injectOutputIntent(trailer *PDFDict) error {
 		}
 	}
 
-	wantN, colorSpaceSig, alternate, identifier := colourModelN["rgb"], "RGB ", "DeviceRGB", "sRGB"
+	wantN, alternate, identifier, iccBytes := colourModelN["rgb"], "DeviceRGB", "sRGB", srgbICCProfile
 	if dominant == "cmyk" {
-		wantN, colorSpaceSig, alternate, identifier = colourModelN["cmyk"], "CMYK", "DeviceCMYK", "CMYK"
+		wantN, alternate, identifier, iccBytes = colourModelN["cmyk"], "DeviceCMYK", "FOGRA39", cmykICCProfile
 	}
 
 	profile := NewPDFDict()
 	profile.Entries["N"] = PDFInteger(wantN)
 	profile.Entries["Alternate"] = PDFName{Value: alternate}
 	profile.HasStream = true
-	profile.RawStream = withICCColorSpace(colorSpaceSig)
+	profile.RawStream = iccBytes
 
 	intent := NewPDFDict()
 	intent.Entries["Type"] = PDFName{Value: "OutputIntent"}
 	intent.Entries["S"] = PDFName{Value: "GTS_PDFA1"}
 	intent.Entries["OutputConditionIdentifier"] = PDFString{Value: identifier}
-	intent.Entries["Info"] = PDFString{Value: identifier + " (placeholder ICC profile injected by gopdfrab)"}
+	intent.Entries["Info"] = PDFString{Value: identifier + " ICC profile injected by gopdfrab"}
 	intent.Entries["DestOutputProfile"] = profile
 
 	root.Entries["OutputIntents"] = PDFArray{intent}
@@ -58,11 +66,15 @@ func injectOutputIntent(trailer *PDFDict) error {
 	return nil
 }
 
-func withICCColorSpace(sig string) []byte {
-	out := make([]byte, len(srgbICCProfile))
-	copy(out, srgbICCProfile)
-	copy(out[16:20], sig)
-	return out
+// iccBasedColourSpace builds a "[/ICCBased <stream>]" colour-space array
+// backed by profile (an embedded ICC v2 profile of n components), suitable
+// for a /DefaultRGB or /DefaultCMYK resource entry.
+func iccBasedColourSpace(n int, profile []byte) PDFArray {
+	stream := NewPDFDict()
+	stream.Entries["N"] = PDFInteger(n)
+	stream.HasStream = true
+	stream.RawStream = profile
+	return PDFArray{PDFName{Value: "ICCBased"}, stream}
 }
 
 // dominantColourModel returns "rgb" or "cmyk" based on which has the higher usage count,

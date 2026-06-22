@@ -190,6 +190,13 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					if strings.Contains(iss.Error(), "inline image") {
 						continue
 					}
+					// q/Q nesting depth >28 (StringTooLong, checks_content.go)
+					// is a structural defect, not a clampable operand value --
+					// contentLimitsFixer (Phase 11) deliberately leaves it for
+					// the rasterization backstop. See that file's doc comment.
+					if strings.Contains(iss.Error(), "q/Q nesting depth") {
+						continue
+					}
 					t.Errorf("check %s (%s/%d) still present after conversion: %v",
 						c.Name(), c.Clause(), c.Subclause(), iss)
 					ok = false
@@ -440,12 +447,13 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 // minConvertedFully is a regression floor on how many of both corpora's
 // "fail" fixtures Convert turns fully conformant, recorded empirically after
-// Phase 9 landed (fontMetricFixer/fontSubsetMetaFixer, repairing
-// AdvanceWidthMismatch/Type1SubsetCharSet/CIDSubsetCIDSet from the embedded
-// font program, on top of Phase 8's appearance synthesis): 449 of 510.
-// Should only ever increase as later phases add more fixups; a drop means
-// something regressed.
-const minConvertedFully = 449
+// Phase 11 Stage C landed (fixInlineImageInterpolate, folded into
+// imageMetadataFixer; inlineImageLZWFixer; and the inline /Intent case
+// folded into contentLimitsFixer -- all in fixups_inline_image.go/
+// fixups_content.go, on top of Stage B's content-stream rewriter): 478 of
+// 510. Should only ever increase as later phases add more fixups; a drop
+// means something regressed.
+const minConvertedFully = 478
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome into three buckets: fully

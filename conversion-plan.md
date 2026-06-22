@@ -9,7 +9,8 @@
 >
 > **How to read it.** Phases are ordered by value-per-unit-effort: cheap, asset-free,
 > rendering-neutral wins first; font/content-stream/rasterization work (which needs new
-> infrastructure and bundled assets) last. Phases 1–8 are **done**; 9+ are the roadmap.
+> infrastructure and bundled assets) last. Phases 1–9 and Phase 11 (Stages A–C) are **done**;
+> the rest is the roadmap.
 
 ---
 
@@ -29,19 +30,26 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 5 | ICC embed + font dict fixer | embed `assets/sRGB2014.icc`; `fontDictFixer` adds `/CIDToGIDMap /Identity` (6.3.3.2) |
 | 6 | Dictionary-level fixer expansion (family A) | see §1.1 below — annotation subtype/colour, file specs/embedded files, PostScript form XObjects, optional content, Type0 CIDSystemInfo/WMode, Info-dict normalization, writer-synthesized `/ID` |
 | 7 | LZW stream re-encoding (family A') | `lzwStreamFixer` (`fixups_stream.go`) decodes `LZWDecode` streams (hand-rolled decoder, `lzw.go`) and marks them dirty for Flate re-encoding |
+| 8 | Appearance-stream synthesis (family B) | `appearanceFixer` (`fixups_appearance.go`) rebuilds `/AP`; bundled Liberation Sans face for text widgets |
+| 9 | Font metric & subset-metadata repair (family D, read) | `fontMetricFixer`/`fontSubsetMetaFixer` (`fixups_font_program.go`) recompute `/Widths`/`/W`/`/CharSet`/`/CIDSet` from the embedded program |
+| 11 A | Real CMYK profile + `Default*` colour-space injection | `deviceColourFixer` (`fixups_content_colour.go`); embedded FOGRA39 v2 profile (`fixups_colour.go`) |
+| 11 B | Content-stream rewriter + lossless inline-image round-trip | `contentLimitsFixer` (`fixups_content.go`); `inlineImageRaw` (`content.go`/`content_writer.go`) |
 
-**Regression floor:** `minConvertedFully = 424` of 510 (`convert_test.go`). Latest corpus
-sweep: **424 fully conformant · 49 known-hard residual · 37 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 475` of 510 (`convert_test.go`). Latest corpus
+sweep: **475 fully conformant · 26 known-hard residual · 9 other residual · 0 errored**.
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
-- `newContentScanner(...).scan(...)` (content-stream **reader**/tokenizer) — `content.go`
-- `writeContentStream`/`contentOp` (content-stream **writer**, CW-3, landed Phase 8) — `content_writer.go`, sharing scalar serialization with `writer.go` via `writeScalar`/`writeOperand`
+- `walkStreamDicts` (graph walk that writes mutated streams back to the parent) — `fixups_stream.go`
+- `walkScalars` (graph walk over dict/array scalar values, the leaf-level counterpart to `walkDicts`) — `fixups_content.go`
+- `newContentScanner(...).scan(...)` (content-stream **reader**/tokenizer, now round-trips inline images via `inlineImageRaw`) — `content.go`
+- `writeContentStream`/`contentOp` (content-stream **writer**, CW-3, landed Phase 8, inline-image support landed Phase 11B) — `content_writer.go`, sharing scalar serialization with `writer.go` via `writeScalar`/`writeOperand`
 - `appearanceFont()` — bundled, embedded, conformant Liberation Sans simple TrueType font for synthesized appearance text — `fixups_appearance_font.go`
-- Font-program parsers for TrueType/CFF/Type1 (glyph coverage, widths, cmap) — `checks_font_program.go` (~1300 lines, used today only for *validation*)
+- Font-program parsers for TrueType/CFF/Type1 (glyph coverage, widths, cmap) — `checks_font_program.go` (~1300 lines, used for both validation and Phase 9's repair fixers)
 - `Fixer` registry + pre-emptive fixup registry — `convert_fixers.go`
 - `ResidualCategory` — classifies a leftover check as font/content-stream/transparency-hard — `residual.go`
 - `decodeStream` / `decodeStreamCached`, predictor & filter handling — `stream.go`, `predictor.go`
+- Bundled ICC profiles: `assets/profiles/sRGB2014.icc` (v2 RGB), `assets/profiles/Small-footprint_FOGRA39v2.icc` (v2 CMYK) — `fixups_colour.go`. `fogra39.icc` is ICC v4 and unusable for PDF/A-1 (`validateICCProfileStream` rejects `major > 2`); left unembedded.
 
 ### 1.1 Phase 6 detail (landed, asset-free per project decision)
 
@@ -238,19 +246,15 @@ font's own `hmtx` table (so `AdvanceWidthMismatch` 6.3.6 cannot fire — AP-only
 content-usage narrowing from the verifier, so every `Widths` entry is checked). 11 fixtures moved
 to fully conformant (424 → 435).
 
-### Phase 9 — Font metric & subset-metadata repair from the embedded program (family D, no new fonts)
-**Goal:** fix font issues using data already inside the file, by reading the embedded program.
-**Targets:**
-- `AdvanceWidthMismatch` 6.3.6 (9) — recompute `/Widths` (and CID `/W`) from the embedded
-  program's `hmtx`/charstrings so PDF metrics match glyph metrics.
-- `Type1SubsetCharSet` 6.3.5 (3), `CIDSubsetCIDSet` 6.3.5 (4) — synthesize the `/CharSet` /
-  `CIDSet` from the glyphs actually present in the embedded subset program.
-- `SubsetGlyphCoverage` 6.3.5 (12) — where the program already contains every referenced
-  glyph, this is a metadata/consistency fix; where glyphs are genuinely missing, defer to
-  Phase 10 (re-subset/substitute).
-**Assets:** none. **Infra:** CW-4 (font toolkit, **read** side) — extend `checks_font_program.go`.
-**Risk:** medium — must parse multiple font formats correctly; widths are rendering-relevant
-but we only make PDF metadata match the actual program (no glyph change).
+### Phase 9 — Font metric & subset-metadata repair from the embedded program (family D, no new fonts) — ✅ **done**
+Landed: `fontMetricFixer` and `fontSubsetMetaFixer` (`fixups_font_program.go`), recomputing
+`/Widths`/CID `/W` from the embedded program's `hmtx`/Type1 charstrings (`AdvanceWidthMismatch`
+6.3.6) and synthesizing `/CharSet`/`CIDSet` from the glyphs actually present (`Type1SubsetCharSet`,
+`CIDSubsetCIDSet` 6.3.5). `SubsetGlyphCoverage` remains detection-only by design (a genuinely
+missing glyph needs re-subsetting/substitution, Phase 10) — still the largest single residual
+bucket (12 fixtures). No CFF/Type1C charstring advance-width reader exists, so CIDFontType0
+`AdvanceWidthMismatch` is neither checked nor fixed; a small open gap, not yet hit by the corpus.
+Floor raised 424 → 449.
 
 ### Phase 10 — Font embedding & substitution (family D'', **needs bundled fonts**)
 **Goal:** `CIDNotEmbedded` 6.3.4, `CMapNotEmbedded` 6.3.3.3, and standard-14 `SimpleNotEmbedded`
@@ -265,21 +269,62 @@ mapping. This is the largest single-feature effort. Also a `D'` sub-task: the re
 TrueType encoding normalizations (6.3.7, 3 fixtures) — gate behind an explicit opt-in flag
 because they can change glyph mapping (deferred from Phase 5 by project precedent).
 
-### Phase 11 — Content-stream rewriter (family C, **needs content-stream writer**)
+### Phase 11 — Content-stream rewriter (family C, **needs content-stream writer**) — **Stages A+B done**
 **Goal:** fix violations that live inside content bytes, the largest "hard" cluster.
-**Targets:**
-- `DeviceColourContentStream` 6.2.3.3 (10) — convert device colours not covered by the output
-  intent (and the multi-model case `injectOutputIntent` can't cover with one profile): rewrite
-  `rg/g/k`-family operators and inline-image colour, or inject `Default*` colour spaces. Needs
-  the real CMYK profile from §3.1 for correct conversion.
-- `UndefinedOperator` 6.2.10 (2), `RenderingIntent` `ri` 6.2.9 (2), `ImageInterpolate` inline
-  (1), `InlineImageLZWFilter` (1) — drop/replace offending tokens.
-- 6.1.12 limits inside content (`IntegerOutOfRange`, `StringTooLong`, `NameTooLong`,
-  `CMapCIDOutOfRange`, `ArrayTooLarge`, `DictTooLarge`), and 6.1.6 `HexString*` — clamp/repair
-  during re-tokenize+re-emit.
-**Assets:** real CMYK ICC v2 (§3.1). **Infra:** CW-3 (content-stream writer), reuse the scanner.
-**Risk:** high — re-emitting content must be byte-faithful except for the targeted change;
-colour conversion is appearance-relevant.
+
+**Stage A — done.** A real CMYK ICC v2 profile (`assets/profiles/Small-footprint_FOGRA39v2.icc`,
+FOGRA39, `prtr`/`CMYK`) is now embedded and used by `injectOutputIntent` for CMYK-dominant
+documents, replacing the old `withICCColorSpace` sRGB-with-patched-signature placeholder
+(`fixups_colour.go`). `deviceColourFixer` (`fixups_content_colour.go`) clears the multi-model
+case `injectOutputIntent` can't cover with one profile: it scans each page's content (+ Form
+XObjects/tiling patterns it invokes) and resource-level Image/Shading colour spaces for device
+models not covered by the document's OutputIntent, and injects a `/DefaultRGB`/`DefaultCMYK`
+ICCBased colour space into that page's `/Resources/ColorSpace` — `defaultColorSpaceDefined`
+(checks_colour.go) excuses a covered model on presence alone, so no per-pixel colour conversion
+is needed. Clears `DeviceColourContentStream` 6.2.3.3 (10) and `DeviceColourSpaceUsage` (present
+in the check catalog, not hit by the corpus). Floor 449 → 459.
+
+**Stage B — done.** `writeContentStream`/`newContentScanner` now round-trip inline images
+losslessly: `scanInlineImage` captures the verbatim `BI...EI` byte span (via `inlineImageRaw`,
+content.go) instead of discarding it, and `writeContentStream` re-emits it verbatim
+(content_writer.go) — closing CW-3's one remaining gap. `contentLimitsFixer`
+(`fixups_content.go`) rewrites content streams (Page/Form/tiling-Pattern/Type3 CharProcs) to
+drop `UndefinedOperator` 6.2.10 (2) and replace a non-standard `ri` `RenderingIntent` 6.2.9 (2)
+with `/RelativeColorimetric`, and clamps/repairs the 6.1.12/6.1.6 operand limits
+(`IntegerOutOfRange`, `StringTooLong`, `HexStringOddLength`, `HexStringInvalidChar`) wherever they
+occur — both inside content-stream operands and as plain dictionary/array values elsewhere in the
+graph (one `Fixer` per `Check`, so both sources of the same check need the same fixer; see
+`walkScalars`, the dict/array-element counterpart to `walkDicts`). Floor 459 → 475.
+**Known limitation, by design:** the q/Q-nesting-depth flavour of `StringTooLong` is a structural
+defect (too many nested `q`/`Q`), not a clampable operand — left for the rasterization backstop
+(Phase 13); `TestConvertClearsRegisteredFixerChecks` excuses it explicitly, the same way it
+already excuses inline-image-sourced residuals.
+
+**Stage C — done.** Inline-image-specific fixes, in new `fixups_inline_image.go`. The scanner
+now also captures an inline image's data bytes alone (`inlineImageRaw.Data`, distinct from the
+verbatim `Bytes` span Stage B added), and `buildInlineImageBytes` (content_writer.go) rebuilds a
+fresh `BI...EI` span from edited params + data — used only when something is actually fixed; an
+untouched inline image still round-trips via its captured `Bytes` unchanged.
+`fixInlineImageInterpolate` flips a true inline `/I`/`/Interpolate` to `false`, folded into
+*`imageMetadataFixer`* (`fixups_dict.go`) since it already owns `ImageInterpolate` for the
+dict-level Image-XObject case (one `Fixer` per `Check`). The inline `/Intent` flavour of
+`RenderingIntent` is folded into *`contentLimitsFixer`* the same way (it already owns that
+`Check` and already walks every `INLINEIMAGE` op). `inlineImageLZWFixer` is a new, separately
+registered `Fixer` for `InlineImageLZWFilter` (unclaimed until now): it decodes the inline image's
+LZW data (`decodeLZW`, `lzw.go`) and re-encodes as Flate (`deflateZlib`, `writer.go`), updating
+`/F`/`/Filter`; it bails out (leaves the violation as residual) if a `/DP`/`/DecodeParms`
+predictor is present, since no inline-image-aware predictor-undo exists — `ResidualCategory`
+keeps `InlineImageLZWFilter` classified as content-stream-hard for that reason, mirroring
+`StringTooLong`'s q/Q caveat. `walkContentStreams`/`contentOpRewriter` (`fixups_content.go`) were
+extracted from Stage B's `contentLimitsFixer` into shared, reusable helpers for this purpose.
+3 fixtures moved to fully conformant (`ImageInterpolate`, `InlineImageLZWFilter`, and the inline
+`/Intent` `RenderingIntent` case). Floor 475 → 478.
+
+**Remaining 6.1.12 limits out of Phase 11's scope** (not attempted): `ArrayTooLarge` (1),
+`DictTooLarge` (1), `NameTooLong` (2), `CMapCIDOutOfRange` (2), `DeviceNColorants` (1) — these
+either live in plain dictionaries (no content-stream component) or weren't part of this phase's
+brief; candidates for a small follow-up dictionary-level fixer (family **A**), not content
+rewriting.
 
 ### Phase 12 — Transparency flattening (family E)
 **Goal:** `TransparencyGroup` 6.4 (2), `ImageWithSoftMask` 6.4 (1). Removing `/Group`/`/SMask`
@@ -365,11 +410,16 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 6 Dict expansion | A | — | (CW-2 still open) | 33 landed / ~40 targeted |
 | ✅ done | 7 LZW re-encode | A' | — | LZW decoder | 5 landed |
 | ✅ done | 8 Appearance synth | B | LiberationSans-Regular.ttf (pulled forward) | CW-3 (landed) | 11 landed / ~15 targeted |
-| 3 | 9 Font metadata repair | D | — | CW-4 (read) | ~16+ |
-| 4 | 11 Content rewriter | C | CMYK ICC | CW-3, CMYK | ~20 |
-| 5 | 10 Font embed/subset | D'' | fonts | CW-4 (write) | ~5+ (opt-in) |
-| 6 | 12 Transparency | E | — | CW-5 | ~3 |
-| 7 | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
+| ✅ done | 9 Font metadata repair | D | — | CW-4 (read) | 14 landed (449 → 449; floor moved with Phase 11A/B below) |
+| ✅ done | 11A CMYK + Default* colour | C | FOGRA39 v2 ICC | reuses CW-3 | 10 landed |
+| ✅ done | 11B Content rewriter + inline-image round-trip | C | — | CW-3 inline-image support | 16 landed |
+| ✅ done | 11C Inline-image fixes (ImageInterpolate, InlineImageLZWFilter, inline /Intent) | C | — | extracted `walkContentStreams`/`contentOpRewriter` | 3 landed |
+| next | 10 Font embed/subset | D'' | fonts (already bundled, §3.2) | CW-4 (write) | ~5+ (opt-in) |
+| next | 12 Transparency | E | — | CW-5 | ~3 |
+| next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
+
+Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
+→ 478 (Phase 11C), of 510 total corpus fixtures.
 
 Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
 to pick exact fixtures, and §3–4 to pull in the required assets/infra.

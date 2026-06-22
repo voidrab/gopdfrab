@@ -291,9 +291,13 @@ func (formFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
-// checks_dict.go. It deliberately does not touch FormPostScript,
-// FormPSEntry, FormSubtype2PS, or PostScriptXObject (PostScript-related
-// checks already disabled in the default PDFA_1B profile; see profile.go).
+// checks_dict.go, plus the inline-image flavour of ImageInterpolate
+// (checkInlineImageOther, checks_content.go) via fixInlineImageInterpolate
+// (fixups_inline_image.go) -- a Check can only have one registered Fixer,
+// so the inline case is folded in here rather than given its own. It
+// deliberately does not touch FormPostScript, FormPSEntry, FormSubtype2PS,
+// or PostScriptXObject (PostScript-related checks already disabled in the
+// default PDFA_1B profile; see profile.go).
 type imageMetadataFixer struct{}
 
 func (imageMetadataFixer) Applies(c Check) bool {
@@ -342,6 +346,9 @@ func (imageMetadataFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error)
 			}
 		}
 	})
+	if walkContentStreams(trailer, fixInlineImageInterpolate) {
+		changed = true
+	}
 	return changed, nil
 }
 

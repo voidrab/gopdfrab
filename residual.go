@@ -21,14 +21,16 @@ func ResidualCategory(c Check) string {
 		// affected text.
 		return "font: requires re-embedding/re-subsetting the original font, or rasterizing the affected text"
 
-	case Checks.Colour.UndefinedOperator, Checks.Structure.InlineImageLZWFilter,
-		Checks.Structure.IntegerOutOfRange, Checks.Structure.StringTooLong,
+	case Checks.Structure.InlineImageLZWFilter, Checks.Structure.StringTooLong,
 		Checks.Structure.ArrayTooLarge, Checks.Structure.DictTooLarge,
 		Checks.Structure.NameTooLong, Checks.Structure.CMapCIDOutOfRange:
-		// These live inside content-stream bytes (an inline image's filter,
-		// an out-of-range operand, an operator PDF/A-1 doesn't recognize),
-		// not in a dictionary gopdfrab can edit; fixing them means
-		// re-tokenizing and re-encoding the content stream.
+		// inlineImageLZWFixer (fixups_inline_image.go) handles the common
+		// case but bails out when a /DP or /DecodeParms predictor is
+		// present (no inline-image-aware predictor-undo exists), and the
+		// q/Q-nesting-depth flavour of StringTooLong is a structural defect
+		// contentLimitsFixer (fixups_content.go) deliberately leaves open;
+		// the rest (Array/Dict/Name/CMapCID) live in content or
+		// dictionaries this package doesn't yet rewrite.
 		return "content-stream: requires re-tokenizing/re-encoding the content stream"
 
 	case Checks.Transparency.TransparencyGroup, Checks.Transparency.ImageWithSoftMask:
