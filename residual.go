@@ -13,9 +13,8 @@ package pdfrab
 func ResidualCategory(c Check) string {
 	switch c {
 	case Checks.Font.SimpleNotEmbedded, Checks.Font.CIDNotEmbedded,
-		Checks.Font.SubsetGlyphCoverage, Checks.Font.Type1SubsetCharSet,
-		Checks.Font.CIDSubsetCIDSet, Checks.Font.AdvanceWidthMismatch,
-		Checks.Font.InvalidProgram, Checks.Font.CMapNotEmbedded:
+		Checks.Font.SubsetGlyphCoverage, Checks.Font.InvalidProgram,
+		Checks.Font.CMapNotEmbedded:
 		// The glyph/program/width data this needs simply isn't in the file
 		// (or is corrupt); fixing it means re-subsetting/re-embedding the
 		// original font, which gopdfrab cannot do, or rasterizing the

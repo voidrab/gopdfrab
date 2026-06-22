@@ -669,6 +669,157 @@ func parseCFFCharStringLengths(cff []byte, csOffset int) []int {
 	return lens
 }
 
+// cffStandardStrings is the CFF specification's fixed table of predefined
+// SIDs (Appendix A); SIDs >= len(cffStandardStrings) index into a font's own
+// String INDEX instead.
+var cffStandardStrings = [...]string{
+	".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent", "ampersand",
+	"quoteright", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
+	"slash", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+	"colon", "semicolon", "less", "equal", "greater", "question", "at", "A", "B", "C", "D", "E",
+	"F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W",
+	"X", "Y", "Z", "bracketleft", "backslash", "bracketright", "asciicircum", "underscore",
+	"quoteleft", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p",
+	"q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "braceleft", "bar", "braceright",
+	"asciitilde", "exclamdown", "cent", "sterling", "fraction", "yen", "florin", "section",
+	"currency", "quotesingle", "quotedblleft", "guillemotleft", "guilsinglleft",
+	"guilsinglright", "fi", "fl", "endash", "dagger", "daggerdbl", "periodcentered", "paragraph",
+	"bullet", "quotesinglbase", "quotedblbase", "quotedblright", "guillemotright", "ellipsis",
+	"perthousand", "questiondown", "grave", "acute", "circumflex", "tilde", "macron", "breve",
+	"dotaccent", "dieresis", "ring", "cedilla", "hungarumlaut", "ogonek", "caron", "emdash",
+	"AE", "ordfeminine", "Lslash", "Oslash", "OE", "ordmasculine", "ae", "dotlessi", "lslash",
+	"oslash", "oe", "germandbls", "onesuperior", "logicalnot", "mu", "trademark", "Eth",
+	"onehalf", "plusminus", "Thorn", "onequarter", "divide", "brokenbar", "degree", "thorn",
+	"threequarters", "twosuperior", "registered", "minus", "eth", "multiply", "threesuperior",
+	"copyright", "Aacute", "Acircumflex", "Adieresis", "Agrave", "Aring", "Atilde", "Ccedilla",
+	"Eacute", "Ecircumflex", "Edieresis", "Egrave", "Iacute", "Icircumflex", "Idieresis",
+	"Igrave", "Ntilde", "Oacute", "Ocircumflex", "Odieresis", "Ograve", "Otilde", "Scaron",
+	"Uacute", "Ucircumflex", "Udieresis", "Ugrave", "Yacute", "Ydieresis", "Zcaron", "aacute",
+	"acircumflex", "adieresis", "agrave", "aring", "atilde", "ccedilla", "eacute", "ecircumflex",
+	"edieresis", "egrave", "iacute", "icircumflex", "idieresis", "igrave", "ntilde", "oacute",
+	"ocircumflex", "odieresis", "ograve", "otilde", "scaron", "uacute", "ucircumflex",
+	"udieresis", "ugrave", "yacute", "ydieresis", "zcaron", "exclamsmall", "Hungarumlautsmall",
+	"dollaroldstyle", "dollarsuperior", "ampersandsmall", "Acutesmall", "parenleftsuperior",
+	"parenrightsuperior", "twodotenleader", "onedotenleader", "zerooldstyle", "oneoldstyle",
+	"twooldstyle", "threeoldstyle", "fouroldstyle", "fiveoldstyle", "sixoldstyle",
+	"sevenoldstyle", "eightoldstyle", "nineoldstyle", "commasuperior", "threequartersemdash",
+	"periodsuperior", "questionsmall", "asuperior", "bsuperior", "centsuperior", "dsuperior",
+	"esuperior", "isuperior", "lsuperior", "msuperior", "nsuperior", "osuperior", "rsuperior",
+	"ssuperior", "tsuperior", "ff", "ffi", "ffl", "parenleftinferior", "parenrightinferior",
+	"Circumflexsmall", "hyphensuperior", "Gravesmall", "Asmall", "Bsmall", "Csmall", "Dsmall",
+	"Esmall", "Fsmall", "Gsmall", "Hsmall", "Ismall", "Jsmall", "Ksmall", "Lsmall", "Msmall",
+	"Nsmall", "Osmall", "Psmall", "Qsmall", "Rsmall", "Ssmall", "Tsmall", "Usmall", "Vsmall",
+	"Wsmall", "Xsmall", "Ysmall", "Zsmall", "colonmonetary", "onefitted", "rupiah", "Tildesmall",
+	"exclamdownsmall", "centoldstyle", "Lslashsmall", "Scaronsmall", "Zcaronsmall",
+	"Dieresissmall", "Brevesmall", "Caronsmall", "Dotaccentsmall", "Macronsmall", "figuredash",
+	"hypheninferior", "Ogoneksmall", "Ringsmall", "Cedillasmall", "questiondownsmall",
+	"oneeighth", "threeeighths", "fiveeighths", "seveneighths", "onethird", "twothirds",
+	"zerosuperior", "foursuperior", "fivesuperior", "sixsuperior", "sevensuperior",
+	"eightsuperior", "ninesuperior", "zeroinferior", "oneinferior", "twoinferior",
+	"threeinferior", "fourinferior", "fiveinferior", "sixinferior", "seveninferior",
+	"eightinferior", "nineinferior", "centinferior", "dollarinferior", "periodinferior",
+	"commainferior", "Agravesmall", "Aacutesmall", "Acircumflexsmall", "Atildesmall",
+	"Adieresissmall", "Aringsmall", "AEsmall", "Ccedillasmall", "Egravesmall", "Eacutesmall",
+	"Ecircumflexsmall", "Edieresissmall", "Igravesmall", "Iacutesmall", "Icircumflexsmall",
+	"Idieresissmall", "Ethsmall", "Ntildesmall", "Ogravesmall", "Oacutesmall",
+	"Ocircumflexsmall", "Otildesmall", "Odieresissmall", "OEsmall", "Oslashsmall", "Ugravesmall",
+	"Uacutesmall", "Ucircumflexsmall", "Udieresissmall", "Yacutesmall", "Thornsmall",
+	"Ydieresissmall", "001.000", "001.001", "001.002", "001.003", "Black", "Bold", "Book",
+	"Light", "Medium", "Regular", "Roman", "Semibold",
+}
+
+// parseCFFIndex parses a CFF INDEX structure at offset off, returning each
+// entry's bytes and the byte offset immediately following the INDEX.
+func parseCFFIndex(cff []byte, off int) (entries [][]byte, end int) {
+	if off+2 > len(cff) {
+		return nil, off
+	}
+	n := int(binary.BigEndian.Uint16(cff[off : off+2]))
+	if n == 0 {
+		return nil, off + 2
+	}
+	if off+3 > len(cff) {
+		return nil, off
+	}
+	osz := int(cff[off+2])
+	if osz < 1 || osz > 4 || off+3+(n+1)*osz > len(cff) {
+		return nil, off
+	}
+	readOff := func(i int) int {
+		v := 0
+		for _, b := range cff[off+3+i*osz : off+3+(i+1)*osz] {
+			v = v<<8 | int(b)
+		}
+		return v
+	}
+	dataStart := off + 3 + (n+1)*osz
+	last := readOff(n)
+	if dataStart+last-1 > len(cff) || last < 1 {
+		return nil, off
+	}
+	entries = make([][]byte, n)
+	for i := range n {
+		s, e := readOff(i)-1, readOff(i+1)-1
+		if s < 0 || e > last-1 || s > e {
+			return nil, off
+		}
+		entries[i] = cff[dataStart+s : dataStart+e]
+	}
+	return entries, dataStart + last - 1
+}
+
+// cffStringIndexEntries returns a CFF program's String INDEX entries (custom
+// strings, addressed by SID-len(cffStandardStrings) and up), walking past the
+// Name INDEX and Top DICT INDEX to reach it. Returns nil on parse failure.
+func cffStringIndexEntries(cff []byte) [][]byte {
+	if len(cff) < 4 {
+		return nil
+	}
+	_, off := parseCFFIndex(cff, int(cff[2])) // skip Name INDEX
+	_, off = parseCFFIndex(cff, off)          // skip Top DICT INDEX
+	entries, _ := parseCFFIndex(cff, off)     // String INDEX
+	return entries
+}
+
+// cffSIDName resolves a CFF string ID to its glyph name, via the standard
+// strings table or the font's own String INDEX. Returns "" if unresolvable.
+func cffSIDName(sid int, customStrings [][]byte) string {
+	if sid >= 0 && sid < len(cffStandardStrings) {
+		return cffStandardStrings[sid]
+	}
+	if idx := sid - len(cffStandardStrings); idx >= 0 && idx < len(customStrings) {
+		return string(customStrings[idx])
+	}
+	return ""
+}
+
+// cffGlyphNames returns the glyph names defined in a name-keyed (non-CID)
+// CFF program's charset, resolving each glyph's SID via cffSIDName. Returns
+// nil for CID-keyed fonts (use parseCFFCharsetCIDs instead) or on parse
+// failure, including the rare predefined-charset case (ISOAdobe/Expert/
+// ExpertSubset, charsetOffset 0-2), which this package doesn't decode.
+func cffGlyphNames(cff []byte) []string {
+	td, ok := parseCFFTopDict(cff)
+	if !ok || td.isCIDKeyed || td.csOffset < 0 || td.csOffset+2 > len(cff) {
+		return nil
+	}
+	csCount := int(binary.BigEndian.Uint16(cff[td.csOffset : td.csOffset+2]))
+	// The charset table layout is identical whether it stores CIDs (CID-keyed
+	// fonts) or SIDs (name-keyed fonts); only the interpretation differs.
+	sids := parseCFFCharsetCIDs(cff, td.charsetOffset, csCount)
+	if sids == nil {
+		return nil
+	}
+	customStrings := cffStringIndexEntries(cff)
+	var names []string
+	for _, sid := range sids {
+		if name := cffSIDName(sid, customStrings); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // validateCIDCFFSubset checks that all CIDs referenced in the W array are
 // defined in the embedded CFF program (6.3.5). CIDs only used to declare a
 // width, never shown, are exempt when usage info is available.
@@ -1161,21 +1312,30 @@ func parseType1AdvanceWidth(cs []byte) (int, bool) {
 // type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 var type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) RD `)
 
-// extractType1GlyphWidths decrypts the eexec binary section of a Type1 font
-// program and returns glyph name → advance width.
-// binStart is the byte offset of the first encrypted byte after the "eexec" keyword.
-func extractType1GlyphWidths(fontData []byte, binStart int) map[string]int {
+// type1CharStringsSection decrypts a Type1 program's eexec section and
+// returns the decrypted bytes starting at "/CharStrings", or nil if absent.
+// binStart is the byte offset of the first encrypted byte after "eexec".
+func type1CharStringsSection(fontData []byte, binStart int) []byte {
 	if binStart <= 0 || binStart >= len(fontData) {
 		return nil
 	}
 	plain := decryptType1Block(fontData[binStart:], 55665)
-
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
 		return nil
 	}
+	return plain[csIdx:]
+}
+
+// extractType1GlyphWidths decrypts the eexec binary section of a Type1 font
+// program and returns glyph name → advance width.
+// binStart is the byte offset of the first encrypted byte after the "eexec" keyword.
+func extractType1GlyphWidths(fontData []byte, binStart int) map[string]int {
+	cs := type1CharStringsSection(fontData, binStart)
+	if cs == nil {
+		return nil
+	}
 	result := map[string]int{}
-	cs := plain[csIdx:]
 	matches := type1CharStringRe.FindAllSubmatchIndex(cs, -1)
 	for _, m := range matches {
 		name := string(cs[m[2]:m[3]])
@@ -1191,6 +1351,23 @@ func extractType1GlyphWidths(fontData []byte, binStart int) map[string]int {
 	return result
 }
 
+// type1GlyphNames returns the glyph names defined in a Type1 program's
+// CharStrings dict (for CharSet synthesis, 6.3.5), regardless of whether
+// each charstring's advance width can be parsed -- unlike
+// extractType1GlyphWidths, a glyph with an unparseable width is still a
+// real glyph that belongs in CharSet.
+func type1GlyphNames(fontData []byte) []string {
+	cs := type1CharStringsSection(fontData, type1EexecBinStart(fontData))
+	if cs == nil {
+		return nil
+	}
+	var names []string
+	for _, m := range type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
+		names = append(names, string(cs[m[2]:m[3]]))
+	}
+	return names
+}
+
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
 var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
@@ -1202,40 +1379,12 @@ func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, wid
 		return
 	}
 
-	// Prefer the PDF-declared encoding; fall back to the font's own
-	// /Encoding declaration in the clear-text section before "eexec".
-	encName := pdfEncoding
-	if encName == "" {
-		eexecIdx := bytes.Index(fontData, []byte("eexec"))
-		textPart := fontData
-		if eexecIdx > 0 {
-			textPart = fontData[:eexecIdx]
-		}
-		if m := type1EncodingRe.FindSubmatch(textPart); m != nil {
-			encName = string(m[1])
-		}
-	}
-	var enc [256]string
-	switch encName {
-	case "StandardEncoding":
-		enc = standardEncoding
-	case "WinAnsiEncoding":
-		enc = winAnsiGlyphName
-	default:
+	enc, ok := type1EncodingTable(fontData, pdfEncoding)
+	if !ok {
 		return
 	}
 
-	// Binary data starts after "eexec" and its trailing whitespace.
-	eexecIdx := bytes.Index(fontData, []byte("eexec"))
-	if eexecIdx < 0 {
-		return
-	}
-	binStart := eexecIdx + 5
-	for binStart < len(fontData) && (fontData[binStart] == '\n' || fontData[binStart] == '\r' || fontData[binStart] == ' ') {
-		binStart++
-	}
-
-	glyphWidths := extractType1GlyphWidths(fontData, binStart)
+	glyphWidths := type1GlyphWidths(fontData)
 	if len(glyphWidths) == 0 {
 		return
 	}
@@ -1271,6 +1420,53 @@ func validateType1Metrics(obj PDFValue, ff PDFDict, firstChar, lastChar int, wid
 			return
 		}
 	}
+}
+
+// type1EncodingTable resolves the code->glyph-name table for a Type1 program,
+// preferring the PDF-declared encoding and falling back to the font's own
+// /Encoding declaration in the clear-text section before "eexec". ok is false
+// for an encoding this package doesn't model.
+func type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, ok bool) {
+	encName := pdfEncoding
+	if encName == "" {
+		eexecIdx := bytes.Index(fontData, []byte("eexec"))
+		textPart := fontData
+		if eexecIdx > 0 {
+			textPart = fontData[:eexecIdx]
+		}
+		if m := type1EncodingRe.FindSubmatch(textPart); m != nil {
+			encName = string(m[1])
+		}
+	}
+	switch encName {
+	case "StandardEncoding":
+		return standardEncoding, true
+	case "WinAnsiEncoding":
+		return winAnsiGlyphName, true
+	default:
+		return enc, false
+	}
+}
+
+// type1EexecBinStart returns the byte offset of the first encrypted byte
+// after a Type1 program's "eexec" keyword and its trailing whitespace, or -1
+// if "eexec" is absent.
+func type1EexecBinStart(fontData []byte) int {
+	eexecIdx := bytes.Index(fontData, []byte("eexec"))
+	if eexecIdx < 0 {
+		return -1
+	}
+	binStart := eexecIdx + 5
+	for binStart < len(fontData) && (fontData[binStart] == '\n' || fontData[binStart] == '\r' || fontData[binStart] == ' ') {
+		binStart++
+	}
+	return binStart
+}
+
+// type1GlyphWidths locates the eexec-encrypted section of a Type1 font
+// program and returns its glyph name -> advance width map (in 1/1000 em).
+func type1GlyphWidths(fontData []byte) map[string]int {
+	return extractType1GlyphWidths(fontData, type1EexecBinStart(fontData))
 }
 
 var wmodeRe = regexp.MustCompile(`/WMode\s+(\d+)\s+def`)
