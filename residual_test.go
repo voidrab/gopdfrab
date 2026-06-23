@@ -15,12 +15,14 @@ func TestResidualCategory(t *testing.T) {
 		// dictionary-level fixup that doesn't exist yet (e.g.
 		// CIDToGIDMapMissing), or already fully handled by a registered
 		// fixer (UndefinedOperator -- fixups_content.go; the Transparency
-		// checks -- fixups_transparency.go).
+		// checks -- fixups_transparency.go; DeviceNColorants --
+		// fixups_devicen.go).
 		{Checks.Font.CIDToGIDMapMissing, ""},
 		{Checks.Action.ForbiddenActionType, ""},
 		{Checks.Colour.UndefinedOperator, ""},
 		{Checks.Transparency.ImageWithSoftMask, ""},
 		{Checks.Transparency.TransparencyGroup, ""},
+		{Checks.Structure.DeviceNColorants, ""},
 	}
 	for _, tt := range tests {
 		got := ResidualCategory(tt.check)

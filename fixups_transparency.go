@@ -3,10 +3,13 @@ package pdfrab
 import "image"
 
 // transparencyFlattener remediates Checks.Transparency.TransparencyGroup and
-// Checks.Transparency.ImageWithSoftMask: removing /Group or /SMask outright
-// would silently change a page's rendered appearance, so the only faithful
-// fix is to rasterize the affected page (RenderPage, raster.go) and replace
-// it with a flat, opaque image -- no transparency construct survives that.
+// Checks.Transparency.ImageWithSoftMask by rasterizing only the smallest
+// self-contained object carrying the violation -- a Form XObject's own
+// content for a transparency group, or a single Image XObject's samples for
+// a soft mask -- never the whole page, since neither construct can simply be
+// dropped without changing a page's rendered appearance. Whole-page
+// rasterization is used only as a last resort, when /Group sits directly on
+// the Page dict and no narrower object exists to target instead.
 type transparencyFlattener struct{}
 
 func init() {
@@ -21,7 +24,7 @@ func (transparencyFlattener) Applies(c Check) bool {
 	return false
 }
 
-// flattenDPI is the resolution RenderPage rasterizes a flattened page at --
+// flattenDPI is the resolution a flattened Form/page is rasterized at --
 // high enough to stay legible, low enough to keep the replacement image's
 // byte size reasonable.
 const flattenDPI = 150
@@ -30,31 +33,50 @@ const flattenDPI = 150
 // page that inherits no /MediaBox anywhere up its Pages-tree ancestry.
 var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
-func (transparencyFlattener) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
+func (transparencyFlattener) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
 	changed := false
-	for _, pc := range pagesNeedingFlattening(*trailer) {
-		if flattenPageToImage(pc.page, pc.resources, pc.mediaBox) {
-			changed = true
+	for _, t := range collectTransparencyTargets(*trailer) {
+		switch t.kind {
+		case "image":
+			if fixed, ok := bakeSoftMaskOut(t.dict, t.resources); ok {
+				t.xobjects.Entries[t.name] = fixed
+				changed = true
+			}
+		case "form":
+			if fixed, ok := flattenFormToImage(t.dict, t.resources); ok {
+				t.xobjects.Entries[t.name] = fixed
+				changed = true
+			}
+		case "page":
+			if flattenPageToImage(t.dict, t.resources, t.mediaBox) {
+				changed = true
+			}
 		}
 	}
 	return changed, nil
 }
 
-// flaggedPage bundles a page dict with its inherited /Resources and
-// /MediaBox, resolved while descending the page tree (see
-// pagesNeedingFlattening).
-type flaggedPage struct {
-	page      PDFDict
+// flaggedTarget is one object collectTransparencyTargets found needing a
+// fix. For "image"/"form", xobjects+name address the resource-dictionary
+// slot the fixed dict must be written back into (PDFDict.RawStream/HasStream
+// changes don't propagate through a value-type copy the way Entries-map
+// mutations do). For "page", mediaBox is the page's own resolved /MediaBox.
+type flaggedTarget struct {
+	kind      string // "image", "form", or "page"
+	dict      PDFDict
 	resources PDFDict
+	xobjects  PDFDict
+	name      string
 	mediaBox  [4]float64
 }
 
-// pagesNeedingFlattening walks the page tree top-down from Root/Pages/Kids
-// (never via /Parent, which forms an intentional cycle back up the tree --
-// see document.go), tracking inherited /Resources and /MediaBox, and
-// collects every Page whose own subtree contains a transparency group or a
-// soft-masked image.
-func pagesNeedingFlattening(trailer PDFDict) []flaggedPage {
+// collectTransparencyTargets walks the page tree top-down from
+// Root/Pages/Kids (never via /Parent, an intentional cycle back up the tree
+// -- see document.go), tracking inherited /Resources and /MediaBox, and for
+// each page either flags the page itself (its own /Group, the rare
+// no-narrower-object case) or descends into its resource graph to flag the
+// individual Form/Image XObjects responsible.
+func collectTransparencyTargets(trailer PDFDict) []flaggedTarget {
 	root, ok := trailer.Entries["Root"].(PDFDict)
 	if !ok {
 		return nil
@@ -64,7 +86,8 @@ func pagesNeedingFlattening(trailer PDFDict) []flaggedPage {
 		return nil
 	}
 
-	var out []flaggedPage
+	var out []flaggedTarget
+	visited := map[uintptr]bool{}
 	var walk func(node PDFDict, resources PDFDict, mediaBox [4]float64)
 	walk = func(node PDFDict, resources PDFDict, mediaBox [4]float64) {
 		if r, ok := node.Entries["Resources"].(PDFDict); ok {
@@ -74,9 +97,11 @@ func pagesNeedingFlattening(trailer PDFDict) []flaggedPage {
 			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
 		}
 		if (node.Entries["Type"] == PDFName{Value: "Page"}) {
-			if pageHasFlattenableTransparency(node) {
-				out = append(out, flaggedPage{page: node, resources: resources, mediaBox: mediaBox})
+			if hasTransparencyGroup(node) {
+				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox})
+				return
 			}
+			collectXObjectTargets(resources, visited, &out)
 			return
 		}
 		if kids, ok := node.Entries["Kids"].(PDFArray); ok {
@@ -91,72 +116,183 @@ func pagesNeedingFlattening(trailer PDFDict) []flaggedPage {
 	return out
 }
 
-// pageHasFlattenableTransparency reports whether page's own subtree (its
-// dict and anything reachable from it, e.g. via nested Form XObjects)
-// contains a /Group /S /Transparency dict or an Image XObject with a
-// non-/None /SMask, mirroring validateTransparencyGroup/validateXObjectDict
-// (checks_dict.go) exactly so this only flags what those checks would.
-func pageHasFlattenableTransparency(page PDFDict) bool {
-	found := false
-	walkPageSubtree(page, map[uintptr]bool{}, func(d PDFDict) {
-		if found {
-			return
-		}
-		if group, ok := d.Entries["Group"].(PDFDict); ok {
-			if (group.Entries["S"] == PDFName{Value: "Transparency"}) {
-				found = true
-				return
-			}
-		}
-		if subtype, ok := d.Entries["Subtype"].(PDFName); ok && subtype.Value == "Image" {
-			if sm, ok := d.Entries["SMask"]; ok {
-				if name, isName := sm.(PDFName); !isName || name.Value != "None" {
-					found = true
-				}
-			}
-		}
-	})
-	return found
-}
+// collectXObjectTargets scans resources' /XObject subdictionary, flagging
+// Form XObjects carrying their own /Group and Image XObjects carrying a
+// non-/None /SMask, recursing into nested Forms via the same /Resources
+// fallback doXObject uses (raster.go). A flagged Form is not descended into
+// further: it's about to be wholly replaced, so anything inside it is moot.
+// visited guards against cyclic/shared XObject subdictionaries.
+func collectXObjectTargets(resources PDFDict, visited map[uintptr]bool, out *[]flaggedTarget) {
+	xobjects, ok := resources.Entries["XObject"].(PDFDict)
+	if !ok {
+		return
+	}
+	ptr := pdfValuePointer(xobjects.Entries)
+	if visited[ptr] {
+		return
+	}
+	visited[ptr] = true
 
-// walkPageSubtree is walkDicts restricted to a single page's own subtree: it
-// additionally never follows /Parent, which would otherwise walk back up to
-// the shared Pages node and across into every sibling page's subtree too,
-// since /Parent is an intentional cycle in the resolved graph.
-func walkPageSubtree(v PDFValue, visited map[uintptr]bool, fn func(PDFDict)) {
-	switch val := v.(type) {
-	case PDFDict:
-		ptr := pdfValuePointer(val.Entries)
-		if visited[ptr] {
-			return
+	for name, v := range xobjects.Entries {
+		xobj, ok := v.(PDFDict)
+		if !ok {
+			continue
 		}
-		visited[ptr] = true
-		fn(val)
-		for k, child := range val.Entries {
-			if k == "_ref" || k == "_dirty" || k == "Parent" {
+		subtype, _ := xobj.Entries["Subtype"].(PDFName)
+		switch subtype.Value {
+		case "Form":
+			if hasTransparencyGroup(xobj) {
+				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: resources, xobjects: xobjects, name: name})
 				continue
 			}
-			walkPageSubtree(child, visited, fn)
-		}
-	case PDFArray:
-		ptr := pdfValuePointer(val)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for _, child := range val {
-			walkPageSubtree(child, visited, fn)
+			formRes, _ := xobj.Entries["Resources"].(PDFDict)
+			if formRes.Entries == nil {
+				formRes = resources
+			}
+			collectXObjectTargets(formRes, visited, out)
+		case "Image":
+			if hasSoftMask(xobj) {
+				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name})
+			}
 		}
 	}
+}
+
+// hasTransparencyGroup mirrors validateTransparencyGroup's (checks_dict.go)
+// /Group /S /Transparency test.
+func hasTransparencyGroup(d PDFDict) bool {
+	group, ok := d.Entries["Group"].(PDFDict)
+	if !ok {
+		return false
+	}
+	return group.Entries["S"] == PDFName{Value: "Transparency"}
+}
+
+// hasSoftMask mirrors validateXObjectDict's (checks_dict.go) ImageWithSoftMask
+// test: an /SMask entry present and not the literal name /None.
+func hasSoftMask(img PDFDict) bool {
+	sm, ok := img.Entries["SMask"]
+	if !ok {
+		return false
+	}
+	name, isName := sm.(PDFName)
+	return !isName || name.Value != "None"
+}
+
+// bakeSoftMaskOut decodes img's base samples and its /SMask's luminosity
+// (DecodeImageRGBA for each), composites the two against an opaque white
+// backdrop -- gopdfrab has no way to know what the image was meant to be
+// composited over without rendering everything beneath it -- and rewrites
+// img in place as a flat, opaque DeviceRGB image with /SMask removed.
+// Leaves img untouched (ok=false) if either decode fails.
+func bakeSoftMaskOut(img PDFDict, resources PDFDict) (PDFDict, bool) {
+	base, err := DecodeImageRGBA(img, resources)
+	if err != nil {
+		return img, false
+	}
+	smaskDict, ok := img.Entries["SMask"].(PDFDict)
+	if !ok {
+		return img, false
+	}
+	smask, err := DecodeImageRGBA(smaskDict, resources)
+	if err != nil {
+		return img, false
+	}
+
+	w, h := base.Bounds().Dx(), base.Bounds().Dy()
+	smW, smH := smask.Bounds().Dx(), smask.Bounds().Dy()
+	if w == 0 || h == 0 || smW == 0 || smH == 0 {
+		return img, false
+	}
+
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			px := base.RGBAAt(x, y)
+			scol := clampInt(x*smW/w, 0, smW-1)
+			srow := clampInt(y*smH/h, 0, smH-1)
+			alpha := float64(smask.RGBAAt(scol, srow).R) / 255
+
+			r := float64(px.R)/255*alpha + (1 - alpha)
+			g := float64(px.G)/255*alpha + (1 - alpha)
+			b := float64(px.B)/255*alpha + (1 - alpha)
+			out.Set(x, y, colorRGBA64{r, g, b, 1})
+		}
+	}
+
+	img.Entries["Width"] = PDFInteger(w)
+	img.Entries["Height"] = PDFInteger(h)
+	img.Entries["BitsPerComponent"] = PDFInteger(8)
+	img.Entries["ColorSpace"] = PDFName{Value: "DeviceRGB"}
+	delete(img.Entries, "SMask")
+	delete(img.Entries, "Decode")
+	delete(img.Entries, "Mask")
+	img.HasStream = true
+	img.RawStream = packRGBSamples(out)
+	MarkStreamDirty(&img)
+	return img, true
+}
+
+// flattenFormToImage rasterizes a Form XObject's own /BBox + content in
+// isolation (renderFormContent, raster.go) and rewrites the Form in place to
+// paint a single fresh Image XObject filling that same BBox, dropping
+// /Group. The Form's own identity, /Matrix and every existing /Do reference
+// to it are untouched, so it keeps composing into the page exactly as
+// before -- it now just paints a flat image instead of a transparency group.
+// A render failure leaves the Form untouched (ok=false).
+func flattenFormToImage(form PDFDict, resources PDFDict) (PDFDict, bool) {
+	canvas, bbox, err := renderFormContent(form, resources, flattenDPI)
+	if err != nil {
+		return form, false
+	}
+
+	img := NewPDFDict()
+	img.Entries["Type"] = PDFName{Value: "XObject"}
+	img.Entries["Subtype"] = PDFName{Value: "Image"}
+	img.Entries["Width"] = PDFInteger(canvas.Bounds().Dx())
+	img.Entries["Height"] = PDFInteger(canvas.Bounds().Dy())
+	img.Entries["BitsPerComponent"] = PDFInteger(8)
+	img.Entries["ColorSpace"] = PDFName{Value: "DeviceRGB"}
+	img.HasStream = true
+	img.RawStream = packRGBSamples(canvas)
+	MarkStreamDirty(&img)
+
+	xobjects := NewPDFDict()
+	xobjects.Entries["Im0"] = img
+	formResources := NewPDFDict()
+	formResources.Entries["XObject"] = xobjects
+
+	w, h := bbox[2]-bbox[0], bbox[3]-bbox[1]
+	ops := []contentOp{
+		{Op: "q"},
+		{Op: "cm", Operands: []PDFValue{
+			PDFReal(w), PDFInteger(0), PDFInteger(0), PDFReal(h),
+			PDFReal(bbox[0]), PDFReal(bbox[1]),
+		}},
+		{Op: "Do", Operands: []PDFValue{PDFName{Value: "Im0"}}},
+		{Op: "Q"},
+	}
+	data, err := writeContentStream(ops)
+	if err != nil {
+		return form, false
+	}
+
+	delete(form.Entries, "Group")
+	form.Entries["Resources"] = formResources
+	form.HasStream = true
+	form.RawStream = data
+	MarkStreamDirty(&form)
+	return form, true
 }
 
 // flattenPageToImage rasterizes page (RenderPage) and rebuilds it in place
 // as a single flat Image XObject painted by a fresh, minimal content
 // stream, replacing /Resources and /Contents and dropping /Group and
-// /Rotate (a flattened raster has no remaining rotation to apply). A render
-// failure (e.g. an unresolvable graph or an unsupported image codec) leaves
-// page untouched, reporting no change rather than erroring the whole
-// Convert.
+// /Rotate (a flattened raster has no remaining rotation to apply). Used only
+// when /Group sits directly on the Page dict itself, with no narrower Form
+// XObject to target instead. A render failure (e.g. an unresolvable graph or
+// an unsupported image codec) leaves page untouched, reporting no change
+// rather than erroring the whole Convert.
 func flattenPageToImage(page PDFDict, resources PDFDict, mediaBox [4]float64) bool {
 	canvas, err := RenderPage(page, resources, mediaBox, flattenDPI)
 	if err != nil {

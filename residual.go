@@ -33,13 +33,6 @@ func ResidualCategory(c Check) string {
 		// contentLimitsFixer (fixups_content.go) deliberately leaves open --
 		// both live in content this package doesn't rewrite for these cases.
 		return "content-stream: requires re-tokenizing/re-encoding the content stream"
-
-	case Checks.Structure.DeviceNColorants:
-		// pruning colorant names to fit the 8-colorant maximum would leave
-		// the DeviceN array shorter than the tint-transform function's
-		// declared input arity -- fixing it means rewriting that function,
-		// which this package has no machinery for.
-		return "content-stream: requires rewriting the colour-space tint-transform function"
 	}
 	return ""
 }

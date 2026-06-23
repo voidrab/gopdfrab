@@ -38,8 +38,8 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 10 | TrueType subsetter + font substitution/re-embed (family D'') | `subsetTrueType`/`subsetTrueTypeForCID`/`trimTrueTypeCmapToSingleSubtable` (`fonttool_subset.go`); `fontSubstitutionFixer`/`trueTypeEncodingFixer` (`fixups_font_subst.go`) |
 | 11 D | Remaining 6.1.12 limits (page-tree rebalance, resource pruning, name fixes, CMap CID clamp) | `pagesTreeArrayFixer`/`resourceDictPruneFixer`/`nameTooLongFixer`/`cmapCIDClampFixer` (`fixups_limits.go`) |
 
-**Regression floor:** `minConvertedFully = 499` of 510 (`convert_test.go`). Latest corpus
-sweep: **499 fully conformant · 8 known-hard residual · 3 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 500` of 510 (`convert_test.go`). Latest corpus
+sweep: **500 fully conformant · 7 known-hard residual · 3 other residual · 0 errored**.
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
@@ -370,11 +370,9 @@ extracted from Stage B's `contentLimitsFixer` into shared, reusable helpers for 
   token byte-offsets (`cmapTokenize` extended to record them) rather than re-serializing the
   whole stream — mirrors `checkCMapCIDLimits`' own token-position state machine exactly so it only
   ever touches what that check would flag.
-- `DeviceNColorants` (1) — **not attempted, confirmed infeasible by inspection**: the one corpus
-  fixture's `DeviceN` array lists 12 colorants, 3 of which are the spec's `/None` placeholder (no
-  visual effect) — but the remaining 9 *real* colorants still exceed the 8-colorant maximum, and
-  reducing them further would require rewriting the tint-transform function's input arity to
-  match. `ResidualCategory` now classifies it explicitly rather than leaving it unclassified.
+- `DeviceNColorants` (1) — moved to Phase 12B below: truncating the colorant list to fit the
+  8-colorant maximum would leave it shorter than the tint-transform function's declared input
+  arity, so a scalar clamp can't fix it in this file.
 
 5 fixtures moved to fully conformant (the sixth, `CMapCIDOutOfRange`'s other instance, shares a
 fixture with the unrelated, separately-residual CJK `SubsetGlyphCoverage` case — `CMapCIDOutOfRange`
@@ -394,6 +392,33 @@ Function types 0/2/3/4), `colorspace.go` (colour-space → RGB resolver), `raste
 the only documented visual-fidelity gap; it never affects PDF/A-1b conformance, since the
 rebuilt page is always a flat `DeviceRGB` image with no transparency construct.
 **Risk realized:** none — all 3 targeted fixtures cleared with no regressions. Floor 496 → 499.
+**Retrofitted to object-level granularity:** the fix initially flattened the *entire page*
+whenever either violation occurred anywhere in its subtree, discarding all unrelated vector
+content/text on that page. `fixups_transparency.go` now resolves each violation against its
+own smallest self-contained object instead: `ImageWithSoftMask` bakes the soft mask into its
+own Image XObject in place (`bakeSoftMaskOut`, white-backdrop composite, no rendering of
+anything else on the page); `TransparencyGroup` on a Form XObject renders only that Form's own
+`/BBox`+content+resources and rewrites just the Form's stream to paint a flat image
+(`flattenFormToImage`, reusing `renderFormContent`'s isolation from `RenderPage`'s shared
+`renderContent` core) — its identity/`/Matrix` is unchanged, so every existing `Do` reference
+to it keeps working. Whole-page rasterization (`flattenPageToImage`) is now reserved for the
+one case with no narrower boundary: `/Group` directly on the Page dict itself. No corpus
+regression from the retrofit (still 499 fully conformant going into Phase 12B).
+
+### Phase 12B — DeviceN colorant resolution (family C) — ✅ **done**
+**Goal:** `DeviceNColorants` 6.1.12 (1). Truncating the colorant list (rejected in Phase 11D
+above) breaks the tint-transform function's input arity, so the only lossless fix is to make
+the oversized array unreachable instead.
+**Landed:** `fixups_devicen.go`'s `deviceNColorantsFixer`, reusing Phase 12's own
+`ResolveColor`/`resolveSeparation` (`colorspace.go`, which already evaluates a `DeviceN`
+tint-transform via `pdffunc.go`) with zero new colour-resolution code: every content-stream
+`cs`/`CS`+`scn`/`SCN` use of the flagged space (tracked statefully across the op sequence,
+recursing into Form XObjects via `Do`) is rewritten to a literal `rg`/`RG`; every inline
+`/ColorSpace` on an Image XObject naming it is baked into plain `DeviceRGB` samples via
+`DecodeImageRGBA`+`packRGBSamples` (the same in-place bake pattern as `bakeSoftMaskOut`); the
+now-dead `/Resources/ColorSpace` entry is then deleted, leaving the array unreachable from the
+trailer so the document-wide validator walk never visits it again.
+**Risk realized:** none — the one targeted fixture cleared with no regressions. Floor 499 → 500.
 
 ### Phase 13 — Rasterization escape hatch (completeness backstop)
 **Goal:** guarantee *some* conformant output for any input by rendering the offending page(s)
@@ -488,11 +513,13 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 11C Inline-image fixes (ImageInterpolate, InlineImageLZWFilter, inline /Intent) | C | — | extracted `walkContentStreams`/`contentOpRewriter` | 3 landed |
 | ✅ done | 10 Font embed/subset | D'' | fonts (already bundled, §3.2) | CW-4 (write): TrueType subsetter | 13 landed |
 | ✅ done | 11D Remaining 6.1.12 limits | A/C | — | resource-usage scanner, Resources-aware content walk | 5 landed |
-| ✅ done | 12 Transparency flattening | E | — | native rasterizer (`raster.go` et al.) | 3 landed |
+| ✅ done | 12 Transparency flattening (object-level) | E | — | native rasterizer (`raster.go` et al.) | 3 landed |
+| ✅ done | 12B DeviceN colorant resolution | C | — | reuses Phase 12's `colorspace.go`/`pdffunc.go` | 1 landed |
 | next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
-→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12), of 510 total corpus fixtures.
+→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12) → 500 (Phase 12B), of 510
+total corpus fixtures.
 
 Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
 to pick exact fixtures, and §3–4 to pull in the required assets/infra.
