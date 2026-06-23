@@ -493,10 +493,10 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 // minConvertedFully is a regression floor on how many of both corpora's
 // "fail" fixtures Convert turns fully conformant, recorded empirically after
-// deviceNColorantsFixer landed (fixups_devicen.go): 500 of 510, up from 499.
-// Should only ever increase as later phases add more fixups; a drop means
-// something regressed.
-const minConvertedFully = 500
+// closing the §1.1 Author-trim and invalid-UTF-8 XMP edge cases: 502 of 510,
+// up from 500. Should only ever increase as later phases add more fixups; a
+// drop means something regressed.
+const minConvertedFully = 502
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome into three buckets: fully

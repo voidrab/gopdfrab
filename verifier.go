@@ -921,10 +921,13 @@ func decodePDFLiteralStringBytes(s string) []byte {
 
 // decodePDFTextString decodes a PDF text string's bytes per 7.9.2.2: a leading
 // 0xFE 0xFF byte-order mark means the rest is UTF-16BE, otherwise the bytes are
-// returned as-is (PDFDocEncoding, treated as raw single-byte text by this package).
+// returned as-is (PDFDocEncoding, treated as raw single-byte text by this
+// package), with any invalid UTF-8 byte replaced so the result is always
+// well-formed -- both call sites must apply this identically, so the
+// replacement happens here rather than where the value is later embedded in XML.
 func decodePDFTextString(raw []byte) string {
 	if len(raw) < 2 || raw[0] != 0xFE || raw[1] != 0xFF {
-		return string(raw)
+		return strings.ToValidUTF8(string(raw), "�")
 	}
 	raw = raw[2:]
 	if len(raw)%2 != 0 {
