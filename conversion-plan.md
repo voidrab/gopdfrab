@@ -414,20 +414,43 @@ now-dead `/Resources/ColorSpace` entry is then deleted, leaving the array unreac
 trailer so the document-wide validator walk never visits it again.
 **Risk realized:** none — the one targeted fixture cleared with no regressions. Floor 499 → 500.
 
-### Phase 13 — Rasterization escape hatch (completeness backstop)
-**Goal:** guarantee *some* conformant output for any input by rendering the offending page(s)
-to an image and rebuilding the page as an image XObject with a correct colour space — catching
-whatever Phases 6–12 leave behind (exotic content the native rasterizer's documented gaps
-don't cover, unsubsettable fonts, `InvalidProgram`). Phase 12's rasterizer (`raster.go`) already
-covers the *transparency* half of this without an external dependency; what remains here is
-strictly narrower than originally scoped — fonts/content that gopdfrab still can't faithfully
-reproduce at all (e.g. `CIDToGIDMapMissing`'s no-`/ToUnicode` CJK case, `residual.go`).
-**Assets:** none bundled, but an **external renderer** dependency (Ghostscript/pdfium) behind
-the CW-5 interface; opt-in, since it's lossy (text becomes image, file grows).
-**Risk:** high effort / external dep, but it is the only route to *literal* completeness.
-**Excluded by nature:** `GraphResolutionFailure`/`XRefSubsectionHeader` where the graph can't
-be resolved at all — no rewrite is possible without a parseable document (best handled by
-improving parser recovery, not conversion).
+### Phase 13 — Rasterization escape hatch (completeness backstop) — ✅ **done (native, stdlib-only)**
+**Decision:** done *without* an external renderer. Per project policy the backstop reuses
+Phase 12's own from-scratch rasterizer (`raster.go`) rather than introducing a
+Ghostscript/pdfium dependency — root-causing each residual where it's genuinely fixable, and
+rasterizing natively only as a true last resort.
+
+**Landed:**
+- **Inline-image LZW with a predictor** — `fixInlineImageLZW` (`fixups_inline_image.go`) no
+  longer bails on a `/DP`/`/DecodeParms` predictor: it undoes the predictor on the decoded
+  samples (`undoInlineImagePredictor`, reusing the shared `undoPNGPredictor`/`undoTIFFPredictor`
+  helpers in `predictor.go`, the way `lzwStreamPlaintext` does for regular streams), drops the
+  predictor params, and re-emits Flate. `InlineImageLZWFilter` is now cleared in all corpus cases
+  and removed from `ResidualCategory`'s hard list. This shrank the end-to-end "other residual"
+  bucket from 3 → 1.
+- **Whole-page native rasterization (opt-in)** — `Convert(path, WithRasterFallback())`
+  (`convert.go`): after the bounded fixer loop, any page still carrying a residual is rebuilt as
+  a flat `DeviceRGB` image via the existing `flattenPageToImage` (`fixups_transparency.go`,
+  proven conformant in Phase 12), then re-serialized + re-verified once. Page numbers map to the
+  graph via `orderedPages`, the same Root/Pages/Kids walk the verifier numbers pages by. Opt-in
+  because it is lossy (text/vectors become an image). Clears the q/Q-nesting `StringTooLong`
+  structural defect Phase 11B left open.
+- **CCITTFax decoding (fidelity of rasterized pages)** — new `ccitt.go` implements a Group 3/4
+  (ITU-T T.4/T.6) decoder, replacing the mid-gray placeholder `DecodeImageRGBA` (`raster_image.go`)
+  used for `CCITTFaxDecode`. JBIG2/JPX remain documented placeholder gaps (large standalone codecs,
+  rare in PDF/A inputs; a rasterized page stays conformant regardless — this is fidelity only). A
+  CCITT decode failure falls back to the placeholder, so it never affects conformance.
+
+**Irreducible residual (documented, not a bug):**
+- Non-embedded CJK font with no `/ToUnicode` — no glyph mapping survives in the file; even
+  rasterization can't reproduce a font that was never embedded. Kept classified in `ResidualCategory`.
+- `GraphResolutionFailure`/`XRefSubsectionHeader` — the object graph can't be resolved at all;
+  parser-recovery territory, out of conversion scope (`TestConvertDegradesGracefullyOnUnresolvableGraph`).
+
+**Tests:** `ccitt_test.go` (hand-built G3/G4 bitstreams), `convert_raster_test.go` (fallback clears
+the q/Q `StringTooLong` fixture and never breaks conformant input), updated
+`fixups_inline_image_test.go`/`residual_test.go`. Default-path floor unchanged at 502/510; the
+raster fallback is opt-in so the regression floor is not raised by it.
 
 ---
 
@@ -509,7 +532,7 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 11D Remaining 6.1.12 limits | A/C | — | resource-usage scanner, Resources-aware content walk | 5 landed |
 | ✅ done | 12 Transparency flattening (object-level) | E | — | native rasterizer (`raster.go` et al.) | 3 landed |
 | ✅ done | 12B DeviceN colorant resolution | C | — | reuses Phase 12's `colorspace.go`/`pdffunc.go` | 1 landed |
-| next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
+| ✅ done | 13 Rasterization backstop (native) | C/E | — | reuses Phase 12 `raster.go` + new `ccitt.go` | inline-LZW predictor; opt-in page raster |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
 → 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12) → 500 (Phase 12B) →

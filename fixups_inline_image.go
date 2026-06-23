@@ -1,5 +1,7 @@
 package pdfrab
 
+import "fmt"
+
 // This file fixes violations specific to an inline image's own parameters
 // (the BI...ID dict), reusing the walkContentStreams/contentOpRewriter
 // plumbing from fixups_content.go: a non-standard inline /Intent (folded
@@ -42,6 +44,68 @@ func hasInlineImageKey(params []PDFValue, key string) bool {
 		}
 	}
 	return false
+}
+
+// inlineImageDecodeParms returns the predictor parameters from an inline
+// image's /DP or /DecodeParms entry, mirroring streamDecodeParms for the
+// operand-pair form. Returns a zero-value dict when none is present.
+func inlineImageDecodeParms(params []PDFValue) PDFDict {
+	var parms PDFValue
+	for i := 0; i+1 < len(params); i += 2 {
+		if name, ok := params[i].(PDFName); ok && (name.Value == "DP" || name.Value == "DecodeParms") {
+			parms = params[i+1]
+		}
+	}
+	switch p := parms.(type) {
+	case PDFDict:
+		return p
+	case PDFArray:
+		for i := len(p) - 1; i >= 0; i-- {
+			if d, ok := p[i].(PDFDict); ok {
+				return d
+			}
+		}
+	}
+	return PDFDict{}
+}
+
+// removeInlineImageKeys drops every (key, value) pair whose key matches one
+// of keys from an inline image's params.
+func removeInlineImageKeys(params []PDFValue, keys ...string) []PDFValue {
+	drop := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		drop[k] = true
+	}
+	out := make([]PDFValue, 0, len(params))
+	for i := 0; i+1 < len(params); i += 2 {
+		if name, ok := params[i].(PDFName); ok && drop[name.Value] {
+			continue
+		}
+		out = append(out, params[i], params[i+1])
+	}
+	return out
+}
+
+// undoInlineImagePredictor reverses any PNG/TIFF predictor recorded in an
+// inline image's decode params, mirroring decodeStreamPredicted's tail. Data
+// is returned unchanged when no predictor applies.
+func undoInlineImagePredictor(data []byte, params []PDFValue) ([]byte, error) {
+	parms := inlineImageDecodeParms(params)
+	predictor := dictInt(parms, "Predictor", 1)
+	if predictor == 1 {
+		return data, nil
+	}
+	columns := dictInt(parms, "Columns", 1)
+	colors := dictInt(parms, "Colors", 1)
+	bpc := dictInt(parms, "BitsPerComponent", 8)
+	switch {
+	case predictor == 2:
+		return undoTIFFPredictor(data, columns, colors, bpc)
+	case predictor >= 10:
+		return undoPNGPredictor(data, columns, colors, bpc)
+	default:
+		return nil, fmt.Errorf("unsupported predictor %d", predictor)
+	}
 }
 
 // fixInlineImageRenderingIntent flips a non-standard inline-image /Intent
@@ -124,17 +188,18 @@ func (inlineImageLZWFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
 }
 
 // fixInlineImageLZW re-encodes an inline image's data from LZW to Flate,
-// updating its /F or /Filter param accordingly. It bails out (leaving the
-// op unchanged) if a /DP or /DecodeParms predictor is present, since this
-// package's LZW decoder doesn't replicate the predictor undo step for
-// inline images the way lzwStreamPlaintext (fixups_stream.go) does for
-// regular streams.
+// updating its /F or /Filter param accordingly. A /DP or /DecodeParms
+// predictor is undone on the decoded samples (reusing the shared predictor
+// helpers, the way lzwStreamPlaintext does for regular streams) and then
+// dropped from the params, since the re-emitted Flate data carries no
+// predictor. It bails out (leaving the op unchanged) on any unexpected
+// shape rather than risking a corrupted image.
 func fixInlineImageLZW(op string, operands []PDFValue, changed *bool) (contentOp, bool) {
 	if op != "INLINEIMAGE" {
 		return contentOp{Op: op, Operands: operands}, true
 	}
 	params, raw, ok := inlineImageRawOperand(operands)
-	if !ok || hasInlineImageKey(params, "DP") || hasInlineImageKey(params, "DecodeParms") {
+	if !ok {
 		return contentOp{Op: op, Operands: operands}, true
 	}
 
@@ -160,6 +225,11 @@ func fixInlineImageLZW(op string, operands []PDFValue, changed *bool) (contentOp
 	if err != nil {
 		return contentOp{Op: op, Operands: operands}, true
 	}
+	plain, err = undoInlineImagePredictor(plain, fixedParams)
+	if err != nil {
+		return contentOp{Op: op, Operands: operands}, true
+	}
+	fixedParams = removeInlineImageKeys(fixedParams, "DP", "DecodeParms")
 	compressed, err := deflateZlib(plain)
 	if err != nil {
 		return contentOp{Op: op, Operands: operands}, true

@@ -116,6 +116,53 @@ func collectTransparencyTargets(trailer PDFDict) []flaggedTarget {
 	return out
 }
 
+// pageTarget addresses a page dict in the graph together with the /Resources
+// and /MediaBox in effect for it (resolved up the Pages tree), in page order.
+type pageTarget struct {
+	dict      PDFDict
+	resources PDFDict
+	mediaBox  [4]float64
+}
+
+// orderedPages returns every page in the document in page order, with its
+// inherited resources and resolved media box, using the same top-down
+// Root/Pages/Kids walk the verifier numbers pages by -- so the slice index
+// matches a PDFError's 1-based Page().
+func orderedPages(trailer PDFDict) []pageTarget {
+	root, ok := trailer.Entries["Root"].(PDFDict)
+	if !ok {
+		return nil
+	}
+	pages, ok := root.Entries["Pages"].(PDFDict)
+	if !ok {
+		return nil
+	}
+
+	var out []pageTarget
+	var walk func(node, resources PDFDict, mediaBox [4]float64)
+	walk = func(node, resources PDFDict, mediaBox [4]float64) {
+		if r, ok := node.Entries["Resources"].(PDFDict); ok {
+			resources = r
+		}
+		if mb, err := floatArray(node.Entries["MediaBox"]); err == nil && len(mb) == 4 {
+			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
+		}
+		if (node.Entries["Type"] == PDFName{Value: "Page"}) {
+			out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
+			return
+		}
+		if kids, ok := node.Entries["Kids"].(PDFArray); ok {
+			for _, kid := range kids {
+				if kd, ok := kid.(PDFDict); ok {
+					walk(kd, resources, mediaBox)
+				}
+			}
+		}
+	}
+	walk(pages, PDFDict{}, defaultMediaBox)
+	return out
+}
+
 // collectXObjectTargets scans resources' /XObject subdictionary, flagging
 // Form XObjects carrying their own /Group and Image XObjects carrying a
 // non-/None /SMask, recursing into nested Forms via the same /Resources

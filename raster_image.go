@@ -2,6 +2,7 @@ package pdfrab
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/jpeg"
 )
@@ -10,11 +11,12 @@ import (
 // buffer suitable for compositing during page rendering.
 //
 // FlateDecode/LZWDecode/ASCII-filtered raw samples (with PNG/TIFF predictor
-// undo) and DCTDecode (via the standard library's image/jpeg) are
-// supported. CCITTFaxDecode/JBIG2Decode/JPXDecode have no decoder in this
-// codebase -- those fax/JBIG2/JPEG2000 codecs are large standalone efforts
-// out of scope here -- so an image using one of them is painted as a flat
-// mid-gray placeholder instead of failing the page.
+// undo), DCTDecode (via the standard library's image/jpeg) and CCITTFaxDecode
+// (Group 3/4, ccitt.go) are supported. JBIG2Decode/JPXDecode have no decoder
+// in this codebase -- those JBIG2/JPEG2000 codecs are large standalone
+// efforts out of scope here -- so an image using one of them, or a CCITT
+// image that fails to decode, is painted as a flat mid-gray placeholder
+// instead of failing the page.
 func DecodeImageRGBA(dict PDFDict, resources PDFDict) (*image.RGBA, error) {
 	width := dictInt(dict, "Width", 0)
 	height := dictInt(dict, "Height", 0)
@@ -31,7 +33,12 @@ func DecodeImageRGBA(dict PDFDict, resources PDFDict) (*image.RGBA, error) {
 	switch last {
 	case "DCTDecode", "DCT":
 		return decodeJPEGImage(dict)
-	case "CCITTFaxDecode", "CCF", "JBIG2Decode", "JPXDecode":
+	case "CCITTFaxDecode", "CCF":
+		if img, err := decodeCCITTImage(dict, resources, width, height); err == nil {
+			return img, nil
+		}
+		return placeholderImage(width, height), nil
+	case "JBIG2Decode", "JPXDecode":
 		return placeholderImage(width, height), nil
 	}
 
@@ -183,6 +190,62 @@ func indexedHead(cs PDFValue) (PDFArray, bool) {
 	}
 	name, ok := arr[0].(PDFName)
 	return arr, ok && (name.Value == "Indexed" || name.Value == "I")
+}
+
+// decodeCCITTImage decodes a CCITTFaxDecode image into RGBA, running any
+// preceding ASCII filters, decoding the fax bitstream (ccitt.go) into packed
+// 1-bpc samples and resolving them through the normal sample path.
+func decodeCCITTImage(dict PDFDict, resources PDFDict, width, height int) (*image.RGBA, error) {
+	data, err := ccittEncodedBytes(dict)
+	if err != nil {
+		return nil, err
+	}
+	parms := streamDecodeParms(dict)
+	p := ccittParams{
+		columns:   dictInt(parms, "Columns", 1728),
+		rows:      dictInt(parms, "Rows", 0),
+		k:         dictInt(parms, "K", 0),
+		byteAlign: parms.Entries["EncodedByteAlign"] == PDFBoolean(true),
+		blackIs1:  parms.Entries["BlackIs1"] == PDFBoolean(true),
+	}
+	if p.columns <= 0 {
+		p.columns = width
+	}
+	if p.rows <= 0 {
+		p.rows = height
+	}
+	raw, err := decodeCCITT(data, p)
+	if err != nil {
+		return nil, err
+	}
+	return unpackSamplesToRGBA(dict, resources, raw, width, height)
+}
+
+// ccittEncodedBytes returns the bytes feeding the CCITTFaxDecode filter,
+// undoing any ASCII filters applied before it in the chain.
+func ccittEncodedBytes(dict PDFDict) ([]byte, error) {
+	data := dict.RawStream
+	for _, f := range filterNames(dict.Entries["Filter"]) {
+		switch f {
+		case "ASCIIHexDecode", "AHx":
+			out, err := decodeASCIIHex(data)
+			if err != nil {
+				return nil, err
+			}
+			data = out
+		case "ASCII85Decode", "A85":
+			out, err := decodeASCII85(data)
+			if err != nil {
+				return nil, err
+			}
+			data = out
+		case "CCITTFaxDecode", "CCF":
+			return data, nil
+		default:
+			return nil, fmt.Errorf("ccitt: unexpected filter %q before CCITTFaxDecode", f)
+		}
+	}
+	return data, nil
 }
 
 // decodeJPEGImage decodes a DCTDecode image stream using the standard

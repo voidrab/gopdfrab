@@ -105,15 +105,30 @@ func TestFixInlineImageInterpolateNoOpWhenAlreadyFalse(t *testing.T) {
 	}
 }
 
-func TestFixInlineImageLZWBailsOutWithPredictor(t *testing.T) {
+func TestFixInlineImageLZWUndoesPredictor(t *testing.T) {
 	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW /DP << /Predictor 2 >> ID \x00 EI\n")
 
 	var changed bool
-	_, keep := fixInlineImageLZW("INLINEIMAGE", operands, &changed)
+	newOp, keep := fixInlineImageLZW("INLINEIMAGE", operands, &changed)
 	if !keep {
 		t.Fatalf("fixInlineImageLZW dropped the op")
 	}
-	if changed {
-		t.Errorf("changed = true, want false (a /DP predictor should be left alone)")
+	if !changed {
+		t.Fatalf("changed = false, want true (the predictor should be undone, not bailed on)")
+	}
+
+	params, _, ok := inlineImageRawOperand(newOp.Operands)
+	if !ok {
+		t.Fatalf("rewritten op carries no inlineImageRaw operand")
+	}
+	if hasInlineImageKey(params, "DP") || hasInlineImageKey(params, "DecodeParms") {
+		t.Errorf("predictor params survived re-encoding: %#v", params)
+	}
+	for i := 0; i+1 < len(params); i += 2 {
+		if key, ok := params[i].(PDFName); ok && (key.Value == "F" || key.Value == "Filter") {
+			if name, ok := params[i+1].(PDFName); !ok || name.Value != "Fl" {
+				t.Errorf("filter = %#v, want /Fl", params[i+1])
+			}
+		}
 	}
 }

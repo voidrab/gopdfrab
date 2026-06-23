@@ -9,14 +9,15 @@ func TestResidualCategory(t *testing.T) {
 	}{
 		{Checks.Font.SubsetGlyphCoverage, "font"},
 		{Checks.Font.SimpleNotEmbedded, "font"},
-		{Checks.Structure.InlineImageLZWFilter, "content-stream"},
 		{Checks.Structure.StringTooLong, "content-stream"},
 		// Not classified: either genuinely novel, fixable by a future
 		// dictionary-level fixup that doesn't exist yet (e.g.
 		// CIDToGIDMapMissing), or already fully handled by a registered
-		// fixer (UndefinedOperator -- fixups_content.go; the Transparency
-		// checks -- fixups_transparency.go; DeviceNColorants --
-		// fixups_devicen.go).
+		// fixer (InlineImageLZWFilter -- now incl. the predictor case,
+		// fixups_inline_image.go; UndefinedOperator -- fixups_content.go;
+		// the Transparency checks -- fixups_transparency.go; DeviceNColorants
+		// -- fixups_devicen.go).
+		{Checks.Structure.InlineImageLZWFilter, ""},
 		{Checks.Font.CIDToGIDMapMissing, ""},
 		{Checks.Action.ForbiddenActionType, ""},
 		{Checks.Colour.UndefinedOperator, ""},

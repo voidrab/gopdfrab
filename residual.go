@@ -2,10 +2,10 @@ package pdfrab
 
 // ResidualCategory classifies a Check still present in a ConvertResult's
 // Residual() as a hint toward what remediation it would need beyond this
-// package's current fixups -- in particular, whether rasterizing the
-// affected content is the only way to resolve it, since gopdfrab has no
-// content-stream rewriter for these cases (see the converter plan's
-// difficulty classification). Returns "" for anything not specifically
+// package's targeted fixups -- in particular, whether the content is
+// genuinely irreducible (no glyph/mapping data survives to repair) or whether
+// the opt-in raster fallback (Convert with WithRasterFallback) is the only
+// remaining in-process route. Returns "" for anything not specifically
 // classified here; that covers both genuinely novel violations and ones
 // theoretically fixable by a future dictionary-level fixup that just
 // doesn't exist yet -- being unclassified is not itself evidence that
@@ -25,14 +25,13 @@ func ResidualCategory(c Check) string {
 		// gopdfrab cannot do without it) or rasterizing the affected text.
 		return "font: requires re-embedding/re-subsetting the original font, or rasterizing the affected text"
 
-	case Checks.Structure.InlineImageLZWFilter, Checks.Structure.StringTooLong:
-		// inlineImageLZWFixer (fixups_inline_image.go) handles the common
-		// case but bails out when a /DP or /DecodeParms predictor is
-		// present (no inline-image-aware predictor-undo exists), and the
-		// q/Q-nesting-depth flavour of StringTooLong is a structural defect
-		// contentLimitsFixer (fixups_content.go) deliberately leaves open --
-		// both live in content this package doesn't rewrite for these cases.
-		return "content-stream: requires re-tokenizing/re-encoding the content stream"
+	case Checks.Structure.StringTooLong:
+		// The q/Q-nesting-depth flavour of StringTooLong is a structural
+		// defect contentLimitsFixer (fixups_content.go) deliberately leaves
+		// open: rebalancing the nesting can't be done as a scalar clamp.
+		// The whole-page rasterization backstop (Convert with
+		// WithRasterFallback) is the only in-process remediation.
+		return "content-stream: requires re-tokenizing the content stream, or rasterizing the affected page"
 	}
 	return ""
 }

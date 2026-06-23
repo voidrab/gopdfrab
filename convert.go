@@ -42,29 +42,53 @@ func (r ConvertResult) Residual() []PDFError {
 	return r.Result.Issues
 }
 
+// ConvertOption configures an optional, non-default conversion behaviour.
+type ConvertOption func(*convertConfig)
+
+type convertConfig struct {
+	rasterFallback bool
+}
+
+// WithRasterFallback enables the last-resort backstop: any page still
+// carrying a residual violation after every targeted fixer has run is
+// rebuilt as a flat raster image. This guarantees conformance for content no
+// in-place fixer can repair, at the cost of turning that page's text/vectors
+// into an image (lossy), so it is opt-in.
+func WithRasterFallback() ConvertOption {
+	return func(c *convertConfig) { c.rasterFallback = true }
+}
+
+func newConvertConfig(opts []ConvertOption) convertConfig {
+	var cfg convertConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite. It always returns the best attempt it produced,
 // even if some violations remain.
-func Convert(path string) (ConvertResult, error) {
+func Convert(path string, opts ...ConvertOption) (ConvertResult, error) {
 	doc, err := Open(path)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return convertDocument(doc)
+	return convertDocument(doc, newConvertConfig(opts))
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte) (ConvertResult, error) {
+func ConvertBytes(data []byte, opts ...ConvertOption) (ConvertResult, error) {
 	path, cleanup, err := writeTempFile("gopdfrab-convert-*.pdf", data)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer cleanup()
-	return Convert(path)
+	return Convert(path, opts...)
 }
 
-func convertDocument(doc *Document) (ConvertResult, error) {
+func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
 		res, verr := doc.Verify(A_1B)
@@ -131,7 +155,49 @@ func convertDocument(doc *Document) (ConvertResult, error) {
 		}
 	}
 
+	if cfg.rasterFallback && !cr.Result.Valid {
+		if applyRasterFallback(&trailer, cr.Result.Issues) {
+			cr.Iterations++
+			var buf bytes.Buffer
+			if err := WriteDocument(&buf, trailer); err != nil {
+				return ConvertResult{}, fmt.Errorf("convert: %w", err)
+			}
+			cr.Output = buf.Bytes()
+			result, verr := verifyBytes(cr.Output)
+			if verr != nil {
+				return ConvertResult{}, fmt.Errorf("convert: %w", verr)
+			}
+			cr.Result = result
+		}
+	}
+
 	return cr, nil
+}
+
+// applyRasterFallback rebuilds every page carrying a residual issue as a flat
+// raster image (flattenPageToImage), the last-resort remediation for content
+// no targeted fixer could repair. Page numbers in issues align with the
+// graph's page order, since both come from the same Root/Pages/Kids walk.
+func applyRasterFallback(trailer *PDFDict, issues []PDFError) bool {
+	pages := orderedPages(*trailer)
+	flag := map[int]bool{}
+	for _, iss := range issues {
+		if iss.Page() > 0 {
+			flag[iss.Page()] = true
+		}
+	}
+	changed := false
+	for pageNum := range flag {
+		i := pageNum - 1
+		if i < 0 || i >= len(pages) {
+			continue
+		}
+		p := pages[i]
+		if flattenPageToImage(p.dict, p.resources, p.mediaBox) {
+			changed = true
+		}
+	}
+	return changed
 }
 
 func verifyBytes(data []byte) (Result, error) {
