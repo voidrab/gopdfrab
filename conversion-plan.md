@@ -68,28 +68,22 @@ detection logic in reverse via `walkDicts`:
 | `fixups_dict.go` (extended) | `postScriptXObjectFixer`, `optionalContentFixer` | `FormPSEntry`/`FormPostScript`/`FormSubtype2PS` 6.2.5/6.2.7, `OptionalContent` 6.1.13 |
 | `fixups_font.go` (extended) | `type0FontFixer` | `CIDSystemInfoMismatch` 6.3.3.1, `CMapWModeInconsistent` 6.3.3.3 |
 | `writer.go` (modified) | `WriteDocument` synthesizes a deterministic `/ID` when absent | `TrailerID` 6.1.3 |
-| `fixups_xmp.go` (extended) | `normalizeInfoDict` (called from `regenerateXMP`) + control-character escaping | `InfoDictXMPMismatch`/`InfoXMPSync`/`XMPNotWellFormed` — **mostly** cleared, see below |
+| `fixups_xmp.go` (extended) | `normalizeInfoDict` (called from `regenerateXMP`) + control-character escaping | `InfoDictXMPMismatch`/`InfoXMPSync`/`XMPNotWellFormed` — **fully** cleared, see below |
 
-Every check above is **fully** eliminated from the corpus residual except the last row,
-which has two small known leftovers (1 fixture each) traced to root cause:
-- **`InfoXMPSync`/`InfoDictXMPMismatch`, 1 fixture** (`veraPDF test suite 6-1-5-t01-fail-b.pdf`):
-  `checkInfoXMPSync`'s Author/`dc:creator` comparison (`checks_xmp.go`) compares the **raw**
-  Info `/Author` string against the **trimmed** extracted XMP value — an asymmetric trim. When
-  Info's `/Author` has leading/trailing whitespace (as this fixture's does, `" veraPDF
-  Consortium "`), no XMP packet can satisfy both a byte-faithful round-trip and that
-  comparison simultaneously. Closeable in a follow-up by trimming `/Author` itself in
-  `normalizeInfoDict` (a one-line addition) — deferred here since it's a verifier/fixer
-  interaction subtlety discovered only by empirical sweep, not part of the original brief.
-- **`XMPNotWellFormed`, 1 fixture** (`veraPDF test suite 6-1-5-t01-fail-d.pdf`): an Info string
-  (`/Keywords`) contains a byte that isn't valid UTF-8 (non-UTF-8 source encoding). `xmlEscapeText`
-  deliberately does not decode/re-encode Info strings as UTF-8 (see its doc comment) to keep
-  XMP/Info byte-for-byte in sync for `checkInfoXMPSync`'s other comparisons — but an invalid
-  UTF-8 byte is also invalid raw XML 1.0 text, regardless of entity-escaping. This is a genuine
-  tension between "byte-exact sync" and "well-formed XML"; the C0-control-character hardening
-  landed in Phase 6 closes the control-character class of this check but not invalid-UTF-8 bytes.
-  A full fix needs either a lossy re-encode (breaks Info/XMP sync for non-UTF-8 fields) or
-  XML 1.0's numeric-character-reference escape for the invalid byte (preserves sync, slightly
-  more code) — left as a follow-up, not attempted here.
+Every check above is **fully** eliminated from the corpus residual, including the last row's two
+single-fixture leftovers, closed in a follow-up after being root-caused here:
+- **`InfoXMPSync`/`InfoDictXMPMismatch`** (`veraPDF test suite 6-1-5-t01-fail-b.pdf`):
+  `checkInfoXMPSync`'s Author/`dc:creator` comparison (`checks_xmp.go`) compared the **raw**
+  Info `/Author` string against the **trimmed** extracted XMP value — an asymmetric trim. Closed
+  by trimming `/Author` itself in `normalizeInfoDict`, the single source both `GetMetadata` and
+  the regenerated XMP packet read from, so both sides agree without touching the checker.
+- **`XMPNotWellFormed`** (`veraPDF test suite 6-1-5-t01-fail-d.pdf`): an Info string (`/Keywords`)
+  contained a byte that isn't valid UTF-8. Rather than the numeric-character-reference escape
+  originally proposed here (which would have desynced `checkInfoXMPSync`'s Keywords comparison,
+  since its extraction regexes never decode entities back), the fix sanitizes invalid UTF-8 at
+  the shared decode point both extraction sites already call, `decodePDFTextString`
+  (`verifier.go`), via `strings.ToValidUTF8`. Both sides see the same sanitized value from the
+  start, so well-formedness and sync hold simultaneously with no checker change needed.
 
 ---
 
@@ -124,8 +118,8 @@ the start of Phase 8.)
 | NameTooLong / CMapCIDOutOfRange | 6.1.12 | 2/2 | yes | **C** limits |
 | TrueTypeEncoding / SymbolicTrueTypeEncoding / SymbolicTrueTypeCmap | 6.3.7 | 1/1/1 | no | **D'** font encoding (rendering-affecting) |
 | CIDNotEmbedded / CMapNotEmbedded | 6.3.4 / 6.3.3.3 | 1/1 | yes | **D''** font substitution (needs bundled fonts) |
-| **InfoXMPSync / InfoDictXMPMismatch** | 6.7.3 / 6.1.5 | 1/1 | no | **A** Info-dict normalize — *one fixture remains, root-caused in §1.1: asymmetric trim in `checkInfoXMPSync`'s Author comparison* |
-| **XMPNotWellFormed** | 6.7.9 | 1 | no | **A** XMP regen edge case — *one fixture remains, root-caused in §1.1: non-UTF-8 byte in an Info string* |
+| InfoXMPSync / InfoDictXMPMismatch | 6.7.3 / 6.1.5 | 0/0 | no | **A** Info-dict normalize — ✅ closed, see §1.1 (Author trim) |
+| XMPNotWellFormed | 6.7.9 | 0 | no | **A** XMP regen edge case — ✅ closed, see §1.1 (invalid-UTF-8 sanitize) |
 | ImageInterpolate (inline) | 6.2.4 | 1 | no | **C** content-stream |
 | InlineImageLZWFilter | 6.1.10 | 1 | yes | **C** content-stream |
 | HexStringInvalidChar | 6.1.6 | 1 | no | **C** content-stream |
@@ -518,8 +512,8 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
-→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12) → 500 (Phase 12B), of 510
-total corpus fixtures.
+→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12) → 500 (Phase 12B) →
+502 (§1.1 closure: Author trim + invalid-UTF-8 sanitize), of 510 total corpus fixtures.
 
 Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
 to pick exact fixtures, and §3–4 to pull in the required assets/infra.

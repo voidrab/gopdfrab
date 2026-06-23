@@ -73,6 +73,13 @@ func normalizeInfoDict(trailer *PDFDict) {
 			delete(info.Entries, key)
 		}
 	}
+	// checkInfoXMPSync compares Author against the XMP dc:creator value with
+	// the latter trimmed but not the former (checks_xmp.go); trimming here,
+	// the single source both GetMetadata and the regenerated XMP read from,
+	// keeps the two sides in sync instead of requiring matching surgery there.
+	if s, ok := info.Entries["Author"].(PDFString); ok {
+		info.Entries["Author"] = PDFString{Value: strings.TrimSpace(s.Value)}
+	}
 	if v, ok := info.Entries["Trapped"]; ok {
 		if _, isName := v.(PDFName); !isName {
 			delete(info.Entries, "Trapped")
