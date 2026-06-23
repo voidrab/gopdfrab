@@ -31,9 +31,12 @@ func (fontDictFixer) Applies(c Check) bool {
 	return c == Checks.Font.CIDToGIDMapMissing
 }
 
-func (fontDictFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f fontDictFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (fontDictFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if (d.Entries["Type"] != PDFName{Value: "Font"}) {
 			return
 		}
@@ -42,10 +45,9 @@ func (fontDictFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		}
 		if d.Entries["CIDToGIDMap"] == nil {
 			d.Entries["CIDToGIDMap"] = PDFName{Value: "Identity"}
-			changed = true
+			*changed = true
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // type0FontFixer remediates Type0 font CIDSystemInfo and CMap WMode
@@ -65,9 +67,12 @@ func (type0FontFixer) Applies(c Check) bool {
 	return false
 }
 
-func (type0FontFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f type0FontFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (type0FontFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if (d.Entries["Type"] != PDFName{Value: "Font"}) {
 			return
 		}
@@ -84,7 +89,7 @@ func (type0FontFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 			cidCSI, hasCidCSI := cid.Entries["CIDSystemInfo"].(PDFDict)
 			if hasCmapCSI && hasCidCSI && !sameCIDSystemInfo(cmapCSI, cidCSI) {
 				cmap.Entries["CIDSystemInfo"] = cid.Entries["CIDSystemInfo"]
-				changed = true
+				*changed = true
 			}
 		}
 
@@ -105,8 +110,7 @@ func (type0FontFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		}
 		if streamWMode, err := strconv.Atoi(string(m[1])); err == nil && int(dictWMode) != streamWMode {
 			cmap.Entries["WMode"] = PDFInteger(streamWMode)
-			changed = true
+			*changed = true
 		}
-	})
-	return changed, nil
+	}, true
 }

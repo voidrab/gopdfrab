@@ -303,7 +303,7 @@ func (d *Document) verifyFileTrailer() []PDFError {
 	}
 
 	// No data shall follow the last end-of-file marker except a single optional end-of-line marker.
-	size := d.info.Size()
+	size := d.size
 
 	found := false
 	eof := make([]byte, 0)
@@ -1362,7 +1362,7 @@ func (d *Document) checkLinearizedFileID() []PDFError {
 	if d.trailer.Entries["Root"] != nil {
 		return nil
 	}
-	size := d.info.Size()
+	size := d.size
 	raw := make([]byte, size)
 	if _, err := d.file.ReadAt(raw, 0); err != nil {
 		return nil

@@ -193,16 +193,21 @@ input only *references*, we must ship metric-compatible, embeddable, freely-lice
 These are not user-visible features but unblock and de-risk later phases. Schedule them as
 their dependents arrive (noted per phase), not all up front.
 
-- **CW-1 · In-memory verify.** `convert.go`'s loop currently writes a temp file and re-`Open`s
-  it every pass (`verifyBytes` → `writeTempFile` → `Open`). Add an in-memory verify path so the
-  round-trip avoids disk I/O and a full re-parse. *Big perf win, see §6.*
-- **CW-2 · Single batched graph walk per pass.** Today each `Fixer` does its own `walkDicts`.
-  As family **A** grows to a dozen fixers, dispatch them through **one** walk per pass (visit
-  each dict once, offer it to every applicable fixer). Keeps per-pass cost O(graph), not
-  O(graph × fixers).
-- **CW-3 · Content-stream writer** (prereq for family **B**, **C**).
-- **CW-4 · Font read/write toolkit** (prereq for family **D**).
-- **CW-5 · Pluggable rasterizer interface** (prereq for family **E** / Phase 13).
+- **CW-1 · In-memory verify — ✅ done.** `verifyBytes`/`ConvertBytes` now verify a freshly-written
+  PDF through an in-memory `openBytes` (backed by `*bytes.Reader`) instead of writing a temp file
+  and re-`Open`ing it (`document.go`: `Document.file` is now a `fileSource` interface, shared
+  `newDocument` constructor). Eliminates the per-pass disk round-trip; the structural checks still
+  read the serialized bytes, so the in-memory graph is not reused (renumbered/`_ref` mismatch).
+- **CW-2 · Single batched graph walk per pass — ✅ done.** Per-dict-local fixers implement the
+  optional `batchDictFixer` interface (`prepare` → per-dict visitor); the convert loop dispatches
+  every applicable one through **one** shared `walkDicts` per pass instead of one walk each
+  (`convert.go`, `convert_fixers.go`). 10 family-A fixers opted in (annot/action/extGState/form/
+  filespec/font dict editors); complex fixers (limits, devicen, font-subst, appearance,
+  content/stream/scalar walks) keep their own `Fix`. Corpus tally unchanged (502/7/1/0).
+- **CW-3 · Content-stream writer** ✅ (landed Phase 8).
+- **CW-4 · Font read/write toolkit** ✅ (landed Phases 9/10).
+- **CW-5 · Pluggable rasterizer interface** — not needed; Phase 13 used the native rasterizer
+  rather than an external renderer, so no pluggable interface was introduced.
 
 ---
 

@@ -3,7 +3,6 @@ package pdfrab
 import (
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 )
 
@@ -20,7 +19,7 @@ type xrefRange struct {
 // path (parseClassicReference) cannot run yet. Per ISO 32000-1 7.5.8.2, a
 // cross-reference stream's own /Length must be a direct integer, which this
 // function relies on to read the stream body without resolving anything.
-func parseIndirectObjectAt(file *os.File, offset int64) (objNum int, dict PDFDict, err error) {
+func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFDict, err error) {
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		return 0, PDFDict{}, err
 	}

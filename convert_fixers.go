@@ -12,6 +12,30 @@ type Fixer interface {
 	Fix(trailer *PDFDict, issues []PDFError) (changed bool, err error)
 }
 
+// batchDictFixer is an optional capability for a Fixer whose remediation is a
+// pure per-dict-local edit driven by a single walkDicts. Implementing it lets
+// the convert loop run every such fixer in one shared graph walk per pass
+// instead of one walk each. prepare runs any document-level setup once
+// (recording edits via changed) and returns a per-dict visitor, or ok=false
+// to do nothing this pass; the visitor likewise records edits via changed.
+type batchDictFixer interface {
+	Fixer
+	prepare(trailer *PDFDict, changed *bool) (visit func(d PDFDict), ok bool)
+}
+
+// runDictVisitor drives a batchDictFixer's prepare + visitor over the whole
+// graph in one walk -- the standalone equivalent of the batched dispatch, used
+// by each such fixer's Fix so it still works when invoked on its own.
+func runDictVisitor(trailer *PDFDict, prepare func(*PDFDict, *bool) (func(PDFDict), bool)) (bool, error) {
+	changed := false
+	visit, ok := prepare(trailer, &changed)
+	if !ok {
+		return false, nil
+	}
+	walkDicts(*trailer, map[uintptr]bool{}, visit)
+	return changed, nil
+}
+
 var fixerRegistry = map[Check]Fixer{}
 
 func registerFixer(f Fixer) {

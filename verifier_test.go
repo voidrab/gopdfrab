@@ -122,7 +122,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
-	doc := &Document{file: f, trailer: trailer, info: info}
+	doc := &Document{file: f, trailer: trailer, size: info.Size()}
 	defer doc.Close()
 
 	errs := doc.verifyFileTrailer()
@@ -147,7 +147,7 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
-	doc := &Document{file: f, trailer: trailer, info: info}
+	doc := &Document{file: f, trailer: trailer, size: info.Size()}
 	defer doc.Close()
 
 	errs := doc.verifyFileTrailer()
@@ -171,7 +171,7 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
-	doc := &Document{file: f, trailer: trailer, info: info}
+	doc := &Document{file: f, trailer: trailer, size: info.Size()}
 	defer doc.Close()
 
 	errs := doc.verifyFileTrailer()

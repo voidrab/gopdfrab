@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -11,10 +12,20 @@ import (
 	"unicode"
 )
 
+// fileSource is the byte source a Document parses and verifies from: a file on
+// disk (Open) or an in-memory buffer (openBytes), so a freshly-written PDF can
+// be re-verified without a temp-file round-trip.
+type fileSource interface {
+	io.Reader
+	io.ReaderAt
+	io.Seeker
+	io.Closer
+}
+
 // Document represents a PDF file.
 type Document struct {
-	file       *os.File
-	info       os.FileInfo
+	file       fileSource
+	size       int64
 	header     []byte
 	trailer    PDFDict
 	xrefTable  map[int]int64
@@ -96,21 +107,38 @@ func Open(path string) (*Document, error) {
 		f.Close()
 		return nil, err
 	}
+	return newDocument(f, info.Size())
+}
 
+// bytesFileSource adapts a *bytes.Reader (which has no Close) to fileSource.
+type bytesFileSource struct{ *bytes.Reader }
+
+func (bytesFileSource) Close() error { return nil }
+
+// openBytes initializes a Document from an in-memory PDF, parsing the same way
+// Open does but without touching disk -- used to re-verify freshly-written
+// bytes during conversion.
+func openBytes(data []byte) (*Document, error) {
+	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)))
+}
+
+// newDocument parses a Document's structure from an already-opened byte source
+// of the given size, shared by Open and openBytes.
+func newDocument(src fileSource, size int64) (*Document, error) {
 	header := make([]byte, 8)
-	if _, err := f.ReadAt(header, 0); err != nil {
-		f.Close()
+	if _, err := src.ReadAt(header, 0); err != nil {
+		src.Close()
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
 	doc := &Document{
-		file:   f,
-		info:   info,
+		file:   src,
+		size:   size,
 		header: header,
 	}
 
 	if err := doc.initializeStructure(); err != nil {
-		f.Close()
+		src.Close()
 		return nil, fmt.Errorf("failed to parse structure: %w", err)
 	}
 
@@ -121,7 +149,7 @@ func Open(path string) (*Document, error) {
 func (d *Document) initializeStructure() error {
 	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
 	// xref offsets in such files are relative to the PDF content start.
-	scanSize := min(d.info.Size(), 1024)
+	scanSize := min(d.size, 1024)
 	scanBuf := make([]byte, scanSize)
 	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
 		if idx := bytes.Index(scanBuf, []byte("%PDF-")); idx > 0 {
@@ -129,9 +157,9 @@ func (d *Document) initializeStructure() error {
 		}
 	}
 
-	tailSize := min(d.info.Size(), int64(1500))
+	tailSize := min(d.size, int64(1500))
 
-	tailOffset := d.info.Size() - tailSize
+	tailOffset := d.size - tailSize
 	tail := make([]byte, tailSize)
 	if _, err := d.file.ReadAt(tail, tailOffset); err != nil {
 		return err
@@ -281,7 +309,7 @@ var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
 // "N G obj" headers, used when the xref table cannot be parsed (6.1.4).
 // Later occurrences win, matching how a real /Prev chain resolves duplicates.
 func (d *Document) recoverXRefByBruteForceScan() error {
-	raw := make([]byte, d.info.Size())
+	raw := make([]byte, d.size)
 	if _, err := d.file.ReadAt(raw, 0); err != nil {
 		return err
 	}
@@ -322,7 +350,7 @@ func (d *Document) recoverTrailerFromXRefStream() (PDFDict, error) {
 // findAndLoadFirstPageTrailer scans every xref section in a linearized PDF,
 // filling d.xrefTable and setting d.firstPageTrailer to the first one with /Root.
 func (d *Document) findAndLoadFirstPageTrailer() {
-	size := d.info.Size()
+	size := d.size
 	raw := make([]byte, size)
 	if _, err := d.file.ReadAt(raw, 0); err != nil {
 		return

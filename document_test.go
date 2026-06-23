@@ -41,7 +41,7 @@ func TestDocument_OpenAndRead(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if doc.info.Size() == 0 {
+	if doc.size == 0 {
 		t.Error("Document size reported as 0")
 	}
 

@@ -16,16 +16,19 @@ func (fileSpecFixer) Applies(c Check) bool {
 	return false
 }
 
-func (fileSpecFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f fileSpecFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (fileSpecFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if _, ok := d.Entries["EF"]; ok {
 			delete(d.Entries, "EF")
-			changed = true
+			*changed = true
 		}
 		if _, ok := d.Entries["EmbeddedFiles"]; ok {
 			delete(d.Entries, "EmbeddedFiles")
-			changed = true
+			*changed = true
 		}
 		if !d.HasStream {
 			return
@@ -33,9 +36,8 @@ func (fileSpecFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		for _, key := range []string{"F", "FFilter", "FDecodeParms"} {
 			if _, ok := d.Entries[key]; ok {
 				delete(d.Entries, key)
-				changed = true
+				*changed = true
 			}
 		}
-	})
-	return changed, nil
+	}, true
 }

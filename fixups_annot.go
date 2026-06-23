@@ -21,19 +21,21 @@ func (disallowedAnnotFixer) Applies(c Check) bool {
 	return c == Checks.Annotation.DisallowedSubtype
 }
 
-func (disallowedAnnotFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f disallowedAnnotFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (disallowedAnnotFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if (d.Entries["Type"] != PDFName{Value: "Annot"}) {
 			return
 		}
 		subtype, _ := d.Entries["Subtype"].(PDFName)
 		if !allowedAnnotationTypes[subtype.Value] {
 			clearDict(d)
-			changed = true
+			*changed = true
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.5.3 Annotation colour without intent ---
@@ -48,7 +50,11 @@ func (annotColourFixer) Applies(c Check) bool {
 	return c == Checks.Annotation.ColourWithoutIntent
 }
 
-func (annotColourFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
+func (f annotColourFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (annotColourFixer) prepare(trailer *PDFDict, changed *bool) (func(PDFDict), bool) {
 	hasOutputIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
 	allowed := func(model string) bool {
 		switch model {
@@ -62,8 +68,7 @@ func (annotColourFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		return true
 	}
 
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+	return func(d PDFDict) {
 		if (d.Entries["Type"] != PDFName{Value: "Annot"}) {
 			return
 		}
@@ -85,11 +90,10 @@ func (annotColourFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 			}
 			if !allowed(model) {
 				delete(d.Entries, key)
-				changed = true
+				*changed = true
 			}
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // outputIntentCoverage replicates Document.computeColourCoverage

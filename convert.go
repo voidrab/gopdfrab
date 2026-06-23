@@ -80,12 +80,12 @@ func Convert(path string, opts ...ConvertOption) (ConvertResult, error) {
 
 // ConvertBytes is Convert for an in-memory PDF.
 func ConvertBytes(data []byte, opts ...ConvertOption) (ConvertResult, error) {
-	path, cleanup, err := writeTempFile("gopdfrab-convert-*.pdf", data)
+	doc, err := openBytes(data)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
-	defer cleanup()
-	return Convert(path, opts...)
+	defer doc.Close()
+	return convertDocument(doc, newConvertConfig(opts))
 }
 
 func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
@@ -137,9 +137,24 @@ func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
 		prevCounts = counts
 
 		changed := false
+		// Per-dict-local fixers (batchDictFixer) share one graph walk this
+		// pass instead of each walking the whole graph; everything else runs
+		// its own Fix as before.
+		var visitors []func(PDFDict)
+		batched := map[Fixer]bool{}
 		for check := range counts {
 			fixer, ok := fixerRegistry[check]
 			if !ok {
+				continue
+			}
+			if bf, isBatch := fixer.(batchDictFixer); isBatch {
+				if batched[fixer] {
+					continue
+				}
+				batched[fixer] = true
+				if visit, ok := bf.prepare(&trailer, &changed); ok {
+					visitors = append(visitors, visit)
+				}
 				continue
 			}
 			ch, err := fixer.Fix(&trailer, result.IssuesForCheck(check))
@@ -149,6 +164,13 @@ func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
 			if ch {
 				changed = true
 			}
+		}
+		if len(visitors) > 0 {
+			walkDicts(trailer, map[uintptr]bool{}, func(d PDFDict) {
+				for _, visit := range visitors {
+					visit(d)
+				}
+			})
 		}
 		if !changed {
 			break
@@ -201,13 +223,7 @@ func applyRasterFallback(trailer *PDFDict, issues []PDFError) bool {
 }
 
 func verifyBytes(data []byte) (Result, error) {
-	path, cleanup, err := writeTempFile("gopdfrab-verify-*.pdf", data)
-	if err != nil {
-		return Result{}, err
-	}
-	defer cleanup()
-
-	doc, err := Open(path)
+	doc, err := openBytes(data)
 	if err != nil {
 		return Result{}, err
 	}

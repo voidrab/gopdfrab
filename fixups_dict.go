@@ -88,12 +88,15 @@ func (actionFixer) Applies(c Check) bool {
 	return false
 }
 
-func (actionFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f actionFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (actionFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if _, ok := d.Entries["AA"]; ok {
 			delete(d.Entries, "AA")
-			changed = true
+			*changed = true
 		}
 
 		s, ok := d.Entries["S"].(PDFName)
@@ -102,18 +105,17 @@ func (actionFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		}
 		if forbiddenActions[s.Value] {
 			clearDict(d)
-			changed = true
+			*changed = true
 			return
 		}
 		if s.Value == "Named" {
 			n, ok := d.Entries["N"].(PDFName)
 			if !ok || !allowedNamedActions[n.Value] {
 				clearDict(d)
-				changed = true
+				*changed = true
 			}
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.2.8 / 6.4 Extended graphics state ---
@@ -139,9 +141,12 @@ func (extGStateFixer) Applies(c Check) bool {
 	return false
 }
 
-func (extGStateFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f extGStateFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (extGStateFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if t, ok := d.Entries["Type"].(PDFName); ok && t.Value != "ExtGState" {
 			return
 		}
@@ -151,42 +156,41 @@ func (extGStateFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 
 		if _, ok := d.Entries["TR"]; ok {
 			delete(d.Entries, "TR")
-			changed = true
+			*changed = true
 		}
 		if tr2, ok := d.Entries["TR2"]; ok {
 			if name, isName := tr2.(PDFName); !isName || name.Value != "Default" {
 				d.Entries["TR2"] = PDFName{Value: "Default"}
-				changed = true
+				*changed = true
 			}
 		}
 		if ri, ok := d.Entries["RI"].(PDFName); ok && !allowedIntents[ri.Value] {
 			delete(d.Entries, "RI")
-			changed = true
+			*changed = true
 		}
 		if sm, ok := d.Entries["SMask"]; ok {
 			if name, isName := sm.(PDFName); !isName || name.Value != "None" {
 				d.Entries["SMask"] = PDFName{Value: "None"}
-				changed = true
+				*changed = true
 			}
 		}
 		if bm, ok := d.Entries["BM"]; ok && !isAllowedBlendMode(bm) {
 			d.Entries["BM"] = PDFName{Value: "Normal"}
-			changed = true
+			*changed = true
 		}
 		if ca, ok := d.Entries["CA"]; ok {
 			if f, num := asFloat(ca); num && abs64(f-1.0) > 1e-5 {
 				d.Entries["CA"] = PDFReal(1.0)
-				changed = true
+				*changed = true
 			}
 		}
 		if ca, ok := d.Entries["ca"]; ok {
 			if f, num := asFloat(ca); num && abs64(f-1.0) > 1e-5 {
 				d.Entries["ca"] = PDFReal(1.0)
-				changed = true
+				*changed = true
 			}
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.5.3 Annotations ---
@@ -208,9 +212,12 @@ func (annotationFlagsFixer) Applies(c Check) bool {
 	return false
 }
 
-func (annotationFlagsFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f annotationFlagsFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (annotationFlagsFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if (d.Entries["Type"] != PDFName{Value: "Annot"}) {
 			return
 		}
@@ -223,17 +230,16 @@ func (annotationFlagsFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, erro
 		want &^= annotFlagHidden | annotFlagInvisible | annotFlagNoView
 		if want != flags {
 			d.Entries["F"] = PDFInteger(want)
-			changed = true
+			*changed = true
 		}
 
 		if ca, ok := d.Entries["CA"]; ok {
 			if f, num := asFloat(ca); num && f != 1.0 {
 				d.Entries["CA"] = PDFReal(1.0)
-				changed = true
+				*changed = true
 			}
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.9 Interactive forms ---
@@ -252,23 +258,25 @@ func (formFixer) Applies(c Check) bool {
 	return false
 }
 
-func (formFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
+func (f formFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
 
+func (formFixer) prepare(trailer *PDFDict, changed *bool) (func(PDFDict), bool) {
 	if root, ok := trailer.Entries["Root"].(PDFDict); ok {
 		if form, ok := root.Entries["AcroForm"].(PDFDict); ok {
 			if na, ok := form.Entries["NeedAppearances"].(PDFBoolean); ok && bool(na) {
 				form.Entries["NeedAppearances"] = PDFBoolean(false)
-				changed = true
+				*changed = true
 			}
 			if _, ok := form.Entries["XFA"]; ok {
 				delete(form.Entries, "XFA")
-				changed = true
+				*changed = true
 			}
 		}
 	}
 
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+	return func(d PDFDict) {
 		isWidget := d.Entries["Type"] == PDFName{Value: "Annot"} &&
 			d.Entries["Subtype"] == PDFName{Value: "Widget"}
 		isField := d.Entries["FT"] != nil
@@ -277,14 +285,13 @@ func (formFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
 		}
 		if _, ok := d.Entries["A"]; ok {
 			delete(d.Entries, "A")
-			changed = true
+			*changed = true
 		}
 		if _, ok := d.Entries["AA"]; ok {
 			delete(d.Entries, "AA")
-			changed = true
+			*changed = true
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.2.4-6.2.7 Image / Form XObject metadata ---
@@ -366,22 +373,24 @@ func (postScriptXObjectFixer) Applies(c Check) bool {
 	return false
 }
 
-func (postScriptXObjectFixer) Fix(trailer *PDFDict, issues []PDFError) (bool, error) {
-	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d PDFDict) {
+func (f postScriptXObjectFixer) Fix(trailer *PDFDict, _ []PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (postScriptXObjectFixer) prepare(_ *PDFDict, changed *bool) (func(PDFDict), bool) {
+	return func(d PDFDict) {
 		if (d.Entries["Subtype"] != PDFName{Value: "Form"}) {
 			return
 		}
 		if _, ok := d.Entries["PS"]; ok {
 			delete(d.Entries, "PS")
-			changed = true
+			*changed = true
 		}
 		if (d.Entries["Subtype2"] == PDFName{Value: "PS"}) {
 			delete(d.Entries, "Subtype2")
-			changed = true
+			*changed = true
 		}
-	})
-	return changed, nil
+	}, true
 }
 
 // --- 6.1.13 Optional content ---
