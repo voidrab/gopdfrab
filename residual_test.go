@@ -11,15 +11,16 @@ func TestResidualCategory(t *testing.T) {
 		{Checks.Font.SimpleNotEmbedded, "font"},
 		{Checks.Structure.InlineImageLZWFilter, "content-stream"},
 		{Checks.Structure.StringTooLong, "content-stream"},
-		{Checks.Transparency.ImageWithSoftMask, "transparency"},
-		{Checks.Transparency.TransparencyGroup, "transparency"},
 		// Not classified: either genuinely novel, fixable by a future
 		// dictionary-level fixup that doesn't exist yet (e.g.
-		// CIDToGIDMapMissing), or already fully handled by contentLimitsFixer
-		// (UndefinedOperator -- see fixups_content.go).
+		// CIDToGIDMapMissing), or already fully handled by a registered
+		// fixer (UndefinedOperator -- fixups_content.go; the Transparency
+		// checks -- fixups_transparency.go).
 		{Checks.Font.CIDToGIDMapMissing, ""},
 		{Checks.Action.ForbiddenActionType, ""},
 		{Checks.Colour.UndefinedOperator, ""},
+		{Checks.Transparency.ImageWithSoftMask, ""},
+		{Checks.Transparency.TransparencyGroup, ""},
 	}
 	for _, tt := range tests {
 		got := ResidualCategory(tt.check)

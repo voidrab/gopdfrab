@@ -38,8 +38,8 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 10 | TrueType subsetter + font substitution/re-embed (family D'') | `subsetTrueType`/`subsetTrueTypeForCID`/`trimTrueTypeCmapToSingleSubtable` (`fonttool_subset.go`); `fontSubstitutionFixer`/`trueTypeEncodingFixer` (`fixups_font_subst.go`) |
 | 11 D | Remaining 6.1.12 limits (page-tree rebalance, resource pruning, name fixes, CMap CID clamp) | `pagesTreeArrayFixer`/`resourceDictPruneFixer`/`nameTooLongFixer`/`cmapCIDClampFixer` (`fixups_limits.go`) |
 
-**Regression floor:** `minConvertedFully = 496` of 510 (`convert_test.go`). Latest corpus
-sweep: **496 fully conformant · 10 known-hard residual · 4 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 499` of 510 (`convert_test.go`). Latest corpus
+sweep: **499 fully conformant · 8 known-hard residual · 3 other residual · 0 errored**.
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
@@ -380,18 +380,29 @@ extracted from Stage B's `contentLimitsFixer` into shared, reusable helpers for 
 fixture with the unrelated, separately-residual CJK `SubsetGlyphCoverage` case — `CMapCIDOutOfRange`
 itself is still cleared from it). Floor 491 → 496.
 
-### Phase 12 — Transparency flattening (family E)
+### Phase 12 — Transparency flattening via a native rasterizer (family E) — ✅ **done**
 **Goal:** `TransparencyGroup` 6.4 (2), `ImageWithSoftMask` 6.4 (1). Removing `/Group`/`/SMask`
 is trivial but changes appearance; a faithful fix flattens the transparency.
-**Assets:** none directly. **Infra:** CW-5 (rasterizer) for true flattening, or a limited
-analytic flattener for simple cases.
-**Risk:** high; small fixture count → low priority despite difficulty.
+**Landed:** a from-scratch rasterizer, stdlib-only and unconditional (no opt-in, no external
+process/binary/service) — `geom.go` (2D matrix/Bezier math), `pdffunc.go`/`pdffunc_ps.go` (PDF
+Function types 0/2/3/4), `colorspace.go` (colour-space → RGB resolver), `raster_image.go`
+(image sample decoding, incl. stdlib `image/jpeg` for `DCTDecode`), `raster_glyph.go`
+(TrueType/CFF/Type1 glyph outlines), `raster_path.go` (scanline fill/stroke), `raster.go`
+(`RenderPage`: graphics-state machine + page renderer), `fixups_transparency.go`
+(`transparencyFlattener`, registered like every other `Fixer`). `CCITTFaxDecode`/
+`JBIG2Decode`/`JPXDecode` images paint as a placeholder fill rather than failing the page —
+the only documented visual-fidelity gap; it never affects PDF/A-1b conformance, since the
+rebuilt page is always a flat `DeviceRGB` image with no transparency construct.
+**Risk realized:** none — all 3 targeted fixtures cleared with no regressions. Floor 496 → 499.
 
 ### Phase 13 — Rasterization escape hatch (completeness backstop)
 **Goal:** guarantee *some* conformant output for any input by rendering the offending page(s)
 to an image and rebuilding the page as an image XObject with a correct colour space — catching
-whatever Phases 6–12 leave behind (exotic content, unflattenable transparency, unsubsettable
-fonts, `InvalidProgram`).
+whatever Phases 6–12 leave behind (exotic content the native rasterizer's documented gaps
+don't cover, unsubsettable fonts, `InvalidProgram`). Phase 12's rasterizer (`raster.go`) already
+covers the *transparency* half of this without an external dependency; what remains here is
+strictly narrower than originally scoped — fonts/content that gopdfrab still can't faithfully
+reproduce at all (e.g. `CIDToGIDMapMissing`'s no-`/ToUnicode` CJK case, `residual.go`).
 **Assets:** none bundled, but an **external renderer** dependency (Ghostscript/pdfium) behind
 the CW-5 interface; opt-in, since it's lossy (text becomes image, file grows).
 **Risk:** high effort / external dep, but it is the only route to *literal* completeness.
@@ -442,11 +453,16 @@ The pipeline today optimizes for correctness; before/with the heavier phases, ad
 - **Fully achievable by logic/metadata (Phases 6–9, 11-partial):** the structural, dictionary,
   metadata, appearance, font-metadata, and most content-stream violations — the bulk of the
   remaining 91 non-conformant fixtures (Phase 6 closed 33 of the original 124).
-- **Achievable only with bundled assets (Phase 10) or external tools (Phase 13):** font
-  substitution and rasterization. Font substitution changes glyph shapes but always runs (project
-  decision, Phase 10) since a substituted-but-conformant font beats a non-conformant one;
-  rasterization is more invasive (text becomes image) and should be **opt-in**. Either way, clear
+- **Achievable only with bundled assets (Phase 10) or a native rasterizer (Phase 12):** font
+  substitution and transparency flattening. Font substitution changes glyph shapes but always
+  runs (project decision, Phase 10) since a substituted-but-conformant font beats a
+  non-conformant one; transparency flattening replaces a page with a rasterized image, but runs
+  unconditionally too — gopdfrab's own rasterizer (`raster.go`, no external dependency) makes
+  this no longer a lossy opt-in trade-off, just the only faithful fix. Either way, clear
   reporting via `ConvertResult.Residual()` / `ResidualCategory` covers what's left.
+- **Achievable only with external tools (Phase 13):** the narrower completeness backstop for
+  content the native rasterizer still can't reproduce at all (e.g. unsubsettable fonts with no
+  recoverable glyph mapping) — opt-in, since it's lossy (text becomes image, file grows).
 - **Fundamentally unconvertible:** inputs whose object graph cannot be resolved
   (`GraphResolutionFailure`) — there is nothing to rewrite. These belong to parser-recovery
   work, not conversion, and should continue to degrade gracefully (return best-effort `Result`,
@@ -472,11 +488,11 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 11C Inline-image fixes (ImageInterpolate, InlineImageLZWFilter, inline /Intent) | C | — | extracted `walkContentStreams`/`contentOpRewriter` | 3 landed |
 | ✅ done | 10 Font embed/subset | D'' | fonts (already bundled, §3.2) | CW-4 (write): TrueType subsetter | 13 landed |
 | ✅ done | 11D Remaining 6.1.12 limits | A/C | — | resource-usage scanner, Resources-aware content walk | 5 landed |
-| next | 12 Transparency | E | — | CW-5 | ~3 |
+| ✅ done | 12 Transparency flattening | E | — | native rasterizer (`raster.go` et al.) | 3 landed |
 | next | 13 Rasterization | E | ext. renderer | CW-5 | backstop |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
-→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D), of 510 total corpus fixtures.
+→ 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12), of 510 total corpus fixtures.
 
 Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
 to pick exact fixtures, and §3–4 to pull in the required assets/infra.

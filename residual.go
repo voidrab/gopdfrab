@@ -40,12 +40,6 @@ func ResidualCategory(c Check) string {
 		// declared input arity -- fixing it means rewriting that function,
 		// which this package has no machinery for.
 		return "content-stream: requires rewriting the colour-space tint-transform function"
-
-	case Checks.Transparency.TransparencyGroup, Checks.Transparency.ImageWithSoftMask:
-		// Removing the offending key (/Group, /SMask) is trivial, but doing
-		// so changes the document's rendered appearance; a faithful fix
-		// needs flattening the transparency, or rasterizing the result.
-		return "transparency: requires flattening or rasterizing the affected content"
 	}
 	return ""
 }
