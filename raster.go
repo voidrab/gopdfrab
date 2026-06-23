@@ -15,24 +15,50 @@ import (
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
 func RenderPage(page PDFDict, resources PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, error) {
-	width := int(math.Ceil((mediaBox[2] - mediaBox[0]) * float64(dpi) / 72))
-	height := int(math.Ceil((mediaBox[3] - mediaBox[1]) * float64(dpi) / 72))
-	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
-		return nil, fmt.Errorf("raster: degenerate or oversized MediaBox")
-	}
-	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
-	for i := range canvas.Pix {
-		canvas.Pix[i] = 0xFF // opaque white page backdrop
-	}
-
 	content, err := pageContentBytes(page)
 	if err != nil {
 		return nil, err
 	}
+	return renderContent(content, resources, mediaBox, dpi)
+}
+
+// renderFormContent rasterizes a Form XObject's own /BBox + content in
+// isolation, ignoring its /Matrix and whatever CTM is active at each /Do
+// that invokes it: those keep applying, unchanged, to whatever the Form
+// paints once flattened, since only its content is being replaced, not its
+// identity or placement. Returns the rendered buffer and the BBox it was
+// rendered against (needed to place the replacement image back into it).
+func renderFormContent(form PDFDict, resources PDFDict, dpi int) (*image.RGBA, [4]float64, error) {
+	bbox, err := floatArray(form.Entries["BBox"])
+	if err != nil || len(bbox) != 4 {
+		return nil, [4]float64{}, fmt.Errorf("raster: missing or invalid Form /BBox")
+	}
+	box := [4]float64{bbox[0], bbox[1], bbox[2], bbox[3]}
+	content, err := decodeStream(form)
+	if err != nil {
+		return nil, [4]float64{}, err
+	}
+	canvas, err := renderContent(content, resources, box, dpi)
+	return canvas, box, err
+}
+
+// renderContent is the shared core behind RenderPage and renderFormContent:
+// it rasterizes content into a fresh opaque-white canvas sized from bounds
+// (a user-space rect) at dpi, then runs the graphics-state machine over it.
+func renderContent(content []byte, resources PDFDict, bounds [4]float64, dpi int) (*image.RGBA, error) {
+	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
+	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
+	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
+		return nil, fmt.Errorf("raster: degenerate or oversized bounds")
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	for i := range canvas.Pix {
+		canvas.Pix[i] = 0xFF // opaque white backdrop
+	}
 
 	scale := float64(dpi) / 72
 	// Device CTM: PDF user space origin bottom-left Y-up -> image space origin top-left Y-down.
-	base := Matrix{A: scale, D: -scale, E: -mediaBox[0] * scale, F: mediaBox[3] * scale}
+	base := Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
 	gs := renderState{
 		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},

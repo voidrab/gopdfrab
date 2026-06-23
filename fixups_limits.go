@@ -15,12 +15,9 @@ import (
 // clamping a value inside a CMap's PostScript stream -- so each gets its own
 // fixer here rather than a single scalar-clamp pass.
 //
-// DeviceNColorants is deliberately NOT claimed: the one corpus fixture that
-// violates it lists 12 colorants, 3 of which are the spec's /None
-// placeholder (no visual effect) -- but the remaining 9 real colorants
-// still exceed the 8-colorant maximum, and reducing them further would
-// require rewriting the tint-transform function's input arity to match,
-// which is out of scope here. It stays residual.
+// DeviceNColorants is claimed by deviceNColorantsFixer (fixups_devicen.go)
+// instead: it resolves the array's colour losslessly rather than truncating
+// it, so it doesn't fit this file's scalar-clamp/split/prune shapes.
 
 func init() {
 	registerFixer(pagesTreeArrayFixer{})
