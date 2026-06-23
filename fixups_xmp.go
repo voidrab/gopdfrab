@@ -147,9 +147,9 @@ func infoString(info PDFDict, key string) string {
 	var s string
 	switch v := info.Entries[key].(type) {
 	case PDFString:
-		s = v.Value
+		s = decodePDFTextString([]byte(v.Value))
 	case PDFHexString:
-		s = string(decodePDFHexStringBytes(v.Value))
+		s = decodePDFTextString(decodePDFHexStringBytes(v.Value))
 	default:
 		return ""
 	}
