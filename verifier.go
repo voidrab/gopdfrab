@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf16"
 )
 
 // xrefHeaderRe matches a well-formed cross-reference subsection header
@@ -916,6 +917,24 @@ func decodePDFLiteralStringBytes(s string) []byte {
 		}
 	}
 	return out
+}
+
+// decodePDFTextString decodes a PDF text string's bytes per 7.9.2.2: a leading
+// 0xFE 0xFF byte-order mark means the rest is UTF-16BE, otherwise the bytes are
+// returned as-is (PDFDocEncoding, treated as raw single-byte text by this package).
+func decodePDFTextString(raw []byte) string {
+	if len(raw) < 2 || raw[0] != 0xFE || raw[1] != 0xFF {
+		return string(raw)
+	}
+	raw = raw[2:]
+	if len(raw)%2 != 0 {
+		raw = raw[:len(raw)-1]
+	}
+	u16 := make([]uint16, len(raw)/2)
+	for i := range u16 {
+		u16[i] = uint16(raw[i*2])<<8 | uint16(raw[i*2+1])
+	}
+	return string(utf16.Decode(u16))
 }
 
 // decodePDFHexStringBytes decodes a hex string's digit characters into bytes,
