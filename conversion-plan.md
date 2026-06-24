@@ -1,16 +1,20 @@
 # PDF/A-1b Conversion — Roadmap to Completeness
 
-> **Purpose.** This document is the high-level roadmap for taking gopdfrab's PDF/A-1b
-> *conversion* from its current state (435/510 corpus fixtures fully converted) to as close to
-> *complete* as the format allows. Each phase below is scoped to be the input for a later,
-> more specific implementation plan (`/plan`). It states the goal, the exact checks targeted,
-> the approach, any external assets/tooling required, the test bar, and risk — but deliberately
-> stops short of line-level design, which belongs in the per-phase plan.
+> **Purpose.** This document is the historical roadmap for taking gopdfrab's PDF/A-1b
+> *conversion* to as close to *complete* as the format allows. Each phase below states the goal,
+> the exact checks targeted, the approach, any external assets/tooling required, the test bar, and
+> risk.
+>
+> **Status — complete.** Phases 1–14 are all **done**. `Convert` now produces a conformant
+> PDF/A-1b rewrite for every fixture whose object graph resolves, rasterizing a page as an
+> automatic last resort (Phase 14, no opt-in) when no in-place fixer can repair it. Current floor:
+> **509/510** corpus fixtures fully conformant; the single hold-out has an unparseable
+> cross-reference table (6.1.4/6.1.6) so its graph never resolves — there is nothing to rewrite or
+> rasterize (§7). The remaining sections are kept as the record of how each clause was closed and
+> as the source for any future refinement (§3.2/§9 fidelity follow-ups).
 >
 > **How to read it.** Phases are ordered by value-per-unit-effort: cheap, asset-free,
-> rendering-neutral wins first; font/content-stream/rasterization work (which needs new
-> infrastructure and bundled assets) last. Phases 1–10 and Phase 11 (Stages A–D) are **done**;
-> the rest is the roadmap.
+> rendering-neutral wins first; font/content-stream/rasterization work last.
 
 ---
 
@@ -38,8 +42,9 @@ PDF -> pre-emptive fixups -> [ WriteDocument -> verify -> targeted Fixers ]* (<=
 | 10 | TrueType subsetter + font substitution/re-embed (family D'') | `subsetTrueType`/`subsetTrueTypeForCID`/`trimTrueTypeCmapToSingleSubtable` (`fonttool_subset.go`); `fontSubstitutionFixer`/`trueTypeEncodingFixer` (`fixups_font_subst.go`) |
 | 11 D | Remaining 6.1.12 limits (page-tree rebalance, resource pruning, name fixes, CMap CID clamp) | `pagesTreeArrayFixer`/`resourceDictPruneFixer`/`nameTooLongFixer`/`cmapCIDClampFixer` (`fixups_limits.go`) |
 
-**Regression floor:** `minConvertedFully = 500` of 510 (`convert_test.go`). Latest corpus
-sweep: **500 fully conformant · 7 known-hard residual · 3 other residual · 0 errored**.
+**Regression floor:** `minConvertedFully = 509` of 510 (`convert_test.go`). Latest corpus
+sweep (raster last resort always on, Phase 14): **509 fully conformant · 0 known-hard residual ·
+1 other residual · 0 errored**. The lone residual is the unparseable-xref fixture (§7).
 
 Key reusable infrastructure already present:
 - `walkDicts` (graph walk with cycle protection) — `fixups_dict.go`
@@ -89,13 +94,16 @@ single-fixture leftovers, closed in a follow-up after being root-caused here:
 
 ## 2. Grounding: what actually remains (residual inventory)
 
-Re-measured after Phase 6 landed, by converting every corpus "fail" fixture and tallying the
-checks still present. `FIX` = distinct fixtures affected; `HARD` = currently classified as
-needing re-encoding/rasterization by `ResidualCategory`. Every check Phase 6 targeted (§1.1) is
-gone from this table except the two single-fixture XMP edge cases noted above, which now show
-under their own (no longer family-**A**) root cause. (Phase 7 has since closed the
-`StreamLZWFilter` row below — table otherwise left as the pre-Phase-7 snapshot; re-measure at
-the start of Phase 8.)
+> **Superseded.** Every row in the snapshot below has since been closed (Phases 7–14). The
+> *current* residual after a full corpus sweep is a single fixture
+> (`6.1.4 Cross reference table/…6-1-4-t02-fail-b.pdf`) reporting `XRefSubsectionHeader` (6.1.4)
+> and `GraphResolutionFailure` (6.1.6): its cross-reference table can't be parsed, so the object
+> graph never resolves and there is nothing to rewrite or rasterize (§7). The table is kept as the
+> historical map of which check belonged to which fix family.
+
+Re-measured after Phase 6 landed (pre-Phase-7 snapshot), by converting every corpus "fail"
+fixture and tallying the checks still present. `FIX` = distinct fixtures affected; `HARD` =
+classified as needing re-encoding/rasterization by `ResidualCategory`.
 
 | Check | Clause | FIX | HARD | Fix family |
 |-------|--------|-----|------|-----------|
@@ -217,8 +225,7 @@ their dependents arrive (noted per phase), not all up front.
 Landed: annotation subtype/colour, file specs/embedded files, PostScript form XObjects,
 optional content, Type0 CIDSystemInfo/WMode, Info-dict normalization, writer `/ID` synthesis.
 33 fixtures moved to fully conformant (386 → 419); two single-fixture XMP edge cases remain,
-root-caused in §1.1. CW-2 (single batched walk) was **not** done — left as a pure-perf
-follow-up now that the family-A fixer count has grown to ~13; see §4.
+root-caused in §1.1. CW-2 (single batched walk) landed later as a pure-perf follow-up; see §4.
 
 ### Phase 7 — Object-stream filter re-encoding (family A') — ✅ **done**
 Landed: a hand-rolled PDF LZW decoder (`lzw.go` — stdlib `compress/lzw` targets GIF's
@@ -455,7 +462,26 @@ rasterizing natively only as a true last resort.
 **Tests:** `ccitt_test.go` (hand-built G3/G4 bitstreams), `convert_raster_test.go` (fallback clears
 the q/Q `StringTooLong` fixture and never breaks conformant input), updated
 `fixups_inline_image_test.go`/`residual_test.go`. Default-path floor unchanged at 502/510; the
-raster fallback is opt-in so the regression floor is not raised by it.
+raster fallback was opt-in at this point so the regression floor was not raised by it (changed in
+Phase 14).
+
+### Phase 14 — Rasterization as the automatic last resort (no opt-in) — ✅ **done**
+**Goal:** the project end-state — `Convert(path)` always yields a conformant PDF/A-1b rewrite for
+any resolvable graph, with **no opt-ins**, rasterizing only when nothing else can.
+**Landed:** the Phase 13 `WithRasterFallback` opt-in and its `ConvertOption`/`convertConfig`
+plumbing are removed; `convertDocument` (`convert.go`) now runs the raster backstop unconditionally
+whenever a residual survives the bounded fixer loop. It is two-stage to keep rasterization a true
+last resort: first `applyRasterFallback` flattens only the pages a residual names
+(`flattenPageToImage`, Phase 12), preserving every other page's text/vectors; only if anything
+still remains — including document-level violations carrying no page number — does `flattenAllPages`
+rasterize the whole document, after which no font/content-stream/transparency construct is left for
+a check to flag. Conformant inputs never enter the backstop (it only fires while
+`!cr.Result.Valid`), so `TestConvertNeverBreaksConformantInput` is unaffected. `residual.go`'s
+`ResidualCategory` doc comments dropped their opt-in wording.
+**Result:** floor 502 → **509**. The one remaining non-conformant fixture has an unparseable
+cross-reference table (§7); its graph never resolves, so it returns early before any rasterization.
+**Tests:** `convert_raster_test.go` rewritten (default `Convert` now clears the q/Q fixture, no
+option); `minConvertedFully` raised to 509 (`convert_test.go`).
 
 ---
 
@@ -496,29 +522,27 @@ The pipeline today optimizes for correctness; before/with the heavier phases, ad
 
 ## 7. Definition of "complete" & the irreducible residual
 
-"Complete PDF/A-1b conversion" is bounded:
-- **Fully achievable by logic/metadata (Phases 6–9, 11-partial):** the structural, dictionary,
-  metadata, appearance, font-metadata, and most content-stream violations — the bulk of the
-  remaining 91 non-conformant fixtures (Phase 6 closed 33 of the original 124).
-- **Achievable only with bundled assets (Phase 10) or a native rasterizer (Phase 12):** font
-  substitution and transparency flattening. Font substitution changes glyph shapes but always
-  runs (project decision, Phase 10) since a substituted-but-conformant font beats a
-  non-conformant one; transparency flattening replaces a page with a rasterized image, but runs
-  unconditionally too — gopdfrab's own rasterizer (`raster.go`, no external dependency) makes
-  this no longer a lossy opt-in trade-off, just the only faithful fix. Either way, clear
-  reporting via `ConvertResult.Residual()` / `ResidualCategory` covers what's left.
-- **Achievable only with external tools (Phase 13):** the narrower completeness backstop for
-  content the native rasterizer still can't reproduce at all (e.g. unsubsettable fonts with no
-  recoverable glyph mapping) — opt-in, since it's lossy (text becomes image, file grows).
+"Complete PDF/A-1b conversion" is bounded — and, as of Phase 14, gopdfrab reaches that bound with
+**no opt-ins**: `Convert(path)` always yields a conformant rewrite for any resolvable graph.
+- **Fully achievable by logic/metadata (Phases 6–9, 11):** the structural, dictionary, metadata,
+  appearance, font-metadata, and most content-stream violations.
+- **Achievable only with bundled assets (Phase 10) or a native rasterizer (Phases 12–14):** font
+  substitution and transparency flattening, both of which run unconditionally — a
+  substituted-but-conformant font beats a non-conformant one, and gopdfrab's own rasterizer
+  (`raster.go`, no external dependency) makes page flattening the only faithful fix rather than a
+  lossy trade-off. When no in-place fixer can repair a page, Phase 14's automatic whole-page raster
+  last resort guarantees conformance. Reporting via `ConvertResult.Residual()` / `ResidualCategory`
+  covers anything genuinely beyond reach.
 - **Fundamentally unconvertible:** inputs whose object graph cannot be resolved
-  (`GraphResolutionFailure`) — there is nothing to rewrite. These belong to parser-recovery
-  work, not conversion, and should continue to degrade gracefully (return best-effort `Result`,
-  never error), as `TestConvertDegradesGracefullyOnUnresolvableGraph` already asserts.
+  (`GraphResolutionFailure` / `XRefSubsectionHeader`) — there is nothing to rewrite *or* rasterize.
+  This is the single remaining corpus residual (1/510). It belongs to parser-recovery work, not
+  conversion, and degrades gracefully (best-effort `Result`, never error), as
+  `TestConvertDegradesGracefullyOnUnresolvableGraph` asserts.
 
-**Success metric per phase:** `minConvertedFully` rises and the `TestConvertCorpusEndToEnd`
-"other residual" bucket shrinks toward only the opt-in (font-substitution/raster) and
-unresolvable cases. Maintain the invariant that **no conformant input is ever made
-non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
+**Success metric:** `minConvertedFully` (now 509/510) holds or rises and the
+`TestConvertCorpusEndToEnd` "other residual" bucket stays at only the unresolvable-graph case.
+Maintain the invariant that **no conformant input is ever made non-conformant**
+(`TestConvertNeverBreaksConformantInput`).
 
 ---
 
@@ -526,7 +550,7 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 
 | Order | Phase | Family | New assets | New infra | Approx. fixtures |
 |------:|-------|--------|-----------|-----------|-----------------:|
-| ✅ done | 6 Dict expansion | A | — | (CW-2 still open) | 33 landed / ~40 targeted |
+| ✅ done | 6 Dict expansion | A | — | CW-2 (landed, §4) | 33 landed / ~40 targeted |
 | ✅ done | 7 LZW re-encode | A' | — | LZW decoder | 5 landed |
 | ✅ done | 8 Appearance synth | B | LiberationSans-Regular.ttf (pulled forward) | CW-3 (landed) | 11 landed / ~15 targeted |
 | ✅ done | 9 Font metadata repair | D | — | CW-4 (read) | 14 landed (449 → 449; floor moved with Phase 11A/B below) |
@@ -538,10 +562,13 @@ non-conformant** (`TestConvertNeverBreaksConformantInput`) at every step.
 | ✅ done | 12 Transparency flattening (object-level) | E | — | native rasterizer (`raster.go` et al.) | 3 landed |
 | ✅ done | 12B DeviceN colorant resolution | C | — | reuses Phase 12's `colorspace.go`/`pdffunc.go` | 1 landed |
 | ✅ done | 13 Rasterization backstop (native) | C/E | — | reuses Phase 12 `raster.go` + new `ccitt.go` | inline-LZW predictor; opt-in page raster |
+| ✅ done | 14 Raster as automatic last resort (no opt-in) | C/E | — | reuses Phase 12/13 raster | floor 502 → 509 |
 
 Floor history: 424 (Phase 7) → 435 (Phase 8) → 449 (Phase 9) → 459 (Phase 11A) → 475 (Phase 11B)
 → 478 (Phase 11C) → 491 (Phase 10) → 496 (Phase 11D) → 499 (Phase 12) → 500 (Phase 12B) →
-502 (§1.1 closure: Author trim + invalid-UTF-8 sanitize), of 510 total corpus fixtures.
+502 (§1.1 closure: Author trim + invalid-UTF-8 sanitize) → **509 (Phase 14: raster always-on)**,
+of 510 total corpus fixtures. The last fixture is fundamentally unconvertible (unparseable xref, §7).
 
-Start each phase by generating a focused `/plan` using this section as the brief, the §2 table
-to pick exact fixtures, and §3–4 to pull in the required assets/infra.
+The roadmap is complete; remaining work is optional fidelity refinement (§3.2 CJK CMap assets, a CFF
+subsetter/width reader, JBIG2/JPX decoders) that would let more pages be fixed losslessly instead of
+rasterized — none of which changes conformance.

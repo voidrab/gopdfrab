@@ -1,7 +1,7 @@
 // Package-level pipeline for converting an arbitrary PDF into a PDF/A-1b
 // rewrite:
 //
-//	PDF -> pre-emptive fixups -> [serialize -> verify -> targeted fixups]* -> output
+//	PDF -> pre-emptive fixups -> [serialize -> verify -> targeted fixups]* -> raster last resort -> output
 //
 // Pre-emptive fixups (registered via registerPreemptiveFixup) run once,
 // unconditionally, before the first verify pass, since they're always safe
@@ -42,53 +42,29 @@ func (r ConvertResult) Residual() []PDFError {
 	return r.Result.Issues
 }
 
-// ConvertOption configures an optional, non-default conversion behaviour.
-type ConvertOption func(*convertConfig)
-
-type convertConfig struct {
-	rasterFallback bool
-}
-
-// WithRasterFallback enables the last-resort backstop: any page still
-// carrying a residual violation after every targeted fixer has run is
-// rebuilt as a flat raster image. This guarantees conformance for content no
-// in-place fixer can repair, at the cost of turning that page's text/vectors
-// into an image (lossy), so it is opt-in.
-func WithRasterFallback() ConvertOption {
-	return func(c *convertConfig) { c.rasterFallback = true }
-}
-
-func newConvertConfig(opts []ConvertOption) convertConfig {
-	var cfg convertConfig
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-	return cfg
-}
-
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite. It always returns the best attempt it produced,
 // even if some violations remain.
-func Convert(path string, opts ...ConvertOption) (ConvertResult, error) {
+func Convert(path string) (ConvertResult, error) {
 	doc, err := Open(path)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return convertDocument(doc, newConvertConfig(opts))
+	return convertDocument(doc)
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte, opts ...ConvertOption) (ConvertResult, error) {
+func ConvertBytes(data []byte) (ConvertResult, error) {
 	doc, err := openBytes(data)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return convertDocument(doc, newConvertConfig(opts))
+	return convertDocument(doc)
 }
 
-func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
+func convertDocument(doc *Document) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
 		res, verr := doc.Verify(A_1B)
@@ -177,23 +153,44 @@ func convertDocument(doc *Document, cfg convertConfig) (ConvertResult, error) {
 		}
 	}
 
-	if cfg.rasterFallback && !cr.Result.Valid {
+	// Last-resort backstop: rasterize residual pages so a resolvable graph
+	// always converts. First try only the pages a residual names (preserving
+	// every other page's text/vectors); if anything still remains -- including
+	// document-level violations no page number is attached to -- flatten the
+	// whole document, which leaves no font/content-stream/transparency
+	// construct for a check to flag.
+	if !cr.Result.Valid {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
-			var buf bytes.Buffer
-			if err := WriteDocument(&buf, trailer); err != nil {
+			if err := serializeAndVerify(trailer, &cr); err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
-			cr.Output = buf.Bytes()
-			result, verr := verifyBytes(cr.Output)
-			if verr != nil {
-				return ConvertResult{}, fmt.Errorf("convert: %w", verr)
+		}
+		if !cr.Result.Valid && flattenAllPages(&trailer) {
+			cr.Iterations++
+			if err := serializeAndVerify(trailer, &cr); err != nil {
+				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
-			cr.Result = result
 		}
 	}
 
 	return cr, nil
+}
+
+// serializeAndVerify writes trailer to cr.Output and re-verifies it,
+// updating cr.Output and cr.Result in place.
+func serializeAndVerify(trailer PDFDict, cr *ConvertResult) error {
+	var buf bytes.Buffer
+	if err := WriteDocument(&buf, trailer); err != nil {
+		return err
+	}
+	cr.Output = buf.Bytes()
+	result, err := verifyBytes(cr.Output)
+	if err != nil {
+		return err
+	}
+	cr.Result = result
+	return nil
 }
 
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat
@@ -215,6 +212,19 @@ func applyRasterFallback(trailer *PDFDict, issues []PDFError) bool {
 			continue
 		}
 		p := pages[i]
+		if flattenPageToImage(p.dict, p.resources, p.mediaBox) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// flattenAllPages rasterizes every page, the final backstop for residuals that
+// applyRasterFallback can't target -- document-level violations with no page
+// number, or anything its page-by-page pass left behind.
+func flattenAllPages(trailer *PDFDict) bool {
+	changed := false
+	for _, p := range orderedPages(*trailer) {
 		if flattenPageToImage(p.dict, p.resources, p.mediaBox) {
 			changed = true
 		}
