@@ -3,7 +3,6 @@ package convert
 import (
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -14,28 +13,28 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 	tests := []struct {
 		name  string
 		path  string
-		check check.Check
+		check pdf.Check
 	}{
 		{
 			"ImageInterpolate",
 			"../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.4 Images/veraPDF test suite 6-2-4-t03-fail-a.pdf",
-			check.Checks.Image.ImageInterpolate,
+			pdf.Checks.Image.ImageInterpolate,
 		},
 		{
 			"InlineImageLZWFilter",
 			"../../test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf",
-			check.Checks.Structure.InlineImageLZWFilter,
+			pdf.Checks.Structure.InlineImageLZWFilter,
 		},
 		{
 			"InlineImageRenderingIntent",
 			"../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-fail-a.pdf",
-			check.Checks.Colour.RenderingIntent,
+			pdf.Checks.Colour.RenderingIntent,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr, err := Convert(tt.path)
+			cr, err := Convert(tt.path, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}

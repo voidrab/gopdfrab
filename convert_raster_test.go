@@ -3,6 +3,8 @@ package pdfrab
 import (
 	"os"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 // qqNestingFixture is a corpus file whose only residual after the standard
@@ -19,7 +21,7 @@ func TestConvertRasterizesUnfixableResidual(t *testing.T) {
 		t.Skip("veraPDF suite not present")
 	}
 
-	cr, err := Convert(qqNestingFixture)
+	cr, err := Convert(qqNestingFixture, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -36,7 +38,7 @@ func TestConvertRasterNoOpOnConformantInput(t *testing.T) {
 		t.Skip("veraPDF suite not present")
 	}
 	for _, path := range paths[:min(5, len(paths))] {
-		cr, err := Convert(path)
+		cr, err := Convert(path, pdf.PDFA_1B)
 		if err != nil {
 			t.Errorf("Convert(%s): %v", path, err)
 			continue

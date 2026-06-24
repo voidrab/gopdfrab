@@ -3,7 +3,6 @@ package convert
 import (
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -52,12 +51,12 @@ func TestFontDictFixerAddsIdentityCIDToGIDMap(t *testing.T) {
 
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing checks the Fixer/Applies
 // contract (mirroring the registration pattern in fixups_dict.go): the
-// fixer must claim exactly check.Checks.Font.CIDToGIDMapMissing and nothing else,
-// since registerFixer panics on a check.Check claimed by more than one Fixer.
+// fixer must claim exactly Checks.Font.CIDToGIDMapMissing and nothing else,
+// since registerFixer panics on a Check claimed by more than one Fixer.
 func TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing(t *testing.T) {
 	fixer := fontDictFixer{}
-	for _, c := range check.AllChecks() {
-		want := c == check.Checks.Font.CIDToGIDMapMissing
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.Font.CIDToGIDMapMissing
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s) = %v, want %v", c.Name(), got, want)
 		}

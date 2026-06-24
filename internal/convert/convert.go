@@ -2,24 +2,6 @@
 // rewrite:
 //
 //	PDF -> pre-emptive fixups -> [serialize -> verify -> targeted fixups]* -> raster last resort -> output
-//
-// Pre-emptive fixups (registered via registerPreemptiveFixup) run once,
-// unconditionally, before the first verify pass, since they're always safe
-// and clear the bulk of typical violations without needing a verify
-// round-trip to discover them (e.g. regenerating XMP metadata, injecting a
-// missing OutputIntent). The bounded loop that follows re-serializes the
-// graph through WriteDocument on every iteration -- which by construction
-// already fixes the entire 6.1.x structural clause family, since the writer
-// always emits a clean classic xref table and correctly-framed objects -- so
-// verifying the freshly-written bytes (rather than the original file) skips
-// a large class of noise the writer has already resolved for free, letting
-// most documents converge in one or two passes. Only the check.Checks still
-// violated after that get dispatched to a registered Fixer (see
-// convert_fixers.go); each Fixer mutates the whole in-memory graph being
-// converted, not just the specific objects an issue's ObjectRef names,
-// because that issue came from verifying a separately-opened copy of the
-// freshly-serialized bytes (with its own, unrelated renumbering) rather than
-// from the graph itself.
 package convert
 
 import (
@@ -29,7 +11,6 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -39,36 +20,36 @@ const maxConvertIterations = 4
 
 type ConvertResult struct {
 	Output     []byte
-	Result     verify.Result
+	Result     pdf.Result
 	Iterations int
 }
 
 // Residual returns the issues remaining in r.Output that Convert was unable
 // to fix automatically.
-func (r ConvertResult) Residual() []check.PDFError {
+func (r ConvertResult) Residual() []pdf.PDFError {
 	return r.Result.Issues
 }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite. It always returns the best attempt it produced,
 // even if some violations remain.
-func Convert(path string) (ConvertResult, error) {
+func Convert(path string, p *pdf.Profile) (ConvertResult, error) {
 	doc, err := pdf.Open(path)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc)
+	return Run(doc, p)
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte) (ConvertResult, error) {
+func ConvertBytes(data []byte, p *pdf.Profile) (ConvertResult, error) {
 	doc, err := pdf.OpenBytes(data)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc)
+	return Run(doc, p)
 }
 
 // ConvertFileResult is one path's outcome from ConvertAll.
@@ -80,7 +61,7 @@ type ConvertFileResult struct {
 
 // ConvertAll opens, converts, and closes a batch of files concurrently,
 // mirroring verify.VerifyAll's worker-pool pattern.
-func ConvertAll(paths []string) []ConvertFileResult {
+func ConvertAll(paths []string, p *pdf.Profile) []ConvertFileResult {
 	results := make([]ConvertFileResult, len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
@@ -95,7 +76,7 @@ func ConvertAll(paths []string) []ConvertFileResult {
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = convertFile(paths[i])
+				results[i] = convertFile(paths[i], p)
 			}
 		}()
 	}
@@ -109,17 +90,17 @@ func ConvertAll(paths []string) []ConvertFileResult {
 }
 
 // convertFile opens, converts, and closes a single file.
-func convertFile(path string) ConvertFileResult {
-	cr, err := Convert(path)
+func convertFile(path string, p *pdf.Profile) ConvertFileResult {
+	cr, err := Convert(path, p)
 	return ConvertFileResult{Path: path, Result: cr, Err: err}
 }
 
 // Run converts an already-open document, the shared implementation behind
 // Convert/ConvertBytes and the facade's (*Document).Convert.
-func Run(doc *pdf.Reader) (ConvertResult, error) {
+func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
-		res, verr := verify.Verify(doc, verify.A_1B)
+		res, verr := verify.Verify(doc, p)
 		if verr != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
@@ -136,7 +117,7 @@ func Run(doc *pdf.Reader) (ConvertResult, error) {
 
 	var (
 		cr         ConvertResult
-		prevCounts map[check.Check]int
+		prevCounts map[pdf.Check]int
 	)
 
 	for iter := 1; iter <= maxConvertIterations; iter++ {
@@ -148,7 +129,7 @@ func Run(doc *pdf.Reader) (ConvertResult, error) {
 		}
 		cr.Output = buf.Bytes()
 
-		result, verr := verifyBytes(cr.Output)
+		result, verr := verifyBytes(cr.Output, p)
 		if verr != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", verr)
 		}
@@ -214,13 +195,13 @@ func Run(doc *pdf.Reader) (ConvertResult, error) {
 	if !cr.Result.Valid {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
-			if err := serializeAndVerify(trailer, &cr); err != nil {
+			if err := serializeAndVerify(trailer, &cr, p); err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
 		}
 		if !cr.Result.Valid && flattenAllPages(&trailer) {
 			cr.Iterations++
-			if err := serializeAndVerify(trailer, &cr); err != nil {
+			if err := serializeAndVerify(trailer, &cr, p); err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
 		}
@@ -231,13 +212,13 @@ func Run(doc *pdf.Reader) (ConvertResult, error) {
 
 // serializeAndVerify writes trailer to cr.Output and re-verifies it,
 // updating cr.Output and cr.Result in place.
-func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult) error {
+func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
 	var buf bytes.Buffer
 	if err := writer.WriteDocument(&buf, trailer); err != nil {
 		return err
 	}
 	cr.Output = buf.Bytes()
-	result, err := verifyBytes(cr.Output)
+	result, err := verifyBytes(cr.Output, p)
 	if err != nil {
 		return err
 	}
@@ -249,7 +230,7 @@ func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult) error {
 // raster image (flattenPageToImage), the last-resort remediation for content
 // no targeted fixer could repair. Page numbers in issues align with the
 // graph's page order, since both come from the same Root/Pages/Kids walk.
-func applyRasterFallback(trailer *pdf.PDFDict, issues []check.PDFError) bool {
+func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError) bool {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
 	for _, iss := range issues {
@@ -284,13 +265,13 @@ func flattenAllPages(trailer *pdf.PDFDict) bool {
 	return changed
 }
 
-func verifyBytes(data []byte) (verify.Result, error) {
+func verifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
 	doc, err := pdf.OpenBytes(data)
 	if err != nil {
-		return verify.Result{}, err
+		return pdf.Result{}, err
 	}
 	defer doc.Close()
-	return verify.Verify(doc, verify.A_1B)
+	return verify.Verify(doc, p)
 }
 
 func writeTempFile(pattern string, data []byte) (path string, cleanup func(), err error) {
@@ -312,10 +293,10 @@ func writeTempFile(pattern string, data []byte) (path string, cleanup func(), er
 	return tmp.Name(), cleanup, nil
 }
 
-// violationCounts tallies how many times each check.Check is violated, used to
+// violationCounts tallies how many times each Check is violated, used to
 // detect whether a fixup pass made any progress.
-func violationCounts(issues []check.PDFError) map[check.Check]int {
-	counts := map[check.Check]int{}
+func violationCounts(issues []pdf.PDFError) map[pdf.Check]int {
+	counts := map[pdf.Check]int{}
 	for _, iss := range issues {
 		counts[iss.Check()]++
 	}
@@ -323,8 +304,8 @@ func violationCounts(issues []check.PDFError) map[check.Check]int {
 }
 
 // sameMultiset reports whether a and b record exactly the same violation
-// counts per check.Check.
-func sameMultiset(a, b map[check.Check]int) bool {
+// counts per
+func sameMultiset(a, b map[pdf.Check]int) bool {
 	if len(a) != len(b) {
 		return false
 	}

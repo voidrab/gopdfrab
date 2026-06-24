@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -42,7 +41,7 @@ func fixtureTrailer(t *testing.T, path string) (trailer pdf.PDFDict, closeDoc fu
 // re-verifies the result, asserting check c is no longer reported -- the
 // same round-trip TestLZWStreamFixerRoundTripsThroughWriter uses to confirm
 // a Fixer's edits actually clear the violation, not just look right in memory.
-func assertCheckClearedByWrite(t *testing.T, trailer pdf.PDFDict, c check.Check) {
+func assertCheckClearedByWrite(t *testing.T, trailer pdf.PDFDict, c pdf.Check) {
 	t.Helper()
 	var buf bytes.Buffer
 	if err := writer.WriteDocument(&buf, trailer); err != nil {
@@ -53,7 +52,7 @@ func assertCheckClearedByWrite(t *testing.T, trailer pdf.PDFDict, c check.Check)
 		t.Fatalf("pdf.Open(written output): %v", err)
 	}
 	defer doc.Close()
-	res, err := verify.Verify(doc, verify.A_1B)
+	res, err := verify.Verify(doc, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -87,11 +86,11 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 
 // TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch mirrors
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
-// exactly its check.Check(s), since registerFixer panics on overlap.
+// exactly its Check(s), since registerFixer panics on overlap.
 func TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch(t *testing.T) {
 	fixer := fontMetricFixer{}
-	for _, c := range check.AllChecks() {
-		want := c == check.Checks.Font.AdvanceWidthMismatch
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.Font.AdvanceWidthMismatch
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
 		}
@@ -100,8 +99,8 @@ func TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch(t *testing.T) {
 
 func TestFontSubsetMetaFixerAppliesOnlyToCharSetAndCIDSet(t *testing.T) {
 	fixer := fontSubsetMetaFixer{}
-	for _, c := range check.AllChecks() {
-		want := c == check.Checks.Font.Type1SubsetCharSet || c == check.Checks.Font.CIDSubsetCIDSet
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.Font.Type1SubsetCharSet || c == pdf.Checks.Font.CIDSubsetCIDSet
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
 		}
@@ -134,7 +133,7 @@ func TestFontMetricFixerCorrectsSimpleTrueTypeWidths(t *testing.T) {
 	defer closeDoc()
 
 	runFixerAndCheckIdempotent(t, fontMetricFixer{}, &trailer)
-	assertCheckClearedByWrite(t, trailer, check.Checks.Font.AdvanceWidthMismatch)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.AdvanceWidthMismatch)
 }
 
 func TestFontMetricFixerCorrectsType1Widths(t *testing.T) {
@@ -143,7 +142,7 @@ func TestFontMetricFixerCorrectsType1Widths(t *testing.T) {
 	defer closeDoc()
 
 	runFixerAndCheckIdempotent(t, fontMetricFixer{}, &trailer)
-	assertCheckClearedByWrite(t, trailer, check.Checks.Font.AdvanceWidthMismatch)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.AdvanceWidthMismatch)
 }
 
 func TestFontMetricFixerCorrectsCIDTrueTypeWidths(t *testing.T) {
@@ -152,7 +151,7 @@ func TestFontMetricFixerCorrectsCIDTrueTypeWidths(t *testing.T) {
 	defer closeDoc()
 
 	runFixerAndCheckIdempotent(t, fontMetricFixer{}, &trailer)
-	assertCheckClearedByWrite(t, trailer, check.Checks.Font.AdvanceWidthMismatch)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.AdvanceWidthMismatch)
 }
 
 func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
@@ -161,7 +160,7 @@ func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
 	defer closeDoc()
 
 	runFixerAndCheckIdempotent(t, fontMetricFixer{}, &trailer)
-	assertCheckClearedByWrite(t, trailer, check.Checks.Font.AdvanceWidthMismatch)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.AdvanceWidthMismatch)
 }
 
 // TestFontSubsetMetaFixerSynthesizesType1CharSet covers a raw Type1 program
@@ -183,7 +182,7 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 	if !ok || cs.Value == "" {
 		t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries["CharSet"])
 	}
-	assertCheckClearedByWrite(t, trailer, check.Checks.Font.Type1SubsetCharSet)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 }
 
 // TestFontSubsetMetaFixerSynthesizesCFFCharSet covers a Type1 font embedded
@@ -207,7 +206,7 @@ func TestFontSubsetMetaFixerSynthesizesCFFCharSet(t *testing.T) {
 			if !ok || cs.Value == "" {
 				t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries["CharSet"])
 			}
-			assertCheckClearedByWrite(t, trailer, check.Checks.Font.Type1SubsetCharSet)
+			assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 		})
 	}
 }
@@ -236,7 +235,7 @@ func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 			if dirty, _ := cidSet.Entries["_dirty"].(pdf.PDFBoolean); !bool(dirty) {
 				t.Errorf("CIDSet stream not marked dirty")
 			}
-			assertCheckClearedByWrite(t, trailer, check.Checks.Font.CIDSubsetCIDSet)
+			assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.CIDSubsetCIDSet)
 		})
 	}
 }

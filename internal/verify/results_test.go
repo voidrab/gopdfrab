@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -20,10 +19,10 @@ func TestClauseLess(t *testing.T) {
 		{"6.2.10", "6.3.1"},
 	}
 	for _, c := range cases {
-		if !clauseLess(c.a, c.b) {
+		if !pdf.ClauseLess(c.a, c.b) {
 			t.Errorf("clauseLess(%q, %q) = false, want true", c.a, c.b)
 		}
-		if clauseLess(c.b, c.a) {
+		if pdf.ClauseLess(c.b, c.a) {
 			t.Errorf("clauseLess(%q, %q) = true, want false", c.b, c.a)
 		}
 	}
@@ -40,9 +39,9 @@ func TestPDFErrorAccessorsAndCheck(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := VerifyProfile(doc, Legacy_1B)
+	res, err := Verify(doc, pdf.Legacy_1B)
 	if err != nil {
-		t.Fatalf("VerifyProfile: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
 	if res.Valid || len(res.Issues) == 0 {
 		t.Fatalf("expected non-conformant result with issues, got Valid=%v Issues=%d", res.Valid, len(res.Issues))
@@ -51,13 +50,13 @@ func TestPDFErrorAccessorsAndCheck(t *testing.T) {
 	issue := res.Issues[0]
 	c := issue.Check()
 	if c.Clause() == "" {
-		t.Error("check.Check().Clause() returned empty string")
+		t.Error("Check().Clause() returned empty string")
 	}
 	if c.Subclause() < 0 {
-		t.Error("check.Check().Subclause() returned negative value")
+		t.Error("Check().Subclause() returned negative value")
 	}
 	if c.Name() == "" {
-		t.Error("check.Check() has empty Name()")
+		t.Error("Check() has empty Name()")
 	}
 	if got, want := issue.IsDocumentLevel(), issue.Page() == 0; got != want {
 		t.Errorf("IsDocumentLevel() = %v, want %v", got, want)
@@ -66,9 +65,9 @@ func TestPDFErrorAccessorsAndCheck(t *testing.T) {
 		t.Error("Messages() returned no messages")
 	}
 
-	got, ok := check.CheckByClause(c.Clause(), c.Subclause())
+	got, ok := pdf.CheckByClause(c.Clause(), c.Subclause())
 	if !ok || got != c {
-		t.Errorf("check.CheckByClause(%s, %d) = %v, %v, want %v, true", c.Clause(), c.Subclause(), got, ok, c)
+		t.Errorf("CheckByClause(%s, %d) = %v, %v, want %v, true", c.Clause(), c.Subclause(), got, ok, c)
 	}
 }
 
@@ -83,9 +82,9 @@ func TestResultAggregation(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := VerifyProfile(doc, Legacy_1B)
+	res, err := Verify(doc, pdf.Legacy_1B)
 	if err != nil {
-		t.Fatalf("VerifyProfile: %v", err)
+		t.Fatalf("Verify: %v", err)
 	}
 	if res.Count() != len(res.Issues) {
 		t.Errorf("Count() = %d, want %d", res.Count(), len(res.Issues))
@@ -93,7 +92,7 @@ func TestResultAggregation(t *testing.T) {
 
 	checks := res.Checks()
 	if len(checks) == 0 {
-		t.Fatal("check.Checks() returned none")
+		t.Fatal("Checks() returned none")
 	}
 	byCheck := res.IssuesByCheck()
 	var total int
@@ -149,7 +148,7 @@ func TestDocumentPDFAInspection(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := Verify(doc, A_1B)
+	res, err := Verify(doc, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -178,26 +177,26 @@ func TestDocumentPDFAInspection(t *testing.T) {
 }
 
 func TestCheckRegistryLookups(t *testing.T) {
-	c, ok := check.CheckByClause(check.Checks.Font.SimpleNotEmbedded.Clause(), check.Checks.Font.SimpleNotEmbedded.Subclause())
+	c, ok := pdf.CheckByClause(pdf.Checks.Font.SimpleNotEmbedded.Clause(), pdf.Checks.Font.SimpleNotEmbedded.Subclause())
 	if !ok {
-		t.Fatal("CheckByClause did not find check.Checks.Font.SimpleNotEmbedded")
+		t.Fatal("CheckByClause did not find Checks.Font.SimpleNotEmbedded")
 	}
-	if c.Name() != check.Checks.Font.SimpleNotEmbedded.Name() {
-		t.Errorf("check.CheckByClause() = %q, want %q", c.Name(), check.Checks.Font.SimpleNotEmbedded.Name())
-	}
-
-	if _, ok := check.CheckByClause("9.9.9", 99); ok {
-		t.Error("check.CheckByClause() found a check for a clause that shouldn't exist")
+	if c.Name() != pdf.Checks.Font.SimpleNotEmbedded.Name() {
+		t.Errorf("CheckByClause() = %q, want %q", c.Name(), pdf.Checks.Font.SimpleNotEmbedded.Name())
 	}
 
-	clause := check.Checks.Font.SimpleNotEmbedded.Clause()
-	all := check.ChecksForClause(clause)
+	if _, ok := pdf.CheckByClause("9.9.9", 99); ok {
+		t.Error("CheckByClause() found a check for a clause that shouldn't exist")
+	}
+
+	clause := pdf.Checks.Font.SimpleNotEmbedded.Clause()
+	all := pdf.ChecksForClause(clause)
 	if len(all) == 0 {
-		t.Fatalf("check.ChecksForClause(%q) returned none", clause)
+		t.Fatalf("ChecksForClause(%q) returned none", clause)
 	}
 	for _, c := range all {
 		if c.Clause() != clause {
-			t.Errorf("check.ChecksForClause(%q) returned check with clause %q", clause, c.Clause())
+			t.Errorf("ChecksForClause(%q) returned check with clause %q", clause, c.Clause())
 		}
 	}
 }

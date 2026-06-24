@@ -1,4 +1,4 @@
-package check
+package pdf
 
 import (
 	"fmt"
@@ -301,7 +301,7 @@ func newCheck(name, description, clause string, subclause int) Check {
 // CheckByName looks up a registered check by its CamelCase identifier (e.g.
 // "ObjectFraming"), used to map a pdf.Reader's parse-time StructError
 // diagnostics -- which only carry that name, to avoid this package's check
-// registry being a dependency of the pdf package -- back to a Check.
+// registry being a dependency of the pdf package -- back to a
 func CheckByName(name string) (c Check, ok bool) {
 	c, ok = catalogByName[name]
 	return c, ok

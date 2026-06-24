@@ -5,7 +5,6 @@ import (
 	"compress/lzw"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -38,11 +37,11 @@ func TestDecodeLZWRoundTrips(t *testing.T) {
 
 // TestLZWStreamFixerAppliesOnlyToStreamLZWFilter mirrors
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
-// exactly its one check.Check, since registerFixer panics on overlap.
+// exactly its one Check, since registerFixer panics on overlap.
 func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 	fixer := lzwStreamFixer{}
-	for _, c := range check.AllChecks() {
-		want := c == check.Checks.Structure.StreamLZWFilter
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.Structure.StreamLZWFilter
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
 		}

@@ -3,24 +3,23 @@ package convert
 import (
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 // TestAppearanceFixerAppliesExclusively checks the Fixer/Applies contract
 // (mirroring fixups_font_test.go's pattern): the fixer must claim exactly
 // its five target checks and nothing else, since registerFixer panics on a
-// check.Check claimed by more than one Fixer.
+// Check claimed by more than one Fixer.
 func TestAppearanceFixerAppliesExclusively(t *testing.T) {
 	fixer := appearanceFixer{}
-	want := map[check.Check]bool{
-		check.Checks.Form.WidgetMissingAppearance:      true,
-		check.Checks.Annotation.MissingAppearance:      true,
-		check.Checks.Annotation.AppearanceMissingN:     true,
-		check.Checks.Annotation.AppearanceExtraEntries: true,
-		check.Checks.Annotation.AppearanceNNotStream:   true,
+	want := map[pdf.Check]bool{
+		pdf.Checks.Form.WidgetMissingAppearance:      true,
+		pdf.Checks.Annotation.MissingAppearance:      true,
+		pdf.Checks.Annotation.AppearanceMissingN:     true,
+		pdf.Checks.Annotation.AppearanceExtraEntries: true,
+		pdf.Checks.Annotation.AppearanceNNotStream:   true,
 	}
-	for _, c := range check.AllChecks() {
+	for _, c := range pdf.AllChecks() {
 		if got := fixer.Applies(c); got != want[c] {
 			t.Errorf("Applies(%s) = %v, want %v", c.Name(), got, want[c])
 		}

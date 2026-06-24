@@ -3,7 +3,6 @@ package convert
 import (
 	"strconv"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -24,7 +23,7 @@ func init() {
 	registerFixer(type0FontFixer{})
 }
 
-// fontDictFixer remediates check.Checks.Font.CIDToGIDMapMissing by adding the
+// fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by adding the
 // spec-default /CIDToGIDMap /Identity to any CIDFontType2 descendant font
 // that lacks it, mirroring the detection in validateFontDict
 // (checks_font.go). Adding /Identity is always valid -- it IS the PDF
@@ -34,11 +33,11 @@ func init() {
 // the check itself.
 type fontDictFixer struct{}
 
-func (fontDictFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Font.CIDToGIDMapMissing
+func (fontDictFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Font.CIDToGIDMapMissing
 }
 
-func (f fontDictFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f fontDictFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -66,15 +65,15 @@ func (fontDictFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), 
 // stream itself declares.
 type type0FontFixer struct{}
 
-func (type0FontFixer) Applies(c check.Check) bool {
+func (type0FontFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Font.CIDSystemInfoMismatch, check.Checks.Font.CMapWModeInconsistent:
+	case pdf.Checks.Font.CIDSystemInfoMismatch, pdf.Checks.Font.CMapWModeInconsistent:
 		return true
 	}
 	return false
 }
 
-func (f type0FontFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f type0FontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 

@@ -70,7 +70,7 @@ func BenchmarkOpenVerify(b *testing.B) {
 				if err != nil {
 					b.Fatalf("Open(%s): %v", path, err)
 				}
-				if _, err := doc.Verify(pdfrab.A_1B); err != nil {
+				if _, err := doc.Verify(pdfrab.PDFA_1B); err != nil {
 					doc.Close()
 					b.Fatalf("Verify(%s): %v", path, err)
 				}
@@ -95,7 +95,7 @@ func BenchmarkConvert(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := pdfrab.ConvertBytes(data); err != nil {
+				if _, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B); err != nil {
 					b.Fatalf("ConvertBytes(%s): %v", name, err)
 				}
 			}
@@ -139,7 +139,7 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 		defer doc.Close()
-		if _, err := doc.Verify(pdfrab.A_1B); err != nil {
+		if _, err := doc.Verify(pdfrab.PDFA_1B); err != nil {
 			t.Fatalf("Verify(%s): %v", path, err)
 		}
 	})
@@ -172,7 +172,7 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(3, func() {
-		if _, err := pdfrab.ConvertBytes(data); err != nil {
+		if _, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B); err != nil {
 			t.Fatalf("ConvertBytes(large): %v", err)
 		}
 	})

@@ -3,7 +3,6 @@ package convert
 import (
 	"fmt"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -14,11 +13,11 @@ func init() {
 
 type lzwStreamFixer struct{}
 
-func (lzwStreamFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.StreamLZWFilter
+func (lzwStreamFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.StreamLZWFilter
 }
 
-func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		if !d.HasStream || !hasLZWFilter(d.Entries["Filter"]) {

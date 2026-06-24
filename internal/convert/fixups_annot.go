@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -14,21 +13,21 @@ func init() {
 
 // --- 6.5.2 Annotation subtypes ---
 
-// disallowedAnnotFixer remediates check.Checks.Annotation.DisallowedSubtype by
+// disallowedAnnotFixer remediates Checks.Annotation.DisallowedSubtype by
 // neutralizing (clearDict) any annotation dictionary whose /Subtype is not
 // PDF/A-permitted, mirroring validateAnnotation's verify.AllowedAnnotationTypes
 // check in checks_dict.go. clearDict -- rather than removing the entry from
 // the page's /Annots array -- mirrors actionFixer's handling of forbidden
 // action dictionaries: nothing else inspects /Annots array membership, only
 // each entry's own Type/Subtype, so an emptied dict is invisible to every
-// other check.
+// other
 type disallowedAnnotFixer struct{}
 
-func (disallowedAnnotFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Annotation.DisallowedSubtype
+func (disallowedAnnotFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Annotation.DisallowedSubtype
 }
 
-func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -47,17 +46,17 @@ func (disallowedAnnotFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDF
 
 // --- 6.5.3 Annotation colour without intent ---
 
-// annotColourFixer remediates check.Checks.Annotation.ColourWithoutIntent by
+// annotColourFixer remediates Checks.Annotation.ColourWithoutIntent by
 // deleting an annotation's /C or /IC colour array when its device colour
 // model (gray/rgb/cmyk, by array length) is not covered by the document's
 // output intent, mirroring checkAnnotColour in checks_dict.go.
 type annotColourFixer struct{}
 
-func (annotColourFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Annotation.ColourWithoutIntent
+func (annotColourFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Annotation.ColourWithoutIntent
 }
 
-func (f annotColourFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f annotColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 

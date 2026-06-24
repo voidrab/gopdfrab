@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -20,12 +19,12 @@ func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
 		t.Skip("corpus fixture not present")
 	}
 
-	cr, err := Convert(path)
+	cr, err := Convert(path, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
 	for _, iss := range cr.Residual() {
-		if iss.Check() == check.Checks.Colour.DeviceColourContentStream {
+		if iss.Check() == pdf.Checks.Colour.DeviceColourContentStream {
 			t.Errorf("DeviceColourContentStream still present after conversion: %v", iss)
 		}
 	}

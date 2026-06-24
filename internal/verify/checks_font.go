@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -52,7 +51,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 	case "Type1", "MMType1", "TrueType":
 		// 6.3.4: the font program shall be embedded.
 		if !HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3") {
-			ctx.Report(check.Checks.Font.SimpleNotEmbedded, v, fmt.Sprintf("font %s is not embedded", baseFont.Value))
+			ctx.Report(pdf.Checks.Font.SimpleNotEmbedded, v, fmt.Sprintf("font %s is not embedded", baseFont.Value))
 		}
 		if subtype.Value == "TrueType" {
 			validateTrueTypeEncoding(v, desc, ctx)
@@ -82,7 +81,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 		} else if subset {
 			if desc.Entries != nil && desc.Entries["CharSet"] == nil {
 				// 6.3.5: a Type 1 subset descriptor shall include CharSet.
-				ctx.Report(check.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
+				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
 			} else if !invisibleOnly {
 				// 6.3.5: every character code with non-zero width must map to a glyph in CharSet.
 				firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
@@ -97,15 +96,15 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 	case "CIDFontType0", "CIDFontType2":
 		// 6.3.4: composite font programs shall be embedded.
 		if !HasEmbeddedProgram(desc, "FontFile2", "FontFile3") {
-			ctx.Report(check.Checks.Font.CIDNotEmbedded, v, fmt.Sprintf("CID font %s is not embedded", baseFont.Value))
+			ctx.Report(pdf.Checks.Font.CIDNotEmbedded, v, fmt.Sprintf("CID font %s is not embedded", baseFont.Value))
 		}
 		// 6.3.3.2: CIDFontType2 shall specify CIDToGIDMap.
 		if subtype.Value == "CIDFontType2" && v.Entries["CIDToGIDMap"] == nil && !invisibleOnly {
-			ctx.Report(check.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 lacks CIDToGIDMap")
+			ctx.Report(pdf.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 lacks CIDToGIDMap")
 		}
 		// 6.3.5: a CID subset descriptor shall include CIDSet.
 		if subset && desc.Entries != nil && desc.Entries["CIDSet"] == nil {
-			ctx.Report(check.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
+			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
 		} else if subset && subtype.Value == "CIDFontType0" && !invisibleOnly {
 			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
 				validateCIDSetBitmap(v, desc, ff, ctx)
@@ -198,7 +197,7 @@ func validateType3Metrics(v pdf.PDFDict, ctx *ValidationContext) {
 			continue // no d0/d1 found
 		}
 		if Abs64(procWidth-pdfWidth) > 1.0 {
-			ctx.Report(check.Checks.Font.AdvanceWidthMismatch, v, fmt.Sprintf("Type3 glyph /%s: Widths entry %g does not match d0/d1 width %g", glyphName, pdfWidth, procWidth))
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, v, fmt.Sprintf("Type3 glyph /%s: Widths entry %g does not match d0/d1 width %g", glyphName, pdfWidth, procWidth))
 			return
 		}
 	}
@@ -237,11 +236,11 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 	if symbolic {
 		// 6.3.7: a symbolic TrueType font shall not define Encoding.
 		if enc != nil {
-			ctx.Report(check.Checks.Font.SymbolicTrueTypeEncoding, v, "symbolic TrueType font shall not specify Encoding")
+			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeEncoding, v, "symbolic TrueType font shall not specify Encoding")
 		}
 		// 6.3.7: a symbolic TrueType cmap shall contain exactly one subtable.
 		if n, ok := trueTypeCmapSubtables(ctx, desc); ok && n != 1 {
-			ctx.Report(check.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", n))
+			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", n))
 		}
 		return
 	}
@@ -249,7 +248,7 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 	// Non-symbolic TrueType: Encoding shall be MacRomanEncoding or WinAnsiEncoding.
 	name, ok := enc.(pdf.PDFName)
 	if !ok || (name.Value != "MacRomanEncoding" && name.Value != "WinAnsiEncoding") {
-		ctx.Report(check.Checks.Font.TrueTypeEncoding, v, "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding")
+		ctx.Report(pdf.Checks.Font.TrueTypeEncoding, v, "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding")
 	}
 }
 
@@ -270,7 +269,7 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 
 	// 6.3.3.3: a CMap shall be one of the predefined CMaps or embedded.
 	if name, ok := enc.(pdf.PDFName); ok && !predefinedCMaps[name.Value] {
-		ctx.Report(check.Checks.Font.CMapNotEmbedded, v, fmt.Sprintf("CMap /%s is neither predefined nor embedded", name.Value))
+		ctx.Report(pdf.Checks.Font.CMapNotEmbedded, v, fmt.Sprintf("CMap /%s is neither predefined nor embedded", name.Value))
 	}
 	// 6.3.3.3: an embedded CMap's WMode shall be consistent.
 	if cmap, ok := enc.(pdf.PDFDict); ok {
@@ -285,7 +284,7 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 		cidCSI, _ := cid.Entries["CIDSystemInfo"].(pdf.PDFDict)
 		if cmapCSI.Entries != nil && cidCSI.Entries != nil {
 			if !SameCIDSystemInfo(cmapCSI, cidCSI) {
-				ctx.Report(check.Checks.Font.CIDSystemInfoMismatch, v, "CMap and CIDFont CIDSystemInfo are incompatible")
+				ctx.Report(pdf.Checks.Font.CIDSystemInfoMismatch, v, "CMap and CIDFont CIDSystemInfo are incompatible")
 			}
 		}
 	}
@@ -349,7 +348,7 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				pos++
 				if pos == 3 {
 					if cid, ok := CmapParseInt(tok.Text); ok && cid > maxCID {
-						ctx.Report(check.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
 				}
@@ -358,7 +357,7 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				pos++
 				if pos == 2 {
 					if cid, ok := CmapParseInt(tok.Text); ok && cid > maxCID {
-						ctx.Report(check.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
 				}

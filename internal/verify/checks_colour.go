@@ -3,7 +3,6 @@ package verify
 import (
 	"fmt"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -125,7 +124,7 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 	if DefaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
-	ctx.Report(check.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
+	ctx.Report(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
 }
 
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
@@ -159,7 +158,7 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	if head.Value == "DeviceN" {
 		// 6.1.12: DeviceN colour space shall not have more than 8 colorants.
 		if names, ok := arr[1].(pdf.PDFArray); ok && len(names) > 8 {
-			ctx.Report(check.Checks.Structure.DeviceNColorants, arr, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
+			ctx.Report(pdf.Checks.Structure.DeviceNColorants, arr, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
 		}
 	}
 	alt := arr[2]
@@ -167,5 +166,5 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	ctx.Report(check.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
 }

@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -24,7 +23,7 @@ func init() {
 	registerFixer(fontSubsetMetaFixer{})
 }
 
-// fontMetricFixer remediates check.Checks.Font.AdvanceWidthMismatch by recomputing
+// fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing
 // PDF /Widths (simple TrueType, Type1, Type3) or /W (CIDFontType2) entries
 // from the embedded font program, mirroring the detection in
 // validateSimpleTrueTypeMetrics/validateType1Metrics/validateType3Metrics
@@ -33,11 +32,11 @@ func init() {
 // reader exists -- so it needs no handling here.
 type fontMetricFixer struct{}
 
-func (fontMetricFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Font.AdvanceWidthMismatch
+func (fontMetricFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Font.AdvanceWidthMismatch
 }
 
-func (fontMetricFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (fontMetricFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
@@ -291,22 +290,22 @@ func fixType3Widths(v pdf.PDFDict) bool {
 	return changed
 }
 
-// fontSubsetMetaFixer remediates check.Checks.Font.Type1SubsetCharSet and
-// check.Checks.Font.CIDSubsetCIDSet by synthesizing the missing/incomplete
+// fontSubsetMetaFixer remediates Checks.Font.Type1SubsetCharSet and
+// Checks.Font.CIDSubsetCIDSet by synthesizing the missing/incomplete
 // /CharSet or /CIDSet from the glyphs actually present in the embedded
 // program, mirroring validateType1SubsetCoverage's CharSet-presence check
 // and validateCIDSetBitmap (checks_font.go/checks_font_program.go).
 type fontSubsetMetaFixer struct{}
 
-func (fontSubsetMetaFixer) Applies(c check.Check) bool {
+func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Font.Type1SubsetCharSet, check.Checks.Font.CIDSubsetCIDSet:
+	case pdf.Checks.Font.Type1SubsetCharSet, pdf.Checks.Font.CIDSubsetCIDSet:
 		return true
 	}
 	return false
 }
 
-func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
@@ -404,7 +403,7 @@ func buildCIDSetBitmap(cids []int) []byte {
 }
 
 // cidSetComplete reports whether bitmap already marks every CID in cids,
-// mirroring validateCIDSetBitmap's own completeness check.
+// mirroring validateCIDSetBitmap's own completeness
 func cidSetComplete(bitmap []byte, cids []int) bool {
 	for _, cid := range cids {
 		byteIdx, bitIdx := cid/8, 7-cid%8

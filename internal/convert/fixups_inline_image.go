@@ -3,7 +3,6 @@ package convert
 import (
 	"fmt"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -15,7 +14,7 @@ import (
 // plumbing from fixups_content.go: a non-standard inline /Intent (folded
 // into contentLimitsFixer, which already owns RenderingIntent), a true
 // /Interpolate (folded into imageMetadataFixer, which already owns
-// ImageInterpolate for the dict-level Image XObject case -- a check.Check can
+// ImageInterpolate for the dict-level Image XObject case -- a Check can
 // only have one registered Fixer), and the LZW inline-image filter
 // (registered here, since no other Fixer claims it).
 //
@@ -150,7 +149,7 @@ func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValu
 // fixInlineImageInterpolate flips a true inline-image /I or /Interpolate to
 // false, mirroring checkInlineImageOther's Interpolate case
 // (checks_content.go) in reverse. Used by imageMetadataFixer, which already
-// owns check.Checks.Image.ImageInterpolate for the dict-level Image XObject case.
+// owns Checks.Image.ImageInterpolate for the dict-level Image XObject case.
 func fixInlineImageInterpolate(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
 	if op != "INLINEIMAGE" {
 		return writer.ContentOp{Op: op, Operands: operands}, true
@@ -182,16 +181,16 @@ func fixInlineImageInterpolate(op string, operands []pdf.PDFValue, changed *bool
 	return writer.ContentOp{Op: op, Operands: append(fixedParams, pdf.InlineImageRaw{Bytes: newBytes, Data: raw.Data})}, true
 }
 
-// inlineImageLZWFixer remediates check.Checks.Structure.InlineImageLZWFilter by
+// inlineImageLZWFixer remediates Checks.Structure.InlineImageLZWFilter by
 // decoding an inline image's LZW-filtered data and re-encoding it as Flate,
 // mirroring checkInlineImageFilter (checks_content.go) in reverse.
 type inlineImageLZWFixer struct{}
 
-func (inlineImageLZWFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.InlineImageLZWFilter
+func (inlineImageLZWFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.InlineImageLZWFilter
 }
 
-func (inlineImageLZWFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (inlineImageLZWFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return walkContentStreams(trailer, fixInlineImageLZW), nil
 }
 

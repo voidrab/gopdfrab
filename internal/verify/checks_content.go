@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -85,13 +84,13 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			if n, ok := operand.(pdf.PDFInteger); ok && (n > 2147483647 || n < -2147483648) {
-				ctx.Report(check.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
+				ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
 			}
 			if r, ok := operand.(pdf.PDFReal); ok && math.Abs(float64(r)) > 32767 {
-				ctx.Report(check.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
+				ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
 			}
 			if s, ok := operand.(pdf.PDFString); ok && PDFStringDecodedLen(s.Value) > 65535 {
-				ctx.Report(check.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
+				ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
 			}
 			// 6.1.6: hex string operands must be valid hex digits, even count.
 			if hs, ok := operand.(pdf.PDFHexString); ok {
@@ -103,7 +102,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 		case "q":
 			qDepth++
 			if qDepth > 28 {
-				ctx.Report(check.Checks.Structure.StringTooLong, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+				ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
 			}
 		case "Q":
 			if qDepth > 0 {
@@ -134,7 +133,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 		case "ri":
 			if len(operands) > 0 {
 				if name, ok := operands[len(operands)-1].(pdf.PDFName); ok && !AllowedIntents[name.Value] {
-					ctx.Report(check.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("undefined rendering intent /%s", name.Value))
+					ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("undefined rendering intent /%s", name.Value))
 				}
 			}
 		case "INLINEIMAGE":
@@ -147,7 +146,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 				reportContentColour(obj, "gray", resources, ctx)
 			}
 			if !PDFOperators[op] {
-				ctx.Report(check.Checks.Colour.UndefinedOperator, obj, fmt.Sprintf("undefined content operator %q", op))
+				ctx.Report(pdf.Checks.Colour.UndefinedOperator, obj, fmt.Sprintf("undefined content operator %q", op))
 			}
 		}
 	})
@@ -165,7 +164,7 @@ func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, 
 	if DefaultColorSpaceDefined(model, ctx.pageResources) {
 		return
 	}
-	ctx.Report(check.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
+	ctx.Report(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
 }
 
 // checkInlineImageColour inspects inline image parameters for a device colour
@@ -205,7 +204,7 @@ func checkInlineImageFilter(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Valida
 		}
 		for _, f := range pdf.FilterNames(params[i+1]) {
 			if f == "LZW" || f == "LZWDecode" {
-				ctx.Report(check.Checks.Structure.InlineImageLZWFilter, obj, "inline image uses forbidden LZW filter")
+				ctx.Report(pdf.Checks.Structure.InlineImageLZWFilter, obj, "inline image uses forbidden LZW filter")
 			}
 		}
 	}
@@ -223,11 +222,11 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 		switch key.Value {
 		case "I", "Interpolate":
 			if b, ok := val.(pdf.PDFBoolean); ok && bool(b) {
-				ctx.Report(check.Checks.Image.ImageInterpolate, obj, "inline image Interpolate shall not be true")
+				ctx.Report(pdf.Checks.Image.ImageInterpolate, obj, "inline image Interpolate shall not be true")
 			}
 		case "Intent":
 			if name, ok := val.(pdf.PDFName); ok && !AllowedIntents[name.Value] {
-				ctx.Report(check.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
+				ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}
 	}

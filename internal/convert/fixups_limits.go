@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -66,7 +65,7 @@ const maxPDFArrayElements = 8191
 // gets, well under maxPDFArrayElements.
 const pagesTreeChunkSize = 4096
 
-// pagesTreeArrayFixer remediates check.Checks.Structure.ArrayTooLarge for an
+// pagesTreeArrayFixer remediates Checks.Structure.ArrayTooLarge for an
 // oversized /Pages node's /Kids array by splitting it into a tree of new
 // intermediate /Pages nodes -- the standard technique real PDF writers use
 // for documents with very many pages. Page discovery (buildPageIndex,
@@ -75,11 +74,11 @@ const pagesTreeChunkSize = 4096
 // page's content; it only restructures the tree.
 type pagesTreeArrayFixer struct{}
 
-func (pagesTreeArrayFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.ArrayTooLarge
+func (pagesTreeArrayFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.ArrayTooLarge
 }
 
-func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	nextObjNum := nextAvailableObjNum(*trailer)
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
@@ -155,7 +154,7 @@ const maxDictEntries = 4096
 // therefore safe to prune individually when unreferenced.
 var resourceCategories = []string{"Font", "XObject", "ColorSpace", "Pattern", "Shading", "ExtGState", "Properties"}
 
-// resourceDictPruneFixer remediates check.Checks.Structure.DictTooLarge for an
+// resourceDictPruneFixer remediates Checks.Structure.DictTooLarge for an
 // oversized /Resources sub-dictionary by deleting entries no content stream
 // reachable from it actually references (resourceUsage, below) -- safe by
 // construction, since a dropped entry was never selected by anything. If
@@ -164,11 +163,11 @@ var resourceCategories = []string{"Font", "XObject", "ColorSpace", "Pattern", "S
 // risk breaking a live reference.
 type resourceDictPruneFixer struct{}
 
-func (resourceDictPruneFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.DictTooLarge
+func (resourceDictPruneFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.DictTooLarge
 }
 
-func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	usage := computeResourceUsage(*trailer)
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
@@ -386,7 +385,7 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 // (6.1.12/1).
 const maxNameLength = 127
 
-// nameTooLongFixer remediates check.Checks.Structure.NameTooLong for both flavours
+// nameTooLongFixer remediates Checks.Structure.NameTooLong for both flavours
 // the check covers: a pdf.PDFName value over the limit is truncated in place
 // (mirroring the scalar clamps contentLimitsFixer already applies to other
 // types, fixups_content.go -- a name this long is already non-conformant,
@@ -396,11 +395,11 @@ const maxNameLength = 127
 // belongs to) rewritten to the new one so resource lookups still resolve.
 type nameTooLongFixer struct{}
 
-func (nameTooLongFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.NameTooLong
+func (nameTooLongFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.NameTooLong
 }
 
-func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
@@ -519,18 +518,18 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 // maxCMapCID mirrors checkCMapCIDLimits' own ceiling (checks_font.go).
 const maxCMapCID = 65535
 
-// cmapCIDClampFixer remediates check.Checks.Structure.CMapCIDOutOfRange by
+// cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by
 // clamping any cidrange/cidchar CID value over 65535 down to 65535 directly
 // within the CMap's PostScript stream bytes, mirroring
 // checkCMapCIDLimits' own token-position state machine so it only ever
 // touches the exact values that check would flag.
 type cmapCIDClampFixer struct{}
 
-func (cmapCIDClampFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.CMapCIDOutOfRange
+func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.CMapCIDOutOfRange
 }
 
-func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
