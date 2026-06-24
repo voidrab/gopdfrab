@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -28,15 +27,15 @@ func init() {
 // XObjects/patterns), so injecting the missing Default* there clears both.
 type deviceColourFixer struct{}
 
-func (deviceColourFixer) Applies(c check.Check) bool {
+func (deviceColourFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Colour.DeviceColourContentStream, check.Checks.Colour.DeviceColourSpaceUsage:
+	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage:
 		return true
 	}
 	return false
 }
 
-func (deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	_, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
 
 	changed := false

@@ -3,14 +3,13 @@ package verify
 import (
 	"errors"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 type ValidationContext struct {
 	PageIndex   map[int]int
 	CurrentPage int
-	errs        []check.PDFError
+	errs        []pdf.PDFError
 
 	// OutputIntent colour-model coverage (6.2.2 / 6.2.3.3). hasOutputIntent is
 	// true when a GTS_PDFA1 output intent exists; the *Covered flags indicate the
@@ -136,16 +135,16 @@ func (ctx *ValidationContext) deviceColourAllowed(model string) bool {
 // Issues returns the violations recorded on ctx so far, e.g. for a caller
 // that runs a check against a throwaway ValidationContext just to test
 // whether it would currently flag something (see fixups_font_subst.go).
-func (ctx *ValidationContext) Issues() []check.PDFError {
+func (ctx *ValidationContext) Issues() []pdf.PDFError {
 	return ctx.errs
 }
 
-func (ctx *ValidationContext) report(err check.PDFError) {
+func (ctx *ValidationContext) report(err pdf.PDFError) {
 	ctx.errs = append(ctx.errs, err)
 }
 
 // Report records a single violation of c against obj.
-func (ctx *ValidationContext) Report(c check.Check, obj pdf.PDFValue, msg string) {
+func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) {
 	var ref *pdf.PDFRef
 	if dict, ok := obj.(pdf.PDFDict); ok {
 		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
@@ -160,14 +159,14 @@ func (ctx *ValidationContext) Report(c check.Check, obj pdf.PDFValue, msg string
 		page = ctx.CurrentPage
 	}
 
-	err := check.NewError(c, []error{errors.New(msg)}, page, ref)
+	err := pdf.NewError(c, []error{errors.New(msg)}, page, ref)
 
 	ctx.report(err)
 }
 
 // ReportErrs records a violation of c against obj carrying multiple
 // underlying error messages.
-func (ctx *ValidationContext) ReportErrs(c check.Check, obj pdf.PDFValue, errs []error) {
+func (ctx *ValidationContext) ReportErrs(c pdf.Check, obj pdf.PDFValue, errs []error) {
 	var ref *pdf.PDFRef
 	if dict, ok := obj.(pdf.PDFDict); ok {
 		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
@@ -182,7 +181,7 @@ func (ctx *ValidationContext) ReportErrs(c check.Check, obj pdf.PDFValue, errs [
 		page = ctx.CurrentPage
 	}
 
-	err := check.NewError(c, errs, page, ref)
+	err := pdf.NewError(c, errs, page, ref)
 
 	ctx.report(err)
 }

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -40,7 +39,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// Sanity check: the corrupted input really is reported non-conformant
 	// (and specifically structurally, not by some unrelated quirk of the
 	// corruption), so the rest of this test is actually exercising recovery.
-	corruptedRes, err := verifyBytes(corrupted)
+	corruptedRes, err := verifyBytes(corrupted, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("verifyBytes(corrupted): %v", err)
 	}
@@ -48,7 +47,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 		t.Fatalf("prepending garbage bytes did not make the fixture non-conformant; test no longer exercises anything")
 	}
 
-	cr, err := ConvertBytes(corrupted)
+	cr, err := ConvertBytes(corrupted, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -62,7 +61,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// The output itself must independently verify as conformant, not just
 	// cr.Result (which is already derived from verifying cr.Output, but
 	// re-checking via a fresh Open guards against a bug in that wiring).
-	finalRes, err := verifyBytes(cr.Output)
+	finalRes, err := verifyBytes(cr.Output, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("verifyBytes(cr.Output): %v", err)
 	}
@@ -85,7 +84,7 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 		t.Skip("veraPDF suite not present")
 	}
 
-	cr, err := Convert(path)
+	cr, err := Convert(path, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -134,13 +133,13 @@ func failFixturesByExpectedClause(t *testing.T) map[string]string {
 
 // TestConvertClearsRegisteredFixerChecks sweeps both corpora's "fail"
 // fixtures, verifies each one as-is first, and -- for every fixture whose
-// *actual* violated check.Check (not just its filename's clause number, which
+// *actual* violated Check (not just its filename's clause number, which
 // several unrelated checks can share, e.g. ExtGState alpha/blend-mode vs.
 // transparency-group/soft-mask under 6.4) has a registered Fixer -- converts
-// it and asserts that specific check.Check is gone from the residual issues
+// it and asserts that specific Check is gone from the residual issues
 // afterward. The fixture may still be non-conformant overall (other,
 // unrelated violations the same file happens to also contain are not this
-// Fixer's job), so this checks per-check.Check absence, not cr.Result.Valid.
+// Fixer's job), so this checks per-Check absence, not cr.Result.Valid.
 func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 	fixtures := failFixturesByExpectedClause(t)
 	if len(fixtures) == 0 {
@@ -152,19 +151,19 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 
 	var tested, cleared int
 	for path := range fixtures {
-		origRes, err := func() (verify.Result, error) {
+		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
-				return verify.Result{}, err
+				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, verify.A_1B)
+			return verify.Verify(doc, pdf.PDFA_1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
 		}
 
-		var targetChecks []check.Check
+		var targetChecks []pdf.Check
 		for _, iss := range origRes.Issues {
 			if _, ok := fixerRegistry[iss.Check()]; ok {
 				targetChecks = append(targetChecks, iss.Check())
@@ -176,7 +175,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path)
+			cr, err := Convert(path, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -211,7 +210,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					// document genuinely having no eligible composite font,
 					// not just on message wording, so a real regression in
 					// the fixable (Identity-H + ToUnicode) case still fails.
-					if (c == check.Checks.Font.SubsetGlyphCoverage || c == check.Checks.Font.CIDNotEmbedded) &&
+					if (c == pdf.Checks.Font.SubsetGlyphCoverage || c == pdf.Checks.Font.CIDNotEmbedded) &&
 						strings.Contains(iss.Error(), "CID") && !cidSubstitutionPossible(t, path) {
 						continue
 					}
@@ -226,7 +225,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 		})
 	}
 
-	t.Logf("Phase 3 fixer sweep: %d/%d targeted fixture(s) had every applicable check.Check cleared", cleared, tested)
+	t.Logf("Phase 3 fixer sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
 // cidSubstitutionPossible reports whether the document at path contains at
@@ -288,11 +287,11 @@ func isKnownUnfixableXMPSync(msg string) bool {
 }
 
 // TestConvertRegeneratesXMP sweeps both corpora's "fail" fixtures for every
-// one whose original violations include a clause-6.7 metadata check.Check (or the
-// matching 6.1.5 Info/XMP-sync mismatch) and asserts every such check.Check is
+// one whose original violations include a clause-6.7 metadata Check (or the
+// matching 6.1.5 Info/XMP-sync mismatch) and asserts every such Check is
 // gone after conversion. Unlike the dictionary Fixers above, regenerateXMP
 // is a pre-emptive fixup (see convert.go) applied unconditionally on every
-// Convert call, not dispatched through fixerRegistry by check.Check -- so this
+// Convert call, not dispatched through fixerRegistry by Check -- so this
 // needs its own sweep rather than reusing TestConvertClearsRegisteredFixerChecks.
 func TestConvertRegeneratesXMP(t *testing.T) {
 	fixtures := failFixturesByExpectedClause(t)
@@ -300,25 +299,25 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 		t.Skip("no corpora present")
 	}
 
-	isXMPCheck := func(c check.Check) bool {
-		return strings.HasPrefix(c.Clause(), "6.7") || c == check.Checks.Structure.InfoDictXMPMismatch
+	isXMPCheck := func(c pdf.Check) bool {
+		return strings.HasPrefix(c.Clause(), "6.7") || c == pdf.Checks.Structure.InfoDictXMPMismatch
 	}
 
 	var tested, cleared int
 	for path := range fixtures {
-		origRes, err := func() (verify.Result, error) {
+		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
-				return verify.Result{}, err
+				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, verify.A_1B)
+			return verify.Verify(doc, pdf.PDFA_1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
 		}
 
-		var targetChecks []check.Check
+		var targetChecks []pdf.Check
 		for _, iss := range origRes.Issues {
 			if isXMPCheck(iss.Check()) {
 				targetChecks = append(targetChecks, iss.Check())
@@ -330,7 +329,7 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path)
+			cr, err := Convert(path, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -353,36 +352,36 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 		})
 	}
 
-	t.Logf("XMP regeneration sweep: %d/%d targeted fixture(s) had every applicable check.Check cleared", cleared, tested)
+	t.Logf("XMP regeneration sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
-// outputIntentChecks are the check.Checks injectOutputIntent (fixups_colour.go) is
+// outputIntentChecks are the Checks injectOutputIntent (fixups_colour.go) is
 // expected to resolve: the OutputIntent dictionary/profile structural family
 // (6.2.2) it fixes directly, plus the device-colour-usage family (6.2.3.3/
 // 6.2.3.4) it fixes as a side effect of making ctx.deviceColourAllowed true.
-// Deliberately excludes check.Checks.Colour.RenderingIntent (the /ri content
+// Deliberately excludes Checks.Colour.RenderingIntent (the /ri content
 // operator, unrelated) and UndefinedOperator.
 //
-// This must be a function, not a package-level var literal: check.Checks itself
+// This must be a function, not a package-level var literal: Checks itself
 // is populated inside checks_catalog.go's init(), which (per the Go spec)
 // runs only after every package-level variable initializer has already
-// run -- a var literal referencing check.Checks.Colour.* here would capture the
-// zero-valued check.Check{} it held at that point, not the real registered check.Check.
-func outputIntentChecks() []check.Check {
-	return []check.Check{
-		check.Checks.Colour.OutputIntentNotArray, check.Checks.Colour.OutputIntentNotDict,
-		check.Checks.Colour.OutputIntentInvalidS, check.Checks.Colour.OutputIntentWrongS,
-		check.Checks.Colour.OutputIntentMissingIdentifier, check.Checks.Colour.OutputIntentMultipleProfiles,
-		check.Checks.Colour.OutputIntentUnresolvedProfile, check.Checks.Colour.OutputIntentInvalidProfile,
-		check.Checks.Colour.OutputIntentMissingN, check.Checks.Colour.OutputIntentInvalidN,
-		check.Checks.Colour.OutputIntentICCVersion, check.Checks.Colour.DeviceColourSpaceUsage,
-		check.Checks.Colour.DeviceColourContentStream, check.Checks.Colour.SeparationAlternateColour,
+// run -- a var literal referencing Checks.Colour.* here would capture the
+// zero-valued Check{} it held at that point, not the real registered
+func outputIntentChecks() []pdf.Check {
+	return []pdf.Check{
+		pdf.Checks.Colour.OutputIntentNotArray, pdf.Checks.Colour.OutputIntentNotDict,
+		pdf.Checks.Colour.OutputIntentInvalidS, pdf.Checks.Colour.OutputIntentWrongS,
+		pdf.Checks.Colour.OutputIntentMissingIdentifier, pdf.Checks.Colour.OutputIntentMultipleProfiles,
+		pdf.Checks.Colour.OutputIntentUnresolvedProfile, pdf.Checks.Colour.OutputIntentInvalidProfile,
+		pdf.Checks.Colour.OutputIntentMissingN, pdf.Checks.Colour.OutputIntentInvalidN,
+		pdf.Checks.Colour.OutputIntentICCVersion, pdf.Checks.Colour.DeviceColourSpaceUsage,
+		pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.SeparationAlternateColour,
 	}
 }
 
 // TestConvertInjectsOutputIntent sweeps both corpora's "fail" fixtures for
 // every one whose original violations include an outputIntentChecks member
-// and asserts every such check.Check is gone after conversion. Like regenerateXMP,
+// and asserts every such Check is gone after conversion. Like regenerateXMP,
 // injectOutputIntent is a pre-emptive fixup (see convert.go), not dispatched
 // through fixerRegistry, so this needs its own sweep.
 func TestConvertInjectsOutputIntent(t *testing.T) {
@@ -391,25 +390,25 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 		t.Skip("no corpora present")
 	}
 
-	isOutputIntentCheck := func(c check.Check) bool {
+	isOutputIntentCheck := func(c pdf.Check) bool {
 		return slices.Contains(outputIntentChecks(), c)
 	}
 
 	var tested, cleared int
 	for path := range fixtures {
-		origRes, err := func() (verify.Result, error) {
+		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
-				return verify.Result{}, err
+				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, verify.A_1B)
+			return verify.Verify(doc, pdf.PDFA_1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
 		}
 
-		var targetChecks []check.Check
+		var targetChecks []pdf.Check
 		for _, iss := range origRes.Issues {
 			if isOutputIntentCheck(iss.Check()) {
 				targetChecks = append(targetChecks, iss.Check())
@@ -439,7 +438,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 				doc.Close()
 			}
 
-			cr, err := Convert(path)
+			cr, err := Convert(path, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -462,7 +461,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 		})
 	}
 
-	t.Logf("OutputIntent injection sweep: %d/%d targeted fixture(s) had every applicable check.Check cleared", cleared, tested)
+	t.Logf("OutputIntent injection sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
 // TestConvertNeverBreaksConformantInput runs Convert (not just WritePDF, see
@@ -485,7 +484,7 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path)
+			cr, err := Convert(path, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -506,25 +505,16 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 const minConvertedFully = 509
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
-// through Convert and tallies the outcome into three buckets: fully
-// conformant, non-conformant but only for reasons ResidualCategory marks as
-// genuinely requiring rasterization/re-encoding/font work gopdfrab cannot do,
-// or non-conformant for some other (uncategorized) reason -- which is not
-// necessarily a bug, just a violation class no fixup (easy or otherwise)
-// exists for yet (see ResidualCategory's doc comment). Convert erroring
-// outright on any fixture, or converting fewer than minConvertedFully fully,
-// is treated as a real regression and fails the test; the uncategorized
-// bucket is purely informational (logged, not asserted on) since it tracks
-// future fixup coverage, not correctness.
+// through Convert and tallies the outcome.
 func TestConvertCorpusEndToEnd(t *testing.T) {
 	fixtures := failFixturesByExpectedClause(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
-	var fullyValid, onlyHardResidual, otherResidual, errored int
+	var fullyValid, otherResidual, errored int
 	for path := range fixtures {
-		cr, err := Convert(path)
+		cr, err := Convert(path, pdf.PDFA_1B)
 		if err != nil {
 			t.Errorf("Convert(%s): %v", path, err)
 			errored++
@@ -534,23 +524,12 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 			fullyValid++
 			continue
 		}
-		allHard := true
-		for _, iss := range cr.Residual() {
-			if ResidualCategory(iss.Check()) == "" {
-				allHard = false
-				break
-			}
-		}
-		if allHard {
-			onlyHardResidual++
-		} else {
-			otherResidual++
-		}
+
+		otherResidual++
 	}
 
-	t.Logf("Convert corpus end-to-end: %d fully conformant, %d non-conformant with only known-hard residual, "+
-		"%d non-conformant with other residual, %d errored (total %d)",
-		fullyValid, onlyHardResidual, otherResidual, errored, len(fixtures))
+	t.Logf("Convert corpus end-to-end: %d fully conformant, %d non-conformant with other residual, %d errored (total %d)",
+		fullyValid, otherResidual, errored, len(fixtures))
 
 	if errored > 0 {
 		t.Errorf("%d fixture(s) made Convert error outright; see logged Convert(...) errors above", errored)

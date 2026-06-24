@@ -3,13 +3,12 @@ package convert
 import (
 	"image"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// transparencyFlattener remediates check.Checks.Transparency.TransparencyGroup and
-// check.Checks.Transparency.ImageWithSoftMask by rasterizing only the smallest
+// transparencyFlattener remediates Checks.Transparency.TransparencyGroup and
+// Checks.Transparency.ImageWithSoftMask by rasterizing only the smallest
 // self-contained object carrying the violation -- a Form XObject's own
 // content for a transparency group, or a single Image XObject's samples for
 // a soft mask -- never the whole page, since neither construct can simply be
@@ -22,9 +21,9 @@ func init() {
 	registerFixer(transparencyFlattener{})
 }
 
-func (transparencyFlattener) Applies(c check.Check) bool {
+func (transparencyFlattener) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Transparency.TransparencyGroup, check.Checks.Transparency.ImageWithSoftMask:
+	case pdf.Checks.Transparency.TransparencyGroup, pdf.Checks.Transparency.ImageWithSoftMask:
 		return true
 	}
 	return false
@@ -39,7 +38,7 @@ const flattenDPI = 150
 // page that inherits no /MediaBox anywhere up its Pages-tree ancestry.
 var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
-func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	for _, t := range collectTransparencyTargets(*trailer) {
 		switch t.kind {
@@ -133,7 +132,7 @@ type pageTarget struct {
 // orderedPages returns every page in the document in page order, with its
 // inherited resources and resolved media box, using the same top-down
 // Root/Pages/Kids walk the verifier numbers pages by -- so the slice index
-// matches a check.PDFError's 1-based Page().
+// matches a PDFError's 1-based Page().
 func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {

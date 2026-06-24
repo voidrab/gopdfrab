@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -11,17 +10,17 @@ func init() {
 
 type fileSpecFixer struct{}
 
-func (fileSpecFixer) Applies(c check.Check) bool {
+func (fileSpecFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Structure.EmbeddedFileSpec, check.Checks.Structure.EmbeddedFiles,
-		check.Checks.Structure.StreamFileSpec, check.Checks.Structure.StreamFileFilter,
-		check.Checks.Structure.StreamFileDecodeParams:
+	case pdf.Checks.Structure.EmbeddedFileSpec, pdf.Checks.Structure.EmbeddedFiles,
+		pdf.Checks.Structure.StreamFileSpec, pdf.Checks.Structure.StreamFileFilter,
+		pdf.Checks.Structure.StreamFileDecodeParams:
 		return true
 	}
 	return false
 }
 
-func (f fileSpecFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f fileSpecFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 

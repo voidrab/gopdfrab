@@ -3,6 +3,8 @@ package pdfrab
 import (
 	"os"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 // TestConvertBytesMatchesFile checks the in-memory verify path (CW-1):
@@ -20,8 +22,8 @@ func TestConvertBytesMatchesFile(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		fromFile, ferr := Convert(path)
-		fromBytes, berr := ConvertBytes(data)
+		fromFile, ferr := Convert(path, pdf.PDFA_1B)
+		fromBytes, berr := ConvertBytes(data, pdf.PDFA_1B)
 		if (ferr == nil) != (berr == nil) {
 			t.Errorf("%s: error mismatch file=%v bytes=%v", path, ferr, berr)
 			continue
@@ -64,7 +66,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 		t.Skip("no readable fixtures")
 	}
 
-	results := ConvertAll(paths)
+	results := ConvertAll(paths, pdf.PDFA_1B)
 	if len(results) != len(paths) {
 		t.Fatalf("ConvertAll returned %d results, want %d", len(results), len(paths))
 	}
@@ -75,7 +77,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 			t.Errorf("results[%d].Path = %q, want %q", i, r.Path, path)
 		}
 
-		want, wantErr := Convert(path)
+		want, wantErr := Convert(path, pdf.PDFA_1B)
 		if (r.Err == nil) != (wantErr == nil) {
 			t.Errorf("%s: ConvertAll error mismatch: got %v, want %v", path, r.Err, wantErr)
 			continue
@@ -93,7 +95,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 			t.Errorf("Open(%s): %v", path, err)
 			continue
 		}
-		fromDoc, err := doc.Convert()
+		fromDoc, err := doc.Convert(pdf.PDFA_1B)
 		doc.Close()
 		if err != nil {
 			t.Errorf("(*Document).Convert(%s): %v", path, err)

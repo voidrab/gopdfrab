@@ -3,7 +3,6 @@ package convert
 import (
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -20,14 +19,14 @@ func TestAppearanceFontIsConformant(t *testing.T) {
 	ctx := &verify.ValidationContext{}
 	verify.ValidateFontDict(font, ctx)
 
-	disallowed := map[check.Check]bool{
-		check.Checks.Font.SimpleNotEmbedded:        true,
-		check.Checks.Font.InvalidProgram:           true,
-		check.Checks.Font.TrueTypeEncoding:         true,
-		check.Checks.Font.SymbolicTrueTypeEncoding: true,
-		check.Checks.Font.SymbolicTrueTypeCmap:     true,
-		check.Checks.Font.SubsetGlyphCoverage:      true,
-		check.Checks.Font.AdvanceWidthMismatch:     true,
+	disallowed := map[pdf.Check]bool{
+		pdf.Checks.Font.SimpleNotEmbedded:        true,
+		pdf.Checks.Font.InvalidProgram:           true,
+		pdf.Checks.Font.TrueTypeEncoding:         true,
+		pdf.Checks.Font.SymbolicTrueTypeEncoding: true,
+		pdf.Checks.Font.SymbolicTrueTypeCmap:     true,
+		pdf.Checks.Font.SubsetGlyphCoverage:      true,
+		pdf.Checks.Font.AdvanceWidthMismatch:     true,
 	}
 	for _, err := range ctx.Issues() {
 		if disallowed[err.Check()] {

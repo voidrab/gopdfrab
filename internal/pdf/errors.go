@@ -1,10 +1,8 @@
-package check
+package pdf
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 type PDFError struct {
@@ -12,12 +10,12 @@ type PDFError struct {
 	errs  []error
 	page  int
 
-	objectRef *pdf.PDFRef
+	objectRef *PDFRef
 }
 
 // NewError constructs a PDFError reporting a violation of c, found on page
 // (0 for document-level) and optionally tied to a specific indirect object.
-func NewError(c Check, errs []error, page int, ref *pdf.PDFRef) PDFError {
+func NewError(c Check, errs []error, page int, ref *PDFRef) PDFError {
 	return PDFError{check: c, errs: errs, page: page, objectRef: ref}
 }
 
@@ -77,9 +75,9 @@ func (e PDFError) IsDocumentLevel() bool {
 // ObjectRef returns the indirect object this violation was reported against,
 // and whether one was recorded. Not every violation is tied to a single object
 // (e.g. file-header or trailer issues), in which case ok is false.
-func (e PDFError) ObjectRef() (ref pdf.PDFRef, ok bool) {
+func (e PDFError) ObjectRef() (ref PDFRef, ok bool) {
 	if e.objectRef == nil {
-		return pdf.PDFRef{}, false
+		return PDFRef{}, false
 	}
 	return *e.objectRef, true
 }

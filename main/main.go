@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pdfrab "github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 func main() {
@@ -35,10 +36,7 @@ func usage() {
 }
 
 // runConvert converts a single PDF and reports the outcome: how many
-// verify/fixup passes it took, whether the result is fully conformant, and
-// -- if not -- every residual issue, with a best-effort classification of
-// what kind of work (if any) would be needed to resolve it (see
-// pdfrab.ResidualCategory).
+// verify/fixup passes it took and whether the result is fully conformant.
 func runConvert(args []string) {
 	if len(args) < 1 {
 		usage()
@@ -51,7 +49,7 @@ func runConvert(args []string) {
 	}
 
 	start := time.Now()
-	cr, err := pdfrab.Convert(input)
+	cr, err := pdfrab.Convert(input, pdf.PDFA_1B)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "convert %s: %v\n", input, err)
 		os.Exit(1)
@@ -77,9 +75,6 @@ func runConvert(args []string) {
 	for _, iss := range residual {
 		check := iss.Check()
 		line := fmt.Sprintf("  [%s/%d %s]", check.Clause(), check.Subclause(), check.Name())
-		if cat := pdfrab.ResidualCategory(check); cat != "" {
-			line += " (" + cat + ")"
-		}
 		fmt.Println(line)
 		for _, msg := range iss.Messages() {
 			fmt.Printf("    %s\n", msg)
@@ -122,7 +117,7 @@ func runVerify(args []string) {
 		}
 	}
 
-	results := pdfrab.VerifyAll(paths, pdfrab.A_1B)
+	results := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
 
 	pass, fail, errCount := 0, 0, 0
 	for _, r := range results {

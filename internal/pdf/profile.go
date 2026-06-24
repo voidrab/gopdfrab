@@ -1,10 +1,15 @@
-package verify
+package pdf
 
 import (
 	"fmt"
 	"maps"
+)
 
-	"github.com/voidrab/gopdfrab/internal/check"
+type LevelType string
+
+const (
+	Undefined LevelType = "undefined"
+	A_1B      LevelType = "A-1b"
 )
 
 // Profile is a mutable set of enabled PDF/A checks for a conformance level,
@@ -31,7 +36,7 @@ var PDFA_1B *Profile
 var Legacy_1B *Profile
 
 func init() {
-	Legacy_1B = newFullProfile(A_1B)
+	Legacy_1B = NewFullProfile(A_1B)
 
 	// PDFA_1B adjusts the full profile for veraPDF's divergences from the
 	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
@@ -39,12 +44,12 @@ func init() {
 	// disabled (veraPDF's own corpus intentionally includes one in a pass
 	// file); and standard Type1 fonts referenced only in AcroForm DR/widget DA
 	// strings aren't flagged as unembedded (6.3.4/1).
-	PDFA_1B = newFullProfile(A_1B)
+	PDFA_1B = NewFullProfile(A_1B)
 	PDFA_1B.SkipUnreachableXObjects = true
 	PDFA_1B = PDFA_1B.RemoveCheck(
-		check.Checks.Image.FormPostScript,
-		check.Checks.Image.PostScriptXObject,
-		check.Checks.Font.SimpleNotEmbedded,
+		Checks.Image.FormPostScript,
+		Checks.Image.PostScriptXObject,
+		Checks.Font.SimpleNotEmbedded,
 	)
 }
 
@@ -53,8 +58,8 @@ func NewProfile(level LevelType) *Profile {
 	return &Profile{Level: level, enabled: make(map[int]bool)}
 }
 
-func newFullProfile(level LevelType) *Profile {
-	all := check.AllChecks()
+func NewFullProfile(level LevelType) *Profile {
+	all := AllChecks()
 	p := &Profile{
 		Level:   level,
 		enabled: make(map[int]bool, len(all)),
@@ -65,7 +70,7 @@ func newFullProfile(level LevelType) *Profile {
 	return p
 }
 
-func (p *Profile) clone() *Profile {
+func (p *Profile) Clone() *Profile {
 	out := &Profile{
 		Level:                   p.Level,
 		enabled:                 make(map[int]bool, len(p.enabled)),
@@ -87,8 +92,8 @@ func (p *Profile) Clear() *Profile {
 
 // AddCheck returns a new profile with the given checks added to the enabled
 // set.
-func (p *Profile) AddCheck(checks ...check.Check) *Profile {
-	out := p.clone()
+func (p *Profile) AddCheck(checks ...Check) *Profile {
+	out := p.Clone()
 	for _, c := range checks {
 		out.enabled[c.ID()] = true
 	}
@@ -97,8 +102,8 @@ func (p *Profile) AddCheck(checks ...check.Check) *Profile {
 
 // RemoveCheck returns a new profile with the given checks removed from the
 // enabled set.
-func (p *Profile) RemoveCheck(checks ...check.Check) *Profile {
-	out := p.clone()
+func (p *Profile) RemoveCheck(checks ...Check) *Profile {
+	out := p.Clone()
 	for _, c := range checks {
 		delete(out.enabled, c.ID())
 	}
@@ -106,9 +111,9 @@ func (p *Profile) RemoveCheck(checks ...check.Check) *Profile {
 }
 
 // Checks returns the list of currently enabled checks in catalog order.
-func (p *Profile) Checks() []check.Check {
-	var out []check.Check
-	for _, c := range check.AllChecks() {
+func (p *Profile) Checks() []Check {
+	var out []Check
+	for _, c := range AllChecks() {
 		if p.enabled[c.ID()] {
 			out = append(out, c)
 		}
@@ -117,12 +122,12 @@ func (p *Profile) Checks() []check.Check {
 }
 
 // Has reports whether check c is currently enabled in this profile.
-func (p *Profile) Has(c check.Check) bool {
+func (p *Profile) Has(c Check) bool {
 	return p.enabled[c.ID()]
 }
 
-func (p *Profile) allows(clause string, subclause int) bool {
-	c, inCatalog := check.CheckByClause(clause, subclause)
+func (p *Profile) Allows(clause string, subclause int) bool {
+	c, inCatalog := CheckByClause(clause, subclause)
 	if !inCatalog {
 		return true
 	}
@@ -131,5 +136,5 @@ func (p *Profile) allows(clause string, subclause int) bool {
 
 // String returns a human-readable summary of the profile.
 func (p *Profile) String() string {
-	return fmt.Sprintf("Profile{Level:%s enabled:%d/%d}", p.Level, len(p.enabled), len(check.AllChecks()))
+	return fmt.Sprintf("Profile{Level:%s enabled:%d/%d}", p.Level, len(p.enabled), len(AllChecks()))
 }

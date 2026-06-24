@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -18,7 +17,7 @@ import (
 const veraDir = "../../test documents/veraPDF/PDF_A-1b"
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
-func issueClauses(issues []check.PDFError) []string {
+func issueClauses(issues []pdf.PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
 		out = append(out, iss.Check().Clause())
@@ -248,7 +247,7 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 			}
 			defer orig.Close()
 
-			origRes, err := verify.Verify(orig, verify.A_1B)
+			origRes, err := verify.Verify(orig, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Verify(original): %v", err)
 			}
@@ -275,7 +274,7 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 				t.Errorf("GetPageCount(rewritten) = %d, %v; want %d, nil", n, err, origPages)
 			}
 
-			res, err := verify.Verify(rewritten, verify.A_1B)
+			res, err := verify.Verify(rewritten, pdf.PDFA_1B)
 			if err != nil {
 				t.Fatalf("Verify(rewritten): %v", err)
 			}

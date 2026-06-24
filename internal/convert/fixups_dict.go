@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -82,20 +81,20 @@ func clearDict(d pdf.PDFDict) {
 
 // --- 6.6 Actions ---
 
-// actionFixer remediates check.Checks.Action.ForbiddenActionType,
+// actionFixer remediates Checks.Action.ForbiddenActionType,
 // DisallowedNamedAction and AdditionalActions, mirroring
 // validateActions/validateAdditionalActions in checks_dict.go.
 type actionFixer struct{}
 
-func (actionFixer) Applies(c check.Check) bool {
+func (actionFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Action.ForbiddenActionType, check.Checks.Action.DisallowedNamedAction, check.Checks.Action.AdditionalActions:
+	case pdf.Checks.Action.ForbiddenActionType, pdf.Checks.Action.DisallowedNamedAction, pdf.Checks.Action.AdditionalActions:
 		return true
 	}
 	return false
 }
 
-func (f actionFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f actionFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -129,26 +128,26 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 
 // extGStateFixer remediates the ExtGState-dictionary-level Transparency
 // checks, mirroring validateExtGState in checks_dict.go. It deliberately
-// does not touch check.Checks.Transparency.TransparencyGroup or ImageWithSoftMask
+// does not touch Checks.Transparency.TransparencyGroup or ImageWithSoftMask
 // (a different detection function, and a "harder" fix per the converter
 // plan: removing the key is easy but changes rendered appearance).
 type extGStateFixer struct{}
 
-func (extGStateFixer) Applies(c check.Check) bool {
+func (extGStateFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Transparency.TransferFunction,
-		check.Checks.Transparency.DefaultTransferFunction,
-		check.Checks.Transparency.ExtGStateRenderingIntent,
-		check.Checks.Transparency.SoftMaskExtGState,
-		check.Checks.Transparency.BlendMode,
-		check.Checks.Transparency.StrokingAlpha,
-		check.Checks.Transparency.NonStrokingAlpha:
+	case pdf.Checks.Transparency.TransferFunction,
+		pdf.Checks.Transparency.DefaultTransferFunction,
+		pdf.Checks.Transparency.ExtGStateRenderingIntent,
+		pdf.Checks.Transparency.SoftMaskExtGState,
+		pdf.Checks.Transparency.BlendMode,
+		pdf.Checks.Transparency.StrokingAlpha,
+		pdf.Checks.Transparency.NonStrokingAlpha:
 		return true
 	}
 	return false
 }
 
-func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -209,17 +208,17 @@ func (extGStateFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict),
 // or harder per the converter plan).
 type annotationFlagsFixer struct{}
 
-func (annotationFlagsFixer) Applies(c check.Check) bool {
+func (annotationFlagsFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Annotation.PrintFlagNotSet, check.Checks.Annotation.HiddenFlagSet,
-		check.Checks.Annotation.InvisibleFlagSet, check.Checks.Annotation.NoViewFlagSet,
-		check.Checks.Annotation.OpacityNotOne:
+	case pdf.Checks.Annotation.PrintFlagNotSet, pdf.Checks.Annotation.HiddenFlagSet,
+		pdf.Checks.Annotation.InvisibleFlagSet, pdf.Checks.Annotation.NoViewFlagSet,
+		pdf.Checks.Annotation.OpacityNotOne:
 		return true
 	}
 	return false
 }
 
-func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -256,16 +255,16 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDF
 // validateFormField in checks_dict.go/document.go.
 type formFixer struct{}
 
-func (formFixer) Applies(c check.Check) bool {
+func (formFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Form.NeedAppearances, check.Checks.Form.XFA,
-		check.Checks.Form.FieldAction, check.Checks.Form.FieldAdditionalActions:
+	case pdf.Checks.Form.NeedAppearances, pdf.Checks.Form.XFA,
+		pdf.Checks.Form.FieldAction, pdf.Checks.Form.FieldAdditionalActions:
 		return true
 	}
 	return false
 }
 
-func (f formFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f formFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -307,24 +306,24 @@ func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict)
 // checks, mirroring the Image/Form cases of validateXObjectDict in
 // checks_dict.go, plus the inline-image flavour of ImageInterpolate
 // (checkInlineImageOther, checks_content.go) via fixInlineImageInterpolate
-// (fixups_inline_image.go) -- a check.Check can only have one registered Fixer,
+// (fixups_inline_image.go) -- a Check can only have one registered Fixer,
 // so the inline case is folded in here rather than given its own. It
 // deliberately does not touch FormPostScript, FormPSEntry, FormSubtype2PS,
 // or PostScriptXObject (PostScript-related checks already disabled in the
 // default PDFA_1B profile; see profile.go).
 type imageMetadataFixer struct{}
 
-func (imageMetadataFixer) Applies(c check.Check) bool {
+func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Image.ImageInterpolate, check.Checks.Image.ImageAlternates,
-		check.Checks.Image.ImageOPI, check.Checks.Image.ImageRenderingIntent,
-		check.Checks.Image.ReferenceXObject, check.Checks.Image.FormOPI:
+	case pdf.Checks.Image.ImageInterpolate, pdf.Checks.Image.ImageAlternates,
+		pdf.Checks.Image.ImageOPI, pdf.Checks.Image.ImageRenderingIntent,
+		pdf.Checks.Image.ReferenceXObject, pdf.Checks.Image.FormOPI:
 		return true
 	}
 	return false
 }
 
-func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		subtype, ok := d.Entries["Subtype"].(pdf.PDFName)
@@ -372,15 +371,15 @@ func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bo
 // mirroring the Form case of validateXObjectDict in checks_dict.go.
 type postScriptXObjectFixer struct{}
 
-func (postScriptXObjectFixer) Applies(c check.Check) bool {
+func (postScriptXObjectFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Image.FormPSEntry, check.Checks.Image.FormPostScript, check.Checks.Image.FormSubtype2PS:
+	case pdf.Checks.Image.FormPSEntry, pdf.Checks.Image.FormPostScript, pdf.Checks.Image.FormSubtype2PS:
 		return true
 	}
 	return false
 }
 
-func (f postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (f postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
@@ -402,7 +401,7 @@ func (postScriptXObjectFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.P
 
 // --- 6.1.13 Optional content ---
 
-// optionalContentFixer remediates check.Checks.Structure.OptionalContent by
+// optionalContentFixer remediates Checks.Structure.OptionalContent by
 // deleting the catalog's /OCProperties entry, mirroring
 // (*Document).verifyOptionalContent in verifier.go. Marked-content BDC/EMC
 // wrappers in content streams that reference the removed OCGs are left in
@@ -411,11 +410,11 @@ func (postScriptXObjectFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.P
 // OCProperties is gone.
 type optionalContentFixer struct{}
 
-func (optionalContentFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.OptionalContent
+func (optionalContentFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.OptionalContent
 }
 
-func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
 		return false, nil

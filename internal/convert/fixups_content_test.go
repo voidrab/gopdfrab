@@ -3,7 +3,6 @@ package convert
 import (
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -15,37 +14,37 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 	tests := []struct {
 		name  string
 		path  string
-		check check.Check
+		check pdf.Check
 	}{
 		{
 			"UndefinedOperator",
 			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
-			check.Checks.Colour.UndefinedOperator,
+			pdf.Checks.Colour.UndefinedOperator,
 		},
 		{
 			"RenderingIntent",
 			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
-			check.Checks.Colour.RenderingIntent,
+			pdf.Checks.Colour.RenderingIntent,
 		},
 		{
 			"HexStringOddLength",
 			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf",
-			check.Checks.Structure.HexStringOddLength,
+			pdf.Checks.Structure.HexStringOddLength,
 		},
 		{
 			"HexStringInvalidChar",
 			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf",
-			check.Checks.Structure.HexStringInvalidChar,
+			pdf.Checks.Structure.HexStringInvalidChar,
 		},
 		{
 			"IntegerOutOfRange",
 			"../../test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
-			check.Checks.Structure.IntegerOutOfRange,
+			pdf.Checks.Structure.IntegerOutOfRange,
 		},
 		{
 			"StringTooLong",
 			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
-			check.Checks.Structure.StringTooLong,
+			pdf.Checks.Structure.StringTooLong,
 		},
 	}
 

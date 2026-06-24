@@ -1,12 +1,11 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// deviceNColorantsFixer remediates check.Checks.Structure.DeviceNColorants: a
+// deviceNColorantsFixer remediates Checks.Structure.DeviceNColorants: a
 // DeviceN colour-space array listing more than 8 colorants
 // (validateColourSpaceArray, checks_colour.go), reported against the array
 // itself rather than any particular use of it. Truncating the colorant list
@@ -23,11 +22,11 @@ func init() {
 	registerFixer(deviceNColorantsFixer{})
 }
 
-func (deviceNColorantsFixer) Applies(c check.Check) bool {
-	return c == check.Checks.Structure.DeviceNColorants
+func (deviceNColorantsFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.DeviceNColorants
 }
 
-func (deviceNColorantsFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (deviceNColorantsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	if rewriteDeviceNContentUsage(trailer) {
 		changed = true
@@ -125,7 +124,7 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 // rewriteDeviceNStream decodes dict's content stream into its full op
 // sequence, tracking the currently cs/CS-selected fill/stroke colour space
 // across it (an approximation of q/Q-scoped graphics state -- adequate here
-// since the check.Check this fixer clears cares only about the array's
+// since the Check this fixer clears cares only about the array's
 // reachability from the resource graph, not about exactly which q/Q scope
 // every scn/SCN call falls in). A cs/CS selecting an oversized DeviceN space
 // is dropped, and the scn/SCN call(s) that use it are replaced with a
@@ -263,7 +262,7 @@ func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 // rewriteDeviceNContentUsage/rewriteDeviceNImageDicts have replaced every
 // use of it, the entry is the array's only remaining path of reachability
 // from the trailer, so dropping it makes the array unreachable -- the
-// document-wide validator walk that reported the check.Check never visits it
+// document-wide validator walk that reported the Check never visits it
 // again, and WriteDocument never re-emits it.
 func pruneDeadDeviceNColorSpaceEntries(trailer *pdf.PDFDict) bool {
 	changed := false

@@ -1,7 +1,6 @@
 package convert
 
 import (
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -15,14 +14,14 @@ import (
 // hex strings) wherever they occur -- both inside content streams
 // (checks_content.go's per-operand checks) and as plain dictionary/array
 // values elsewhere in the graph (verifier.go's generic walk). One Fixer
-// must cover both sources of the same check.Check (the registry is one Fixer per
-// check.Check), so contentLimitsFixer runs a whole-graph scalar pass alongside
+// must cover both sources of the same Check (the registry is one Fixer per
+// Check), so contentLimitsFixer runs a whole-graph scalar pass alongside
 // the content-stream rewrite.
 //
 // Deliberately out of scope: the q/Q nesting-depth flavour of StringTooLong
 // (checks_content.go) is a structural defect, not a clampable operand, and
 // is left for the rasterization backstop. The inline-image /Intent flavour
-// of RenderingIntent is fixed here (this file already owns that check.Check and
+// of RenderingIntent is fixed here (this file already owns that Check and
 // already walks every INLINEIMAGE op); the other inline-image-specific
 // fixes (ImageInterpolate, InlineImageLZWFilter) live in
 // fixups_inline_image.go, since they belong to checks this file doesn't own.
@@ -31,23 +30,23 @@ func init() {
 	registerFixer(contentLimitsFixer{})
 }
 
-// contentLimitsFixer remediates check.Checks.Colour.UndefinedOperator,
-// check.Checks.Colour.RenderingIntent (the ri operator only), and the 6.1.12/6.1.6
+// contentLimitsFixer remediates Checks.Colour.UndefinedOperator,
+// Checks.Colour.RenderingIntent (the ri operator only), and the 6.1.12/6.1.6
 // scalar-limit checks, mirroring scanContent/validateHexString/
 // validateArchitecturalLimits in reverse.
 type contentLimitsFixer struct{}
 
-func (contentLimitsFixer) Applies(c check.Check) bool {
+func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Colour.UndefinedOperator, check.Checks.Colour.RenderingIntent,
-		check.Checks.Structure.HexStringOddLength, check.Checks.Structure.HexStringInvalidChar,
-		check.Checks.Structure.IntegerOutOfRange, check.Checks.Structure.StringTooLong:
+	case pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Colour.RenderingIntent,
+		pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.HexStringInvalidChar,
+		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.StringTooLong:
 		return true
 	}
 	return false
 }
 
-func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []check.PDFError) (bool, error) {
+func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {

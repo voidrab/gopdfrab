@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -30,17 +29,17 @@ func init() {
 // mirroring the /AP block of validateAnnotation (checks_dict.go).
 type appearanceFixer struct{}
 
-func (appearanceFixer) Applies(c check.Check) bool {
+func (appearanceFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Form.WidgetMissingAppearance, check.Checks.Annotation.MissingAppearance,
-		check.Checks.Annotation.AppearanceMissingN, check.Checks.Annotation.AppearanceExtraEntries,
-		check.Checks.Annotation.AppearanceNNotStream:
+	case pdf.Checks.Form.WidgetMissingAppearance, pdf.Checks.Annotation.MissingAppearance,
+		pdf.Checks.Annotation.AppearanceMissingN, pdf.Checks.Annotation.AppearanceExtraEntries,
+		pdf.Checks.Annotation.AppearanceNNotStream:
 		return true
 	}
 	return false
 }
 
-func (appearanceFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (appearanceFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {

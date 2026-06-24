@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 
@@ -29,13 +28,6 @@ import (
 // (BaseFont keeps no "ABCDEF+" prefix), the same trick buildAppearanceFont
 // (fixups_appearance_font.go) uses to keep SubsetGlyphCoverage/
 // AdvanceWidthMismatch from ever applying to the substitute itself.
-//
-// CMapNotEmbedded is deliberately NOT claimed here: it only fires for a
-// non-Identity, non-embedded named CMap (e.g. "UniJIS-UCS2-H"), and
-// recovering what that CMap actually mapped would need Adobe's CMap
-// resource files, which gopdfrab does not bundle -- there is no tractable
-// fix, so it stays residual (see ResidualCategory).
-
 func init() {
 	registerFixer(fontSubstitutionFixer{})
 	registerFixer(trueTypeEncodingFixer{})
@@ -692,16 +684,16 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 // Convert's loop today.
 type fontSubstitutionFixer struct{}
 
-func (fontSubstitutionFixer) Applies(c check.Check) bool {
+func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Font.SubsetGlyphCoverage, check.Checks.Font.SimpleNotEmbedded,
-		check.Checks.Font.CIDNotEmbedded, check.Checks.Font.InvalidProgram:
+	case pdf.Checks.Font.SubsetGlyphCoverage, pdf.Checks.Font.SimpleNotEmbedded,
+		pdf.Checks.Font.CIDNotEmbedded, pdf.Checks.Font.InvalidProgram:
 		return true
 	}
 	return false
 }
 
-func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	usageCtx := &verify.ValidationContext{}
 	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
 
@@ -736,15 +728,15 @@ func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) 
 // WinAnsiEncoding when it names neither permitted encoding.
 type trueTypeEncodingFixer struct{}
 
-func (trueTypeEncodingFixer) Applies(c check.Check) bool {
+func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case check.Checks.Font.TrueTypeEncoding, check.Checks.Font.SymbolicTrueTypeEncoding, check.Checks.Font.SymbolicTrueTypeCmap:
+	case pdf.Checks.Font.TrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeCmap:
 		return true
 	}
 	return false
 }
 
-func (trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []check.PDFError) (bool, error) {
+func (trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {

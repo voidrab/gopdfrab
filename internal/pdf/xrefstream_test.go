@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -23,7 +22,7 @@ func clauseMatches(got, expected string) bool {
 		strings.HasPrefix(expected+".", got+".")
 }
 
-func issueClauses(issues []check.PDFError) []string {
+func issueClauses(issues []pdf.PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
 		out = append(out, iss.Check().Clause())
@@ -232,7 +231,7 @@ func TestXRefStreamOnly(t *testing.T) {
 	page := assertOnePageGraph(t, graph)
 	assertContentStream(t, doc, page, "q\nQ\n")
 
-	res, err := verify.Verify(doc, verify.A_1B)
+	res, err := verify.Verify(doc, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -281,7 +280,7 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
-	res, err := verify.Verify(doc, verify.A_1B)
+	res, err := verify.Verify(doc, pdf.PDFA_1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

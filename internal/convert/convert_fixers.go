@@ -3,7 +3,6 @@ package convert
 import (
 	"fmt"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -11,10 +10,10 @@ import (
 // It targets the graph as a whole rather than using individual issue ObjectRefs, which change during serialization.
 type Fixer interface {
 	// Applies reports whether this Fixer remediates violations of c.
-	Applies(c check.Check) bool
-	// Fix attempts to remediate every violation of the applicable check.Check(s)
+	Applies(c pdf.Check) bool
+	// Fix attempts to remediate every violation of the applicable Check(s)
 	// reachable from trailer.
-	Fix(trailer *pdf.PDFDict, issues []check.PDFError) (changed bool, err error)
+	Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (changed bool, err error)
 }
 
 // batchDictFixer is an optional capability for a Fixer whose remediation is a
@@ -41,10 +40,10 @@ func runDictVisitor(trailer *pdf.PDFDict, prepare func(*pdf.PDFDict, *bool) (fun
 	return changed, nil
 }
 
-var fixerRegistry = map[check.Check]Fixer{}
+var fixerRegistry = map[pdf.Check]Fixer{}
 
 func registerFixer(f Fixer) {
-	for _, c := range check.AllChecks() {
+	for _, c := range pdf.AllChecks() {
 		if !f.Applies(c) {
 			continue
 		}

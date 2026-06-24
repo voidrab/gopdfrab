@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/check"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -52,7 +51,7 @@ func expectedClauseFromName(name string) string {
 }
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
-func issueClauses(issues []check.PDFError) []string {
+func issueClauses(issues []pdf.PDFError) []string {
 	out := make([]string, 0, len(issues))
 	for _, iss := range issues {
 		out = append(out, iss.Check().Clause())
