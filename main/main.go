@@ -3,27 +3,123 @@ package main
 import (
 	"fmt"
 	"io/fs"
-	"log"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	pdfrab "github.com/voidrab/gopdfrab"
 )
 
 func main() {
-	root := "test documents/Isartor testsuite"
-	var paths []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
-			paths = append(paths, path)
-		}
-		return nil
-	})
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "convert":
+		runConvert(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
+	default:
+		usage()
+		os.Exit(1)
+	}
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, `usage:
+  go run main.go convert <input.pdf> [output.pdf]   convert towards PDF/A-1b conformance
+  go run main.go verify <path-or-dir>...            verify PDF/A-1b conformance`)
+}
+
+// runConvert converts a single PDF and reports the outcome: how many
+// verify/fixup passes it took, whether the result is fully conformant, and
+// -- if not -- every residual issue, with a best-effort classification of
+// what kind of work (if any) would be needed to resolve it (see
+// pdfrab.ResidualCategory).
+func runConvert(args []string) {
+	if len(args) < 1 {
+		usage()
+		os.Exit(1)
+	}
+	input := args[0]
+	output := input + ".pdfa.pdf"
+	if len(args) >= 2 {
+		output = args[1]
+	}
+
+	start := time.Now()
+	cr, err := pdfrab.Convert(input)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "convert %s: %v\n", input, err)
+		os.Exit(1)
+	}
+	end := time.Now()
+	fmt.Printf("convert time: %v\n", end.Sub(start))
+
+	if err := os.WriteFile(output, cr.Output, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "write %s: %v\n", output, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%s -> %s\n", input, output)
+	fmt.Printf("iterations: %d\n", cr.Iterations)
+
+	if cr.Result.Valid {
+		fmt.Println("result: fully PDF/A-1b conformant")
+		return
+	}
+
+	residual := cr.Residual()
+	fmt.Printf("result: %d residual issue(s)\n", len(residual))
+	for _, iss := range residual {
+		check := iss.Check()
+		line := fmt.Sprintf("  [%s/%d %s]", check.Clause(), check.Subclause(), check.Name())
+		if cat := pdfrab.ResidualCategory(check); cat != "" {
+			line += " (" + cat + ")"
+		}
+		fmt.Println(line)
+		for _, msg := range iss.Messages() {
+			fmt.Printf("    %s\n", msg)
+		}
+	}
+	os.Exit(1)
+}
+
+// runVerify verifies every PDF found at or under each given path (a single
+// file or a directory walked recursively) and prints a pass/fail summary.
+func runVerify(args []string) {
+	if len(args) < 1 {
+		usage()
+		os.Exit(1)
+	}
+
+	var paths []string
+	for _, root := range args {
+		info, err := os.Stat(root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", root, err)
+			os.Exit(1)
+		}
+		if !info.IsDir() {
+			paths = append(paths, root)
+			continue
+		}
+		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
+				paths = append(paths, path)
+			}
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", root, err)
+			os.Exit(1)
+		}
 	}
 
 	results := pdfrab.VerifyAll(paths, pdfrab.A_1B)
@@ -44,4 +140,7 @@ func main() {
 	}
 
 	fmt.Printf("\n--- Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
+	if fail > 0 || errCount > 0 {
+		os.Exit(1)
+	}
 }

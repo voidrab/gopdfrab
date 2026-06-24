@@ -1,0 +1,140 @@
+// Package pdfrab is a thin public facade over gopdfrab's internal layers
+// (pdf, check, verify, convert, writer): it re-exports only the core API --
+// open a document, verify it, convert it, inspect issues/checks/profiles --
+// so callers never see the PDF object model, lexer, writer or rasterizer
+// that implement it.
+package pdfrab
+
+import (
+	"github.com/voidrab/gopdfrab/internal/check"
+	"github.com/voidrab/gopdfrab/internal/convert"
+	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
+)
+
+// Result, Check and PDFError are detailed in verify.Result/check.Check/
+// check.PDFError; Profile selects which checks a verification run applies.
+type (
+	Result            = verify.Result
+	FileResult        = verify.FileResult
+	Profile           = verify.Profile
+	LevelType         = verify.LevelType
+	Check             = check.Check
+	PDFError          = check.PDFError
+	ConvertResult     = convert.ConvertResult
+	ConvertFileResult = convert.ConvertFileResult
+)
+
+// A_1B and Undefined are the conformance levels Verify accepts.
+const (
+	A_1B      = verify.A_1B
+	Undefined = verify.Undefined
+)
+
+// PDFA_1B and Legacy_1B are the built-in profiles; see verify.PDFA_1B and
+// verify.Legacy_1B.
+var (
+	PDFA_1B   = verify.PDFA_1B
+	Legacy_1B = verify.Legacy_1B
+)
+
+// Checks is the registry of every selectable PDF/A check, grouped by area
+// (Checks.Structure, Checks.Colour, ...).
+var Checks = check.Checks
+
+// NewProfile returns an empty profile for the given conformance level.
+func NewProfile(level LevelType) *Profile { return verify.NewProfile(level) }
+
+// AllChecks returns every registered check with its name, description, and
+// clause number.
+func AllChecks() []Check { return check.AllChecks() }
+
+// CheckByClause looks up the registered check for a specific (clause,
+// subclause) pair, e.g. CheckByClause("6.3.4", 1).
+func CheckByClause(clause string, subclause int) (Check, bool) {
+	return check.CheckByClause(clause, subclause)
+}
+
+// ChecksForClause returns every registered check under the given clause
+// (e.g. "6.3.4").
+func ChecksForClause(clause string) []Check { return check.ChecksForClause(clause) }
+
+// VerifyAll opens, verifies, and closes a batch of files concurrently.
+func VerifyAll(paths []string, t LevelType) []FileResult { return verify.VerifyAll(paths, t) }
+
+// Convert reads the PDF at path and attempts to produce a PDF/A-1b
+// conformant rewrite. It always returns the best attempt it produced, even
+// if some violations remain; see CLAUDE.md/README for the conversion
+// pipeline this runs.
+func Convert(path string) (ConvertResult, error) { return convert.Convert(path) }
+
+// ConvertBytes is Convert for an in-memory PDF.
+func ConvertBytes(data []byte) (ConvertResult, error) { return convert.ConvertBytes(data) }
+
+// ConvertAll opens, converts, and closes a batch of files concurrently.
+func ConvertAll(paths []string) []ConvertFileResult { return convert.ConvertAll(paths) }
+
+// ResidualCategory classifies a Check by what remediation it needs beyond
+// Convert's targeted fixups -- see convert.ResidualCategory.
+func ResidualCategory(c Check) string { return convert.ResidualCategory(c) }
+
+// Document represents an open PDF file.
+type Document struct {
+	r *pdf.Reader
+}
+
+// Open initializes the PDF document at path.
+func Open(path string) (*Document, error) {
+	r, err := pdf.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Document{r: r}, nil
+}
+
+// Close ensures the file handle is released.
+func (d *Document) Close() error { return d.r.Close() }
+
+// Verify verifies d to conformance level t.
+func (d *Document) Verify(t LevelType) (Result, error) { return verify.Verify(d.r, t) }
+
+// VerifyProfile verifies d against the checks enabled in profile p.
+func (d *Document) VerifyProfile(p *Profile) (Result, error) { return verify.VerifyProfile(d.r, p) }
+
+// IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
+// calling Verify(A_1B) and checking the result's Valid field, for callers who
+// only need a yes/no answer.
+func (d *Document) IsPDFA() (bool, error) {
+	res, err := d.Verify(A_1B)
+	if err != nil {
+		return false, err
+	}
+	return res.Valid, nil
+}
+
+// Convert converts d, an already-open document, attempting to produce a
+// PDF/A-1b conformant rewrite; see Convert (the package-level function).
+func (d *Document) Convert() (ConvertResult, error) { return convert.Run(d.r) }
+
+// XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
+// decoded and normalised to UTF-8. It returns an error if the document has no
+// XMP metadata stream, regardless of whether the document otherwise validates
+// as PDF/A.
+func (d *Document) XMPMetadata() ([]byte, error) { return d.r.XMPMetadata() }
+
+// ClaimedConformance returns the PDF/A part and conformance level the
+// document's XMP metadata claims (e.g. "1", "B"), read from the pdfaid
+// namespace. This reflects what the file claims, not whether it actually
+// validates — use Verify or IsPDFA to check actual compliance.
+func (d *Document) ClaimedConformance() (part, conformance string, err error) {
+	return d.r.ClaimedConformance()
+}
+
+// GetPageCount retrieves the page count.
+func (d *Document) GetPageCount() (int, error) { return d.r.GetPageCount() }
+
+// GetVersion extracts the PDF version from the document header.
+func (d *Document) GetVersion() (string, error) { return d.r.GetVersion() }
+
+// GetMetadata extracts info from the Info dictionary.
+func (d *Document) GetMetadata() (map[string]string, error) { return d.r.GetMetadata() }

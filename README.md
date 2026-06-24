@@ -1,4 +1,4 @@
-# pdfrab for Go
+# gopdfrab
 
 PDF/A processing for go
 
@@ -52,6 +52,10 @@ PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes both referenc
 | 6.7.9 | XMP well-formedness | ✓ |
 | 6.7.11 | PDF/A identifier | ✓ |
 | 6.9 | Interactive forms | ✓ |
+
+### PDF/A-1b Conversion
+
+PDF/A-1b conversion is fully implemented. See [Converting to PDF/A](#converting-to-pdfa) below.
 
 ## Selective Check Profiles
 
@@ -210,4 +214,65 @@ ok, err := doc.IsPDFA()           // shorthand for Verify(A_1B).Valid
 part, level, err := doc.ClaimedConformance() // e.g. "1", "B" — what the file claims, not whether it's valid
 
 xmp, err := doc.XMPMetadata()     // raw XMP packet bytes, decoded to UTF-8
+```
+
+### Converting to PDF/A
+
+`Convert` produces a PDF/A-1b conformant rewrite for any resolvable graph. It runs pre-emptive fixups, then a bounded verify/fix loop, and rasterizes pages as a last resort when no in-place fixer can repair them.
+
+```go
+cr, err := pdfrab.Convert(path)
+if err != nil {
+    log.Fatal(err)
+}
+
+if err := os.WriteFile("out.pdf", cr.Output, 0o644); err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(cr.Iterations)      // how many verify/fixup passes it took
+fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A-1b conformant
+```
+
+### Converting an Open Document
+
+```go
+cr, err := doc.Convert()
+```
+
+### Converting In-Memory Data
+
+`ConvertBytes` is `Convert` for an in-memory PDF.
+
+```go
+cr, err := pdfrab.ConvertBytes(data)
+```
+
+### Converting Multiple Files
+
+`ConvertAll` opens, converts, and closes a batch of files concurrently.
+
+```go
+results := pdfrab.ConvertAll(paths)
+for _, r := range results {
+    if r.Err != nil {
+        log.Println(r.Path, r.Err)
+        continue
+    }
+    fmt.Println(r.Path, r.Result.Result.Valid) // r.Result is a ConvertResult
+}
+```
+
+### Inspecting Residuals
+
+Even though `Convert` always returns its best attempt, the result may still carry residual issues if no automatic remediation — including the raster last resort — fully resolved them.
+
+```go
+residual := cr.Residual()         // []PDFError remaining in cr.Output
+for _, iss := range residual {
+    check := iss.Check()
+    fmt.Println(check.Clause(), check.Name())
+    fmt.Println(iss.Page(), iss.Messages())
+    fmt.Println(pdfrab.ResidualCategory(check))
+}
 ```

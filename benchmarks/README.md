@@ -63,8 +63,12 @@ overwrites only its own files.
    threading (veraPDF/PDFBox parallelize internally; gopdfrab and the JS
    runner are single-threaded here).
 6. **In-process Go microbenchmark** — `go test -bench`, gopdfrab only:
-   ns/op, B/op, allocs/op via `benchstat`, on the same three sample files
-   as metric 2.
+   ns/op, B/op, allocs/op via `benchstat`. `BenchmarkOpenVerify` covers the
+   verification engine and `BenchmarkConvert` the full PDF/A-1b conversion
+   pipeline, both over a set of representative sample files spanning the
+   corpus size range and the main cost paths (fonts, colour, rasterization,
+   large object-count). `TestConvertLargeAllocationsBounded` additionally
+   guards conversion against regaining a verify pass.
 7. **Throughput vs. file size** — metric 3-5's per-file timings, bucketed by
    size, to separate fixed per-file cost from cost that scales with content.
 8. **Library / deployment footprint** — a static gopdfrab binary (plain and
