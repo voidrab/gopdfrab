@@ -2,12 +2,14 @@
 
 # gopdfrab
 
-PDF/A processing for go
+PDF/A processing for go!
 
-## Goals
+Verify and convert PDF documents with a small, predictable API.
 
-- Verification of PDF/A compliance for files
-- Conversion of files to reach PDF/A compliance
+## Features
+
+- PDF/A verification
+- PDF/A conversion
 
 ## Current Progress
 
