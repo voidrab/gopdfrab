@@ -44,19 +44,3 @@ func TestConvertBytesMatchesFile(t *testing.T) {
 		t.Skip("no readable fixtures")
 	}
 }
-
-// BenchmarkConvert measures the end-to-end conversion of a fixture through the
-// in-memory pipeline (CW-1 + CW-2), reading the bytes once up front.
-func BenchmarkConvert(b *testing.B) {
-	data, err := os.ReadFile(qqNestingFixture)
-	if err != nil {
-		b.Skip("benchmark fixture not present")
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := ConvertBytes(data); err != nil {
-			b.Fatalf("ConvertBytes: %v", err)
-		}
-	}
-}

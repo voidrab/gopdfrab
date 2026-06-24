@@ -50,6 +50,12 @@ var sampleFiles = map[string]string{
 	// and ~10k page kids). The worst case for per-object resolution cost.
 	"large": filepath.Join("test documents", "Isartor testsuite", "PDFA-1b",
 		"6.1 File structure", "6.1.12 Implementation Limits", "isartor-6-1-12-t01-fail-a.pdf"),
+	// ~12 KB: a q/Q-nesting StringTooLong no in-place fixer can clamp, so
+	// Convert falls back to whole-page rasterization -- the conversion worst
+	// case (renders the page through the native rasterizer).
+	"raster": filepath.Join("test documents", "veraPDF", "PDF_A-1b",
+		"6.1 File structure", "6.1.12 Implementation limits",
+		"veraPDF test suite 6-1-12-t08-fail-a.pdf"),
 }
 
 // BenchmarkOpenVerify measures Open+Verify(A_1B) for each representative
@@ -69,6 +75,29 @@ func BenchmarkOpenVerify(b *testing.B) {
 					b.Fatalf("Verify(%s): %v", path, err)
 				}
 				doc.Close()
+			}
+		})
+	}
+}
+
+// BenchmarkConvert measures the full PDF/A-1b conversion pipeline
+// (ConvertBytes: pre-emptive fixups -> bounded serialize/verify/fix loop ->
+// raster last resort) for each representative file, with the bytes read once
+// up front. Run with: go test -bench=BenchmarkConvert -benchmem ./benchmarks/micro/...
+func BenchmarkConvert(b *testing.B) {
+	root := repoRoot()
+	for name, rel := range sampleFiles {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			b.Run(name, func(b *testing.B) { b.Skip("sample file not present") })
+			continue
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				if _, err := pdfrab.ConvertBytes(data); err != nil {
+					b.Fatalf("ConvertBytes(%s): %v", name, err)
+				}
 			}
 		})
 	}
@@ -119,5 +148,38 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 		t.Errorf("Open+Verify(large) allocated %.0f times per run, want <= %d; "+
 			"likely reintroduced per-object re-parsing or re-decoding",
 			allocs, maxLargeFileAllocs)
+	}
+}
+
+// maxConvertLargeAllocs is a regression ceiling on allocations for one
+// ConvertBytes pass over the "large" sample. Conversion re-parses the graph
+// once per verify pass, so this tracks the pass count as much as per-object
+// cost: it dropped from ~5.87M (two verify passes) to ~3.52M after the
+// always-safe pagesTreeArrayFixer was moved into the pre-emptive phase, so the
+// page-tree split happens before the first verify and the document converges
+// in one pass instead of two (fixups_limits.go). Deterministic, so not flaky.
+// Lower this value if further optimization reduces it.
+const maxConvertLargeAllocs = 3_700_000
+
+// TestConvertLargeAllocationsBounded guards conversion against regaining a
+// verify pass (or reintroducing per-object re-parsing) on large, object-heavy
+// PDFs. See maxConvertLargeAllocs.
+func TestConvertLargeAllocationsBounded(t *testing.T) {
+	path := filepath.Join(repoRoot(), sampleFiles["large"])
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("large sample file not present")
+	}
+
+	allocs := testing.AllocsPerRun(3, func() {
+		if _, err := pdfrab.ConvertBytes(data); err != nil {
+			t.Fatalf("ConvertBytes(large): %v", err)
+		}
+	})
+
+	if allocs > maxConvertLargeAllocs {
+		t.Errorf("ConvertBytes(large) allocated %.0f times per run, want <= %d; "+
+			"likely regained a verify pass or reintroduced per-object re-parsing",
+			allocs, maxConvertLargeAllocs)
 	}
 }

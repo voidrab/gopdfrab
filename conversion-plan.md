@@ -501,7 +501,14 @@ The pipeline today optimizes for correctness; before/with the heavier phases, ad
   the decode (`decodeStreamCached` exists) and short-circuit when coverage is already valid.
 - **Convergence / pass count.** Most docs converge in 1–2 passes; keep `maxConvertIterations`
   small and rely on `sameMultiset` early-exit. Batched dispatch (CW-2) also reduces passes by
-  applying all applicable fixers before the next verify.
+  applying all applicable fixers before the next verify. **Pre-emptive self-driven fixers — ✅
+  done (partial).** A self-driven, always-safe fixer (one that scans the graph and ignores the
+  issue list) can run in the pre-emptive phase so its violation never reaches the first verify,
+  collapsing a 2-pass document to 1. Landed for `pagesTreeArrayFixer` (`fixups_limits.go`): a
+  page-tree-heavy document (e.g. the 40k-object / 10000-kid corpus torture file) now converges in
+  one verify pass, cutting its conversion ~1.18s → ~0.6s and ~5.87M → ~3.52M allocs
+  (`BenchmarkConvert/large`, guarded by `TestConvertLargeAllocationsBounded`). Other issue-driven
+  fixers (font metrics, content limits) can't move pre-emptively without a self-detection rewrite.
 - **Font subsetting & content re-encoding are CPU-heavy (Phases 9–11).** Subset/rewrite each
   font/stream **once**, lazily, and cache by object; never re-subset across passes. Parse font
   programs once and memoize the parsed table.
@@ -515,8 +522,11 @@ The pipeline today optimizes for correctness; before/with the heavier phases, ad
 - **Asset cost.** Bundled fonts/ICC add to binary size; they are `//go:embed`-ed. Keep the
   embedded set minimal (subset/strip unneeded tables from bundled fonts where licensing
   permits) and load lazily.
-- **Benchmarks.** The repo already has `benchmarks/`; add conversion benchmarks (small/large,
-  font-heavy, colour-heavy) and guard regressions as the heavy phases land.
+- **Benchmarks. — ✅ done.** `BenchmarkConvert` (`benchmarks/micro/bench_test.go`) times the full
+  `ConvertBytes` pipeline over representative sample files (structural, fonts, colour, content,
+  rasterization, and the large object-count torture file); `TestConvertLargeAllocationsBounded`
+  guards the conversion alloc count deterministically, the way `TestLargeFileAllocationsBounded`
+  guards verification.
 
 ---
 

@@ -24,6 +24,14 @@ func init() {
 	registerFixer(resourceDictPruneFixer{})
 	registerFixer(nameTooLongFixer{})
 	registerFixer(cmapCIDClampFixer{})
+
+	// pagesTreeArrayFixer is self-driven (scans the graph, ignores the issue
+	// list) and always safe, so running it pre-emptively lets a page-tree-heavy
+	// document converge in one verify pass instead of two.
+	registerPreemptiveFixup(func(trailer *PDFDict) error {
+		_, err := pagesTreeArrayFixer{}.Fix(trailer, nil)
+		return err
+	})
 }
 
 // nextAvailableObjNum scans the graph for the highest existing _ref object
