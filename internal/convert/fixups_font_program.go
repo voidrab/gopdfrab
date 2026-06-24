@@ -24,7 +24,6 @@ func init() {
 	registerFixer(fontSubsetMetaFixer{})
 }
 
-
 // fontMetricFixer remediates check.Checks.Font.AdvanceWidthMismatch by recomputing
 // PDF /Widths (simple TrueType, Type1, Type3) or /W (CIDFontType2) entries
 // from the embedded font program, mirroring the detection in

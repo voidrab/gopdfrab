@@ -1385,7 +1385,8 @@ func xmpValidateProp(nsURI, propName string, actual xmpContainerKind, value stri
 	if actual == xmpKindAlt && xmpLangAltProps[nsURI][propName] {
 		for _, item := range items {
 			if !item.hasLang {
-				return []check.PDFError{}
+				return []check.PDFError{xmpErr(chk,
+					fmt.Sprintf("property %q is LangAlt but an rdf:li item lacks xml:lang", propName))}
 			}
 		}
 	}

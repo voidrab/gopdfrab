@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	pdfrab "github.com/voidrab/gopdfrab"
 )
@@ -49,11 +50,14 @@ func runConvert(args []string) {
 		output = args[1]
 	}
 
+	start := time.Now()
 	cr, err := pdfrab.Convert(input)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "convert %s: %v\n", input, err)
 		os.Exit(1)
 	}
+	end := time.Now()
+	fmt.Printf("convert time: %v\n", end.Sub(start))
 
 	if err := os.WriteFile(output, cr.Output, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write %s: %v\n", output, err)

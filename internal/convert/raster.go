@@ -103,12 +103,12 @@ func pageContentBytes(page pdf.PDFDict) ([]byte, error) {
 // renderState is the graphics state saved/restored by q/Q (the current path
 // under construction is tracked separately, since q/Q does not affect it).
 type renderState struct {
-	ctm                     Matrix
-	fillRGB, strokeRGB      [3]float64
-	fillCS, strokeCS        pdf.PDFValue
-	fillAlpha, strokeAlpha  float64
-	lineWidth               float64
-	clip                    [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	ctm                    Matrix
+	fillRGB, strokeRGB     [3]float64
+	fillCS, strokeCS       pdf.PDFValue
+	fillAlpha, strokeAlpha float64
+	lineWidth              float64
+	clip                   [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
 
 	font      pdf.PDFDict
 	fontSize  float64
@@ -602,7 +602,6 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 		}
 	}
 }
-
 
 // applyTf resolves a Tf operator's named font resource into gs, building (and
 // caching) its fontInfo.
