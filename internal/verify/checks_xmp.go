@@ -788,6 +788,18 @@ func digitsOf(s string) string {
 var rdfLiRe = regexp.MustCompile(`(?s)<rdf:li[^>]*>(.*?)</rdf:li>`)
 var xmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
+// decodeXMLEntities replaces the five predefined XML entities with their
+// character equivalents so that extracted XMP text can be compared with
+// raw Info dictionary values that contain characters like &, <, >.
+func decodeXMLEntities(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&apos;", "'")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	return s
+}
+
 // xmpPropValue extracts the text value of an XMP property such as "dc:title",
 // unwrapping an rdf:Alt/rdf:Seq rdf:li container if present.
 func xmpPropValue(xmp, prop string) (string, bool) {
@@ -798,9 +810,9 @@ func xmpPropValue(xmp, prop string) (string, bool) {
 	}
 	inner := m[1]
 	if li := rdfLiRe.FindStringSubmatch(inner); li != nil {
-		return strings.TrimSpace(li[1]), true
+		return decodeXMLEntities(strings.TrimSpace(li[1])), true
 	}
-	return strings.TrimSpace(xmlTagRe.ReplaceAllString(inner, "")), true
+	return decodeXMLEntities(strings.TrimSpace(xmlTagRe.ReplaceAllString(inner, ""))), true
 }
 
 // dcDescRe matches a dc:description element and captures its inner content.
@@ -850,9 +862,9 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 		return "", false
 	}
 	if m[1] != "" {
-		return m[1], true
+		return decodeXMLEntities(m[1]), true
 	}
-	return strings.TrimSpace(m[2]), true
+	return decodeXMLEntities(strings.TrimSpace(m[2])), true
 }
 
 // checkInfoXMPSync verifies that document information dictionary entries are
