@@ -824,8 +824,9 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
 			if tables, ok := verify.ParseSfnt(data); ok {
+				gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					return glyphOutlineFromTrueType(tables, simpleCodeToGID(tables, code, names))
+					return glyphOutlineFromTrueType(tables, simpleCodeToGID(gidMap, code, names))
 				}
 				return fi
 			}
@@ -862,12 +863,9 @@ func extractCFFBytes(data []byte) []byte {
 	return nil
 }
 
-// simpleCodeToGID resolves a simple TrueType font's character code to a
-// GID: first via the code's Unicode value (from its WinAnsi-resolved glyph
-// name) through a (3,1) cmap, then via raw/symbolic (3,0)/(1,0) cmap
-// lookups, falling back to the code itself as a last resort.
-func simpleCodeToGID(tables map[string][]byte, code int, names [256]string) int {
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+// simpleCodeToGID resolves a simple TrueType font's character code to a GID.
+// gidMap is the pre-parsed (3,1) cmap (nil if absent).
+func simpleCodeToGID(gidMap map[uint16]uint16, code int, names [256]string) int {
 	if gidMap != nil && code >= 0 && code < 256 {
 		if name := names[code]; name != "" {
 			if uni, ok := glyphNameToWinAnsiCode(name); ok {

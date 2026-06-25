@@ -70,7 +70,11 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 	}
 	for _, key := range []string{"Title", "Author", "Subject", "Keywords", "Creator", "Producer"} {
 		switch info.Entries[key].(type) {
-		case nil, pdf.PDFString, pdf.PDFHexString:
+		case nil:
+		case pdf.PDFString, pdf.PDFHexString:
+			if infoString(info, key) == "" {
+				delete(info.Entries, key)
+			}
 		default:
 			delete(info.Entries, key)
 		}
@@ -252,20 +256,12 @@ func writeScalarAttr(b *strings.Builder, prop, value string) {
 	fmt.Fprintf(b, ` %s="%s"`, prop, xmlEscapeAttr(value))
 }
 
-// xmlEscapeText escapes s for use as XML element text content, replacing
-// only the characters that are structurally required for well-formed XML
-// (& < >) and leaving everything else -- notably ' and ", which need no
-// escaping outside an attribute value -- untouched. checkInfoXMPSync's
-// comparisons extract values via plain regexes, never decoding entities
-// back (see xmpPropValue/rdfLiRe), so escaping a character that didn't
-// strictly need it would desynchronize an otherwise-identical value (e.g.
-// "O'Brien" vs the escaped "O&apos;Brien"). This also does not decode s as
-// UTF-8 first, unlike encoding/xml's EscapeText: a PDF Info dictionary
-// string is a raw byte sequence with no declared charset (Document.
-// GetMetadata, which these values are compared against, treats it the same
-// way), and EscapeText silently replaces any byte sequence that isn't valid
-// UTF-8 with U+FFFD -- corrupting exactly the values this packet must match
-// byte-for-byte.
+// xmlEscapeText escapes s for use as XML element text content. Only & < >
+// are escaped (structurally required); ' and " are left unescaped in element
+// text since escaping them is unnecessary and checkInfoXMPSync decodes only
+// the five standard XML entities when comparing XMP values with the Info
+// dictionary. Does not decode s as UTF-8 first (PDF strings have no declared
+// charset; encoding/xml.EscapeText would corrupt non-UTF-8 bytes with U+FFFD).
 func xmlEscapeText(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

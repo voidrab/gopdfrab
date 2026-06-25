@@ -45,3 +45,6 @@ benchmarks/results/*
 # Python cache (benchmarks/scripts/report.py)
 __pycache__/
 *.pyc
+
+# Local test documents
+test documents/other/

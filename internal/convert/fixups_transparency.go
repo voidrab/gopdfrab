@@ -364,8 +364,11 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries["Im0"] = img
+	csDict := pdf.NewPDFDict()
+	csDict.Entries["DefaultRGB"] = iccBasedColourSpace(3, srgbICCProfile)
 	pageResources := pdf.NewPDFDict()
 	pageResources.Entries["XObject"] = xobjects
+	pageResources.Entries["ColorSpace"] = csDict
 
 	w, h := mediaBox[2]-mediaBox[0], mediaBox[3]-mediaBox[1]
 	ops := []writer.ContentOp{
