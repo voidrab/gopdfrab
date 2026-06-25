@@ -66,7 +66,10 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 		t.Skip("no readable fixtures")
 	}
 
-	results := ConvertAll(paths, pdf.PDFA_1B)
+	results, err := ConvertAll(paths, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("ConvertAll: %v", err)
+	}
 	if len(results) != len(paths) {
 		t.Fatalf("ConvertAll returned %d results, want %d", len(results), len(paths))
 	}

@@ -13,13 +13,12 @@ import (
 // PDFError; Profile selects which checks a verification run applies.
 type (
 	Result            = pdf.Result
-	FileResult        = verify.FileResult
+	FileResult[T any] = pdf.FileResult[T]
 	Profile           = pdf.Profile
 	LevelType         = pdf.LevelType
 	Check             = pdf.Check
 	PDFError          = pdf.PDFError
 	ConvertResult     = convert.ConvertResult
-	ConvertFileResult = convert.ConvertFileResult
 )
 
 // A_1B and Undefined are the conformance levels Verify accepts.
@@ -57,15 +56,18 @@ func CheckByClause(clause string, subclause int) (Check, bool) {
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
 
 // Verify opens, verifies, and closes a single file.
-func Verify(path string, p *Profile) FileResult { return verify.VerifyFile(path, p) }
+func Verify(path string, p *Profile) (Result, error) { return verify.VerifyFile(path, p) }
+
+// VerifyBytes is Verify for an in-memory PDF.
+func VerifyBytes(data []byte, p *Profile) (Result, error) { return verify.VerifyBytes(data, p) }
 
 // VerifyAll opens, verifies, and closes a batch of files concurrently.
-func VerifyAll(paths []string, p *Profile) []FileResult { return verify.VerifyAll(paths, p) }
+func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
+	return verify.VerifyAll(paths, p)
+}
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
-// conformant rewrite. It always returns the best attempt it produced, even
-// if some violations remain; see CLAUDE.md/README for the conversion
-// pipeline this runs.
+// conformant rewrite.
 func Convert(path string, p *Profile) (ConvertResult, error) { return convert.Convert(path, p) }
 
 // ConvertBytes is Convert for an in-memory PDF.
@@ -74,7 +76,9 @@ func ConvertBytes(data []byte, p *Profile) (ConvertResult, error) {
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
-func ConvertAll(paths []string, p *Profile) []ConvertFileResult { return convert.ConvertAll(paths, p) }
+func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error) {
+	return convert.ConvertAll(paths, p)
+}
 
 // Document represents an open PDF file.
 type Document struct {

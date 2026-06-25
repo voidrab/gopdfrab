@@ -115,11 +115,22 @@ doc.close()
 
 ### Verify a File
 
+`Verify` opens, verifies, and closes a file.
+
 ```go
+result, err := pdfrab.Verify(path, pdfrab.PDFA_1B)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(result.Valid)
+```
 
-`Verify` opens, verifies, and closes a  file.
+### Verifying In-Memory Data
 
-result := pdfrab.Verify(path, pdfrab.PDFA_1B)
+`VerifyBytes` is `Verify` for an in-memory PDF.
+
+```go
+result, err := pdfrab.VerifyBytes(data, pdfrab.PDFA_1B)
 ```
 
 ### Verifying Multiple Files
@@ -127,7 +138,10 @@ result := pdfrab.Verify(path, pdfrab.PDFA_1B)
 `VerifyAll` opens, verifies, and closes a batch of files concurrently.
 
 ```go
-results := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+results, err := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+if err != nil {
+    log.Fatal(err)
+}
 for _, r := range results {
     if r.Err != nil {
         log.Println(r.Path, r.Err)
@@ -205,7 +219,10 @@ cr, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B)
 `ConvertAll` opens, converts, and closes a batch of files concurrently.
 
 ```go
-results := pdfrab.ConvertAll(paths, pdfrab.PDFA_1B)
+results, err := pdfrab.ConvertAll(paths, pdfrab.PDFA_1B)
+if err != nil {
+    log.Fatal(err)
+}
 for _, r := range results {
     if r.Err != nil {
         log.Println(r.Path, r.Err)

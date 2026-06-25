@@ -52,21 +52,13 @@ func ConvertBytes(data []byte, p *pdf.Profile) (ConvertResult, error) {
 	return Run(doc, p)
 }
 
-// ConvertFileResult is one path's outcome from ConvertAll.
-type ConvertFileResult struct {
-	Path   string
-	Result ConvertResult
-	Err    error
-}
-
-// ConvertAll opens, converts, and closes a batch of files concurrently,
-// mirroring verify.VerifyAll's worker-pool pattern.
-func ConvertAll(paths []string, p *pdf.Profile) []ConvertFileResult {
-	results := make([]ConvertFileResult, len(paths))
+// ConvertAll opens, converts, and closes a batch of files concurrently.
+func ConvertAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[ConvertResult], error) {
+	results := make([]pdf.FileResult[ConvertResult], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
 	if workers < 1 {
-		return results
+		return results, nil
 	}
 
 	jobs := make(chan int)
@@ -86,13 +78,12 @@ func ConvertAll(paths []string, p *pdf.Profile) []ConvertFileResult {
 	close(jobs)
 	wg.Wait()
 
-	return results
+	return results, nil
 }
 
-// convertFile opens, converts, and closes a single file.
-func convertFile(path string, p *pdf.Profile) ConvertFileResult {
+func convertFile(path string, p *pdf.Profile) pdf.FileResult[ConvertResult] {
 	cr, err := Convert(path, p)
-	return ConvertFileResult{Path: path, Result: cr, Err: err}
+	return pdf.FileResult[ConvertResult]{Path: path, Result: cr, Err: err}
 }
 
 // Run converts an already-open document, the shared implementation behind

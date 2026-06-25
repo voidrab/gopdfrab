@@ -36,20 +36,13 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	return pdf.Result{Type: p.Level, Valid: true}, nil
 }
 
-type FileResult struct {
-	Path   string
-	Result pdf.Result
-	Err    error
-}
-
-// VerifyAll opens and verifies multiple PDF files concurrently against
-// conformance level t.
-func VerifyAll(paths []string, p *pdf.Profile) []FileResult {
-	results := make([]FileResult, len(paths))
+// VerifyAll opens and verifies multiple PDF files concurrently.
+func VerifyAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[pdf.Result], error) {
+	results := make([]pdf.FileResult[pdf.Result], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
 	if workers < 1 {
-		return results
+		return results, nil
 	}
 
 	jobs := make(chan int)
@@ -59,7 +52,7 @@ func VerifyAll(paths []string, p *pdf.Profile) []FileResult {
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = VerifyFile(paths[i], p)
+				results[i] = verifyFile(paths[i], p)
 			}
 		}()
 	}
@@ -69,19 +62,32 @@ func VerifyAll(paths []string, p *pdf.Profile) []FileResult {
 	close(jobs)
 	wg.Wait()
 
-	return results
+	return results, nil
 }
 
-// verifyFile opens, verifies, and closes a single file.
-func VerifyFile(path string, p *pdf.Profile) FileResult {
+// VerifyFile opens, verifies, and closes a single file.
+func VerifyFile(path string, p *pdf.Profile) (pdf.Result, error) {
 	doc, err := pdf.Open(path)
 	if err != nil {
-		return FileResult{Path: path, Err: err}
+		return pdf.Result{}, err
 	}
 	defer doc.Close()
+	return Verify(doc, p)
+}
 
-	res, err := Verify(doc, p)
-	return FileResult{Path: path, Result: res, Err: err}
+// VerifyBytes verifies an in-memory PDF.
+func VerifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		return pdf.Result{}, fmt.Errorf("verify: %w", err)
+	}
+	defer doc.Close()
+	return Verify(doc, p)
+}
+
+func verifyFile(path string, p *pdf.Profile) pdf.FileResult[pdf.Result] {
+	res, err := VerifyFile(path, p)
+	return pdf.FileResult[pdf.Result]{Path: path, Result: res, Err: err}
 }
 
 // filterByProfile removes from issues any PDFError whose (clause, subclause)

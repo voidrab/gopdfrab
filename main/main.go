@@ -117,7 +117,11 @@ func runVerify(args []string) {
 		}
 	}
 
-	results := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+	results, err := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "verify: %v\n", err)
+		os.Exit(1)
+	}
 
 	pass, fail, errCount := 0, 0, 0
 	for _, r := range results {
