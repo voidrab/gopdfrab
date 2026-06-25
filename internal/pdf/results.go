@@ -13,6 +13,13 @@ type Result struct {
 	Issues []PDFError
 }
 
+// FileResult is one path's outcome from a batch operation.
+type FileResult[T any] struct {
+	Path   string
+	Result T
+	Err    error
+}
+
 // Count returns the number of issues found.
 func (r Result) Count() int {
 	return len(r.Issues)
