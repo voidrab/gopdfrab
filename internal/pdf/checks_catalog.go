@@ -151,6 +151,7 @@ type fontChecks struct {
 	CMapNotEmbedded       Check
 	CMapWModeInconsistent Check
 	// 6.3.4 Font embedding
+	InvalidSubtype    Check
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.5 Subset coverage
@@ -636,6 +637,10 @@ func init() {
 				"CMapWModeInconsistent",
 				"An embedded CMap's WMode must be consistent with the font's actual writing mode",
 				"6.3.3.3", 2),
+			InvalidSubtype: newCheck(
+				"InvalidSubType",
+				"Font dictionaries must have a valid Subtype entry (Type1, MMType1, TrueType, CIDFontType0, CIDFontType2)",
+				"6.3.4", 0),
 			SimpleNotEmbedded: newCheck(
 				"SimpleNotEmbedded",
 				"Type1, MMType1, and TrueType font programs must be embedded",
