@@ -145,6 +145,7 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	if p.SkipUnreachableXObjects {
 		ctx.ReachableXObjectPtrs = reachable
 	}
+	ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
 	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 	computeColourCoverage(d, ctx)
 

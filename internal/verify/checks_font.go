@@ -42,7 +42,6 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 
 	ValidateFontProgram(v, desc, baseFont.Value, ctx)
 
-	// Prepare variables for the veraPDF test condition
 	renderingMode3 := ctx.isInvisibleOnlyFont(v)
 	containsFontFile := HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3")
 
@@ -50,7 +49,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 	if !(subtype.Value == "Type3" || subtype.Value == "Type0" || renderingMode3 || containsFontFile) {
 		if subtype.Value == "CIDFontType0" || subtype.Value == "CIDFontType2" {
 			ctx.Report(pdf.Checks.Font.CIDNotEmbedded, v, fmt.Sprintf("CID font %s is not embedded", baseFont.Value))
-		} else {
+		} else if !ctx.SkipUnusedSimpleFonts || ctx.simpleFontShown(v) {
 			ctx.Report(pdf.Checks.Font.SimpleNotEmbedded, v, fmt.Sprintf("font %s is not embedded", baseFont.Value))
 		}
 	}

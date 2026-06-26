@@ -687,10 +687,7 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 // fontSubstitutionFixer remediates SubsetGlyphCoverage, SimpleNotEmbedded,
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
 // face wherever a font's own program is missing, damaged, or doesn't cover
-// a glyph it needs (see this file's header comment). SimpleNotEmbedded is
-// claimed for completeness against stricter profiles, but the default
-// PDFA_1B profile excuses it (profile.go), so it never actually reaches
-// Convert's loop today.
+// a glyph it needs (see this file's header comment).
 type fontSubstitutionFixer struct{}
 
 func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
