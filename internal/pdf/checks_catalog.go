@@ -81,6 +81,8 @@ type structureChecks struct {
 	DeviceNColorants  Check
 	// 6.1.13 Optional content
 	OptionalContent Check
+	// 6.1.2 File header — post-1.4 ViewerPreferences keys
+	PostPDF14ViewerPref Check
 }
 
 type colourChecks struct {
@@ -149,6 +151,7 @@ type fontChecks struct {
 	CMapNotEmbedded       Check
 	CMapWModeInconsistent Check
 	// 6.3.4 Font embedding
+	InvalidSubtype    Check
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.5 Subset coverage
@@ -198,6 +201,7 @@ type metadataChecks struct {
 	// 6.7.5 xpacket header
 	XPacketBytesAttribute    Check
 	XPacketEncodingAttribute Check
+	ObjectXMPNoXPacket       Check
 	// 6.7.8 Extension schemas
 	ExtSchemaNamespace         Check
 	ExtSchemaWrongPrefixURI    Check
@@ -457,6 +461,10 @@ func init() {
 				"OptionalContent",
 				"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",
 				"6.1.13", 1),
+			PostPDF14ViewerPref: newCheck(
+				"PostPDF14ViewerPref",
+				"ViewerPreferences must not contain keys introduced after PDF 1.4 (e.g. PrintScaling, PickTrayByPDFSize)",
+				"6.1.2", 5),
 		},
 
 		Colour: colourChecks{
@@ -629,6 +637,10 @@ func init() {
 				"CMapWModeInconsistent",
 				"An embedded CMap's WMode must be consistent with the font's actual writing mode",
 				"6.3.3.3", 2),
+			InvalidSubtype: newCheck(
+				"InvalidSubType",
+				"Font dictionaries must have a valid Subtype entry (Type1, MMType1, TrueType, CIDFontType0, CIDFontType2)",
+				"6.3.4", 0),
 			SimpleNotEmbedded: newCheck(
 				"SimpleNotEmbedded",
 				"Type1, MMType1, and TrueType font programs must be embedded",
@@ -758,6 +770,10 @@ func init() {
 				"XPacketEncodingAttribute",
 				"The XMP xpacket processing instruction must not contain an encoding attribute",
 				"6.7.5", 2),
+			ObjectXMPNoXPacket: newCheck(
+				"ObjectXMPNoXPacket",
+				"Non-catalog XMP metadata streams must be wrapped in xpacket processing instructions (6.7.5)",
+				"6.7.5", 3),
 			ExtSchemaNamespace: newCheck(
 				"ExtSchemaNamespace",
 				"Custom-namespace properties require extension schema declarations; extension-schema namespace URIs must use their conventional prefixes",

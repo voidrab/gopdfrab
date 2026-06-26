@@ -145,10 +145,11 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	if p.SkipUnreachableXObjects {
 		ctx.ReachableXObjectPtrs = reachable
 	}
+	ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
 	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 	computeColourCoverage(d, ctx)
 
-	verifyDocument(d, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs = ctx.errs
 	if errs != nil {
 		issues = append(issues, errs...)
@@ -166,6 +167,10 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 		issues = append(issues, errs...)
 	}
 	errs = verifyXMPMetadata(d)
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
+	errs = checkNonCatalogXMPStreams(graph)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -458,7 +463,7 @@ func verifyDocumentInformationDictionary(d *pdf.Reader) []pdf.PDFError {
 }
 
 // verifyDocument verifies requirements outlined in 6.1.6, 6.1.7, 6.1.11, 6.1.12.
-func verifyDocument(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) {
+func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
 	var walk func(node any)
@@ -498,6 +503,7 @@ func verifyDocument(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) {
 			validateContentStreams(v, ctx)
 			ValidateFontDict(v, ctx)
 			validateCMapStream(v, ctx)
+			validateViewerPreferences(v, ctx)
 
 			for k, val := range v.Entries {
 				// 6.1.12: a dictionary key shall not exceed 127 bytes after
@@ -572,6 +578,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (reachable 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
 				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
 				collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu)
+				collectAnnotAppearanceUsage(ctx, val, reachable, fu)
 				return
 			}
 			for _, child := range val.Entries {
@@ -597,6 +604,46 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (reachable 
 		}
 	}
 	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs
+}
+
+// collectAnnotAppearanceUsage marks XObjects reachable via annotation
+// appearance streams so validateContentStreams will scan their colour usage.
+func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	for _, item := range annots {
+		annot, ok := item.(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu)
+	}
+}
+
+func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) {
+	switch v := n.(type) {
+	case pdf.PDFDict:
+		if v.HasStream {
+			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+			collectContentUsage(ctx, v, apRes, reachable, fu)
+		} else {
+			for k, sv := range v.Entries {
+				if k == "_ref" {
+					continue
+				}
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+					collectContentUsage(ctx, sd, apRes, reachable, fu)
+				}
+			}
+		}
+	}
 }
 
 func collectContentUsage(ctx *ValidationContext, contents pdf.PDFValue, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
@@ -1101,12 +1148,6 @@ func ValidateICCProfileStream(dict pdf.PDFDict) error {
 	if !iccValidColorSpaces[colorSpace] {
 		return fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)
 	}
-	return nil
-}
-
-// verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
-func verifyGeneralColourSpaces(d *pdf.Reader) []pdf.PDFError {
-	// TODO check if document has OutputIntent or direct use of device-independent colour space
 	return nil
 }
 

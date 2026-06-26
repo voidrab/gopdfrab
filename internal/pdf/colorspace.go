@@ -49,7 +49,7 @@ func ResolveColor(cs PDFValue, comps []float64, resources PDFDict) (r, g, b floa
 		case "Lab":
 			return labToRGB(comps)
 		case "ICCBased":
-			return resolveICCBased(v, comps, resources)
+			return resolveICCBased(v, comps)
 		case "Indexed", "I":
 			return resolveIndexed(v, comps, resources)
 		case "Separation", "DeviceN":
@@ -107,7 +107,7 @@ func LookupNamedColorSpace(name string, resources PDFDict) (PDFValue, bool) {
 	return v, ok
 }
 
-func resolveICCBased(arr PDFArray, comps []float64, resources PDFDict) (r, g, b float64) {
+func resolveICCBased(arr PDFArray, comps []float64) (r, g, b float64) {
 	if len(arr) < 2 {
 		return placeholderRGB(comps)
 	}

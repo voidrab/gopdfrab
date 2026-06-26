@@ -31,6 +31,11 @@ type ValidationContext struct {
 	// (glyph coverage) and 6.3.6 (advance width consistency) do not apply.
 	InvisibleOnlyFontPtrs map[uintptr]bool
 
+	// SkipUnusedSimpleFonts mirrors pdf.Profile.SkipUnusedSimpleFonts: when
+	// true, 6.3.4 simple-font embedding is only required for fonts that are
+	// actually used to show text (i.e. their pointer appears in UsedCharCodes).
+	SkipUnusedSimpleFonts bool
+
 	// UsedCharCodes maps a simple (non-composite) font's Entries-map pointer
 	// to the set of single-byte character codes actually passed to a
 	// text-showing operator somewhere in the document. A subset font's
@@ -95,6 +100,13 @@ func (ctx *ValidationContext) isInvisibleOnlyFont(v pdf.PDFDict) bool {
 		return false
 	}
 	return ctx.InvisibleOnlyFontPtrs[pdf.ValuePointer(v.Entries)]
+}
+
+// simpleFontShown reports whether v was used to show text (its pointer appears
+// in UsedCharCodes). Callers should check UsedCharCodes != nil first.
+func (ctx *ValidationContext) simpleFontShown(v pdf.PDFDict) bool {
+	_, known := ctx.UsedCharCodes[pdf.ValuePointer(v.Entries)]
+	return known
 }
 
 // usedCodesFor returns the character codes shown for font v and whether usage

@@ -88,6 +88,27 @@ func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
+// Post14ViewerPrefKeys lists ViewerPreferences keys introduced after PDF 1.4
+// that are not valid in a PDF/A-1 (1.4) file. Exported for use by the fixer.
+var Post14ViewerPrefKeys = []string{"PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"}
+
+// validateViewerPreferences flags ViewerPreferences keys not valid in PDF 1.4.
+func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
+	if (v.Entries["Type"] != pdf.PDFName{Value: "Catalog"}) {
+		return
+	}
+	vp, ok := v.Entries["ViewerPreferences"].(pdf.PDFDict)
+	if !ok {
+		return
+	}
+	for _, k := range Post14ViewerPrefKeys {
+		if vp.Entries[k] != nil {
+			ctx.Report(pdf.Checks.Structure.PostPDF14ViewerPref, v,
+				fmt.Sprintf("ViewerPreferences entry /%s requires PDF 1.5 or later", k))
+		}
+	}
+}
+
 // --- 6.2.8 Extended graphics state ---
 
 // validateExtGState checks an ExtGState dictionary for forbidden transfer
@@ -226,6 +247,22 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 
 // --- 6.5 Annotations ---
 
+// resolveInheritedFT returns the FT value for a widget by walking its Parent chain,
+// following AcroForm field-attribute inheritance (ISO 32000-1 12.7.3.4).
+func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
+	for range 20 {
+		if ft := v.Entries["FT"]; ft != nil {
+			return ft
+		}
+		parent, ok := v.Entries["Parent"].(pdf.PDFDict)
+		if !ok {
+			return nil
+		}
+		v = parent
+	}
+	return nil
+}
+
 // AllowedAnnotationTypes are the annotation subtypes permitted by PDF/A-1b (6.5.2).
 var AllowedAnnotationTypes = map[string]bool{
 	"Text": true, "Link": true, "FreeText": true, "Line": true, "Square": true,
@@ -285,7 +322,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	// 6.5.3: appearance dictionary, where present, shall contain only N, an
 	// appearance stream. Non-Popup/Link annotations require an appearance.
 	ap, hasAP := v.Entries["AP"].(pdf.PDFDict)
-	isFormField := v.Entries["FT"] != nil
+	isFormField := resolveInheritedFT(v) != nil
 	switch {
 	case !hasAP:
 		if subtype.Value != "Popup" && subtype.Value != "Link" {
@@ -308,7 +345,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 		if hasN {
-			isBtn := v.Entries["FT"] == (pdf.PDFName{Value: "Btn"})
+			isBtn := resolveInheritedFT(v) == (pdf.PDFName{Value: "Btn"})
 			if nd, ok := n.(pdf.PDFDict); !ok {
 				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream or subdictionary")
 			} else if isBtn {

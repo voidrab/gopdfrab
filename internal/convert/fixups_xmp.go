@@ -10,6 +10,7 @@ import (
 
 func init() {
 	registerPreemptiveFixup(regenerateXMP)
+	registerPreemptiveFixup(stripEmbeddedMetadata)
 }
 
 // regenerateXMP replaces the document's XMP metadata (Root/Metadata) with a
@@ -51,6 +52,31 @@ func regenerateXMP(trailer *pdf.PDFDict) error {
 
 	root.Entries["Metadata"] = meta
 	trailer.Entries["Root"] = root
+	return nil
+}
+
+// stripEmbeddedMetadata removes /Metadata from every non-catalog object.
+// PDF/A-1b requires exactly one metadata stream (Root/Metadata); non-catalog
+// /Type /Metadata streams violate 6.7.5 when they lack an xpacket wrapper.
+func stripEmbeddedMetadata(trailer *pdf.PDFDict) error {
+	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	var catalogMetaPtr uintptr
+	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok {
+		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
+	}
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		meta, ok := d.Entries["Metadata"].(pdf.PDFDict)
+		if !ok {
+			return
+		}
+		// Keep the catalog's metadata; strip all others.
+		if pdf.ValuePointer(meta.Entries) != catalogMetaPtr {
+			delete(d.Entries, "Metadata")
+		}
+	})
 	return nil
 }
 
@@ -148,24 +174,11 @@ func normalizePDFDate(s string) (string, bool) {
 	return out, true
 }
 
-// infoString reads a text value from the Info dictionary, decoding a hex
-// string the same way Document.GetMetadata does, and treating the literal
-// "null" keyword (how the parser resolves a PDF null) as absent. The value
-// is returned exactly as Document.GetMetadata would (no trimming): several
-// of checkInfoXMPSync's comparisons (Author/Creator/Producer/Keywords)
-// compare against that raw, untrimmed map value, so embedding a trimmed copy
-// here would desynchronize a value with incidental leading/trailing
-// whitespace even though it's otherwise identical.
+// infoString reads and decodes a text value from the Info dictionary, using
+// DecodeInfoTextString (literal escapes + PDFDocEncoding / UTF-16BE), so the
+// result matches what GetMetadata returns and checkInfoXMPSync compares against.
 func infoString(info pdf.PDFDict, key string) string {
-	var s string
-	switch v := info.Entries[key].(type) {
-	case pdf.PDFString:
-		s = pdf.DecodePDFTextString([]byte(v.Value))
-	case pdf.PDFHexString:
-		s = pdf.DecodePDFTextString(pdf.DecodePDFHexStringBytes(v.Value))
-	default:
-		return ""
-	}
+	s := pdf.DecodeInfoTextString(info.Entries[key])
 	if trimmed := strings.TrimSpace(s); trimmed == "" || trimmed == "null" {
 		return ""
 	}

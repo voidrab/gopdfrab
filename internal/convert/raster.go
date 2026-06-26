@@ -354,19 +354,19 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(verify.ShownStringBytes(op, operands), &gs)
 		case "'":
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(verify.ShownStringBytes(op, operands), &gs)
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(verify.ShownStringBytes(op, operands), &gs)
 		case "TJ":
-			r.showTextArray(operands, resources, &gs)
+			r.showTextArray(operands, &gs)
 		}
 	})
 }
@@ -626,7 +626,7 @@ func (r *renderer) applyTf(operands []pdf.PDFValue, resources pdf.PDFDict, gs *r
 // showTextArray implements TJ: strings are shown via showText, numeric
 // adjustments shift the text position by -adj/1000*fontSize*hScale (no
 // adjustment for vertical writing mode, out of scope).
-func (r *renderer) showTextArray(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
 	if len(operands) == 0 {
 		return
 	}
@@ -637,9 +637,9 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, resources pdf.PDFDict,
 	for _, item := range arr {
 		switch v := item.(type) {
 		case pdf.PDFString:
-			r.showText(pdf.DecodePDFLiteralStringBytes(v.Value), resources, gs)
+			r.showText(pdf.DecodePDFLiteralStringBytes(v.Value), gs)
 		case pdf.PDFHexString:
-			r.showText(pdf.DecodePDFHexStringBytes(v.Value), resources, gs)
+			r.showText(pdf.DecodePDFHexStringBytes(v.Value), gs)
 		default:
 			if adj, ok := pdf.PDFNumberToFloat(v); ok {
 				shift := -adj / 1000 * gs.fontSize * gs.hScale
@@ -652,11 +652,11 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, resources pdf.PDFDict,
 // showText paints each glyph in raw (decoded from the content stream) bytes
 // and advances gs.tm, mirroring the PDF text-showing algorithm (9.4.3): the
 // glyph displacement is (w0*fontSize + charSpace + wordSpace)*hScale.
-func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) {
+func (r *renderer) showText(raw []byte, gs *renderState) {
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
 	}
-	fi := r.fontInfoFor(gs.font, resources)
+	fi := r.fontInfoFor(gs.font)
 	if fi == nil {
 		return
 	}
@@ -712,17 +712,17 @@ type fontInfo struct {
 	glyphFor     func(code int) (GlyphPath, bool)
 }
 
-func (r *renderer) fontInfoFor(font pdf.PDFDict, resources pdf.PDFDict) *fontInfo {
+func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
 	key := pdf.ValuePointer(font.Entries)
 	if fi, ok := r.fontCache[key]; ok {
 		return fi
 	}
-	fi := buildFontInfo(font, resources)
+	fi := buildFontInfo(font)
 	r.fontCache[key] = fi
 	return fi
 }
 
-func buildFontInfo(font pdf.PDFDict, resources pdf.PDFDict) *fontInfo {
+func buildFontInfo(font pdf.PDFDict) *fontInfo {
 	if df, ok := font.Entries["DescendantFonts"].(pdf.PDFArray); ok && len(df) > 0 {
 		if desc, ok := df[0].(pdf.PDFDict); ok {
 			return buildCompositeFontInfo(desc)
@@ -792,11 +792,14 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 // then to outlines via the embedded font program.
 func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	fi := &fontInfo{bytesPerCode: 1, widths: map[int]float64{}}
-	firstChar := pdf.DictInt(font, "FirstChar", 0)
+	firstChar, fcOK := font.Entries["FirstChar"].(pdf.PDFInteger)
+	if !fcOK {
+		firstChar = 0
+	}
 	if widths, ok := font.Entries["Widths"].(pdf.PDFArray); ok {
 		for i, w := range widths {
 			if v, ok := pdf.PDFNumberToFloat(w); ok {
-				fi.widths[firstChar+i] = v
+				fi.widths[int(firstChar)+i] = v
 			}
 		}
 	}

@@ -171,5 +171,5 @@ func TestLZWStreamFixerRoundTripsThroughWriter(t *testing.T) {
 		t.Fatalf("ResolveGraph: %v", err)
 	}
 	gotPage := assertOnePageGraph(t, graph)
-	assertContentStream(t, doc, gotPage, string(plaintext))
+	assertContentStream(t, gotPage, string(plaintext))
 }

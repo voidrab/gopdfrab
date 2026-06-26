@@ -106,7 +106,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) int {
 		}
 		aw = int(binary.BigEndian.Uint16(hmtx[(nHM-1)*4:]))
 	}
-	return aw * 1000 / upm
+	return (aw*1000 + upm/2) / upm
 }
 
 // TTWindowsBMPCmap finds the platform 3 encoding 1 cmap subtable, or nil.
@@ -177,6 +177,85 @@ func ParseCmapFormat4(sub []byte) map[uint16]uint16 {
 		}
 	}
 	return result
+}
+
+// TTSymbolicCmap finds a platform-3/encoding-0 (Windows symbol) or
+// platform-1/encoding-0 (Mac) cmap subtable, preferring the Windows variant.
+func TTSymbolicCmap(tables map[string][]byte) []byte {
+	cmap := tables["cmap"]
+	if len(cmap) < 4 {
+		return nil
+	}
+	n := int(binary.BigEndian.Uint16(cmap[2:4]))
+	var mac []byte
+	for i := range n {
+		rec := cmap[4+i*8:]
+		if len(rec) < 8 {
+			break
+		}
+		platform := binary.BigEndian.Uint16(rec[0:2])
+		encoding := binary.BigEndian.Uint16(rec[2:4])
+		offset := int(binary.BigEndian.Uint32(rec[4:8]))
+		if offset+2 > len(cmap) {
+			continue
+		}
+		if platform == 3 && encoding == 0 {
+			return cmap[offset:]
+		}
+		if platform == 1 && encoding == 0 && mac == nil {
+			mac = cmap[offset:]
+		}
+	}
+	return mac
+}
+
+// ParseCmapFormat0 decodes a format-0 (byte array) cmap subtable into a code→GID map.
+func ParseCmapFormat0(sub []byte) map[uint16]uint16 {
+	if len(sub) < 262 || binary.BigEndian.Uint16(sub[0:2]) != 0 {
+		return nil
+	}
+	result := map[uint16]uint16{}
+	for i := 0; i < 256; i++ {
+		if gid := uint16(sub[6+i]); gid != 0 {
+			result[uint16(i)] = gid
+		}
+	}
+	return result
+}
+
+// ParseCmapFormat6 decodes a format-6 (trimmed table) cmap subtable into a code→GID map.
+func ParseCmapFormat6(sub []byte) map[uint16]uint16 {
+	if len(sub) < 10 || binary.BigEndian.Uint16(sub[0:2]) != 6 {
+		return nil
+	}
+	firstCode := int(binary.BigEndian.Uint16(sub[6:8]))
+	count := int(binary.BigEndian.Uint16(sub[8:10]))
+	if 10+count*2 > len(sub) {
+		return nil
+	}
+	result := map[uint16]uint16{}
+	for i := 0; i < count; i++ {
+		if gid := binary.BigEndian.Uint16(sub[10+i*2:]); gid != 0 {
+			result[uint16(firstCode+i)] = gid
+		}
+	}
+	return result
+}
+
+// ParseCmapSubtable decodes a cmap subtable of format 0, 4, or 6.
+func ParseCmapSubtable(sub []byte) map[uint16]uint16 {
+	if len(sub) < 2 {
+		return nil
+	}
+	switch binary.BigEndian.Uint16(sub[0:2]) {
+	case 0:
+		return ParseCmapFormat0(sub)
+	case 4:
+		return ParseCmapFormat4(sub)
+	case 6:
+		return ParseCmapFormat6(sub)
+	}
+	return nil
 }
 
 // WinAnsiGlyphName maps WinAnsiEncoding character codes 0–255 to Adobe glyph names.
@@ -265,6 +344,96 @@ func init() {
 	for cc, u := range special {
 		WinAnsiToUnicode[cc] = u
 	}
+}
+
+// GlyphNameUnicode maps Adobe glyph names to Unicode codepoints, covering
+// WinAnsiEncoding's repertoire plus supplemental names (fi/fl ligatures, etc.).
+var GlyphNameUnicode map[string]uint16
+
+var uniGlyphNameRe = regexp.MustCompile(`^uni([0-9A-Fa-f]{4})$`)
+
+func init() {
+	GlyphNameUnicode = make(map[string]uint16, 256)
+	for cc, name := range WinAnsiGlyphName {
+		if name != "" {
+			if _, ok := GlyphNameUnicode[name]; !ok {
+				GlyphNameUnicode[name] = WinAnsiToUnicode[cc]
+			}
+		}
+	}
+	for name, u := range map[string]uint16{
+		"quoteright": 0x2019, "quoteleft": 0x2018, "fraction": 0x2044,
+		"fi": 0xFB01, "fl": 0xFB02, "dotaccent": 0x02D9, "ring": 0x02DA,
+		"hungarumlaut": 0x02DD, "ogonek": 0x02DB, "caron": 0x02C7,
+		"Lslash": 0x0141, "lslash": 0x0142, "dotlessi": 0x0131,
+		"florin": 0x0192, "breve": 0x02D8, "acute": 0x00B4, "macron": 0x00AF,
+	} {
+		if _, ok := GlyphNameUnicode[name]; !ok {
+			GlyphNameUnicode[name] = u
+		}
+	}
+}
+
+// GlyphNameToUnicode resolves an Adobe glyph name to a Unicode codepoint using
+// GlyphNameUnicode and the "uniXXXX" naming convention.
+func GlyphNameToUnicode(name string) (uint16, bool) {
+	if u, ok := GlyphNameUnicode[name]; ok {
+		return u, true
+	}
+	if m := uniGlyphNameRe.FindStringSubmatch(name); m != nil {
+		if v, err := strconv.ParseUint(m[1], 16, 32); err == nil {
+			return uint16(v), true
+		}
+	}
+	return 0, false
+}
+
+// SimpleFontCodeToUnicode resolves a simple font's /Encoding (a name or dict
+// with optional /Differences) to a 256-entry code→Unicode table.
+func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
+	var table [256]uint16
+	applyBase := func(name string) {
+		switch name {
+		case "WinAnsiEncoding":
+			table = WinAnsiToUnicode
+		default: // MacRomanEncoding, StandardEncoding, or unspecified
+			for cc, n := range StandardEncoding {
+				if n != "" {
+					if u, ok := GlyphNameToUnicode(n); ok {
+						table[cc] = u
+					}
+				}
+			}
+		}
+	}
+	switch e := enc.(type) {
+	case pdf.PDFName:
+		applyBase(e.Value)
+	case pdf.PDFDict:
+		base, _ := e.Entries["BaseEncoding"].(pdf.PDFName)
+		applyBase(base.Value)
+		if diffs, ok := e.Entries["Differences"].(pdf.PDFArray); ok {
+			code := 0
+			for _, item := range diffs {
+				switch d := item.(type) {
+				case pdf.PDFInteger:
+					code = int(d)
+				case pdf.PDFName:
+					if code >= 0 && code < 256 {
+						if u, ok := GlyphNameToUnicode(d.Value); ok {
+							table[code] = u
+						} else {
+							table[code] = 0
+						}
+					}
+					code++
+				}
+			}
+		}
+	default:
+		applyBase("WinAnsiEncoding")
+	}
+	return table
 }
 
 // validateType1SubsetCoverage verifies that every used character code maps to
@@ -576,16 +745,6 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 		}
 	}
 	return td, true
-}
-
-// parseCFFCharStringsCount parses a CFF binary stream and returns the number
-// of entries in the CharStrings INDEX. Returns -1 on parse failure.
-func parseCFFCharStringsCount(cff []byte) int {
-	td, ok := ParseCFFTopDict(cff)
-	if !ok || td.CSOffset < 0 || td.CSOffset+2 > len(cff) {
-		return -1
-	}
-	return int(binary.BigEndian.Uint16(cff[td.CSOffset : td.CSOffset+2]))
 }
 
 // ParseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
@@ -997,26 +1156,50 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 		return
 	}
 
-	cmapSub := TTWindowsBMPCmap(tables)
-	if cmapSub == nil {
-		return
+	// Build encoding-aware code→unicode table from the font's /Encoding.
+	var enc pdf.PDFValue
+	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
+		enc = fontDict.Entries["Encoding"]
 	}
-	gidMap := ParseCmapFormat4(cmapSub)
-	if gidMap == nil {
-		return
+	codeToUnicode := SimpleFontCodeToUnicode(enc)
+
+	winCmap := TTWindowsBMPCmap(tables)
+	var winGIDMap map[uint16]uint16
+	if winCmap != nil {
+		winGIDMap = ParseCmapFormat4(winCmap)
 	}
+	symGIDMap := ParseCmapSubtable(TTSymbolicCmap(tables))
 	numGlyphs := TTNumGlyphs(tables)
 
+	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
+	codeToGID := func(cc int) (int, bool) {
+		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
+			gid, exists := winGIDMap[u]
+			if exists {
+				return int(gid), true
+			}
+			// Unicode is known but not in (3,1) cmap: glyph definitively absent.
+			return 0, true
+		}
+		// Fall back to symbolic (3,0)/(1,0) cmap with raw code or PUA offset.
+		if symGIDMap != nil {
+			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
+				if gid, exists := symGIDMap[candidate]; exists {
+					return int(gid), true
+				}
+			}
+		}
+		return 0, false // Cannot determine GID — skip.
+	}
+
 	checkCode := func(cc int) bool {
-		unicode := WinAnsiToUnicode[cc]
-		if unicode == 0 {
+		gid, known := codeToGID(cc)
+		if !known {
 			return true
 		}
-		gid, exists := gidMap[unicode]
-		// GID 0 is .notdef (character not in subset); absent outline data
-		// for whitespace glyphs is still conformant.
-		if !exists || gid == 0 || (numGlyphs > 0 && int(gid) >= numGlyphs) {
-			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, unicode))
+		if gid == 0 || (numGlyphs > 0 && gid >= numGlyphs) {
+			u := codeToUnicode[cc]
+			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, u))
 			return false
 		}
 		return true
@@ -1054,7 +1237,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 
 // validateSimpleTrueTypeMetrics checks that advance widths in the PDF Widths
 // array match the embedded TrueType hmtx table (6.3.6).
-func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
+func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
@@ -1063,14 +1246,38 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, 
 	if !ok {
 		return
 	}
-	cmapSub := TTWindowsBMPCmap(tables)
-	if cmapSub == nil {
-		return
+
+	var enc pdf.PDFValue
+	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
+		enc = fontDict.Entries["Encoding"]
 	}
-	gidMap := ParseCmapFormat4(cmapSub)
-	if gidMap == nil {
-		return
+	codeToUnicode := SimpleFontCodeToUnicode(enc)
+
+	winCmap := TTWindowsBMPCmap(tables)
+	var winGIDMap map[uint16]uint16
+	if winCmap != nil {
+		winGIDMap = ParseCmapFormat4(winCmap)
 	}
+	symGIDMap := ParseCmapSubtable(TTSymbolicCmap(tables))
+
+	codeToGID := func(cc int) (int, bool) {
+		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
+			gid, exists := winGIDMap[u]
+			if exists {
+				return int(gid), true
+			}
+			return 0, false // Missing from cmap — width cannot be verified.
+		}
+		if symGIDMap != nil {
+			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
+				if gid, exists := symGIDMap[candidate]; exists {
+					return int(gid), true
+				}
+			}
+		}
+		return 0, false
+	}
+
 	for i, w := range widths {
 		var pdfWidth int
 		switch wv := w.(type) {
@@ -1084,22 +1291,17 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, 
 		if pdfWidth == 0 {
 			continue
 		}
-		cc := firstChar + i
-		unicode := WinAnsiToUnicode[cc]
-		if unicode == 0 {
+		gid, known := codeToGID(firstChar + i)
+		if !known {
 			continue
 		}
-		gid, exists := gidMap[unicode]
-		if !exists {
-			continue
-		}
-		fontWidth := TTAdvanceWidth(tables, int(gid))
+		fontWidth := TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 {
 			continue
 		}
 		if pdf.AbsInt(fontWidth-pdfWidth) > 1 {
 			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %d",
-				cc, pdfWidth, fontWidth))
+				firstChar+i, pdfWidth, fontWidth))
 			return
 		}
 	}
@@ -1368,7 +1570,7 @@ var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
-func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
+func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
 	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return

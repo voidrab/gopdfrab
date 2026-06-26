@@ -186,99 +186,9 @@ func ttScaledCapHeight(tables map[string][]byte, fallback int) int {
 
 // --- Simple font (Type1/MMType1/TrueType) substitution ---
 
-// glyphNameUnicode maps common Adobe glyph names to Unicode, covering
-// WinAnsiEncoding's repertoire plus the handful of StandardEncoding names it
-// doesn't share -- enough for the overwhelming majority of real-world
-// /Differences entries. Built from the project's existing verify.WinAnsiGlyphName/
-// verify.WinAnsiToUnicode tables (checks_font_program.go) rather than duplicating
-// them by hand.
-var glyphNameUnicode map[string]uint16
-
-func init() {
-	glyphNameUnicode = make(map[string]uint16, 256)
-	for cc, name := range verify.WinAnsiGlyphName {
-		if name != "" {
-			glyphNameUnicode[name] = verify.WinAnsiToUnicode[cc]
-		}
-	}
-	for name, u := range map[string]uint16{
-		"quoteright": 0x2019, "quoteleft": 0x2018, "fraction": 0x2044,
-		"fi": 0xFB01, "fl": 0xFB02, "dotaccent": 0x02D9, "ring": 0x02DA,
-		"hungarumlaut": 0x02DD, "ogonek": 0x02DB, "caron": 0x02C7,
-		"Lslash": 0x0141, "lslash": 0x0142, "dotlessi": 0x0131,
-		"florin": 0x0192, "breve": 0x02D8, "acute": 0x00B4, "macron": 0x00AF,
-	} {
-		if _, ok := glyphNameUnicode[name]; !ok {
-			glyphNameUnicode[name] = u
-		}
-	}
-}
-
-// uniGlyphNameRe matches the Adobe "uniXXXX" glyph-name convention for an
-// otherwise-unlisted name's Unicode value.
-var uniGlyphNameRe = regexp.MustCompile(`^uni([0-9A-Fa-f]{4})$`)
-
-func glyphNameToUnicode(name string) (uint16, bool) {
-	if u, ok := glyphNameUnicode[name]; ok {
-		return u, true
-	}
-	if m := uniGlyphNameRe.FindStringSubmatch(name); m != nil {
-		if v, err := strconv.ParseUint(m[1], 16, 32); err == nil {
-			return uint16(v), true
-		}
-	}
-	return 0, false
-}
-
-// simpleFontCodeToUnicode resolves a simple font's effective encoding (a
-// base encoding name, or a /Differences dict layered over one) to a
-// code->Unicode table, mirroring the resolution validateType1SubsetCoverage
-// (checks_font_program.go) already does for CharSet checking.
+// simpleFontCodeToUnicode delegates to verify.SimpleFontCodeToUnicode.
 func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
-	var table [256]uint16
-	applyBase := func(name string) {
-		switch name {
-		case "WinAnsiEncoding":
-			table = verify.WinAnsiToUnicode
-		default: // MacRomanEncoding, StandardEncoding, or unspecified
-			for cc, n := range verify.StandardEncoding {
-				if n != "" {
-					if u, ok := glyphNameToUnicode(n); ok {
-						table[cc] = u
-					}
-				}
-			}
-		}
-	}
-	switch e := enc.(type) {
-	case pdf.PDFName:
-		applyBase(e.Value)
-	case pdf.PDFDict:
-		base, _ := e.Entries["BaseEncoding"].(pdf.PDFName)
-		applyBase(base.Value)
-		if diffs, ok := e.Entries["Differences"].(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						u, ok := glyphNameToUnicode(d.Value)
-						if ok {
-							table[code] = u
-						} else {
-							table[code] = 0
-						}
-					}
-					code++
-				}
-			}
-		}
-	default:
-		applyBase("WinAnsiEncoding")
-	}
-	return table
+	return verify.SimpleFontCodeToUnicode(enc)
 }
 
 // simpleFontUsedUnicodes resolves the Unicode values a simple font dict
@@ -308,10 +218,18 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 	}
 	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
 	widths, _ := d.Entries["Widths"].(pdf.PDFArray)
-	for i, w := range widths {
-		if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
-			add(int(firstChar) + i)
+	if len(widths) > 0 {
+		for i, w := range widths {
+			if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
+				add(int(firstChar) + i)
+			}
 		}
+		return result
+	}
+	// No tracked usage and no Widths (e.g. a standard Type1 in AcroForm/DR):
+	// assume every character in the encoding may be needed.
+	for cc := range codeToUnicode {
+		add(cc)
 	}
 	return result
 }
@@ -389,9 +307,10 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 	}
 	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
 
-	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
-	lastChar, _ := d.Entries["LastChar"].(pdf.PDFInteger)
-	if lastChar < firstChar {
+	firstChar, fcOK := d.Entries["FirstChar"].(pdf.PDFInteger)
+	lastChar, lcOK := d.Entries["LastChar"].(pdf.PDFInteger)
+	if !fcOK || !lcOK || lastChar < firstChar {
+		// Standard Type1 fonts in AcroForm/DR have no FirstChar/LastChar.
 		firstChar, lastChar = 0, 255
 	}
 	widths := make(pdf.PDFArray, int(lastChar-firstChar)+1)
@@ -558,11 +477,12 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	}
 
 	// Only CIDs whose Unicode resolves to a real glyph in the substitute
-	// face get a target GID -- the rest become empty placeholder glyphs
+	// face get target GIDs -- the rest become empty placeholder glyphs
 	// that subsetTrueTypeForCID never assigns, so they must be excluded here
 	// too rather than left for it to silently skip.
-	targetGID := map[uint16]int{}
-	cidForUnicode := map[uint16]int{}
+	// Multiple CIDs can share the same Unicode (e.g. stylistic duplicates);
+	// each needs its own GID slot in the subset, so we collect a list per Unicode.
+	targetCIDs := map[uint16][]int{}
 	for c := range cids {
 		u, ok := cidToUnicode[c]
 		if !ok {
@@ -571,14 +491,13 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		if _, ok := faceCmap[u]; !ok {
 			continue
 		}
-		targetGID[u] = c
-		cidForUnicode[u] = c
+		targetCIDs[u] = append(targetCIDs[u], c)
 	}
-	if len(targetGID) == 0 {
+	if len(targetCIDs) == 0 {
 		return false
 	}
 
-	subset, err := subsetTrueTypeForCID(face.data, targetGID)
+	subset, err := subsetTrueTypeForCID(face.data, targetCIDs)
 	if err != nil {
 		return false
 	}
@@ -588,9 +507,11 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	}
 
 	var widthPairs [][2]int
-	for _, c := range cidForUnicode {
-		if aw := verify.TTAdvanceWidth(tables, c); aw >= 0 {
-			widthPairs = append(widthPairs, [2]int{c, aw})
+	for _, cidList := range targetCIDs {
+		for _, c := range cidList {
+			if aw := verify.TTAdvanceWidth(tables, c); aw >= 0 {
+				widthPairs = append(widthPairs, [2]int{c, aw})
+			}
 		}
 	}
 	if len(widthPairs) == 0 {
@@ -602,6 +523,11 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
 	cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
 	cid.Entries["W"] = buildCIDWidthsArray(widthPairs)
+	// CIDs excluded from the subset (unmapped by ToUnicode or absent from the
+	// Liberty face) land on placeholder GIDs with advance width 0; set DW=0
+	// so /W-absent CIDs match that placeholder rather than inheriting the
+	// original DW (typically 1000) which would cause 6.3.6 failures.
+	cid.Entries["DW"] = pdf.PDFInteger(0)
 	return true
 }
 
@@ -678,10 +604,7 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 // fontSubstitutionFixer remediates SubsetGlyphCoverage, SimpleNotEmbedded,
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
 // face wherever a font's own program is missing, damaged, or doesn't cover
-// a glyph it needs (see this file's header comment). SimpleNotEmbedded is
-// claimed for completeness against stricter profiles, but the default
-// PDFA_1B profile excuses it (profile.go), so it never actually reaches
-// Convert's loop today.
+// a glyph it needs (see this file's header comment).
 type fontSubstitutionFixer struct{}
 
 func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
@@ -704,6 +627,11 @@ func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (b
 		}
 		switch subtype, _ := d.Entries["Subtype"].(pdf.PDFName); subtype.Value {
 		case "Type1", "MMType1", "TrueType":
+			// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
+			// create a synthetic one so substituteSimpleFont can proceed.
+			if d.Entries["FontDescriptor"] == nil {
+				d.Entries["FontDescriptor"] = pdf.NewPDFDict()
+			}
 			if substituteSimpleFont(d, usedCodes) {
 				changed = true
 			}

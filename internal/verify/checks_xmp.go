@@ -186,12 +186,12 @@ func checkExtensionSchemas(xmp string) []pdf.PDFError {
 	}
 
 	// Deep structural validation via XML parsing.
-	errs = append(errs, validateExtSchemas([]byte(xmp), bindPrefixToURI)...)
+	errs = append(errs, validateExtSchemas([]byte(xmp))...)
 	return errs
 }
 
 // validateExtSchemas parses and validates the pdfaExtension:schemas structure.
-func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []pdf.PDFError {
+func validateExtSchemas(data []byte) []pdf.PDFError {
 	// Strip leading BOM / whitespace to make a valid XML fragment.
 	if i := bytes.IndexByte(data, '<'); i > 0 {
 		data = data[i:]
@@ -233,7 +233,7 @@ func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []pdf.PD
 	docNS := map[string]bool{}
 	for _, s := range schemas {
 		docNS[s.namespaceURI] = true
-		errs = append(errs, validateExtSchema(s, bindPrefixToURI, string(data))...)
+		errs = append(errs, validateExtSchema(s, string(data))...)
 	}
 
 	return errs
@@ -566,7 +566,7 @@ func xmlSkipElem(dec *xml.Decoder) {
 }
 
 // validateExtSchema validates one extension schema entry.
-func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp string) []pdf.PDFError {
+func validateExtSchema(s extSchema, xmp string) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	definedTypes := map[string]bool{}
@@ -705,6 +705,60 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	errs = append(errs, checkInfoXMPSync(d, xmp)...)
 	errs = append(errs, checkExtensionSchemas(xmp)...)
 
+	return errs
+}
+
+// checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
+// that lack an xpacket wrapper (6.7.5), resolving violations the converter
+// strips via stripEmbeddedMetadata.
+func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
+	trailer, ok := graph.(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	var catalogMetaPtr uintptr
+	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok && meta.HasStream {
+		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
+	}
+
+	var errs []pdf.PDFError
+	visited := make(map[uintptr]bool)
+	var walk func(v pdf.PDFValue)
+	walk = func(v pdf.PDFValue) {
+		switch val := v.(type) {
+		case pdf.PDFDict:
+			ptr := pdf.ValuePointer(val.Entries)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			if val.HasStream && val.Entries["Type"] == (pdf.PDFName{Value: "Metadata"}) &&
+				ptr != catalogMetaPtr {
+				data, err := pdf.DecodeStream(val)
+				if err != nil || !xpacketRe.Match(data) {
+					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
+						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
+				}
+			}
+			for _, child := range val.Entries {
+				walk(child)
+			}
+		case pdf.PDFArray:
+			ptr := pdf.ValuePointer(val)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			for _, item := range val {
+				walk(item)
+			}
+		}
+	}
+	walk(graph)
 	return errs
 }
 

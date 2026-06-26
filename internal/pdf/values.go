@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // ValuePointer returns the identity pointer of a PDFDict's Entries map or a
@@ -103,15 +104,43 @@ func DecodePDFLiteralStringBytes(s string) []byte {
 	return out
 }
 
+// pdfDocEncoding80s maps PDFDocEncoding bytes 0x80–0x9F to Unicode codepoints
+// (per ISO 32000-1 Annex D). 0x9F is undefined; all others have explicit mappings.
+var pdfDocEncoding80s = [32]rune{
+	0x2022, 0x2020, 0x2021, 0x2026, 0x2014, 0x2013, 0x0192, 0x2044,
+	0x2039, 0x203A, 0x2212, 0x2030, 0x201E, 0x201C, 0x201D, 0x2018,
+	0x2019, 0x201A, 0x2122, 0xFB01, 0xFB02, 0x0141, 0x0152, 0x0160,
+	0x0178, 0x017D, 0x0131, 0x0142, 0x0153, 0x0161, 0x017E, 0xFFFD,
+}
+
+// decodePDFDocEncoding converts raw PDFDocEncoding bytes to a UTF-8 string.
+// 0x00–0x7F are ASCII-identical; 0x80–0x9F use pdfDocEncoding80s; 0xA0–0xFF
+// map directly to the same Unicode codepoints (Latin-1 range).
+func decodePDFDocEncoding(raw []byte) string {
+	var b strings.Builder
+	b.Grow(len(raw))
+	var tmp [4]byte
+	for _, c := range raw {
+		var r rune
+		switch {
+		case c <= 0x7F:
+			r = rune(c)
+		case c >= 0xA0:
+			r = rune(c) // Latin-1 = Unicode
+		default:
+			r = pdfDocEncoding80s[c-0x80]
+		}
+		n := utf8.EncodeRune(tmp[:], r)
+		b.Write(tmp[:n])
+	}
+	return b.String()
+}
+
 // DecodePDFTextString decodes a PDF text string's bytes per 7.9.2.2: a leading
-// 0xFE 0xFF byte-order mark means the rest is UTF-16BE, otherwise the bytes are
-// returned as-is (PDFDocEncoding, treated as raw single-byte text by this
-// package), with any invalid UTF-8 byte replaced so the result is always
-// well-formed -- both call sites must apply this identically, so the
-// replacement happens here rather than where the value is later embedded in XML.
+// 0xFE 0xFF BOM means the rest is UTF-16BE; otherwise bytes are PDFDocEncoding.
 func DecodePDFTextString(raw []byte) string {
 	if len(raw) < 2 || raw[0] != 0xFE || raw[1] != 0xFF {
-		return strings.ToValidUTF8(string(raw), "�")
+		return decodePDFDocEncoding(raw)
 	}
 	raw = raw[2:]
 	if len(raw)%2 != 0 {
@@ -122,6 +151,20 @@ func DecodePDFTextString(raw []byte) string {
 		u16[i] = uint16(raw[i*2])<<8 | uint16(raw[i*2+1])
 	}
 	return string(utf16.Decode(u16))
+}
+
+// DecodeInfoTextString decodes a PDFString or PDFHexString Info-dictionary value
+// to Unicode: literal-string escapes are decoded first, then the bytes are
+// interpreted as a PDF text string (UTF-16BE with BOM, otherwise PDFDocEncoding).
+// Returns "" for any other value type.
+func DecodeInfoTextString(v PDFValue) string {
+	switch s := v.(type) {
+	case PDFString:
+		return DecodePDFTextString(DecodePDFLiteralStringBytes(s.Value))
+	case PDFHexString:
+		return DecodePDFTextString(DecodePDFHexStringBytes(s.Value))
+	}
+	return ""
 }
 
 // DecodePDFHexStringBytes decodes a hex string's digit characters into bytes,

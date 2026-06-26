@@ -240,6 +240,7 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 	case v.Entries["Type"] == pdf.PDFName{Value: "Page"}:
 		ctx.pageResources = resources
 		scanContentValue(v.Entries["Contents"], resources, ctx)
+		scanAnnotAppearances(v, ctx)
 	case v.Entries["PatternType"] == pdf.PDFInteger(1) && v.HasStream:
 		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).
 		scanContentDict(v, resources, ctx)
@@ -253,6 +254,54 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 			for _, proc := range cp.Entries {
 				if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
 					scanContentDict(pd, resources, ctx)
+				}
+			}
+		}
+	}
+}
+
+// scanAnnotAppearances scans the normal (N) appearance streams of every annotation
+// on a page for content-stream violations (e.g. device-colour usage, 6.2.3.3).
+// Appearance streams have their own resource scope; page Default* must not excuse
+// their device-colour usage (PDF/A-1b clause 6.2.3.3, as enforced by veraPDF).
+func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
+	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	saved := ctx.pageResources
+	ctx.pageResources = pdf.PDFDict{}
+	defer func() { ctx.pageResources = saved }()
+	for _, item := range annots {
+		annot, ok := item.(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		scanAPEntry(ap.Entries["N"], ctx)
+	}
+}
+
+// scanAPEntry scans one /AP entry: either a single stream or a subdictionary
+// of appearance states (Btn widget).
+func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
+	switch v := n.(type) {
+	case pdf.PDFDict:
+		if v.HasStream {
+			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+			scanContentDict(v, apRes, ctx)
+		} else {
+			// Subdictionary of appearance states.
+			for k, sv := range v.Entries {
+				if k == "_ref" {
+					continue
+				}
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+					scanContentDict(sd, apRes, ctx)
 				}
 			}
 		}

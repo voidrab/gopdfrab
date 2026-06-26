@@ -24,6 +24,12 @@ type Profile struct {
 	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy_1B keeps this
 	// false; PDFA_1B sets it true to match veraPDF's lenient interpretation.
 	SkipUnreachableXObjects bool
+
+	// SkipUnusedSimpleFonts, when true, only reports 6.3.4 (SimpleNotEmbedded)
+	// for simple fonts actually shown in content. Fonts in AcroForm /DR that
+	// are never drawn are silently ignored, matching veraPDF's interpretation.
+	// Legacy_1B keeps this false so every referenced non-embedded font is flagged.
+	SkipUnusedSimpleFonts bool
 }
 
 // PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
@@ -42,14 +48,14 @@ func init() {
 	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
 	// out-of-scope (6.2.3.3, 6.2.10); 6.2.7 PostScript XObject checks are
 	// disabled (veraPDF's own corpus intentionally includes one in a pass
-	// file); and standard Type1 fonts referenced only in AcroForm DR/widget DA
-	// strings aren't flagged as unembedded (6.3.4/1).
+	// file); 6.3.4 simple-font embedding is only required for fonts actually
+	// shown in content (SkipUnusedSimpleFonts), not for fonts in AcroForm /DR.
 	PDFA_1B = NewFullProfile(A_1B)
 	PDFA_1B.SkipUnreachableXObjects = true
+	PDFA_1B.SkipUnusedSimpleFonts = true
 	PDFA_1B = PDFA_1B.RemoveCheck(
 		Checks.Image.FormPostScript,
 		Checks.Image.PostScriptXObject,
-		Checks.Font.SimpleNotEmbedded,
 	)
 }
 
@@ -75,18 +81,21 @@ func (p *Profile) Clone() *Profile {
 		Level:                   p.Level,
 		enabled:                 make(map[int]bool, len(p.enabled)),
 		SkipUnreachableXObjects: p.SkipUnreachableXObjects,
+		SkipUnusedSimpleFonts:   p.SkipUnusedSimpleFonts,
 	}
 	maps.Copy(out.enabled, p.enabled)
 	return out
 }
 
 // Clear returns a new profile with the same conformance level but no checks
-// enabled. Behavioral flags (SkipUnreachableXObjects) are preserved.
+// enabled. Behavioral flags (SkipUnreachableXObjects, SkipUnusedSimpleFonts)
+// are preserved.
 func (p *Profile) Clear() *Profile {
 	return &Profile{
 		Level:                   p.Level,
 		enabled:                 make(map[int]bool),
 		SkipUnreachableXObjects: p.SkipUnreachableXObjects,
+		SkipUnusedSimpleFonts:   p.SkipUnusedSimpleFonts,
 	}
 }
 
