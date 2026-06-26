@@ -310,6 +310,11 @@ Due to JVM startup overhead, the startup time and single file verification throu
 The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
 If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy_1B` profile.
 
+## Licensing
+
+This work is dual-licensed under GNU AGPL 3.0 and our commercial license.
+[Get in touch](mailto:contact@voidrab.com) for more information about our commercial licensing options.
+
 ## Contributing
 
 Contributions are welcome! Whether it's a bug report, a failing test file, a new check, or a performance improvement — all of it helps.
@@ -319,4 +324,4 @@ Contributions are welcome! Whether it's a bug report, a failing test file, a new
 - **New checks** — if you have a PDF document that contains properties which aren't covered yet, open an issue first so we can agree on the approach before you write the code.
 - **Test files** — if you have PDFs that expose edge cases or regressions, attach them to an issue.
 
-All contributions are made under the [project license](LICENSE).
+All contributions are made under the [AGPL](LICENSE).
