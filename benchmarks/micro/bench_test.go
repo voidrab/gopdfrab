@@ -154,10 +154,7 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // maxConvertLargeAllocs is a regression ceiling on allocations for one
 // ConvertBytes pass over the "large" sample. Conversion re-parses the graph
 // once per verify pass, so this tracks the pass count as much as per-object
-// cost: it dropped from ~5.87M (two verify passes) to ~3.52M after the
-// always-safe pagesTreeArrayFixer was moved into the pre-emptive phase, so the
-// page-tree split happens before the first verify and the document converges
-// in one pass instead of two (fixups_limits.go). Deterministic, so not flaky.
+// cost.
 // Lower this value if further optimization reduces it.
 const maxConvertLargeAllocs = 3_700_000
 

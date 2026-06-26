@@ -578,6 +578,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (reachable 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
 				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
 				collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu)
+				collectAnnotAppearanceUsage(ctx, val, reachable, fu)
 				return
 			}
 			for _, child := range val.Entries {
@@ -603,6 +604,46 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (reachable 
 		}
 	}
 	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs
+}
+
+// collectAnnotAppearanceUsage marks XObjects reachable via annotation
+// appearance streams so validateContentStreams will scan their colour usage.
+func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	for _, item := range annots {
+		annot, ok := item.(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu)
+	}
+}
+
+func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) {
+	switch v := n.(type) {
+	case pdf.PDFDict:
+		if v.HasStream {
+			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+			collectContentUsage(ctx, v, apRes, reachable, fu)
+		} else {
+			for k, sv := range v.Entries {
+				if k == "_ref" {
+					continue
+				}
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+					collectContentUsage(ctx, sd, apRes, reachable, fu)
+				}
+			}
+		}
+	}
 }
 
 func collectContentUsage(ctx *ValidationContext, contents pdf.PDFValue, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {

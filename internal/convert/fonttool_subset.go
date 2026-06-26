@@ -93,7 +93,7 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 // expected to have already filtered for resolvability). Any output GID in
 // [0, max(targetGID)] not assigned a glyph this way becomes an empty
 // placeholder, since /W only ever references the CIDs the caller asked for.
-func subsetTrueTypeForCID(src []byte, targetGID map[uint16]int) ([]byte, error) {
+func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
 	tables, ok := verify.ParseSfnt(src)
 	if !ok {
 		return nil, fmt.Errorf("subsetTrueTypeForCID: not a valid sfnt")
@@ -106,9 +106,11 @@ func subsetTrueTypeForCID(src []byte, targetGID map[uint16]int) ([]byte, error) 
 	remap := map[int]int{}
 	oldGIDOf := map[int]int{}
 	maxGID := 0
-	for _, target := range targetGID {
-		if target > maxGID {
-			maxGID = target
+	for _, targets := range targetCIDs {
+		for _, target := range targets {
+			if target > maxGID {
+				maxGID = target
+			}
 		}
 	}
 	nextClosureGID := maxGID + 1
@@ -118,9 +120,11 @@ func subsetTrueTypeForCID(src []byte, targetGID map[uint16]int) ([]byte, error) 
 		oldGIDOf[newGID] = oldGID
 		queue = append(queue, oldGID)
 	}
-	for u, target := range targetGID {
+	for u, targets := range targetCIDs {
 		if oldGID, ok := gidMap[u]; ok {
-			place(int(oldGID), target)
+			for _, target := range targets {
+				place(int(oldGID), target)
+			}
 		}
 	}
 	for len(queue) > 0 {

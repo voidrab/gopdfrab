@@ -96,9 +96,26 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if !ok {
 		return false
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
-	if gidMap == nil {
-		return false
+
+	codeToUnicode := verify.SimpleFontCodeToUnicode(v.Entries["Encoding"])
+	winGIDMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	symGIDMap := verify.ParseCmapSubtable(verify.TTSymbolicCmap(tables))
+
+	codeToGID := func(cc int) (int, bool) {
+		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
+			if gid, ok := winGIDMap[u]; ok {
+				return int(gid), true
+			}
+			return 0, false
+		}
+		if symGIDMap != nil {
+			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
+				if gid, ok := symGIDMap[candidate]; ok {
+					return int(gid), true
+				}
+			}
+		}
+		return 0, false
 	}
 
 	changed := false
@@ -111,11 +128,11 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		if cc < 0 || cc > 255 {
 			continue
 		}
-		gid, exists := gidMap[verify.WinAnsiToUnicode[cc]]
-		if !exists {
+		gid, known := codeToGID(cc)
+		if !known {
 			continue
 		}
-		fontWidth := verify.TTAdvanceWidth(tables, int(gid))
+		fontWidth := verify.TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 || pdf.AbsInt(fontWidth-pdfWidth) <= 1 {
 			continue
 		}

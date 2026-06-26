@@ -262,11 +262,16 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 
 // scanAnnotAppearances scans the normal (N) appearance streams of every annotation
 // on a page for content-stream violations (e.g. device-colour usage, 6.2.3.3).
+// Appearance streams have their own resource scope; page Default* must not excuse
+// their device-colour usage (PDF/A-1b clause 6.2.3.3, as enforced by veraPDF).
 func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
 	if !ok {
 		return
 	}
+	saved := ctx.pageResources
+	ctx.pageResources = pdf.PDFDict{}
+	defer func() { ctx.pageResources = saved }()
 	for _, item := range annots {
 		annot, ok := item.(pdf.PDFDict)
 		if !ok {
