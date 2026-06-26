@@ -148,7 +148,7 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 	computeColourCoverage(d, ctx)
 
-	verifyDocument(d, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs = ctx.errs
 	if errs != nil {
 		issues = append(issues, errs...)
@@ -462,7 +462,7 @@ func verifyDocumentInformationDictionary(d *pdf.Reader) []pdf.PDFError {
 }
 
 // verifyDocument verifies requirements outlined in 6.1.6, 6.1.7, 6.1.11, 6.1.12.
-func verifyDocument(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) {
+func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
 	var walk func(node any)
@@ -1106,12 +1106,6 @@ func ValidateICCProfileStream(dict pdf.PDFDict) error {
 	if !iccValidColorSpaces[colorSpace] {
 		return fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)
 	}
-	return nil
-}
-
-// verifyGeneralColourSpaces verifies requirements outlined in 6.2.3.1
-func verifyGeneralColourSpaces(d *pdf.Reader) []pdf.PDFError {
-	// TODO check if document has OutputIntent or direct use of device-independent colour space
 	return nil
 }
 

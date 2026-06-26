@@ -121,7 +121,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 }
 
 // assertContentStream decodes page's /Contents stream and checks it matches want.
-func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
+func assertContentStream(t *testing.T, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries["Contents"].(pdf.PDFDict)
 	if !ok || !contents.HasStream {

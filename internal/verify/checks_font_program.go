@@ -106,7 +106,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) int {
 		}
 		aw = int(binary.BigEndian.Uint16(hmtx[(nHM-1)*4:]))
 	}
-	return aw * 1000 / upm
+	return (aw*1000 + upm/2) / upm
 }
 
 // TTWindowsBMPCmap finds the platform 3 encoding 1 cmap subtable, or nil.
@@ -578,16 +578,6 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	return td, true
 }
 
-// parseCFFCharStringsCount parses a CFF binary stream and returns the number
-// of entries in the CharStrings INDEX. Returns -1 on parse failure.
-func parseCFFCharStringsCount(cff []byte) int {
-	td, ok := ParseCFFTopDict(cff)
-	if !ok || td.CSOffset < 0 || td.CSOffset+2 > len(cff) {
-		return -1
-	}
-	return int(binary.BigEndian.Uint16(cff[td.CSOffset : td.CSOffset+2]))
-}
-
 // ParseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
 // here instead of SIDs) and returns the CID for each glyph ID. Returns nil
 // for predefined charsets (offsets 0-2) or on parse failure.
@@ -1054,7 +1044,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 
 // validateSimpleTrueTypeMetrics checks that advance widths in the PDF Widths
 // array match the embedded TrueType hmtx table (6.3.6).
-func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
+func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
@@ -1368,7 +1358,7 @@ var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
-func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
+func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
 	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return

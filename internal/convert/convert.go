@@ -7,7 +7,6 @@ package convert
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"runtime"
 	"sync"
 
@@ -263,25 +262,6 @@ func verifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
 	}
 	defer doc.Close()
 	return verify.Verify(doc, p)
-}
-
-func writeTempFile(pattern string, data []byte) (path string, cleanup func(), err error) {
-	tmp, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup = func() { os.Remove(tmp.Name()) }
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		cleanup()
-		return "", nil, err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	return tmp.Name(), cleanup, nil
 }
 
 // violationCounts tallies how many times each Check is violated, used to

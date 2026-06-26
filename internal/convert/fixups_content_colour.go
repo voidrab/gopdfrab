@@ -56,27 +56,95 @@ func (deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 			return
 		}
 
+		if needRGB && sharedRGB == nil {
+			sharedRGB = iccBasedColourSpace(3, srgbICCProfile)
+		}
+		if needCMYK && sharedCMYK == nil {
+			sharedCMYK = iccBasedColourSpace(4, cmykICCProfile)
+		}
+
 		csDict, ok := resources.Entries["ColorSpace"].(pdf.PDFDict)
 		if !ok {
 			csDict = pdf.NewPDFDict()
 		}
 		if needRGB {
-			if sharedRGB == nil {
-				sharedRGB = iccBasedColourSpace(3, srgbICCProfile)
-			}
 			csDict.Entries["DefaultRGB"] = sharedRGB
 		}
 		if needCMYK {
-			if sharedCMYK == nil {
-				sharedCMYK = iccBasedColourSpace(4, cmykICCProfile)
-			}
 			csDict.Entries["DefaultCMYK"] = sharedCMYK
 		}
 		resources.Entries["ColorSpace"] = csDict
 		d.Entries["Resources"] = resources
 		changed = true
+
+		// Appearance streams have their own resource dicts and are checked
+		// independently by strict verifiers, so also inject Default* there.
+		if annots, ok := d.Entries["Annots"].(pdf.PDFArray); ok {
+			for _, item := range annots {
+				annot, ok := item.(pdf.PDFDict)
+				if !ok {
+					continue
+				}
+				ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+				if !ok {
+					continue
+				}
+				if fixAPColour(ap.Entries["N"], needRGB, needCMYK, sharedRGB, sharedCMYK) {
+					changed = true
+				}
+			}
+		}
 	})
 	return changed, nil
+}
+
+// fixAPColour injects Default* colour spaces into the resource dict of each
+// appearance stream under an /AP /N entry.
+func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray) bool {
+	changed := false
+	switch v := n.(type) {
+	case pdf.PDFDict:
+		if v.HasStream {
+			changed = injectDefaultCS(v, needRGB, needCMYK, sharedRGB, sharedCMYK) || changed
+		} else {
+			for k, sv := range v.Entries {
+				if k == "_ref" {
+					continue
+				}
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+					changed = injectDefaultCS(sd, needRGB, needCMYK, sharedRGB, sharedCMYK) || changed
+				}
+			}
+		}
+	}
+	return changed
+}
+
+// injectDefaultCS injects missing Default* colour-space entries into the
+// /Resources/ColorSpace dict of a stream dictionary.
+func injectDefaultCS(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray) bool {
+	res, _ := stream.Entries["Resources"].(pdf.PDFDict)
+	if res.Entries == nil {
+		res = pdf.NewPDFDict()
+	}
+	cs, _ := res.Entries["ColorSpace"].(pdf.PDFDict)
+	if cs.Entries == nil {
+		cs = pdf.NewPDFDict()
+	}
+	changed := false
+	if needRGB && !verify.DefaultColorSpaceDefined("rgb", res) {
+		cs.Entries["DefaultRGB"] = sharedRGB
+		changed = true
+	}
+	if needCMYK && !verify.DefaultColorSpaceDefined("cmyk", res) {
+		cs.Entries["DefaultCMYK"] = sharedCMYK
+		changed = true
+	}
+	if changed {
+		res.Entries["ColorSpace"] = cs
+		stream.Entries["Resources"] = res
+	}
+	return changed
 }
 
 // pageDeviceColourModels returns which device colour models ("rgb"/"cmyk")
@@ -223,7 +291,73 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict) map[string]
 	}
 	scanResourceColour(resources)
 
+	// Appearance streams (reached via /AP/N, not via Do from page content)
+	// are rendered as part of the page and must also be colour-clean.
+	if annots, ok := page.Entries["Annots"].(pdf.PDFArray); ok {
+		for _, item := range annots {
+			annot, ok := item.(pdf.PDFDict)
+			if !ok {
+				continue
+			}
+			ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+			if !ok {
+				continue
+			}
+			scanAPAppearance(ap.Entries["N"], contentVisited, addModel)
+		}
+	}
+
 	return used
+}
+
+// scanAPAppearance scans one /AP /N entry (a single stream or a subdictionary
+// of appearance states) for device colour operators.
+func scanAPAppearance(n pdf.PDFValue, visited map[uintptr]bool, addModel func(string)) {
+	switch v := n.(type) {
+	case pdf.PDFDict:
+		if v.HasStream {
+			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+			scanAPStream(v, apRes, visited, addModel)
+		} else {
+			for k, sv := range v.Entries {
+				if k == "_ref" {
+					continue
+				}
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+					scanAPStream(sd, apRes, visited, addModel)
+				}
+			}
+		}
+	}
+}
+
+// scanAPStream scans one appearance-stream dict for device colour operators.
+func scanAPStream(dict, res pdf.PDFDict, visited map[uintptr]bool, addModel func(string)) {
+	ptr := pdf.ValuePointer(dict.Entries)
+	if visited[ptr] {
+		return
+	}
+	visited[ptr] = true
+	data, err := pdf.DecodeStream(dict)
+	if err != nil {
+		return
+	}
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		switch op {
+		case "rg", "RG":
+			addModel("rgb")
+		case "k", "K":
+			addModel("cmyk")
+		case "cs", "CS":
+			if len(operands) == 0 {
+				return
+			}
+			if name, ok := operands[len(operands)-1].(pdf.PDFName); ok {
+				addModel(namedOrAbbrevColourModel(name.Value, res))
+			}
+		}
+	})
 }
 
 // namedOrAbbrevColourModel resolves a cs/CS or inline-image /CS operand name

@@ -377,7 +377,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid hex, got %v", errs)
@@ -410,7 +410,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for odd number of hex chars, got %v", errs)
@@ -446,7 +446,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key F, got %v", errs)
@@ -480,7 +480,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key FFilter, got %v", errs)
@@ -514,7 +514,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key FDecodeParms, got %v", errs)
@@ -550,7 +550,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid Filter LZWDecode, got %v", errs)
@@ -585,7 +585,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key EF, got %v", errs)
@@ -618,7 +618,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid key EF, got %v", errs)
@@ -653,7 +653,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid name length, got %v", errs)
@@ -687,7 +687,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
 	}
-	verifyDocument(doc, graph, ctx)
+	verifyDocument(graph, ctx)
 	errs := ctx.errs
 	if len(errs) != 2 {
 		t.Errorf("Expected two errors for invalid integer value sizes, got %v", errs)

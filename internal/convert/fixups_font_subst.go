@@ -397,9 +397,10 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 	}
 	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
 
-	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
-	lastChar, _ := d.Entries["LastChar"].(pdf.PDFInteger)
-	if lastChar < firstChar {
+	firstChar, fcOK := d.Entries["FirstChar"].(pdf.PDFInteger)
+	lastChar, lcOK := d.Entries["LastChar"].(pdf.PDFInteger)
+	if !fcOK || !lcOK || lastChar < firstChar {
+		// Standard Type1 fonts in AcroForm/DR have no FirstChar/LastChar.
 		firstChar, lastChar = 0, 255
 	}
 	widths := make(pdf.PDFArray, int(lastChar-firstChar)+1)

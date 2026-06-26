@@ -64,18 +64,18 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 					if subset {
 						ValidateSimpleTrueTypeSubset(v, ff, int(firstChar), int(lastChar), widths, ctx)
 					}
-					validateSimpleTrueTypeMetrics(v, ff, int(firstChar), int(lastChar), widths, ctx)
+					validateSimpleTrueTypeMetrics(v, ff, int(firstChar), widths, ctx)
 				}
 			}
 		} else if !subset {
 			// 6.3.6: advance widths in the embedded font program must match PDF Widths.
 			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok && !invisibleOnly {
 				firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-				lastChar, lcOK := v.Entries["LastChar"].(pdf.PDFInteger)
+				_, lcOK := v.Entries["LastChar"].(pdf.PDFInteger)
 				widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
 				if fcOK && lcOK && wOK {
 					pdfEnc, _ := v.Entries["Encoding"].(pdf.PDFName)
-					validateType1Metrics(v, ff, int(firstChar), int(lastChar), widths, pdfEnc.Value, ctx)
+					validateType1Metrics(v, ff, int(firstChar), widths, pdfEnc.Value, ctx)
 				}
 			}
 		} else if subset {
@@ -412,9 +412,10 @@ func CmapTokenize(data []byte) []CmapToken {
 					j += 2
 					continue
 				}
-				if data[j] == '(' {
+				switch data[j] {
+				case '(':
 					depth++
-				} else if data[j] == ')' {
+				case ')':
 					depth--
 				}
 				j++

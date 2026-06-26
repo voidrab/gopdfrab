@@ -186,12 +186,12 @@ func checkExtensionSchemas(xmp string) []pdf.PDFError {
 	}
 
 	// Deep structural validation via XML parsing.
-	errs = append(errs, validateExtSchemas([]byte(xmp), bindPrefixToURI)...)
+	errs = append(errs, validateExtSchemas([]byte(xmp))...)
 	return errs
 }
 
 // validateExtSchemas parses and validates the pdfaExtension:schemas structure.
-func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []pdf.PDFError {
+func validateExtSchemas(data []byte) []pdf.PDFError {
 	// Strip leading BOM / whitespace to make a valid XML fragment.
 	if i := bytes.IndexByte(data, '<'); i > 0 {
 		data = data[i:]
@@ -233,7 +233,7 @@ func validateExtSchemas(data []byte, bindPrefixToURI map[string]string) []pdf.PD
 	docNS := map[string]bool{}
 	for _, s := range schemas {
 		docNS[s.namespaceURI] = true
-		errs = append(errs, validateExtSchema(s, bindPrefixToURI, string(data))...)
+		errs = append(errs, validateExtSchema(s, string(data))...)
 	}
 
 	return errs
@@ -566,7 +566,7 @@ func xmlSkipElem(dec *xml.Decoder) {
 }
 
 // validateExtSchema validates one extension schema entry.
-func validateExtSchema(s extSchema, bindPrefixToURI map[string]string, xmp string) []pdf.PDFError {
+func validateExtSchema(s extSchema, xmp string) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	definedTypes := map[string]bool{}
