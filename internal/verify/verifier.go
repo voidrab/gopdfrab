@@ -169,6 +169,10 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
+	errs = checkNonCatalogXMPStreams(graph)
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
 
 	verifyAllObjectFraming(d)
 
@@ -498,6 +502,7 @@ func verifyDocument(d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) {
 			validateContentStreams(v, ctx)
 			ValidateFontDict(v, ctx)
 			validateCMapStream(v, ctx)
+			validateViewerPreferences(v, ctx)
 
 			for k, val := range v.Entries {
 				// 6.1.12: a dictionary key shall not exceed 127 bytes after

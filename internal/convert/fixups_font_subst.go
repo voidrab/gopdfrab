@@ -308,10 +308,18 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 	}
 	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
 	widths, _ := d.Entries["Widths"].(pdf.PDFArray)
-	for i, w := range widths {
-		if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
-			add(int(firstChar) + i)
+	if len(widths) > 0 {
+		for i, w := range widths {
+			if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
+				add(int(firstChar) + i)
+			}
 		}
+		return result
+	}
+	// No tracked usage and no Widths (e.g. a standard Type1 in AcroForm/DR):
+	// assume every character in the encoding may be needed.
+	for cc := range codeToUnicode {
+		add(cc)
 	}
 	return result
 }
@@ -704,6 +712,11 @@ func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (b
 		}
 		switch subtype, _ := d.Entries["Subtype"].(pdf.PDFName); subtype.Value {
 		case "Type1", "MMType1", "TrueType":
+			// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
+			// create a synthetic one so substituteSimpleFont can proceed.
+			if d.Entries["FontDescriptor"] == nil {
+				d.Entries["FontDescriptor"] = pdf.NewPDFDict()
+			}
 			if substituteSimpleFont(d, usedCodes) {
 				changed = true
 			}

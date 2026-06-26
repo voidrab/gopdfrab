@@ -287,6 +287,51 @@ func TestAppearanceFixerSkipsPopupAndLinkWithoutAP(t *testing.T) {
 	}
 }
 
+// TestAppearanceFixerInheritedBtnWrapsStream verifies that a child widget
+// whose FT=Btn is inherited from its Parent (not set directly) gets its
+// direct-stream AP/N wrapped in a state-name subdictionary.
+func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
+	parent := pdf.NewPDFDict()
+	parent.Entries["FT"] = pdf.PDFName{Value: "Btn"}
+
+	original := pdf.NewPDFDict()
+	original.Entries["Type"] = pdf.PDFName{Value: "XObject"}
+	original.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	original.HasStream = true
+	original.RawStream = []byte("q Q")
+
+	ap := pdf.NewPDFDict()
+	ap.Entries["N"] = original
+
+	widget := pdf.NewPDFDict()
+	widget.Entries["Type"] = pdf.PDFName{Value: "Annot"}
+	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
+	widget.Entries["Parent"] = parent
+	widget.Entries["AS"] = pdf.PDFName{Value: "Yes"}
+	widget.Entries["AP"] = ap
+
+	trailer := minimalTrailer()
+	trailer.Entries["Widget"] = widget
+
+	fixer := appearanceFixer{}
+	changed, err := fixer.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatalf("changed = false, want true (inherited Btn with direct-stream N)")
+	}
+
+	newAP := widget.Entries["AP"].(pdf.PDFDict)
+	newN := newAP.Entries["N"].(pdf.PDFDict)
+	if newN.HasStream {
+		t.Fatalf("AP/N is still a direct stream after fix, want subdictionary")
+	}
+	if _, ok := newN.Entries["Yes"]; !ok {
+		t.Errorf("AP/N subdictionary missing 'Yes' state key; entries: %v", newN.Entries)
+	}
+}
+
 // TestAppearanceFixerLeavesValidAppearanceUntouched checks that an
 // annotation whose /AP already satisfies validateAnnotation is left
 // byte-for-byte unchanged.

@@ -32,6 +32,7 @@ func init() {
 	registerFixer(imageMetadataFixer{})
 	registerFixer(postScriptXObjectFixer{})
 	registerFixer(optionalContentFixer{})
+	registerFixer(viewerPrefFixer{})
 }
 
 // walkDicts calls fn for every pdf.PDFDict reachable from v, recursing into dict
@@ -79,6 +80,28 @@ func clearDict(d pdf.PDFDict) {
 	}
 }
 
+// clearJSNameTree recursively clears JS action dicts within a /Names/JavaScript
+// name tree. walkDicts won't reach the subtree once the parent key is deleted.
+func clearJSNameTree(d pdf.PDFDict, changed *bool) {
+	if s, ok := d.Entries["S"].(pdf.PDFName); ok && verify.ForbiddenActions[s.Value] {
+		clearDict(d)
+		*changed = true
+		return
+	}
+	for _, v := range d.Entries {
+		switch val := v.(type) {
+		case pdf.PDFDict:
+			clearJSNameTree(val, changed)
+		case pdf.PDFArray:
+			for _, item := range val {
+				if sub, ok := item.(pdf.PDFDict); ok {
+					clearJSNameTree(sub, changed)
+				}
+			}
+		}
+	}
+}
+
 // --- 6.6 Actions ---
 
 // actionFixer remediates Checks.Action.ForbiddenActionType,
@@ -102,6 +125,14 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 	return func(d pdf.PDFDict) {
 		if _, ok := d.Entries["AA"]; ok {
 			delete(d.Entries, "AA")
+			*changed = true
+		}
+
+		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
+		// action dicts first -- walkDicts won't reach them after the key is gone.
+		if jsTree, ok := d.Entries["JavaScript"].(pdf.PDFDict); ok {
+			clearJSNameTree(jsTree, changed)
+			delete(d.Entries, "JavaScript")
 			*changed = true
 		}
 
@@ -424,4 +455,33 @@ func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 	}
 	delete(root.Entries, "OCProperties")
 	return true, nil
+}
+
+// --- 6.1.2 ViewerPreferences (post-1.4 keys) ---
+
+// viewerPrefFixer removes ViewerPreferences keys introduced after PDF 1.4
+// (PrintScaling, PickTrayByPDFSize, PrintPageRange, NumCopies).
+type viewerPrefFixer struct{}
+
+func (viewerPrefFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.PostPDF14ViewerPref
+}
+
+func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	vp, ok := root.Entries["ViewerPreferences"].(pdf.PDFDict)
+	if !ok {
+		return false, nil
+	}
+	changed := false
+	for _, k := range verify.Post14ViewerPrefKeys {
+		if vp.Entries[k] != nil {
+			delete(vp.Entries, k)
+			changed = true
+		}
+	}
+	return changed, nil
 }

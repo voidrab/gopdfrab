@@ -538,11 +538,8 @@ func (d *Reader) GetMetadata() (map[string]string, error) {
 	for k, v := range dict.Entries {
 		switch s := v.(type) {
 		case PDFString:
-			metadata[k] = DecodePDFTextString([]byte(s.Value))
+			metadata[k] = DecodePDFTextString(DecodePDFLiteralStringBytes(s.Value))
 		case PDFHexString:
-			// A hex string is a legitimate (if unusual) way to encode info
-			// dict text; decode it so XMP-sync comparisons (6.7.3/6.1.5) see
-			// the actual text value instead of silently dropping the entry.
 			metadata[k] = DecodePDFTextString(DecodePDFHexStringBytes(s.Value))
 		}
 	}

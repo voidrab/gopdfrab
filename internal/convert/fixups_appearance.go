@@ -89,8 +89,20 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 	return !nd.HasStream
 }
 
+// isBtnField reports whether d is a Btn form field, resolving FT through
+// the Parent chain if not set directly on the widget.
 func isBtnField(d pdf.PDFDict) bool {
-	return d.Entries["FT"] == (pdf.PDFName{Value: "Btn"})
+	for depth := 0; depth < 20; depth++ {
+		if ft, ok := d.Entries["FT"].(pdf.PDFName); ok {
+			return ft.Value == "Btn"
+		}
+		parent, ok := d.Entries["Parent"].(pdf.PDFDict)
+		if !ok {
+			return false
+		}
+		d = parent
+	}
+	return false
 }
 
 // rebuiltAppearanceDict returns a conformant replacement for d's /AP: a

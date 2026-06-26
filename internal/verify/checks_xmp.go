@@ -708,6 +708,60 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	return errs
 }
 
+// checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
+// that lack an xpacket wrapper (6.7.5), resolving violations the converter
+// strips via stripEmbeddedMetadata.
+func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
+	trailer, ok := graph.(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	var catalogMetaPtr uintptr
+	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok && meta.HasStream {
+		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
+	}
+
+	var errs []pdf.PDFError
+	visited := make(map[uintptr]bool)
+	var walk func(v pdf.PDFValue)
+	walk = func(v pdf.PDFValue) {
+		switch val := v.(type) {
+		case pdf.PDFDict:
+			ptr := pdf.ValuePointer(val.Entries)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			if val.HasStream && val.Entries["Type"] == (pdf.PDFName{Value: "Metadata"}) &&
+				ptr != catalogMetaPtr {
+				data, err := pdf.DecodeStream(val)
+				if err != nil || !xpacketRe.Match(data) {
+					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
+						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
+				}
+			}
+			for _, child := range val.Entries {
+				walk(child)
+			}
+		case pdf.PDFArray:
+			ptr := pdf.ValuePointer(val)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			for _, item := range val {
+				walk(item)
+			}
+		}
+	}
+	walk(graph)
+	return errs
+}
+
 // checkXMPHeader checks the xpacket processing instruction (6.7.5).
 func checkXMPHeader(xmp string) []pdf.PDFError {
 	pi := xpacketRe.FindString(xmp)
