@@ -4,7 +4,11 @@
 
 PDF/A processing for go!
 
-Verify and convert PDF documents with a small, predictable API.
+Verify and convert PDF documents with a small, predictable open source library.
+
+## Disclaimer
+
+This project is at an early stage and under active development. The API is not final and will change heavily until the first proper release.
 
 ## Features
 
