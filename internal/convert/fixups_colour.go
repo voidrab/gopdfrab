@@ -3,6 +3,8 @@ package convert
 import (
 	_ "embed"
 	"fmt"
+	"runtime"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
@@ -107,88 +109,99 @@ func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
 func detectColourModelUsage(trailer pdf.PDFDict) map[string]int {
 	counts := map[string]int{}
 
-	countModelExempt := func(model string, resources pdf.PDFDict) {
-		if model == "" || verify.DefaultColorSpaceDefined(model, resources) {
-			return
-		}
-		counts[model]++
-	}
-
-	countModel := func(name string, resources pdf.PDFDict) {
-		if m, ok := verify.InlineCSAbbrev[name]; ok {
-			countModelExempt(m, resources)
-			return
-		}
-		countModelExempt(verify.NamedColourModel(pdf.PDFName{Value: name}, resources), resources)
-	}
-
+	var mu sync.Mutex
 	scanVisited := map[uintptr]bool{}
-
-	var scan func(dict, resources pdf.PDFDict)
-	scan = func(dict, resources pdf.PDFDict) {
-		ptr := pdf.ValuePointer(dict.Entries)
+	// claimScan returns false if ptr's content was already scanned, claiming it
+	// otherwise.
+	claimScan := func(ptr uintptr) bool {
+		mu.Lock()
+		defer mu.Unlock()
 		if scanVisited[ptr] {
-			return
+			return false
 		}
 		scanVisited[ptr] = true
-
-		data, err := pdf.DecodeStream(dict)
-		if err != nil {
-			return
-		}
-		pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
-			switch op {
-			case "rg", "RG":
-				countModelExempt("rgb", resources)
-			case "g", "G":
-				countModelExempt("gray", resources)
-			case "k", "K":
-				countModelExempt("cmyk", resources)
-			case "cs", "CS":
-				if len(operands) != 1 {
-					return
-				}
-				if name, ok := operands[0].(pdf.PDFName); ok {
-					countModel(name.Value, resources)
-				}
-			case "INLINEIMAGE":
-				for i := 0; i+1 < len(operands); i += 2 {
-					key, ok := operands[i].(pdf.PDFName)
-					if !ok || (key.Value != "CS" && key.Value != "ColorSpace") {
-						continue
-					}
-					if name, ok := operands[i+1].(pdf.PDFName); ok {
-						countModel(name.Value, resources)
-					}
-				}
-			case "Do":
-				if len(operands) != 1 {
-					return
-				}
-				name, ok := operands[0].(pdf.PDFName)
-				if !ok {
-					return
-				}
-				xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-				if form, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && form.HasStream {
-					scan(form, resourcesOf(form, resources))
-				}
-			case "scn", "SCN":
-				if len(operands) == 0 {
-					return
-				}
-				name, ok := operands[len(operands)-1].(pdf.PDFName)
-				if !ok {
-					return
-				}
-				patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
-				if pat, ok := patterns.Entries[name.Value].(pdf.PDFDict); ok && pat.HasStream {
-					scan(pat, resourcesOf(pat, resources))
-				}
-			}
-		})
+		return true
 	}
 
+	scanContent := func(root, rootRes pdf.PDFDict, local map[string]int) {
+		countModelExempt := func(model string, resources pdf.PDFDict) {
+			if model == "" || verify.DefaultColorSpaceDefined(model, resources) {
+				return
+			}
+			local[model]++
+		}
+		countModel := func(name string, resources pdf.PDFDict) {
+			if m, ok := verify.InlineCSAbbrev[name]; ok {
+				countModelExempt(m, resources)
+				return
+			}
+			countModelExempt(verify.NamedColourModel(pdf.PDFName{Value: name}, resources), resources)
+		}
+		var scan func(dict, resources pdf.PDFDict)
+		scan = func(dict, resources pdf.PDFDict) {
+			if !claimScan(pdf.ValuePointer(dict.Entries)) {
+				return
+			}
+			data, err := pdf.DecodeStream(dict)
+			if err != nil {
+				return
+			}
+			pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+				switch op {
+				case "rg", "RG":
+					countModelExempt("rgb", resources)
+				case "g", "G":
+					countModelExempt("gray", resources)
+				case "k", "K":
+					countModelExempt("cmyk", resources)
+				case "cs", "CS":
+					if len(operands) != 1 {
+						return
+					}
+					if name, ok := operands[0].(pdf.PDFName); ok {
+						countModel(name.Value, resources)
+					}
+				case "INLINEIMAGE":
+					for i := 0; i+1 < len(operands); i += 2 {
+						key, ok := operands[i].(pdf.PDFName)
+						if !ok || (key.Value != "CS" && key.Value != "ColorSpace") {
+							continue
+						}
+						if name, ok := operands[i+1].(pdf.PDFName); ok {
+							countModel(name.Value, resources)
+						}
+					}
+				case "Do":
+					if len(operands) != 1 {
+						return
+					}
+					name, ok := operands[0].(pdf.PDFName)
+					if !ok {
+						return
+					}
+					xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
+					if form, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && form.HasStream {
+						scan(form, resourcesOf(form, resources))
+					}
+				case "scn", "SCN":
+					if len(operands) == 0 {
+						return
+					}
+					name, ok := operands[len(operands)-1].(pdf.PDFName)
+					if !ok {
+						return
+					}
+					patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
+					if pat, ok := patterns.Entries[name.Value].(pdf.PDFDict); ok && pat.HasStream {
+						scan(pat, resourcesOf(pat, resources))
+					}
+				}
+			})
+		}
+		scan(root, rootRes)
+	}
+
+	var jobs []scanJob
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if model := verify.DeviceColourModel(d.Entries["ColorSpace"]); model != "" {
 			counts[model]++
@@ -214,12 +227,12 @@ func detectColourModelUsage(trailer pdf.PDFDict) map[string]int {
 			switch contents := d.Entries["Contents"].(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
-					scan(contents, resources)
+					jobs = append(jobs, scanJob{contents, resources})
 				}
 			case pdf.PDFArray:
 				for _, item := range contents {
 					if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
-						scan(cd, resources)
+						jobs = append(jobs, scanJob{cd, resources})
 					}
 				}
 			}
@@ -230,14 +243,48 @@ func detectColourModelUsage(trailer pdf.PDFDict) map[string]int {
 			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
 				for _, proc := range procs.Entries {
 					if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
-						scan(pd, resources)
+						jobs = append(jobs, scanJob{pd, resources})
 					}
 				}
 			}
 		}
 	})
 
+	locals := make([]map[string]int, len(jobs))
+	if workers := min(runtime.NumCPU(), len(jobs)); workers > 0 {
+		ch := make(chan int)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for i := range ch {
+					local := map[string]int{}
+					scanContent(jobs[i].dict, jobs[i].resources, local)
+					locals[i] = local
+				}
+			}()
+		}
+		for i := range jobs {
+			ch <- i
+		}
+		close(ch)
+		wg.Wait()
+	}
+	for _, l := range locals {
+		for k, v := range l {
+			counts[k] += v
+		}
+	}
+
 	return counts
+}
+
+// scanJob is one content-stream root (a page's content, or a Type3 CharProc)
+// together with the resources in effect for it, queued for parallel scanning.
+type scanJob struct {
+	dict      pdf.PDFDict
+	resources pdf.PDFDict
 }
 
 // validPDFAOutputIntentN returns the /N value of the first OutputIntent that meets all PDF/A-1 and ICC profile checks.

@@ -183,11 +183,46 @@ func NumberObjects(trailer pdf.PDFDict) map[int]pdf.PDFValue {
 // SetStreamFlate compresses decoded content with FlateDecode and stores the
 // result directly, so the writer emits the stream as-is without re-deflating.
 func SetStreamFlate(d *pdf.PDFDict, decoded []byte) error {
-	compressed, err := DeflateZlib(decoded)
+	return setStreamFlateLevel(d, decoded, zlib.DefaultCompression)
+}
+
+// SetStreamFlateFast is SetStreamFlate at the fastest compression level.
+func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) error {
+	return setStreamFlateLevel(d, decoded, zlib.BestSpeed)
+}
+
+func setStreamFlateLevel(d *pdf.PDFDict, decoded []byte, level int) error {
+	compressed, err := deflateZlibLevel(decoded, level)
 	if err != nil {
 		return err
 	}
 	d.RawStream = compressed
+	d.HasStream = true
+	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	delete(d.Entries, "DecodeParms")
+	delete(d.Entries, "DP")
+	return nil
+}
+
+// SetStreamFlateRows fast-compresses numRows rows fed one at a time by row(i),
+// storing the result as a FlateDecode stream. Streaming avoids materializing a
+// single full-raster buffer per call, sparing the garbage collector the large
+// transient allocations the flattener's parallel workers would otherwise make.
+func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) error {
+	var buf bytes.Buffer
+	zw, err := zlib.NewWriterLevel(&buf, zlib.BestSpeed)
+	if err != nil {
+		return err
+	}
+	for i := range numRows {
+		if _, err := zw.Write(row(i)); err != nil {
+			return err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	d.RawStream = buf.Bytes()
 	d.HasStream = true
 	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
 	delete(d.Entries, "DecodeParms")
@@ -537,8 +572,15 @@ func (c *countingWriter) WriteString(s string) (int, error) {
 // DeflateZlib encodes data as a zlib (FlateDecode) stream, the inverse of
 // content.go's inflateZlib.
 func DeflateZlib(data []byte) ([]byte, error) {
+	return deflateZlibLevel(data, zlib.DefaultCompression)
+}
+
+func deflateZlibLevel(data []byte, level int) ([]byte, error) {
 	var out bytes.Buffer
-	zw := zlib.NewWriter(&out)
+	zw, err := zlib.NewWriterLevel(&out, level)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := zw.Write(data); err != nil {
 		return nil, err
 	}

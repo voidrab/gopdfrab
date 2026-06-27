@@ -2,6 +2,8 @@ package convert
 
 import (
 	"image"
+	"runtime"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -39,26 +41,78 @@ const flattenDPI = 150
 var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
 func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	targets := collectTransparencyTargets(*trailer)
+
+	unique := uniqueByDict(targets)
+	type result struct {
+		fixed pdf.PDFDict
+		ok    bool
+	}
+	results := make([]result, len(unique))
+	workers := min(runtime.NumCPU(), len(unique))
+	if workers < 1 {
+		return false, nil
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				t := unique[i]
+				switch t.kind {
+				case "image":
+					fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
+					results[i] = result{fixed, ok}
+				case "form":
+					fixed, ok := flattenFormToImage(t.dict, t.resources)
+					results[i] = result{fixed, ok}
+				case "page":
+					results[i] = result{pdf.PDFDict{}, flattenPageToImage(t.dict, t.resources, t.mediaBox)}
+				}
+			}
+		}()
+	}
+	for i := range unique {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	byDict := make(map[uintptr]result, len(unique))
+	for i, t := range unique {
+		byDict[pdf.ValuePointer(t.dict.Entries)] = results[i]
+	}
 	changed := false
-	for _, t := range collectTransparencyTargets(*trailer) {
-		switch t.kind {
-		case "image":
-			if fixed, ok := bakeSoftMaskOut(t.dict, t.resources); ok {
-				t.xobjects.Entries[t.name] = fixed
-				changed = true
-			}
-		case "form":
-			if fixed, ok := flattenFormToImage(t.dict, t.resources); ok {
-				t.xobjects.Entries[t.name] = fixed
-				changed = true
-			}
-		case "page":
-			if flattenPageToImage(t.dict, t.resources, t.mediaBox) {
-				changed = true
-			}
+	for _, t := range targets {
+		r := byDict[pdf.ValuePointer(t.dict.Entries)]
+		if !r.ok {
+			continue
+		}
+		changed = true
+		if t.kind != "page" {
+			t.xobjects.Entries[t.name] = r.fixed
 		}
 	}
 	return changed, nil
+}
+
+// uniqueByDict drops targets addressing the same underlying object so each is
+// computed only once; the caller writes the shared result back to every alias.
+func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
+	seen := map[uintptr]bool{}
+	var out []flaggedTarget
+	for _, t := range targets {
+		ptr := pdf.ValuePointer(t.dict.Entries)
+		if seen[ptr] {
+			continue
+		}
+		seen[ptr] = true
+		out = append(out, t)
+	}
+	return out
 }
 
 // flaggedTarget is one object collectTransparencyTargets found needing a
@@ -259,16 +313,19 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
+		srow := pdf.ClampInt(y*smH/h, 0, smH-1)
+		op := out.PixOffset(0, y)
+		bp := base.PixOffset(0, y)
 		for x := 0; x < w; x++ {
-			px := base.RGBAAt(x, y)
 			scol := pdf.ClampInt(x*smW/w, 0, smW-1)
-			srow := pdf.ClampInt(y*smH/h, 0, smH-1)
-			alpha := float64(smask.RGBAAt(scol, srow).R) / 255
+			alpha := float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
 
-			r := float64(px.R)/255*alpha + (1 - alpha)
-			g := float64(px.G)/255*alpha + (1 - alpha)
-			b := float64(px.B)/255*alpha + (1 - alpha)
-			out.Set(x, y, colorRGBA64{r, g, b, 1})
+			r := float64(base.Pix[bp])/255*alpha + (1 - alpha)
+			g := float64(base.Pix[bp+1])/255*alpha + (1 - alpha)
+			b := float64(base.Pix[bp+2])/255*alpha + (1 - alpha)
+			storeRGBA64(out.Pix, op, r, g, b, 1)
+			op += 4
+			bp += 4
 		}
 	}
 
@@ -279,7 +336,7 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 	delete(img.Entries, "SMask")
 	delete(img.Entries, "Decode")
 	delete(img.Entries, "Mask")
-	if err := writer.SetStreamFlate(&img, packRGBSamples(out)); err != nil {
+	if err := setStreamRGBFlate(&img, out); err != nil {
 		return img, false
 	}
 	return img, true
@@ -305,7 +362,7 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, b
 	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-	if err := writer.SetStreamFlate(&img, packRGBSamples(canvas)); err != nil {
+	if err := setStreamRGBFlate(&img, canvas); err != nil {
 		return form, false
 	}
 
@@ -358,7 +415,7 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-	if err := writer.SetStreamFlate(&img, packRGBSamples(canvas)); err != nil {
+	if err := setStreamRGBFlate(&img, canvas); err != nil {
 		return false
 	}
 
@@ -396,16 +453,38 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	return true
 }
 
+// setStreamRGBFlate stores canvas as a FlateDecode DeviceRGB stream, packing
+// each row's RGB triples on the fly so no whole-raster RGB buffer is allocated
+// (one reused row buffer per call instead). The same tight 8-bit row-major
+// packing packRGBSamples produces.
+func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) error {
+	bounds := canvas.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	rowRGB := make([]byte, w*3)
+	return writer.SetStreamFlateRows(d, h, func(i int) []byte {
+		src := canvas.Pix[canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i):]
+		j := 0
+		for x := 0; x < w*4; x += 4 {
+			rowRGB[j], rowRGB[j+1], rowRGB[j+2] = src[x], src[x+1], src[x+2]
+			j += 3
+		}
+		return rowRGB
+	})
+}
+
 // packRGBSamples packs canvas's pixels as tightly-packed 8-bit RGB triples
 // (row-major, no padding needed since DeviceRGB/8bpc rows are always a
 // whole number of bytes), the sample format Image XObject expects.
 func packRGBSamples(canvas *image.RGBA) []byte {
 	bounds := canvas.Bounds()
-	out := make([]byte, 0, bounds.Dx()*bounds.Dy()*3)
+	w, h := bounds.Dx(), bounds.Dy()
+	out := make([]byte, w*h*3)
+	o := 0
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			px := canvas.RGBAAt(x, y)
-			out = append(out, px.R, px.G, px.B)
+		row := canvas.Pix[canvas.PixOffset(bounds.Min.X, y):]
+		for i := 0; i < w*4; i += 4 {
+			out[o], out[o+1], out[o+2] = row[i], row[i+1], row[i+2]
+			o += 3
 		}
 	}
 	return out
