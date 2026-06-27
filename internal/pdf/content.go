@@ -88,6 +88,23 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 	return data, nil
 }
 
+// DecodeCached decodes a stream using cache to avoid repeated decompression.
+// The cache is keyed by the Entries map pointer; pass a map[uintptr][]byte
+// created per conversion run. If dict has no _ref entry the result is not
+// cached (synthesised dicts have no stable identity).
+func DecodeCached(dict PDFDict, cache map[uintptr][]byte) ([]byte, error) {
+	key := ValuePointer(dict.Entries)
+	if data, ok := cache[key]; ok {
+		return data, nil
+	}
+	data, err := DecodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	cache[key] = data
+	return data, nil
+}
+
 // decodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
 // terminated by '>'. Whitespace between pairs is ignored.
 func DecodeASCIIHex(data []byte) ([]byte, error) {

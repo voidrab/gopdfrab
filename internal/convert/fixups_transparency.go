@@ -279,9 +279,9 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 	delete(img.Entries, "SMask")
 	delete(img.Entries, "Decode")
 	delete(img.Entries, "Mask")
-	img.HasStream = true
-	img.RawStream = packRGBSamples(out)
-	writer.MarkStreamDirty(&img)
+	if err := writer.SetStreamFlate(&img, packRGBSamples(out)); err != nil {
+		return img, false
+	}
 	return img, true
 }
 
@@ -305,9 +305,9 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, b
 	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-	img.HasStream = true
-	img.RawStream = packRGBSamples(canvas)
-	writer.MarkStreamDirty(&img)
+	if err := writer.SetStreamFlate(&img, packRGBSamples(canvas)); err != nil {
+		return form, false
+	}
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries["Im0"] = img
@@ -331,9 +331,9 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, b
 
 	delete(form.Entries, "Group")
 	form.Entries["Resources"] = formResources
-	form.HasStream = true
-	form.RawStream = data
-	writer.MarkStreamDirty(&form)
+	if err := writer.SetStreamFlate(&form, data); err != nil {
+		return form, false
+	}
 	return form, true
 }
 
@@ -358,9 +358,9 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-	img.HasStream = true
-	img.RawStream = packRGBSamples(canvas)
-	writer.MarkStreamDirty(&img)
+	if err := writer.SetStreamFlate(&img, packRGBSamples(canvas)); err != nil {
+		return false
+	}
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries["Im0"] = img
@@ -385,9 +385,9 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 		return false
 	}
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = data
-	writer.MarkStreamDirty(&contents)
+	if err := writer.SetStreamFlate(&contents, data); err != nil {
+		return false
+	}
 
 	delete(page.Entries, "Group")
 	delete(page.Entries, "Rotate")

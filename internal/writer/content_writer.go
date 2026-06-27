@@ -14,7 +14,7 @@ type ContentOp struct {
 	Operands []pdf.PDFValue
 }
 
-// writeContentStream serializes ops back to content-stream bytes, the
+// WriteContentStream serializes ops back to content-stream bytes, the
 // inverse of NewContentScanner(...).scan. An "INLINEIMAGE" op (the scanner's
 // pseudo-operator for a BI...EI sequence) is re-emitted by writing its
 // trailing pdf.InlineImageRaw operand's bytes verbatim, ignoring the parsed

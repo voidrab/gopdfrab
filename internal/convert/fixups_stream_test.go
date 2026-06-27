@@ -69,7 +69,7 @@ func lzwStreamTrailer(encoded []byte, decodeParms pdf.PDFDict) pdf.PDFDict {
 	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
 }
 
-func TestLZWStreamFixerDecodesAndMarksDirty(t *testing.T) {
+func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
 	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
 	trailer := lzwStreamTrailer(encodeLZW(t, plaintext), pdf.PDFDict{})
 
@@ -84,14 +84,15 @@ func TestLZWStreamFixerDecodesAndMarksDirty(t *testing.T) {
 
 	page := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
 	contents := page.Entries["Contents"].(pdf.PDFDict)
-	if contents.Entries["Filter"] != nil {
-		t.Errorf("Filter = %v, want removed", contents.Entries["Filter"])
+	if (contents.Entries["Filter"] != pdf.PDFName{Value: "FlateDecode"}) {
+		t.Errorf("Filter = %v, want /FlateDecode", contents.Entries["Filter"])
 	}
-	if dirty, _ := contents.Entries["_dirty"].(pdf.PDFBoolean); !bool(dirty) {
-		t.Errorf("_dirty not set, want true")
+	decoded, err := pdf.DecodeStream(contents)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
 	}
-	if string(contents.RawStream) != string(plaintext) {
-		t.Errorf("RawStream = %q, want %q", contents.RawStream, plaintext)
+	if string(decoded) != string(plaintext) {
+		t.Errorf("decoded RawStream = %q, want %q", decoded, plaintext)
 	}
 
 	// Idempotent: a second pass over the already-fixed graph is a no-op.
@@ -132,8 +133,12 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 
 	page := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
 	contents := page.Entries["Contents"].(pdf.PDFDict)
-	if string(contents.RawStream) != string(plaintext) {
-		t.Errorf("RawStream = %v, want %v (predictor not undone)", contents.RawStream, plaintext)
+	decoded, err := pdf.DecodeStream(contents)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if string(decoded) != string(plaintext) {
+		t.Errorf("decoded = %v, want %v (predictor not undone)", decoded, plaintext)
 	}
 	if contents.Entries["DecodeParms"] != nil {
 		t.Errorf("DecodeParms = %v, want removed", contents.Entries["DecodeParms"])

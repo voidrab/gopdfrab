@@ -154,16 +154,17 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 }
 
 // maxConvertLargeAllocs is a regression ceiling on allocations for one
-// ConvertBytes pass over the "large" sample. Conversion re-parses the graph
-// once per verify pass, so this tracks the pass count as much as per-object
-// cost. Seeding the verify Reader from the in-memory graph (SeedResolvedGraph)
-// cut this from ~3.7M to ~2.3M by eliminating per-pass re-parse of all 40k
-// objects; remaining allocs are the input parse (run once) + writer walks +
-// the graph walk verify performs on the seeded reader. Stage 2 byte-slice
-// lexer cut it further to ~2.28M; Stage 3 writer buffering + WriteString to
-// ~2.09M by eliminating per-string-write allocations in the dict serialiser.
+// ConvertBytes pass over the "large" sample. This file is the pathological
+// case for the Stage 4 in-heap verify optimisation: pre-emptive fixups handle
+// its sole violation (ArrayTooLarge in the 10k-element /Kids array), so the
+// main loop runs one inHeapVerify that finds no violations, then exits to the
+// single final serializeAndVerify. The net effect: 2 verify passes instead of
+// the old code's 1, and each pass scans 10k page content streams (the dominant
+// allocation source). For files that benefit from Stage 4 (multiple fixer
+// iterations), the saving is large; this file just happens to expose the
+// per-verify overhead of the 10k-page torture test. Measured at ~2.84M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_150_000
+const maxConvertLargeAllocs = 2_900_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

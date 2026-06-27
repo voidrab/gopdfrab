@@ -182,11 +182,9 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	if err != nil {
 		return dict, false
 	}
-	delete(dict.Entries, "Filter")
-	delete(dict.Entries, "DecodeParms")
-	delete(dict.Entries, "DP")
-	dict.RawStream = out
-	writer.MarkStreamDirty(&dict)
+	if err := writer.SetStreamFlate(&dict, out); err != nil {
+		return dict, false
+	}
 	return dict, true
 }
 
@@ -248,9 +246,9 @@ func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 		d.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 		d.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
 		delete(d.Entries, "Decode")
-		d.HasStream = true
-		d.RawStream = packRGBSamples(img)
-		writer.MarkStreamDirty(&d)
+		if err := writer.SetStreamFlate(&d, packRGBSamples(img)); err != nil {
+			return d, false
+		}
 		changed = true
 		return d, true
 	})

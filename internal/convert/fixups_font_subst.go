@@ -348,9 +348,9 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face liberationFace) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries["Length1"] = pdf.PDFInteger(len(program))
-	fontFile.HasStream = true
-	fontFile.RawStream = program
-	writer.MarkStreamDirty(&fontFile)
+	if err := writer.SetStreamFlate(&fontFile, program); err != nil {
+		return
+	}
 
 	for _, k := range []string{"FontFile", "FontFile2", "FontFile3"} {
 		delete(desc.Entries, k)
@@ -720,8 +720,9 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	ff.RawStream = trimmed
-	writer.MarkStreamDirty(&ff)
+	if err := writer.SetStreamFlate(&ff, trimmed); err != nil {
+		return false
+	}
 	desc.Entries["FontFile2"] = ff
 	return true
 }

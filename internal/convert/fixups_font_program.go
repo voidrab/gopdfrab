@@ -455,9 +455,9 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildCIDSetBitmap(cids)
-	writer.MarkStreamDirty(&stream)
+	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
+		return false
+	}
 	desc.Entries["CIDSet"] = stream
 	return true
 }
@@ -500,9 +500,9 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildCIDSetBitmap(cids)
-	writer.MarkStreamDirty(&stream)
+	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
+		return false
+	}
 	desc.Entries["CIDSet"] = stream
 	return true
 }

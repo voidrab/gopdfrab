@@ -88,8 +88,12 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 		t.Fatalf("rewriteContentStreamDict reported no change for a stream with an undefined operator")
 	}
 
+	decoded, err := pdf.DecodeStream(fixed)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
 	var ops []string
-	pdf.NewContentScanner(fixed.RawStream).Scan(func(op string, _ []pdf.PDFValue) {
+	pdf.NewContentScanner(decoded).Scan(func(op string, _ []pdf.PDFValue) {
 		ops = append(ops, op)
 	})
 	for _, op := range ops {

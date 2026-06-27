@@ -232,8 +232,8 @@ func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 			if !ok || !cidSet.HasStream || len(cidSet.RawStream) == 0 {
 				t.Fatalf("CIDSet = %v, want a non-empty stream dict", desc.Entries["CIDSet"])
 			}
-			if dirty, _ := cidSet.Entries["_dirty"].(pdf.PDFBoolean); !bool(dirty) {
-				t.Errorf("CIDSet stream not marked dirty")
+			if (cidSet.Entries["Filter"] != pdf.PDFName{Value: "FlateDecode"}) {
+				t.Errorf("CIDSet Filter = %v, want /FlateDecode", cidSet.Entries["Filter"])
 			}
 			assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.CIDSubsetCIDSet)
 		})

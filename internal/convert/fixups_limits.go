@@ -543,8 +543,9 @@ func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool,
 		if !ok {
 			return d, false
 		}
-		d.RawStream = clamped
-		writer.MarkStreamDirty(&d)
+		if err := writer.SetStreamFlate(&d, clamped); err != nil {
+			return d, false
+		}
 		changed = true
 		return d, true
 	})
@@ -732,10 +733,8 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 	if err != nil {
 		return dict, false
 	}
-	delete(dict.Entries, "Filter")
-	delete(dict.Entries, "DecodeParms")
-	delete(dict.Entries, "DP")
-	dict.RawStream = out
-	writer.MarkStreamDirty(&dict)
+	if err := writer.SetStreamFlate(&dict, out); err != nil {
+		return dict, false
+	}
 	return dict, true
 }

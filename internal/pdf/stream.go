@@ -43,13 +43,12 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	streamStart := l.pos
 
 	if d.data != nil {
-		// Fast path: read from the mmap/in-memory view without an extra seek.
+		// Fast path: alias the backing slice directly (mmap or caller buffer).
 		end := streamStart + int64(length)
 		if end > int64(len(d.data)) {
 			return fmt.Errorf("stream body extends past end of file")
 		}
-		dict.RawStream = make([]byte, length)
-		copy(dict.RawStream, d.data[streamStart:])
+		dict.RawStream = d.data[streamStart:end:end]
 
 		// 6.1.7: Length must not include the EOL before endstream.
 		if end+9 <= int64(len(d.data)) && string(d.data[end:end+9]) == "endstream" {

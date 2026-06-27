@@ -160,13 +160,39 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 	return err
 }
 
-// MarkStreamDirty flags dict's stream as freshly-set decoded content (stored
-// in dict.RawStream) rather than bytes read verbatim from disk, so
-// WriteDocument Flate-encodes it instead of writing RawStream through
-// unmodified. Future fixups that replace a stream's content (e.g.
-// regenerating an XMP packet) should call this after setting RawStream.
-func MarkStreamDirty(dict *pdf.PDFDict) {
-	dict.Entries["_dirty"] = pdf.PDFBoolean(true)
+// NumberObjects assigns output object numbers to every indirect object
+// reachable from trailer, updates their _ref entries, and returns a number-keyed
+// map suitable for pdf.Reader.SeedResolvedGraph. Used to seed in-heap verifies
+// during conversion without serializing bytes.
+func NumberObjects(trailer pdf.PDFDict) map[int]pdf.PDFValue {
+	wr := &pdfWriter{
+		numbers: map[objectIdentity]int{},
+		visited: map[uintptr]bool{},
+	}
+	wr.discover(trailer.Entries["Root"])
+	wr.discover(trailer.Entries["Info"])
+
+	objs := make(map[int]pdf.PDFValue, len(wr.order))
+	for i, obj := range wr.order {
+		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		objs[i+1] = obj
+	}
+	return objs
+}
+
+// SetStreamFlate compresses decoded content with FlateDecode and stores the
+// result directly, so the writer emits the stream as-is without re-deflating.
+func SetStreamFlate(d *pdf.PDFDict, decoded []byte) error {
+	compressed, err := DeflateZlib(decoded)
+	if err != nil {
+		return err
+	}
+	d.RawStream = compressed
+	d.HasStream = true
+	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	delete(d.Entries, "DecodeParms")
+	delete(d.Entries, "DP")
+	return nil
 }
 
 // objectIdentity is the dedup key WriteDocument uses to recognise that two
@@ -266,19 +292,6 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 
 	raw := val.RawStream
 	entries := val.Entries
-
-	if dirty, _ := entries["_dirty"].(pdf.PDFBoolean); bool(dirty) {
-		compressed, err := DeflateZlib(raw)
-		if err != nil {
-			return fmt.Errorf("re-encoding dirty stream: %w", err)
-		}
-		clone := make(map[string]pdf.PDFValue, len(entries)+1)
-		maps.Copy(clone, entries)
-		clone["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-		delete(clone, "DecodeParms")
-		delete(clone, "DP")
-		entries, raw = clone, compressed
-	}
 
 	// /Length is always recomputed from the bytes actually being written,
 	// regardless of what the source declared (which may have been wrong, or

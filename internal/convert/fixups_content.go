@@ -133,11 +133,9 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 	if err != nil {
 		return dict, false
 	}
-	delete(dict.Entries, "Filter")
-	delete(dict.Entries, "DecodeParms")
-	delete(dict.Entries, "DP")
-	dict.RawStream = out
-	writer.MarkStreamDirty(&dict)
+	if err := writer.SetStreamFlate(&dict, out); err != nil {
+		return dict, false
+	}
 	return dict, true
 }
 
