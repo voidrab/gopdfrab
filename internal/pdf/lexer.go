@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"unicode"
+	"unsafe"
 )
 
 // Token represents a distinct piece of syntax from the PDF.
@@ -114,12 +114,12 @@ func (l *Lexer) NextToken() Token {
 		return Token{Type: TokenArrayEnd, Value: "]"}
 	}
 
-	if unicode.IsDigit(rune(ch)) || ch == '+' || ch == '-' || ch == '.' {
+	if (ch >= '0' && ch <= '9') || ch == '+' || ch == '-' || ch == '.' {
 		l.unreadByte()
 		return l.readNumber()
 	}
 
-	if unicode.IsLetter(rune(ch)) {
+	if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
 		l.unreadByte()
 		return l.readKeyword()
 	}
@@ -249,7 +249,7 @@ func (l *Lexer) readName() Token {
 		}
 		buf = append(buf, b)
 	}
-	return Token{Type: TokenName, Value: string(buf)}
+	return Token{Type: TokenName, Value: internName(buf)}
 }
 
 // readNumber handles integers and reals
@@ -265,7 +265,7 @@ func (l *Lexer) readNumber() Token {
 		if b == '.' {
 			isReal = true
 		}
-		if !unicode.IsDigit(rune(b)) && b != '.' && b != '+' && b != '-' {
+		if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
 			l.unreadByte()
 			break
 		}
@@ -433,6 +433,50 @@ func IsWhitespace(ch byte) bool {
 }
 
 func isDelimiter(ch byte) bool {
-	s := "()<>[]{}/%"
-	return bytes.IndexByte([]byte(s), ch) != -1
+	switch ch {
+	case '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
+		return true
+	}
+	return false
+}
+
+// internedNames holds canonical strings for the most frequently seen PDF names.
+var internedNames = func() map[string]string {
+	names := []string{
+		"Type", "Subtype", "Page", "Pages", "Kids", "Parent", "Count",
+		"Contents", "MediaBox", "Resources", "Font", "XObject", "ExtGState",
+		"ColorSpace", "Pattern", "Shading", "Properties",
+		"Length", "Filter", "DecodeParms", "Width", "Height",
+		"BitsPerComponent", "Columns", "Predictor",
+		"FlateDecode", "DCTDecode", "CCITTFaxDecode", "JPXDecode",
+		"ASCIIHexDecode", "ASCII85Decode", "LZWDecode",
+		"Root", "Info", "Size", "Prev", "ID",
+		"BaseFont", "Encoding", "Widths", "FirstChar", "LastChar",
+		"ToUnicode", "FontDescriptor", "Flags", "FontBBox", "ItalicAngle",
+		"Ascent", "Descent", "CapHeight", "StemV", "MissingWidth",
+		"FontFile", "FontFile2", "FontFile3",
+		"Annots", "Rotate", "CropBox", "TrimBox", "BleedBox", "ArtBox",
+		"Image", "Form", "ProcSet", "Matrix", "BBox", "FormType",
+		"DeviceRGB", "DeviceCMYK", "DeviceGray", "ICCBased", "Indexed",
+		"BM", "Normal", "ca", "CA", "OP", "op", "SA",
+		"CreationDate", "ModDate", "Producer", "Creator", "Author",
+		"Title", "Subject", "Keywords", "Name", "ObjStm", "XRef",
+	}
+	m := make(map[string]string, len(names))
+	for _, n := range names {
+		m[n] = n
+	}
+	return m
+}()
+
+// internName returns a canonical string for s, reusing a pre-allocated
+// backing when s is a common PDF name.
+func internName(b []byte) string {
+	// Zero-alloc map probe: the key is only used for hashing/comparison and
+	// does not escape, so converting without a heap copy is safe here.
+	k := unsafe.String(unsafe.SliceData(b), len(b))
+	if s, ok := internedNames[k]; ok {
+		return s
+	}
+	return string(b)
 }
