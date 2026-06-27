@@ -4,9 +4,7 @@ package pdf
 
 import "os"
 
-// mmapFile falls back to a heap read on non-unix platforms.
-func mmapFile(f *os.File, size int64) (data []byte, unmap func() error, err error) {
-	data = make([]byte, size)
-	_, err = f.ReadAt(data, 0)
-	return data, func() error { return nil }, err
+// mmapFile returns nil on non-unix platforms; callers fall back to the seek-based reader path.
+func mmapFile(_ *os.File, _ int64) ([]byte, func() error, error) {
+	return nil, func() error { return nil }, nil
 }
