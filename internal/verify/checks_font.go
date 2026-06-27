@@ -109,9 +109,16 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 		}
 		if subset && desc.Entries != nil && desc.Entries["CIDSet"] == nil {
 			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
-		} else if subset && subtype.Value == "CIDFontType0" && !renderingMode3 {
-			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
-				validateCIDSetBitmap(v, desc, ff, ctx)
+		} else if subset && !renderingMode3 {
+			switch subtype.Value {
+			case "CIDFontType0":
+				if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+					validateCIDSetBitmap(v, desc, ff, ctx)
+				}
+			case "CIDFontType2":
+				if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok && IdentityCIDToGIDMap(v) {
+					validateCIDSetTrueType(v, desc, ff, ctx)
+				}
 			}
 		}
 		if w, ok2 := v.Entries["W"].(pdf.PDFArray); ok2 && !renderingMode3 {
@@ -250,6 +257,14 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 	if !ok || (name.Value != "MacRomanEncoding" && name.Value != "WinAnsiEncoding") {
 		ctx.Report(pdf.Checks.Font.TrueTypeEncoding, v, "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding")
 	}
+}
+
+// IdentityCIDToGIDMap reports whether a CIDFontType2's CIDToGIDMap maps each CID
+// to the identically-numbered GID -- the spec default when the key is /Identity
+// or absent -- so the CIDSet, indexed by CID, can be read against glyph IDs.
+func IdentityCIDToGIDMap(v pdf.PDFDict) bool {
+	c2g := v.Entries["CIDToGIDMap"]
+	return c2g == nil || c2g == (pdf.PDFName{Value: "Identity"})
 }
 
 // DescendantCIDFont returns the descendant CIDFont dictionary of a Type0 font.
