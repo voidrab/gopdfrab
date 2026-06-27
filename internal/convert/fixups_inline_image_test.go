@@ -22,7 +22,7 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 		},
 		{
 			"InlineImageLZWFilter",
-			"../../tests/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf",
+			"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf",
 			pdf.Checks.Structure.InlineImageLZWFilter,
 		},
 		{

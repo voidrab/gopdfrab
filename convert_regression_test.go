@@ -10,6 +10,10 @@ import (
 
 // TestConvertNoResidualIssues is a regression test for all regression test documents.
 func TestConvertNoResidualIssues(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping testing in short mode")
+	}
+
 	basePath := "tests/regression"
 	var paths []string
 

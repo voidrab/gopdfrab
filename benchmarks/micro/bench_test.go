@@ -31,16 +31,16 @@ func repoRoot() string {
 
 var sampleFiles = map[string]string{
 	// ~2 KB: near the corpus minimum.
-	"small": filepath.Join("tests", "Isartor testsuite", "PDFA-1b",
+	"small": filepath.Join("tests", "Isartor", "PDFA-1b",
 		"6.7 Metadata", "6.7.2 Properties", "isartor-6-7-2-t01-fail-a.pdf"),
 	// ~3.6 KB: at the corpus median.
 	"median": filepath.Join("tests", "veraPDF", "PDF_A-1b",
 		"6.7 Metadata", "6.7.2 Properties", "veraPDF test suite 6-7-2-t13-fail-g.pdf"),
 	// ~21 KB: near the corpus 90th percentile.
-	"p90": filepath.Join("tests", "Isartor testsuite", "PDFA-1b",
+	"p90": filepath.Join("tests", "Isartor", "PDFA-1b",
 		"6.3 Fonts", "6.3.7 Character encodings", "isartor-6-3-7-t01-fail-a.pdf"),
 	// ~203 KB: exercises embedded font program parsing (TrueType/CFF).
-	"fonts": filepath.Join("tests", "Isartor testsuite", "PDFA-1b",
+	"fonts": filepath.Join("tests", "Isartor", "PDFA-1b",
 		"6.3 Fonts", "6.3.6 Font metrics", "isartor-6-3-6-t01-fail-b.pdf"),
 	// ~492 KB: exercises colour space checks (Separation/DeviceN).
 	"large_color": filepath.Join("tests", "veraPDF", "PDF_A-1b",
@@ -49,7 +49,7 @@ var sampleFiles = map[string]string{
 	// ~3.9 MB: the corpus maximum; a 6.1.12 implementation-limits torture
 	// test with 40,015 indirect objects (a /Pages node with /Count 10000
 	// and ~10k page kids). The worst case for per-object resolution cost.
-	"large": filepath.Join("tests", "Isartor testsuite", "PDFA-1b",
+	"large": filepath.Join("tests", "Isartor", "PDFA-1b",
 		"6.1 File structure", "6.1.12 Implementation Limits", "isartor-6-1-12-t01-fail-a.pdf"),
 	// ~12 KB: a q/Q-nesting StringTooLong no in-place fixer can clamp, so
 	// Convert falls back to whole-page rasterization -- the conversion worst

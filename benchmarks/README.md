@@ -8,7 +8,7 @@ This measures speed, memory, and deployment footprint only.
 
 ## Why two timing regimes
 
-The vendored corpora (`tests/Isartor testsuite/PDFA-1b` + `test
+The vendored corpora (`tests/Isartor/PDFA-1b` + `test
 documents/veraPDF/PDF_A-1b`, 773 PDFs) are dominated by tiny files — median
 ~3.6 KB. A cold, one-process-per-file run mostly measures **process/VM
 startup**, not the verification engine itself — a JVM takes hundreds of ms to

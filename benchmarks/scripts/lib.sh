@@ -10,7 +10,7 @@ TOOLS_DIR="$BENCH_DIR/tools"
 RESULTS_DIR="$BENCH_DIR/results"
 mkdir -p "$RESULTS_DIR"
 
-ISARTOR_DIR="$REPO_DIR/tests/Isartor testsuite/PDFA-1b"
+ISARTOR_DIR="$REPO_DIR/tests/Isartor/PDFA-1b"
 VERA_DIR="$REPO_DIR/tests/veraPDF/PDF_A-1b"
 
 GOPDFRAB_BIN="$TOOLS_DIR/gopdfrab-bench"

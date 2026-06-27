@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const isartorDir = "tests/Isartor testsuite/PDFA-1b"
+const isartorDir = "tests/Isartor/PDFA-1b"
 
 var isartorNameRe = regexp.MustCompile(`^isartor-((?:\d+-)+)t\d+`)
 

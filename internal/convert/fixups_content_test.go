@@ -18,12 +18,12 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 	}{
 		{
 			"UndefinedOperator",
-			"../../tests/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
+			"../../tests/Isartor/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
 			pdf.Checks.Colour.UndefinedOperator,
 		},
 		{
 			"RenderingIntent",
-			"../../tests/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
+			"../../tests/Isartor/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
 			pdf.Checks.Colour.RenderingIntent,
 		},
 		{
@@ -38,7 +38,7 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 		},
 		{
 			"IntegerOutOfRange",
-			"../../tests/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
+			"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
 			pdf.Checks.Structure.IntegerOutOfRange,
 		},
 		{
