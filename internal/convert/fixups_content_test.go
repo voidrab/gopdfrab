@@ -18,32 +18,32 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 	}{
 		{
 			"UndefinedOperator",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
+			"../../tests/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
 			pdf.Checks.Colour.UndefinedOperator,
 		},
 		{
 			"RenderingIntent",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
+			"../../tests/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
 			pdf.Checks.Colour.RenderingIntent,
 		},
 		{
 			"HexStringOddLength",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf",
 			pdf.Checks.Structure.HexStringOddLength,
 		},
 		{
 			"HexStringInvalidChar",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf",
 			pdf.Checks.Structure.HexStringInvalidChar,
 		},
 		{
 			"IntegerOutOfRange",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
+			"../../tests/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
 			pdf.Checks.Structure.IntegerOutOfRange,
 		},
 		{
 			"StringTooLong",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
 			pdf.Checks.Structure.StringTooLong,
 		},
 	}

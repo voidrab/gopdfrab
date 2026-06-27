@@ -10,7 +10,7 @@ import (
 
 // TestConvertNoResidualIssues is a regression test for all regression test documents.
 func TestConvertNoResidualIssues(t *testing.T) {
-	basePath := "test documents/regression"
+	basePath := "tests/regression"
 	var paths []string
 
 	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {

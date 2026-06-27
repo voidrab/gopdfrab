@@ -14,7 +14,7 @@ import (
 
 // veraDir locates the veraPDF reference corpus relative to this package's
 // directory (two levels under the repo root).
-const veraDir = "../../test documents/veraPDF/PDF_A-1b"
+const veraDir = "../../tests/veraPDF/PDF_A-1b"
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
 func issueClauses(issues []pdf.PDFError) []string {

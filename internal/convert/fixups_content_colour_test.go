@@ -15,7 +15,7 @@ import (
 // DeviceColourContentStream, confirming the injected Default* colour space
 // survives the full write+reverify round trip.
 func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
-	path := "../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-i.pdf"
+	path := "../../tests/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-i.pdf"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("corpus fixture not present")
 	}

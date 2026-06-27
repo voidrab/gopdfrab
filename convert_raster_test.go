@@ -11,7 +11,7 @@ import (
 // fixers is a q/Q-nesting StringTooLong -- a structural content defect no
 // in-place fixer can clamp, so its only route to conformance is Convert's
 // automatic whole-page raster last resort.
-const qqNestingFixture = "test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-fail-a.pdf"
+const qqNestingFixture = "tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t08-fail-a.pdf"
 
 // TestConvertRasterizesUnfixableResidual confirms Convert's automatic raster
 // last resort rebuilds a page no in-place fixer can repair, producing a

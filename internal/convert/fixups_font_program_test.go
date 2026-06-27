@@ -128,7 +128,7 @@ func runFixerAndCheckIdempotent(t *testing.T, fixer Fixer, trailer *pdf.PDFDict)
 }
 
 func TestFontMetricFixerCorrectsSimpleTrueTypeWidths(t *testing.T) {
-	path := "../../test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf"
+	path := "../../tests/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
@@ -137,7 +137,7 @@ func TestFontMetricFixerCorrectsSimpleTrueTypeWidths(t *testing.T) {
 }
 
 func TestFontMetricFixerCorrectsType1Widths(t *testing.T) {
-	path := "../../test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-a.pdf"
+	path := "../../tests/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-a.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
@@ -146,7 +146,7 @@ func TestFontMetricFixerCorrectsType1Widths(t *testing.T) {
 }
 
 func TestFontMetricFixerCorrectsCIDTrueTypeWidths(t *testing.T) {
-	path := "../../test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-c.pdf"
+	path := "../../tests/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-c.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
@@ -155,7 +155,7 @@ func TestFontMetricFixerCorrectsCIDTrueTypeWidths(t *testing.T) {
 }
 
 func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
-	path := "../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.6 Font metrics/veraPDF test suite 6-3-6-t01-fail-a.pdf"
+	path := "../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.6 Font metrics/veraPDF test suite 6-3-6-t01-fail-a.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
@@ -166,7 +166,7 @@ func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
 // TestFontSubsetMetaFixerSynthesizesType1CharSet covers a raw Type1 program
 // (FontFile) whose descriptor lacks /CharSet entirely.
 func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
-	path := "../../test documents/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
+	path := "../../tests/Isartor testsuite/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
@@ -190,8 +190,8 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 // /CharSet at all, one with an empty /CharSet string.
 func TestFontSubsetMetaFixerSynthesizesCFFCharSet(t *testing.T) {
 	for _, path := range []string{
-		"../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-a.pdf",
-		"../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-b.pdf",
+		"../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-a.pdf",
+		"../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-b.pdf",
 	} {
 		t.Run(path, func(t *testing.T) {
 			trailer, closeDoc := fixtureTrailer(t, path)
@@ -215,9 +215,9 @@ func TestFontSubsetMetaFixerSynthesizesCFFCharSet(t *testing.T) {
 // (CID-keyed CFF) descriptor with no /CIDSet and one with an incomplete one.
 func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 	for _, path := range []string{
-		"../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-a.pdf",
-		"../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-b.pdf",
-		"../../test documents/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-c.pdf",
+		"../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-a.pdf",
+		"../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-b.pdf",
+		"../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t03-fail-c.pdf",
 	} {
 		t.Run(path, func(t *testing.T) {
 			trailer, closeDoc := fixtureTrailer(t, path)

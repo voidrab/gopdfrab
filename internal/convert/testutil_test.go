@@ -14,8 +14,8 @@ import (
 // isartorDir and veraDir locate the reference test corpora relative to this
 // package's directory (two levels under the repo root).
 const (
-	isartorDir = "../../test documents/Isartor testsuite/PDFA-1b"
-	veraDir    = "../../test documents/veraPDF/PDF_A-1b"
+	isartorDir = "../../tests/Isartor testsuite/PDFA-1b"
+	veraDir    = "../../tests/veraPDF/PDF_A-1b"
 )
 
 // veraPDF filenames: optional "veraPDF test suite " prefix, then clause

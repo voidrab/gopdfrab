@@ -47,4 +47,4 @@ __pycache__/
 *.pyc
 
 # Local test documents
-test documents/other/
+tests/regression/

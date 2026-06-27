@@ -8,8 +8,8 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-const sampleIsartorFailFile = "../../test documents/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t01-fail-a.pdf"
-const sampleVeraPassFile = "../../test documents/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t01-pass-a.pdf"
+const sampleIsartorFailFile = "../../tests/Isartor testsuite/PDFA-1b/6.4 Transparency/isartor-6-4-t01-fail-a.pdf"
+const sampleVeraPassFile = "../../tests/veraPDF/PDF_A-1b/6.4 Transparency/veraPDF test suite 6-4-t01-pass-a.pdf"
 
 func TestClauseLess(t *testing.T) {
 	cases := []struct{ a, b string }{
