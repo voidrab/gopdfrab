@@ -51,6 +51,12 @@ type Reader struct {
 
 	objCache map[int]PDFValue
 
+	// data is the full file content as a byte slice (mmap on unix, heap on
+	// other platforms, or the caller-supplied slice for OpenBytes).
+	// nil only for NewRawReader, which drives test-only paths.
+	data  []byte
+	unmap func() error // non-nil when data is mmap'd; called by Close
+
 	// compressedXref maps an object number to its location inside a
 	// compressed object stream (xref type 2, PDF 1.5+), for objects not
 	// found in xrefTable. See xrefstream.go / objstm.go.
@@ -142,7 +148,14 @@ func Open(path string) (*Reader, error) {
 		f.Close()
 		return nil, err
 	}
-	return newDocument(f, info.Size())
+
+	data, unmap, err := mmapFile(f, info.Size())
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+
+	return newDocument(f, info.Size(), data, unmap)
 }
 
 // bytesFileSource adapts a *bytes.Reader (which has no Close) to fileSource.
@@ -154,12 +167,12 @@ func (bytesFileSource) Close() error { return nil }
 // Open does but without touching disk -- used to re-verify freshly-written
 // bytes during conversion.
 func OpenBytes(data []byte) (*Reader, error) {
-	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)))
+	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil)
 }
 
 // newDocument parses a Reader's structure from an already-opened byte source
 // of the given size, shared by Open and OpenBytes.
-func newDocument(src fileSource, size int64) (*Reader, error) {
+func newDocument(src fileSource, size int64, data []byte, unmap func() error) (*Reader, error) {
 	header := make([]byte, 8)
 	if _, err := src.ReadAt(header, 0); err != nil {
 		src.Close()
@@ -170,6 +183,8 @@ func newDocument(src fileSource, size int64) (*Reader, error) {
 		file:   src,
 		size:   size,
 		header: header,
+		data:   data,
+		unmap:  unmap,
 	}
 
 	if err := doc.initializeStructure(); err != nil {
@@ -343,8 +358,8 @@ var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
 // "N G obj" headers, used when the xref table cannot be parsed (6.1.4).
 // Later occurrences win, matching how a real /Prev chain resolves duplicates.
 func (d *Reader) recoverXRefByBruteForceScan() error {
-	raw := make([]byte, d.size)
-	if _, err := d.file.ReadAt(raw, 0); err != nil {
+	raw, err := d.fullBytes()
+	if err != nil {
 		return err
 	}
 
@@ -384,9 +399,8 @@ func (d *Reader) recoverTrailerFromXRefStream() (PDFDict, error) {
 // findAndLoadFirstPageTrailer scans every xref section in a linearized PDF,
 // filling d.xrefTable and setting d.firstPageTrailer to the first one with /Root.
 func (d *Reader) findAndLoadFirstPageTrailer() {
-	size := d.size
-	raw := make([]byte, size)
-	if _, err := d.file.ReadAt(raw, 0); err != nil {
+	raw, err := d.fullBytes()
+	if err != nil {
 		return
 	}
 
@@ -402,6 +416,17 @@ func (d *Reader) findAndLoadFirstPageTrailer() {
 			d.firstPageTrailer = trailer
 		}
 	}
+}
+
+// fullBytes returns the full file as a byte slice, reusing d.data when
+// available to avoid a redundant heap allocation.
+func (d *Reader) fullBytes() ([]byte, error) {
+	if d.data != nil {
+		return d.data, nil
+	}
+	raw := make([]byte, d.size)
+	_, err := d.file.ReadAt(raw, 0)
+	return raw, err
 }
 
 // EffectiveTrailer returns d.trailer, or d.firstPageTrailer for linearized
@@ -456,8 +481,16 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	return index, err
 }
 
-// Close ensures the file handle is released.
+// Close releases all resources held by the Reader.
 func (d *Reader) Close() error {
+	if d.unmap != nil {
+		if err := d.unmap(); err != nil {
+			d.file.Close()
+			return err
+		}
+		d.unmap = nil
+		d.data = nil
+	}
 	return d.file.Close()
 }
 

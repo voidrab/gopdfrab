@@ -55,12 +55,16 @@ func (d *Reader) parseReference(ref PDFRef) (PDFValue, error) {
 // parseClassicReference performs the actual disk read and parse for an
 // indirect object stored at a classic byte offset.
 func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, error) {
-	if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
+	var l *Lexer
+	if d.data != nil {
+		l = NewLexerBytes(d.data, offset)
+	} else {
+		if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
+			return nil, err
+		}
+		l = NewLexerAt(d.file, offset)
+		defer l.Release()
 	}
-
-	l := NewLexerAt(d.file, offset)
-	defer l.Release()
 
 	d.recordFraming(ref.ObjNum, l.validateObjectStart())
 
@@ -82,7 +86,7 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 		var leadingWS bool
 		if len(l.pushed) == 0 {
 			preEOLErr = l.requireEOL()
-			if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && IsWhitespace(b[0]) {
+			if b, ok := l.peekByte(); ok && IsWhitespace(b) {
 				leadingWS = true
 			}
 		}

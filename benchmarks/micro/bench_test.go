@@ -119,11 +119,12 @@ func BenchmarkConvert(b *testing.B) {
 // resolveInPlace, shared with resolver.go's resolveObject) removed ~90k more,
 // down to ~1.46M. Reusing the ContentScanner operand stack (content.go) and
 // replacing reflect-based ValuePointer with an unsafe type switch (values.go)
-// cut another ~100k, to ~1.35M. Allocs/op is deterministic and
-// environment-independent, unlike wall-clock timing, so this check is not flaky.
+// cut another ~100k, to ~1.35M. Switching the hot-path lexer to []byte
+// indexing (NewLexerBytes) eliminated the bufio.Reader per-object alloc: ~1.34M.
+// Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_450_000
+const maxLargeFileAllocs = 1_380_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -158,9 +159,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // cost. Seeding the verify Reader from the in-memory graph (SeedResolvedGraph)
 // cut this from ~3.7M to ~2.3M by eliminating per-pass re-parse of all 40k
 // objects; remaining allocs are the input parse (run once) + writer walks +
-// the graph walk verify performs on the seeded reader.
+// the graph walk verify performs on the seeded reader. Stage 2 byte-slice
+// lexer cut it further to ~2.28M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_500_000
+const maxConvertLargeAllocs = 2_350_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

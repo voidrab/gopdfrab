@@ -1,7 +1,6 @@
 package pdf
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 )
@@ -64,7 +63,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		return nil, fmt.Errorf("object stream %d: missing /N or /First", streamObjNum)
 	}
 
-	headerLex := NewLexer(bytes.NewReader(data))
+	headerLex := NewLexerBytes(data, 0)
 	type pair struct{ objNum, offset int }
 	pairs := make([]pair, 0, n)
 	for i := range n {
@@ -91,7 +90,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 			return nil, fmt.Errorf("object stream %d: object %d has an out-of-range offset", streamObjNum, p.objNum)
 		}
 
-		objLex := NewLexer(bytes.NewReader(data[start:end]))
+		objLex := NewLexerBytes(data[start:end], 0)
 		tok := objLex.NextToken()
 		val, err := parseObject(objLex, tok)
 		objLex.Release()

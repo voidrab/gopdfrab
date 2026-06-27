@@ -41,28 +41,43 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	}
 
 	streamStart := l.pos
-	data := make([]byte, length)
-	_, err = d.file.ReadAt(data, streamStart)
-	if err != nil {
-		return err
-	}
-	dict.RawStream = data
 
-	// 6.1.7: declared Length must not include the EOL before endstream. If 'e' (start
-	// of "endstream") appears right after the declared-length region, that's a violation.
-	var peek [9]byte
-	if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
-		d.recordStreamFraming(objNum, "StreamLengthIncludesEOL", "stream Length value includes the EOL marker before endstream")
-	}
+	if d.data != nil {
+		// Fast path: read from the mmap/in-memory view without an extra seek.
+		end := streamStart + int64(length)
+		if end > int64(len(d.data)) {
+			return fmt.Errorf("stream body extends past end of file")
+		}
+		dict.RawStream = make([]byte, length)
+		copy(dict.RawStream, d.data[streamStart:])
 
-	// 6.1.7: the endstream keyword shall be preceded by an EOL marker.
-	d.checkEndstreamFraming(objNum, streamStart, length)
+		// 6.1.7: Length must not include the EOL before endstream.
+		if end+9 <= int64(len(d.data)) && string(d.data[end:end+9]) == "endstream" {
+			d.recordStreamFraming(objNum, "StreamLengthIncludesEOL", "stream Length value includes the EOL marker before endstream")
+		}
 
-	if _, err := d.file.Seek(streamStart+int64(length), io.SeekStart); err != nil {
-		return err
+		d.checkEndstreamFraming(objNum, streamStart, length)
+		l.pos = end
+	} else {
+		data := make([]byte, length)
+		if _, err := d.file.ReadAt(data, streamStart); err != nil {
+			return err
+		}
+		dict.RawStream = data
+
+		var peek [9]byte
+		if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
+			d.recordStreamFraming(objNum, "StreamLengthIncludesEOL", "stream Length value includes the EOL marker before endstream")
+		}
+
+		d.checkEndstreamFraming(objNum, streamStart, length)
+
+		if _, err := d.file.Seek(streamStart+int64(length), io.SeekStart); err != nil {
+			return err
+		}
+		l.reader.Reset(d.file)
+		l.pos = streamStart + int64(length)
 	}
-	l.reader.Reset(d.file)
-	l.pos = streamStart + int64(length)
 
 	t := l.NextToken()
 	if t.Type != TokenStreamEnd {
@@ -85,7 +100,7 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 			return bad
 		}
 		if b == '\r' {
-			if nb, e := l.reader.Peek(1); e == nil && len(nb) > 0 && nb[0] == '\n' {
+			if next, ok := l.peekByte(); ok && next == '\n' {
 				l.readByte()
 			}
 			return bad
@@ -97,9 +112,15 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an
 // EOL marker (6.1.7).
 func (d *Reader) checkEndstreamFraming(objNum int, streamStart int64, length int) {
-	window := make([]byte, length+64)
-	n, _ := d.file.ReadAt(window, streamStart)
-	window = window[:n]
+	var window []byte
+	if d.data != nil {
+		end := min(int(streamStart)+length+64, len(d.data))
+		window = d.data[streamStart:end]
+	} else {
+		w := make([]byte, length+64)
+		n, _ := d.file.ReadAt(w, streamStart)
+		window = w[:n]
+	}
 
 	start := max(length-2, 0)
 	if start > len(window) {
