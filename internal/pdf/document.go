@@ -615,6 +615,14 @@ func (d *Reader) ResolveGraph() (PDFValue, error) {
 	return g, nil
 }
 
+// SeedResolvedGraph pre-populates the Reader with an already-resolved graph
+// and object cache.
+func (d *Reader) SeedResolvedGraph(graph PDFDict, objs map[int]PDFValue) {
+	d.resolvedGraph = graph
+	d.graphResolved = true
+	d.objCache = objs
+}
+
 // resolvePath walks a PDF object following path elements, which may be
 // dictionary keys or array indices. node must already be a resolved object.
 func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {

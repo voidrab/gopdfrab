@@ -123,14 +123,17 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = verifyDocumentInformationDictionary(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
 
+	// Resolve the graph once up front; all subsequent checks work on the
+	// resolved graph so no per-check lazy resolve occurs.
 	graph, err := d.ResolveGraph()
 	if err != nil {
 		return append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+	}
+
+	errs = verifyDocumentInformationDictionary(graph)
+	if errs != nil {
+		issues = append(issues, errs...)
 	}
 
 	pageIndex, err := d.BuildPageIndex(graph)
@@ -391,14 +394,18 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 }
 
 // verifyDocumentInformationDictionary verifies requirements outlined in 6.1.5
-func verifyDocumentInformationDictionary(d *pdf.Reader) []pdf.PDFError {
-	if d.Trailer().Entries["Info"] == nil {
+// verifyDocumentInformationDictionary checks 6.1.5 requirements against the
+// resolved graph.
+func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
+	trailer, ok := graph.(pdf.PDFDict)
+	if !ok || trailer.Entries["Info"] == nil {
 		return nil
 	}
 
-	metadata, err := d.GetMetadata()
-	if err != nil {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.InfoDictUnreadable, []error{fmt.Errorf("failed to get document information dictionary: %v", err)}, 0, nil)}
+	infoDict, ok := trailer.Entries["Info"].(pdf.PDFDict)
+	if !ok {
+		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.InfoDictUnreadable,
+			[]error{fmt.Errorf("Info entry is not a dictionary")}, 0, nil)}
 	}
 
 	allowedFields := []string{
@@ -413,53 +420,54 @@ func verifyDocumentInformationDictionary(d *pdf.Reader) []pdf.PDFError {
 		"Trapped",
 	}
 
-	errs := []pdf.PDFError{}
+	var errs []pdf.PDFError
 
 	// 6.1.5: standard entries (Table 10.2, PDF Reference 4th ed.) must be
 	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
-	if infoVal, err := d.ResolveGraphByPath([]string{"Info"}); err == nil {
-		if infoDict, ok := infoVal.(pdf.PDFDict); ok {
-			var typeErrs []error
-			for k, v := range infoDict.Entries {
-				if k == "_ref" || !slices.Contains(allowedFields, k) {
-					continue
-				}
-				switch v.(type) {
-				case pdf.PDFString, pdf.PDFHexString:
-				case pdf.PDFName:
-					if k != "Trapped" {
-						typeErrs = append(typeErrs, fmt.Errorf("entry %v has non-string value", k))
-					}
-				default:
-					typeErrs = append(typeErrs, fmt.Errorf("entry %v has non-string value", k))
-				}
-			}
-			if len(typeErrs) > 0 {
-				errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictXMPMismatch, typeErrs, 0, nil))
-			}
+	var typeErrs []error
+	for k, v := range infoDict.Entries {
+		if k == "_ref" || !slices.Contains(allowedFields, k) {
+			continue
 		}
+		switch v.(type) {
+		case pdf.PDFString, pdf.PDFHexString:
+		case pdf.PDFName:
+			if k != "Trapped" {
+				typeErrs = append(typeErrs, fmt.Errorf("entry %v has non-string value", k))
+			}
+		default:
+			typeErrs = append(typeErrs, fmt.Errorf("entry %v has non-string value", k))
+		}
+	}
+	if len(typeErrs) > 0 {
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictXMPMismatch, typeErrs, 0, nil))
 	}
 
 	// Custom keys are permitted; only entries present in Table 10.2 of
 	// PDF Reference 4th ed. are checked for emptiness.
-	emptyErrs := []error{}
-	for k, v := range metadata {
-		if slices.Contains(allowedFields, k) && len(v) == 0 {
-			err := fmt.Errorf("empty value for key %v in information dictionary", k)
-			emptyErrs = append(emptyErrs, err)
+	var emptyErrs []error
+	for k, v := range infoDict.Entries {
+		if k == "_ref" || !slices.Contains(allowedFields, k) {
+			continue
+		}
+		var s string
+		switch tv := v.(type) {
+		case pdf.PDFString:
+			s = pdf.DecodePDFTextString(pdf.DecodePDFLiteralStringBytes(tv.Value))
+		case pdf.PDFHexString:
+			s = pdf.DecodePDFTextString(pdf.DecodePDFHexStringBytes(tv.Value))
+		default:
+			continue
+		}
+		if len(s) == 0 {
+			emptyErrs = append(emptyErrs, fmt.Errorf("empty value for key %v in information dictionary", k))
 		}
 	}
-
 	if len(emptyErrs) > 0 {
-		err := pdf.NewError(pdf.Checks.Structure.InfoDictEmptyValues, emptyErrs, 0, nil)
-		errs = append(errs, err)
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictEmptyValues, emptyErrs, 0, nil))
 	}
 
-	if len(errs) > 0 {
-		return errs
-	}
-
-	return nil
+	return errs
 }
 
 // verifyDocument verifies requirements outlined in 6.1.6, 6.1.7, 6.1.11, 6.1.12.

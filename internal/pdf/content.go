@@ -265,14 +265,14 @@ func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 			op := tok.Value
 			if op == "BI" {
 				cs.scanInlineImage(fn)
-				cs.stack = nil
+				cs.stack = cs.stack[:0]
 				continue
 			}
 			fn(op, cs.stack)
-			cs.stack = nil
+			cs.stack = cs.stack[:0]
 		default:
 			// obj/stream keywords do not appear in content streams.
-			cs.stack = nil
+			cs.stack = cs.stack[:0]
 		}
 	}
 }

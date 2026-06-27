@@ -30,10 +30,9 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 	return WriteDocument(w, trailer)
 }
 
-// WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
-// self-contained PDF with a cross-reference table.
-
-func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
+// WriteDocumentIndexed serializes a fully-resolved PDF object graph to w and
+// returns the ordered slice of indirect objects as written.
+func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict) ([]pdf.PDFDict, error) {
 	wr := &pdfWriter{
 		numbers: map[objectIdentity]int{},
 		visited: map[uintptr]bool{},
@@ -46,7 +45,7 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 	// 6.1.2: version line followed by a binary-marker comment line (at least
 	// four bytes, each > 127) on its own line.
 	if _, err := fmt.Fprint(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n"); err != nil {
-		return err
+		return nil, err
 	}
 
 	offsets := make([]int64, len(wr.order)+1) // index 0 (the free-list head) is unused
@@ -54,17 +53,17 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 		num := i + 1
 		offsets[num] = cw.n
 		if err := wr.writeIndirectObject(cw, num, obj); err != nil {
-			return fmt.Errorf("writer: object %d: %w", num, err)
+			return nil, fmt.Errorf("writer: object %d: %w", num, err)
 		}
 	}
 
 	xrefOffset := cw.n
 	if _, err := fmt.Fprintf(cw, "xref\n0 %d\n0000000000 65535 f \n", len(wr.order)+1); err != nil {
-		return err
+		return nil, err
 	}
 	for i := 1; i <= len(wr.order); i++ {
 		if _, err := fmt.Fprintf(cw, "%010d 00000 n \n", offsets[i]); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -90,12 +89,29 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 	}
 
 	if _, err := fmt.Fprint(cw, "trailer\n"); err != nil {
-		return err
+		return nil, err
 	}
 	if err := wr.writeDictEntries(cw, newTrailer); err != nil {
-		return fmt.Errorf("writer: trailer: %w", err)
+		return nil, fmt.Errorf("writer: trailer: %w", err)
 	}
-	_, err := fmt.Fprintf(cw, "\nstartxref\n%d\n%%%%EOF", xrefOffset)
+	if _, err := fmt.Fprintf(cw, "\nstartxref\n%d\n%%%%EOF", xrefOffset); err != nil {
+		return nil, err
+	}
+
+	// Rewrite each dict's _ref to its assigned output object number so the
+	// in-memory graph's numbering matches the serialized output.
+	for i, obj := range wr.order {
+		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		wr.order[i] = obj
+	}
+
+	return wr.order, nil
+}
+
+// WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
+// self-contained PDF with a cross-reference table.
+func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
+	_, err := WriteDocumentIndexed(w, trailer)
 	return err
 }
 

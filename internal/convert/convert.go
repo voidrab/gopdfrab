@@ -113,23 +113,15 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	for iter := 1; iter <= maxConvertIterations; iter++ {
 		cr.Iterations = iter
 
-		var buf bytes.Buffer
-		if err := writer.WriteDocument(&buf, trailer); err != nil {
+		if err := serializeAndVerify(trailer, &cr, p); err != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
-		cr.Output = buf.Bytes()
 
-		result, verr := verifyBytes(cr.Output, p)
-		if verr != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", verr)
-		}
-		cr.Result = result
-
-		if result.Valid {
+		if cr.Result.Valid {
 			return cr, nil
 		}
 
-		counts := violationCounts(result.Issues)
+		counts := violationCounts(cr.Result.Issues)
 		if sameMultiset(counts, prevCounts) {
 			break // no progress since last iteration
 		}
@@ -156,7 +148,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 				}
 				continue
 			}
-			ch, err := fixer.Fix(&trailer, result.IssuesForCheck(c))
+			ch, err := fixer.Fix(&trailer, cr.Result.IssuesForCheck(c))
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: fixer for check %q: %w", c.Name(), err)
 			}
@@ -204,11 +196,25 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 // updating cr.Output and cr.Result in place.
 func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	order, err := writer.WriteDocumentIndexed(&buf, trailer)
+	if err != nil {
 		return err
 	}
 	cr.Output = buf.Bytes()
-	result, err := verifyBytes(cr.Output, p)
+
+	doc, err := pdf.OpenBytes(cr.Output)
+	if err != nil {
+		return err
+	}
+	defer doc.Close()
+
+	objs := make(map[int]pdf.PDFValue, len(order))
+	for i, obj := range order {
+		objs[i+1] = obj
+	}
+	doc.SeedResolvedGraph(trailer, objs)
+
+	result, err := verify.Verify(doc, p)
 	if err != nil {
 		return err
 	}
@@ -253,15 +259,6 @@ func flattenAllPages(trailer *pdf.PDFDict) bool {
 		}
 	}
 	return changed
-}
-
-func verifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
-	doc, err := pdf.OpenBytes(data)
-	if err != nil {
-		return pdf.Result{}, err
-	}
-	defer doc.Close()
-	return verify.Verify(doc, p)
 }
 
 // violationCounts tallies how many times each Check is violated, used to

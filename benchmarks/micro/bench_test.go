@@ -11,6 +11,7 @@
 package micro
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,13 +117,13 @@ func BenchmarkConvert(b *testing.B) {
 // resolve references in place into the cached d.objCache instances instead
 // of building a parallel deep copy of the graph (document.go's
 // resolveInPlace, shared with resolver.go's resolveObject) removed ~90k more,
-// down to ~1.46M. Allocs/op is deterministic and environment-independent,
-// unlike wall-clock timing, so this check is not flaky. The remaining allocs
-// are now dominated by ContentScanner's per-token operand boxing, not by
-// re-parsing or graph resolution.
+// down to ~1.46M. Reusing the ContentScanner operand stack (content.go) and
+// replacing reflect-based ValuePointer with an unsafe type switch (values.go)
+// cut another ~100k, to ~1.35M. Allocs/op is deterministic and
+// environment-independent, unlike wall-clock timing, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_600_000
+const maxLargeFileAllocs = 1_450_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -154,9 +155,12 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // maxConvertLargeAllocs is a regression ceiling on allocations for one
 // ConvertBytes pass over the "large" sample. Conversion re-parses the graph
 // once per verify pass, so this tracks the pass count as much as per-object
-// cost.
+// cost. Seeding the verify Reader from the in-memory graph (SeedResolvedGraph)
+// cut this from ~3.7M to ~2.3M by eliminating per-pass re-parse of all 40k
+// objects; remaining allocs are the input parse (run once) + writer walks +
+// the graph walk verify performs on the seeded reader.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 3_700_000
+const maxConvertLargeAllocs = 2_500_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
@@ -179,4 +183,51 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 			"likely regained a verify pass or reintroduced per-object re-parsing",
 			allocs, maxConvertLargeAllocs)
 	}
+}
+
+// TestConvertSeededVerifyMatchesFreshVerify proves that the seeded verify path
+// (Reader.SeedResolvedGraph, used by the convert loop) produces the same
+// Valid flag and issue set as an independent from-scratch VerifyBytes of the
+// same output bytes, for every sample file.
+func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
+	root := repoRoot()
+	for name, rel := range sampleFiles {
+		path := filepath.Join(root, rel)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Logf("%s: skipping (file not present)", name)
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			cr, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B)
+			if err != nil {
+				t.Fatalf("ConvertBytes: %v", err)
+			}
+
+			// Independent fresh verify of the same output bytes.
+			fresh, err := pdfrab.VerifyBytes(cr.Output, pdfrab.PDFA_1B)
+			if err != nil {
+				t.Fatalf("VerifyBytes: %v", err)
+			}
+
+			if cr.Result.Valid != fresh.Valid {
+				t.Errorf("seeded Valid=%v, fresh Valid=%v", cr.Result.Valid, fresh.Valid)
+			}
+
+			seededClauses := issueClauses(cr.Result.Issues)
+			freshClauses := issueClauses(fresh.Issues)
+			if fmt.Sprint(seededClauses) != fmt.Sprint(freshClauses) {
+				t.Errorf("seeded issues %v != fresh issues %v", seededClauses, freshClauses)
+			}
+		})
+	}
+}
+
+// issueClauses extracts sorted clause strings from a result's issues.
+func issueClauses(issues []pdfrab.PDFError) []string {
+	out := make([]string, len(issues))
+	for i, iss := range issues {
+		out[i] = fmt.Sprintf("%s/%d", iss.Check().Clause(), iss.Check().Subclause())
+	}
+	return out
 }
