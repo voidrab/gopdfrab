@@ -160,9 +160,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // cut this from ~3.7M to ~2.3M by eliminating per-pass re-parse of all 40k
 // objects; remaining allocs are the input parse (run once) + writer walks +
 // the graph walk verify performs on the seeded reader. Stage 2 byte-slice
-// lexer cut it further to ~2.28M.
+// lexer cut it further to ~2.28M; Stage 3 writer buffering + WriteString to
+// ~2.09M by eliminating per-string-write allocations in the dict serialiser.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_350_000
+const maxConvertLargeAllocs = 2_150_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
