@@ -12,7 +12,8 @@ import (
 func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	// 6.1.7: the 'stream' keyword shall be followed by CRLF or a single LF.
 	if d.consumeStreamEOL(l) {
-		d.recordStreamFraming(objNum, "StreamKeywordEOL", "'stream' keyword not followed by a single EOL marker")
+		d.recordStreamFraming(objNum, Checks.Structure.StreamKeywordEOL,
+			"'stream' keyword not followed by a single EOL marker")
 	}
 
 	lengthRef, ok := dict.Entries["Length"]
@@ -52,7 +53,8 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 		// 6.1.7: Length must not include the EOL before endstream.
 		if end+9 <= int64(len(d.data)) && string(d.data[end:end+9]) == "endstream" {
-			d.recordStreamFraming(objNum, "StreamLengthIncludesEOL", "stream Length value includes the EOL marker before endstream")
+			d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
+				"stream Length value includes the EOL marker before endstream")
 		}
 
 		d.checkEndstreamFraming(objNum, streamStart, length)
@@ -66,7 +68,8 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 		var peek [9]byte
 		if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
-			d.recordStreamFraming(objNum, "StreamLengthIncludesEOL", "stream Length value includes the EOL marker before endstream")
+			d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
+				"stream Length value includes the EOL marker before endstream")
 		}
 
 		d.checkEndstreamFraming(objNum, streamStart, length)
@@ -131,6 +134,7 @@ func (d *Reader) checkEndstreamFraming(objNum int, streamStart int64, length int
 	}
 	idx := start + rel
 	if idx == 0 || (window[idx-1] != '\n' && window[idx-1] != '\r') {
-		d.recordStreamFraming(objNum, "EndstreamEOL", "endstream keyword not preceded by an EOL marker")
+		d.recordStreamFraming(objNum, Checks.Structure.EndstreamEOL,
+			"endstream keyword not preceded by an EOL marker")
 	}
 }

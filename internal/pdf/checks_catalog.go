@@ -40,7 +40,7 @@ type structureChecks struct {
 	FileHeaderCommentLength Check
 	FileHeaderCommentBytes  Check
 	// 6.1.3 File trailer
-	TrailerID      Check
+	TrailerID      Check // merged with 6.1.3-4 (linearized PDF)
 	TrailerEncrypt Check
 	TrailerEOF     Check
 	// 6.1.4 Cross-reference table
@@ -49,10 +49,9 @@ type structureChecks struct {
 	XRefSubsectionHeaderFormat Check
 	XRefStream                 Check
 	// 6.1.5 Document information dictionary
-	InfoDictUnreadable     Check
-	InfoDictDisallowedKeys Check
-	InfoDictEmptyValues    Check
-	InfoDictXMPMismatch    Check
+	InfoDictUnreadable  Check
+	InfoDictEmptyValues Check
+	InfoDictXMPMismatch Check
 	// 6.1.6 Metadata stream
 	GraphResolutionFailure Check
 	HexStringInvalidChar   Check
@@ -396,18 +395,14 @@ func init() {
 				"InfoDictUnreadable",
 				"The document information dictionary must be readable",
 				"6.1.5", 1),
-			InfoDictDisallowedKeys: newCheck(
-				"InfoDictDisallowedKeys",
-				"The document information dictionary must not contain non-standard keys",
-				"6.1.5", 2),
 			InfoDictEmptyValues: newCheck(
 				"InfoDictEmptyValues",
 				"Document information dictionary entries must not have empty string values",
-				"6.1.5", 3),
+				"6.1.5", 2),
 			InfoDictXMPMismatch: newCheck(
 				"InfoDictXMPMismatch",
 				"Document information dictionary entries must match the corresponding XMP metadata values",
-				"6.1.5", 4),
+				"6.1.5", 3),
 			GraphResolutionFailure: newCheck(
 				"GraphResolutionFailure",
 				"The document object graph must be fully resolvable",

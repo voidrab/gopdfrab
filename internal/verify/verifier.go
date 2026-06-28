@@ -180,26 +180,8 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 
 	verifyAllObjectFraming(d)
 
-	issues = append(issues, structErrorsToIssues(d.StructErrors())...)
+	issues = append(issues, d.StructErrors()...)
 	return issues
-}
-
-// structErrorsToIssues maps a Reader's parse-time structural diagnostics --
-// recorded by Check name to keep the pdf package independent of the check
-// registry -- back to PDFError issues via that registry.
-func structErrorsToIssues(diags []pdf.StructError) []pdf.PDFError {
-	if len(diags) == 0 {
-		return nil
-	}
-	out := make([]pdf.PDFError, 0, len(diags))
-	for _, d := range diags {
-		c, ok := pdf.CheckByName(d.Name)
-		if !ok {
-			continue
-		}
-		out = append(out, pdf.NewError(c, d.Errs, 0, nil))
-	}
-	return out
 }
 
 func verifyAllObjectFraming(d *pdf.Reader) {
@@ -394,8 +376,6 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 }
 
 // verifyDocumentInformationDictionary verifies requirements outlined in 6.1.5
-// verifyDocumentInformationDictionary checks 6.1.5 requirements against the
-// resolved graph.
 func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok || trailer.Entries["Info"] == nil {
