@@ -47,6 +47,7 @@ type structureChecks struct {
 	XRefKeyword                Check
 	XRefSubsectionHeader       Check
 	XRefSubsectionHeaderFormat Check
+	XRefStream                 Check
 	// 6.1.5 Document information dictionary
 	InfoDictUnreadable     Check
 	InfoDictDisallowedKeys Check
@@ -72,13 +73,16 @@ type structureChecks struct {
 	EmbeddedFileSpec Check
 	EmbeddedFiles    Check
 	// 6.1.12 Architectural limits
-	NameTooLong       Check
-	IntegerOutOfRange Check
-	ArrayTooLarge     Check
-	DictTooLarge      Check
-	CMapCIDOutOfRange Check
-	StringTooLong     Check
-	DeviceNColorants  Check
+	NameTooLong             Check
+	IntegerOutOfRange       Check
+	RealOutOfRange          Check
+	ArrayTooLarge           Check
+	DictTooLarge            Check
+	CMapCIDOutOfRange       Check
+	StringTooLong           Check
+	DeviceNColorants        Check
+	IndirectObjectsExceeded Check
+	GraphicsStateNesting    Check
 	// 6.1.13 Optional content
 	OptionalContent Check
 	// 6.1.2 File header — post-1.4 ViewerPreferences keys
@@ -98,6 +102,9 @@ type colourChecks struct {
 	OutputIntentMissingN          Check
 	OutputIntentInvalidN          Check
 	OutputIntentICCVersion        Check
+	// 6.2.3.2 ICCBased colour spaces
+	ICCBasedProfileInvalid     Check
+	ICCBasedComponentsMismatch Check
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -111,10 +118,12 @@ type colourChecks struct {
 
 type imageChecks struct {
 	// 6.2.4 Image XObjects
-	ImageInterpolate     Check
-	ImageAlternates      Check
-	ImageOPI             Check
-	ImageRenderingIntent Check
+	ImageInterpolate          Check
+	ImageAlternates           Check
+	ImageOPI                  Check
+	ImageRenderingIntent      Check
+	ImageBitsPerComponent     Check
+	ImageMaskBitsPerComponent Check
 	// 6.2.5 Form XObjects
 	FormOPI        Check
 	FormSubtype2PS Check // Subtype2=PS additional entry
@@ -141,8 +150,15 @@ type transparencyChecks struct {
 }
 
 type fontChecks struct {
-	// 6.3.2 Font program validity
-	InvalidProgram Check
+	// 6.3.2 Font dictionary and program validity
+	FontType            Check
+	InvalidSubtype      Check
+	FontBaseFont        Check
+	SimpleFontFirstChar Check
+	SimpleFontLastChar  Check
+	SimpleFontWidths    Check
+	FontFileSubtype     Check
+	InvalidProgram      Check
 	// 6.3.3.1 CIDSystemInfo consistency
 	CIDSystemInfoMismatch Check
 	// 6.3.3.2 CIDToGIDMap
@@ -151,9 +167,10 @@ type fontChecks struct {
 	CMapNotEmbedded       Check
 	CMapWModeInconsistent Check
 	// 6.3.4 Font embedding
-	InvalidSubtype    Check
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
+	// 6.3.8 ToUnicode (Level A)
+	ToUnicodeMissing Check
 	// 6.3.5 Subset coverage
 	SubsetGlyphCoverage Check
 	Type1SubsetCharSet  Check
@@ -214,14 +231,27 @@ type metadataChecks struct {
 	ExtPropertyUndocumented    Check
 	ExtPropertyUndefinedType   Check
 	// 6.7.9 XMP well-formedness
-	XMPStreamUnreadable Check
-	XMPNotWellFormed    Check
+	XMPStreamUnreadable    Check
+	XMPNotWellFormed       Check
+	XMPNoCorrespondingType Check
 	// 6.7.11 PDF/A identifier
 	PDFAIdentifierMissing           Check
 	PDFAIdentifierNamespace         Check
 	PDFAConformanceLevel            Check
 	PDFAPartNumber                  Check
 	PDFAIdentifierUndefinedProperty Check
+}
+
+type logicalStructureChecks struct {
+	// 6.8.2.2 Tagged PDF
+	TaggedMarkInfo Check
+	// 6.8.3.3 Structure tree
+	StructTreeRoot Check
+	// 6.8.3.4 Role map
+	RoleMapStandardType Check
+	RoleMapCircular     Check
+	// 6.8.4 Natural language
+	LangIdentifier Check
 }
 
 type formChecks struct {
@@ -234,15 +264,16 @@ type formChecks struct {
 }
 
 type checksRegistry struct {
-	Structure    structureChecks
-	Colour       colourChecks
-	Image        imageChecks
-	Transparency transparencyChecks
-	Font         fontChecks
-	Annotation   annotationChecks
-	Action       actionChecks
-	Metadata     metadataChecks
-	Form         formChecks
+	Structure        structureChecks
+	Colour           colourChecks
+	Image            imageChecks
+	Transparency     transparencyChecks
+	Font             fontChecks
+	LogicalStructure logicalStructureChecks
+	Annotation       annotationChecks
+	Action           actionChecks
+	Metadata         metadataChecks
+	Form             formChecks
 }
 
 var Checks checksRegistry
@@ -343,7 +374,7 @@ func init() {
 				"6.1.3", 2),
 			TrailerEOF: newCheck(
 				"TrailerEOF",
-				"The file must end with an %%EOF marker",
+				"No data shall follow the last %%EOF marker except a single optional end-of-line marker",
 				"6.1.3", 3),
 			XRefKeyword: newCheck(
 				"XRefKeyword",
@@ -357,6 +388,10 @@ func init() {
 				"XRefSubsectionHeaderFormat",
 				"The cross-reference subsection header must match the 'startObj count' format with a single space separator",
 				"6.1.4", 3),
+			XRefStream: newCheck(
+				"XRefStream",
+				"Cross-reference streams must not be used",
+				"6.1.4", 4),
 			InfoDictUnreadable: newCheck(
 				"InfoDictUnreadable",
 				"The document information dictionary must be readable",
@@ -437,13 +472,17 @@ func init() {
 				"IntegerOutOfRange",
 				"Integer values must be within the range [−2^31, 2^31−1]",
 				"6.1.12", 2),
+			RealOutOfRange: newCheck(
+				"RealOutOfRange",
+				"Real values must have an absolute value not exceeding 32767.0",
+				"6.1.12", 8),
 			ArrayTooLarge: newCheck(
 				"ArrayTooLarge",
 				"Arrays must not contain more than 8191 elements",
 				"6.1.12", 3),
 			DictTooLarge: newCheck(
 				"DictTooLarge",
-				"Dictionaries must not contain more than 4096 entries",
+				"Dictionaries must not contain more than 4095 entries",
 				"6.1.12", 4),
 			CMapCIDOutOfRange: newCheck(
 				"CMapCIDOutOfRange",
@@ -451,12 +490,20 @@ func init() {
 				"6.1.12", 5),
 			StringTooLong: newCheck(
 				"StringTooLong",
-				"String objects must not exceed 65535 bytes, and content-stream q/Q nesting must not exceed 28 levels",
+				"String objects must not exceed 65535 bytes",
 				"6.1.12", 6),
 			DeviceNColorants: newCheck(
 				"DeviceNColorants",
 				"DeviceN colour spaces must not exceed 8 colorants",
 				"6.1.12", 7),
+			IndirectObjectsExceeded: newCheck(
+				"IndirectObjectsExceeded",
+				"The number of indirect objects in the file must not exceed 8388607",
+				"6.1.12", 9),
+			GraphicsStateNesting: newCheck(
+				"GraphicsStateNesting",
+				"Graphics state nesting via q/Q operators must not exceed 28 levels",
+				"6.1.12", 10),
 			OptionalContent: newCheck(
 				"OptionalContent",
 				"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",
@@ -512,6 +559,14 @@ func init() {
 				"OutputIntentICCVersion",
 				"The OutputIntent ICC profile must conform to ICC.1:2003-09 (version ≤ 2.x)",
 				"6.2.2", 11),
+			ICCBasedProfileInvalid: newCheck(
+				"ICCBasedProfileInvalid",
+				"ICCBased colour spaces must embed a valid ICC profile stream conforming to PDF 1.4 (device class, connection colour space, version ≤ 2.x)",
+				"6.2.3.2", 1),
+			ICCBasedComponentsMismatch: newCheck(
+				"ICCBasedComponentsMismatch",
+				"An ICCBased colour space N entry must be 1, 3, or 4 and match the component count of the embedded ICC profile",
+				"6.2.3.2", 2),
 			DeviceColourSpaceUsage: newCheck(
 				"DeviceColourSpaceUsage",
 				"Device colour spaces used in image or shading XObjects require a matching OutputIntent",
@@ -551,6 +606,14 @@ func init() {
 				"ImageRenderingIntent",
 				"Image XObject Intent must be a valid PDF rendering intent",
 				"6.2.4", 4),
+			ImageBitsPerComponent: newCheck(
+				"ImageBitsPerComponent",
+				"An image XObject BitsPerComponent value must be 1, 2, 4, or 8",
+				"6.2.4", 5),
+			ImageMaskBitsPerComponent: newCheck(
+				"ImageMaskBitsPerComponent",
+				"An image mask BitsPerComponent value must be 1",
+				"6.2.4", 6),
 			FormOPI: newCheck(
 				"FormOPI",
 				"Form XObjects must not contain an OPI entry",
@@ -617,10 +680,38 @@ func init() {
 		},
 
 		Font: fontChecks{
+			FontType: newCheck(
+				"FontType",
+				"A font dictionary must have a Type entry with the value Font",
+				"6.3.2", 1),
+			InvalidSubtype: newCheck(
+				"InvalidSubtype",
+				"Font dictionaries must have a valid Subtype entry (Type1, MMType1, TrueType, Type3, Type0, CIDFontType0, CIDFontType2)",
+				"6.3.2", 2),
+			FontBaseFont: newCheck(
+				"FontBaseFont",
+				"A font dictionary must have a BaseFont name entry (except Type3 fonts)",
+				"6.3.2", 3),
+			SimpleFontFirstChar: newCheck(
+				"SimpleFontFirstChar",
+				"A non-standard simple font dictionary must have a FirstChar entry",
+				"6.3.2", 4),
+			SimpleFontLastChar: newCheck(
+				"SimpleFontLastChar",
+				"A non-standard simple font dictionary must have a LastChar entry",
+				"6.3.2", 5),
+			SimpleFontWidths: newCheck(
+				"SimpleFontWidths",
+				"A non-standard simple font dictionary must have a Widths array of size LastChar − FirstChar + 1",
+				"6.3.2", 6),
+			FontFileSubtype: newCheck(
+				"FontFileSubtype",
+				"An embedded font file Subtype, when present, must be Type1C or CIDFontType0C",
+				"6.3.2", 7),
 			InvalidProgram: newCheck(
 				"InvalidProgram",
 				"Embedded font programs must be valid according to their respective font format specifications",
-				"6.3.2", 1),
+				"6.3.2", 8),
 			CIDSystemInfoMismatch: newCheck(
 				"CIDSystemInfoMismatch",
 				"An embedded CMap's CIDSystemInfo must match the descendant CIDFont's CIDSystemInfo",
@@ -637,10 +728,6 @@ func init() {
 				"CMapWModeInconsistent",
 				"An embedded CMap's WMode must be consistent with the font's actual writing mode",
 				"6.3.3.3", 2),
-			InvalidSubtype: newCheck(
-				"InvalidSubType",
-				"Font dictionaries must have a valid Subtype entry (Type1, MMType1, TrueType, CIDFontType0, CIDFontType2)",
-				"6.3.4", 0),
 			SimpleNotEmbedded: newCheck(
 				"SimpleNotEmbedded",
 				"Type1, MMType1, and TrueType font programs must be embedded",
@@ -677,6 +764,33 @@ func init() {
 				"SymbolicTrueTypeCmap",
 				"Symbolic TrueType fonts must have exactly one cmap subtable",
 				"6.3.7", 3),
+			ToUnicodeMissing: newCheck(
+				"ToUnicodeMissing",
+				"Fonts must include a ToUnicode CMap unless they use a predefined encoding or character collection (Level A)",
+				"6.3.8", 1),
+		},
+
+		LogicalStructure: logicalStructureChecks{
+			TaggedMarkInfo: newCheck(
+				"TaggedMarkInfo",
+				"The document catalog must include a MarkInfo dictionary with Marked set to true (Level A)",
+				"6.8.2.2", 1),
+			StructTreeRoot: newCheck(
+				"StructTreeRoot",
+				"The document catalog must contain a StructTreeRoot entry describing the structure hierarchy (Level A)",
+				"6.8.3.3", 1),
+			RoleMapStandardType: newCheck(
+				"RoleMapStandardType",
+				"Non-standard structure types must be mapped to a standard type in the role map (Level A)",
+				"6.8.3.4", 1),
+			RoleMapCircular: newCheck(
+				"RoleMapCircular",
+				"The structure type role map must not contain a circular mapping (Level A)",
+				"6.8.3.4", 2),
+			LangIdentifier: newCheck(
+				"LangIdentifier",
+				"A Lang entry, where present, must be a valid RFC 1766 language identifier (Level A)",
+				"6.8.4", 1),
 		},
 
 		Annotation: annotationChecks{
@@ -822,6 +936,10 @@ func init() {
 				"XMPNotWellFormed",
 				"The XMP metadata must be well-formed XML",
 				"6.7.9", 2),
+			XMPNoCorrespondingType: newCheck(
+				"XMPNoCorrespondingType",
+				"XMP property does not correspond to defined type",
+				"6.7.9", 3),
 			PDFAIdentifierMissing: newCheck(
 				"PDFAIdentifierMissing",
 				"XMP metadata must contain the pdfaid namespace with pdfaid:part and pdfaid:conformance entries",

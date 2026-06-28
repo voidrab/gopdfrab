@@ -144,10 +144,10 @@ func countPageLeaves(items pdf.PDFArray) int {
 
 // --- DictTooLarge: unused resource-entry pruning ---
 
-// maxDictEntries mirrors the 4096-entry ceiling validateArchitecturalLimits
-// (verifier.go) enforces for any PDF dictionary (6.1.12/4), excluding the
+// maxDictEntries mirrors the 4095-entry ceiling validateArchitecturalLimits
+// (verifier.go) enforces for any PDF dictionary (6.1.12/6), excluding the
 // synthetic "_ref" bookkeeping key the same way that check does.
-const maxDictEntries = 4096
+const maxDictEntries = 4095
 
 // resourceCategories are the /Resources sub-dictionary keys whose entries
 // are independently addressable by name from content-stream operators, and

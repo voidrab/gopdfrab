@@ -523,6 +523,13 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
 	cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
 	cid.Entries["W"] = buildCIDWidthsArray(widthPairs)
+	// Rebuild /CIDSet against the new subset program: the prior CIDSet (if any)
+	// described the replaced program and would leave placeholder glyphs in the
+	// substitute unlisted (6.3.5/3).
+	if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+		delete(desc.Entries, "CIDSet")
+		fixTrueTypeCIDSet(cid, desc, ff)
+	}
 	// CIDs excluded from the subset (unmapped by ToUnicode or absent from the
 	// Liberty face) land on placeholder GIDs with advance width 0; set DW=0
 	// so /W-absent CIDs match that placeholder rather than inheriting the

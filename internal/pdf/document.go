@@ -249,24 +249,30 @@ func (d *Reader) initializeStructure() error {
 	usedXRefStream := false
 
 	if xrefErr != nil {
-		// 6.1.4: classic xref table unparseable (e.g. it's actually a
-		// cross-reference stream, which PDF/A-1b does not permit). Record the
-		// violation, then recover the object table as accurately as possible
-		// so an otherwise-valid modern PDF can still be read.
-		d.parseDiagnostics = append(d.parseDiagnostics, StructError{
-			Name: "XRefKeyword",
-			Errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
-		})
-
+		// 6.1.4: the classic xref table is unparseable. Recover the object
+		// table as accurately as possible so an otherwise-valid modern PDF can
+		// still be read, and record the appropriate violation.
 		d.xrefTable = make(map[int]int64)
 		trailer, xsErr := d.tryParseXRefStream(xrefOffset+d.pdfStart, false)
 		if xsErr != nil && d.pdfStart != 0 {
 			trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
 		}
 		if xsErr == nil {
+			// It's actually a cross-reference stream, which PDF/A-1b prohibits
+			// (6.1.4-3); its dictionary doubles as the trailer.
 			xrefStreamTrailer, usedXRefStream = trailer, true
-		} else if err := d.recoverXRefByBruteForceScan(); err != nil {
-			return fmt.Errorf("failed to parse xref table: %w", xrefErr)
+			d.parseDiagnostics = append(d.parseDiagnostics, StructError{
+				Name: "XRefStream",
+				Errs: []error{errors.New("cross-reference streams are not permitted")},
+			})
+		} else {
+			d.parseDiagnostics = append(d.parseDiagnostics, StructError{
+				Name: "XRefKeyword",
+				Errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
+			})
+			if err := d.recoverXRefByBruteForceScan(); err != nil {
+				return fmt.Errorf("failed to parse xref table: %w", xrefErr)
+			}
 		}
 	}
 

@@ -87,7 +87,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 				ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
 			}
 			if r, ok := operand.(pdf.PDFReal); ok && math.Abs(float64(r)) > 32767 {
-				ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
+				ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
 			}
 			if s, ok := operand.(pdf.PDFString); ok && PDFStringDecodedLen(s.Value) > 65535 {
 				ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
@@ -102,7 +102,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 		case "q":
 			qDepth++
 			if qDepth > 28 {
-				ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+				ctx.Report(pdf.Checks.Structure.GraphicsStateNesting, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
 			}
 		case "Q":
 			if qDepth > 0 {

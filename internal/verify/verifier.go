@@ -934,7 +934,7 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 	case pdf.PDFReal:
 		// 6.1.12: magnitude of real numbers shall not exceed 32767.
 		if v < -32767 || v > 32767 {
-			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, v, fmt.Sprintf("real number out of range: %g", float64(v)))
+			ctx.Report(pdf.Checks.Structure.RealOutOfRange, v, fmt.Sprintf("real number out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
 		// 6.1.12: maximum length of a string object is 65535 bytes.
@@ -943,13 +943,13 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, v, "string exceeds maximum length of 65535 bytes")
 		}
 	case pdf.PDFDict:
-		// Maximum number of entries in a dictionary: 4096
+		// 6.1.12: maximum number of entries in a dictionary is 4095.
 		realCount := len(v.Entries)
 		if _, has := v.Entries["_ref"]; has {
 			realCount--
 		}
-		if realCount > 4096 {
-			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf("dictionary exceeds 4096 entries: %d", realCount))
+		if realCount > 4095 {
+			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf("dictionary exceeds 4095 entries: %d", realCount))
 		}
 	}
 }

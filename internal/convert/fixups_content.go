@@ -18,9 +18,10 @@ import (
 // Check), so contentLimitsFixer runs a whole-graph scalar pass alongside
 // the content-stream rewrite.
 //
-// Deliberately out of scope: the q/Q nesting-depth flavour of StringTooLong
-// (checks_content.go) is a structural defect, not a clampable operand, and
-// is left for the rasterization backstop. The inline-image /Intent flavour
+// GraphicsStateNesting (q/Q nesting depth, checks_content.go) is claimed here
+// only so it counts as fixer-addressable and triggers the rasterization
+// backstop; it is a structural defect, not a clampable operand, so the
+// in-place pass leaves it untouched and rasterization repairs it. The inline-image /Intent flavour
 // of RenderingIntent is fixed here (this file already owns that Check and
 // already walks every INLINEIMAGE op); the other inline-image-specific
 // fixes (ImageInterpolate, InlineImageLZWFilter) live in
@@ -40,7 +41,8 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Colour.RenderingIntent,
 		pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.HexStringInvalidChar,
-		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.StringTooLong:
+		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
+		pdf.Checks.Structure.StringTooLong, pdf.Checks.Structure.GraphicsStateNesting:
 		return true
 	}
 	return false
