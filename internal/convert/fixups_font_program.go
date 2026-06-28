@@ -455,22 +455,17 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildCIDSetBitmap(cids)
-	writer.MarkStreamDirty(&stream)
+	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
+		return false
+	}
 	desc.Entries["CIDSet"] = stream
 	return true
 }
 
-// fixTrueTypeCIDSet synthesizes /CIDSet from the glyphs present in a
-// CIDFontType2 program, mirroring the CIDSet-presence check in
-// validateFontDict (checks_font.go). Unlike CIDFontType0/CFF, no checker
-// validates an existing CIDSet's completeness for CIDFontType2, so this only
-// handles the missing case.
+// fixTrueTypeCIDSet synthesizes or completes /CIDSet from the glyphs present
+// in a CIDFontType2 program. it handles both a missing CIDSet and an existing
+// one that omits a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
-	if desc.Entries["CIDSet"] != nil {
-		return false
-	}
 	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means
 	// CIDs don't correspond to GIDs directly.
 	if c2g := d.Entries["CIDToGIDMap"]; c2g != nil && c2g != (pdf.PDFName{Value: "Identity"}) {
@@ -499,10 +494,16 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
+	if current, ok := desc.Entries["CIDSet"].(pdf.PDFDict); ok && current.HasStream {
+		if existing, err := pdf.DecodeStream(current); err == nil && cidSetComplete(existing, cids) {
+			return false
+		}
+	}
+
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildCIDSetBitmap(cids)
-	writer.MarkStreamDirty(&stream)
+	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
+		return false
+	}
 	desc.Entries["CIDSet"] = stream
 	return true
 }

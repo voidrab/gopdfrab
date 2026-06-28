@@ -105,6 +105,12 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
+	// Per-run decode cache for scanning fixers; per-run deviceColourFixer
+	// instance so the cache is not shared across concurrent Convert calls.
+	dcCache := make(map[uintptr][]byte)
+	dcFixer := deviceColourFixer{cache: dcCache}
+	localFixers := buildLocalFixers(dcFixer)
+
 	var (
 		cr         ConvertResult
 		prevCounts map[pdf.Check]int
@@ -113,23 +119,17 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	for iter := 1; iter <= maxConvertIterations; iter++ {
 		cr.Iterations = iter
 
-		var buf bytes.Buffer
-		if err := writer.WriteDocument(&buf, trailer); err != nil {
+		result, err := inHeapVerify(doc, trailer, p)
+		if err != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
-		}
-		cr.Output = buf.Bytes()
-
-		result, verr := verifyBytes(cr.Output, p)
-		if verr != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", verr)
 		}
 		cr.Result = result
 
-		if result.Valid {
-			return cr, nil
+		if cr.Result.Valid {
+			break
 		}
 
-		counts := violationCounts(result.Issues)
+		counts := violationCounts(cr.Result.Issues)
 		if sameMultiset(counts, prevCounts) {
 			break // no progress since last iteration
 		}
@@ -142,7 +142,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		var visitors []func(pdf.PDFDict)
 		batched := map[Fixer]bool{}
 		for c := range counts {
-			fixer, ok := fixerRegistry[c]
+			fixer, ok := localFixers[c]
 			if !ok {
 				continue
 			}
@@ -156,7 +156,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 				}
 				continue
 			}
-			ch, err := fixer.Fix(&trailer, result.IssuesForCheck(c))
+			ch, err := fixer.Fix(&trailer, cr.Result.IssuesForCheck(c))
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: fixer for check %q: %w", c.Name(), err)
 			}
@@ -177,43 +177,86 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	}
 
 	// Last-resort backstop: rasterize residual pages so a resolvable graph
-	// always converts. First try only the pages a residual names (preserving
-	// every other page's text/vectors); if anything still remains -- including
-	// document-level violations no page number is attached to -- flatten the
-	// whole document, which leaves no font/content-stream/transparency
-	// construct for a check to flag.
-	if !cr.Result.Valid {
+	// always converts. Only trigger when there are fixer-addressable issues;
+	// structural violations (no registered fixer) are fixed by construction by
+	// the writer and do not need rasterization.
+	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
-			if err := serializeAndVerify(trailer, &cr, p); err != nil {
+			result, err := inHeapVerify(doc, trailer, p)
+			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
+			cr.Result = result
 		}
-		if !cr.Result.Valid && flattenAllPages(&trailer) {
+		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) && flattenAllPages(&trailer) {
 			cr.Iterations++
-			if err := serializeAndVerify(trailer, &cr, p); err != nil {
+			result, err := inHeapVerify(doc, trailer, p)
+			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
+			cr.Result = result
 		}
 	}
 
+	// Final serialize + verify against the actual output bytes (structural checks
+	// like xref format must run on the written output, not the original reader).
+	if err := serializeAndVerify(trailer, &cr, p); err != nil {
+		return ConvertResult{}, fmt.Errorf("convert: %w", err)
+	}
 	return cr, nil
 }
 
-// serializeAndVerify writes trailer to cr.Output and re-verifies it,
-// updating cr.Output and cr.Result in place.
+// inHeapVerify verifies the in-memory trailer graph without serializing it,
+// by numbering objects and seeding the doc reader directly.
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, error) {
+	objs := writer.NumberObjects(trailer)
+	doc.SeedResolvedGraph(trailer, objs)
+	return verify.Verify(doc, p)
+}
+
+// serializeAndVerify serializes trailer and verifies the output bytes,
+// updating cr.Output and cr.Result. Called exactly once at the end of Run.
 func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	order, err := writer.WriteDocumentIndexed(&buf, trailer)
+	if err != nil {
 		return err
 	}
 	cr.Output = buf.Bytes()
-	result, err := verifyBytes(cr.Output, p)
+
+	doc, err := pdf.OpenBytes(cr.Output)
+	if err != nil {
+		return err
+	}
+	defer doc.Close()
+
+	objs := make(map[int]pdf.PDFValue, len(order))
+	for i, obj := range order {
+		objs[i+1] = obj
+	}
+	doc.SeedResolvedGraph(trailer, objs)
+
+	result, err := verify.Verify(doc, p)
 	if err != nil {
 		return err
 	}
 	cr.Result = result
 	return nil
+}
+
+// buildLocalFixers returns a per-run fixer map with the per-run dcFixer
+// substituted for the global singleton deviceColourFixer.
+func buildLocalFixers(dcFixer deviceColourFixer) map[pdf.Check]Fixer {
+	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
+	for c, f := range fixerRegistry {
+		if _, isdc := f.(deviceColourFixer); isdc {
+			local[c] = dcFixer
+		} else {
+			local[c] = f
+		}
+	}
+	return local
 }
 
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat
@@ -255,15 +298,6 @@ func flattenAllPages(trailer *pdf.PDFDict) bool {
 	return changed
 }
 
-func verifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
-	doc, err := pdf.OpenBytes(data)
-	if err != nil {
-		return pdf.Result{}, err
-	}
-	defer doc.Close()
-	return verify.Verify(doc, p)
-}
-
 // violationCounts tallies how many times each Check is violated, used to
 // detect whether a fixup pass made any progress.
 func violationCounts(issues []pdf.PDFError) map[pdf.Check]int {
@@ -272,6 +306,18 @@ func violationCounts(issues []pdf.PDFError) map[pdf.Check]int {
 		counts[iss.Check()]++
 	}
 	return counts
+}
+
+// hasFixableIssue reports whether any issue in the list has a registered
+// fixer, used to avoid triggering the raster fallback for purely structural
+// violations that the writer fixes by construction.
+func hasFixableIssue(issues []pdf.PDFError, fixers map[pdf.Check]Fixer) bool {
+	for _, iss := range issues {
+		if _, ok := fixers[iss.Check()]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // sameMultiset reports whether a and b record exactly the same violation

@@ -13,8 +13,8 @@ type PDFArray []PDFValue
 type PDFDict struct {
 	Entries   map[string]PDFValue
 	HasStream bool
-	// RawStream holds the undecoded bytes of a stream object, retained for
-	// content-stream and metadata inspection.
+	// RawStream holds the undecoded stream bytes. The slice may alias a
+	// read-only memory-map; always assign a new slice, never mutate in place.
 	RawStream []byte
 }
 

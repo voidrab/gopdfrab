@@ -172,8 +172,8 @@ def main():
     lines.append(section("3-5. Batch run: throughput, peak memory, CPU utilization"))
     lines.append(
         "One process per tool, walking both vendored corpora together "
-        "(test documents/Isartor testsuite/PDFA-1b + "
-        "test documents/veraPDF/PDF_A-1b, 773 PDFs).\n\n"
+        "(tests/Isartor/PDFA-1b + "
+        "tests/veraPDF/PDF_A-1b, 773 PDFs).\n\n"
     )
     lines.append(
         "| Tool | Files | Wall-clock | Files/s | MB/s | Max RSS | CPU% |\n"

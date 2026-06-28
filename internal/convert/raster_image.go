@@ -101,12 +101,20 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 	bpc := pdf.DictInt(dict, "BitsPerComponent", 8)
 	cs := resolveImageColorSpace(dict, resources)
 	ncomp := pdf.ColorSpaceComponents(cs)
-	if dict.Entries["ImageMask"] == pdf.PDFBoolean(true) {
+	isMask := dict.Entries["ImageMask"] == pdf.PDFBoolean(true)
+	if isMask {
 		ncomp = 1
 		bpc = 1
 	}
 
 	decode := imageDecodeArray(dict, cs, ncomp, bpc)
+
+	if !isMask && bpc == 8 && isIdentityDecode(decode, ncomp) {
+		if img, ok := unpack8Direct(fastColourModel(cs), ncomp, data, width, height); ok {
+			return img, nil
+		}
+	}
+
 	maxVal := float64((uint64(1) << bpc) - 1)
 	rowBits := width * ncomp * bpc
 	rowBytes := (rowBits + 7) / 8
@@ -115,6 +123,7 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 	comps := make([]float64, ncomp)
 	for y := 0; y < height; y++ {
 		rowOffset := y * rowBytes * 8
+		off := img.PixOffset(0, y)
 		for x := 0; x < width; x++ {
 			for c := 0; c < ncomp; c++ {
 				bitOffset := rowOffset + (x*ncomp+c)*bpc
@@ -122,18 +131,134 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 				comps[c] = decode[2*c] + (raw/maxVal)*(decode[2*c+1]-decode[2*c])
 			}
 
-			var r, g, b, a float64 = 0, 0, 0, 1
-			if dict.Entries["ImageMask"] == pdf.PDFBoolean(true) {
+			if isMask {
+				// A non-zero mask sample is fully transparent; zero is opaque black.
 				if comps[0] != 0 {
-					a = 0
+					img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = 0, 0, 0, 0
+				} else {
+					img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = 0, 0, 0, 255
 				}
 			} else {
-				r, g, b = pdf.ResolveColor(cs, comps, resources)
+				r, g, b := pdf.ResolveColor(cs, comps, resources)
+				storeRGBA64(img.Pix, off, r, g, b, 1)
 			}
-			img.Set(x, y, colorRGBA64{r, g, b, a})
+			off += 4
 		}
 	}
 	return img, nil
+}
+
+// isIdentityDecode reports whether decode is the natural [0,1] range for every
+// one of ncomp components, i.e. the sample maps to its colour value unchanged.
+func isIdentityDecode(decode []float64, ncomp int) bool {
+	if len(decode) != 2*ncomp {
+		return false
+	}
+	for c := range ncomp {
+		if decode[2*c] != 0 || decode[2*c+1] != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+// fastColourModel classifies cs as the RGB- or Gray-identity family the 8-bpc
+// fast path can copy verbatim (DeviceRGB/CalRGB/ICCBased N=3 and the Gray
+// equivalents), or "" for any space needing real ResolveColor evaluation.
+func fastColourModel(cs pdf.PDFValue) string {
+	switch v := cs.(type) {
+	case pdf.PDFName:
+		switch v.Value {
+		case "DeviceRGB", "RGB", "CalRGB":
+			return "rgb"
+		case "DeviceGray", "G", "CalGray":
+			return "gray"
+		}
+	case pdf.PDFArray:
+		if len(v) == 0 {
+			return ""
+		}
+		head, ok := v[0].(pdf.PDFName)
+		if !ok {
+			return ""
+		}
+		switch head.Value {
+		case "DeviceRGB", "CalRGB":
+			return "rgb"
+		case "DeviceGray", "CalGray":
+			return "gray"
+		case "ICCBased":
+			if len(v) >= 2 {
+				if stream, ok := v[1].(pdf.PDFDict); ok {
+					switch pdf.DictInt(stream, "N", 0) {
+					case 3:
+						return "rgb"
+					case 1:
+						return "gray"
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// unpack8Direct copies 8-bpc DeviceRGB (3 source bytes per pixel) or DeviceGray
+// (1 byte broadcast to R=G=B) samples straight into an opaque RGBA buffer. ok is
+// false when the colour model isn't fast-pathable or data is short, so the
+// caller falls back to the general sample loop.
+func unpack8Direct(model string, ncomp int, data []byte, width, height int) (*image.RGBA, bool) {
+	rowBytes := width * ncomp
+	if len(data) < height*rowBytes {
+		return nil, false
+	}
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	switch {
+	case model == "rgb" && ncomp == 3:
+		for y := range height {
+			src := data[y*rowBytes:]
+			off := img.PixOffset(0, y)
+			for x := range width {
+				s := x * 3
+				img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = src[s], src[s+1], src[s+2], 255
+				off += 4
+			}
+		}
+		return img, true
+	case model == "gray" && ncomp == 1:
+		for y := range height {
+			src := data[y*rowBytes:]
+			off := img.PixOffset(0, y)
+			for x := range width {
+				v := src[x]
+				img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = v, v, v, 255
+				off += 4
+			}
+		}
+		return img, true
+	}
+	return nil, false
+}
+
+// storeRGBA64 writes the float colour {r,g,b,a} into a Pix slice.
+func storeRGBA64(pix []byte, off int, r, g, b, a float64) {
+	ca := convU16(a)
+	pix[off] = uint8((convU16(r) * ca / 0xFFFF) >> 8)
+	pix[off+1] = uint8((convU16(g) * ca / 0xFFFF) >> 8)
+	pix[off+2] = uint8((convU16(b) * ca / 0xFFFF) >> 8)
+	pix[off+3] = uint8(ca >> 8)
+}
+
+// convU16 clamps v to [0,1] and scales to the 16-bit range, matching
+// colorRGBA64.RGBA's conv closure.
+func convU16(v float64) uint32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 65535
+	}
+	return uint32(v * 65535)
 }
 
 // colorRGBA64 implements color.Color over float64 [0,1] components.

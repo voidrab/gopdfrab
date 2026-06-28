@@ -39,9 +39,9 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// Sanity check: the corrupted input really is reported non-conformant
 	// (and specifically structurally, not by some unrelated quirk of the
 	// corruption), so the rest of this test is actually exercising recovery.
-	corruptedRes, err := verifyBytes(corrupted, pdf.PDFA_1B)
+	corruptedRes, err := verify.VerifyBytes(corrupted, pdf.PDFA_1B)
 	if err != nil {
-		t.Fatalf("verifyBytes(corrupted): %v", err)
+		t.Fatalf("verify.VerifyBytes(corrupted): %v", err)
 	}
 	if corruptedRes.Valid {
 		t.Fatalf("prepending garbage bytes did not make the fixture non-conformant; test no longer exercises anything")
@@ -61,9 +61,9 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// The output itself must independently verify as conformant, not just
 	// cr.Result (which is already derived from verifying cr.Output, but
 	// re-checking via a fresh Open guards against a bug in that wiring).
-	finalRes, err := verifyBytes(cr.Output, pdf.PDFA_1B)
+	finalRes, err := verify.VerifyBytes(cr.Output, pdf.PDFA_1B)
 	if err != nil {
-		t.Fatalf("verifyBytes(cr.Output): %v", err)
+		t.Fatalf("verify.VerifyBytes(cr.Output): %v", err)
 	}
 	if !finalRes.Valid {
 		t.Errorf("cr.Output independently re-verifies as non-conformant: %v", issueClauses(finalRes.Issues))
@@ -79,7 +79,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // (recoverXRefByBruteForceScan, used as a last resort once classic and
 // xref-stream parsing both fail) cannot locate every referenced object.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
-	path := "../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
+	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("veraPDF suite not present")
 	}

@@ -15,7 +15,7 @@ import (
 // DeviceColourContentStream, confirming the injected Default* colour space
 // survives the full write+reverify round trip.
 func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
-	path := "../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-i.pdf"
+	path := "../../tests/veraPDF/PDF_A-1b/6.2 Graphics/6.2.3.3 Uncalibrated color space/veraPDF test suite 6-2-3-3-t01-fail-i.pdf"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("corpus fixture not present")
 	}
@@ -82,7 +82,7 @@ func TestScanAPStreamDetectsNestedXObjectRGB(t *testing.T) {
 	apRes := apStream.Entries["Resources"].(pdf.PDFDict)
 
 	used := map[string]bool{}
-	scanAPStream(apStream, apRes, map[uintptr]bool{}, func(m string) { used[m] = true })
+	scanAPStream(apStream, apRes, map[uintptr]bool{}, func(m string) { used[m] = true }, nil)
 
 	if !used["rgb"] {
 		t.Error("scanAPStream did not detect DeviceRGB inside a Do-invoked nested Form XObject")
@@ -94,7 +94,7 @@ func TestScanAPStreamDetectsNestedXObjectRGB(t *testing.T) {
 // is correctly identified — the bug that caused 208 veraPDF 6.2.3.3 failures.
 func TestPageDeviceColourModelsFindsNestedAppearanceRGB(t *testing.T) {
 	page, resources := buildNestedAPPage()
-	used := pageDeviceColourModels(page, resources)
+	used := pageDeviceColourModels(page, resources, nil)
 	if !used["rgb"] {
 		t.Error("pageDeviceColourModels did not detect DeviceRGB in nested widget appearance XObject")
 	}
@@ -113,7 +113,7 @@ func TestFixAPColourInjectsIntoNestedXObject(t *testing.T) {
 	xobj := xobjects.Entries["Fm0"].(pdf.PDFDict)
 
 	sharedRGB := iccBasedColourSpace(3, []byte("fakeicc"))
-	changed := fixAPColour(ap.Entries["N"], true, false, sharedRGB, nil)
+	changed := fixAPColour(ap.Entries["N"], true, false, sharedRGB, nil, nil)
 
 	if !changed {
 		t.Fatal("fixAPColour returned false, expected an injection")
@@ -219,7 +219,7 @@ func TestPageDeviceColourModelsFindsContentAndDictUsage(t *testing.T) {
 	resources := pdf.NewPDFDict()
 	resources.Entries["XObject"] = xobjects
 
-	used := pageDeviceColourModels(page, resources)
+	used := pageDeviceColourModels(page, resources, nil)
 	if !used["cmyk"] {
 		t.Errorf("expected cmyk usage from content-stream k operator, got %v", used)
 	}

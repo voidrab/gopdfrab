@@ -120,19 +120,20 @@ func isInside(winding int, evenOdd bool) bool {
 }
 
 func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
+	off := canvas.PixOffset(x, y)
+	pix := canvas.Pix
 	if alpha >= 1 {
-		canvas.Set(x, y, colorRGBA64{rgb[0], rgb[1], rgb[2], 1})
+		storeRGBA64(pix, off, rgb[0], rgb[1], rgb[2], 1)
 		return
 	}
-	existing := canvas.RGBAAt(x, y)
-	er, eg, eb, ea := float64(existing.R)/255, float64(existing.G)/255, float64(existing.B)/255, float64(existing.A)/255
+	er, eg, eb, ea := float64(pix[off])/255, float64(pix[off+1])/255, float64(pix[off+2])/255, float64(pix[off+3])/255
 	outA := alpha + ea*(1-alpha)
 	if outA <= 0 {
-		canvas.Set(x, y, colorRGBA64{0, 0, 0, 0})
+		storeRGBA64(pix, off, 0, 0, 0, 0)
 		return
 	}
 	blend := func(c, ec float64) float64 { return (c*alpha + ec*ea*(1-alpha)) / outA }
-	canvas.Set(x, y, colorRGBA64{blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA})
+	storeRGBA64(pix, off, blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA)
 }
 
 // StrokePath flattens contours as open polylines and fills the quad swept

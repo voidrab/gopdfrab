@@ -586,18 +586,17 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 			}
 			col := pdf.ClampInt(int(p.X*float64(w)), 0, w-1)
 			row := pdf.ClampInt(int((1-p.Y)*float64(h)), 0, h-1)
-			px := img.RGBAAt(col, row)
-			alpha := float64(px.A) / 255 * gs.fillAlpha
+			po := img.PixOffset(col, row)
+			alpha := float64(img.Pix[po+3]) / 255 * gs.fillAlpha
 			if smask != nil {
 				scol := pdf.ClampInt(col*smW/w, 0, smW-1)
 				srow := pdf.ClampInt(row*smH/h, 0, smH-1)
-				lum := smask.RGBAAt(scol, srow)
-				alpha *= float64(lum.R) / 255
+				alpha *= float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
 			}
 			if alpha <= 0 {
 				continue
 			}
-			rgb := [3]float64{float64(px.R) / 255, float64(px.G) / 255, float64(px.B) / 255}
+			rgb := [3]float64{float64(img.Pix[po]) / 255, float64(img.Pix[po+1]) / 255, float64(img.Pix[po+2]) / 255}
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
 	}

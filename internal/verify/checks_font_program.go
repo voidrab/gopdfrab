@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -1075,9 +1076,76 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 	}
 }
 
-// validateCIDTrueTypeSubset checks that all CIDs referenced in the W array
-// are present in the embedded TrueType program (6.3.5). Width-only CIDs that
-// are never shown are exempt when usage info is available.
+// validateCIDSetTrueType checks that the FontDescriptor's CIDSet bitmap marks
+// every CID whose glyph has outline data in the embedded CIDFontType2 subset
+// program (6.3.5/3), assuming an Identity CIDToGIDMap. CID 0 (.notdef) is exempt.
+func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
+	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+	if !ok || !cidSet.HasStream {
+		return
+	}
+	bitmap, err := ctx.decodeStreamCached(cidSet)
+	if err != nil {
+		return
+	}
+	data, err := ctx.decodeStreamCached(ff)
+	if err != nil {
+		return
+	}
+	tables, ok := ParseSfnt(data)
+	if !ok {
+		return
+	}
+	hasGlyph := ttLocaHasGlyph(tables)
+	for cid := 1; cid < TTNumGlyphs(tables); cid++ {
+		if !hasGlyph(cid) {
+			continue
+		}
+		byteIdx, bitIdx := cid/8, 7-cid%8
+		if byteIdx >= len(bitmap) || bitmap[byteIdx]&(1<<bitIdx) == 0 {
+			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which has a glyph in the embedded font program", cid))
+			return
+		}
+	}
+}
+
+// cidsToCheck returns the CIDs a coverage/metrics check should examine for the
+// CIDFont obj and whether the list reflects actual rendering usage. When usage
+// is known it is the glyphs shown for rendering (so CIDs relying on the default
+// width DW, absent from W, are still covered); otherwise it is the W entries.
+func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids []int, knownUsage bool) {
+	if desc, ok := obj.(pdf.PDFDict); ok {
+		if used, known := ctx.usedCIDsFor(desc); known {
+			cids = make([]int, 0, len(used))
+			for cid := range used {
+				cids = append(cids, cid)
+			}
+			sort.Ints(cids)
+			return cids, true
+		}
+	}
+	for _, pair := range ParseCIDWidths(w) {
+		cids = append(cids, pair[0])
+	}
+	return cids, false
+}
+
+// cidDefaultWidth returns the CIDFont's DW entry, defaulting to 1000.
+func cidDefaultWidth(obj pdf.PDFValue) int {
+	if d, ok := obj.(pdf.PDFDict); ok {
+		switch dw := d.Entries["DW"].(type) {
+		case pdf.PDFInteger:
+			return int(dw)
+		case pdf.PDFReal:
+			return int(dw)
+		}
+	}
+	return 1000
+}
+
+// ValidateCIDTrueTypeSubset checks that every CID referenced for rendering has
+// a glyph in the embedded TrueType program (6.3.5). CIDs that are only declared
+// (in W) but never shown are exempt when usage info is available.
 func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -1087,26 +1155,19 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if !ok {
 		return
 	}
-	var used map[int]bool
-	var knownUsage bool
-	if desc, ok := obj.(pdf.PDFDict); ok {
-		used, knownUsage = ctx.usedCIDsFor(desc)
-	}
+	cids, _ := cidsToCheck(obj, w, ctx)
 	glyphPresent := TTGlyphPresent(tables)
-	for _, pair := range ParseCIDWidths(w) {
-		cid := pair[0]
-		if knownUsage && !used[cid] {
-			continue
-		}
+	for _, cid := range cids {
 		if !glyphPresent(cid) {
-			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced in font W array has no glyph in embedded program", cid))
+			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("CID %d referenced for rendering has no glyph in embedded program", cid))
 			return
 		}
 	}
 }
 
-// validateCIDTrueTypeMetrics checks that CID advance widths in W match the
-// embedded TrueType hmtx table (6.3.6).
+// validateCIDTrueTypeMetrics checks that CID advance widths match the embedded
+// TrueType hmtx table (6.3.6): every W entry, plus rendered CIDs that fall back
+// to the default width DW because they are absent from W.
 func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
@@ -1116,16 +1177,49 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	if !ok {
 		return
 	}
-	for _, pair := range ParseCIDWidths(w) {
-		cid, pdfWidth := pair[0], pair[1]
-		fontWidth := TTAdvanceWidth(tables, cid)
-		if fontWidth < 0 {
-			continue
+	glyphPresent := TTGlyphPresent(tables)
+	mismatched := func(cid, pdfWidth int) bool {
+		if !glyphPresent(cid) {
+			return false // absent glyph: 6.3.5 coverage handles it
 		}
+		fontWidth := TTAdvanceWidth(tables, cid)
 		// Allow ±1 rounding tolerance.
-		if pdf.AbsInt(fontWidth-pdfWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
-				cid, pdfWidth, fontWidth))
+		return fontWidth >= 0 && pdf.AbsInt(fontWidth-pdfWidth) > 1
+	}
+	report := func(cid, pdfWidth, fontWidth int) {
+		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
+			cid, pdfWidth, fontWidth))
+	}
+
+	widthOf := map[int]int{}
+	for _, pair := range ParseCIDWidths(w) {
+		widthOf[pair[0]] = pair[1]
+		if mismatched(pair[0], pair[1]) {
+			report(pair[0], pair[1], TTAdvanceWidth(tables, pair[0]))
+			return
+		}
+	}
+
+	// Rendered CIDs absent from W take the default width DW.
+	desc, ok := obj.(pdf.PDFDict)
+	if !ok {
+		return
+	}
+	used, known := ctx.usedCIDsFor(desc)
+	if !known {
+		return
+	}
+	dw := cidDefaultWidth(obj)
+	cids := make([]int, 0, len(used))
+	for cid := range used {
+		if _, inW := widthOf[cid]; !inW {
+			cids = append(cids, cid)
+		}
+	}
+	sort.Ints(cids)
+	for _, cid := range cids {
+		if mismatched(cid, dw) {
+			report(cid, dw, TTAdvanceWidth(tables, cid))
 			return
 		}
 	}

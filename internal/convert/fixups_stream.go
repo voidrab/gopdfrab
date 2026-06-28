@@ -27,11 +27,9 @@ func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 		if err != nil {
 			return d, false
 		}
-		delete(d.Entries, "Filter")
-		delete(d.Entries, "DecodeParms")
-		delete(d.Entries, "DP")
-		d.RawStream = plaintext
-		writer.MarkStreamDirty(&d)
+		if err := writer.SetStreamFlate(&d, plaintext); err != nil {
+			return d, false
+		}
 		changed = true
 		return d, true
 	})

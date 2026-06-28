@@ -348,9 +348,9 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face liberationFace) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries["Length1"] = pdf.PDFInteger(len(program))
-	fontFile.HasStream = true
-	fontFile.RawStream = program
-	writer.MarkStreamDirty(&fontFile)
+	if err := writer.SetStreamFlate(&fontFile, program); err != nil {
+		return
+	}
 
 	for _, k := range []string{"FontFile", "FontFile2", "FontFile3"} {
 		delete(desc.Entries, k)
@@ -523,6 +523,13 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
 	cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
 	cid.Entries["W"] = buildCIDWidthsArray(widthPairs)
+	// Rebuild /CIDSet against the new subset program: the prior CIDSet (if any)
+	// described the replaced program and would leave placeholder glyphs in the
+	// substitute unlisted (6.3.5/3).
+	if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+		delete(desc.Entries, "CIDSet")
+		fixTrueTypeCIDSet(cid, desc, ff)
+	}
 	// CIDs excluded from the subset (unmapped by ToUnicode or absent from the
 	// Liberty face) land on placeholder GIDs with advance width 0; set DW=0
 	// so /W-absent CIDs match that placeholder rather than inheriting the
@@ -720,8 +727,9 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	ff.RawStream = trimmed
-	writer.MarkStreamDirty(&ff)
+	if err := writer.SetStreamFlate(&ff, trimmed); err != nil {
+		return false
+	}
 	desc.Entries["FontFile2"] = ff
 	return true
 }

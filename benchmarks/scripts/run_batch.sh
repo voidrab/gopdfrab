@@ -35,7 +35,7 @@ if [ -z "$GNU_TIME" ] || [ ! -x "$GNU_TIME" ]; then
 fi
 
 # Both corpora's PDFA-1b directories specifically (204 Isartor + 569 veraPDF
-# = 773 PDFs) — not their shared "test documents" parent, which also holds a
+# = 773 PDFs) — not their shared "tests" parent, which also holds a
 # few non-test files (e.g. the Isartor suite's own PDF manual) that would
 # otherwise get counted alongside the actual test corpus.
 CORPUS_ROOTS=("$ISARTOR_DIR" "$VERA_DIR")

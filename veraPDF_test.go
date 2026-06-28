@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const veraDir = "test documents/veraPDF/PDF_A-1b"
+const veraDir = "tests/veraPDF/PDF_A-1b"
 
 // veraPDF filenames: optional "veraPDF test suite " prefix, then clause
 // segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf, e.g.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"unicode"
+	"unsafe"
 )
 
 // Token represents a distinct piece of syntax from the PDF.
@@ -16,10 +16,36 @@ type Token struct {
 }
 
 // Lexer holds the state of the current chunk being parsed.
+// data is non-nil when lexing a []byte directly (fast path); reader is used
+// for the io.Reader fallback (trailer parsing, object streams).
 type Lexer struct {
+	data   []byte
 	reader *bufio.Reader
 	pos    int64
 	pushed []Token
+}
+
+// NewLexerBytes creates a fast lexer that indexes data starting at startPos.
+func NewLexerBytes(data []byte, startPos int64) *Lexer {
+	if data == nil {
+		data = []byte{}
+	}
+	return &Lexer{data: data, pos: startPos}
+}
+
+// peekByte returns the next byte without advancing the position.
+func (l *Lexer) peekByte() (byte, bool) {
+	if l.data != nil {
+		if l.pos >= int64(len(l.data)) {
+			return 0, false
+		}
+		return l.data[l.pos], true
+	}
+	b, err := l.reader.Peek(1)
+	if err != nil || len(b) == 0 {
+		return 0, false
+	}
+	return b[0], true
 }
 
 // bufioReaderPool reuses buffers across Lexer construction.
@@ -114,12 +140,12 @@ func (l *Lexer) NextToken() Token {
 		return Token{Type: TokenArrayEnd, Value: "]"}
 	}
 
-	if unicode.IsDigit(rune(ch)) || ch == '+' || ch == '-' || ch == '.' {
+	if (ch >= '0' && ch <= '9') || ch == '+' || ch == '-' || ch == '.' {
 		l.unreadByte()
 		return l.readNumber()
 	}
 
-	if unicode.IsLetter(rune(ch)) {
+	if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
 		l.unreadByte()
 		return l.readKeyword()
 	}
@@ -138,7 +164,7 @@ func (l *Lexer) validateObjectStart() []error {
 
 	// The object shall begin at the cross-reference offset with no leading
 	// white space.
-	if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && IsWhitespace(b[0]) {
+	if b, ok := l.peekByte(); ok && IsWhitespace(b) {
 		errs = append(errs, fmt.Errorf("object header preceded by white space"))
 	}
 
@@ -181,7 +207,7 @@ func (l *Lexer) validateEndObj() []error {
 		errs = append(errs, fmt.Errorf("endobj not preceded by single EOL: %v", err))
 	}
 
-	if b, err := l.reader.Peek(1); err == nil && len(b) > 0 && IsWhitespace(b[0]) {
+	if b, ok := l.peekByte(); ok && IsWhitespace(b) {
 		errs = append(errs, fmt.Errorf("white space before endobj keyword"))
 	}
 
@@ -208,6 +234,14 @@ func (l *Lexer) validateObjectEnd() []error {
 // --- Helper Functions ---
 
 func (l *Lexer) readByte() (byte, error) {
+	if l.data != nil {
+		if l.pos >= int64(len(l.data)) {
+			return 0, io.EOF
+		}
+		b := l.data[l.pos]
+		l.pos++
+		return b, nil
+	}
 	b, err := l.reader.ReadByte()
 	if err == nil {
 		l.pos++
@@ -216,6 +250,13 @@ func (l *Lexer) readByte() (byte, error) {
 }
 
 func (l *Lexer) unreadByte() error {
+	if l.data != nil {
+		if l.pos <= 0 {
+			return io.ErrUnexpectedEOF
+		}
+		l.pos--
+		return nil
+	}
 	err := l.reader.UnreadByte()
 	if err == nil {
 		l.pos--
@@ -249,7 +290,7 @@ func (l *Lexer) readName() Token {
 		}
 		buf = append(buf, b)
 	}
-	return Token{Type: TokenName, Value: string(buf)}
+	return Token{Type: TokenName, Value: internName(buf)}
 }
 
 // readNumber handles integers and reals
@@ -265,7 +306,7 @@ func (l *Lexer) readNumber() Token {
 		if b == '.' {
 			isReal = true
 		}
-		if !unicode.IsDigit(rune(b)) && b != '.' && b != '+' && b != '-' {
+		if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
 			l.unreadByte()
 			break
 		}
@@ -365,8 +406,7 @@ func (l *Lexer) skipEOL() error {
 	}
 
 	if b == '\r' {
-		next, err := l.reader.Peek(1)
-		if err == nil && len(next) > 0 && next[0] == '\n' {
+		if next, ok := l.peekByte(); ok && next == '\n' {
 			l.readByte()
 		}
 		return nil
@@ -388,8 +428,7 @@ func (l *Lexer) requireSingleSpace() error {
 		return fmt.Errorf("expected single space, got 0x%02X", b)
 	}
 
-	next, err := l.reader.Peek(1)
-	if err == nil && len(next) > 0 && IsWhitespace(next[0]) {
+	if next, ok := l.peekByte(); ok && IsWhitespace(next) {
 		return fmt.Errorf("multiple whitespace characters not allowed")
 	}
 	return nil
@@ -402,8 +441,7 @@ func (l *Lexer) requireEOL() error {
 	}
 
 	if b == '\r' {
-		next, err := l.reader.Peek(1)
-		if err == nil && len(next) > 0 && next[0] == '\n' {
+		if next, ok := l.peekByte(); ok && next == '\n' {
 			l.readByte()
 		}
 		return nil
@@ -433,6 +471,50 @@ func IsWhitespace(ch byte) bool {
 }
 
 func isDelimiter(ch byte) bool {
-	s := "()<>[]{}/%"
-	return bytes.IndexByte([]byte(s), ch) != -1
+	switch ch {
+	case '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
+		return true
+	}
+	return false
+}
+
+// internedNames holds canonical strings for the most frequently seen PDF names.
+var internedNames = func() map[string]string {
+	names := []string{
+		"Type", "Subtype", "Page", "Pages", "Kids", "Parent", "Count",
+		"Contents", "MediaBox", "Resources", "Font", "XObject", "ExtGState",
+		"ColorSpace", "Pattern", "Shading", "Properties",
+		"Length", "Filter", "DecodeParms", "Width", "Height",
+		"BitsPerComponent", "Columns", "Predictor",
+		"FlateDecode", "DCTDecode", "CCITTFaxDecode", "JPXDecode",
+		"ASCIIHexDecode", "ASCII85Decode", "LZWDecode",
+		"Root", "Info", "Size", "Prev", "ID",
+		"BaseFont", "Encoding", "Widths", "FirstChar", "LastChar",
+		"ToUnicode", "FontDescriptor", "Flags", "FontBBox", "ItalicAngle",
+		"Ascent", "Descent", "CapHeight", "StemV", "MissingWidth",
+		"FontFile", "FontFile2", "FontFile3",
+		"Annots", "Rotate", "CropBox", "TrimBox", "BleedBox", "ArtBox",
+		"Image", "Form", "ProcSet", "Matrix", "BBox", "FormType",
+		"DeviceRGB", "DeviceCMYK", "DeviceGray", "ICCBased", "Indexed",
+		"BM", "Normal", "ca", "CA", "OP", "op", "SA",
+		"CreationDate", "ModDate", "Producer", "Creator", "Author",
+		"Title", "Subject", "Keywords", "Name", "ObjStm", "XRef",
+	}
+	m := make(map[string]string, len(names))
+	for _, n := range names {
+		m[n] = n
+	}
+	return m
+}()
+
+// internName returns a canonical string for s, reusing a pre-allocated
+// backing when s is a common PDF name.
+func internName(b []byte) string {
+	// Zero-alloc map probe: the key is only used for hashing/comparison and
+	// does not escape, so converting without a heap copy is safe here.
+	k := unsafe.String(unsafe.SliceData(b), len(b))
+	if s, ok := internedNames[k]; ok {
+		return s
+	}
+	return string(b)
 }

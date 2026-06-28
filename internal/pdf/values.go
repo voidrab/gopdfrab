@@ -5,13 +5,23 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+	"unsafe"
 )
 
 // ValuePointer returns the identity pointer of a PDFDict's Entries map or a
 // PDFArray's backing slice, used to detect cycles and dedupe visits when
 // walking the object graph.
 func ValuePointer(v PDFValue) uintptr {
-	return reflect.ValueOf(v).Pointer()
+	switch x := v.(type) {
+	case map[string]PDFValue:
+		// A map variable is a pointer to the runtime map header; dereference it.
+		return *(*uintptr)(unsafe.Pointer(&x))
+	case PDFArray:
+		// A slice header starts with the data pointer.
+		return *(*uintptr)(unsafe.Pointer(&x))
+	default:
+		return reflect.ValueOf(v).Pointer()
+	}
 }
 
 // AbsInt returns the absolute value of x.

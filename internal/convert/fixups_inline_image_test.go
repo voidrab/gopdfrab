@@ -17,17 +17,17 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 	}{
 		{
 			"ImageInterpolate",
-			"../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.4 Images/veraPDF test suite 6-2-4-t03-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.2 Graphics/6.2.4 Images/veraPDF test suite 6-2-4-t03-fail-a.pdf",
 			pdf.Checks.Image.ImageInterpolate,
 		},
 		{
 			"InlineImageLZWFilter",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf",
+			"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.10 Filters/isartor-6-1-10-t01-fail-b.pdf",
 			pdf.Checks.Structure.InlineImageLZWFilter,
 		},
 		{
 			"InlineImageRenderingIntent",
-			"../../test documents/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.2 Graphics/6.2.9 Rendering intents/veraPDF test suite 6-2-9-t01-fail-a.pdf",
 			pdf.Checks.Colour.RenderingIntent,
 		},
 	}

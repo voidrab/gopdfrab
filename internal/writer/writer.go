@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"crypto/md5"
@@ -30,10 +31,9 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 	return WriteDocument(w, trailer)
 }
 
-// WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
-// self-contained PDF with a cross-reference table.
-
-func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
+// WriteDocumentIndexed serializes a fully-resolved PDF object graph to w and
+// returns the ordered slice of indirect objects as written.
+func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict) (objs []pdf.PDFDict, err error) {
 	wr := &pdfWriter{
 		numbers: map[objectIdentity]int{},
 		visited: map[uintptr]bool{},
@@ -41,30 +41,37 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 	wr.discover(trailer.Entries["Root"])
 	wr.discover(trailer.Entries["Info"])
 
-	cw := &countingWriter{w: w}
+	// Buffer output so the many small dict/value writes are batched.
+	bw := bufio.NewWriterSize(w, 64<<10)
+	defer func() {
+		if ferr := bw.Flush(); ferr != nil && err == nil {
+			err = ferr
+		}
+	}()
+	cw := &countingWriter{w: bw}
 
 	// 6.1.2: version line followed by a binary-marker comment line (at least
 	// four bytes, each > 127) on its own line.
-	if _, err := fmt.Fprint(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n"); err != nil {
-		return err
+	if _, err = io.WriteString(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n"); err != nil {
+		return nil, err
 	}
 
 	offsets := make([]int64, len(wr.order)+1) // index 0 (the free-list head) is unused
 	for i, obj := range wr.order {
 		num := i + 1
 		offsets[num] = cw.n
-		if err := wr.writeIndirectObject(cw, num, obj); err != nil {
-			return fmt.Errorf("writer: object %d: %w", num, err)
+		if err = wr.writeIndirectObject(cw, num, obj); err != nil {
+			return nil, fmt.Errorf("writer: object %d: %w", num, err)
 		}
 	}
 
 	xrefOffset := cw.n
-	if _, err := fmt.Fprintf(cw, "xref\n0 %d\n0000000000 65535 f \n", len(wr.order)+1); err != nil {
-		return err
+	if err = writeXRefHeader(cw, len(wr.order)+1); err != nil {
+		return nil, err
 	}
 	for i := 1; i <= len(wr.order); i++ {
-		if _, err := fmt.Fprintf(cw, "%010d 00000 n \n", offsets[i]); err != nil {
-			return err
+		if err = writeXRefEntry(cw, offsets[i]); err != nil {
+			return nil, err
 		}
 	}
 
@@ -89,23 +96,138 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 		newTrailer["ID"] = pdf.PDFArray{id, id}
 	}
 
-	if _, err := fmt.Fprint(cw, "trailer\n"); err != nil {
-		return err
+	if _, err = io.WriteString(cw, "trailer\n"); err != nil {
+		return nil, err
 	}
-	if err := wr.writeDictEntries(cw, newTrailer); err != nil {
-		return fmt.Errorf("writer: trailer: %w", err)
+	if err = wr.writeDictEntries(cw, newTrailer); err != nil {
+		return nil, fmt.Errorf("writer: trailer: %w", err)
 	}
-	_, err := fmt.Fprintf(cw, "\nstartxref\n%d\n%%%%EOF", xrefOffset)
+
+	// "\nstartxref\nOFFSET\n%%EOF"
+	var tail [64]byte
+	t := append(tail[:0], "\nstartxref\n"...)
+	t = strconv.AppendInt(t, xrefOffset, 10)
+	t = append(t, "\n%%EOF"...)
+	if _, err = cw.Write(t); err != nil {
+		return nil, err
+	}
+
+	// Rewrite each dict's _ref to its assigned output object number so the
+	// in-memory graph's numbering matches the serialized output.
+	for i, obj := range wr.order {
+		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		wr.order[i] = obj
+	}
+
+	return wr.order, nil
+}
+
+// writeXRefHeader writes "xref\n0 N\n0000000000 65535 f \n".
+func writeXRefHeader(cw *countingWriter, count int) error {
+	var b [48]byte
+	out := append(b[:0], "xref\n0 "...)
+	out = strconv.AppendInt(out, int64(count), 10)
+	out = append(out, "\n0000000000 65535 f \n"...)
+	_, err := cw.Write(out)
 	return err
 }
 
-// MarkStreamDirty flags dict's stream as freshly-set decoded content (stored
-// in dict.RawStream) rather than bytes read verbatim from disk, so
-// WriteDocument Flate-encodes it instead of writing RawStream through
-// unmodified. Future fixups that replace a stream's content (e.g.
-// regenerating an XMP packet) should call this after setting RawStream.
-func MarkStreamDirty(dict *pdf.PDFDict) {
-	dict.Entries["_dirty"] = pdf.PDFBoolean(true)
+// writeXRefEntry writes a 20-byte xref entry "OOOOOOOOOO 00000 n \n".
+func writeXRefEntry(cw *countingWriter, offset int64) error {
+	var b [20]byte
+	for i := 9; i >= 0; i-- {
+		b[i] = byte('0' + offset%10)
+		offset /= 10
+	}
+	b[10] = ' '
+	b[11] = '0'
+	b[12] = '0'
+	b[13] = '0'
+	b[14] = '0'
+	b[15] = '0'
+	b[16] = ' '
+	b[17] = 'n'
+	b[18] = ' '
+	b[19] = '\n'
+	_, err := cw.Write(b[:])
+	return err
+}
+
+// WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
+// self-contained PDF with a cross-reference table.
+func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
+	_, err := WriteDocumentIndexed(w, trailer)
+	return err
+}
+
+// NumberObjects assigns output object numbers to every indirect object
+// reachable from trailer, updates their _ref entries, and returns a number-keyed
+// map suitable for pdf.Reader.SeedResolvedGraph. Used to seed in-heap verifies
+// during conversion without serializing bytes.
+func NumberObjects(trailer pdf.PDFDict) map[int]pdf.PDFValue {
+	wr := &pdfWriter{
+		numbers: map[objectIdentity]int{},
+		visited: map[uintptr]bool{},
+	}
+	wr.discover(trailer.Entries["Root"])
+	wr.discover(trailer.Entries["Info"])
+
+	objs := make(map[int]pdf.PDFValue, len(wr.order))
+	for i, obj := range wr.order {
+		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		objs[i+1] = obj
+	}
+	return objs
+}
+
+// SetStreamFlate compresses decoded content with FlateDecode and stores the
+// result directly, so the writer emits the stream as-is without re-deflating.
+func SetStreamFlate(d *pdf.PDFDict, decoded []byte) error {
+	return setStreamFlateLevel(d, decoded, zlib.DefaultCompression)
+}
+
+// SetStreamFlateFast is SetStreamFlate at the fastest compression level.
+func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) error {
+	return setStreamFlateLevel(d, decoded, zlib.BestSpeed)
+}
+
+func setStreamFlateLevel(d *pdf.PDFDict, decoded []byte, level int) error {
+	compressed, err := deflateZlibLevel(decoded, level)
+	if err != nil {
+		return err
+	}
+	d.RawStream = compressed
+	d.HasStream = true
+	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	delete(d.Entries, "DecodeParms")
+	delete(d.Entries, "DP")
+	return nil
+}
+
+// SetStreamFlateRows fast-compresses numRows rows fed one at a time by row(i),
+// storing the result as a FlateDecode stream. Streaming avoids materializing a
+// single full-raster buffer per call, sparing the garbage collector the large
+// transient allocations the flattener's parallel workers would otherwise make.
+func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) error {
+	var buf bytes.Buffer
+	zw, err := zlib.NewWriterLevel(&buf, zlib.BestSpeed)
+	if err != nil {
+		return err
+	}
+	for i := range numRows {
+		if _, err := zw.Write(row(i)); err != nil {
+			return err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	d.RawStream = buf.Bytes()
+	d.HasStream = true
+	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	delete(d.Entries, "DecodeParms")
+	delete(d.Entries, "DP")
+	return nil
 }
 
 // objectIdentity is the dedup key WriteDocument uses to recognise that two
@@ -188,7 +310,10 @@ func (wr *pdfWriter) discover(v pdf.PDFValue) {
 // writeIndirectObject writes "N 0 obj\n<body>\nendobj\n" for a previously
 // discovered indirect object.
 func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PDFDict) error {
-	if _, err := fmt.Fprintf(cw, "%d 0 obj\n", num); err != nil {
+	var hdr [32]byte
+	h := strconv.AppendInt(hdr[:0], int64(num), 10)
+	h = append(h, " 0 obj\n"...)
+	if _, err := cw.Write(h); err != nil {
 		return err
 	}
 
@@ -196,25 +321,12 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 		if err := wr.writeDictEntries(cw, val.Entries); err != nil {
 			return err
 		}
-		_, err := fmt.Fprint(cw, "\nendobj\n")
+		_, err := io.WriteString(cw, "\nendobj\n")
 		return err
 	}
 
 	raw := val.RawStream
 	entries := val.Entries
-
-	if dirty, _ := entries["_dirty"].(pdf.PDFBoolean); bool(dirty) {
-		compressed, err := DeflateZlib(raw)
-		if err != nil {
-			return fmt.Errorf("re-encoding dirty stream: %w", err)
-		}
-		clone := make(map[string]pdf.PDFValue, len(entries)+1)
-		maps.Copy(clone, entries)
-		clone["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-		delete(clone, "DecodeParms")
-		delete(clone, "DP")
-		entries, raw = clone, compressed
-	}
 
 	// /Length is always recomputed from the bytes actually being written,
 	// regardless of what the source declared (which may have been wrong, or
@@ -226,13 +338,13 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 	if err := wr.writeDictEntries(cw, lengthClone); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprint(cw, "\nstream\n"); err != nil {
+	if _, err := io.WriteString(cw, "\nstream\n"); err != nil {
 		return err
 	}
 	if _, err := cw.Write(raw); err != nil {
 		return err
 	}
-	_, err := fmt.Fprint(cw, "\nendstream\nendobj\n")
+	_, err := io.WriteString(cw, "\nendstream\nendobj\n")
 	return err
 }
 
@@ -249,18 +361,24 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf
 	}
 	sort.Strings(keys)
 
-	if _, err := fmt.Fprint(cw, "<<"); err != nil {
+	if _, err := io.WriteString(cw, "<<"); err != nil {
 		return err
 	}
 	for _, k := range keys {
-		if _, err := fmt.Fprintf(cw, " /%s ", k); err != nil {
+		if _, err := io.WriteString(cw, " /"); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(cw, k); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(cw, " "); err != nil {
 			return err
 		}
 		if err := wr.writeValue(cw, entries[k]); err != nil {
 			return err
 		}
 	}
-	_, err := fmt.Fprint(cw, " >>")
+	_, err := io.WriteString(cw, " >>")
 	return err
 }
 
@@ -277,7 +395,7 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf
 func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 	switch val := v.(type) {
 	case nil:
-		_, err := fmt.Fprint(cw, "null")
+		_, err := io.WriteString(cw, "null")
 		return err
 
 	case pdf.PDFDict:
@@ -286,18 +404,21 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 			if !ok {
 				return fmt.Errorf("internal error: indirect dict was not discovered before writing")
 			}
-			_, err := fmt.Fprintf(cw, "%d 0 R", num)
+			var b [24]byte
+			ref := strconv.AppendInt(b[:0], int64(num), 10)
+			ref = append(ref, " 0 R"...)
+			_, err := cw.Write(ref)
 			return err
 		}
 		return wr.writeDictEntries(cw, val.Entries)
 
 	case pdf.PDFArray:
-		if _, err := fmt.Fprint(cw, "["); err != nil {
+		if _, err := io.WriteString(cw, "["); err != nil {
 			return err
 		}
 		for i, child := range val {
 			if i > 0 {
-				if _, err := fmt.Fprint(cw, " "); err != nil {
+				if _, err := io.WriteString(cw, " "); err != nil {
 					return err
 				}
 			}
@@ -305,7 +426,7 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 				return err
 			}
 		}
-		_, err := fmt.Fprint(cw, "]")
+		_, err := io.WriteString(cw, "]")
 		return err
 
 	case pdf.PDFRef:
@@ -328,24 +449,34 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 	switch val := v.(type) {
 	case pdf.PDFName:
-		_, err = fmt.Fprintf(w, "/%s", val.Value)
+		if _, err = io.WriteString(w, "/"); err == nil {
+			_, err = io.WriteString(w, val.Value)
+		}
 	case pdf.PDFString:
-		_, err = fmt.Fprintf(w, "(%s)", val.Value)
+		if _, err = io.WriteString(w, "("); err == nil {
+			if _, err = io.WriteString(w, val.Value); err == nil {
+				_, err = io.WriteString(w, ")")
+			}
+		}
 	case pdf.PDFHexString:
-		_, err = fmt.Fprintf(w, "<%s>", val.Value)
+		if _, err = io.WriteString(w, "<"); err == nil {
+			if _, err = io.WriteString(w, val.Value); err == nil {
+				_, err = io.WriteString(w, ">")
+			}
+		}
 	case pdf.PDFInteger:
-		_, err = fmt.Fprintf(w, "%d", int(val))
+		_, err = io.WriteString(w, strconv.Itoa(int(val)))
 	case pdf.PDFReal:
 		// Plain decimal, never scientific notation: lexer.go's readNumber
 		// only accumulates digits/'.'/'+'/'-', so "1e+10" would not
 		// round-trip through our own reader.
-		_, err = fmt.Fprint(w, strconv.FormatFloat(float64(val), 'f', -1, 32))
+		_, err = io.WriteString(w, strconv.FormatFloat(float64(val), 'f', -1, 32))
 	case pdf.PDFBoolean:
 		s := "false"
 		if bool(val) {
 			s = "true"
 		}
-		_, err = fmt.Fprint(w, s)
+		_, err = io.WriteString(w, s)
 	default:
 		return false, nil
 	}
@@ -362,12 +493,12 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 	}
 	switch val := v.(type) {
 	case pdf.PDFArray:
-		if _, err := fmt.Fprint(w, "["); err != nil {
+		if _, err := io.WriteString(w, "["); err != nil {
 			return err
 		}
 		for i, child := range val {
 			if i > 0 {
-				if _, err := fmt.Fprint(w, " "); err != nil {
+				if _, err := io.WriteString(w, " "); err != nil {
 					return err
 				}
 			}
@@ -375,7 +506,7 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 				return err
 			}
 		}
-		_, err := fmt.Fprint(w, "]")
+		_, err := io.WriteString(w, "]")
 		return err
 
 	case pdf.PDFDict:
@@ -387,22 +518,28 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		if _, err := fmt.Fprint(w, "<<"); err != nil {
+		if _, err := io.WriteString(w, "<<"); err != nil {
 			return err
 		}
 		for _, k := range keys {
-			if _, err := fmt.Fprintf(w, " /%s ", k); err != nil {
+			if _, err := io.WriteString(w, " /"); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, k); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(w, " "); err != nil {
 				return err
 			}
 			if err := writeOperand(w, val.Entries[k]); err != nil {
 				return err
 			}
 		}
-		_, err := fmt.Fprint(w, " >>")
+		_, err := io.WriteString(w, " >>")
 		return err
 
 	case nil:
-		_, err := fmt.Fprint(w, "null")
+		_, err := io.WriteString(w, "null")
 		return err
 
 	default:
@@ -424,11 +561,26 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// WriteString lets io.WriteString skip []byte conversion and write into the
+// bufio buffer directly, avoiding one allocation per string write.
+func (c *countingWriter) WriteString(s string) (int, error) {
+	n, err := io.WriteString(c.w, s)
+	c.n += int64(n)
+	return n, err
+}
+
 // DeflateZlib encodes data as a zlib (FlateDecode) stream, the inverse of
 // content.go's inflateZlib.
 func DeflateZlib(data []byte) ([]byte, error) {
+	return deflateZlibLevel(data, zlib.DefaultCompression)
+}
+
+func deflateZlibLevel(data []byte, level int) ([]byte, error) {
 	var out bytes.Buffer
-	zw := zlib.NewWriter(&out)
+	zw, err := zlib.NewWriterLevel(&out, level)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := zw.Write(data); err != nil {
 		return nil, err
 	}

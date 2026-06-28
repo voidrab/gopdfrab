@@ -265,7 +265,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
 	defer doc.Close()
 
-	errs := verifyDocumentInformationDictionary(doc)
+	errs := verifyDocumentInformationDictionary(trailer)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid metadata type, got %v", errs)
 	}
@@ -295,7 +295,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *te
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
 	defer doc.Close()
 
-	errs := verifyDocumentInformationDictionary(doc)
+	errs := verifyDocumentInformationDictionary(trailer)
 	if len(errs) != 0 {
 		t.Errorf("Expected no errors for a custom info dict key, got %v", errs)
 	}
@@ -318,7 +318,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
 	defer doc.Close()
 
-	errs := verifyDocumentInformationDictionary(doc)
+	errs := verifyDocumentInformationDictionary(trailer)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for empty metadata value, got %v", errs)
 	}
@@ -347,7 +347,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyEmptyValueAll
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
 	defer doc.Close()
 
-	errs := verifyDocumentInformationDictionary(doc)
+	errs := verifyDocumentInformationDictionary(trailer)
 	if len(errs) != 0 {
 		t.Errorf("Expected no errors for an empty-valued custom key, got %v", errs)
 	}

@@ -88,6 +88,23 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 	return data, nil
 }
 
+// DecodeCached decodes a stream using cache to avoid repeated decompression.
+// The cache is keyed by the Entries map pointer; pass a map[uintptr][]byte
+// created per conversion run. If dict has no _ref entry the result is not
+// cached (synthesised dicts have no stable identity).
+func DecodeCached(dict PDFDict, cache map[uintptr][]byte) ([]byte, error) {
+	key := ValuePointer(dict.Entries)
+	if data, ok := cache[key]; ok {
+		return data, nil
+	}
+	data, err := DecodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	cache[key] = data
+	return data, nil
+}
+
 // decodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
 // terminated by '>'. Whitespace between pairs is ignored.
 func DecodeASCIIHex(data []byte) ([]byte, error) {
@@ -227,7 +244,7 @@ type ContentScanner struct {
 }
 
 func NewContentScanner(data []byte) *ContentScanner {
-	return &ContentScanner{lex: NewLexer(bytes.NewReader(data)), data: data}
+	return &ContentScanner{lex: NewLexerBytes(data, 0), data: data}
 }
 
 // scan iterates the content stream, invoking fn for each operator with the
@@ -265,14 +282,14 @@ func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 			op := tok.Value
 			if op == "BI" {
 				cs.scanInlineImage(fn)
-				cs.stack = nil
+				cs.stack = cs.stack[:0]
 				continue
 			}
 			fn(op, cs.stack)
-			cs.stack = nil
+			cs.stack = cs.stack[:0]
 		default:
 			// obj/stream keywords do not appear in content streams.
-			cs.stack = nil
+			cs.stack = cs.stack[:0]
 		}
 	}
 }
@@ -338,11 +355,9 @@ func (cs *ContentScanner) skipToEI() (dataEnd int64) {
 			return cs.lex.pos
 		}
 		if IsWhitespace(prev) && b == 'E' {
-			next, err := cs.lex.reader.Peek(1)
-			if err == nil && len(next) == 1 && next[0] == 'I' {
+			if next, ok := cs.lex.peekByte(); ok && next == 'I' {
 				cs.lex.readByte() // consume 'I'
-				after, err := cs.lex.reader.Peek(1)
-				if err != nil || IsWhitespace(after[0]) || isDelimiter(after[0]) {
+				if after, ok := cs.lex.peekByte(); !ok || IsWhitespace(after) || isDelimiter(after) {
 					return cs.lex.pos - 3 // pos minus "I", "E", and the separator
 				}
 			}

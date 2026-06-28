@@ -173,9 +173,9 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool) pdf
 	}
 
 	xobj.Entries["Resources"] = resources
-	xobj.HasStream = true
-	xobj.RawStream = content
-	writer.MarkStreamDirty(&xobj)
+	if err := writer.SetStreamFlate(&xobj, content); err != nil {
+		return xobj
+	}
 	return xobj
 }
 

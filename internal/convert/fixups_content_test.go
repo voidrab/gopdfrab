@@ -18,32 +18,32 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 	}{
 		{
 			"UndefinedOperator",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
+			"../../tests/Isartor/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf",
 			pdf.Checks.Colour.UndefinedOperator,
 		},
 		{
 			"RenderingIntent",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
+			"../../tests/Isartor/PDFA-1b/6.2 Graphics/6.2.9 Rendering intents/isartor-6-2-9-t01-fail-a.pdf",
 			pdf.Checks.Colour.RenderingIntent,
 		},
 		{
 			"HexStringOddLength",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-a.pdf",
 			pdf.Checks.Structure.HexStringOddLength,
 		},
 		{
 			"HexStringInvalidChar",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.6 String objects/veraPDF test suite 6-1-6-t01-fail-b.pdf",
 			pdf.Checks.Structure.HexStringInvalidChar,
 		},
 		{
 			"IntegerOutOfRange",
-			"../../test documents/Isartor testsuite/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
+			"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.12 Implementation Limits/isartor-6-1-12-t01-fail-c.pdf",
 			pdf.Checks.Structure.IntegerOutOfRange,
 		},
 		{
 			"StringTooLong",
-			"../../test documents/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
 			pdf.Checks.Structure.StringTooLong,
 		},
 	}
@@ -88,8 +88,12 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 		t.Fatalf("rewriteContentStreamDict reported no change for a stream with an undefined operator")
 	}
 
+	decoded, err := pdf.DecodeStream(fixed)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
 	var ops []string
-	pdf.NewContentScanner(fixed.RawStream).Scan(func(op string, _ []pdf.PDFValue) {
+	pdf.NewContentScanner(decoded).Scan(func(op string, _ []pdf.PDFValue) {
 		ops = append(ops, op)
 	})
 	for _, op := range ops {

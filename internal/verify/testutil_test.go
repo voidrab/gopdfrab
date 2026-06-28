@@ -33,8 +33,8 @@ func createValidPDF(filename string) error {
 // isartorDir and veraPDFDir locate the reference test corpora relative to
 // this package's directory (two levels under the repo root).
 const (
-	isartorDir = "../../test documents/Isartor testsuite/PDFA-1b"
-	veraPDFDir = "../../test documents/veraPDF/PDF_A-1b"
+	isartorDir = "../../tests/Isartor/PDFA-1b"
+	veraPDFDir = "../../tests/veraPDF/PDF_A-1b"
 )
 
 // clauseMatches reports whether a reported clause satisfies the expected clause.

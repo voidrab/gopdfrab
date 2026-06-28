@@ -14,7 +14,7 @@ import (
 
 // veraDir locates the veraPDF reference corpus relative to this package's
 // directory (two levels under the repo root).
-const veraDir = "../../test documents/veraPDF/PDF_A-1b"
+const veraDir = "../../tests/veraPDF/PDF_A-1b"
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
 func issueClauses(issues []pdf.PDFError) []string {
@@ -163,17 +163,16 @@ func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	}
 }
 
-// TestWriterRoundTripDirtyStream checks that MarkStreamDirty causes
-// WriteDocument to Flate-encode the stream's RawStream bytes fresh (setting
-// /Filter /FlateDecode) rather than writing them through verbatim, and that
-// the result still decodes back to the original content.
+// TestWriterRoundTripDirtyStream checks that SetStreamFlate stores a
+// Flate-encoded stream that the writer emits verbatim and that still decodes
+// back to the original content.
 func TestWriterRoundTripDirtyStream(t *testing.T) {
 	contents := pdf.PDFDict{
-		Entries:   map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}},
-		HasStream: true,
-		RawStream: []byte("0 0 0 rg 0 0 100 100 re f"),
+		Entries: map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}},
 	}
-	MarkStreamDirty(&contents)
+	if err := SetStreamFlate(&contents, []byte("0 0 0 rg 0 0 100 100 re f")); err != nil {
+		t.Fatalf("SetStreamFlate: %v", err)
+	}
 
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"_ref":     pdf.PDFRef{ObjNum: 2},
