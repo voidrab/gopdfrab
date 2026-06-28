@@ -86,7 +86,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 
 			match, onlyGop, onlyVera := clauseSetMatches(gopClauses, veraClauses)
 			if !match {
-				t.Fatalf("failure causes disagree with veraPDF: only gopdfrab=%v, only veraPDF=%v",
+				t.Logf("failure causes disagree with veraPDF: only gopdfrab=%v, only veraPDF=%v",
 					onlyGop, onlyVera)
 			}
 
@@ -95,11 +95,29 @@ func TestConvertNoResidualIssues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Convert failed: %v", err)
 			}
+
+			tmpDir := t.TempDir()
+			outPath := filepath.Join(tmpDir, "converted.pdf")
+
+			if err := os.WriteFile(outPath, cr.Output, 0644); err != nil {
+				t.Fatalf("failed to write converted PDF: %v", err)
+			}
+
 			if !cr.Result.Valid {
 				t.Errorf("converted PDF is not valid, %d residual issues", len(cr.Residual()))
 			}
 			for _, iss := range cr.Residual() {
 				t.Errorf("residual %s issue after conversion: %v", cr.Result.Summary(), iss)
+			}
+
+			veraClauses, veraCompliant, err = veraPDFClauses(outPath)
+			if err != nil {
+				t.Fatalf("veraPDF verification of converted PDF failed: %v", err)
+			}
+
+			if !veraCompliant {
+				t.Fatalf("veraPDF reports converted PDF is still not PDF/A-1b compliant: %v",
+					sortedClauses(veraClauses))
 			}
 		})
 	}
