@@ -149,13 +149,13 @@ type transparencyChecks struct {
 
 type fontChecks struct {
 	// 6.3.2 Font dictionary and program validity
-	FontType            Check
+	FontType            Check // unused, wontdo
 	InvalidSubtype      Check
-	FontBaseFont        Check
-	SimpleFontFirstChar Check
-	SimpleFontLastChar  Check
-	SimpleFontWidths    Check
-	FontFileSubtype     Check
+	FontBaseFont        Check // TODO add convert
+	SimpleFontFirstChar Check // unused, wontdo
+	SimpleFontLastChar  Check // unused, wontdo
+	SimpleFontWidths    Check // unused, wontdo
+	FontFileSubtype     Check // TODO add check
 	InvalidProgram      Check
 	// 6.3.3.1 CIDSystemInfo consistency
 	CIDSystemInfoMismatch Check
@@ -168,7 +168,7 @@ type fontChecks struct {
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.8 ToUnicode (Level A)
-	ToUnicodeMissing Check
+	ToUnicodeMissing Check // TODO level A
 	// 6.3.5 Subset coverage
 	SubsetGlyphCoverage Check
 	Type1SubsetCharSet  Check
@@ -231,7 +231,7 @@ type metadataChecks struct {
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
-	XMPNoCorrespondingType Check
+	XMPNoCorrespondingType Check // TODO add check
 	// 6.7.11 PDF/A identifier
 	PDFAIdentifierMissing           Check
 	PDFAIdentifierNamespace         Check
@@ -242,14 +242,14 @@ type metadataChecks struct {
 
 type logicalStructureChecks struct {
 	// 6.8.2.2 Tagged PDF
-	TaggedMarkInfo Check
+	TaggedMarkInfo Check // TODO level A
 	// 6.8.3.3 Structure tree
-	StructTreeRoot Check
+	StructTreeRoot Check // TODO level A
 	// 6.8.3.4 Role map
-	RoleMapStandardType Check
-	RoleMapCircular     Check
+	RoleMapStandardType Check // TODO level A
+	RoleMapCircular     Check // TODO level A
 	// 6.8.4 Natural language
-	LangIdentifier Check
+	LangIdentifier Check // TODO level A
 }
 
 type formChecks struct {
