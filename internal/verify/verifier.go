@@ -1293,26 +1293,22 @@ func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 	// Version must be < 3.0 (PDF/A-1 permits ICC v2.x only).
 	major := data[8]
 	if major >= 3 {
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be < 3.0)", major)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be < 3.0)", major)}, 0, nil)
 		return &newErr
 	}
 
 	// Device class must be one of:
 	// prtr (output), mntr (display), scnr (input), spac (colorspace conversion).
 	deviceClass := string(data[12:16])
-	switch deviceClass {
-	case "prtr", "mntr", "scnr", "spac":
-	default:
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, nil)
+	if !iccValidDeviceClasses[deviceClass] {
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, nil)
 		return &newErr
 	}
 
 	// Color space must be one of the PDF/A-1 permitted spaces.
 	colorSpace := string(data[16:20])
-	switch colorSpace {
-	case "RGB ", "CMYK", "GRAY", "Lab ":
-	default:
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, nil)
+	if !iccValidColorSpaces[colorSpace] {
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, nil)
 		return &newErr
 	}
 
