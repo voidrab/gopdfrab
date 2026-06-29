@@ -127,8 +127,7 @@ func TestFixAPColourInjectsIntoNestedXObject(t *testing.T) {
 
 // TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt verifies that
 // the appearance-stream injection happens even when the page resources already
-// carry /DefaultRGB (the intermittent L34a bug: page-gated early-return was
-// wrongly suppressing the AP injection loop).
+// carry /DefaultRGB.
 func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) {
 	// Build a minimal CMYK-OutputIntent document whose page resources already
 	// have /DefaultRGB but whose AP stream uses "rg" without its own DefaultRGB.
