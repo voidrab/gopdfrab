@@ -100,10 +100,10 @@ type colourChecks struct {
 	OutputIntentInvalidProfile    Check
 	OutputIntentMissingN          Check
 	OutputIntentInvalidN          Check
-	OutputIntentICCVersion        Check
+	OutputIntentICCVersion        Check // contains profile and components mismatch checks
 	// 6.2.3.2 ICCBased colour spaces
-	ICCBasedProfileInvalid     Check
-	ICCBasedComponentsMismatch Check
+	ICCBasedProfileInvalid     Check // TODO add convert
+	ICCBasedComponentsMismatch Check // TODO add convert
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -409,7 +409,7 @@ func init() {
 				"6.1.6", 0),
 			HexStringInvalidChar: newCheck(
 				"HexStringInvalidChar",
-				"Hexadecimal strings must contain only valid hex characters (0–9, A–F, a–f)",
+				"Hexadecimal strings must contain only valid hex characters (0-9, A-F, a-f)",
 				"6.1.6", 1),
 			HexStringOddLength: newCheck(
 				"HexStringOddLength",
@@ -465,27 +465,27 @@ func init() {
 				"6.1.12", 1),
 			IntegerOutOfRange: newCheck(
 				"IntegerOutOfRange",
-				"Integer values must be within the range [−2^31, 2^31−1]",
+				"Integer values must be within the range [-2^31, 2^31-1]",
 				"6.1.12", 2),
 			RealOutOfRange: newCheck(
 				"RealOutOfRange",
-				"Real values must have an absolute value not exceeding 32767.0",
+				"Real values must have an absolute value not exceeding 32,767.0",
 				"6.1.12", 8),
 			ArrayTooLarge: newCheck(
 				"ArrayTooLarge",
-				"Arrays must not contain more than 8191 elements",
+				"Arrays must not contain more than 8,191 elements",
 				"6.1.12", 3),
 			DictTooLarge: newCheck(
 				"DictTooLarge",
-				"Dictionaries must not contain more than 4095 entries",
+				"Dictionaries must not contain more than 4,095 entries",
 				"6.1.12", 4),
 			CMapCIDOutOfRange: newCheck(
 				"CMapCIDOutOfRange",
-				"CMap character identifier (CID) values must not exceed 65535",
+				"CMap character identifier (CID) values must not exceed 65,535",
 				"6.1.12", 5),
 			StringTooLong: newCheck(
 				"StringTooLong",
-				"String objects must not exceed 65535 bytes",
+				"String objects must not exceed 65,535 bytes",
 				"6.1.12", 6),
 			DeviceNColorants: newCheck(
 				"DeviceNColorants",
@@ -493,7 +493,7 @@ func init() {
 				"6.1.12", 7),
 			IndirectObjectsExceeded: newCheck(
 				"IndirectObjectsExceeded",
-				"The number of indirect objects in the file must not exceed 8388607",
+				"The number of indirect objects in the file must not exceed 8,388,607",
 				"6.1.12", 9),
 			GraphicsStateNesting: newCheck(
 				"GraphicsStateNesting",

@@ -178,16 +178,30 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 		issues = append(issues, errs...)
 	}
 
-	verifyAllObjectFraming(d)
+	errs = verifyAllObjectFraming(d)
+	if errs != nil {
+		issues = append(issues, errs...)
+	}
 
 	issues = append(issues, d.StructErrors()...)
 	return issues
 }
 
-func verifyAllObjectFraming(d *pdf.Reader) {
+func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
+	xrefTable := d.XRefTable()
+	if len(xrefTable) == 0 {
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Structure.IndirectObjectsExceeded,
+			[]error{fmt.Errorf("number of indirect objects exceeds 8,388,607")},
+			1,
+			nil,
+		)}
+	}
+
 	for objNum := range d.XRefTable() {
 		d.ResolveReference(pdf.PDFRef{ObjNum: objNum})
 	}
+	return nil
 }
 
 // 6.1 File Structure
@@ -206,12 +220,22 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 
 	header, ok := cur.ReadLine()
 	if !ok || !pdfVersionRe.MatchString(header) {
-		errs = append(errs, pdf.NewError(pdf.Checks.Structure.FileHeaderSignature, []error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)}, 1, nil))
+		errs = append(errs, pdf.NewError(
+			pdf.Checks.Structure.FileHeaderSignature,
+			[]error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)},
+			1,
+			nil,
+		))
 	}
 
 	comment, ok := cur.ReadLine()
 	if !ok || len(comment) == 0 || comment[0] != '%' {
-		errs = append(errs, pdf.NewError(pdf.Checks.Structure.FileHeaderComment, []error{fmt.Errorf("header must be followed by comment, but was: %v", comment)}, 1, nil))
+		errs = append(errs, pdf.NewError(
+			pdf.Checks.Structure.FileHeaderComment,
+			[]error{fmt.Errorf("header must be followed by comment, but was: %v", comment)},
+			1,
+			nil,
+		))
 		return errs
 	}
 
@@ -219,14 +243,22 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 	// 5 characters long, i.e. at least 4 bytes must follow the %.
 	commentBytes := []byte(comment[1:])
 	if len(commentBytes) < 4 {
-		errs = append(errs, pdf.NewError(pdf.Checks.Structure.FileHeaderCommentLength, []error{fmt.Errorf("comment line must consist of at least 5 characters, but was: %d", len(comment))}, 1, nil))
+		errs = append(errs, pdf.NewError(
+			pdf.Checks.Structure.FileHeaderCommentLength,
+			[]error{fmt.Errorf("comment line must consist of at least 5 characters, but was: %d", len(comment))},
+			1,
+			nil,
+		))
 	} else {
 		// 6.1.2/4: each of the first four bytes after % must be > 127 (binary
 		// indicator); bytes beyond that are unconstrained.
 		var badBytes []error
 		for _, b := range commentBytes[:4] {
 			if b <= 127 {
-				badBytes = append(badBytes, fmt.Errorf("comment line contains ASCII character (0x%02x); all bytes must be > 127", b))
+				badBytes = append(
+					badBytes,
+					fmt.Errorf("comment line contains ASCII character (0x%02x); all bytes must be > 127", b),
+				)
 			}
 		}
 		if len(badBytes) > 0 {
@@ -250,12 +282,22 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	eff := d.EffectiveTrailer()
 
 	if eff.Entries["ID"] == nil {
-		err := pdf.NewError(pdf.Checks.Structure.TrailerID, []error{fmt.Errorf("trailer does not contain the required ID keyword")}, 0, nil)
+		err := pdf.NewError(
+			pdf.Checks.Structure.TrailerID,
+			[]error{fmt.Errorf("trailer does not contain the required ID keyword")},
+			0,
+			nil,
+		)
 		errs = append(errs, err)
 	}
 
 	if eff.Entries["Encrypt"] != nil {
-		err := pdf.NewError(pdf.Checks.Structure.TrailerEncrypt, []error{fmt.Errorf("trailer contains the forbidden Encrypt keyword")}, 0, nil)
+		err := pdf.NewError(
+			pdf.Checks.Structure.TrailerEncrypt,
+			[]error{fmt.Errorf("trailer contains the forbidden Encrypt keyword")},
+			0,
+			nil,
+		)
 		errs = append(errs, err)
 	}
 
@@ -275,7 +317,12 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 		}
 	}
 	if !found {
-		err := pdf.NewError(pdf.Checks.Structure.TrailerEOF, []error{fmt.Errorf("no EOF marker found: %v", string(eof))}, 0, nil)
+		err := pdf.NewError(
+			pdf.Checks.Structure.TrailerEOF,
+			[]error{fmt.Errorf("no EOF marker found: %v", string(eof))},
+			0,
+			nil,
+		)
 		errs = append(errs, err)
 	}
 	if len(errs) > 0 {
@@ -329,7 +376,12 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
 	if !ok || len(xRef) == 0 || xRef != "xref" {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.XRefKeyword, []error{fmt.Errorf("expected 'xref' keyword at offset %d", offset)}, 0, nil)}
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Structure.XRefKeyword,
+			[]error{fmt.Errorf("expected 'xref' keyword at offset %d", offset)},
+			0,
+			nil,
+		)}
 	}
 
 	// Walk all subsection headers, skipping the entry lines for each subsection.
@@ -345,7 +397,12 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 			if firstHeader {
 				// 6.1.4: an extra blank line here means no header directly
 				// follows the xref keyword.
-				return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.XRefSubsectionHeader, []error{fmt.Errorf("blank line between 'xref' keyword and first cross reference subsection header")}, 0, nil)}
+				return []pdf.PDFError{pdf.NewError(
+					pdf.Checks.Structure.XRefSubsectionHeader,
+					[]error{fmt.Errorf("blank line between 'xref' keyword and first cross reference subsection header")},
+					0,
+					nil,
+				)}
 			}
 			continue
 		}
@@ -353,7 +410,12 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 		// In a cross reference subsection header the starting object number and
 		// the range shall be separated by a single SPACE (20h), no leading whitespace.
 		if !xrefHeaderRe.MatchString(line) {
-			return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.XRefSubsectionHeaderFormat, []error{fmt.Errorf("malformed cross reference subsection header: %q", line)}, 0, nil)}
+			return []pdf.PDFError{pdf.NewError(
+				pdf.Checks.Structure.XRefSubsectionHeaderFormat,
+				[]error{fmt.Errorf("malformed cross reference subsection header: %q", line)},
+				0,
+				nil,
+			)}
 		}
 		if firstHeader {
 			firstHeader = false
@@ -369,7 +431,12 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 	}
 
 	if firstHeader {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.XRefSubsectionHeader, []error{fmt.Errorf("expected cross reference subsection header after xref keyword at offset %d", offset)}, 0, nil)}
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Structure.XRefSubsectionHeader,
+			[]error{fmt.Errorf("expected cross reference subsection header after xref keyword at offset %d", offset)},
+			0,
+			nil,
+		)}
 	}
 
 	return nil
@@ -384,8 +451,12 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 
 	infoDict, ok := trailer.Entries["Info"].(pdf.PDFDict)
 	if !ok {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.InfoDictUnreadable,
-			[]error{fmt.Errorf("Info entry is not a dictionary")}, 0, nil)}
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Structure.InfoDictUnreadable,
+			[]error{fmt.Errorf("Info entry is not a dictionary")},
+			0,
+			nil,
+		)}
 	}
 
 	allowedFields := []string{
@@ -450,7 +521,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	return errs
 }
 
-// verifyDocument verifies requirements outlined in 6.1.6, 6.1.7, 6.1.11, 6.1.12.
+// verifyDocument verifies the entire document graph, including all pages, resources, and content streams.
 func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
@@ -499,7 +570,11 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				if k != "_ref" && len(k) > 127 {
 					decoded := pdf.DecodePDFName(k)
 					if len(decoded) > 127 {
-						ctx.Report(pdf.Checks.Structure.NameTooLong, v, fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)))
+						ctx.Report(
+							pdf.Checks.Structure.NameTooLong,
+							v,
+							fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
+						)
 					}
 				}
 				walk(val)
@@ -516,7 +591,11 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			// 6.1.12: maximum number of elements in an array is 8191.
 			if len(v) > 8191 {
-				ctx.Report(pdf.Checks.Structure.ArrayTooLarge, v, fmt.Sprintf("array exceeds 8191 elements: %d", len(v)))
+				ctx.Report(
+					pdf.Checks.Structure.ArrayTooLarge,
+					v,
+					fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
+				)
 			}
 
 			for _, item := range v {
@@ -535,14 +614,18 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	walk(graph)
 }
 
-// computeContentUsage walks the resolved graph once, decoding each page's
+// ComputeContentUsage walks the resolved graph once, decoding each page's
 // content stream (and any Form XObjects it invokes) at most once via ctx's
 // decode cache, and computes two things checks need:
 //   - reachable: Entries-map pointers of Form XObjects invoked (via Do) from
 //     page content or other reachable Form XObjects.
 //   - invisibleOnly, usedCodes, usedCIDs: font usage, as computed by
 //     collectFontUsageFromBytes.
-func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (reachable map[uintptr]bool, invisibleOnly map[uintptr]bool, usedCodes, usedCIDs map[uintptr]map[int]bool) {
+func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
+	reachable map[uintptr]bool,
+	invisibleOnly map[uintptr]bool,
+	usedCodes, usedCIDs map[uintptr]map[int]bool,
+) {
 	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
 		visible:     map[uintptr]bool{},
@@ -634,7 +717,13 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 	}
 }
 
-func collectContentUsage(ctx *ValidationContext, contents pdf.PDFValue, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+func collectContentUsage(
+	ctx *ValidationContext,
+	contents pdf.PDFValue,
+	resources pdf.PDFDict,
+	reachable map[uintptr]bool,
+	fu *fontUsage,
+) {
 	switch v := contents.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
@@ -865,7 +954,11 @@ func validateHexString(v pdf.PDFHexString, ctx *ValidationContext) {
 	}
 
 	if hexCount%2 != 0 {
-		ctx.Report(pdf.Checks.Structure.HexStringOddLength, v, fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount))
+		ctx.Report(
+			pdf.Checks.Structure.HexStringOddLength,
+			v,
+			fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount),
+		)
 	}
 }
 
@@ -904,7 +997,10 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 		// Maximum length of a name, in bytes: 127
 		nameLen := len(v.Value)
 		if nameLen > 127 {
-			ctx.Report(pdf.Checks.Structure.NameTooLong, v, fmt.Sprintf("maximum length of name (127) exceeded: %v", nameLen))
+			ctx.Report(pdf.Checks.Structure.NameTooLong, v, fmt.Sprintf(
+				"maximum length of name (127) exceeded: %v",
+				nameLen,
+			))
 		}
 	case pdf.PDFInteger:
 		// 6.1.12: integer values are limited to the 32-bit signed range.
@@ -929,7 +1025,10 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 			realCount--
 		}
 		if realCount > 4095 {
-			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf("dictionary exceeds 4095 entries: %d", realCount))
+			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf(
+				"dictionary exceeds 4095 entries: %d",
+				realCount,
+			))
 		}
 	}
 }
@@ -985,7 +1084,12 @@ func PDFStringDecodedLen(s string) int {
 func verifyOptionalContent(d *pdf.Reader) []pdf.PDFError {
 	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.OptionalContent, []error{fmt.Errorf("OCProperties not allowed in document catalog")}, 0, nil)}
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Structure.OptionalContent,
+			[]error{fmt.Errorf("OCProperties not allowed in document catalog")},
+			0,
+			nil,
+		)}
 	}
 	return nil
 }
@@ -1002,7 +1106,12 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 
 	intents, ok := values.(pdf.PDFArray)
 	if !ok {
-		return []pdf.PDFError{pdf.NewError(pdf.Checks.Colour.OutputIntentNotArray, []error{fmt.Errorf("OutputIntents object is not an array")}, 0, nil)}
+		return []pdf.PDFError{pdf.NewError(
+			pdf.Checks.Colour.OutputIntentNotArray,
+			[]error{fmt.Errorf("OutputIntents object is not an array")},
+			0,
+			nil,
+		)}
 	}
 
 	errs := []pdf.PDFError{}
@@ -1012,24 +1121,44 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 	for _, v := range intents {
 		intent, ok := v.(pdf.PDFDict)
 		if !ok {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentNotDict, []error{fmt.Errorf("expected OutputIntent to be a pdf.PDFDict")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentNotDict,
+				[]error{fmt.Errorf("expected OutputIntent to be a pdf.PDFDict")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
 		s, ok := intent.Entries["S"].(pdf.PDFName)
 		if !ok {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentInvalidS, []error{fmt.Errorf("expected S to be a pdf.PDFName")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentInvalidS,
+				[]error{fmt.Errorf("expected S to be a pdf.PDFName")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
 
 		if s.Value != "GTS_PDFA1" {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentWrongS, []error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentWrongS,
+				[]error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 		}
 
 		if intent.Entries["OutputConditionIdentifier"] == nil {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentMissingIdentifier, []error{fmt.Errorf("OutputConditionIdentifier is required but was nil")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentMissingIdentifier,
+				[]error{fmt.Errorf("OutputConditionIdentifier is required but was nil")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
@@ -1038,7 +1167,12 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 		if destOutputProfile == nil {
 			// 6.2.2: DestOutputProfile shall be present unless OutputConditionIdentifier
 			// names a standard ICC registry profile, which is not the case for "Custom".
-			errs = append(errs, pdf.NewError(pdf.Checks.Colour.OutputIntentUnresolvedProfile, []error{fmt.Errorf("DestOutputProfile is required when OutputConditionIdentifier does not specify a standard production condition")}, 0, nil))
+			errs = append(errs, pdf.NewError(
+				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
+				[]error{fmt.Errorf("DestOutputProfile is required when OutputConditionIdentifier does not specify a standard production condition")},
+				0,
+				nil,
+			))
 			continue
 		}
 
@@ -1048,7 +1182,12 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			indirectObject = destOutputProfile
 		} else {
 			if !pdf.EqualPDFValue(indirectObject, destOutputProfile) {
-				err := pdf.NewError(pdf.Checks.Colour.OutputIntentMultipleProfiles, []error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)}, 0, nil)
+				err := pdf.NewError(
+					pdf.Checks.Colour.OutputIntentMultipleProfiles,
+					[]error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)},
+					0,
+					nil,
+				)
 				errs = append(errs, err)
 				continue
 			}
@@ -1056,35 +1195,55 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 
 		profile, err := d.ResolveObject(destOutputProfile)
 		if err != nil {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentUnresolvedProfile, []error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
+				[]error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
 
 		profileMap, ok := profile.(pdf.PDFDict)
 		if !ok {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentInvalidProfile, []error{fmt.Errorf("unexpected format for DestOutputProfile encountered")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentInvalidProfile,
+				[]error{fmt.Errorf("unexpected format for DestOutputProfile encountered")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
 
 		nValue, ok := profileMap.Entries["N"].(pdf.PDFInteger)
 		if !ok {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentMissingN, []error{fmt.Errorf("could not retrieve number of colour components N")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentMissingN,
+				[]error{fmt.Errorf("could not retrieve number of colour components N")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 			continue
 		}
 
 		// N shall be 1, 3, or 4
 		if !slices.Contains([]int{1, 3, 4}, int(nValue)) {
-			err := pdf.NewError(pdf.Checks.Colour.OutputIntentInvalidN, []error{fmt.Errorf("number of colour components N must be 1, 3, or 4")}, 0, nil)
+			err := pdf.NewError(
+				pdf.Checks.Colour.OutputIntentInvalidN,
+				[]error{fmt.Errorf("number of colour components N must be 1, 3, or 4")},
+				0,
+				nil,
+			)
 			errs = append(errs, err)
 		}
 
 		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
 		if profileMap.HasStream {
 			if iccErr := ValidateICCProfileStream(profileMap); iccErr != nil {
-				errs = append(errs, pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{iccErr}, 0, nil))
+				errs = append(errs, *iccErr)
 			}
 		}
 	}
@@ -1112,30 +1271,75 @@ var iccValidColorSpaces = map[string]bool{
 }
 
 // ValidateICCProfileStream checks that a DestOutputProfile stream is a valid
-// ICC profile version 2.x as required by PDF/A-1 (6.2.2 / ICC.1:2003-09).
-func ValidateICCProfileStream(dict pdf.PDFDict) error {
+// ICC profile version 2.x as required by PDF/A-1 (6.2.2, 6.2.3 / ICC.1:2003-09).
+func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
-		return fmt.Errorf("cannot decode ICC profile stream: %v", err)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("cannot decode ICC profile stream: %v", err)}, 0, nil)
+		return &newErr
 	}
+
 	if len(data) < 128 {
-		return fmt.Errorf("ICC profile too short (%d bytes)", len(data))
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile too short (%d bytes)", len(data))}, 0, nil)
+		return &newErr
 	}
+
+	// ICC signature ("acsp") at offset 36.
 	if string(data[36:40]) != "acsp" {
-		return fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")}, 0, nil)
+		return &newErr
 	}
+
+	// Version must be < 3.0 (PDF/A-1 permits ICC v2.x only).
 	major := data[8]
-	if major > 2 {
-		return fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be ≤ 2.x)", major)
+	if major >= 3 {
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be < 3.0)", major)}, 0, nil)
+		return &newErr
 	}
+
+	// Device class must be one of:
+	// prtr (output), mntr (display), scnr (input), spac (colorspace conversion).
 	deviceClass := string(data[12:16])
-	if !iccValidDeviceClasses[deviceClass] {
-		return fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)
+	switch deviceClass {
+	case "prtr", "mntr", "scnr", "spac":
+	default:
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, nil)
+		return &newErr
 	}
+
+	// Color space must be one of the PDF/A-1 permitted spaces.
 	colorSpace := string(data[16:20])
-	if !iccValidColorSpaces[colorSpace] {
-		return fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)
+	switch colorSpace {
+	case "RGB ", "CMYK", "GRAY", "Lab ":
+	default:
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedProfileInvalid, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, nil)
+		return &newErr
 	}
+
+	nObj := dict.Entries["N"]
+	if nObj == nil {
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile stream missing required /N entry")}, 0, nil)
+		return &newErr
+	}
+
+	n, ok := nObj.(pdf.PDFInteger)
+	if !ok {
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile stream /N must be an integer")}, 0, nil)
+		return &newErr
+	}
+
+	switch {
+	case n == 1 && colorSpace == "GRAY":
+		// OK
+	case n == 3 && (colorSpace == "RGB " || colorSpace == "Lab "):
+		// OK
+	case n == 4 && colorSpace == "CMYK":
+		// OK
+	default:
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile /N=%d does not match profile colorSpace %q", n, colorSpace)}, 0, nil)
+		return &newErr
+	}
+
 	return nil
 }
 
@@ -1164,7 +1368,12 @@ func checkLinearizedFileID(d *pdf.Reader) []pdf.PDFError {
 	for _, m := range matches[1:] {
 		id := strings.ToLower(string(m[1]))
 		if id != first {
-			return []pdf.PDFError{pdf.NewError(pdf.Checks.Structure.TrailerID, []error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)}, 0, nil)}
+			return []pdf.PDFError{pdf.NewError(
+				pdf.Checks.Structure.TrailerID,
+				[]error{fmt.Errorf("linearized PDF: ID[0] (%s) differs from %s in another trailer", first, id)},
+				0,
+				nil,
+			)}
 		}
 	}
 	return nil
