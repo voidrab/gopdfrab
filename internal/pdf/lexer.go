@@ -365,6 +365,16 @@ func (l *Lexer) readStringLiteral() Token {
 			return Token{Type: TokenError, Value: fmt.Sprintf("Unterminated String: %v", err)}
 		}
 		switch b {
+		case '\\':
+			// A backslash escapes the next byte (\( \) \\ \n …); the escaped
+			// byte is part of the string and never affects parenthesis nesting
+			// (ISO 32000-1 7.3.4.2). Bytes are kept raw, as elsewhere here.
+			nb, err := l.readByte()
+			if err != nil {
+				return Token{Type: TokenError, Value: fmt.Sprintf("Unterminated String: %v", err)}
+			}
+			buf = append(buf, b, nb)
+			continue
 		case '(':
 			depth++
 		case ')':

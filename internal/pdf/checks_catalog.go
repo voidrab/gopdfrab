@@ -40,7 +40,7 @@ type structureChecks struct {
 	FileHeaderCommentLength Check
 	FileHeaderCommentBytes  Check
 	// 6.1.3 File trailer
-	TrailerID      Check
+	TrailerID      Check // merged with 6.1.3-4 (linearized PDF)
 	TrailerEncrypt Check
 	TrailerEOF     Check
 	// 6.1.4 Cross-reference table
@@ -49,10 +49,9 @@ type structureChecks struct {
 	XRefSubsectionHeaderFormat Check
 	XRefStream                 Check
 	// 6.1.5 Document information dictionary
-	InfoDictUnreadable     Check
-	InfoDictDisallowedKeys Check
-	InfoDictEmptyValues    Check
-	InfoDictXMPMismatch    Check
+	InfoDictUnreadable  Check
+	InfoDictEmptyValues Check
+	InfoDictXMPMismatch Check
 	// 6.1.6 Metadata stream
 	GraphResolutionFailure Check
 	HexStringInvalidChar   Check
@@ -64,6 +63,7 @@ type structureChecks struct {
 	StreamKeywordEOL        Check
 	EndstreamEOL            Check
 	StreamLengthIncludesEOL Check
+	StreamLengthMismatch    Check
 	// 6.1.8 Object framing
 	ObjectFraming Check
 	// 6.1.10 LZW compression
@@ -101,10 +101,9 @@ type colourChecks struct {
 	OutputIntentInvalidProfile    Check
 	OutputIntentMissingN          Check
 	OutputIntentInvalidN          Check
-	OutputIntentICCVersion        Check
+	OutputIntentICCVersion        Check // contains profile and components mismatch checks
 	// 6.2.3.2 ICCBased colour spaces
-	ICCBasedProfileInvalid     Check
-	ICCBasedComponentsMismatch Check
+	ICCBasedComponentsMismatch Check // TODO add convert
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -151,13 +150,13 @@ type transparencyChecks struct {
 
 type fontChecks struct {
 	// 6.3.2 Font dictionary and program validity
-	FontType            Check
+	FontType            Check // unused, wontdo
 	InvalidSubtype      Check
-	FontBaseFont        Check
-	SimpleFontFirstChar Check
-	SimpleFontLastChar  Check
-	SimpleFontWidths    Check
-	FontFileSubtype     Check
+	FontBaseFont        Check // TODO add convert
+	SimpleFontFirstChar Check // unused, wontdo
+	SimpleFontLastChar  Check // unused, wontdo
+	SimpleFontWidths    Check // unused, wontdo
+	FontFileSubtype     Check // TODO add check
 	InvalidProgram      Check
 	// 6.3.3.1 CIDSystemInfo consistency
 	CIDSystemInfoMismatch Check
@@ -170,7 +169,7 @@ type fontChecks struct {
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.8 ToUnicode (Level A)
-	ToUnicodeMissing Check
+	ToUnicodeMissing Check // TODO level A
 	// 6.3.5 Subset coverage
 	SubsetGlyphCoverage Check
 	Type1SubsetCharSet  Check
@@ -233,7 +232,7 @@ type metadataChecks struct {
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
-	XMPNoCorrespondingType Check
+	XMPNoCorrespondingType Check // TODO add check
 	// 6.7.11 PDF/A identifier
 	PDFAIdentifierMissing           Check
 	PDFAIdentifierNamespace         Check
@@ -244,14 +243,14 @@ type metadataChecks struct {
 
 type logicalStructureChecks struct {
 	// 6.8.2.2 Tagged PDF
-	TaggedMarkInfo Check
+	TaggedMarkInfo Check // TODO level A
 	// 6.8.3.3 Structure tree
-	StructTreeRoot Check
+	StructTreeRoot Check // TODO level A
 	// 6.8.3.4 Role map
-	RoleMapStandardType Check
-	RoleMapCircular     Check
+	RoleMapStandardType Check // TODO level A
+	RoleMapCircular     Check // TODO level A
 	// 6.8.4 Natural language
-	LangIdentifier Check
+	LangIdentifier Check // TODO level A
 }
 
 type formChecks struct {
@@ -396,25 +395,21 @@ func init() {
 				"InfoDictUnreadable",
 				"The document information dictionary must be readable",
 				"6.1.5", 1),
-			InfoDictDisallowedKeys: newCheck(
-				"InfoDictDisallowedKeys",
-				"The document information dictionary must not contain non-standard keys",
-				"6.1.5", 2),
 			InfoDictEmptyValues: newCheck(
 				"InfoDictEmptyValues",
 				"Document information dictionary entries must not have empty string values",
-				"6.1.5", 3),
+				"6.1.5", 2),
 			InfoDictXMPMismatch: newCheck(
 				"InfoDictXMPMismatch",
 				"Document information dictionary entries must match the corresponding XMP metadata values",
-				"6.1.5", 4),
+				"6.1.5", 3),
 			GraphResolutionFailure: newCheck(
 				"GraphResolutionFailure",
 				"The document object graph must be fully resolvable",
 				"6.1.6", 0),
 			HexStringInvalidChar: newCheck(
 				"HexStringInvalidChar",
-				"Hexadecimal strings must contain only valid hex characters (0–9, A–F, a–f)",
+				"Hexadecimal strings must contain only valid hex characters (0-9, A-F, a-f)",
 				"6.1.6", 1),
 			HexStringOddLength: newCheck(
 				"HexStringOddLength",
@@ -444,6 +439,10 @@ func init() {
 				"StreamLengthIncludesEOL",
 				"The stream Length value must not include the EOL marker preceding endstream",
 				"6.1.7", 6),
+			StreamLengthMismatch: newCheck(
+				"StreamLengthMismatch",
+				"The stream Length value must match the actual number of bytes between stream and endstream",
+				"6.1.7", 7),
 			ObjectFraming: newCheck(
 				"ObjectFraming",
 				"Objects must follow the 'N G obj … endobj' framing syntax",
@@ -470,27 +469,27 @@ func init() {
 				"6.1.12", 1),
 			IntegerOutOfRange: newCheck(
 				"IntegerOutOfRange",
-				"Integer values must be within the range [−2^31, 2^31−1]",
+				"Integer values must be within the range [-2^31, 2^31-1]",
 				"6.1.12", 2),
 			RealOutOfRange: newCheck(
 				"RealOutOfRange",
-				"Real values must have an absolute value not exceeding 32767.0",
+				"Real values must have an absolute value not exceeding 32,767.0",
 				"6.1.12", 8),
 			ArrayTooLarge: newCheck(
 				"ArrayTooLarge",
-				"Arrays must not contain more than 8191 elements",
+				"Arrays must not contain more than 8,191 elements",
 				"6.1.12", 3),
 			DictTooLarge: newCheck(
 				"DictTooLarge",
-				"Dictionaries must not contain more than 4095 entries",
+				"Dictionaries must not contain more than 4,095 entries",
 				"6.1.12", 4),
 			CMapCIDOutOfRange: newCheck(
 				"CMapCIDOutOfRange",
-				"CMap character identifier (CID) values must not exceed 65535",
+				"CMap character identifier (CID) values must not exceed 65,535",
 				"6.1.12", 5),
 			StringTooLong: newCheck(
 				"StringTooLong",
-				"String objects must not exceed 65535 bytes",
+				"String objects must not exceed 65,535 bytes",
 				"6.1.12", 6),
 			DeviceNColorants: newCheck(
 				"DeviceNColorants",
@@ -498,7 +497,7 @@ func init() {
 				"6.1.12", 7),
 			IndirectObjectsExceeded: newCheck(
 				"IndirectObjectsExceeded",
-				"The number of indirect objects in the file must not exceed 8388607",
+				"The number of indirect objects in the file must not exceed 8,388,607",
 				"6.1.12", 9),
 			GraphicsStateNesting: newCheck(
 				"GraphicsStateNesting",
@@ -559,14 +558,10 @@ func init() {
 				"OutputIntentICCVersion",
 				"The OutputIntent ICC profile must conform to ICC.1:2003-09 (version ≤ 2.x)",
 				"6.2.2", 11),
-			ICCBasedProfileInvalid: newCheck(
-				"ICCBasedProfileInvalid",
-				"ICCBased colour spaces must embed a valid ICC profile stream conforming to PDF 1.4 (device class, connection colour space, version ≤ 2.x)",
-				"6.2.3.2", 1),
 			ICCBasedComponentsMismatch: newCheck(
 				"ICCBasedComponentsMismatch",
 				"An ICCBased colour space N entry must be 1, 3, or 4 and match the component count of the embedded ICC profile",
-				"6.2.3.2", 2),
+				"6.2.3.2", 1),
 			DeviceColourSpaceUsage: newCheck(
 				"DeviceColourSpaceUsage",
 				"Device colour spaces used in image or shading XObjects require a matching OutputIntent",

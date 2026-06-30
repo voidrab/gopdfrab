@@ -1,4 +1,9 @@
 # PDF/A-1 validation rules
+
+## Attribution
+
+Content taken from [veraPDF-validation-profiles](https://github.com/veraPDF/veraPDF-validation-profiles), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+
 ## Rule 6.1.2-1
 
 ### Requirement

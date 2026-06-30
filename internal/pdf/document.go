@@ -25,7 +25,7 @@ type fileSource interface {
 // Reader parses a PDF file's structure (header, xref, trailer) and resolves
 // its indirect object graph, caching decoded objects and object streams.
 // Validation lives above this package; Reader only records the structural
-// parse diagnostics (see StructError) it discovers as a side effect of
+// parse diagnostics (see PDFError) it discovers as a side effect of
 // reading -- e.g. malformed stream framing -- for that layer to interpret.
 type Reader struct {
 	file       fileSource
@@ -44,8 +44,8 @@ type Reader struct {
 
 	// parseDiagnostics collects document-structure violations (e.g. 6.1.8
 	// object framing) found lazily during resolution; framingChecked dedupes
-	// per object. See StructError.
-	parseDiagnostics []StructError
+	// per object. See PDFError.
+	parseDiagnostics []PDFError
 	framingChecked   map[int]bool
 	streamChecked    map[string]bool
 
@@ -70,36 +70,23 @@ type Reader struct {
 	graphResolved bool
 }
 
-// StructError is a structural parse diagnostic Reader records as a side
-// effect of reading -- e.g. malformed object/stream framing -- identified by
-// the registered Check name (e.g. "ObjectFraming") the layer above maps it
-// to, rather than a Check value itself, so this package need not depend on
-// the check registry.
-type StructError struct {
-	Name   string
-	Errs   []error
-	ObjNum int // 0 if not specific to a single object
-}
-
 // StructErrors returns the structural parse diagnostics recorded so far.
-func (d *Reader) StructErrors() []StructError {
+func (d *Reader) StructErrors() []PDFError {
 	return d.parseDiagnostics
 }
 
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated
 // per object number and check name.
-func (d *Reader) recordStreamFraming(objNum int, checkName string, msg string) {
+func (d *Reader) recordStreamFraming(objNum int, check Check, msg string) {
 	if d.streamChecked == nil {
 		d.streamChecked = map[string]bool{}
 	}
-	key := fmt.Sprintf("%d:%s", objNum, checkName)
+	key := fmt.Sprintf("%d:%s", objNum, check.Name())
 	if d.streamChecked[key] {
 		return
 	}
 	d.streamChecked[key] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, StructError{
-		Name: checkName, Errs: []error{errors.New(msg)}, ObjNum: objNum,
-	})
+	d.parseDiagnostics = append(d.parseDiagnostics, NewError(check, []error{errors.New(msg)}, objNum, nil))
 }
 
 // recordFraming records 6.1.8 object-framing violations for an object, at most
@@ -115,11 +102,7 @@ func (d *Reader) recordFraming(objNum int, errs []error) {
 		return
 	}
 	d.framingChecked[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, StructError{
-		Name:   "ObjectFraming",
-		Errs:   errs,
-		ObjNum: objNum,
-	})
+	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.ObjectFraming, errs, objNum, nil))
 }
 
 // NewRawReader builds a Reader directly from already-known structural state,
@@ -261,15 +244,12 @@ func (d *Reader) initializeStructure() error {
 			// It's actually a cross-reference stream, which PDF/A-1b prohibits
 			// (6.1.4-3); its dictionary doubles as the trailer.
 			xrefStreamTrailer, usedXRefStream = trailer, true
-			d.parseDiagnostics = append(d.parseDiagnostics, StructError{
-				Name: "XRefStream",
-				Errs: []error{errors.New("cross-reference streams are not permitted")},
-			})
+			d.parseDiagnostics = append(d.parseDiagnostics,
+				NewError(Checks.Structure.XRefStream,
+					[]error{errors.New("cross-reference streams are not permitted")}, 1, nil))
 		} else {
-			d.parseDiagnostics = append(d.parseDiagnostics, StructError{
-				Name: "XRefKeyword",
-				Errs: []error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)},
-			})
+			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
+				[]error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)}, 1, nil))
 			if err := d.recoverXRefByBruteForceScan(); err != nil {
 				return fmt.Errorf("failed to parse xref table: %w", xrefErr)
 			}
@@ -325,6 +305,7 @@ func (d *Reader) initializeStructure() error {
 // followXRefPrevChain walks the /Prev chain from d.trailer, filling in
 // d.xrefTable from older xref sections without overwriting newer entries.
 func (d *Reader) followXRefPrevChain() {
+	d.mergeHybridXRefStream(d.trailer)
 	visited := map[int64]bool{d.xrefOffset: true}
 	prev := d.trailer.Entries["Prev"]
 	for {
@@ -348,8 +329,20 @@ func (d *Reader) followXRefPrevChain() {
 				return
 			}
 		}
+		d.mergeHybridXRefStream(prevTrailer)
 		prev = prevTrailer.Entries["Prev"]
 	}
+}
+
+// mergeHybridXRefStream merges the cross-reference stream a classic trailer
+// points to via /XRefStm (hybrid-reference files, ISO 32000-1 7.5.8.4). Such a
+// trailer's newest objects live only in that stream; existing entries win.
+func (d *Reader) mergeHybridXRefStream(trailer PDFDict) {
+	stm, ok := trailer.Entries["XRefStm"].(PDFInteger)
+	if !ok {
+		return
+	}
+	d.tryParseXRefStream(int64(stm)+d.pdfStart, true /* fillIn */)
 }
 
 // xrefLineRe matches "xref" at a line boundary, capturing it in group 1

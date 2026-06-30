@@ -63,6 +63,10 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 		return
 	}
 
+	if subtype.Value != "Type3" && baseFont.Value == "" {
+		ctx.Report(pdf.Checks.Font.FontBaseFont, v, "font dictionary lacks BaseFont")
+	}
+
 	subset := SubsetTagRe.MatchString(baseFont.Value)
 
 	switch subtype.Value {

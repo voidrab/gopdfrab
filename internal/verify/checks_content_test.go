@@ -9,8 +9,7 @@ import (
 
 // buildAPWithRGB returns a page dict whose widget annotation's AP/N stream
 // contains an "rg" operator, plus a separate page-level resources dict that
-// already holds /ColorSpace/DefaultRGB. The appearance stream's own resources
-// intentionally lack DefaultRGB, mimicking the failing L34a conversion output.
+// already holds /ColorSpace/DefaultRGB.
 func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 	t.Helper()
 	apContent, err := writer.WriteContentStream([]writer.ContentOp{
