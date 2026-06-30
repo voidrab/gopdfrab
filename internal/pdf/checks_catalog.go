@@ -63,6 +63,7 @@ type structureChecks struct {
 	StreamKeywordEOL        Check
 	EndstreamEOL            Check
 	StreamLengthIncludesEOL Check
+	StreamLengthMismatch    Check
 	// 6.1.8 Object framing
 	ObjectFraming Check
 	// 6.1.10 LZW compression
@@ -438,6 +439,10 @@ func init() {
 				"StreamLengthIncludesEOL",
 				"The stream Length value must not include the EOL marker preceding endstream",
 				"6.1.7", 6),
+			StreamLengthMismatch: newCheck(
+				"StreamLengthMismatch",
+				"The stream Length value must match the actual number of bytes between stream and endstream",
+				"6.1.7", 7),
 			ObjectFraming: newCheck(
 				"ObjectFraming",
 				"Objects must follow the 'N G obj … endobj' framing syntax",

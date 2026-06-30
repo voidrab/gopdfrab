@@ -49,6 +49,12 @@ func InflateZlib(data []byte) ([]byte, error) {
 	out, err := io.ReadAll(zr)
 	zlibReaderPool.Put(zr)
 	if err != nil {
+		// A truncated or checksum-broken zlib stream (common in malformed PDFs)
+		// still yields a usable prefix; return what inflated rather than
+		// discarding it, matching how lenient readers recover such streams.
+		if len(out) > 0 {
+			return out, nil
+		}
 		return nil, err
 	}
 	return out, nil

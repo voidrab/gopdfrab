@@ -390,7 +390,9 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 	firstHeader := true
 	for {
 		line, ok := cur.ReadLine()
-		if !ok || line == "trailer" {
+		// The trailer keyword may stand alone or share its line with the dict
+		// ("trailer << ... >>").
+		if !ok || line == "trailer" || strings.HasPrefix(line, "trailer ") || strings.HasPrefix(line, "trailer<") {
 			break
 		}
 		if line == "" {

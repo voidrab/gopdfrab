@@ -229,6 +229,21 @@ func fixScalarLimitsValue(v pdf.PDFValue) (fixed pdf.PDFValue, ok bool) {
 		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
 			return pdf.PDFHexString{Value: repaired}, true
 		}
+	case pdf.PDFArray:
+		// Array operands (e.g. a TJ text-positioning array) carry their own
+		// scalars, which are subject to the same limits.
+		arrChanged := false
+		out := make(pdf.PDFArray, len(val))
+		for i, e := range val {
+			fe, ok := fixScalarLimitsValue(e)
+			out[i] = fe
+			if ok {
+				arrChanged = true
+			}
+		}
+		if arrChanged {
+			return out, true
+		}
 	}
 	return v, false
 }

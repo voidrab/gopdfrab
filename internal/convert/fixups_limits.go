@@ -92,7 +92,72 @@ func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		d.Entries["Kids"] = rebalancePagesKids(d, kids, &nextObjNum)
 		changed = true
 	})
+	// The logical structure tree's per-page parent arrays (positional MCID ->
+	// element maps) can exceed the array limit and cannot be split. PDF/A-1b
+	// (level B) does not require structure, so drop it rather than rasterize.
+	if dropOversizedStructure(trailer) {
+		changed = true
+	}
 	return changed, nil
+}
+
+// dropOversizedStructure removes the document's logical structure tree when it
+// holds an array over the element limit that no in-place split can repair,
+// stripping the catalog's /StructTreeRoot and /MarkInfo and the now-orphaned
+// /StructParent(s) links throughout the graph.
+func dropOversizedStructure(trailer *pdf.PDFDict) bool {
+	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	st, ok := root.Entries["StructTreeRoot"].(pdf.PDFDict)
+	if !ok || !hasOversizedArray(st, map[uintptr]bool{}) {
+		return false
+	}
+	delete(root.Entries, "StructTreeRoot")
+	delete(root.Entries, "MarkInfo")
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		delete(d.Entries, "StructParents")
+		delete(d.Entries, "StructParent")
+	})
+	return true
+}
+
+// hasOversizedArray reports whether v, or anything reachable from it, is an
+// array exceeding maxPDFArrayElements. /Parent and /P back-pointers are skipped
+// to avoid walking back out of the subtree being inspected.
+func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
+	switch t := v.(type) {
+	case pdf.PDFArray:
+		if len(t) > maxPDFArrayElements {
+			return true
+		}
+		ptr := pdf.ValuePointer(t)
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+		for _, e := range t {
+			if hasOversizedArray(e, visited) {
+				return true
+			}
+		}
+	case pdf.PDFDict:
+		ptr := pdf.ValuePointer(t.Entries)
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+		for k, e := range t.Entries {
+			if k == "_ref" || k == "Parent" || k == "P" {
+				continue
+			}
+			if hasOversizedArray(e, visited) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // rebalancePagesKids splits kids into chunks of pagesTreeChunkSize, each

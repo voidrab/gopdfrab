@@ -59,12 +59,19 @@ func (m Matrix) Invert() (Matrix, bool) {
 // p3 inclusive (p0 itself is not included, since callers already have it as
 // the current point).
 func flattenCubic(p0, p1, p2, p3 Point, tol float64) []Point {
-	if cubicFlatEnough(p0, p1, p2, p3, tol) {
+	return flattenCubicDepth(p0, p1, p2, p3, tol, 0)
+}
+
+// flattenCubicDepth bounds subdivision depth so a pathological curve cannot
+// recurse without end (e.g. an all-zero control polygon, where the flatness
+// bound is identically zero).
+func flattenCubicDepth(p0, p1, p2, p3 Point, tol float64, depth int) []Point {
+	if depth >= 18 || cubicFlatEnough(p0, p1, p2, p3, tol) {
 		return []Point{p3}
 	}
 	l0, l1, l2, l3, r0, r1, r2, r3 := splitCubic(p0, p1, p2, p3)
-	left := flattenCubic(l0, l1, l2, l3, tol)
-	right := flattenCubic(r0, r1, r2, r3, tol)
+	left := flattenCubicDepth(l0, l1, l2, l3, tol, depth+1)
+	right := flattenCubicDepth(r0, r1, r2, r3, tol, depth+1)
 	return append(left, right...)
 }
 
@@ -76,6 +83,12 @@ func cubicFlatEnough(p0, p1, p2, p3 Point, tol float64) bool {
 	d2 := math.Abs((p2.X-p3.X)*dy - (p2.Y-p3.Y)*dx)
 	if (d1+d2)*(d1+d2) < tol*(dx*dx+dy*dy) {
 		return true
+	}
+	// Degenerate chord (p0≈p3): the area-based bound above is ~zero and never
+	// converges, so fall back to bounding the control points' extent.
+	if dx*dx+dy*dy < tol {
+		ext := math.Max(math.Hypot(p1.X-p0.X, p1.Y-p0.Y), math.Hypot(p2.X-p0.X, p2.Y-p0.Y))
+		return ext*ext < tol
 	}
 	return false
 }

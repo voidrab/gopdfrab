@@ -83,19 +83,7 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 	cs.Scan(func(op string, operands []pdf.PDFValue) {
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
-			if n, ok := operand.(pdf.PDFInteger); ok && (n > 2147483647 || n < -2147483648) {
-				ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", n))
-			}
-			if r, ok := operand.(pdf.PDFReal); ok && math.Abs(float64(r)) > 32767 {
-				ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(r)))
-			}
-			if s, ok := operand.(pdf.PDFString); ok && PDFStringDecodedLen(s.Value) > 65535 {
-				ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
-			}
-			// 6.1.6: hex string operands must be valid hex digits, even count.
-			if hs, ok := operand.(pdf.PDFHexString); ok {
-				validateHexString(hs, ctx)
-			}
+			checkOperandLimits(operand, obj, ctx)
 		}
 		// 6.1.12: maximum nesting depth of q/Q operators is 28.
 		switch op {
@@ -150,6 +138,33 @@ func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *Vali
 			}
 		}
 	})
+}
+
+// checkOperandLimits reports any 6.1.12/6.1.6 limit violation in a content
+// operand, recursing into array operands (e.g. a TJ text-positioning array)
+// whose own scalars are subject to the same limits.
+func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationContext) {
+	switch v := operand.(type) {
+	case pdf.PDFInteger:
+		if v > 2147483647 || v < -2147483648 {
+			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", v))
+		}
+	case pdf.PDFReal:
+		if math.Abs(float64(v)) > 32767 {
+			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
+		}
+	case pdf.PDFString:
+		if PDFStringDecodedLen(v.Value) > 65535 {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
+		}
+	case pdf.PDFHexString:
+		// 6.1.6: hex string operands must be valid hex digits, even count.
+		validateHexString(v, ctx)
+	case pdf.PDFArray:
+		for _, e := range v {
+			checkOperandLimits(e, obj, ctx)
+		}
+	}
 }
 
 // reportContentColour flags a device colour model not covered by an output

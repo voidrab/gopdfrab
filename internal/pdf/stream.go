@@ -43,9 +43,10 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	streamStart := l.pos
 
+	end := streamStart + int64(length)
+
 	if d.data != nil {
 		// Fast path: alias the backing slice directly (mmap or caller buffer).
-		end := streamStart + int64(length)
 		if end > int64(len(d.data)) {
 			return fmt.Errorf("stream body extends past end of file")
 		}
@@ -56,9 +57,6 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 			d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
 				"stream Length value includes the EOL marker before endstream")
 		}
-
-		d.checkEndstreamFraming(objNum, streamStart, length)
-		l.pos = end
 	} else {
 		data := make([]byte, length)
 		if _, err := d.file.ReadAt(data, streamStart); err != nil {
@@ -67,24 +65,35 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		dict.RawStream = data
 
 		var peek [9]byte
-		if n, _ := d.file.ReadAt(peek[:], streamStart+int64(length)); n >= 9 && string(peek[:9]) == "endstream" {
+		if n, _ := d.file.ReadAt(peek[:], end); n >= 9 && string(peek[:9]) == "endstream" {
 			d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
 				"stream Length value includes the EOL marker before endstream")
 		}
+	}
 
-		d.checkEndstreamFraming(objNum, streamStart, length)
+	d.checkEndstreamFraming(objNum, streamStart, length)
 
-		if _, err := d.file.Seek(streamStart+int64(length), io.SeekStart); err != nil {
+	// 'endstream' follows the body, normally after a single EOL. Tolerate a
+	// little stray framing (some writers leave a stray byte before the EOL) by
+	// scanning a bounded window for the keyword rather than demanding it
+	// immediately; the declared /Length already fixed the body extent.
+	w := d.windowAt(end, 64+len("endstream"))
+	k := bytes.Index(w, []byte("endstream"))
+	if k < 0 {
+		return fmt.Errorf("expected endstream after stream body of object %d", objNum)
+	}
+	if bytes.IndexFunc(w[:k], func(r rune) bool { return !IsWhitespace(byte(r)) }) >= 0 {
+		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthMismatch,
+			"stray bytes between the stream body and the endstream keyword")
+	}
+	posAfter := end + int64(k+len("endstream"))
+	if d.data == nil {
+		if _, err := d.file.Seek(posAfter, io.SeekStart); err != nil {
 			return err
 		}
 		l.reader.Reset(d.file)
-		l.pos = streamStart + int64(length)
 	}
-
-	t := l.NextToken()
-	if t.Type != TokenStreamEnd {
-		return fmt.Errorf("expected endstream, got: %v", t.Value)
-	}
+	l.pos = posAfter
 
 	return nil
 }
@@ -109,6 +118,24 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 		}
 		bad = true
 	}
+}
+
+// windowAt returns up to n bytes starting at off, from the in-memory buffer
+// when available or the underlying source otherwise.
+func (d *Reader) windowAt(off int64, n int) []byte {
+	if off < 0 {
+		return nil
+	}
+	if d.data != nil {
+		if off >= int64(len(d.data)) {
+			return nil
+		}
+		end := min(off+int64(n), int64(len(d.data)))
+		return d.data[off:end]
+	}
+	buf := make([]byte, n)
+	read, _ := d.file.ReadAt(buf, off)
+	return buf[:read]
 }
 
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an

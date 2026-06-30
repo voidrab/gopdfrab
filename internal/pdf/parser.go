@@ -121,19 +121,16 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 		}
 	}
 
-	trailerLine, _, err := reader.ReadLine()
-	if err != nil {
-		return PDFDict{}, fmt.Errorf("expected 'trailer' keyword: %w", err)
-	}
-	if strings.TrimRight(string(trailerLine), "\r\n") != "trailer" {
-		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", string(trailerLine))
-	}
-
-	// Read up to 2 KB for the trailer dictionary (more than enough in practice).
-	limited := io.LimitReader(reader, 2048)
+	// Lex the trailer keyword and dictionary together so the keyword may sit on
+	// its own line or share one with the dict ("trailer << ... >>").
+	limited := io.LimitReader(reader, 8192)
 	buf, _ := io.ReadAll(limited)
 	l := NewLexer(bytes.NewReader(buf))
 	defer l.Release()
+
+	if tok := l.NextToken(); tok.Value != "trailer" {
+		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", tok.Value)
+	}
 	return parseDictionary(l)
 }
 

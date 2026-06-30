@@ -305,6 +305,7 @@ func (d *Reader) initializeStructure() error {
 // followXRefPrevChain walks the /Prev chain from d.trailer, filling in
 // d.xrefTable from older xref sections without overwriting newer entries.
 func (d *Reader) followXRefPrevChain() {
+	d.mergeHybridXRefStream(d.trailer)
 	visited := map[int64]bool{d.xrefOffset: true}
 	prev := d.trailer.Entries["Prev"]
 	for {
@@ -328,8 +329,20 @@ func (d *Reader) followXRefPrevChain() {
 				return
 			}
 		}
+		d.mergeHybridXRefStream(prevTrailer)
 		prev = prevTrailer.Entries["Prev"]
 	}
+}
+
+// mergeHybridXRefStream merges the cross-reference stream a classic trailer
+// points to via /XRefStm (hybrid-reference files, ISO 32000-1 7.5.8.4). Such a
+// trailer's newest objects live only in that stream; existing entries win.
+func (d *Reader) mergeHybridXRefStream(trailer PDFDict) {
+	stm, ok := trailer.Entries["XRefStm"].(PDFInteger)
+	if !ok {
+		return
+	}
+	d.tryParseXRefStream(int64(stm)+d.pdfStart, true /* fillIn */)
 }
 
 // xrefLineRe matches "xref" at a line boundary, capturing it in group 1
