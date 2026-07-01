@@ -13,12 +13,7 @@ import (
 // Checks.Transparency.ImageWithSoftMask by rasterizing only the smallest
 // self-contained object carrying the violation -- a Form XObject's own
 // content for a transparency group, or a single Image XObject's samples for
-// a soft mask -- never the whole page, since neither construct can simply be
-// dropped without changing a page's rendered appearance. A /Group sitting
-// directly on the Page dict is instead deleted outright: with every actual
-// transparency feature (ExtGState alpha/blend/soft mask, image soft masks,
-// form-level groups) neutralised by its own fixer, a bare page group has no
-// rendered effect, so removing it keeps the page's text and vectors intact.
+// a soft mask -- never the whole page.
 type transparencyFlattener struct{}
 
 func init() {
@@ -72,8 +67,6 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 					fixed, ok := flattenFormToImage(t.dict, t.resources)
 					results[i] = result{fixed, ok}
 				case "page":
-					// A bare page /Group is inert once real transparency is fixed
-					// elsewhere; delete it rather than rasterize the whole page.
 					_, had := t.dict.Entries["Group"]
 					delete(t.dict.Entries, "Group")
 					results[i] = result{pdf.PDFDict{}, had}
@@ -125,8 +118,7 @@ func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
 // fix. For "image"/"form", xobjects+name address the resource-dictionary
 // slot the fixed dict must be written back into (pdf.PDFDict.RawStream/HasStream
 // changes don't propagate through a value-type copy the way Entries-map
-// mutations do). For "page", the page dict's inert /Group is simply deleted;
-// mediaBox is retained for the last-resort backstop that may still raster it.
+// mutations do).
 type flaggedTarget struct {
 	kind      string // "image", "form", or "page"
 	dict      pdf.PDFDict

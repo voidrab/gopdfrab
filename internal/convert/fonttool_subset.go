@@ -9,14 +9,7 @@ import (
 )
 
 // This file is CW-4's write side: a minimal TrueType subsetter and sfnt
-// table-repacker, the inverse of the readers in checks_font_program.go
-// (parseSfnt, tt*, parseCmapFormat4). It exists to shrink a bundled
-// substitute face (fixups_font_subst.go, Phase 10) down to the glyphs a
-// document actually needs before embedding it, and to trim an otherwise-good
-// embedded font's cmap to a single subtable (6.3.7's SymbolicTrueTypeCmap)
-// without touching its outlines. No CFF subsetter exists -- every
-// substitution target is a bundled TrueType face, so there is no scenario
-// that needs one.
+// table-repacker.
 
 // subsetTrueType returns a minimal valid sfnt program derived from src,
 // containing only the glyphs reachable from unicodes (via src's own (3,1)
@@ -145,11 +138,7 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 
 // promoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
 // outline) glyph becomes an explicit zero-contour record, leaving all real
-// outlines, metrics and every other sfnt table byte-for-byte identical. A
-// blank glyph with a nonzero advance width (a space in many subsets) fails
-// TTGlyphPresent's 6.3.5 coverage test even though it renders correctly;
-// promoting it makes it count as present without any visual change. Returns
-// the original data unchanged (false) when the program has no such glyph.
+// outlines, metrics and every other sfnt table byte-for-byte identical.
 func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
 	tables, ok := verify.ParseSfnt(data)
 	if !ok {
@@ -434,10 +423,7 @@ func ttRawHMetric(tables map[string][]byte, gid int) (advance uint16, lsb int16,
 
 // emptyGlyfRecord is a minimal simple-glyph record: numberOfContours=0, a zero
 // bbox, and an explicit instructionLength=0 -- a valid, explicit way to say
-// "this glyph has no outline," used in place of a zero-length loca span. The
-// trailing instructionLength field is required: a strict parser reads it after
-// the (empty) endPtsOfContours, so omitting it makes the glyph unparseable.
-// See buildSubsetTables.
+// "this glyph has no outline," used in place of a zero-length loca span.
 var emptyGlyfRecord = make([]byte, 12)
 
 // minimalPostTable returns a format 3.0 'post' table (no per-glyph names),

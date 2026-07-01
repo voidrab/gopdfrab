@@ -19,10 +19,7 @@ import (
 // and converts it. WriteDocument always emits a fresh header with no leading
 // bytes, so this defect -- and any other purely structural (6.1.x) one --
 // must be fixed by construction on the very first write/verify pass, without
-// any registered Fixer needing to touch it (none of Phase 3's Fixers target
-// a structural/header check, so this still demonstrates the Phase 2 bar:
-// the bare loop+writer alone converts a structurally-flawed-but-otherwise-
-// clean input, even once Fixers exist for unrelated violation classes).
+// any registered Fixer needing to touch it.
 func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	paths := passFixtures(t)
 	if len(paths) == 0 {
@@ -185,31 +182,12 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					if iss.Check() != c {
 						continue
 					}
-					// A handful of checks (e.g. ImageInterpolate) are also
-					// raised for inline images embedded directly in
-					// content-stream bytes (checks_content.go), which a
-					// dictionary-level Fixer fundamentally cannot reach --
-					// that's content-stream re-encoding, explicitly out of
-					// Phase 3's scope. Those carry this exact wording.
 					if strings.Contains(iss.Error(), "inline image") {
 						continue
 					}
-					// q/Q nesting depth >28 (StringTooLong, checks_content.go)
-					// is a structural defect, not a clampable operand value --
-					// contentLimitsFixer (Phase 11) deliberately leaves it for
-					// the rasterization backstop. See that file's doc comment.
 					if strings.Contains(iss.Error(), "q/Q nesting depth") {
 						continue
 					}
-					// SubsetGlyphCoverage/CIDNotEmbedded on a composite font
-					// with no recoverable code/CID->Unicode mapping (no
-					// /ToUnicode, or a non-Identity-H/V encoding -- typically
-					// a CJK CID-keyed CFF font) can't be substituted: see
-					// cidFontSubstitutionEligible's doc comment
-					// (fixups_font_subst.go). Gated on the *original*
-					// document genuinely having no eligible composite font,
-					// not just on message wording, so a real regression in
-					// the fixable (Identity-H + ToUnicode) case still fails.
 					if (c == pdf.Checks.Font.SubsetGlyphCoverage || c == pdf.Checks.Font.CIDNotEmbedded) &&
 						strings.Contains(iss.Error(), "CID") && !cidSubstitutionPossible(t, path) {
 						continue
@@ -225,7 +203,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 		})
 	}
 
-	t.Logf("Phase 3 fixer sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
+	t.Logf("%d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
 // cidSubstitutionPossible reports whether the document at path contains at
@@ -464,18 +442,8 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 	t.Logf("OutputIntent injection sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
-// TestConvertNeverBreaksConformantInput runs Convert (not just WritePDF, see
-// TestWriterRoundTripConformantCorpusFiles) over every "pass" fixture in the
-// veraPDF corpus and asserts the output is still fully conformant. Phase 4's
-// pre-emptive fixups (especially injectOutputIntent, which always runs, even
-// on an already-valid file) must never make a conformant input worse --
-// this previously failed for files where the dominant colour model was
-// genuinely ambiguous (an even rgb/gray or rgb/cmyk split) because
-// dominantColourModel's tie-break depended on Go's randomized map
-// iteration order, occasionally replacing an already-adequate OutputIntent
-// with one that no longer matched. Run with -count >1 a few times after
-// touching dominantColourModel/injectOutputIntent to catch any
-// non-determinism regressing this again.
+// TestConvertNeverBreaksConformantInput runs Convert over every "pass" fixture in the
+// veraPDF corpus and asserts the output is still fully conformant.
 func TestConvertNeverBreaksConformantInput(t *testing.T) {
 	paths := passFixtures(t)
 	if len(paths) == 0 {

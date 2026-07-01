@@ -10,29 +10,14 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// This file registers fixers for the remaining 6.1.12 architectural-limit
-// checks Phase 11 left out of scope (conversion-plan.md): ArrayTooLarge,
-// DictTooLarge, NameTooLong and CMapCIDOutOfRange. Unlike the scalar clamps
-// contentLimitsFixer already applies (fixups_content.go), each of these
-// needs a different repair shape -- splitting an oversized page tree,
-// pruning resource entries nothing references, renaming an overlong
-// resource key (and keeping content-stream references to it in sync), and
-// clamping a value inside a CMap's PostScript stream -- so each gets its own
-// fixer here rather than a single scalar-clamp pass.
-//
-// DeviceNColorants is claimed by deviceNColorantsFixer (fixups_devicen.go)
-// instead: it resolves the array's colour losslessly rather than truncating
-// it, so it doesn't fit this file's scalar-clamp/split/prune shapes.
-
+// This file registers fixers for 6.1.12 architectural-limit
+// checks.
 func init() {
 	registerFixer(pagesTreeArrayFixer{})
 	registerFixer(resourceDictPruneFixer{})
 	registerFixer(nameTooLongFixer{})
 	registerFixer(cmapCIDClampFixer{})
 
-	// pagesTreeArrayFixer is self-driven (scans the graph, ignores the issue
-	// list) and always safe, so running it pre-emptively lets a page-tree-heavy
-	// document converge in one verify pass instead of two.
 	registerPreemptiveFixup(func(trailer *pdf.PDFDict) error {
 		_, err := pagesTreeArrayFixer{}.Fix(trailer, nil)
 		return err
