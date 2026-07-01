@@ -323,12 +323,12 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 		t.Errorf("Expected one error for empty metadata value, got %v", errs)
 	}
 
-	if errs[0].Check().Clause() != "6.1.5" || errs[0].Check().Subclause() != 3 {
+	if errs[0].Check().Clause() != "6.1.5" || errs[0].Check().Subclause() != 2 {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
 
-// The empty-value check (6.1.5/3) only applies to the standard info dict
+// The empty-value check (6.1.5/2) only applies to the standard info dict
 // fields (Table 10.2); a custom key's value, empty or not, is unconstrained.
 func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyEmptyValueAllowed(t *testing.T) {
 	filename := "test.pdf"
