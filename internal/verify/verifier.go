@@ -631,11 +631,10 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 ) {
 	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
-		visible:     map[uintptr]bool{},
-		invisible:   map[uintptr]bool{},
-		usedCodes:   map[uintptr]map[int]bool{},
-		usedCIDs:    map[uintptr]map[int]bool{},
-		visitedXObj: map[uintptr]bool{},
+		visible:   map[uintptr]bool{},
+		invisible: map[uintptr]bool{},
+		usedCodes: map[uintptr]map[int]bool{},
+		usedCIDs:  map[uintptr]map[int]bool{},
 	}
 	visitedPtrs := map[uintptr]bool{}
 
@@ -731,65 +730,37 @@ func collectContentUsage(
 	case pdf.PDFDict:
 		if v.HasStream {
 			if data, err := ctx.decodeStreamCached(v); err == nil {
-				collectReachableFromBytes(ctx, data, resources, reachable)
-				collectFontUsageFromBytes(ctx, data, resources, fu)
+				collectUsageFromBytes(ctx, data, resources, reachable, fu)
 			}
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
 			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
 				if data, err := ctx.decodeStreamCached(d); err == nil {
-					collectReachableFromBytes(ctx, data, resources, reachable)
-					collectFontUsageFromBytes(ctx, data, resources, fu)
+					collectUsageFromBytes(ctx, data, resources, reachable, fu)
 				}
 			}
 		}
 	}
 }
 
-func collectReachableFromBytes(ctx *ValidationContext, data []byte, resources pdf.PDFDict, reachable map[uintptr]bool) {
-	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-	cs := pdf.NewContentScanner(data)
-	cs.Scan(func(op string, operands []pdf.PDFValue) {
-		if op != "Do" || len(operands) == 0 {
-			return
-		}
-		name, ok := operands[len(operands)-1].(pdf.PDFName)
-		if !ok || xobjects.Entries == nil {
-			return
-		}
-		xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
-		if !ok {
-			return
-		}
-		ptr := pdf.ValuePointer(xobj.Entries)
-		if reachable[ptr] {
-			return
-		}
-		reachable[ptr] = true
-		if xobj.Entries["Subtype"] == (pdf.PDFName{Value: "Form"}) && xobj.HasStream {
-			subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
-			if subData, err := ctx.decodeStreamCached(xobj); err == nil {
-				collectReachableFromBytes(ctx, subData, subResources, reachable)
-			}
-		}
-	})
-}
-
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
 type fontUsage struct {
-	visible     map[uintptr]bool
-	invisible   map[uintptr]bool
-	usedCodes   map[uintptr]map[int]bool
-	usedCIDs    map[uintptr]map[int]bool
-	visitedXObj map[uintptr]bool
+	visible   map[uintptr]bool
+	invisible map[uintptr]bool
+	usedCodes map[uintptr]map[int]bool
+	usedCIDs  map[uintptr]map[int]bool
 }
 
-// collectFontUsageFromBytes scans decoded content-stream bytes, tracking the
-// rendering mode (Tr, saved/restored across q/Q) and the font set by the most
-// recent Tf, and records visibility and shown codes per font.
-func collectFontUsageFromBytes(ctx *ValidationContext, data []byte, resources pdf.PDFDict, fu *fontUsage) {
+// collectUsageFromBytes scans decoded content-stream bytes exactly once,
+// tracking both Form XObject reachability (via Do) and font usage/visibility
+// (render mode, saved/restored across q/Q, and the font set by the most
+// recent Tf) -- these were previously two independent scans over the same
+// bytes (collectReachableFromBytes/collectFontUsageFromBytes), each
+// recursing into the same Do-invoked Form XObjects on its own. reachable
+// doubles as the single recursion guard for both concerns.
+func collectUsageFromBytes(ctx *ValidationContext, data []byte, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
 	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
 	cs := pdf.NewContentScanner(data)
@@ -882,20 +853,21 @@ func collectFontUsageFromBytes(ctx *ValidationContext, data []byte, resources pd
 				return
 			}
 			xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
-			if !ok || xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if !ok {
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
-			if fu.visitedXObj[ptr] {
+			alreadyReachable := reachable[ptr]
+			reachable[ptr] = true
+			if alreadyReachable || xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 				return
 			}
-			fu.visitedXObj[ptr] = true
 			subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
 			if subData, err := ctx.decodeStreamCached(xobj); err == nil {
-				collectFontUsageFromBytes(ctx, subData, subResources, fu)
+				collectUsageFromBytes(ctx, subData, subResources, reachable, fu)
 			}
 		}
 	})

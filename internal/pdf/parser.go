@@ -217,8 +217,12 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 	return dict, nil
 }
 
+// parseArray builds an array from the object stream. A small initial capacity
+// avoids the first several append-doubling reallocations for the common case
+// (short arrays, e.g. TJ text-positioning arrays occurring thousands of times
+// in a content-heavy stream) without over-allocating for the rare huge array.
 func parseArray(l *Lexer) (PDFArray, error) {
-	var arr PDFArray
+	arr := make(PDFArray, 0, 8)
 
 	for {
 		t := l.NextToken()
