@@ -90,10 +90,12 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 // a CID directly as a glyph ID, with no /CIDToGIDMap indirection, so a
 // substituted CIDFontType2 font must satisfy CID == GID exactly to pass
 // them. Unicodes absent from src's cmap are silently skipped (the caller is
-// expected to have already filtered for resolvability). Any output GID in
-// [0, max(targetGID)] not assigned a glyph this way becomes an empty
+// expected to have already filtered for resolvability). blankCIDs are used
+// CIDs the face can't provide a glyph for; they extend the output glyph range
+// so each lands on an empty zero-width placeholder. Any output GID in
+// [0, max(targetGID, blankCIDs)] not assigned a glyph this way becomes an empty
 // placeholder, since /W only ever references the CIDs the caller asked for.
-func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
+func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, blankCIDs ...int) ([]byte, error) {
 	tables, ok := verify.ParseSfnt(src)
 	if !ok {
 		return nil, fmt.Errorf("subsetTrueTypeForCID: not a valid sfnt")
@@ -111,6 +113,11 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 			if target > maxGID {
 				maxGID = target
 			}
+		}
+	}
+	for _, c := range blankCIDs {
+		if c > maxGID {
+			maxGID = c
 		}
 	}
 	nextClosureGID := maxGID + 1

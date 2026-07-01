@@ -477,12 +477,11 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	}
 
 	// Only CIDs whose Unicode resolves to a real glyph in the substitute
-	// face get target GIDs -- the rest become empty placeholder glyphs
-	// that subsetTrueTypeForCID never assigns, so they must be excluded here
-	// too rather than left for it to silently skip.
-	// Multiple CIDs can share the same Unicode (e.g. stylistic duplicates);
-	// each needs its own GID slot in the subset, so we collect a list per Unicode.
+	// face get target GIDs. Multiple CIDs can share the same Unicode (e.g.
+	// stylistic duplicates); each needs its own GID slot in the subset, so we
+	// collect a list per Unicode.
 	targetCIDs := map[uint16][]int{}
+	covered := map[int]bool{}
 	for c := range cids {
 		u, ok := cidToUnicode[c]
 		if !ok {
@@ -492,12 +491,24 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 			continue
 		}
 		targetCIDs[u] = append(targetCIDs[u], c)
+		covered[c] = true
 	}
 	if len(targetCIDs) == 0 {
 		return false
 	}
+	// Used CIDs the face can't provide (unmapped by ToUnicode or a Unicode
+	// absent from the face, e.g. a broken subset's U+FFFD glyphs) still need a
+	// glyph so 6.3.5 SubsetGlyphCoverage passes; give them a blank zero-width
+	// placeholder. The source subset was already missing them, so this is
+	// visually faithful, and it keeps the page as text rather than rasterizing.
+	var blankCIDs []int
+	for c := range cids {
+		if !covered[c] {
+			blankCIDs = append(blankCIDs, c)
+		}
+	}
 
-	subset, err := subsetTrueTypeForCID(face.data, targetCIDs)
+	subset, err := subsetTrueTypeForCID(face.data, targetCIDs, blankCIDs...)
 	if err != nil {
 		return false
 	}
