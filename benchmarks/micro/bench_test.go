@@ -121,10 +121,19 @@ func BenchmarkConvert(b *testing.B) {
 // replacing reflect-based ValuePointer with an unsafe type switch (values.go)
 // cut another ~100k, to ~1.35M. Switching the hot-path lexer to []byte
 // indexing (NewLexerBytes) eliminated the bufio.Reader per-object alloc: ~1.34M.
+// Merging the reachable-XObject and font-usage content scans that
+// ComputeContentUsage ran independently over the same decoded bytes
+// (collectUsageFromBytes, verifier.go) into one scan/recursion cut another
+// ~160k (this file's 10k pages were each scanned twice): ~1.16M. Caching the
+// tokenized operator list per stream (Reader.ScanStreamCached, keyed like the
+// decode cache by RawStream identity) so ComputeContentUsage and scanContent
+// -- still two separate passes, since a page's checks need reachability/font
+// usage computed for the *whole* document first -- share one tokenization
+// per stream instead of each re-lexing it, cut another ~70k: ~1.09M.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_380_000
+const maxLargeFileAllocs = 1_130_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -163,8 +172,12 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // allocation source). For files that benefit from Stage 4 (multiple fixer
 // iterations), the saving is large; this file just happens to expose the
 // per-verify overhead of the 10k-page torture test. Measured at ~2.84M.
+// Merging ComputeContentUsage's two per-stream scans into one
+// (collectUsageFromBytes, see maxLargeFileAllocs) cut this to ~2.53M.
+// Caching the tokenized operator list per stream (Reader.ScanStreamCached,
+// see maxLargeFileAllocs) cut this to ~2.39M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_900_000
+const maxConvertLargeAllocs = 2_450_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

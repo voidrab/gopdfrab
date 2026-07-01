@@ -40,11 +40,11 @@ var InlineCSAbbrev = map[string]string{
 
 // scanContentDict decodes and inspects a single content stream dictionary.
 func scanContentDict(dict pdf.PDFDict, resources pdf.PDFDict, ctx *ValidationContext) {
-	data, err := ctx.decodeStreamCached(dict)
+	ops, err := ctx.scanStreamCached(dict)
 	if err != nil {
 		return
 	}
-	scanContent(data, dict, resources, ctx)
+	scanContent(ops, dict, resources, ctx)
 }
 
 // scanContentValue inspects a /Contents value that may be a single stream or an
@@ -75,12 +75,16 @@ func NamedColourModel(name pdf.PDFName, resources pdf.PDFDict) string {
 }
 
 // scanContent runs the content-stream checks (6.2.3.3 colour, 6.2.9 rendering
-// intent, 6.2.10 operators) over decoded content bytes.
-func scanContent(data []byte, obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
-	cs := pdf.NewContentScanner(data)
+// intent, 6.2.10 operators) over a stream's tokenized operators. Replaying a
+// cached token list (see ctx.scanStreamCached) rather than re-lexing means an
+// unchanged stream is tokenized once across all of convert's fixer
+// iterations; the checks themselves still run fresh every call, since a
+// verdict can depend on state that changes between iterations (e.g.
+// OutputIntent coverage, Resources).
+func scanContent(ops []pdf.ScannedOp, obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
 	colourSet := false
 	qDepth := 0
-	cs.Scan(func(op string, operands []pdf.PDFValue) {
+	pdf.ReplayOps(ops, func(op string, operands []pdf.PDFValue) {
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			checkOperandLimits(operand, obj, ctx)

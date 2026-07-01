@@ -107,7 +107,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 
 	// Per-run decode cache for scanning fixers; per-run deviceColourFixer
 	// instance so the cache is not shared across concurrent Convert calls.
-	dcCache := make(map[uintptr][]byte)
+	dcCache := make(map[pdf.StreamKey][]byte)
 	dcFixer := deviceColourFixer{cache: dcCache}
 	localFixers := buildLocalFixers(dcFixer)
 

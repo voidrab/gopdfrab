@@ -59,29 +59,36 @@ type ValidationContext struct {
 	// that do not define their own Default*.
 	pageResources pdf.PDFDict
 
-	decodedStreams map[int][]byte
+	// reader backs decodeStreamCached with the Reader's run-scoped decode
+	// cache, so unchanged content streams stay decoded at most once across
+	// convert's fixer iterations (which reuse the same Reader). Nil for
+	// throwaway contexts built outside a real verify pass, which then decode
+	// uncached.
+	reader *pdf.Reader
 }
 
-// decodeStreamCached decodes dict's stream, caching the result by the
-// indirect object number. Dicts without a
-// recorded object number are decoded uncached.
+// decodeStreamCached decodes dict's stream, caching the result via ctx.reader
+// (see pdf.Reader.DecodeStreamCached) when available.
 func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, error) {
-	ref, ok := dict.Entries["_ref"].(pdf.PDFRef)
-	if !ok {
+	if ctx.reader == nil {
 		return pdf.DecodeStream(dict)
 	}
-	if data, ok := ctx.decodedStreams[ref.ObjNum]; ok {
-		return data, nil
+	return ctx.reader.DecodeStreamCached(dict)
+}
+
+// scanStreamCached tokenizes dict's content stream, caching the token list via
+// ctx.reader (see pdf.Reader.ScanStreamCached) when available, so repeated
+// scans of the same unchanged stream -- within one verify pass or across
+// convert's fixer iterations -- lex/parse it at most once.
+func (ctx *ValidationContext) scanStreamCached(dict pdf.PDFDict) ([]pdf.ScannedOp, error) {
+	if ctx.reader == nil {
+		data, err := pdf.DecodeStream(dict)
+		if err != nil {
+			return nil, err
+		}
+		return pdf.TokenizeContent(data), nil
 	}
-	data, err := pdf.DecodeStream(dict)
-	if err != nil {
-		return nil, err
-	}
-	if ctx.decodedStreams == nil {
-		ctx.decodedStreams = map[int][]byte{}
-	}
-	ctx.decodedStreams[ref.ObjNum] = data
-	return data, nil
+	return ctx.reader.ScanStreamCached(dict)
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page

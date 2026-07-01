@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"unsafe"
 )
 
 // filterNames returns the list of filter names applied to a stream.
@@ -28,6 +29,11 @@ func FilterNames(filter PDFValue) []string {
 
 var zlibReaderPool = sync.Pool{}
 
+// inflateBufPool holds *bytes.Buffer scratch space for InflateZlib, reused
+// across calls so its backing array grows to a working size once instead of
+// reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
+var inflateBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
 // inflateZlib decodes a zlib (FlateDecode/Fl) stream using a pooled decoder.
 func InflateZlib(data []byte) ([]byte, error) {
 	br := bytes.NewReader(data)
@@ -46,17 +52,23 @@ func InflateZlib(data []byte) ([]byte, error) {
 		}
 	}
 
-	out, err := io.ReadAll(zr)
+	buf := inflateBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	_, err := buf.ReadFrom(zr)
 	zlibReaderPool.Put(zr)
-	if err != nil {
-		// A truncated or checksum-broken zlib stream (common in malformed PDFs)
-		// still yields a usable prefix; return what inflated rather than
-		// discarding it, matching how lenient readers recover such streams.
-		if len(out) > 0 {
-			return out, nil
-		}
+
+	// A truncated or checksum-broken zlib stream (common in malformed PDFs)
+	// still yields a usable prefix; return what inflated rather than
+	// discarding it, matching how lenient readers recover such streams. The
+	// result must be copied out before the buffer is returned to the pool,
+	// since Reset() on the next call reuses (and overwrites) its backing array.
+	if err != nil && buf.Len() == 0 {
+		inflateBufPool.Put(buf)
 		return nil, err
 	}
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	inflateBufPool.Put(buf)
 	return out, nil
 }
 
@@ -94,12 +106,34 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 	return data, nil
 }
 
-// DecodeCached decodes a stream using cache to avoid repeated decompression.
-// The cache is keyed by the Entries map pointer; pass a map[uintptr][]byte
-// created per conversion run. If dict has no _ref entry the result is not
-// cached (synthesised dicts have no stable identity).
-func DecodeCached(dict PDFDict, cache map[uintptr][]byte) ([]byte, error) {
-	key := ValuePointer(dict.Entries)
+// StreamKey identifies a stream's raw (undecoded) bytes by content identity:
+// the RawStream slice's data pointer and length. A fixer that rewrites a
+// stream always assigns a fresh RawStream slice (SetStreamFlate et al.), so
+// keying a decode cache on StreamKey makes invalidation automatic -- an
+// unchanged stream keeps hitting, a rewritten one always misses.
+type StreamKey struct {
+	ptr uintptr
+	len int
+}
+
+// StreamKeyOf returns dict's cache key and whether it is cacheable. Streams
+// with no bytes (nil/empty RawStream) are not cacheable, since there is no
+// address to key on and decoding them is trivial anyway.
+func StreamKeyOf(dict PDFDict) (StreamKey, bool) {
+	if !dict.HasStream || len(dict.RawStream) == 0 {
+		return StreamKey{}, false
+	}
+	return StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}, true
+}
+
+// DecodeCached decodes a stream using cache to avoid repeated decompression,
+// keyed by StreamKeyOf so the cache stays correct across a convert run's
+// fixer iterations even as streams are rewritten in place.
+func DecodeCached(dict PDFDict, cache map[StreamKey][]byte) ([]byte, error) {
+	key, ok := StreamKeyOf(dict)
+	if !ok {
+		return DecodeStream(dict)
+	}
 	if data, ok := cache[key]; ok {
 		return data, nil
 	}
@@ -251,6 +285,36 @@ type ContentScanner struct {
 
 func NewContentScanner(data []byte) *ContentScanner {
 	return &ContentScanner{lex: NewLexerBytes(data, 0), data: data}
+}
+
+// ScannedOp is one content-stream operator paired with the operands collected
+// before it, as an owned (non-aliasing) snapshot of what ContentScanner.Scan
+// reports -- see TokenizeContent.
+type ScannedOp struct {
+	Op       string
+	Operands []PDFValue
+}
+
+// TokenizeContent scans data once and returns every operator with its
+// operands as an owned, replayable list. ContentScanner.Scan reuses one
+// internal stack slice across operator callbacks, so operands are copied out
+// here to remain valid after Scan returns (the PDFValues themselves, e.g. a
+// TJ array, are still shared by reference -- consumers only read them).
+func TokenizeContent(data []byte) []ScannedOp {
+	var ops []ScannedOp
+	NewContentScanner(data).Scan(func(op string, operands []PDFValue) {
+		ops = append(ops, ScannedOp{Op: op, Operands: append([]PDFValue(nil), operands...)})
+	})
+	return ops
+}
+
+// ReplayOps invokes fn for each entry in ops in order, the same callback
+// shape as ContentScanner.Scan, so a cached token list (see
+// Reader.ScanStreamCached) can stand in for re-lexing an unchanged stream.
+func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
+	for _, o := range ops {
+		fn(o.Op, o.Operands)
+	}
 }
 
 // scan iterates the content stream, invoking fn for each operator with the

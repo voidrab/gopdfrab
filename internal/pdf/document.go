@@ -68,6 +68,70 @@ type Reader struct {
 	resolvedPtrs  map[uintptr]bool
 	resolvedGraph PDFValue
 	graphResolved bool
+
+	// decodedCache memoizes DecodeStream's output keyed by StreamKeyOf, so
+	// repeated verify passes over the same Reader -- e.g. convert's fixer
+	// iterations, which reseed the same Reader via SeedResolvedGraph -- decode
+	// each unchanged content stream at most once.
+	decodedCache map[StreamKey][]byte
+
+	// scanCache memoizes TokenizeContent's output keyed by StreamKeyOf, so an
+	// unchanged content stream is lexed/parsed at most once across all of a
+	// Reader's verify passes, even though each pass re-evaluates every check
+	// against the tokens fresh (a check's verdict can depend on state that
+	// changes between iterations, e.g. OutputIntent coverage, so only the
+	// token list -- never a check's result -- is safe to cache here).
+	scanCache map[StreamKey][]ScannedOp
+}
+
+// DecodeStreamCached decodes dict's stream, memoizing the result by content
+// identity (StreamKeyOf) on the Reader so callers sharing one Reader across
+// multiple verify passes never re-inflate an unchanged stream.
+func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
+	key, ok := StreamKeyOf(dict)
+	if !ok {
+		return DecodeStream(dict)
+	}
+	if data, ok := d.decodedCache[key]; ok {
+		return data, nil
+	}
+	data, err := DecodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	if d.decodedCache == nil {
+		d.decodedCache = map[StreamKey][]byte{}
+	}
+	d.decodedCache[key] = data
+	return data, nil
+}
+
+// ScanStreamCached decodes and tokenizes dict's content stream, memoizing the
+// token list by content identity (StreamKeyOf) alongside DecodeStreamCached's
+// decoded-bytes cache, so callers sharing one Reader across multiple verify
+// passes tokenize each unchanged stream at most once.
+func (d *Reader) ScanStreamCached(dict PDFDict) ([]ScannedOp, error) {
+	key, ok := StreamKeyOf(dict)
+	if !ok {
+		data, err := DecodeStream(dict)
+		if err != nil {
+			return nil, err
+		}
+		return TokenizeContent(data), nil
+	}
+	if ops, ok := d.scanCache[key]; ok {
+		return ops, nil
+	}
+	data, err := d.DecodeStreamCached(dict)
+	if err != nil {
+		return nil, err
+	}
+	ops := TokenizeContent(data)
+	if d.scanCache == nil {
+		d.scanCache = map[StreamKey][]ScannedOp{}
+	}
+	d.scanCache[key] = ops
+	return ops, nil
 }
 
 // StructErrors returns the structural parse diagnostics recorded so far.
