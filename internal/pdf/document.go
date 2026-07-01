@@ -68,6 +68,34 @@ type Reader struct {
 	resolvedPtrs  map[uintptr]bool
 	resolvedGraph PDFValue
 	graphResolved bool
+
+	// decodedCache memoizes DecodeStream's output keyed by StreamKeyOf, so
+	// repeated verify passes over the same Reader -- e.g. convert's fixer
+	// iterations, which reseed the same Reader via SeedResolvedGraph -- decode
+	// each unchanged content stream at most once.
+	decodedCache map[StreamKey][]byte
+}
+
+// DecodeStreamCached decodes dict's stream, memoizing the result by content
+// identity (StreamKeyOf) on the Reader so callers sharing one Reader across
+// multiple verify passes never re-inflate an unchanged stream.
+func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
+	key, ok := StreamKeyOf(dict)
+	if !ok {
+		return DecodeStream(dict)
+	}
+	if data, ok := d.decodedCache[key]; ok {
+		return data, nil
+	}
+	data, err := DecodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	if d.decodedCache == nil {
+		d.decodedCache = map[StreamKey][]byte{}
+	}
+	d.decodedCache[key] = data
+	return data, nil
 }
 
 // StructErrors returns the structural parse diagnostics recorded so far.

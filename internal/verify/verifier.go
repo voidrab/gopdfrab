@@ -143,6 +143,7 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 
 	ctx := &ValidationContext{
 		PageIndex: pageIndex,
+		reader:    d,
 	}
 	reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
 	if p.SkipUnreachableXObjects {

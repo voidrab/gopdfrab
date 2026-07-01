@@ -59,29 +59,21 @@ type ValidationContext struct {
 	// that do not define their own Default*.
 	pageResources pdf.PDFDict
 
-	decodedStreams map[int][]byte
+	// reader backs decodeStreamCached with the Reader's run-scoped decode
+	// cache, so unchanged content streams stay decoded at most once across
+	// convert's fixer iterations (which reuse the same Reader). Nil for
+	// throwaway contexts built outside a real verify pass, which then decode
+	// uncached.
+	reader *pdf.Reader
 }
 
-// decodeStreamCached decodes dict's stream, caching the result by the
-// indirect object number. Dicts without a
-// recorded object number are decoded uncached.
+// decodeStreamCached decodes dict's stream, caching the result via ctx.reader
+// (see pdf.Reader.DecodeStreamCached) when available.
 func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, error) {
-	ref, ok := dict.Entries["_ref"].(pdf.PDFRef)
-	if !ok {
+	if ctx.reader == nil {
 		return pdf.DecodeStream(dict)
 	}
-	if data, ok := ctx.decodedStreams[ref.ObjNum]; ok {
-		return data, nil
-	}
-	data, err := pdf.DecodeStream(dict)
-	if err != nil {
-		return nil, err
-	}
-	if ctx.decodedStreams == nil {
-		ctx.decodedStreams = map[int][]byte{}
-	}
-	ctx.decodedStreams[ref.ObjNum] = data
-	return data, nil
+	return ctx.reader.DecodeStreamCached(dict)
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page

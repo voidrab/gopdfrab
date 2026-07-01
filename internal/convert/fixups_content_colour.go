@@ -28,7 +28,7 @@ func init() {
 // deviceColourFixer holds an optional per-run decode cache to avoid inflating
 // the same content stream more than once across fixer iterations.
 type deviceColourFixer struct {
-	cache map[uintptr][]byte
+	cache map[pdf.StreamKey][]byte
 }
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
@@ -110,7 +110,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 
 // fixAPColour injects Default* colour spaces into the resource dict of each
 // appearance stream under an /AP /N entry, including nested form XObjects.
-func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, cache map[uintptr][]byte) bool {
+func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, cache map[pdf.StreamKey][]byte) bool {
 	visited := map[uintptr]bool{}
 	changed := false
 	switch v := n.(type) {
@@ -134,7 +134,7 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 // injectDefaultCSRecursive injects Default* into a stream and any form XObjects
 // it invokes via Do, so verifiers that don't use parent-resource inheritance
 // (e.g. veraPDF) see the Default* in each XObject's own resource dict.
-func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, visited map[uintptr]bool, cache map[uintptr][]byte) bool {
+func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, visited map[uintptr]bool, cache map[pdf.StreamKey][]byte) bool {
 	ptr := pdf.ValuePointer(stream.Entries)
 	if visited[ptr] {
 		return false
@@ -205,7 +205,7 @@ func injectDefaultCS(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, shar
 // resources -- mirroring reportContentColour's and checkDeviceColour's
 // detection (DeviceGray is omitted: any OutputIntent already covers it, see
 // deviceColourAllowed).
-func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, cache map[uintptr][]byte) map[string]bool {
+func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, cache map[pdf.StreamKey][]byte) map[string]bool {
 	used := map[string]bool{}
 	addModel := func(m string) {
 		if m == "rgb" || m == "cmyk" {
@@ -370,7 +370,7 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, cache map[u
 
 // scanAPAppearance scans one /AP /N entry (a single stream or a subdictionary
 // of appearance states) for device colour operators.
-func scanAPAppearance(n pdf.PDFValue, visited map[uintptr]bool, addModel func(string), cache map[uintptr][]byte) {
+func scanAPAppearance(n pdf.PDFValue, visited map[uintptr]bool, addModel func(string), cache map[pdf.StreamKey][]byte) {
 	switch v := n.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
@@ -392,7 +392,7 @@ func scanAPAppearance(n pdf.PDFValue, visited map[uintptr]bool, addModel func(st
 
 // scanAPStream scans one appearance-stream dict (and any form XObjects it
 // invokes via Do) for device colour operators.
-func scanAPStream(dict, res pdf.PDFDict, visited map[uintptr]bool, addModel func(string), cache map[uintptr][]byte) {
+func scanAPStream(dict, res pdf.PDFDict, visited map[uintptr]bool, addModel func(string), cache map[pdf.StreamKey][]byte) {
 	ptr := pdf.ValuePointer(dict.Entries)
 	if visited[ptr] {
 		return
