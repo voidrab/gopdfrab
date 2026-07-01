@@ -197,9 +197,9 @@ func resolveIndexed(arr PDFArray, comps []float64, resources PDFDict) (r, g, b f
 func indexedLookupBytes(v PDFValue) []byte {
 	switch x := v.(type) {
 	case PDFString:
-		return []byte(x.Value)
+		return DecodePDFLiteralStringBytes(x.Value)
 	case PDFHexString:
-		return []byte(x.Value)
+		return DecodePDFHexStringBytes(x.Value)
 	case PDFDict:
 		data, err := DecodeStream(x)
 		if err != nil {

@@ -310,26 +310,40 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		srow := pdf.ClampInt(y*smH/h, 0, smH-1)
-		op := out.PixOffset(0, y)
-		bp := base.PixOffset(0, y)
-		for x := 0; x < w; x++ {
-			scol := pdf.ClampInt(x*smW/w, 0, smW-1)
-			alpha := float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
+	// Composite at the higher of the two resolutions -- a base this small
+	// relative to its mask (e.g. a 2x2 colour tile under a full-res mask
+	// shape) would otherwise collapse the mask's shape into a solid block.
+	outW, outH := max(w, smW), max(h, smH)
+	out := image.NewRGBA(image.Rect(0, 0, outW, outH))
 
-			r := float64(base.Pix[bp])/255*alpha + (1 - alpha)
-			g := float64(base.Pix[bp+1])/255*alpha + (1 - alpha)
-			b := float64(base.Pix[bp+2])/255*alpha + (1 - alpha)
-			storeRGBA64(out.Pix, op, r, g, b, 1)
+	// bx/sx depend only on x, not y: precompute once instead of on every row.
+	bxTab := make([]int, outW)
+	sxTab := make([]int, outW)
+	for x := 0; x < outW; x++ {
+		bxTab[x] = pdf.ClampInt(x*w/outW, 0, w-1) * 4
+		sxTab[x] = pdf.ClampInt(x*smW/outW, 0, smW-1) * 4
+	}
+
+	for y := 0; y < outH; y++ {
+		by := pdf.ClampInt(y*h/outH, 0, h-1)
+		sy := pdf.ClampInt(y*smH/outH, 0, smH-1)
+		bp := base.PixOffset(0, by)
+		sp := smask.PixOffset(0, sy)
+		op := out.PixOffset(0, y)
+		for x := 0; x < outW; x++ {
+			a := uint32(smask.Pix[sp+sxTab[x]])
+			bo := bp + bxTab[x]
+
+			out.Pix[op] = uint8((uint32(base.Pix[bo])*a + 255*(255-a)) / 255)
+			out.Pix[op+1] = uint8((uint32(base.Pix[bo+1])*a + 255*(255-a)) / 255)
+			out.Pix[op+2] = uint8((uint32(base.Pix[bo+2])*a + 255*(255-a)) / 255)
+			out.Pix[op+3] = 255
 			op += 4
-			bp += 4
 		}
 	}
 
-	img.Entries["Width"] = pdf.PDFInteger(w)
-	img.Entries["Height"] = pdf.PDFInteger(h)
+	img.Entries["Width"] = pdf.PDFInteger(outW)
+	img.Entries["Height"] = pdf.PDFInteger(outH)
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
 	delete(img.Entries, "SMask")
