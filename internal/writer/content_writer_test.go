@@ -54,9 +54,7 @@ func TestWriteContentStreamRoundTrips(t *testing.T) {
 
 // TestWriteContentStreamRoundTripsInlineImage confirms an inline image's
 // verbatim "BI...EI" span survives scan -> writeContentStream -> rescan
-// byte-for-byte, alongside the surrounding ops -- the gap Phase 11 closed
-// (writeContentStream previously had no representation for inline images at
-// all, since the scanner discarded their binary payload).
+// byte-for-byte, alongside the surrounding ops.
 func TestWriteContentStreamRoundTripsInlineImage(t *testing.T) {
 	src := []byte("q 1 0 0 1 0 0 cm BI /W 2 /H 1 /BPC 8 /CS /G /F /AHx ID ff00> EI Q\n")
 

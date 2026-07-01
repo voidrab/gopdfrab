@@ -15,25 +15,11 @@ import (
 )
 
 // This file registers fixers that re-embed or substitute a bundled
-// Liberation face (assets/fonts/, already pulled in for Phase 8's appearance
-// streams) for fonts the converter cannot otherwise make conformant:
-// SubsetGlyphCoverage/InvalidProgram (a genuinely missing or damaged glyph
-// program -- the only fix is a different, complete program) and
-// CIDNotEmbedded (the program is simply absent). This changes glyph shapes,
-// but only for documents already non-conformant for that font, and always
-// runs (per project decision -- see conversion-plan.md Phase 10) since a
-// substituted-but-conformant font beats a non-conformant one. The embedded
-// substitute is subset to the document's actual glyph usage via
-// subsetTrueType (fonttool_subset.go) but deliberately not subset-tagged
-// (BaseFont keeps no "ABCDEF+" prefix), the same trick buildAppearanceFont
-// (fixups_appearance_font.go) uses to keep SubsetGlyphCoverage/
-// AdvanceWidthMismatch from ever applying to the substitute itself.
+// Liberation face for fonts the converter cannot otherwise make conformant.
 func init() {
 	registerFixer(fontSubstitutionFixer{})
 	registerFixer(trueTypeEncodingFixer{})
 }
-
-// --- Bundled substitute faces ---
 
 //go:embed assets/fonts/LiberationSans-Regular.ttf
 var libSansRegular []byte
@@ -71,8 +57,6 @@ var libMonoItalic []byte
 //go:embed assets/fonts/LiberationMono-BoldItalic.ttf
 var libMonoBoldItalic []byte
 
-// liberationFace describes a chosen substitute face: its raw program bytes
-// plus the style facts needed to rebuild a FontDescriptor that matches it.
 type liberationFace struct {
 	data                            []byte
 	serif, fixedPitch, italic, bold bool
@@ -184,16 +168,12 @@ func ttScaledCapHeight(tables map[string][]byte, fallback int) int {
 	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm
 }
 
-// --- Simple font (Type1/MMType1/TrueType) substitution ---
-
-// simpleFontCodeToUnicode delegates to verify.SimpleFontCodeToUnicode.
 func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	return verify.SimpleFontCodeToUnicode(enc)
 }
 
 // simpleFontUsedUnicodes resolves the Unicode values a simple font dict
-// actually needs to render: the codes ctx recorded as shown, or every
-// nonzero-width code in [FirstChar,LastChar] if usage wasn't tracked.
+// actually needs to render.
 func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, codeToUnicode [256]uint16) []uint16 {
 	var codes map[int]bool
 	if usedCodes != nil {
@@ -235,11 +215,7 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 }
 
 // simpleFontNeedsSubstitution reports whether d currently violates one of
-// SimpleNotEmbedded/InvalidProgram/SubsetGlyphCoverage, by calling the exact
-// same detection the corresponding check uses (checks_font.go/
-// checks_font_program.go) against a throwaway ValidationContext -- so
-// substitution only ever replaces a font that was genuinely flagged, never
-// one that's already fine.
+// SimpleNotEmbedded/InvalidProgram/SubsetGlyphCoverage.
 func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[int]bool) bool {
 	if !verify.HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3") {
 		return true
@@ -277,9 +253,7 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 
 // substituteSimpleFont rebuilds d in place as a non-symbolic TrueType font
 // embedding a subsetted bundled Liberation face, preserving FirstChar/
-// LastChar/Encoding so existing content-stream codes keep working --
-// rendering now resolves through the substitute's own cmap instead of the
-// original (missing or damaged) program.
+// LastChar/Encoding so existing content-stream codes keep working.
 func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) bool {
 	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
 	if !ok || desc.Entries == nil {
@@ -342,9 +316,6 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 	return true
 }
 
-// applySubstituteDescriptor rewrites desc's program and metrics to describe
-// the freshly-built substitute program, shared by the simple- and CID-font
-// substitution paths.
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face liberationFace) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries["Length1"] = pdf.PDFInteger(len(program))
@@ -367,14 +338,8 @@ func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, progr
 	desc.Entries["MissingWidth"] = pdf.PDFInteger(0)
 }
 
-// --- CID font (CIDFontType0/CIDFontType2) substitution ---
-
 // cidFontSubstitutionEligible reports whether a Type0 font carries a
-// directly-recoverable code/CID->Unicode mapping: Identity-H/V encoding
-// (content code == CID) plus a parseable /ToUnicode CMap. Any other
-// encoding -- a predefined non-Identity CMap or a custom embedded one --
-// has no way to recover intended glyphs without resources gopdfrab doesn't
-// bundle, so substitution is skipped rather than guessed at.
+// directly-recoverable code/CID->Unicode mapping.
 func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 	enc, _ := type0.Entries["Encoding"].(pdf.PDFName)
 	if enc.Value != "Identity-H" && enc.Value != "Identity-V" {
@@ -396,9 +361,7 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 }
 
 // cidFontNeedsSubstitution mirrors simpleFontNeedsSubstitution for composite
-// fonts, reusing validateFontProgram/validateCIDTrueTypeSubset/
-// validateCIDCFFSubset (checks_font.go/checks_font_program.go) against a
-// throwaway ValidationContext.
+// fonts.
 func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[int]bool) bool {
 	if !verify.HasEmbeddedProgram(desc, "FontFile2", "FontFile3") {
 		return true
@@ -429,13 +392,7 @@ func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[in
 }
 
 // substituteCIDFont rebuilds a Type0 font's descendant in place as a
-// CIDFontType2 embedding a subsetted bundled Liberation face. The substitute
-// is built so each used CID lands at the identical glyph ID
-// (subsetTrueTypeForCID, fonttool_subset.go) and /CIDToGIDMap is set to
-// /Identity, rather than indirecting through a CIDToGIDMap stream: the
-// verifier's CID TrueType checks (validateCIDTrueTypeSubset/Metrics,
-// checks_font_program.go) look up a CID as a glyph ID directly with no
-// indirection, so only a CID==GID substitute can pass them.
+// CIDFontType2 embedding a subsetted bundled Liberation face.
 func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool) bool {
 	desc, ok := cid.Entries["FontDescriptor"].(pdf.PDFDict)
 	if !ok || desc.Entries == nil {
@@ -476,12 +433,6 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		return false
 	}
 
-	// Only CIDs whose Unicode resolves to a real glyph in the substitute
-	// face get target GIDs -- the rest become empty placeholder glyphs
-	// that subsetTrueTypeForCID never assigns, so they must be excluded here
-	// too rather than left for it to silently skip.
-	// Multiple CIDs can share the same Unicode (e.g. stylistic duplicates);
-	// each needs its own GID slot in the subset, so we collect a list per Unicode.
 	targetCIDs := map[uint16][]int{}
 	for c := range cids {
 		u, ok := cidToUnicode[c]
@@ -523,17 +474,10 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
 	cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
 	cid.Entries["W"] = buildCIDWidthsArray(widthPairs)
-	// Rebuild /CIDSet against the new subset program: the prior CIDSet (if any)
-	// described the replaced program and would leave placeholder glyphs in the
-	// substitute unlisted (6.3.5/3).
 	if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
 		delete(desc.Entries, "CIDSet")
 		fixTrueTypeCIDSet(cid, desc, ff)
 	}
-	// CIDs excluded from the subset (unmapped by ToUnicode or absent from the
-	// Liberty face) land on placeholder GIDs with advance width 0; set DW=0
-	// so /W-absent CIDs match that placeholder rather than inheriting the
-	// original DW (typically 1000) which would cause 6.3.6 failures.
 	cid.Entries["DW"] = pdf.PDFInteger(0)
 	return true
 }
@@ -549,8 +493,7 @@ var (
 )
 
 // hexToUnicode takes the first UTF-16 code unit of a ToUnicode destination
-// hex string as its Unicode value, ignoring surrogate pairs/ligatures --
-// the bundled Liberation substitute only needs BMP coverage.
+// hex string as its Unicode value, ignoring surrogate pairs/ligatures.
 func hexToUnicode(hex string) (uint16, bool) {
 	b := pdf.DecodePDFHexStringBytes(hex)
 	if len(b) < 2 {
@@ -560,10 +503,7 @@ func hexToUnicode(hex string) (uint16, bool) {
 }
 
 // parseToUnicodeCMap extracts a code->Unicode mapping from a /ToUnicode
-// CMap stream's bfchar/bfrange blocks (PDF 32000-1, 9.10.3). For Identity-H/V
-// fonts the "code" here is the CID directly (content text-showing codes are
-// 2-byte and equal the CID), which is what makes substitution's CID->Unicode
-// recovery possible.
+// CMap stream's bfchar/bfrange blocks (PDF 32000-1, 9.10.3).
 func parseToUnicodeCMap(data []byte) map[int]uint16 {
 	result := map[int]uint16{}
 	s := string(data)
@@ -606,12 +546,10 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 	return result
 }
 
-// --- Fixer ---
-
 // fontSubstitutionFixer remediates SubsetGlyphCoverage, SimpleNotEmbedded,
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
 // face wherever a font's own program is missing, damaged, or doesn't cover
-// a glyph it needs (see this file's header comment).
+// a glyph it needs.
 type fontSubstitutionFixer struct{}
 
 func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
@@ -653,14 +591,7 @@ func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (b
 	return changed, nil
 }
 
-// trueTypeEncodingFixer remediates the 6.3.7 TrueType encoding checks on
-// fonts that are otherwise embedded and fine: removing a stray /Encoding
-// from a symbolic font (the spec default the viewer already falls back to,
-// so this never changes glyph mapping), trimming a symbolic font's cmap to
-// the single subtable 6.3.7 requires (via trimTrueTypeCmapToSingleSubtable,
-// fonttool_subset.go -- glyf/loca/hmtx are left untouched, so glyph shapes
-// are unaffected), and setting a non-symbolic font's /Encoding to
-// WinAnsiEncoding when it names neither permitted encoding.
+// trueTypeEncodingFixer remediates the 6.3.7 TrueType encoding checks.
 type trueTypeEncodingFixer struct{}
 
 func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
@@ -707,10 +638,7 @@ func (trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (b
 }
 
 // trimSymbolicCmap reduces desc's embedded FontFile2's cmap to a single
-// subtable in place, leaving glyph data untouched. Returns false (no-op) if
-// the font isn't embedded, already has one subtable, or its surviving
-// subtable isn't format 4 -- left as residual rather than risk a wrong
-// rebuild (trimTrueTypeCmapToSingleSubtable's own constraint).
+// subtable in place, leaving glyph data untouched.
 func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
 	if !ok || !ff.HasStream {

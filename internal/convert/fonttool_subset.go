@@ -9,14 +9,7 @@ import (
 )
 
 // This file is CW-4's write side: a minimal TrueType subsetter and sfnt
-// table-repacker, the inverse of the readers in checks_font_program.go
-// (parseSfnt, tt*, parseCmapFormat4). It exists to shrink a bundled
-// substitute face (fixups_font_subst.go, Phase 10) down to the glyphs a
-// document actually needs before embedding it, and to trim an otherwise-good
-// embedded font's cmap to a single subtable (6.3.7's SymbolicTrueTypeCmap)
-// without touching its outlines. No CFF subsetter exists -- every
-// substitution target is a bundled TrueType face, so there is no scenario
-// that needs one.
+// table-repacker.
 
 // subsetTrueType returns a minimal valid sfnt program derived from src,
 // containing only the glyphs reachable from unicodes (via src's own (3,1)
@@ -141,6 +134,47 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 1, nil)
 	return packSfnt(out), nil
+}
+
+// promoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
+// outline) glyph becomes an explicit zero-contour record, leaving all real
+// outlines, metrics and every other sfnt table byte-for-byte identical.
+func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
+	tables, ok := verify.ParseSfnt(data)
+	if !ok {
+		return data, false
+	}
+	n := verify.TTNumGlyphs(tables)
+	if n == 0 {
+		return data, false
+	}
+	changed := false
+	var glyf []byte
+	loca := make([]byte, 4*(n+1))
+	for gid := range n {
+		binary.BigEndian.PutUint32(loca[gid*4:], uint32(len(glyf)))
+		rec := glyfRecord(tables, gid)
+		if len(rec) == 0 {
+			rec = emptyGlyfRecord
+			changed = true
+		}
+		glyf = append(glyf, rec...)
+		if len(glyf)%2 != 0 {
+			glyf = append(glyf, 0)
+		}
+	}
+	binary.BigEndian.PutUint32(loca[n*4:], uint32(len(glyf)))
+	if !changed {
+		return data, false
+	}
+	tables["glyf"] = glyf
+	tables["loca"] = loca
+	head := append([]byte(nil), tables["head"]...)
+	if len(head) >= 52 {
+		binary.BigEndian.PutUint16(head[50:52], 1) // long loca format
+	}
+	tables["head"] = head
+	return packSfnt(tables), true
 }
 
 // buildSubsetTables rebuilds glyf/loca/hmtx/hhea/maxp/head for an output
@@ -387,11 +421,10 @@ func ttRawHMetric(tables map[string][]byte, gid int) (advance uint16, lsb int16,
 	return lastAW, int16(binary.BigEndian.Uint16(hmtx[lsbOff:])), true
 }
 
-// emptyGlyfRecord is a minimal simple-glyph record (numberOfContours=0,
-// zero bbox, no points/instructions) -- a valid, explicit way to say "this
-// glyph has no outline," used in place of a zero-length loca span. See
-// buildSubsetTables.
-var emptyGlyfRecord = make([]byte, 10)
+// emptyGlyfRecord is a minimal simple-glyph record: numberOfContours=0, a zero
+// bbox, and an explicit instructionLength=0 -- a valid, explicit way to say
+// "this glyph has no outline," used in place of a zero-length loca span.
+var emptyGlyfRecord = make([]byte, 12)
 
 // minimalPostTable returns a format 3.0 'post' table (no per-glyph names),
 // the simplest spec-valid form -- safe regardless of how many glyphs the

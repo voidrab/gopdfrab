@@ -21,6 +21,39 @@ import (
 func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
+	registerPreemptiveFixup(promoteEmptyGlyphsInFonts)
+}
+
+// promoteEmptyGlyphsInFonts rewrites a CIDFontType2's embedded TrueType program
+// so its blank glyphs are explicit zero-contour records.
+func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict) error {
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
+			return
+		}
+		desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+		if !ok {
+			return
+		}
+		ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+		if !ok || !ff.HasStream {
+			return
+		}
+		data, err := pdf.DecodeStream(ff)
+		if err != nil {
+			return
+		}
+		repaired, changed := promoteEmptyGlyphs(data)
+		if !changed {
+			return
+		}
+		ff.Entries["Length1"] = pdf.PDFInteger(len(repaired))
+		if err := writer.SetStreamFlate(&ff, repaired); err != nil {
+			return
+		}
+		desc.Entries["FontFile2"] = ff
+	})
+	return nil
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing

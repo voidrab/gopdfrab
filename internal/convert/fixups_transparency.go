@@ -13,10 +13,7 @@ import (
 // Checks.Transparency.ImageWithSoftMask by rasterizing only the smallest
 // self-contained object carrying the violation -- a Form XObject's own
 // content for a transparency group, or a single Image XObject's samples for
-// a soft mask -- never the whole page, since neither construct can simply be
-// dropped without changing a page's rendered appearance. Whole-page
-// rasterization is used only as a last resort, when /Group sits directly on
-// the Page dict and no narrower object exists to target instead.
+// a soft mask -- never the whole page.
 type transparencyFlattener struct{}
 
 func init() {
@@ -70,7 +67,9 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 					fixed, ok := flattenFormToImage(t.dict, t.resources)
 					results[i] = result{fixed, ok}
 				case "page":
-					results[i] = result{pdf.PDFDict{}, flattenPageToImage(t.dict, t.resources, t.mediaBox)}
+					_, had := t.dict.Entries["Group"]
+					delete(t.dict.Entries, "Group")
+					results[i] = result{pdf.PDFDict{}, had}
 				}
 			}
 		}()
@@ -119,7 +118,7 @@ func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
 // fix. For "image"/"form", xobjects+name address the resource-dictionary
 // slot the fixed dict must be written back into (pdf.PDFDict.RawStream/HasStream
 // changes don't propagate through a value-type copy the way Entries-map
-// mutations do). For "page", mediaBox is the page's own resolved /MediaBox.
+// mutations do).
 type flaggedTarget struct {
 	kind      string // "image", "form", or "page"
 	dict      pdf.PDFDict
@@ -132,9 +131,9 @@ type flaggedTarget struct {
 // collectTransparencyTargets walks the page tree top-down from
 // Root/Pages/Kids (never via /Parent, an intentional cycle back up the tree
 // -- see document.go), tracking inherited /Resources and /MediaBox, and for
-// each page either flags the page itself (its own /Group, the rare
-// no-narrower-object case) or descends into its resource graph to flag the
-// individual Form/Image XObjects responsible.
+// each page either flags the page itself (its own inert /Group, to be
+// deleted) or descends into its resource graph to flag the individual
+// Form/Image XObjects responsible.
 func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
