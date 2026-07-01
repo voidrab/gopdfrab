@@ -287,6 +287,36 @@ func NewContentScanner(data []byte) *ContentScanner {
 	return &ContentScanner{lex: NewLexerBytes(data, 0), data: data}
 }
 
+// ScannedOp is one content-stream operator paired with the operands collected
+// before it, as an owned (non-aliasing) snapshot of what ContentScanner.Scan
+// reports -- see TokenizeContent.
+type ScannedOp struct {
+	Op       string
+	Operands []PDFValue
+}
+
+// TokenizeContent scans data once and returns every operator with its
+// operands as an owned, replayable list. ContentScanner.Scan reuses one
+// internal stack slice across operator callbacks, so operands are copied out
+// here to remain valid after Scan returns (the PDFValues themselves, e.g. a
+// TJ array, are still shared by reference -- consumers only read them).
+func TokenizeContent(data []byte) []ScannedOp {
+	var ops []ScannedOp
+	NewContentScanner(data).Scan(func(op string, operands []PDFValue) {
+		ops = append(ops, ScannedOp{Op: op, Operands: append([]PDFValue(nil), operands...)})
+	})
+	return ops
+}
+
+// ReplayOps invokes fn for each entry in ops in order, the same callback
+// shape as ContentScanner.Scan, so a cached token list (see
+// Reader.ScanStreamCached) can stand in for re-lexing an unchanged stream.
+func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
+	for _, o := range ops {
+		fn(o.Op, o.Operands)
+	}
+}
+
 // scan iterates the content stream, invoking fn for each operator with the
 // operands collected since the previous operator.
 func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {

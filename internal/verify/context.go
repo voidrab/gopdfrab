@@ -76,6 +76,21 @@ func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, erro
 	return ctx.reader.DecodeStreamCached(dict)
 }
 
+// scanStreamCached tokenizes dict's content stream, caching the token list via
+// ctx.reader (see pdf.Reader.ScanStreamCached) when available, so repeated
+// scans of the same unchanged stream -- within one verify pass or across
+// convert's fixer iterations -- lex/parse it at most once.
+func (ctx *ValidationContext) scanStreamCached(dict pdf.PDFDict) ([]pdf.ScannedOp, error) {
+	if ctx.reader == nil {
+		data, err := pdf.DecodeStream(dict)
+		if err != nil {
+			return nil, err
+		}
+		return pdf.TokenizeContent(data), nil
+	}
+	return ctx.reader.ScanStreamCached(dict)
+}
+
 // isReachableXObject reports whether v is a Form XObject reachable from page
 // content via Do operators. Absent reachability info, everything is reachable.
 func (ctx *ValidationContext) isReachableXObject(v pdf.PDFDict) bool {

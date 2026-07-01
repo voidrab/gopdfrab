@@ -729,16 +729,12 @@ func collectContentUsage(
 	switch v := contents.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			if data, err := ctx.decodeStreamCached(v); err == nil {
-				collectUsageFromBytes(ctx, data, resources, reachable, fu)
-			}
+			collectUsageFromBytes(ctx, v, resources, reachable, fu)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
 			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
-				if data, err := ctx.decodeStreamCached(d); err == nil {
-					collectUsageFromBytes(ctx, data, resources, reachable, fu)
-				}
+				collectUsageFromBytes(ctx, d, resources, reachable, fu)
 			}
 		}
 	}
@@ -753,17 +749,23 @@ type fontUsage struct {
 	usedCIDs  map[uintptr]map[int]bool
 }
 
-// collectUsageFromBytes scans decoded content-stream bytes exactly once,
-// tracking both Form XObject reachability (via Do) and font usage/visibility
-// (render mode, saved/restored across q/Q, and the font set by the most
-// recent Tf) -- these were previously two independent scans over the same
-// bytes (collectReachableFromBytes/collectFontUsageFromBytes), each
-// recursing into the same Do-invoked Form XObjects on its own. reachable
-// doubles as the single recursion guard for both concerns.
-func collectUsageFromBytes(ctx *ValidationContext, data []byte, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+// collectUsageFromBytes scans dict's content stream exactly once, tracking
+// both Form XObject reachability (via Do) and font usage/visibility (render
+// mode, saved/restored across q/Q, and the font set by the most recent Tf) --
+// these were previously two independent scans over the same bytes
+// (collectReachableFromBytes/collectFontUsageFromBytes), each recursing into
+// the same Do-invoked Form XObjects on its own. reachable doubles as the
+// single recursion guard for both concerns. Scanning through
+// ctx.scanStreamCached (rather than a fresh ContentScanner) means an
+// unchanged stream is tokenized once across all of convert's fixer
+// iterations, not once per iteration.
+func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+	ops, err := ctx.scanStreamCached(dict)
+	if err != nil {
+		return
+	}
 	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-	cs := pdf.NewContentScanner(data)
 	renderMode := 0
 	var modeStack []int
 	var currentFontPtrs []uintptr
@@ -771,7 +773,7 @@ func collectUsageFromBytes(ctx *ValidationContext, data []byte, resources pdf.PD
 	haveSimpleFont := false
 	var compositeFontPtr uintptr
 	haveCompositeFont := false
-	cs.Scan(func(op string, operands []pdf.PDFValue) {
+	pdf.ReplayOps(ops, func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "q":
 			modeStack = append(modeStack, renderMode)
@@ -866,9 +868,7 @@ func collectUsageFromBytes(ctx *ValidationContext, data []byte, resources pdf.PD
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if subData, err := ctx.decodeStreamCached(xobj); err == nil {
-				collectUsageFromBytes(ctx, subData, subResources, reachable, fu)
-			}
+			collectUsageFromBytes(ctx, xobj, subResources, reachable, fu)
 		}
 	})
 }
