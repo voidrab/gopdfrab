@@ -90,12 +90,10 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 // a CID directly as a glyph ID, with no /CIDToGIDMap indirection, so a
 // substituted CIDFontType2 font must satisfy CID == GID exactly to pass
 // them. Unicodes absent from src's cmap are silently skipped (the caller is
-// expected to have already filtered for resolvability). blankCIDs are used
-// CIDs the face can't provide a glyph for; they extend the output glyph range
-// so each lands on an empty zero-width placeholder. Any output GID in
-// [0, max(targetGID, blankCIDs)] not assigned a glyph this way becomes an empty
+// expected to have already filtered for resolvability). Any output GID in
+// [0, max(targetGID)] not assigned a glyph this way becomes an empty
 // placeholder, since /W only ever references the CIDs the caller asked for.
-func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, blankCIDs ...int) ([]byte, error) {
+func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
 	tables, ok := verify.ParseSfnt(src)
 	if !ok {
 		return nil, fmt.Errorf("subsetTrueTypeForCID: not a valid sfnt")
@@ -113,11 +111,6 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, blankCIDs ...
 			if target > maxGID {
 				maxGID = target
 			}
-		}
-	}
-	for _, c := range blankCIDs {
-		if c > maxGID {
-			maxGID = c
 		}
 	}
 	nextClosureGID := maxGID + 1
@@ -148,6 +141,51 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, blankCIDs ...
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 1, nil)
 	return packSfnt(out), nil
+}
+
+// promoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
+// outline) glyph becomes an explicit zero-contour record, leaving all real
+// outlines, metrics and every other sfnt table byte-for-byte identical. A
+// blank glyph with a nonzero advance width (a space in many subsets) fails
+// TTGlyphPresent's 6.3.5 coverage test even though it renders correctly;
+// promoting it makes it count as present without any visual change. Returns
+// the original data unchanged (false) when the program has no such glyph.
+func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
+	tables, ok := verify.ParseSfnt(data)
+	if !ok {
+		return data, false
+	}
+	n := verify.TTNumGlyphs(tables)
+	if n == 0 {
+		return data, false
+	}
+	changed := false
+	var glyf []byte
+	loca := make([]byte, 4*(n+1))
+	for gid := range n {
+		binary.BigEndian.PutUint32(loca[gid*4:], uint32(len(glyf)))
+		rec := glyfRecord(tables, gid)
+		if len(rec) == 0 {
+			rec = emptyGlyfRecord
+			changed = true
+		}
+		glyf = append(glyf, rec...)
+		if len(glyf)%2 != 0 {
+			glyf = append(glyf, 0)
+		}
+	}
+	binary.BigEndian.PutUint32(loca[n*4:], uint32(len(glyf)))
+	if !changed {
+		return data, false
+	}
+	tables["glyf"] = glyf
+	tables["loca"] = loca
+	head := append([]byte(nil), tables["head"]...)
+	if len(head) >= 52 {
+		binary.BigEndian.PutUint16(head[50:52], 1) // long loca format
+	}
+	tables["head"] = head
+	return packSfnt(tables), true
 }
 
 // buildSubsetTables rebuilds glyf/loca/hmtx/hhea/maxp/head for an output
@@ -394,11 +432,13 @@ func ttRawHMetric(tables map[string][]byte, gid int) (advance uint16, lsb int16,
 	return lastAW, int16(binary.BigEndian.Uint16(hmtx[lsbOff:])), true
 }
 
-// emptyGlyfRecord is a minimal simple-glyph record (numberOfContours=0,
-// zero bbox, no points/instructions) -- a valid, explicit way to say "this
-// glyph has no outline," used in place of a zero-length loca span. See
-// buildSubsetTables.
-var emptyGlyfRecord = make([]byte, 10)
+// emptyGlyfRecord is a minimal simple-glyph record: numberOfContours=0, a zero
+// bbox, and an explicit instructionLength=0 -- a valid, explicit way to say
+// "this glyph has no outline," used in place of a zero-length loca span. The
+// trailing instructionLength field is required: a strict parser reads it after
+// the (empty) endPtsOfContours, so omitting it makes the glyph unparseable.
+// See buildSubsetTables.
+var emptyGlyfRecord = make([]byte, 12)
 
 // minimalPostTable returns a format 3.0 'post' table (no per-glyph names),
 // the simplest spec-valid form -- safe regardless of how many glyphs the

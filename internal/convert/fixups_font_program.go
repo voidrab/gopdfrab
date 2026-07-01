@@ -21,6 +21,47 @@ import (
 func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
+	registerPreemptiveFixup(promoteEmptyGlyphsInFonts)
+}
+
+// promoteEmptyGlyphsInFonts rewrites a CIDFontType2's embedded TrueType program
+// so its blank glyphs are explicit zero-contour records (promoteEmptyGlyphs). A
+// referenced whitespace glyph (e.g. a space stored as an empty outline with a
+// nonzero advance width) otherwise fails ValidateCIDTrueTypeSubset's 6.3.5
+// coverage test, which would drive fontSubstitutionFixer to replace the whole
+// font -- destroying real outlines when /ToUnicode is unreliable -- or force a
+// last-resort page raster. The rewrite changes no glyph's shape and skips any
+// font that needs no promotion. Only CID fonts need this: the simple-TrueType
+// coverage check already exempts whitespace, so their blank glyphs are left as
+// zero-length loca spans (which validators accept).
+func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict) error {
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
+			return
+		}
+		desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+		if !ok {
+			return
+		}
+		ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+		if !ok || !ff.HasStream {
+			return
+		}
+		data, err := pdf.DecodeStream(ff)
+		if err != nil {
+			return
+		}
+		repaired, changed := promoteEmptyGlyphs(data)
+		if !changed {
+			return
+		}
+		ff.Entries["Length1"] = pdf.PDFInteger(len(repaired))
+		if err := writer.SetStreamFlate(&ff, repaired); err != nil {
+			return
+		}
+		desc.Entries["FontFile2"] = ff
+	})
+	return nil
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing
