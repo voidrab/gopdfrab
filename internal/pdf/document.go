@@ -634,7 +634,7 @@ func (d *Reader) GetMetadata() (map[string]string, error) {
 	for k, v := range dict.Entries {
 		switch s := v.(type) {
 		case PDFString:
-			metadata[k] = DecodePDFTextString(DecodePDFLiteralStringBytes(s.Value))
+			metadata[k] = DecodePDFTextString([]byte(s.Value))
 		case PDFHexString:
 			metadata[k] = DecodePDFTextString(DecodePDFHexStringBytes(s.Value))
 		}

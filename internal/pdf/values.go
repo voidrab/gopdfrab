@@ -55,63 +55,26 @@ func PDFNumberToInt(v PDFValue) (int, bool) {
 	return 0, false
 }
 
-// DecodePDFLiteralStringBytes decodes a PDF literal string's backslash escape
-// sequences into the bytes it represents.
-func DecodePDFLiteralStringBytes(s string) []byte {
-	out := make([]byte, 0, len(s))
-	for i := 0; i < len(s); {
-		c := s[i]
-		if c != '\\' {
-			out = append(out, c)
-			i++
-			continue
-		}
-		i++
-		if i >= len(s) {
-			break
-		}
-		switch s[i] {
-		case 'n':
-			out = append(out, '\n')
-			i++
-		case 'r':
-			out = append(out, '\r')
-			i++
-		case 't':
-			out = append(out, '\t')
-			i++
-		case 'b':
-			out = append(out, '\b')
-			i++
-		case 'f':
-			out = append(out, '\f')
-			i++
-		case '(', ')', '\\':
-			out = append(out, s[i])
-			i++
+// EncodePDFLiteralString escapes a decoded string's bytes for serialization
+// between "(" and ")": backslash, parentheses, and EOL bytes are escaped so a
+// conforming reader recovers the exact original bytes.
+func EncodePDFLiteralString(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 2)
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '\\', '(', ')':
+			b.WriteByte('\\')
+			b.WriteByte(c)
 		case '\r':
-			i++
-			if i < len(s) && s[i] == '\n' {
-				i++
-			}
+			b.WriteString(`\r`)
 		case '\n':
-			i++
+			b.WriteString(`\n`)
 		default:
-			if s[i] >= '0' && s[i] <= '7' {
-				v, j := 0, 0
-				for j < 3 && i < len(s) && s[i] >= '0' && s[i] <= '7' {
-					v = v*8 + int(s[i]-'0')
-					i++
-					j++
-				}
-				out = append(out, byte(v))
-			} else {
-				out = append(out, s[i])
-				i++
-			}
+			b.WriteByte(c)
 		}
 	}
-	return out
+	return b.String()
 }
 
 // pdfDocEncoding80s maps PDFDocEncoding bytes 0x80–0x9F to Unicode codepoints
@@ -164,13 +127,12 @@ func DecodePDFTextString(raw []byte) string {
 }
 
 // DecodeInfoTextString decodes a PDFString or PDFHexString Info-dictionary value
-// to Unicode: literal-string escapes are decoded first, then the bytes are
-// interpreted as a PDF text string (UTF-16BE with BOM, otherwise PDFDocEncoding).
-// Returns "" for any other value type.
+// to Unicode: the bytes are interpreted as a PDF text string (UTF-16BE with
+// BOM, otherwise PDFDocEncoding). Returns "" for any other value type.
 func DecodeInfoTextString(v PDFValue) string {
 	switch s := v.(type) {
 	case PDFString:
-		return DecodePDFTextString(DecodePDFLiteralStringBytes(s.Value))
+		return DecodePDFTextString([]byte(s.Value))
 	case PDFHexString:
 		return DecodePDFTextString(DecodePDFHexStringBytes(s.Value))
 	}

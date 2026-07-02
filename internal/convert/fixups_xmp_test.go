@@ -46,13 +46,11 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	}
 }
 
-// TestInfoStringDecodesLiteralEscapes confirms that infoString properly decodes
-// PDF literal-string backslash sequences (e.g. \( → () so the XMP matches what
-// a conformant reader extracts from the Info dict.
-func TestInfoStringDecodesLiteralEscapes(t *testing.T) {
+// TestInfoStringKeepsDecodedText confirms infoString passes through the
+// decoded string bytes PDFString holds (parens need no special handling).
+func TestInfoStringKeepsDecodedText(t *testing.T) {
 	info := pdf.NewPDFDict()
-	// PDF literal string with escaped parens.
-	info.Entries["Title"] = pdf.PDFString{Value: `Title \(Edition\)`}
+	info.Entries["Title"] = pdf.PDFString{Value: "Title (Edition)"}
 
 	got := infoString(info, "Title")
 	if got != "Title (Edition)" {
@@ -73,17 +71,14 @@ func TestInfoStringDecodesPDFDocEncoding(t *testing.T) {
 	}
 }
 
-// TestBuildXMPPacketEscapesParens confirms buildXMPPacket uses the correctly
-// decoded Info value in the XML output (no raw backslash escapes).
-func TestBuildXMPPacketEscapesParens(t *testing.T) {
+// TestBuildXMPPacketKeepsParens confirms buildXMPPacket carries the decoded
+// Info value into the XML output unchanged.
+func TestBuildXMPPacketKeepsParens(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = pdf.PDFString{Value: `Doc \(v2\)`}
+	info.Entries["Title"] = pdf.PDFString{Value: "Doc (v2)"}
 
 	xmp := buildXMPPacket(info)
-	if strings.Contains(xmp, `\(`) {
-		t.Errorf("buildXMPPacket XMP contains raw \\( escape: %s", xmp)
-	}
 	if !strings.Contains(xmp, "(v2)") {
-		t.Errorf("buildXMPPacket XMP does not contain decoded (v2): %s", xmp)
+		t.Errorf("buildXMPPacket XMP does not contain (v2): %s", xmp)
 	}
 }

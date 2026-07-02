@@ -239,3 +239,33 @@ func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 		})
 	}
 }
+
+// TestFontSubsetMetaFixerRegeneratesIncompleteCharSet covers a Type1C subset
+// whose CharSet omits glyph names the embedded program defines: the verifier
+// must report Type1SubsetCharSet (a metadata defect), never SubsetGlyphCoverage
+// (the glyphs exist), and the meta fixer must regenerate CharSet in place.
+func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
+	path := "../../tests/veraPDF/PDF_A-1b/6.3 Fonts/6.3.5 Font subsets/6-3-5-t02-fail-c.pdf"
+	trailer, closeDoc := fixtureTrailer(t, path)
+	defer closeDoc()
+
+	res, err := verify.VerifyFile(path, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	sawCharSet := false
+	for _, iss := range res.Issues {
+		switch iss.Check() {
+		case pdf.Checks.Font.Type1SubsetCharSet:
+			sawCharSet = true
+		case pdf.Checks.Font.SubsetGlyphCoverage:
+			t.Errorf("SubsetGlyphCoverage reported for glyphs the program defines: %v", iss)
+		}
+	}
+	if !sawCharSet {
+		t.Fatalf("Type1SubsetCharSet not reported for incomplete CharSet")
+	}
+
+	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
+	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
+}

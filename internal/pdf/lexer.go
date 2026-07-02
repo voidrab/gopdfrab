@@ -354,7 +354,9 @@ func (l *Lexer) readKeyword() Token {
 	return Token{Type: TokenKeyword, Value: val}
 }
 
-// readStringLiteral handles string literals like (Hello World)
+// readStringLiteral handles string literals like (Hello World), decoding
+// escape sequences and EOL normalization per ISO 32000-1 7.3.4.2 so
+// Token.Value holds the bytes the string represents.
 func (l *Lexer) readStringLiteral() Token {
 	var buf []byte
 	depth := 1
@@ -366,14 +368,53 @@ func (l *Lexer) readStringLiteral() Token {
 		}
 		switch b {
 		case '\\':
-			// A backslash escapes the next byte (\( \) \\ \n …); the escaped
-			// byte is part of the string and never affects parenthesis nesting
-			// (ISO 32000-1 7.3.4.2). Bytes are kept raw, as elsewhere here.
 			nb, err := l.readByte()
 			if err != nil {
 				return Token{Type: TokenError, Value: fmt.Sprintf("Unterminated String: %v", err)}
 			}
-			buf = append(buf, b, nb)
+			switch nb {
+			case 'n':
+				buf = append(buf, '\n')
+			case 'r':
+				buf = append(buf, '\r')
+			case 't':
+				buf = append(buf, '\t')
+			case 'b':
+				buf = append(buf, '\b')
+			case 'f':
+				buf = append(buf, '\f')
+			case '(', ')', '\\':
+				buf = append(buf, nb)
+			case '\r':
+				// Line continuation: backslash + EOL vanish entirely.
+				if next, ok := l.peekByte(); ok && next == '\n' {
+					l.readByte()
+				}
+			case '\n':
+			default:
+				if nb >= '0' && nb <= '7' {
+					v := int(nb - '0')
+					for range 2 {
+						nx, ok := l.peekByte()
+						if !ok || nx < '0' || nx > '7' {
+							break
+						}
+						l.readByte()
+						v = v*8 + int(nx-'0')
+					}
+					buf = append(buf, byte(v))
+				} else {
+					// Unknown escape: the backslash is ignored.
+					buf = append(buf, nb)
+				}
+			}
+			continue
+		case '\r':
+			// Unescaped EOL inside a string reads as a single LF.
+			if next, ok := l.peekByte(); ok && next == '\n' {
+				l.readByte()
+			}
+			buf = append(buf, '\n')
 			continue
 		case '(':
 			depth++

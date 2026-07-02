@@ -57,12 +57,9 @@ func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict) error {
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing
-// PDF /Widths (simple TrueType, Type1, Type3) or /W (CIDFontType2) entries
-// from the embedded font program, mirroring the detection in
-// validateSimpleTrueTypeMetrics/validateType1Metrics/validateType3Metrics
-// (checks_font.go/checks_font_program.go) and validateCIDTrueTypeMetrics.
-// CIDFontType0 (CFF) has no width check today -- no CFF charstring width
-// reader exists -- so it needs no handling here.
+// PDF /Widths (simple TrueType, Type1, Type1C, Type3) or /W (CIDFontType2,
+// CIDFontType0) entries from the embedded font program, mirroring the
+// detection in checks_font.go/checks_font_program.go.
 type fontMetricFixer struct{}
 
 func (fontMetricFixer) Applies(c pdf.Check) bool {
@@ -76,7 +73,6 @@ func (fontMetricFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, e
 			return
 		}
 		subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-		baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
 		desc, _ := d.Entries["FontDescriptor"].(pdf.PDFDict)
 
 		switch subtype.Value {
@@ -87,19 +83,25 @@ func (fontMetricFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, e
 				}
 			}
 		case "Type1", "MMType1":
-			// validateType1Metrics only runs for non-subset Type1 fonts
-			// (subset Type1 fonts are checked for CharSet coverage instead).
-			if !verify.SubsetTagRe.MatchString(baseFont.Value) {
-				if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
-					pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
-					if fixType1Widths(d, ff, pdfEnc.Value) {
-						changed = true
-					}
+			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+				pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
+				if fixType1Widths(d, ff, pdfEnc.Value) {
+					changed = true
+				}
+			} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+				if fixType1CWidths(d, ff) {
+					changed = true
 				}
 			}
 		case "CIDFontType2":
 			if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
 				if fixCIDTrueTypeWidths(d, ff) {
+					changed = true
+				}
+			}
+		case "CIDFontType0":
+			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+				if fixCIDCFFWidths(d, ff) {
 					changed = true
 				}
 			}
@@ -219,6 +221,86 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
 		changed = true
 	}
 	return changed
+}
+
+// fixType1CWidths rewrites mismatched /Widths entries to the embedded CFF
+// program's charstring advance width, mirroring validateType1CMetrics
+// (checks_font_program.go).
+func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
+	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
+	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
+	if !fcOK || !wOK {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	glyphWidths := verify.CFFAdvanceWidths(data)
+	if len(glyphWidths) == 0 {
+		return false
+	}
+	glyphNames, ok := verify.SimpleFontGlyphNameTable(v)
+	if !ok {
+		return false
+	}
+
+	changed := false
+	for i, w := range widths {
+		pdfWidth, ok := pdf.PDFNumberToInt(w)
+		if !ok || pdfWidth == 0 {
+			continue
+		}
+		cc := int(firstChar) + i
+		if cc < 0 || cc > 255 {
+			continue
+		}
+		glyph := glyphNames[cc]
+		if glyph == "" {
+			continue
+		}
+		csWidth, found := glyphWidths[glyph]
+		if !found || pdf.AbsInt(pdfWidth-csWidth) <= 1 {
+			continue
+		}
+		widths[i] = pdf.PDFInteger(csWidth)
+		changed = true
+	}
+	return changed
+}
+
+// fixCIDCFFWidths rewrites mismatched /W entries to the embedded CID-keyed
+// CFF program's charstring advance width, mirroring validateCIDCFFMetrics
+// (checks_font_program.go).
+func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
+	w, ok := v.Entries["W"].(pdf.PDFArray)
+	if !ok {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	cidWidths := verify.CFFCIDAdvanceWidths(data)
+	if len(cidWidths) == 0 {
+		return false
+	}
+
+	pairs := verify.ParseCIDWidths(w)
+	changed := false
+	for i, pair := range pairs {
+		csWidth, found := cidWidths[pair[0]]
+		if !found || pdf.AbsInt(csWidth-pair[1]) <= 1 {
+			continue
+		}
+		pairs[i][1] = csWidth
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	v.Entries["W"] = buildCIDWidthsArray(pairs)
+	return true
 }
 
 // fixCIDTrueTypeWidths rewrites mismatched /W entries to the embedded
@@ -395,14 +477,10 @@ func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 
 // fixType1CharSet synthesizes /CharSet from the glyph names defined in the
 // embedded program -- a raw Type1 program's CharStrings dict (FontFile) or a
-// name-keyed CFF program's charset (FontFile3, "Type1C") -- mirroring the
-// CharSet-presence/emptiness check in
-// validateFontDict/validateType1SubsetCoverage.
+// name-keyed CFF program's charset (FontFile3, "Type1C") -- when CharSet is
+// missing, empty, or lists a glyph the program does not define, mirroring the
+// checks in validateFontDict/ValidateType1SubsetCoverage.
 func fixType1CharSet(desc pdf.PDFDict) bool {
-	current, hasCurrent := desc.Entries["CharSet"].(pdf.PDFString)
-	if hasCurrent && current.Value != "" {
-		return false
-	}
 	var names []string
 	switch {
 	case desc.Entries["FontFile"] != nil:
@@ -425,6 +503,9 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 	if len(names) == 0 {
 		return false
 	}
+	if current, ok := desc.Entries["CharSet"].(pdf.PDFString); ok && current.Value != "" && charSetConsistent(current.Value, names) {
+		return false
+	}
 	sort.Strings(names)
 	var b strings.Builder
 	for _, n := range names {
@@ -432,6 +513,21 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 		b.WriteString(n)
 	}
 	desc.Entries["CharSet"] = pdf.PDFString{Value: b.String()}
+	return true
+}
+
+// charSetConsistent reports whether a CharSet string lists every glyph name
+// the embedded program defines (extra names are tolerated, per 6.3.5-2).
+func charSetConsistent(charSet string, programNames []string) bool {
+	listed := map[string]bool{".notdef": true}
+	for _, part := range verify.SplitCharSetNames(charSet) {
+		listed[part] = true
+	}
+	for _, n := range programNames {
+		if !listed[n] {
+			return false
+		}
+	}
 	return true
 }
 

@@ -639,7 +639,7 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
 	for _, item := range arr {
 		switch v := item.(type) {
 		case pdf.PDFString:
-			r.showText(pdf.DecodePDFLiteralStringBytes(v.Value), gs)
+			r.showText([]byte(v.Value), gs)
 		case pdf.PDFHexString:
 			r.showText(pdf.DecodePDFHexStringBytes(v.Value), gs)
 		default:

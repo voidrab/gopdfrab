@@ -507,7 +507,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 		var s string
 		switch tv := v.(type) {
 		case pdf.PDFString:
-			s = pdf.DecodePDFTextString(pdf.DecodePDFLiteralStringBytes(tv.Value))
+			s = pdf.DecodePDFTextString([]byte(tv.Value))
 		case pdf.PDFHexString:
 			s = pdf.DecodePDFTextString(pdf.DecodePDFHexStringBytes(tv.Value))
 		default:
@@ -880,7 +880,7 @@ func ShownStringBytes(op string, operands []pdf.PDFValue) []byte {
 	appendOperand := func(v pdf.PDFValue) {
 		switch s := v.(type) {
 		case pdf.PDFString:
-			out = append(out, pdf.DecodePDFLiteralStringBytes(s.Value)...)
+			out = append(out, s.Value...)
 		case pdf.PDFHexString:
 			out = append(out, pdf.DecodePDFHexStringBytes(s.Value)...)
 		}
@@ -989,8 +989,7 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 		}
 	case pdf.PDFString:
 		// 6.1.12: maximum length of a string object is 65535 bytes.
-		// The parser stores raw (unescaped) bytes; compute the decoded length.
-		if PDFStringDecodedLen(v.Value) > 65535 {
+		if len(v.Value) > 65535 {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, v, "string exceeds maximum length of 65535 bytes")
 		}
 	case pdf.PDFDict:
@@ -1006,53 +1005,6 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 			))
 		}
 	}
-}
-
-// PDFStringDecodedLen returns the decoded byte length of a PDF literal string
-// that the lexer stored as raw (unescaped) bytes (backslash sequences intact).
-func PDFStringDecodedLen(s string) int {
-	count := 0
-	i := 0
-	for i < len(s) {
-		if s[i] != '\\' {
-			count++
-			i++
-			continue
-		}
-		i++ // consume backslash
-		if i >= len(s) {
-			break
-		}
-		switch s[i] {
-		case 'n', 'r', 't', 'b', 'f', '\\', '(', ')':
-			count++
-			i++
-		case '\r':
-			// line continuation: \<CR> or \<CR><LF> → 0 bytes
-			i++
-			if i < len(s) && s[i] == '\n' {
-				i++
-			}
-		case '\n':
-			// line continuation: \<LF> → 0 bytes
-			i++
-		default:
-			// Octal escape: up to 3 octal digits
-			if s[i] >= '0' && s[i] <= '7' {
-				j := 0
-				for j < 3 && i < len(s) && s[i] >= '0' && s[i] <= '7' {
-					i++
-					j++
-				}
-				count++
-			} else {
-				// Unknown escape: treat backslash as literal (shouldn't happen in valid PDF)
-				count += 2
-				i++
-			}
-		}
-	}
-	return count
 }
 
 // verifyOptionalContent verifies requirements outlined in 6.1.13

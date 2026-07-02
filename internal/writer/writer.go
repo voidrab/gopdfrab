@@ -386,12 +386,11 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf
 // isIndirectDict) is written as an "N 0 R" reference to its own
 // already-discovered object instead of being inlined.
 //
-// pdf.PDFName, pdf.PDFString and pdf.PDFHexString are written by directly wrapping their
-// stored Value in the appropriate delimiters with no further escaping: the
-// lexer that produced Value (lexer.go's readName/readStringLiteral/
-// readHexString) never interprets "#XX"/backslash/whitespace escapes either,
-// so Value already holds exactly the bytes that belong between the
-// delimiters, and this is the exact inverse operation.
+// pdf.PDFString holds decoded bytes (the lexer resolves backslash escapes),
+// so it is re-escaped via pdf.EncodePDFLiteralString on write. pdf.PDFName and
+// pdf.PDFHexString still round-trip raw: their lexers never interpret
+// "#XX"/whitespace escapes, so Value holds exactly the bytes between the
+// delimiters.
 func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 	switch val := v.(type) {
 	case nil:
@@ -454,7 +453,7 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 		}
 	case pdf.PDFString:
 		if _, err = io.WriteString(w, "("); err == nil {
-			if _, err = io.WriteString(w, val.Value); err == nil {
+			if _, err = io.WriteString(w, pdf.EncodePDFLiteralString(val.Value)); err == nil {
 				_, err = io.WriteString(w, ")")
 			}
 		}

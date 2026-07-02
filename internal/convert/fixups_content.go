@@ -222,8 +222,8 @@ func fixScalarLimitsValue(v pdf.PDFValue) (fixed pdf.PDFValue, ok bool) {
 			return pdf.PDFReal(-32767), true
 		}
 	case pdf.PDFString:
-		if verify.PDFStringDecodedLen(val.Value) > 65535 {
-			return pdf.PDFString{Value: truncatePDFStringRaw(val.Value, 65535)}, true
+		if len(val.Value) > 65535 {
+			return pdf.PDFString{Value: val.Value[:65535]}, true
 		}
 	case pdf.PDFHexString:
 		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
@@ -262,25 +262,6 @@ func fixHexStringValue(s string) string {
 		buf = append(buf, '0')
 	}
 	return string(buf)
-}
-
-// truncatePDFStringRaw truncates a literal string's raw (escape sequences
-// intact) bytes to at most max bytes, trimming one further byte if that
-// would leave a trailing unescaped backslash that would otherwise escape
-// whatever follows once re-serialized.
-func truncatePDFStringRaw(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	s = s[:max]
-	backslashes := 0
-	for i := len(s) - 1; i >= 0 && s[i] == '\\'; i-- {
-		backslashes++
-	}
-	if backslashes%2 == 1 {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 // walkScalars visits every pdf.PDFInteger/pdf.PDFReal/pdf.PDFString/pdf.PDFHexString value
