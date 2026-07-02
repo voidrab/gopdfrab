@@ -699,56 +699,61 @@ func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 }
 
 func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	usageCtx := verify.NewContext(f.doc)
-	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
-	sharedDescs := sharedFontDescriptors(*trailer)
-	nextObjNum := nextAvailableObjNum(*trailer)
-
-	changed := false
+	// One prepass gathers everything the substitutions need: candidate font
+	// dicts, descriptor sharing counts, and the highest object number.
+	var simple, composite []pdf.PDFDict
+	descCounts := map[uintptr]int{}
+	maxRef := 0
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
-			return
+		if ref, ok := d.Entries["_ref"].(pdf.PDFRef); ok && ref.ObjNum > maxRef {
+			maxRef = ref.ObjNum
 		}
-		switch subtype, _ := d.Entries["Subtype"].(pdf.PDFName); subtype.Value {
-		case "Type1", "MMType1", "TrueType":
-			// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
-			// create a synthetic one so substituteSimpleFont can proceed.
-			if d.Entries["FontDescriptor"] == nil {
-				d.Entries["FontDescriptor"] = pdf.NewPDFDict()
-			}
-			if substituteSimpleFont(d, usedCodes, sharedDescs, &nextObjNum) {
-				changed = true
-			}
-		case "Type0":
-			if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
-				if substituteCIDFont(d, cid, usedCIDs, sharedDescs, &nextObjNum) {
-					changed = true
-				}
-			}
-		}
-	})
-	return changed, nil
-}
-
-// sharedFontDescriptors returns the descriptors referenced by more than one
-// font dict, which a substitution must clone rather than rewrite in place.
-func sharedFontDescriptors(trailer pdf.PDFDict) map[uintptr]bool {
-	counts := map[uintptr]int{}
-	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
 			return
 		}
 		if desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict); ok && desc.Entries != nil {
-			counts[pdf.ValuePointer(desc.Entries)]++
+			descCounts[pdf.ValuePointer(desc.Entries)]++
+		}
+		switch subtype, _ := d.Entries["Subtype"].(pdf.PDFName); subtype.Value {
+		case "Type1", "MMType1", "TrueType":
+			simple = append(simple, d)
+		case "Type0":
+			composite = append(composite, d)
 		}
 	})
-	shared := map[uintptr]bool{}
-	for ptr, n := range counts {
+	if len(simple) == 0 && len(composite) == 0 {
+		return false, nil
+	}
+
+	usageCtx := verify.NewContext(f.doc)
+	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
+	sharedDescs := map[uintptr]bool{}
+	for ptr, n := range descCounts {
 		if n > 1 {
-			shared[ptr] = true
+			sharedDescs[ptr] = true
 		}
 	}
-	return shared
+	nextObjNum := maxRef + 1
+
+	changed := false
+	for _, d := range simple {
+		// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
+		// create a synthetic one so substituteSimpleFont can proceed.
+		if d.Entries["FontDescriptor"] == nil {
+			d.Entries["FontDescriptor"] = pdf.NewPDFDict()
+		}
+		if substituteSimpleFont(d, usedCodes, sharedDescs, &nextObjNum) {
+			changed = true
+		}
+	}
+	for _, d := range composite {
+		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
+			if substituteCIDFont(d, cid, usedCIDs, sharedDescs, &nextObjNum) {
+				changed = true
+			}
+		}
+	}
+	return changed, nil
 }
 
 // trueTypeEncodingFixer remediates the 6.3.7 TrueType encoding checks.
