@@ -42,8 +42,9 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 
 	unique := uniqueByDict(targets)
 	type result struct {
-		fixed pdf.PDFDict
-		ok    bool
+		fixed     pdf.PDFDict
+		ok        bool
+		dropGroup bool
 	}
 	results := make([]result, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
@@ -62,14 +63,21 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 				switch t.kind {
 				case "image":
 					fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
-					results[i] = result{fixed, ok}
+					results[i] = result{fixed: fixed, ok: ok}
 				case "form":
+					// A provably transparency-free group composites the same
+					// without /Group; deleting it (serially, below) skips the
+					// whole rasterization.
+					if canDropGroupSafely(t.dict) {
+						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
+						continue
+					}
 					fixed, ok := flattenFormToImage(t.dict, t.resources)
-					results[i] = result{fixed, ok}
+					results[i] = result{fixed: fixed, ok: ok}
 				case "page":
 					_, had := t.dict.Entries["Group"]
 					delete(t.dict.Entries, "Group")
-					results[i] = result{pdf.PDFDict{}, had}
+					results[i] = result{fixed: pdf.PDFDict{}, ok: had}
 				}
 			}
 		}()
@@ -91,6 +99,10 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 			continue
 		}
 		changed = true
+		if r.dropGroup {
+			delete(r.fixed.Entries, "Group")
+			continue
+		}
 		if t.kind != "page" {
 			t.xobjects.Entries[t.name] = r.fixed
 		}
@@ -304,6 +316,13 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 
+	// A uniformly-opaque mask composites to the base unchanged: drop the
+	// SMask and keep the original image encoding untouched.
+	if smaskFullyOpaque(smask) {
+		delete(img.Entries, "SMask")
+		return img, true
+	}
+
 	w, h := base.Bounds().Dx(), base.Bounds().Dy()
 	smW, smH := smask.Bounds().Dx(), smask.Bounds().Dy()
 	if w == 0 || h == 0 || smW == 0 || smH == 0 {
@@ -353,6 +372,44 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 	return img, true
+}
+
+// smaskFullyOpaque reports whether every alpha sample (the red channel the
+// composite loop reads) of a decoded soft mask is 255.
+func smaskFullyOpaque(smask *image.RGBA) bool {
+	if smask.Bounds().Dx() == 0 || smask.Bounds().Dy() == 0 {
+		return false
+	}
+	for i := 0; i < len(smask.Pix); i += 4 {
+		if smask.Pix[i] != 255 {
+			return false
+		}
+	}
+	return true
+}
+
+// canDropGroupSafely reports whether a form's content provably uses no
+// transparency, so deleting /Group composites identically: no gs, no Do, no
+// inline images, and no pattern fill/stroke anywhere in the stream.
+func canDropGroupSafely(form pdf.PDFDict) bool {
+	data, err := pdf.DecodeStream(form)
+	if err != nil {
+		return false
+	}
+	safe := true
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		switch op {
+		case "gs", "Do", "INLINEIMAGE":
+			safe = false
+		case "scn", "SCN":
+			if len(operands) > 0 {
+				if _, isName := operands[len(operands)-1].(pdf.PDFName); isName {
+					safe = false
+				}
+			}
+		}
+	})
+	return safe
 }
 
 // flattenFormToImage rasterizes a Form XObject's own /BBox + content in
