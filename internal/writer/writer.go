@@ -3,7 +3,6 @@ package writer
 import (
 	"bufio"
 	"bytes"
-	"compress/zlib"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +10,8 @@ import (
 	"maps"
 	"sort"
 	"strconv"
+
+	"github.com/klauspost/compress/zlib"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )

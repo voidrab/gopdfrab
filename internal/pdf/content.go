@@ -2,12 +2,13 @@ package pdf
 
 import (
 	"bytes"
-	"compress/zlib"
 	"fmt"
 	"io"
 	"strconv"
 	"sync"
 	"unsafe"
+
+	"github.com/klauspost/compress/zlib"
 )
 
 // filterNames returns the list of filter names applied to a stream.
