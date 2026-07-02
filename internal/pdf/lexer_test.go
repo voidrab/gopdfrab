@@ -10,12 +10,22 @@ func TestLexer_BasicDictionary(t *testing.T) {
 	input := []byte("<< /Type /Catalog /Pages 1 0 R >>")
 	l := NewLexer(bytes.NewReader(input))
 
-	expected := []string{"<<", "Type", "Catalog", "Pages", "1", "0", "R", ">>"}
+	// Number tokens carry their payload in Int with an empty Value.
+	expected := []struct {
+		value string
+		num   int
+	}{
+		{"<<", 0}, {"Type", 0}, {"Catalog", 0}, {"Pages", 0},
+		{"", 1}, {"", 0}, {"R", 0}, {">>", 0},
+	}
 
 	for i, exp := range expected {
 		tok := l.NextToken()
-		if tok.Value != exp {
-			t.Errorf("Token %d: Expected %q, got %q", i, exp, tok.Value)
+		if tok.Value != exp.value {
+			t.Errorf("Token %d: Expected %q, got %q", i, exp.value, tok.Value)
+		}
+		if tok.Type == TokenInteger && tok.IntValue() != exp.num {
+			t.Errorf("Token %d: IntValue = %d, want %d", i, tok.IntValue(), exp.num)
 		}
 	}
 }

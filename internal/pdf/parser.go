@@ -148,18 +148,15 @@ func parseObject(l *Lexer, tok Token) (PDFValue, error) {
 		tok3 := l.NextToken()
 
 		if tok2.Type == TokenInteger && tok3.Type == TokenKeyword && tok3.Value == "R" {
-			objNum, _ := strconv.Atoi(tok.Value)
-			genNum, _ := strconv.Atoi(tok2.Value)
-			return PDFRef{ObjNum: objNum, GenNum: genNum}, nil
+			return PDFRef{ObjNum: tok.IntValue(), GenNum: tok2.IntValue()}, nil
 		} else {
 			l.UnreadToken(tok3)
 			l.UnreadToken(tok2)
-			i, _ := strconv.Atoi(tok.Value)
-			return PDFInteger(i), nil
+			return PDFInteger(tok.IntValue()), nil
 		}
 
 	case TokenReal:
-		f, err := strconv.ParseFloat(tok.Value, 64)
+		f, err := tok.RealValue()
 		if err != nil {
 			return nil, err
 		}
@@ -217,27 +214,35 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 	return dict, nil
 }
 
-// parseArray builds an array from the object stream. A small initial capacity
-// avoids the first several append-doubling reallocations for the common case
-// (short arrays, e.g. TJ text-positioning arrays occurring thousands of times
-// in a content-heavy stream) without over-allocating for the rare huge array.
+// parseArray builds an array from the object stream, collecting elements on
+// the lexer's shared scratch stack (nesting-safe via base offsets) and
+// copying out an exact-size array, so element growth never reallocates per
+// array.
 func parseArray(l *Lexer) (PDFArray, error) {
-	arr := make(PDFArray, 0, 8)
+	base := len(l.arrScratch)
 
 	for {
 		t := l.NextToken()
 
 		if t.Type == TokenArrayEnd {
+			arr := make(PDFArray, len(l.arrScratch)-base)
+			copy(arr, l.arrScratch[base:])
+			clear(l.arrScratch[base:])
+			l.arrScratch = l.arrScratch[:base]
 			return arr, nil
 		}
 		if t.Type == TokenEOF {
+			clear(l.arrScratch[base:])
+			l.arrScratch = l.arrScratch[:base]
 			return nil, errors.New("unexpected EOF while parsing array")
 		}
 
 		elem, err := parseObject(l, t)
 		if err != nil {
+			clear(l.arrScratch[base:])
+			l.arrScratch = l.arrScratch[:base]
 			return nil, err
 		}
-		arr = append(arr, elem)
+		l.arrScratch = append(l.arrScratch, elem)
 	}
 }
