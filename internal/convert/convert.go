@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -279,29 +280,68 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError) bool {
 			flag[iss.Page()] = true
 		}
 	}
-	changed := false
+	var flagged []pageTarget
+	nums := make([]int, 0, len(flag))
 	for pageNum := range flag {
-		i := pageNum - 1
-		if i < 0 || i >= len(pages) {
-			continue
-		}
-		p := pages[i]
-		if flattenPageToImage(p.dict, p.resources, p.mediaBox) {
-			changed = true
+		nums = append(nums, pageNum)
+	}
+	sort.Ints(nums)
+	for _, pageNum := range nums {
+		if i := pageNum - 1; i >= 0 && i < len(pages) {
+			flagged = append(flagged, pages[i])
 		}
 	}
-	return changed
+	return flattenPagesParallel(flagged)
 }
 
 // flattenAllPages rasterizes every page, the final backstop for residuals that
 // applyRasterFallback can't target -- document-level violations with no page
 // number, or anything its page-by-page pass left behind.
 func flattenAllPages(trailer *pdf.PDFDict) bool {
-	changed := false
-	for _, p := range orderedPages(*trailer) {
-		if flattenPageToImage(p.dict, p.resources, p.mediaBox) {
-			changed = true
+	return flattenPagesParallel(orderedPages(*trailer))
+}
+
+// flattenPagesParallel rasterizes distinct pages on a bounded worker pool;
+// each render mutates only its own page dict while reading the shared graph,
+// the same access pattern transparencyFlattener's workers rely on.
+func flattenPagesParallel(pages []pageTarget) bool {
+	seen := map[uintptr]bool{}
+	var unique []pageTarget
+	for _, p := range pages {
+		ptr := pdf.ValuePointer(p.dict.Entries)
+		if seen[ptr] {
+			continue
 		}
+		seen[ptr] = true
+		unique = append(unique, p)
+	}
+	if len(unique) == 0 {
+		return false
+	}
+
+	results := make([]bool, len(unique))
+	workers := min(runtime.NumCPU(), len(unique))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				p := unique[i]
+				results[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox)
+			}
+		}()
+	}
+	for i := range unique {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	changed := false
+	for _, r := range results {
+		changed = changed || r
 	}
 	return changed
 }

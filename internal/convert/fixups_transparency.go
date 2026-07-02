@@ -475,11 +475,10 @@ func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) error {
 	w, h := bounds.Dx(), bounds.Dy()
 	rowRGB := make([]byte, w*3)
 	return writer.SetStreamFlateRows(d, h, func(i int) []byte {
-		src := canvas.Pix[canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i):]
-		j := 0
-		for x := 0; x < w*4; x += 4 {
+		off := canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i)
+		src := canvas.Pix[off : off+w*4 : off+w*4]
+		for x, j := 0, 0; x < len(src); x, j = x+4, j+3 {
 			rowRGB[j], rowRGB[j+1], rowRGB[j+2] = src[x], src[x+1], src[x+2]
-			j += 3
 		}
 		return rowRGB
 	})
