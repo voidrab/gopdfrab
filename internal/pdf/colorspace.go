@@ -199,7 +199,7 @@ func indexedLookupBytes(v PDFValue) []byte {
 	case PDFString:
 		return []byte(x.Value)
 	case PDFHexString:
-		return []byte(x.Value)
+		return DecodePDFHexStringBytes(x.Value)
 	case PDFDict:
 		data, err := DecodeStream(x)
 		if err != nil {

@@ -2,12 +2,12 @@ package pdf
 
 import (
 	"bytes"
-	"compress/zlib"
 	"fmt"
 	"io"
-	"strconv"
 	"sync"
 	"unsafe"
+
+	"github.com/klauspost/compress/zlib"
 )
 
 // filterNames returns the list of filter names applied to a stream.
@@ -54,6 +54,12 @@ func InflateZlib(data []byte) ([]byte, error) {
 
 	buf := inflateBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
+	// Pre-size for the typical ~4x Flate ratio, capped so pooled buffers
+	// never pin large allocations.
+	const maxInflatePrealloc = 16 << 20
+	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
+		buf.Grow(need - buf.Len())
+	}
 	_, err := buf.ReadFrom(zr)
 	zlibReaderPool.Put(zr)
 
@@ -327,10 +333,9 @@ func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 		case TokenEOF, TokenError:
 			return
 		case TokenInteger:
-			i, _ := strconv.Atoi(tok.Value)
-			cs.stack = append(cs.stack, PDFInteger(i))
+			cs.stack = append(cs.stack, PDFInteger(tok.IntValue()))
 		case TokenReal:
-			f, _ := strconv.ParseFloat(tok.Value, 64)
+			f, _ := tok.RealValue()
 			cs.stack = append(cs.stack, PDFReal(f))
 		case TokenString:
 			cs.stack = append(cs.stack, PDFString{Value: tok.Value})
@@ -383,10 +388,9 @@ func (cs *ContentScanner) scanInlineImage(fn func(op string, operands []PDFValue
 		case TokenName:
 			params = append(params, PDFName{Value: tok.Value})
 		case TokenInteger:
-			i, _ := strconv.Atoi(tok.Value)
-			params = append(params, PDFInteger(i))
+			params = append(params, PDFInteger(tok.IntValue()))
 		case TokenReal:
-			f, _ := strconv.ParseFloat(tok.Value, 64)
+			f, _ := tok.RealValue()
 			params = append(params, PDFReal(f))
 		case TokenBoolean:
 			params = append(params, PDFBoolean(tok.Value == "true"))

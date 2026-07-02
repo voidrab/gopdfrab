@@ -130,10 +130,12 @@ func BenchmarkConvert(b *testing.B) {
 // -- still two separate passes, since a page's checks need reachability/font
 // usage computed for the *whole* document first -- share one tokenization
 // per stream instead of each re-lexing it, cut another ~70k: ~1.09M.
+// Parsing number tokens once in the lexer (Token.Int/Num) and collecting
+// array elements on a shared scratch stack cut it to ~1.05M.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_130_000
+const maxLargeFileAllocs = 1_110_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -176,8 +178,11 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // (collectUsageFromBytes, see maxLargeFileAllocs) cut this to ~2.53M.
 // Caching the tokenized operator list per stream (Reader.ScanStreamCached,
 // see maxLargeFileAllocs) cut this to ~2.39M.
+// Carrying the loop Reader's stream caches into the final serialize-verify
+// pass (AdoptStreamCaches) cut this to ~2.14M, and the lexer's parse-once
+// number tokens plus the shared parseArray scratch to ~2.11M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_450_000
+const maxConvertLargeAllocs = 2_220_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

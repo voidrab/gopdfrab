@@ -29,6 +29,37 @@ func HasEmbeddedProgram(desc pdf.PDFDict, keys ...string) bool {
 	return false
 }
 
+// EmbeddedProgramMatchesSubtype reports whether desc embeds a font program of
+// the kind the font's Subtype requires (6.3.4): a FontFile2 under a Type1
+// font, say, is not an embedded Type1 program.
+func EmbeddedProgramMatchesSubtype(subtype string, desc pdf.PDFDict) bool {
+	if desc.Entries == nil {
+		return false
+	}
+	fontFile3Subtype := func() string {
+		ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict)
+		if !ok {
+			return ""
+		}
+		st, _ := ff.Entries["Subtype"].(pdf.PDFName)
+		return st.Value
+	}
+	switch subtype {
+	case "Type1", "MMType1":
+		if desc.Entries["FontFile"] != nil {
+			return true
+		}
+		st := fontFile3Subtype()
+		return st == "Type1C" || st == "OpenType"
+	case "TrueType", "CIDFontType2":
+		return desc.Entries["FontFile2"] != nil || fontFile3Subtype() == "OpenType"
+	case "CIDFontType0":
+		st := fontFile3Subtype()
+		return st == "CIDFontType0C" || st == "OpenType"
+	}
+	return HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3")
+}
+
 // ValidateFontDict checks font dictionaries: embedding (6.3.4), composite fonts
 // (6.3.3), subsets (6.3.5) and character encodings (6.3.7).
 func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
@@ -43,7 +74,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 	ValidateFontProgram(v, desc, baseFont.Value, ctx)
 
 	renderingMode3 := ctx.isInvisibleOnlyFont(v)
-	containsFontFile := HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3")
+	containsFontFile := EmbeddedProgramMatchesSubtype(subtype.Value, desc)
 
 	// 6.3.4
 	if !(subtype.Value == "Type3" || subtype.Value == "Type0" || renderingMode3 || containsFontFile) {
@@ -84,25 +115,25 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 					validateSimpleTrueTypeMetrics(v, ff, int(firstChar), widths, ctx)
 				}
 			}
-		} else if !subset {
-			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok && !renderingMode3 {
-				firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-				_, lcOK := v.Entries["LastChar"].(pdf.PDFInteger)
-				widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
-				if fcOK && lcOK && wOK {
-					pdfEnc, _ := v.Entries["Encoding"].(pdf.PDFName)
-					validateType1Metrics(v, ff, int(firstChar), widths, pdfEnc.Value, ctx)
+		} else {
+			firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
+			lastChar, lcOK := v.Entries["LastChar"].(pdf.PDFInteger)
+			widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
+			haveWidths := fcOK && lcOK && wOK
+
+			if subset {
+				if desc.Entries != nil && desc.Entries["CharSet"] == nil {
+					ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
+				} else if !renderingMode3 && haveWidths {
+					ValidateType1SubsetCoverage(v, v, desc, int(firstChar), int(lastChar), widths, ctx)
 				}
 			}
-		} else if subset {
-			if desc.Entries != nil && desc.Entries["CharSet"] == nil {
-				ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
-			} else if !renderingMode3 {
-				firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-				lastChar, lcOK := v.Entries["LastChar"].(pdf.PDFInteger)
-				widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
-				if fcOK && lcOK && wOK {
-					ValidateType1SubsetCoverage(v, v, desc, int(firstChar), int(lastChar), widths, ctx)
+			if !renderingMode3 && haveWidths {
+				if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+					pdfEnc, _ := v.Entries["Encoding"].(pdf.PDFName)
+					validateType1Metrics(v, ff, int(firstChar), widths, pdfEnc.Value, ctx)
+				} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+					validateType1CMetrics(v, v, ff, int(firstChar), widths, ctx)
 				}
 			}
 		}
@@ -139,6 +170,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 					if subset {
 						ValidateCIDCFFSubset(v, ff, w, ctx)
 					}
+					validateCIDCFFMetrics(v, v, ff, w, ctx)
 				}
 			}
 		}

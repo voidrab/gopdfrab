@@ -214,16 +214,29 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 	return result
 }
 
+// hasSubstitutionIssue reports whether vctx recorded a violation that only a
+// font substitution can repair; metadata defects (e.g. a stale CharSet) have
+// cheaper fixers and must never destroy an embedded program.
+func hasSubstitutionIssue(vctx *verify.ValidationContext) bool {
+	for _, iss := range vctx.Issues() {
+		if (fontSubstitutionFixer{}).Applies(iss.Check()) {
+			return true
+		}
+	}
+	return false
+}
+
 // simpleFontNeedsSubstitution reports whether d currently violates one of
 // SimpleNotEmbedded/InvalidProgram/SubsetGlyphCoverage.
 func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[int]bool) bool {
-	if !verify.HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3") {
+	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	if !verify.EmbeddedProgramMatchesSubtype(subtype.Value, desc) {
 		return true
 	}
 	baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
 	vctx := &verify.ValidationContext{UsedCharCodes: usedCodes}
 	verify.ValidateFontProgram(d, desc, baseFont.Value, vctx)
-	if len(vctx.Issues()) > 0 {
+	if hasSubstitutionIssue(vctx) {
 		return true
 	}
 
@@ -233,7 +246,6 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 	if !fcOK || !lcOK || !wOK {
 		return false
 	}
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
 	subset := verify.SubsetTagRe.MatchString(baseFont.Value)
 	if !subset {
 		return false
@@ -248,13 +260,58 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 			verify.ValidateType1SubsetCoverage(d, d, desc, int(firstChar), int(lastChar), widths, vctx)
 		}
 	}
-	return len(vctx.Issues()) > 0
+	return hasSubstitutionIssue(vctx)
+}
+
+// substituteCoversUsage confirms every character code the font renders
+// resolves to a real glyph in the substitute subset -- the same
+// Encoding/Differences-based resolution external validators apply. A code the
+// substitute cannot cover makes substitution destructive, so the caller must
+// leave the font alone and let raster fallback handle its pages.
+func substituteCoversUsage(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, codeToUnicode [256]uint16, cmap map[uint16]uint16, tables map[string][]byte) bool {
+	covered := func(cc int) bool {
+		if cc < 0 || cc > 255 {
+			return true
+		}
+		u := codeToUnicode[cc]
+		if u == 0 {
+			return false
+		}
+		gid, ok := cmap[u]
+		if !ok || gid == 0 {
+			return false
+		}
+		return verify.TTAdvanceWidth(tables, int(gid)) >= 0
+	}
+
+	var codes map[int]bool
+	if usedCodes != nil {
+		codes = usedCodes[pdf.ValuePointer(d.Entries)]
+	}
+	if codes != nil {
+		for cc := range codes {
+			if !covered(cc) {
+				return false
+			}
+		}
+		return true
+	}
+	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
+	widths, _ := d.Entries["Widths"].(pdf.PDFArray)
+	for i, w := range widths {
+		if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
+			if !covered(int(firstChar) + i) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // substituteSimpleFont rebuilds d in place as a non-symbolic TrueType font
 // embedding a subsetted bundled Liberation face, preserving FirstChar/
 // LastChar/Encoding so existing content-stream codes keep working.
-func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) bool {
+func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sharedDescs map[uintptr]bool, nextObjNum *int) bool {
 	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
 	if !ok || desc.Entries == nil {
 		return false
@@ -263,7 +320,16 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 		return false
 	}
 
-	codeToUnicode := simpleFontCodeToUnicode(d.Entries["Encoding"])
+	// The result is always a non-symbolic TrueType font, which 6.3.7 limits
+	// to the MacRoman/WinAnsi encoding names. Deciding the final encoding
+	// up front keeps subset, Widths, and coverage consistent with what the
+	// font dictionary will actually declare.
+	finalEnc := pdf.PDFValue(pdf.PDFName{Value: "WinAnsiEncoding"})
+	if name, ok := d.Entries["Encoding"].(pdf.PDFName); ok &&
+		(name.Value == "MacRomanEncoding" || name.Value == "WinAnsiEncoding") {
+		finalEnc = name
+	}
+	codeToUnicode := simpleFontCodeToUnicode(finalEnc)
 	unicodes := simpleFontUsedUnicodes(d, usedCodes, codeToUnicode)
 	if len(unicodes) == 0 {
 		return false
@@ -280,6 +346,10 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 		return false
 	}
 	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+
+	if !substituteCoversUsage(d, usedCodes, codeToUnicode, cmap, tables) {
+		return false
+	}
 
 	firstChar, fcOK := d.Entries["FirstChar"].(pdf.PDFInteger)
 	lastChar, lcOK := d.Entries["LastChar"].(pdf.PDFInteger)
@@ -302,18 +372,70 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool) boo
 		widths[i] = pdf.PDFInteger(w)
 	}
 
+	// A descriptor other font dicts still reference must not be rewritten
+	// under them; give the substituted font its own copy.
+	if sharedDescs[pdf.ValuePointer(desc.Entries)] {
+		desc = cloneFontDescriptor(desc, nextObjNum)
+		d.Entries["FontDescriptor"] = desc
+	}
+
+	newName := substituteBaseFontName(face, baseFont.Value)
 	applySubstituteDescriptor(desc, tables, subset, face)
+	desc.Entries["FontName"] = pdf.PDFName{Value: newName}
+	d.Entries["BaseFont"] = pdf.PDFName{Value: newName}
 	d.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
 	d.Entries["FirstChar"] = pdf.PDFInteger(firstChar)
 	d.Entries["LastChar"] = pdf.PDFInteger(lastChar)
 	d.Entries["Widths"] = widths
-	switch d.Entries["Encoding"].(type) {
-	case pdf.PDFName, pdf.PDFDict:
-		// keep the existing encoding/Differences -- codes are unchanged
-	default:
-		d.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	}
+	d.Entries["Encoding"] = finalEnc
 	return true
+}
+
+// cloneFontDescriptor copies desc into a fresh indirect dict so it can be
+// mutated without affecting other fonts referencing the original.
+func cloneFontDescriptor(desc pdf.PDFDict, nextObjNum *int) pdf.PDFDict {
+	clone := pdf.NewPDFDict()
+	for k, v := range desc.Entries {
+		if k == "_ref" || k == "_dirty" {
+			continue
+		}
+		clone.Entries[k] = v
+	}
+	clone.Entries["_ref"] = pdf.PDFRef{ObjNum: *nextObjNum}
+	*nextObjNum++
+	return clone
+}
+
+// substituteBaseFontName builds the substituted font's name: a deterministic
+// subset tag derived from the original name plus the Liberation face's
+// PostScript name, so the misleading original family name is dropped.
+func substituteBaseFontName(face liberationFace, original string) string {
+	family := "LiberationSans"
+	switch {
+	case face.fixedPitch:
+		family = "LiberationMono"
+	case face.serif:
+		family = "LiberationSerif"
+	}
+	switch {
+	case face.bold && face.italic:
+		family += "-BoldItalic"
+	case face.bold:
+		family += "-Bold"
+	case face.italic:
+		family += "-Italic"
+	}
+
+	h := uint32(2166136261)
+	for i := 0; i < len(original); i++ {
+		h = (h ^ uint32(original[i])) * 16777619
+	}
+	tag := make([]byte, 6)
+	for i := range tag {
+		tag[i] = byte('A' + h%26)
+		h /= 26
+	}
+	return string(tag) + "+" + family
 }
 
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face liberationFace) {
@@ -323,7 +445,7 @@ func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, progr
 		return
 	}
 
-	for _, k := range []string{"FontFile", "FontFile2", "FontFile3"} {
+	for _, k := range []string{"FontFile", "FontFile2", "FontFile3", "CharSet", "FontFamily"} {
 		delete(desc.Entries, k)
 	}
 	desc.Entries["FontFile2"] = fontFile
@@ -363,13 +485,14 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 // cidFontNeedsSubstitution mirrors simpleFontNeedsSubstitution for composite
 // fonts.
 func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[int]bool) bool {
-	if !verify.HasEmbeddedProgram(desc, "FontFile2", "FontFile3") {
+	subtype, _ := cid.Entries["Subtype"].(pdf.PDFName)
+	if !verify.EmbeddedProgramMatchesSubtype(subtype.Value, desc) {
 		return true
 	}
 	baseFont, _ := cid.Entries["BaseFont"].(pdf.PDFName)
 	vctx := &verify.ValidationContext{UsedCIDs: usedCIDs}
 	verify.ValidateFontProgram(cid, desc, baseFont.Value, vctx)
-	if len(vctx.Issues()) > 0 {
+	if hasSubstitutionIssue(vctx) {
 		return true
 	}
 
@@ -377,7 +500,6 @@ func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[in
 		return false
 	}
 	w, _ := cid.Entries["W"].(pdf.PDFArray)
-	subtype, _ := cid.Entries["Subtype"].(pdf.PDFName)
 	switch subtype.Value {
 	case "CIDFontType2":
 		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
@@ -388,12 +510,12 @@ func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[in
 			verify.ValidateCIDCFFSubset(cid, ff, w, vctx)
 		}
 	}
-	return len(vctx.Issues()) > 0
+	return hasSubstitutionIssue(vctx)
 }
 
 // substituteCIDFont rebuilds a Type0 font's descendant in place as a
 // CIDFontType2 embedding a subsetted bundled Liberation face.
-func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool) bool {
+func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool, sharedDescs map[uintptr]bool, nextObjNum *int) bool {
 	desc, ok := cid.Entries["FontDescriptor"].(pdf.PDFDict)
 	if !ok || desc.Entries == nil {
 		return false
@@ -433,14 +555,20 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		return false
 	}
 
+	// Every rendered CID must survive the substitution; CID 0 (.notdef) needs
+	// no mapping. A CID the face cannot represent would silently lose its
+	// glyph, so refuse and leave the page to raster fallback.
 	targetCIDs := map[uint16][]int{}
 	for c := range cids {
-		u, ok := cidToUnicode[c]
-		if !ok {
+		if c == 0 {
 			continue
 		}
+		u, ok := cidToUnicode[c]
+		if !ok {
+			return false
+		}
 		if _, ok := faceCmap[u]; !ok {
-			continue
+			return false
 		}
 		targetCIDs[u] = append(targetCIDs[u], c)
 	}
@@ -470,7 +598,16 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	}
 	sort.Slice(widthPairs, func(i, j int) bool { return widthPairs[i][0] < widthPairs[j][0] })
 
+	if sharedDescs[pdf.ValuePointer(desc.Entries)] {
+		desc = cloneFontDescriptor(desc, nextObjNum)
+		cid.Entries["FontDescriptor"] = desc
+	}
+
+	newName := substituteBaseFontName(face, baseFont.Value)
 	applySubstituteDescriptor(desc, tables, subset, face)
+	desc.Entries["FontName"] = pdf.PDFName{Value: newName}
+	cid.Entries["BaseFont"] = pdf.PDFName{Value: newName}
+	type0.Entries["BaseFont"] = pdf.PDFName{Value: newName}
 	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
 	cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
 	cid.Entries["W"] = buildCIDWidthsArray(widthPairs)
@@ -550,7 +687,7 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
 // face wherever a font's own program is missing, damaged, or doesn't cover
 // a glyph it needs.
-type fontSubstitutionFixer struct{}
+type fontSubstitutionFixer struct{ doc *pdf.Reader }
 
 func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -561,33 +698,61 @@ func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	usageCtx := &verify.ValidationContext{}
-	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
-
-	changed := false
+func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	// One prepass gathers everything the substitutions need: candidate font
+	// dicts, descriptor sharing counts, and the highest object number.
+	var simple, composite []pdf.PDFDict
+	descCounts := map[uintptr]int{}
+	maxRef := 0
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if ref, ok := d.Entries["_ref"].(pdf.PDFRef); ok && ref.ObjNum > maxRef {
+			maxRef = ref.ObjNum
+		}
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
 			return
 		}
+		if desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict); ok && desc.Entries != nil {
+			descCounts[pdf.ValuePointer(desc.Entries)]++
+		}
 		switch subtype, _ := d.Entries["Subtype"].(pdf.PDFName); subtype.Value {
 		case "Type1", "MMType1", "TrueType":
-			// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
-			// create a synthetic one so substituteSimpleFont can proceed.
-			if d.Entries["FontDescriptor"] == nil {
-				d.Entries["FontDescriptor"] = pdf.NewPDFDict()
-			}
-			if substituteSimpleFont(d, usedCodes) {
-				changed = true
-			}
+			simple = append(simple, d)
 		case "Type0":
-			if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
-				if substituteCIDFont(d, cid, usedCIDs) {
-					changed = true
-				}
-			}
+			composite = append(composite, d)
 		}
 	})
+	if len(simple) == 0 && len(composite) == 0 {
+		return false, nil
+	}
+
+	usageCtx := verify.NewContext(f.doc)
+	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
+	sharedDescs := map[uintptr]bool{}
+	for ptr, n := range descCounts {
+		if n > 1 {
+			sharedDescs[ptr] = true
+		}
+	}
+	nextObjNum := maxRef + 1
+
+	changed := false
+	for _, d := range simple {
+		// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
+		// create a synthetic one so substituteSimpleFont can proceed.
+		if d.Entries["FontDescriptor"] == nil {
+			d.Entries["FontDescriptor"] = pdf.NewPDFDict()
+		}
+		if substituteSimpleFont(d, usedCodes, sharedDescs, &nextObjNum) {
+			changed = true
+		}
+	}
+	for _, d := range composite {
+		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
+			if substituteCIDFont(d, cid, usedCIDs, sharedDescs, &nextObjNum) {
+				changed = true
+			}
+		}
+	}
 	return changed, nil
 }
 

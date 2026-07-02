@@ -437,8 +437,11 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	return table
 }
 
-// validateType1SubsetCoverage verifies that every used character code maps to
-// a glyph name present in the font's CharSet (6.3.5).
+// ValidateType1SubsetCoverage verifies every used character code against the
+// embedded font program: a used glyph the program does not define violates
+// 6.3.5-1, and a defined-but-used glyph missing from the descriptor's CharSet
+// violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
+// string stands in as the glyph set when the program is unparseable.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	charSetVal, ok := desc.Entries["CharSet"]
 	if !ok {
@@ -457,45 +460,25 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		return
 	}
 
-	// Parse CharSet: "/glyph1/glyph2/..."
-	charSet := map[string]bool{}
-	charSet[".notdef"] = true
-	for _, part := range splitGlyphNames(charSetStr) {
+	charSet := map[string]bool{".notdef": true}
+	for _, part := range SplitCharSetNames(charSetStr) {
 		charSet[part] = true
 	}
 
-	// Build a code→glyphName table from the font's encoding.
-	var glyphNames [256]string
-	switch enc := v.Entries["Encoding"].(type) {
-	case pdf.PDFName:
-		switch enc.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		default:
-			return
+	// The program's own glyph set is the coverage ground truth; CharSet is
+	// metadata that must stay consistent with it for the glyphs actually used.
+	glyphSet := charSet
+	haveProgram := false
+	if programNames := embeddedType1GlyphNames(desc, ctx); len(programNames) > 0 {
+		haveProgram = true
+		glyphSet = map[string]bool{".notdef": true}
+		for _, n := range programNames {
+			glyphSet[n] = true
 		}
-	case pdf.PDFDict:
-		// Custom encoding: start from BaseEncoding, then apply Differences.
-		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
-		switch base.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		}
-		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						glyphNames[code] = d.Value
-					}
-					code++
-				}
-			}
-		}
-	default:
+	}
+
+	glyphNames, ok := SimpleFontGlyphNameTable(v)
+	if !ok {
 		return
 	}
 
@@ -507,8 +490,12 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		if glyph == "" || glyph == ".notdef" {
 			return true
 		}
-		if !charSet[glyph] {
-			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d maps to glyph /%s which is not defined in the embedded font subset (CharSet)", cc, glyph))
+		if !glyphSet[glyph] {
+			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d maps to glyph /%s which is not defined in the embedded font subset", cc, glyph))
+			return false
+		}
+		if haveProgram && !charSet[glyph] {
+			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, fmt.Sprintf("CharSet does not list used glyph /%s defined in the font subset", glyph))
 			return false
 		}
 		return true
@@ -543,11 +530,144 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 }
 
-// splitGlyphNames splits a CharSet string like "/a/b/c" into ["a", "b", "c"].
-func splitGlyphNames(cs string) []string {
+// SimpleFontGlyphNameTable builds a code->glyph-name table from a simple
+// font's /Encoding (WinAnsi base plus optional Differences). ok is false for
+// encodings this package doesn't model by name.
+func SimpleFontGlyphNameTable(v pdf.PDFDict) (glyphNames [256]string, ok bool) {
+	switch enc := v.Entries["Encoding"].(type) {
+	case pdf.PDFName:
+		switch enc.Value {
+		case "WinAnsiEncoding":
+			glyphNames = WinAnsiGlyphName
+		default:
+			return glyphNames, false
+		}
+	case pdf.PDFDict:
+		// Custom encoding: start from BaseEncoding, then apply Differences.
+		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
+		switch base.Value {
+		case "WinAnsiEncoding":
+			glyphNames = WinAnsiGlyphName
+		}
+		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
+			code := 0
+			for _, item := range diffs {
+				switch d := item.(type) {
+				case pdf.PDFInteger:
+					code = int(d)
+				case pdf.PDFName:
+					if code >= 0 && code < 256 {
+						glyphNames[code] = d.Value
+					}
+					code++
+				}
+			}
+		}
+	default:
+		return glyphNames, false
+	}
+	return glyphNames, true
+}
+
+// validateType1CMetrics checks that PDF Widths entries match the advance
+// widths in an embedded Type1C (CFF) program (6.3.6). Only codes actually
+// shown are checked when usage info is available.
+func validateType1CMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, ctx *ValidationContext) {
+	data, err := ctx.decodeStreamCached(ff)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	glyphWidths := CFFAdvanceWidths(data)
+	if len(glyphWidths) == 0 {
+		return
+	}
+	glyphNames, ok := SimpleFontGlyphNameTable(v)
+	if !ok {
+		return
+	}
+
+	usedCodes, knownUsage := ctx.usedCodesFor(v)
+	for i, w := range widths {
+		pdfWidth, ok := pdf.PDFNumberToInt(w)
+		if !ok || pdfWidth == 0 {
+			continue
+		}
+		cc := firstChar + i
+		if cc < 0 || cc > 255 {
+			continue
+		}
+		if knownUsage && !usedCodes[cc] {
+			continue
+		}
+		glyph := glyphNames[cc]
+		if glyph == "" {
+			continue
+		}
+		csWidth, found := glyphWidths[glyph]
+		if !found {
+			continue
+		}
+		if pdf.AbsInt(pdfWidth-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ CFF advance width %d",
+				cc, glyph, pdfWidth, csWidth))
+			return
+		}
+	}
+}
+
+// validateCIDCFFMetrics checks /W entries against the advance widths in an
+// embedded CID-keyed CFF program (6.3.6). CIDs never shown are exempt when
+// usage info is available.
+func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
+	data, err := ctx.decodeStreamCached(ff)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	cidWidths := CFFCIDAdvanceWidths(data)
+	if len(cidWidths) == 0 {
+		return
+	}
+	usedCIDs, knownUsage := ctx.usedCIDsFor(v)
+	for _, pair := range ParseCIDWidths(w) {
+		if knownUsage && !usedCIDs[pair[0]] {
+			continue
+		}
+		csWidth, found := cidWidths[pair[0]]
+		if !found {
+			continue
+		}
+		if pdf.AbsInt(pair[1]-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ CFF advance width %d",
+				pair[0], pair[1], csWidth))
+			return
+		}
+	}
+}
+
+// embeddedType1GlyphNames returns the glyph names defined by a descriptor's
+// embedded Type1 (FontFile) or Type1C (FontFile3) program, or nil when no
+// program is present or it cannot be parsed.
+func embeddedType1GlyphNames(desc pdf.PDFDict, ctx *ValidationContext) []string {
+	if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+		if data, err := ctx.decodeStreamCached(ff); err == nil {
+			return Type1GlyphNames(data)
+		}
+		return nil
+	}
+	if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+		if data, err := ctx.decodeStreamCached(ff); err == nil {
+			return CFFGlyphNames(data)
+		}
+	}
+	return nil
+}
+
+// SplitCharSetNames splits a CharSet string like "/a/b/c" into ["a", "b", "c"],
+// tolerating whitespace between entries.
+func SplitCharSetNames(cs string) []string {
 	var result []string
 	for part := range strings.SplitSeq(cs, "/") {
-		if part != "" {
+		if part = strings.TrimSpace(part); part != "" {
 			result = append(result, part)
 		}
 	}
@@ -614,6 +734,11 @@ func ParseCIDWidths(w pdf.PDFArray) [][2]int {
 type CFFTopDict struct {
 	CSOffset      int // CharStrings INDEX offset, -1 if not found
 	CharsetOffset int // Charset table offset, -1 if not found / predefined
+	PrivateOffset int // Private DICT offset, -1 if not found
+	PrivateSize   int
+	FDArrayOffset int // CID-keyed only, -1 if not found
+	FDSelect      int // CID-keyed only, -1 if not found
+	HasFontMatrix bool
 	IsCIDKeyed    bool
 }
 
@@ -622,6 +747,10 @@ type CFFTopDict struct {
 func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	td.CSOffset = -1
 	td.CharsetOffset = -1
+	td.PrivateOffset = -1
+	td.PrivateSize = -1
+	td.FDArrayOffset = -1
+	td.FDSelect = -1
 	if len(cff) < 4 {
 		return td, false
 	}
@@ -729,8 +858,19 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 			if i+1 >= len(topDict) {
 				return td, false
 			}
-			if topDict[i+1] == 30 { // ROS: marks a CID-keyed font
+			switch topDict[i+1] {
+			case 30: // ROS: marks a CID-keyed font
 				td.IsCIDKeyed = true
+			case 7: // FontMatrix: glyph space is not the default 1/1000 em
+				td.HasFontMatrix = true
+			case 36:
+				if len(stack) > 0 {
+					td.FDArrayOffset = stack[0]
+				}
+			case 37:
+				if len(stack) > 0 {
+					td.FDSelect = stack[0]
+				}
 			}
 			stack = nil
 			i += 2
@@ -740,6 +880,9 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 				td.CSOffset = stack[0]
 			case b == 15 && len(stack) > 0: // charset
 				td.CharsetOffset = stack[0]
+			case b == 18 && len(stack) > 1: // Private: [size offset]
+				td.PrivateSize = stack[0]
+				td.PrivateOffset = stack[1]
 			}
 			stack = nil
 			i++
@@ -1264,6 +1407,14 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	}
 	symGIDMap := ParseCmapSubtable(TTSymbolicCmap(tables))
 	numGlyphs := TTNumGlyphs(tables)
+	symbolic := false
+	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
+		if desc, ok3 := fontDict.Entries["FontDescriptor"].(pdf.PDFDict); ok3 {
+			if f, ok4 := desc.Entries["Flags"].(pdf.PDFInteger); ok4 {
+				symbolic = f&4 != 0
+			}
+		}
+	}
 
 	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
 	codeToGID := func(cc int) (int, bool) {
@@ -1282,6 +1433,11 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 					return int(gid), true
 				}
 			}
+		}
+		// A non-symbolic font resolves codes only through its encoding and
+		// cmaps; a code neither can map renders .notdef.
+		if !symbolic {
+			return 0, true
 		}
 		return 0, false // Cannot determine GID — skip.
 	}

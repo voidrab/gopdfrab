@@ -125,6 +125,16 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 		}
 		return arr, nil
 
+	case TokenInteger:
+		return PDFInteger(t.IntValue()), nil
+
+	case TokenReal:
+		f, err := t.RealValue()
+		if err != nil {
+			return nil, err
+		}
+		return PDFReal(f), nil
+
 	default:
 		return PDFString{t.Value}, nil
 	}

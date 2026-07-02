@@ -158,7 +158,7 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
-		if PDFStringDecodedLen(v.Value) > 65535 {
+		if len(v.Value) > 65535 {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
 		}
 	case pdf.PDFHexString:

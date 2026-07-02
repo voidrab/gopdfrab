@@ -2,7 +2,6 @@ package pdf
 
 import (
 	"fmt"
-	"strconv"
 )
 
 // compressedXrefEntry locates an object stored inside a compressed object
@@ -73,9 +72,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 			headerLex.Release()
 			return nil, fmt.Errorf("object stream %d: malformed header at entry %d", streamObjNum, i)
 		}
-		objNum, _ := strconv.Atoi(numTok.Value)
-		off, _ := strconv.Atoi(offTok.Value)
-		pairs = append(pairs, pair{objNum, off})
+		pairs = append(pairs, pair{numTok.IntValue(), offTok.IntValue()})
 	}
 	headerLex.Release()
 

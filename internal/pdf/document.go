@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -72,8 +73,10 @@ type Reader struct {
 	// decodedCache memoizes DecodeStream's output keyed by StreamKeyOf, so
 	// repeated verify passes over the same Reader -- e.g. convert's fixer
 	// iterations, which reseed the same Reader via SeedResolvedGraph -- decode
-	// each unchanged content stream at most once.
+	// each unchanged content stream at most once. decodedMu guards it only
+	// for DecodeStreamCachedConcurrent callers.
 	decodedCache map[StreamKey][]byte
+	decodedMu    sync.Mutex
 
 	// scanCache memoizes TokenizeContent's output keyed by StreamKeyOf, so an
 	// unchanged content stream is lexed/parsed at most once across all of a
@@ -104,6 +107,49 @@ func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
 	}
 	d.decodedCache[key] = data
 	return data, nil
+}
+
+// DecodeStreamCachedConcurrent is DecodeStreamCached for concurrent callers:
+// map access is locked, inflation happens outside the lock (a racing miss may
+// decode a stream twice; results are identical). Never mix with the unlocked
+// DecodeStreamCached concurrently.
+func (d *Reader) DecodeStreamCachedConcurrent(dict PDFDict) ([]byte, error) {
+	key, ok := StreamKeyOf(dict)
+	if !ok {
+		return DecodeStream(dict)
+	}
+	d.decodedMu.Lock()
+	data, hit := d.decodedCache[key]
+	d.decodedMu.Unlock()
+	if hit {
+		return data, nil
+	}
+	data, err := DecodeStream(dict)
+	if err != nil {
+		return nil, err
+	}
+	d.decodedMu.Lock()
+	if d.decodedCache == nil {
+		d.decodedCache = map[StreamKey][]byte{}
+	}
+	d.decodedCache[key] = data
+	d.decodedMu.Unlock()
+	return data, nil
+}
+
+// AdoptStreamCaches shares src's decoded-stream and token caches with d.
+// Sound because StreamKey identifies RawStream bytes by pointer identity and
+// both Readers are seeded with the same in-memory graph.
+func (d *Reader) AdoptStreamCaches(src *Reader) {
+	if src == nil {
+		return
+	}
+	if src.decodedCache != nil {
+		d.decodedCache = src.decodedCache
+	}
+	if src.scanCache != nil {
+		d.scanCache = src.scanCache
+	}
 }
 
 // ScanStreamCached decodes and tokenizes dict's content stream, memoizing the
@@ -634,7 +680,7 @@ func (d *Reader) GetMetadata() (map[string]string, error) {
 	for k, v := range dict.Entries {
 		switch s := v.(type) {
 		case PDFString:
-			metadata[k] = DecodePDFTextString(DecodePDFLiteralStringBytes(s.Value))
+			metadata[k] = DecodePDFTextString([]byte(s.Value))
 		case PDFHexString:
 			metadata[k] = DecodePDFTextString(DecodePDFHexStringBytes(s.Value))
 		}

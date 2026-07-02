@@ -305,24 +305,6 @@ func sanitizeSingleLine(s string) string {
 	return sb.String()
 }
 
-// escapeLiteralString backslash-escapes the characters that delimit or
-// introduce escapes in a PDF literal string, since the bytes are about to
-// be written verbatim between "(" and ")" (writer.go's writeOperand applies
-// no escaping of its own).
-func escapeLiteralString(s string) string {
-	var sb strings.Builder
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; c {
-		case '\\', '(', ')':
-			sb.WriteByte('\\')
-			sb.WriteByte(c)
-		default:
-			sb.WriteByte(c)
-		}
-	}
-	return sb.String()
-}
-
 // parseDA extracts the font size (Tf's second operand) and non-stroking
 // colour operator from a /DA default-appearance string; the font name
 // itself is ignored since the synthesized appearance always uses
@@ -401,7 +383,7 @@ func buildTextAppearanceContent(trailer *pdf.PDFDict, d pdf.PDFDict, text string
 	ops = append(ops, colorOps...)
 	ops = append(ops,
 		writer.ContentOp{Op: "Td", Operands: []pdf.PDFValue{pdf.PDFReal(float32(x)), pdf.PDFReal(float32(y))}},
-		writer.ContentOp{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: escapeLiteralString(text)}}},
+		writer.ContentOp{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: text}}},
 		writer.ContentOp{Op: "ET"},
 		writer.ContentOp{Op: "Q"},
 	)

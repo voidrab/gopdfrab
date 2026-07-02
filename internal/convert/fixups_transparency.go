@@ -42,8 +42,9 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 
 	unique := uniqueByDict(targets)
 	type result struct {
-		fixed pdf.PDFDict
-		ok    bool
+		fixed     pdf.PDFDict
+		ok        bool
+		dropGroup bool
 	}
 	results := make([]result, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
@@ -62,14 +63,21 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 				switch t.kind {
 				case "image":
 					fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
-					results[i] = result{fixed, ok}
+					results[i] = result{fixed: fixed, ok: ok}
 				case "form":
+					// A provably transparency-free group composites the same
+					// without /Group; deleting it (serially, below) skips the
+					// whole rasterization.
+					if canDropGroupSafely(t.dict) {
+						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
+						continue
+					}
 					fixed, ok := flattenFormToImage(t.dict, t.resources)
-					results[i] = result{fixed, ok}
+					results[i] = result{fixed: fixed, ok: ok}
 				case "page":
 					_, had := t.dict.Entries["Group"]
 					delete(t.dict.Entries, "Group")
-					results[i] = result{pdf.PDFDict{}, had}
+					results[i] = result{fixed: pdf.PDFDict{}, ok: had}
 				}
 			}
 		}()
@@ -91,6 +99,10 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 			continue
 		}
 		changed = true
+		if r.dropGroup {
+			delete(r.fixed.Entries, "Group")
+			continue
+		}
 		if t.kind != "page" {
 			t.xobjects.Entries[t.name] = r.fixed
 		}
@@ -304,32 +316,53 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 
+	// A uniformly-opaque mask composites to the base unchanged: drop the
+	// SMask and keep the original image encoding untouched.
+	if smaskFullyOpaque(smask) {
+		delete(img.Entries, "SMask")
+		return img, true
+	}
+
 	w, h := base.Bounds().Dx(), base.Bounds().Dy()
 	smW, smH := smask.Bounds().Dx(), smask.Bounds().Dy()
 	if w == 0 || h == 0 || smW == 0 || smH == 0 {
 		return img, false
 	}
 
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		srow := pdf.ClampInt(y*smH/h, 0, smH-1)
-		op := out.PixOffset(0, y)
-		bp := base.PixOffset(0, y)
-		for x := 0; x < w; x++ {
-			scol := pdf.ClampInt(x*smW/w, 0, smW-1)
-			alpha := float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
+	// Composite at the higher of the two resolutions -- a base this small
+	// relative to its mask (e.g. a 2x2 colour tile under a full-res mask
+	// shape) would otherwise collapse the mask's shape into a solid block.
+	outW, outH := max(w, smW), max(h, smH)
+	out := image.NewRGBA(image.Rect(0, 0, outW, outH))
 
-			r := float64(base.Pix[bp])/255*alpha + (1 - alpha)
-			g := float64(base.Pix[bp+1])/255*alpha + (1 - alpha)
-			b := float64(base.Pix[bp+2])/255*alpha + (1 - alpha)
-			storeRGBA64(out.Pix, op, r, g, b, 1)
+	// bx/sx depend only on x, not y: precompute once instead of on every row.
+	bxTab := make([]int, outW)
+	sxTab := make([]int, outW)
+	for x := 0; x < outW; x++ {
+		bxTab[x] = pdf.ClampInt(x*w/outW, 0, w-1) * 4
+		sxTab[x] = pdf.ClampInt(x*smW/outW, 0, smW-1) * 4
+	}
+
+	for y := 0; y < outH; y++ {
+		by := pdf.ClampInt(y*h/outH, 0, h-1)
+		sy := pdf.ClampInt(y*smH/outH, 0, smH-1)
+		bp := base.PixOffset(0, by)
+		sp := smask.PixOffset(0, sy)
+		op := out.PixOffset(0, y)
+		for x := 0; x < outW; x++ {
+			a := uint32(smask.Pix[sp+sxTab[x]])
+			bo := bp + bxTab[x]
+
+			out.Pix[op] = uint8((uint32(base.Pix[bo])*a + 255*(255-a)) / 255)
+			out.Pix[op+1] = uint8((uint32(base.Pix[bo+1])*a + 255*(255-a)) / 255)
+			out.Pix[op+2] = uint8((uint32(base.Pix[bo+2])*a + 255*(255-a)) / 255)
+			out.Pix[op+3] = 255
 			op += 4
-			bp += 4
 		}
 	}
 
-	img.Entries["Width"] = pdf.PDFInteger(w)
-	img.Entries["Height"] = pdf.PDFInteger(h)
+	img.Entries["Width"] = pdf.PDFInteger(outW)
+	img.Entries["Height"] = pdf.PDFInteger(outH)
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
 	delete(img.Entries, "SMask")
@@ -339,6 +372,44 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 	return img, true
+}
+
+// smaskFullyOpaque reports whether every alpha sample (the red channel the
+// composite loop reads) of a decoded soft mask is 255.
+func smaskFullyOpaque(smask *image.RGBA) bool {
+	if smask.Bounds().Dx() == 0 || smask.Bounds().Dy() == 0 {
+		return false
+	}
+	for i := 0; i < len(smask.Pix); i += 4 {
+		if smask.Pix[i] != 255 {
+			return false
+		}
+	}
+	return true
+}
+
+// canDropGroupSafely reports whether a form's content provably uses no
+// transparency, so deleting /Group composites identically: no gs, no Do, no
+// inline images, and no pattern fill/stroke anywhere in the stream.
+func canDropGroupSafely(form pdf.PDFDict) bool {
+	data, err := pdf.DecodeStream(form)
+	if err != nil {
+		return false
+	}
+	safe := true
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		switch op {
+		case "gs", "Do", "INLINEIMAGE":
+			safe = false
+		case "scn", "SCN":
+			if len(operands) > 0 {
+				if _, isName := operands[len(operands)-1].(pdf.PDFName); isName {
+					safe = false
+				}
+			}
+		}
+	})
+	return safe
 }
 
 // flattenFormToImage rasterizes a Form XObject's own /BBox + content in
@@ -461,11 +532,10 @@ func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) error {
 	w, h := bounds.Dx(), bounds.Dy()
 	rowRGB := make([]byte, w*3)
 	return writer.SetStreamFlateRows(d, h, func(i int) []byte {
-		src := canvas.Pix[canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i):]
-		j := 0
-		for x := 0; x < w*4; x += 4 {
+		off := canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i)
+		src := canvas.Pix[off : off+w*4 : off+w*4]
+		for x, j := 0, 0; x < len(src); x, j = x+4, j+3 {
 			rowRGB[j], rowRGB[j+1], rowRGB[j+2] = src[x], src[x+1], src[x+2]
-			j += 3
 		}
 		return rowRGB
 	})

@@ -109,8 +109,13 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 
 	decode := imageDecodeArray(dict, cs, ncomp, bpc)
 
-	if !isMask && bpc == 8 && isIdentityDecode(decode, ncomp) {
-		if img, ok := unpack8Direct(fastColourModel(cs), ncomp, data, width, height); ok {
+	if !isMask && isIdentityDecode(decode, ncomp) {
+		model := fastColourModel(cs)
+		if bpc == 8 {
+			if img, ok := unpack8Direct(model, ncomp, data, width, height); ok {
+				return img, nil
+			}
+		} else if img, ok := unpackDeviceDirect(model, ncomp, bpc, data, width, height); ok {
 			return img, nil
 		}
 	}
@@ -231,6 +236,46 @@ func unpack8Direct(model string, ncomp int, data []byte, width, height int) (*im
 			off := img.PixOffset(0, y)
 			for x := range width {
 				v := src[x]
+				img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = v, v, v, 255
+				off += 4
+			}
+		}
+		return img, true
+	}
+	return nil, false
+}
+
+// unpackDeviceDirect reads 1/2/4/16-bpc DeviceRGB or DeviceGray samples (any
+// bit depth other than the byte-aligned 8-bpc unpack8Direct handles) and
+// scales them straight to 8-bit RGBA, skipping the general per-pixel
+// ResolveColor path. ok is false when the colour model isn't fast-pathable.
+func unpackDeviceDirect(model string, ncomp, bpc int, data []byte, width, height int) (*image.RGBA, bool) {
+	maxVal := uint64(1)<<bpc - 1
+	rowBytes := (width*ncomp*bpc + 7) / 8
+	scale8 := func(raw uint64) uint8 { return uint8(raw * 255 / maxVal) }
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	switch {
+	case model == "rgb" && ncomp == 3:
+		for y := 0; y < height; y++ {
+			rowOffset := y * rowBytes * 8
+			off := img.PixOffset(0, y)
+			for x := 0; x < width; x++ {
+				base := rowOffset + x*3*bpc
+				img.Pix[off] = scale8(pdf.ReadBits(data, base, bpc))
+				img.Pix[off+1] = scale8(pdf.ReadBits(data, base+bpc, bpc))
+				img.Pix[off+2] = scale8(pdf.ReadBits(data, base+2*bpc, bpc))
+				img.Pix[off+3] = 255
+				off += 4
+			}
+		}
+		return img, true
+	case model == "gray" && ncomp == 1:
+		for y := 0; y < height; y++ {
+			rowOffset := y * rowBytes * 8
+			off := img.PixOffset(0, y)
+			for x := 0; x < width; x++ {
+				v := scale8(pdf.ReadBits(data, rowOffset+x*bpc, bpc))
 				img.Pix[off], img.Pix[off+1], img.Pix[off+2], img.Pix[off+3] = v, v, v, 255
 				off += 4
 			}

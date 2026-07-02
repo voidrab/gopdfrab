@@ -36,13 +36,17 @@ var colourModelN = map[string]int{"rgb": 3, "cmyk": 4}
 
 // injectOutputIntent ensures the document's catalog has a PDF/A OutputIntent
 // backed by an embedded ICC profile.
-func injectOutputIntent(trailer *pdf.PDFDict) error {
+func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
 
-	dominant := dominantColourModel(detectColourModelUsage(*trailer))
+	decode := pdf.DecodeStream
+	if doc != nil {
+		decode = doc.DecodeStreamCachedConcurrent
+	}
+	dominant := dominantColourModel(detectColourModelUsage(*trailer, decode))
 	if existingN, ok := validPDFAOutputIntentN(root); ok {
 		if dominant == "" || colourModelN[dominant] == existingN {
 			return nil
@@ -105,8 +109,8 @@ func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
 
 // detectColourModelUsage counts how often RGB, Gray, and CMYK color models appear in the document graph.
 // It checks dictionary-level color spaces everywhere, but only counts content-stream operators and inline
-// images where they are actually used.
-func detectColourModelUsage(trailer pdf.PDFDict) map[string]int {
+// images where they are actually used. decode supplies content-stream bytes (typically a cached path).
+func detectColourModelUsage(trailer pdf.PDFDict, decode func(pdf.PDFDict) ([]byte, error)) map[string]int {
 	counts := map[string]int{}
 
 	var mu sync.Mutex
@@ -142,7 +146,7 @@ func detectColourModelUsage(trailer pdf.PDFDict) map[string]int {
 			if !claimScan(pdf.ValuePointer(dict.Entries)) {
 				return
 			}
-			data, err := pdf.DecodeStream(dict)
+			data, err := decode(dict)
 			if err != nil {
 				return
 			}

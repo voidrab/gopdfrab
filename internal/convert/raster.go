@@ -589,8 +589,11 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 			po := img.PixOffset(col, row)
 			alpha := float64(img.Pix[po+3]) / 255 * gs.fillAlpha
 			if smask != nil {
-				scol := pdf.ClampInt(col*smW/w, 0, smW-1)
-				srow := pdf.ClampInt(row*smH/h, 0, smH-1)
+				// Sampled from p directly, not from the base image's col/row: a
+				// low-res base under a higher-res mask would otherwise collapse
+				// the mask's shape down to the base's resolution.
+				scol := pdf.ClampInt(int(p.X*float64(smW)), 0, smW-1)
+				srow := pdf.ClampInt(int((1-p.Y)*float64(smH)), 0, smH-1)
 				alpha *= float64(smask.Pix[smask.PixOffset(scol, srow)]) / 255
 			}
 			if alpha <= 0 {
@@ -636,7 +639,7 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
 	for _, item := range arr {
 		switch v := item.(type) {
 		case pdf.PDFString:
-			r.showText(pdf.DecodePDFLiteralStringBytes(v.Value), gs)
+			r.showText([]byte(v.Value), gs)
 		case pdf.PDFHexString:
 			r.showText(pdf.DecodePDFHexStringBytes(v.Value), gs)
 		default:

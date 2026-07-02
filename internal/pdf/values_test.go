@@ -34,14 +34,9 @@ func TestDecodeInfoTextString(t *testing.T) {
 		want string
 	}{
 		{
-			"literal escape parens",
-			PDFString{Value: `Hello \(World\)`},
+			"plain text passthrough",
+			PDFString{Value: "Hello (World)"},
 			"Hello (World)",
-		},
-		{
-			"literal escape backslash",
-			PDFString{Value: `A\\B`},
-			`A\B`,
 		},
 		{
 			"PDFDocEncoding ä via PDFString",

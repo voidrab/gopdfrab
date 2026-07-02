@@ -25,7 +25,7 @@ func init() {
 // an arbitrary existing one into compliance, and doing so resolves the large
 // majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
 // 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
-func regenerateXMP(trailer *pdf.PDFDict) error {
+func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("regenerateXMP: Root is not a dictionary")
@@ -58,7 +58,7 @@ func regenerateXMP(trailer *pdf.PDFDict) error {
 // stripEmbeddedMetadata removes /Metadata from every non-catalog object.
 // PDF/A-1b requires exactly one metadata stream (Root/Metadata); non-catalog
 // /Type /Metadata streams violate 6.7.5 when they lack an xpacket wrapper.
-func stripEmbeddedMetadata(trailer *pdf.PDFDict) error {
+func stripEmbeddedMetadata(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
 		return nil

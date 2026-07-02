@@ -5,14 +5,38 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"sync"
 	"unsafe"
 )
 
-// Token represents a distinct piece of syntax from the PDF.
+// Token represents a distinct piece of syntax from the PDF. Number tokens
+// carry their parsed payload in Int/Num with Value left ""; Value holds the
+// raw text only for malformed numbers (see IntValue/RealValue).
 type Token struct {
 	Type  TokenType
 	Value string
+	Int   int64
+	Num   float64
+}
+
+// IntValue returns t's integer payload, re-parsing Value only for the rare
+// malformed-number token (matching the legacy Atoi-error-to-zero behavior).
+func (t Token) IntValue() int {
+	if t.Value == "" {
+		return int(t.Int)
+	}
+	i, _ := strconv.Atoi(t.Value)
+	return i
+}
+
+// RealValue returns t's real payload, mirroring the legacy parse error for
+// malformed reals.
+func (t Token) RealValue() (float64, error) {
+	if t.Value == "" {
+		return t.Num, nil
+	}
+	return strconv.ParseFloat(t.Value, 64)
 }
 
 // Lexer holds the state of the current chunk being parsed.
@@ -23,6 +47,10 @@ type Lexer struct {
 	reader *bufio.Reader
 	pos    int64
 	pushed []Token
+	// numBuf is readNumber's reader-path scratch, reused across tokens.
+	numBuf []byte
+	// arrScratch is parseArray's shared element stack (see parser.go).
+	arrScratch []PDFValue
 }
 
 // NewLexerBytes creates a fast lexer that indexes data starting at startPos.
@@ -293,30 +321,51 @@ func (l *Lexer) readName() Token {
 	return Token{Type: TokenName, Value: internName(buf)}
 }
 
-// readNumber handles integers and reals
+// readNumber handles integers and reals, parsing the value once into the
+// token's Int/Num payload; only malformed numbers keep their raw text.
 func (l *Lexer) readNumber() Token {
-	var buf []byte
-	isReal := false
-
-	for {
-		b, err := l.readByte()
-		if err != nil {
-			break
+	var raw []byte
+	if l.data != nil {
+		start := l.pos
+		for l.pos < int64(len(l.data)) {
+			b := l.data[l.pos]
+			if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
+				break
+			}
+			l.pos++
 		}
-		if b == '.' {
-			isReal = true
+		raw = l.data[start:l.pos]
+	} else {
+		l.numBuf = l.numBuf[:0]
+		for {
+			b, err := l.readByte()
+			if err != nil {
+				break
+			}
+			if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
+				l.unreadByte()
+				break
+			}
+			l.numBuf = append(l.numBuf, b)
 		}
-		if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
-			l.unreadByte()
-			break
-		}
-		buf = append(buf, b)
+		raw = l.numBuf
 	}
 
+	isReal := bytes.IndexByte(raw, '.') >= 0
+	// Transient no-copy view; strconv does not retain its argument.
+	s := unsafe.String(unsafe.SliceData(raw), len(raw))
 	if isReal {
-		return Token{Type: TokenReal, Value: string(buf)}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return Token{Type: TokenReal, Value: string(raw)}
+		}
+		return Token{Type: TokenReal, Num: f}
 	}
-	return Token{Type: TokenInteger, Value: string(buf)}
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return Token{Type: TokenInteger, Value: string(raw)}
+	}
+	return Token{Type: TokenInteger, Int: i, Num: float64(i)}
 }
 
 // readKeyword handles keywords like true, false, obj, etc.
@@ -332,7 +381,7 @@ func (l *Lexer) readKeyword() Token {
 		}
 		buf = append(buf, b)
 	}
-	val := string(buf)
+	val := internBytes(internedKeywords, buf)
 	if val == "true" || val == "false" {
 		return Token{Type: TokenBoolean, Value: val}
 	}
@@ -354,7 +403,9 @@ func (l *Lexer) readKeyword() Token {
 	return Token{Type: TokenKeyword, Value: val}
 }
 
-// readStringLiteral handles string literals like (Hello World)
+// readStringLiteral handles string literals like (Hello World), decoding
+// escape sequences and EOL normalization per ISO 32000-1 7.3.4.2 so
+// Token.Value holds the bytes the string represents.
 func (l *Lexer) readStringLiteral() Token {
 	var buf []byte
 	depth := 1
@@ -366,14 +417,53 @@ func (l *Lexer) readStringLiteral() Token {
 		}
 		switch b {
 		case '\\':
-			// A backslash escapes the next byte (\( \) \\ \n …); the escaped
-			// byte is part of the string and never affects parenthesis nesting
-			// (ISO 32000-1 7.3.4.2). Bytes are kept raw, as elsewhere here.
 			nb, err := l.readByte()
 			if err != nil {
 				return Token{Type: TokenError, Value: fmt.Sprintf("Unterminated String: %v", err)}
 			}
-			buf = append(buf, b, nb)
+			switch nb {
+			case 'n':
+				buf = append(buf, '\n')
+			case 'r':
+				buf = append(buf, '\r')
+			case 't':
+				buf = append(buf, '\t')
+			case 'b':
+				buf = append(buf, '\b')
+			case 'f':
+				buf = append(buf, '\f')
+			case '(', ')', '\\':
+				buf = append(buf, nb)
+			case '\r':
+				// Line continuation: backslash + EOL vanish entirely.
+				if next, ok := l.peekByte(); ok && next == '\n' {
+					l.readByte()
+				}
+			case '\n':
+			default:
+				if nb >= '0' && nb <= '7' {
+					v := int(nb - '0')
+					for range 2 {
+						nx, ok := l.peekByte()
+						if !ok || nx < '0' || nx > '7' {
+							break
+						}
+						l.readByte()
+						v = v*8 + int(nx-'0')
+					}
+					buf = append(buf, byte(v))
+				} else {
+					// Unknown escape: the backslash is ignored.
+					buf = append(buf, nb)
+				}
+			}
+			continue
+		case '\r':
+			// Unescaped EOL inside a string reads as a single LF.
+			if next, ok := l.peekByte(); ok && next == '\n' {
+				l.readByte()
+			}
+			buf = append(buf, '\n')
 			continue
 		case '(':
 			depth++
@@ -517,14 +607,39 @@ var internedNames = func() map[string]string {
 	return m
 }()
 
-// internName returns a canonical string for s, reusing a pre-allocated
-// backing when s is a common PDF name.
-func internName(b []byte) string {
-	// Zero-alloc map probe: the key is only used for hashing/comparison and
-	// does not escape, so converting without a heap copy is safe here.
+// internedKeywords holds canonical strings for structural keywords and every
+// content-stream operator, so readKeyword rarely allocates.
+var internedKeywords = func() map[string]string {
+	words := []string{
+		"R", "obj", "endobj", "stream", "endstream", "true", "false", "null",
+		"xref", "trailer", "startxref", "n", "f",
+		"q", "Q", "cm", "w", "J", "j", "M", "d", "ri", "i", "gs",
+		"BT", "ET", "Td", "TD", "Tm", "T*", "Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts",
+		"Tj", "TJ", "'", "\"",
+		"m", "l", "c", "v", "y", "h", "re",
+		"S", "s", "F", "f*", "B", "B*", "b", "b*", "W", "W*",
+		"Do", "sh", "cs", "CS", "sc", "scn", "SC", "SCN", "g", "G", "rg", "RG", "k", "K",
+		"BMC", "BDC", "EMC", "MP", "DP", "BX", "EX", "d0", "d1", "BI", "ID", "EI",
+	}
+	m := make(map[string]string, len(words))
+	for _, w := range words {
+		m[w] = w
+	}
+	return m
+}()
+
+// internBytes returns a canonical string for b when m holds one, avoiding
+// the copy; the probe key never escapes.
+func internBytes(m map[string]string, b []byte) string {
 	k := unsafe.String(unsafe.SliceData(b), len(b))
-	if s, ok := internedNames[k]; ok {
+	if s, ok := m[k]; ok {
 		return s
 	}
 	return string(b)
+}
+
+// internName returns a canonical string for s, reusing a pre-allocated
+// backing when s is a common PDF name.
+func internName(b []byte) string {
+	return internBytes(internedNames, b)
 }

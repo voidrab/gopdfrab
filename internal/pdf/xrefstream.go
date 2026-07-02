@@ -3,7 +3,6 @@ package pdf
 import (
 	"fmt"
 	"io"
-	"strconv"
 )
 
 // xrefRange is one (start, count) pair from a cross-reference stream's
@@ -30,7 +29,7 @@ func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFD
 	if objTok.Type != TokenInteger {
 		return 0, PDFDict{}, fmt.Errorf("expected object number at offset %d, got %q", offset, objTok.Value)
 	}
-	objNum, _ = strconv.Atoi(objTok.Value)
+	objNum = objTok.IntValue()
 
 	genTok := l.NextToken()
 	if genTok.Type != TokenInteger {
