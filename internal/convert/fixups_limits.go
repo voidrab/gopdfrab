@@ -18,7 +18,7 @@ func init() {
 	registerFixer(nameTooLongFixer{})
 	registerFixer(cmapCIDClampFixer{})
 
-	registerPreemptiveFixup(func(trailer *pdf.PDFDict) error {
+	registerPreemptiveFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		_, err := pagesTreeArrayFixer{}.Fix(trailer, nil)
 		return err
 	})

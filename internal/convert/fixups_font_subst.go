@@ -687,7 +687,7 @@ func parseToUnicodeCMap(data []byte) map[int]uint16 {
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
 // face wherever a font's own program is missing, damaged, or doesn't cover
 // a glyph it needs.
-type fontSubstitutionFixer struct{}
+type fontSubstitutionFixer struct{ doc *pdf.Reader }
 
 func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -698,8 +698,8 @@ func (fontSubstitutionFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	usageCtx := &verify.ValidationContext{}
+func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	usageCtx := verify.NewContext(f.doc)
 	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
 	sharedDescs := sharedFontDescriptors(*trailer)
 	nextObjNum := nextAvailableObjNum(*trailer)

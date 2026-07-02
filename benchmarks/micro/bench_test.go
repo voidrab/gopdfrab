@@ -176,8 +176,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // (collectUsageFromBytes, see maxLargeFileAllocs) cut this to ~2.53M.
 // Caching the tokenized operator list per stream (Reader.ScanStreamCached,
 // see maxLargeFileAllocs) cut this to ~2.39M.
+// Carrying the loop Reader's stream caches into the final serialize-verify
+// pass (AdoptStreamCaches) cut this to ~2.14M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_450_000
+const maxConvertLargeAllocs = 2_260_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

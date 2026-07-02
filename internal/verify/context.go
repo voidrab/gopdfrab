@@ -67,6 +67,12 @@ type ValidationContext struct {
 	reader *pdf.Reader
 }
 
+// NewContext returns a ValidationContext whose stream decodes and scans go
+// through d's run-scoped caches; a nil d yields uncached decoding.
+func NewContext(d *pdf.Reader) *ValidationContext {
+	return &ValidationContext{reader: d}
+}
+
 // decodeStreamCached decodes dict's stream, caching the result via ctx.reader
 // (see pdf.Reader.DecodeStreamCached) when available.
 func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, error) {

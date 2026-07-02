@@ -410,7 +410,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 			if doc, err := pdf.Open(path); err == nil {
 				if graph, err := doc.ResolveGraph(); err == nil {
 					if trailer, ok := graph.(pdf.PDFDict); ok {
-						mixedModel = len(detectColourModelUsage(trailer)) > 1
+						mixedModel = len(detectColourModelUsage(trailer, pdf.DecodeStream)) > 1
 					}
 				}
 				doc.Close()

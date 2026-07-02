@@ -55,15 +55,15 @@ func registerFixer(f Fixer) {
 	}
 }
 
-var preemptiveFixups []func(trailer *pdf.PDFDict) error
+var preemptiveFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
 
-func registerPreemptiveFixup(f func(trailer *pdf.PDFDict) error) {
+func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
 	preemptiveFixups = append(preemptiveFixups, f)
 }
 
-func applyPreemptiveFixups(trailer *pdf.PDFDict) error {
+func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	for _, f := range preemptiveFixups {
-		if err := f(trailer); err != nil {
+		if err := f(trailer, doc); err != nil {
 			return err
 		}
 	}

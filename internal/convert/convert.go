@@ -101,7 +101,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		return ConvertResult{}, fmt.Errorf("convert: resolved graph is not a dictionary")
 	}
 
-	if err := applyPreemptiveFixups(&trailer); err != nil {
+	if err := applyPreemptiveFixups(&trailer, doc); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
@@ -109,7 +109,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	// instance so the cache is not shared across concurrent Convert calls.
 	dcCache := make(map[pdf.StreamKey][]byte)
 	dcFixer := deviceColourFixer{cache: dcCache}
-	localFixers := buildLocalFixers(dcFixer)
+	localFixers := buildLocalFixers(dcFixer, doc)
 
 	var (
 		cr         ConvertResult
@@ -201,7 +201,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
-	if err := serializeAndVerify(trailer, &cr, p); err != nil {
+	if err := serializeAndVerify(doc, trailer, &cr, p); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	return cr, nil
@@ -217,7 +217,10 @@ func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Res
 
 // serializeAndVerify serializes trailer and verifies the output bytes,
 // updating cr.Output and cr.Result. Called exactly once at the end of Run.
-func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
+// The loop Reader's stream caches carry over: the graph is the same in-heap
+// one, so unchanged streams keep their decoded/tokenized results while
+// rewritten streams miss on their fresh RawStream identity.
+func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
 	var buf bytes.Buffer
 	order, err := writer.WriteDocumentIndexed(&buf, trailer)
 	if err != nil {
@@ -225,19 +228,20 @@ func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) 
 	}
 	cr.Output = buf.Bytes()
 
-	doc, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(cr.Output)
 	if err != nil {
 		return err
 	}
-	defer doc.Close()
+	defer out.Close()
 
 	objs := make(map[int]pdf.PDFValue, len(order))
 	for i, obj := range order {
 		objs[i+1] = obj
 	}
-	doc.SeedResolvedGraph(trailer, objs)
+	out.AdoptStreamCaches(loopDoc)
+	out.SeedResolvedGraph(trailer, objs)
 
-	result, err := verify.Verify(doc, p)
+	result, err := verify.Verify(out, p)
 	if err != nil {
 		return err
 	}
@@ -245,14 +249,18 @@ func serializeAndVerify(trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) 
 	return nil
 }
 
-// buildLocalFixers returns a per-run fixer map with the per-run dcFixer
-// substituted for the global singleton deviceColourFixer.
-func buildLocalFixers(dcFixer deviceColourFixer) map[pdf.Check]Fixer {
+// buildLocalFixers returns a per-run fixer map with run-scoped instances
+// substituted for the registry singletons: the per-run dcFixer, and a
+// fontSubstitutionFixer carrying the run's Reader for cached usage scans.
+func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]Fixer {
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
-		if _, isdc := f.(deviceColourFixer); isdc {
+		switch f.(type) {
+		case deviceColourFixer:
 			local[c] = dcFixer
-		} else {
+		case fontSubstitutionFixer:
+			local[c] = fontSubstitutionFixer{doc: doc}
+		default:
 			local[c] = f
 		}
 	}

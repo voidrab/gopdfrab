@@ -26,7 +26,7 @@ func init() {
 
 // promoteEmptyGlyphsInFonts rewrites a CIDFontType2's embedded TrueType program
 // so its blank glyphs are explicit zero-contour records.
-func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict) error {
+func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
 			return

@@ -32,7 +32,7 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	trailer.Entries["Root"] = root
 	trailer.Entries["Image"] = image // reachable from trailer for the walk
 
-	if err := stripEmbeddedMetadata(&trailer); err != nil {
+	if err := stripEmbeddedMetadata(&trailer, nil); err != nil {
 		t.Fatalf("stripEmbeddedMetadata: %v", err)
 	}
 
