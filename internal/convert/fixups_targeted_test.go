@@ -84,6 +84,64 @@ func TestFontSubsetMetaFixerTargetsIssueRefs(t *testing.T) {
 	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Font.Type1SubsetCharSet)
 }
 
+// appearanceTargetWidget builds a minimal widget annotation with no /AP.
+func appearanceTargetWidget() pdf.PDFDict {
+	w := pdf.NewPDFDict()
+	w.Entries["Type"] = pdf.PDFName{Value: "Annot"}
+	w.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
+	w.Entries["Rect"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(20)}
+	w.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
+	return w
+}
+
+// TestAppearanceFixerTargetsOnlyFlaggedAnnots documents the targeted
+// contract: the verifier reports every violating annotation per pass, so
+// fixTargeted may leave an unflagged (but equally violating) one untouched.
+func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
+	flagged, other := appearanceTargetWidget(), appearanceTargetWidget()
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 91}
+	root.Entries["Annots"] = pdf.PDFArray{flagged, other}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := flagged.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, &ref)
+
+	changed, handled, err := appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+	if _, ok := flagged.Entries["AP"].(pdf.PDFDict); !ok {
+		t.Error("flagged widget got no /AP")
+	}
+	if _, ok := other.Entries["AP"]; ok {
+		t.Error("unflagged widget was touched by the targeted fix")
+	}
+
+	// A ref-less issue in the batch must force the full-walk fallback, which
+	// then fixes the remaining widget too.
+	noRef := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, nil)
+	_, handled, err = appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{noRef})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if handled {
+		t.Fatal("handled = true with a ref-less issue, want fallback")
+	}
+	if _, err := (appearanceFixer{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix fallback: %v", err)
+	}
+	if _, ok := other.Entries["AP"].(pdf.PDFDict); !ok {
+		t.Error("full-walk fallback did not fix the remaining widget")
+	}
+}
+
 func TestFontMetricFixerTargetedFallsBackWithoutRefs(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf"
 	pass, issues, done := targetedFixture(t, path, pdf.Checks.Font.AdvanceWidthMismatch)
