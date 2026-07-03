@@ -66,6 +66,31 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 	return changed, nil
 }
 
+// fixTargeted rewrites only the content streams the issues reference. The
+// graph-scalar flavour of the shared checks is reported against bare scalars
+// without refs, so any such issue in the batch forces the full-walk fallback;
+// a resolvable non-stream target likewise falls back rather than guessing.
+func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if !d.HasStream {
+			return false, false, nil
+		}
+	}
+	for _, d := range targets {
+		updated, ok := rewriteContentStreamDict(d, rewriteOperatorsAndLimits)
+		if !ok {
+			continue
+		}
+		p.replaceObject(d, updated)
+		changed = true
+	}
+	return changed, true, nil
+}
+
 // rewriteOperatorsAndLimits is contentLimitsFixer's contentOpRewriter: it
 // drops an undefined operator, replaces a non-standard ri/inline-/Intent
 // rendering intent with /RelativeColorimetric, and clamps/repairs any

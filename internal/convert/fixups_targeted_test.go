@@ -200,6 +200,41 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 	}
 }
 
+func TestContentLimitsFixerTargetsIssueRefs(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.2 Graphics/6.2.10 Content Streams/isartor-6-2-10-t01-fail-a.pdf"
+	pass, issues, done := targetedFixture(t, path, pdf.Checks.Colour.UndefinedOperator)
+	defer done()
+
+	runTargetedAndCheckIdempotent(t, contentLimitsFixer{}, pass, issues)
+	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Colour.UndefinedOperator)
+}
+
+// TestContentLimitsFixerTargetedRejectsNonStreamTargets covers the gate for
+// the graph-scalar flavour once it carries owner refs: a resolvable target
+// without a stream must force the full-walk fallback.
+func TestContentLimitsFixerTargetedRejectsNonStreamTargets(t *testing.T) {
+	plain := pdf.NewPDFDict()
+	plain.Entries["_ref"] = pdf.PDFRef{ObjNum: 30}
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 31}
+	root.Entries["Thing"] = plain
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := plain.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
+
+	_, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if handled {
+		t.Fatal("handled = true for a non-stream target, want full-walk fallback")
+	}
+}
+
 func TestFontMetricFixerTargetedFallsBackWithoutRefs(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf"
 	pass, issues, done := targetedFixture(t, path, pdf.Checks.Font.AdvanceWidthMismatch)
