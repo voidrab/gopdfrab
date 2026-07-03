@@ -42,11 +42,7 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
 
-	decode := pdf.DecodeStream
-	if doc != nil {
-		decode = doc.DecodeStreamCachedConcurrent
-	}
-	dominant := dominantColourModel(detectColourModelUsage(*trailer, decode))
+	dominant := dominantColourModel(detectColourModelUsage(*trailer, decoderFor(doc)))
 	if existingN, ok := validPDFAOutputIntentN(root); ok {
 		if dominant == "" || colourModelN[dominant] == existingN {
 			return nil
@@ -107,10 +103,19 @@ func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
 	return fallback
 }
 
+// decoderFor returns the run's shared decode function: the Reader's concurrent
+// decoded-stream cache when doc is set, else the uncached pdf.DecodeStream.
+func decoderFor(doc *pdf.Reader) decodeFunc {
+	if doc != nil {
+		return doc.DecodeStreamCachedConcurrent
+	}
+	return pdf.DecodeStream
+}
+
 // detectColourModelUsage counts how often RGB, Gray, and CMYK color models appear in the document graph.
 // It checks dictionary-level color spaces everywhere, but only counts content-stream operators and inline
 // images where they are actually used. decode supplies content-stream bytes (typically a cached path).
-func detectColourModelUsage(trailer pdf.PDFDict, decode func(pdf.PDFDict) ([]byte, error)) map[string]int {
+func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]int {
 	counts := map[string]int{}
 
 	var mu sync.Mutex
@@ -134,75 +139,7 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode func(pdf.PDFDict) ([]byt
 			}
 			local[model]++
 		}
-		countModel := func(name string, resources pdf.PDFDict) {
-			if m, ok := verify.InlineCSAbbrev[name]; ok {
-				countModelExempt(m, resources)
-				return
-			}
-			countModelExempt(verify.NamedColourModel(pdf.PDFName{Value: name}, resources), resources)
-		}
-		var scan func(dict, resources pdf.PDFDict)
-		scan = func(dict, resources pdf.PDFDict) {
-			if !claimScan(pdf.ValuePointer(dict.Entries)) {
-				return
-			}
-			data, err := decode(dict)
-			if err != nil {
-				return
-			}
-			pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
-				switch op {
-				case "rg", "RG":
-					countModelExempt("rgb", resources)
-				case "g", "G":
-					countModelExempt("gray", resources)
-				case "k", "K":
-					countModelExempt("cmyk", resources)
-				case "cs", "CS":
-					if len(operands) != 1 {
-						return
-					}
-					if name, ok := operands[0].(pdf.PDFName); ok {
-						countModel(name.Value, resources)
-					}
-				case "INLINEIMAGE":
-					for i := 0; i+1 < len(operands); i += 2 {
-						key, ok := operands[i].(pdf.PDFName)
-						if !ok || (key.Value != "CS" && key.Value != "ColorSpace") {
-							continue
-						}
-						if name, ok := operands[i+1].(pdf.PDFName); ok {
-							countModel(name.Value, resources)
-						}
-					}
-				case "Do":
-					if len(operands) != 1 {
-						return
-					}
-					name, ok := operands[0].(pdf.PDFName)
-					if !ok {
-						return
-					}
-					xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-					if form, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && form.HasStream {
-						scan(form, resourcesOf(form, resources))
-					}
-				case "scn", "SCN":
-					if len(operands) == 0 {
-						return
-					}
-					name, ok := operands[len(operands)-1].(pdf.PDFName)
-					if !ok {
-						return
-					}
-					patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
-					if pat, ok := patterns.Entries[name.Value].(pdf.PDFDict); ok && pat.HasStream {
-						scan(pat, resourcesOf(pat, resources))
-					}
-				}
-			})
-		}
-		scan(root, rootRes)
+		scanContentColour(root, rootRes, claimScan, decode, countModelExempt)
 	}
 
 	var jobs []scanJob

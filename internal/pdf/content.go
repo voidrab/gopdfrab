@@ -132,25 +132,6 @@ func StreamKeyOf(dict PDFDict) (StreamKey, bool) {
 	return StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}, true
 }
 
-// DecodeCached decodes a stream using cache to avoid repeated decompression,
-// keyed by StreamKeyOf so the cache stays correct across a convert run's
-// fixer iterations even as streams are rewritten in place.
-func DecodeCached(dict PDFDict, cache map[StreamKey][]byte) ([]byte, error) {
-	key, ok := StreamKeyOf(dict)
-	if !ok {
-		return DecodeStream(dict)
-	}
-	if data, ok := cache[key]; ok {
-		return data, nil
-	}
-	data, err := DecodeStream(dict)
-	if err != nil {
-		return nil, err
-	}
-	cache[key] = data
-	return data, nil
-}
-
 // decodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
 // terminated by '>'. Whitespace between pairs is ignored.
 func DecodeASCIIHex(data []byte) ([]byte, error) {

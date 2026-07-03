@@ -1,6 +1,5 @@
-// Package pdfrab is the public facade over gopdfrab's internal layers
-// (pdf, check, verify, convert, writer): it exports the core API --
-// open a document, verify it, convert it, inspect issues/checks/profiles.
+// Convert and verify PDF files for PDF/A-1b conformance. See the package
+// documentation for usage examples.
 package pdfrab
 
 import (
