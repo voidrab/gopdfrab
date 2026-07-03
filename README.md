@@ -113,8 +113,8 @@ if v.Valid {
 
 Finally, close doc.
 
-```
-doc.close()
+```go
+doc.Close()
 ```
 
 ### Verify a File
@@ -244,7 +244,7 @@ Even though `Convert` always returns its best attempt, the result may still carr
 residual := cr.Residual()
 for _, iss := range residual {
     check := iss.Check()
-    fmt.Println(Clause(), Name())
+    fmt.Println(check.Clause(), check.Name())
     fmt.Println(iss.Page(), iss.Messages())
 }
 ```
@@ -293,17 +293,19 @@ Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, de
 
 ## Performance
 
-gopdfrab's PDF/A-1b verification performance is (unfairily) measured against the Java-based [veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/) on the combined Isartor + veraPDF corpora (773 files); see `benchmarks/README.md` for methodology.
+gopdfrab's PDF/A-1b verification performance is (unfairly) measured against the Java-based [veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/) on the combined Isartor + veraPDF corpora (773 files); see `benchmarks/README.md` for methodology.
 
 | Benchmark | gopdfrab vs veraPDF | gopdfrab vs PDFBox Preflight |
 |---|---|---|
-| Startup time | 222x faster | 32x faster |
-| Single file throughput | 261x faster | 80x faster |
-| Batch throughput | 16x faster | 12x faster |
-| Batch peak memory | 13x smaller | 14x smaller |
-| Binary size | 5x smaller | 4x smaller |
+| Startup time | 149x faster | 22x faster |
+| Single file (cold, median file) | 160x faster | 50x faster |
+| Batch throughput | 20x faster | 15x faster |
+| Batch peak memory | 11x smaller | 15x smaller |
+| Deployment footprint | 9x smaller | 3x smaller |
 
-Due to JVM startup overhead, the startup time and single file verification throughput are significantly slower for veraPFD and Preflight.
+Absolute numbers from the same run: the full 773-file batch verifies in 0.29 s (2749 files/s) at 67 MB peak RSS, and a cold single-file verification of the median corpus file takes ~5 ms including process startup.
+
+Due to JVM startup overhead, startup time and cold single-file verification are significantly slower for veraPDF and Preflight.
 
 ## Isartor Compatibility
 
