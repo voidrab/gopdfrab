@@ -122,6 +122,44 @@ func TestFixPassDictsForIssuesGateAndOrder(t *testing.T) {
 	}
 }
 
+// TestFixPassReplaceObjectReachesAllParents shares one stream dict between a
+// dict entry and an array slot and asserts replaceObject rewrites both plus
+// the iteration index, since stream fields don't propagate via Entries.
+func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
+	stream := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}},
+		HasStream: true,
+		RawStream: []byte("old"),
+	}
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	root.Entries["Direct"] = stream
+	root.Entries["List"] = pdf.PDFArray{stream}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := stream.Entries["_ref"].(pdf.PDFRef)
+
+	updated := stream
+	updated.RawStream = []byte("new")
+	pass.replaceObject(stream, updated)
+
+	if got := root.Entries["Direct"].(pdf.PDFDict).RawStream; string(got) != "new" {
+		t.Errorf("dict-entry slot RawStream = %q, want %q", got, "new")
+	}
+	if got := root.Entries["List"].(pdf.PDFArray)[0].(pdf.PDFDict).RawStream; string(got) != "new" {
+		t.Errorf("array slot RawStream = %q, want %q", got, "new")
+	}
+	if got, ok := pass.objs[ref.ObjNum].(pdf.PDFDict); !ok || string(got.RawStream) != "new" {
+		t.Errorf("iteration index not updated: %v", pass.objs[ref.ObjNum])
+	}
+	if d, ok := pass.dictForRef(ref); !ok || string(d.RawStream) != "new" {
+		t.Errorf("dictForRef after replaceObject returned stale copy")
+	}
+}
+
 func maxMidMin(nums []int) (max, mid, min int) {
 	max, mid, min = nums[0], nums[0], nums[0]
 	for _, n := range nums {
