@@ -163,7 +163,7 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 		}
 	case pdf.PDFHexString:
 		// 6.1.6: hex string operands must be valid hex digits, even count.
-		validateHexString(v, ctx)
+		validateHexString(v, obj, ctx)
 	case pdf.PDFArray:
 		for _, e := range v {
 			checkOperandLimits(e, obj, ctx)

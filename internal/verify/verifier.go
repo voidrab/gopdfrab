@@ -528,9 +528,12 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
-	var walk func(node any)
+	// owner is the nearest enclosing dict, threaded through arrays, so
+	// scalar-limit violations are reported against an object fixers can
+	// resolve by ref instead of the bare scalar.
+	var walk func(node any, owner pdf.PDFValue)
 
-	walk = func(node any) {
+	walk = func(node any, owner pdf.PDFValue) {
 		if node == nil {
 			return
 		}
@@ -580,7 +583,8 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 						)
 					}
 				}
-				walk(val)
+				// Pass node (v already boxed) to avoid re-boxing v per call.
+				walk(val, node)
 			}
 
 		case pdf.PDFArray:
@@ -602,19 +606,19 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			for _, item := range v {
-				walk(item)
+				walk(item, owner)
 			}
 
 		case pdf.PDFHexString:
 			// Hexadecimal strings shall contain an even number of non-white-space characters,
 			// each in the range 0 to 9, A to F or a to f.
-			validateHexString(v, ctx)
+			validateHexString(v, owner, ctx)
 		}
 
-		validateArchitecturalLimits(node, ctx)
+		validateArchitecturalLimits(node, owner, ctx)
 	}
 
-	walk(graph)
+	walk(graph, nil)
 }
 
 // ComputeContentUsage walks the resolved graph once, decoding each page's
@@ -902,8 +906,10 @@ func ShownStringBytes(op string, operands []pdf.PDFValue) []byte {
 	return out
 }
 
-// validateHexString validates requirements outlined in 6.1.6.
-func validateHexString(v pdf.PDFHexString, ctx *ValidationContext) {
+// validateHexString validates requirements outlined in 6.1.6, reporting
+// against owner (the enclosing dict or content stream) so fixers can resolve
+// the violation by ref.
+func validateHexString(v pdf.PDFHexString, owner pdf.PDFValue, ctx *ValidationContext) {
 	hexCount := 0
 
 	hexErrs := []error{}
@@ -925,13 +931,13 @@ func validateHexString(v pdf.PDFHexString, ctx *ValidationContext) {
 	}
 
 	if len(hexErrs) > 0 {
-		ctx.ReportErrs(pdf.Checks.Structure.HexStringInvalidChar, v, hexErrs)
+		ctx.ReportErrs(pdf.Checks.Structure.HexStringInvalidChar, owner, hexErrs)
 	}
 
 	if hexCount%2 != 0 {
 		ctx.Report(
 			pdf.Checks.Structure.HexStringOddLength,
-			v,
+			owner,
 			fmt.Sprintf("contains an odd number of hex chars (%d)", hexCount),
 		)
 	}
@@ -965,14 +971,17 @@ func validateObject(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// validateArchitecturalLimits validates requirements outlined in 6.1.12
-func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
+// validateArchitecturalLimits validates requirements outlined in 6.1.12.
+// Scalar violations are reported against owner (the nearest enclosing dict)
+// so fixers can resolve them by ref; composite violations carry their own
+// identity and report against themselves.
+func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *ValidationContext) {
 	switch v := node.(type) {
 	case pdf.PDFName:
 		// Maximum length of a name, in bytes: 127
 		nameLen := len(v.Value)
 		if nameLen > 127 {
-			ctx.Report(pdf.Checks.Structure.NameTooLong, v, fmt.Sprintf(
+			ctx.Report(pdf.Checks.Structure.NameTooLong, owner, fmt.Sprintf(
 				"maximum length of name (127) exceeded: %v",
 				nameLen,
 			))
@@ -980,17 +989,17 @@ func validateArchitecturalLimits(node pdf.PDFValue, ctx *ValidationContext) {
 	case pdf.PDFInteger:
 		// 6.1.12: integer values are limited to the 32-bit signed range.
 		if v < -2_147_483_648 || v > 2_147_483_647 {
-			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, v, fmt.Sprintf("integer value exceeded limits: %v", v))
+			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, owner, fmt.Sprintf("integer value exceeded limits: %v", v))
 		}
 	case pdf.PDFReal:
 		// 6.1.12: magnitude of real numbers shall not exceed 32767.
 		if v < -32767 || v > 32767 {
-			ctx.Report(pdf.Checks.Structure.RealOutOfRange, v, fmt.Sprintf("real number out of range: %g", float64(v)))
+			ctx.Report(pdf.Checks.Structure.RealOutOfRange, owner, fmt.Sprintf("real number out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
 		// 6.1.12: maximum length of a string object is 65535 bytes.
 		if len(v.Value) > 65535 {
-			ctx.Report(pdf.Checks.Structure.StringTooLong, v, "string exceeds maximum length of 65535 bytes")
+			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, "string exceeds maximum length of 65535 bytes")
 		}
 	case pdf.PDFDict:
 		// 6.1.12: maximum number of entries in a dictionary is 4095.
