@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 // validateStream performs a partial validation of requirements 6.1.7 and
@@ -26,20 +25,11 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		return fmt.Errorf("could not resolve stream Length: %v", lengthObj)
 	}
 
-	var length int
-	lengthStr, ok := lengthObj.(PDFString)
+	lengthInt, ok := lengthObj.(PDFInteger)
 	if !ok {
-		lengthInt, ok := lengthObj.(PDFInteger)
-		if !ok {
-			return fmt.Errorf("could not parse stream Length")
-		}
-		length = int(lengthInt)
-	} else {
-		length, err = strconv.Atoi(lengthStr.Value)
-		if err != nil {
-			return fmt.Errorf("could not parse stream Length as integer: %v", err)
-		}
+		return fmt.Errorf("could not parse stream Length")
 	}
+	length := int(lengthInt)
 
 	streamStart := l.pos
 
