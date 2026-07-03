@@ -70,9 +70,9 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 	return page, resources
 }
 
-// TestScanAPStreamDetectsNestedXObjectRGB confirms that scanAPStream now
+// TestScanContentColourDetectsNestedXObjectRGB confirms scanContentColour
 // follows Do operators into nested Form XObjects when scanning for colours.
-func TestScanAPStreamDetectsNestedXObjectRGB(t *testing.T) {
+func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 	page, _ := buildNestedAPPage()
 
 	annots := page.Entries["Annots"].(pdf.PDFArray)
@@ -81,11 +81,19 @@ func TestScanAPStreamDetectsNestedXObjectRGB(t *testing.T) {
 	apStream := ap.Entries["N"].(pdf.PDFDict)
 	apRes := apStream.Entries["Resources"].(pdf.PDFDict)
 
+	visited := map[uintptr]bool{}
+	claim := func(ptr uintptr) bool {
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+		return true
+	}
 	used := map[string]bool{}
-	scanAPStream(apStream, apRes, map[uintptr]bool{}, func(m string) { used[m] = true }, nil)
+	scanContentColour(apStream, apRes, claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
 
 	if !used["rgb"] {
-		t.Error("scanAPStream did not detect DeviceRGB inside a Do-invoked nested Form XObject")
+		t.Error("scanContentColour did not detect DeviceRGB inside a Do-invoked nested Form XObject")
 	}
 }
 

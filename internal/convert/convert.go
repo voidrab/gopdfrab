@@ -106,10 +106,9 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
-	// Per-run decode cache for scanning fixers; per-run deviceColourFixer
-	// instance so the cache is not shared across concurrent Convert calls.
-	dcCache := make(map[pdf.StreamKey][]byte)
-	dcFixer := deviceColourFixer{cache: dcCache}
+	// Per-run deviceColourFixer wired to the Reader's concurrent decode cache,
+	// shared with the pre-loop detectColourModelUsage scan.
+	dcFixer := deviceColourFixer{decode: decoderFor(doc)}
 	localFixers := buildLocalFixers(dcFixer, doc)
 
 	var (
