@@ -473,13 +473,10 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 }
 
 // minConvertedFully is a regression floor on how many of both corpora's
-// "fail" fixtures Convert turns fully conformant, recorded empirically after
-// rasterization became Convert's automatic last resort: 509 of 510, up from
-// 502. The single hold-out is a fixture whose cross-reference table can't be
-// parsed (6.1.4/6.1.6) -- the graph never resolves, so there is nothing to
-// rewrite or rasterize. Should only ever increase; a drop means something
-// regressed.
-const minConvertedFully = 509
+// "fail" fixtures Convert turns fully conformant: all 510, since brute-force
+// recovery of unparseable /Prev xref sections cleared the last hold-out.
+// A drop means something regressed.
+const minConvertedFully = 510
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome.
