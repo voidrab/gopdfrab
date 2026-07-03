@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -139,6 +140,63 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	}
 	if _, ok := other.Entries["AP"].(pdf.PDFDict); !ok {
 		t.Error("full-walk fallback did not fix the remaining widget")
+	}
+}
+
+// cmapStreamDict builds a CMap stream whose cidrange CID exceeds the 65535
+// limit, undeflated so DecodeStream returns it as-is.
+func cmapStreamDict(objNum int) pdf.PDFDict {
+	content := "1 begincidrange\n<0000> <00ff> 70000\nendcidrange\n"
+	return pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "CMap"},
+			"_ref": pdf.PDFRef{ObjNum: objNum},
+		},
+		HasStream: true,
+		RawStream: []byte(content),
+	}
+}
+
+// TestCmapCIDClampFixerTargetsIssueRefs shares the flagged CMap between two
+// graph slots: the targeted rewrite must reach both (stream fields do not
+// propagate through the shared Entries map) and leave an unflagged, equally
+// violating CMap untouched.
+func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
+	flagged, other := cmapStreamDict(20), cmapStreamDict(21)
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	root.Entries["Enc"] = flagged
+	root.Entries["List"] = pdf.PDFArray{flagged, other}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := flagged.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref)
+
+	changed, handled, err := cmapCIDClampFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+
+	for slot, d := range map[string]pdf.PDFDict{
+		"Enc":     root.Entries["Enc"].(pdf.PDFDict),
+		"List[0]": root.Entries["List"].(pdf.PDFArray)[0].(pdf.PDFDict),
+	} {
+		data, err := pdf.DecodeStream(d)
+		if err != nil {
+			t.Fatalf("DecodeStream(%s): %v", slot, err)
+		}
+		if !bytes.Contains(data, []byte("65535")) || bytes.Contains(data, []byte("70000")) {
+			t.Errorf("%s not clamped: %q", slot, data)
+		}
+	}
+	if got := root.Entries["List"].(pdf.PDFArray)[1].(pdf.PDFDict); !bytes.Contains(got.RawStream, []byte("70000")) {
+		t.Errorf("unflagged CMap was touched by the targeted fix: %q", got.RawStream)
 	}
 }
 

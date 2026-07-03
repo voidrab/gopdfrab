@@ -579,27 +579,54 @@ func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.CMapCIDOutOfRange
 }
 
-func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
-			return d, false
+		updated, ok := clampCMapStreamDict(d)
+		if ok {
+			changed = true
 		}
-		data, err := pdf.DecodeStream(d)
-		if err != nil {
-			return d, false
-		}
-		clamped, ok := clampCMapCIDs(data)
-		if !ok {
-			return d, false
-		}
-		if err := writer.SetStreamFlate(&d, clamped); err != nil {
-			return d, false
-		}
-		changed = true
-		return d, true
+		return updated, ok
 	})
 	return changed, nil
+}
+
+// fixTargeted clamps only the CMap streams the issues reference, writing the
+// rewritten dict back into every referencing slot via the pass index.
+func (cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		updated, ok := clampCMapStreamDict(d)
+		if !ok {
+			continue
+		}
+		p.replaceObject(d, updated)
+		changed = true
+	}
+	return changed, true, nil
+}
+
+// clampCMapStreamDict returns a copy of d with out-of-range CIDs clamped in
+// its decoded stream, or ok=false when d is not a CMap stream or needs no fix.
+func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
+		return d, false
+	}
+	data, err := pdf.DecodeStream(d)
+	if err != nil {
+		return d, false
+	}
+	clamped, ok := clampCMapCIDs(data)
+	if !ok {
+		return d, false
+	}
+	if err := writer.SetStreamFlate(&d, clamped); err != nil {
+		return d, false
+	}
+	return d, true
 }
 
 // clampCMapCIDs rewrites every cidrange/cidchar CID token over maxCMapCID in
