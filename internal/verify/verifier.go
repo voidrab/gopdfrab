@@ -484,6 +484,8 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 			continue
 		}
 		switch v.(type) {
+		case nil:
+			// A null value is equivalent to the entry being absent.
 		case pdf.PDFString, pdf.PDFHexString:
 		case pdf.PDFName:
 			if k != "Trapped" {

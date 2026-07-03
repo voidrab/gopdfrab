@@ -147,7 +147,15 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 	case TokenBoolean:
 		return PDFBoolean(t.Value == "true"), nil
 
-	case TokenName, TokenKeyword:
+	case TokenName:
+		return PDFName{Value: t.Value}, nil
+
+	case TokenKeyword:
+		// The only bare keyword valid as an object body is 'null', which is the
+		// null object (ISO 32000-1 7.3.10), represented as a nil PDFValue.
+		if t.Value == "null" {
+			return nil, nil
+		}
 		return PDFName{Value: t.Value}, nil
 
 	case TokenString:

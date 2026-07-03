@@ -138,6 +138,10 @@ func parseObject(l *Lexer, tok Token) (PDFValue, error) {
 	switch tok.Type {
 
 	case TokenKeyword:
+		// 'null' is the null object (ISO 32000-1 7.3.10), a nil PDFValue.
+		if tok.Value == "null" {
+			return nil, nil
+		}
 		return PDFName{Value: tok.Value}, nil
 
 	case TokenBoolean:

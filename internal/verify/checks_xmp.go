@@ -930,8 +930,8 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 	}
 	var errs []pdf.PDFError
 
-	// The PDF null keyword is resolved to the string "null" by the parser;
-	// treat that as absent so it doesn't trigger a false sync mismatch.
+	// A null-valued or literal "null" Info entry is equivalent to absence, so
+	// skip it rather than treating it as a value that must sync with the XMP.
 	for key, prop := range map[string]string{
 		"Title":   "dc:title",
 		"Subject": "dc:description",
