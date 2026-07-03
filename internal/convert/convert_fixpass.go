@@ -6,6 +6,15 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
+// targetedFixer is an optional capability for a Fixer that can remediate just
+// the objects its issues point at instead of walking the whole graph.
+// handled=false means the batch could not be targeted (e.g. a ref-less issue)
+// and the caller falls back to the ordinary Fix.
+type targetedFixer interface {
+	Fixer
+	fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error)
+}
+
 // fixPass carries per-iteration fixer state: the trailer and the ObjNum ->
 // object index built by writer.NumberObjects for this iteration's in-heap
 // verify. Object numbers are only stable within one iteration, so a fixPass

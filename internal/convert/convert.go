@@ -125,7 +125,6 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
 		cr.Result = result
-		_ = objs
 
 		if cr.Result.Valid {
 			break
@@ -139,9 +138,11 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 
 		changed := false
 		// Per-dict-local fixers (batchDictFixer) share one graph walk this
-		// pass instead of each walking the whole graph; everything else runs
+		// pass instead of each walking the whole graph; targeted fixers jump
+		// straight to the objects their issues reference; everything else runs
 		// its own Fix as before. Sorted order keeps fixer application -- and
 		// with it the whole conversion -- deterministic across runs.
+		pass := &fixPass{trailer: &trailer, objs: objs}
 		var visitors []func(pdf.PDFDict)
 		batched := map[Fixer]bool{}
 		for _, c := range sortedChecks(counts) {
@@ -158,6 +159,18 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 					visitors = append(visitors, visit)
 				}
 				continue
+			}
+			if tf, ok := fixer.(targetedFixer); ok {
+				ch, handled, err := tf.fixTargeted(pass, cr.Result.IssuesForCheck(c))
+				if err != nil {
+					return ConvertResult{}, fmt.Errorf("convert: targeted fixer for check %q: %w", c.Name(), err)
+				}
+				if handled {
+					if ch {
+						changed = true
+					}
+					continue
+				}
 			}
 			ch, err := fixer.Fix(&trailer, cr.Result.IssuesForCheck(c))
 			if err != nil {

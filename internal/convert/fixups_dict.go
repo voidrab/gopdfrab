@@ -11,9 +11,8 @@ import (
 // converter plan: actions (6.6), ExtGState transparency keys (6.2.8/6.4),
 // annotation flags (6.5.3), interactive forms (6.9), image/form XObject
 // metadata keys (6.2.4-6.2.7), PostScript form XObjects (6.2.5/6.2.7), and
-// optional content (6.1.13). Each Fixer walks the whole graph via walkDicts
-// rather than targeting issues' ObjectRef -- see convert_fixers.go for why
-// -- mirroring, in reverse, the exact detection logic in checks_dict.go so a
+// optional content (6.1.13). Each Fixer walks the whole graph via walkDicts,
+// mirroring, in reverse, the exact detection logic in checks_dict.go so a
 // Fixer only ever "fixes" what its matching check would actually flag.
 //
 // Deliberately out of scope here (see checks_dict.go and the converter

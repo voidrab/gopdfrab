@@ -7,7 +7,8 @@ import (
 )
 
 // Fixer attempts to remediate a specific set of violations across the entire document graph idempotently.
-// It targets the graph as a whole rather than using individual issue ObjectRefs, which change during serialization.
+// Fix targets the whole graph; a Fixer that can act on individual issue ObjectRefs
+// (stable within one convert iteration) additionally implements targetedFixer.
 type Fixer interface {
 	// Applies reports whether this Fixer remediates violations of c.
 	Applies(c pdf.Check) bool
