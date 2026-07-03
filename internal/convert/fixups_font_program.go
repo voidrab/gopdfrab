@@ -66,52 +66,65 @@ func (fontMetricFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.AdvanceWidthMismatch
 }
 
-func (fontMetricFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (fontMetricFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
-			return
-		}
-		subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-		desc, _ := d.Entries["FontDescriptor"].(pdf.PDFDict)
-
-		switch subtype.Value {
-		case "TrueType":
-			if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
-				if fixSimpleTrueTypeWidths(d, ff) {
-					changed = true
-				}
-			}
-		case "Type1", "MMType1":
-			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
-				pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
-				if fixType1Widths(d, ff, pdfEnc.Value) {
-					changed = true
-				}
-			} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
-				if fixType1CWidths(d, ff) {
-					changed = true
-				}
-			}
-		case "CIDFontType2":
-			if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
-				if fixCIDTrueTypeWidths(d, ff) {
-					changed = true
-				}
-			}
-		case "CIDFontType0":
-			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
-				if fixCIDCFFWidths(d, ff) {
-					changed = true
-				}
-			}
-		case "Type3":
-			if fixType3Widths(d) {
-				changed = true
-			}
+		if fixFontMetricsDict(d) {
+			changed = true
 		}
 	})
 	return changed, nil
+}
+
+// fixTargeted repairs only the font dicts the issues reference; the verifier
+// reports every mismatching font per pass, so this covers all violations.
+func (fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if fixFontMetricsDict(d) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+// fixFontMetricsDict recomputes d's width metadata from its embedded font
+// program if d is a font dict; it re-checks the predicate so a stale or
+// already-fixed target is a no-op.
+func fixFontMetricsDict(d pdf.PDFDict) bool {
+	if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	desc, _ := d.Entries["FontDescriptor"].(pdf.PDFDict)
+
+	switch subtype.Value {
+	case "TrueType":
+		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+			return fixSimpleTrueTypeWidths(d, ff)
+		}
+	case "Type1", "MMType1":
+		if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+			pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
+			return fixType1Widths(d, ff, pdfEnc.Value)
+		} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+			return fixType1CWidths(d, ff)
+		}
+	case "CIDFontType2":
+		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+			return fixCIDTrueTypeWidths(d, ff)
+		}
+	case "CIDFontType0":
+		if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+			return fixCIDCFFWidths(d, ff)
+		}
+	case "Type3":
+		return fixType3Widths(d)
+	}
+	return false
 }
 
 // fixSimpleTrueTypeWidths rewrites mismatched /Widths entries to the
@@ -437,42 +450,61 @@ func (fontSubsetMetaFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (fontSubsetMetaFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
-			return
-		}
-		baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
-		if !verify.SubsetTagRe.MatchString(baseFont.Value) {
-			return
-		}
-		desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
-		if !ok || desc.Entries == nil {
-			return
-		}
-
-		subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-		switch subtype.Value {
-		case "Type1", "MMType1":
-			if fixType1CharSet(desc) {
-				changed = true
-			}
-		case "CIDFontType0":
-			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
-				if fixCFFCIDSet(desc, ff) {
-					changed = true
-				}
-			}
-		case "CIDFontType2":
-			if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
-				if fixTrueTypeCIDSet(d, desc, ff) {
-					changed = true
-				}
-			}
+		if fixFontSubsetMetaDict(d) {
+			changed = true
 		}
 	})
 	return changed, nil
+}
+
+// fixTargeted regenerates subset metadata only for the font dicts the issues
+// reference, falling back to the full walk when any issue lacks a ref.
+func (fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if fixFontSubsetMetaDict(d) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+// fixFontSubsetMetaDict synthesizes /CharSet or /CIDSet for a subset font
+// dict; it re-checks the predicate so a stale or already-fixed target is a
+// no-op.
+func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
+	if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
+	if !verify.SubsetTagRe.MatchString(baseFont.Value) {
+		return false
+	}
+	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	if !ok || desc.Entries == nil {
+		return false
+	}
+
+	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	switch subtype.Value {
+	case "Type1", "MMType1":
+		return fixType1CharSet(desc)
+	case "CIDFontType0":
+		if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+			return fixCFFCIDSet(desc, ff)
+		}
+	case "CIDFontType2":
+		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+			return fixTrueTypeCIDSet(d, desc, ff)
+		}
+	}
+	return false
 }
 
 // fixType1CharSet synthesizes /CharSet from the glyph names defined in the

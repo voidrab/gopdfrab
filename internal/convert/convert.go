@@ -120,7 +120,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	for iter := 1; iter <= maxConvertIterations; iter++ {
 		cr.Iterations = iter
 
-		result, err := inHeapVerify(doc, trailer, p)
+		result, objs, err := inHeapVerify(doc, trailer, p)
 		if err != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
@@ -138,9 +138,11 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 
 		changed := false
 		// Per-dict-local fixers (batchDictFixer) share one graph walk this
-		// pass instead of each walking the whole graph; everything else runs
+		// pass instead of each walking the whole graph; targeted fixers jump
+		// straight to the objects their issues reference; everything else runs
 		// its own Fix as before. Sorted order keeps fixer application -- and
 		// with it the whole conversion -- deterministic across runs.
+		pass := &fixPass{trailer: &trailer, objs: objs}
 		var visitors []func(pdf.PDFDict)
 		batched := map[Fixer]bool{}
 		for _, c := range sortedChecks(counts) {
@@ -157,6 +159,18 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 					visitors = append(visitors, visit)
 				}
 				continue
+			}
+			if tf, ok := fixer.(targetedFixer); ok {
+				ch, handled, err := tf.fixTargeted(pass, cr.Result.IssuesForCheck(c))
+				if err != nil {
+					return ConvertResult{}, fmt.Errorf("convert: targeted fixer for check %q: %w", c.Name(), err)
+				}
+				if handled {
+					if ch {
+						changed = true
+					}
+					continue
+				}
 			}
 			ch, err := fixer.Fix(&trailer, cr.Result.IssuesForCheck(c))
 			if err != nil {
@@ -185,7 +199,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
-			result, err := inHeapVerify(doc, trailer, p)
+			result, _, err := inHeapVerify(doc, trailer, p)
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
@@ -193,7 +207,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		}
 		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) && flattenAllPages(&trailer) {
 			cr.Iterations++
-			result, err := inHeapVerify(doc, trailer, p)
+			result, _, err := inHeapVerify(doc, trailer, p)
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
@@ -210,11 +224,14 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 }
 
 // inHeapVerify verifies the in-memory trailer graph without serializing it,
-// by numbering objects and seeding the doc reader directly.
-func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, error) {
+// by numbering objects and seeding the doc reader directly. It also returns
+// the ObjNum -> object index so the fixer loop can target issues by ref;
+// the index is only valid until the next renumbering.
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, map[int]pdf.PDFValue, error) {
 	objs := writer.NumberObjects(trailer)
 	doc.SeedResolvedGraph(trailer, objs)
-	return verify.Verify(doc, p)
+	res, err := verify.Verify(doc, p)
+	return res, objs, err
 }
 
 // serializeAndVerify serializes trailer and verifies the output bytes,

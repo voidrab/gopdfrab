@@ -1059,3 +1059,44 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 		t.Errorf("Got unexpected error %v", errs[0])
 	}
 }
+
+// TestScalarLimitViolationsCarryOwnerRef asserts the generic walk reports
+// 6.1.12/6.1.6 scalar violations against the nearest enclosing dict --
+// threading through arrays -- so convert's targeted fixers can resolve them.
+func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
+	owner := pdf.NewPDFDict()
+	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	owner.Entries["Big"] = pdf.PDFInteger(3_000_000_000)
+	owner.Entries["List"] = pdf.PDFArray{pdf.PDFName{Value: strings.Repeat("x", 130)}}
+	owner.Entries["Hex"] = pdf.PDFHexString{Value: "abc"}
+	graph := pdf.NewPDFDict()
+	graph.Entries["Root"] = owner
+
+	ctx := &ValidationContext{}
+	verifyDocument(graph, ctx)
+
+	want := map[pdf.Check]bool{
+		pdf.Checks.Structure.IntegerOutOfRange:  false,
+		pdf.Checks.Structure.NameTooLong:        false,
+		pdf.Checks.Structure.HexStringOddLength: false,
+	}
+	for _, iss := range ctx.Issues() {
+		if _, tracked := want[iss.Check()]; !tracked {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			t.Errorf("%s issue carries no ref, want owner ref 7", iss.Check().Name())
+			continue
+		}
+		if ref.ObjNum != 7 {
+			t.Errorf("%s issue ref = %d, want 7 (owning dict)", iss.Check().Name(), ref.ObjNum)
+		}
+		want[iss.Check()] = true
+	}
+	for c, seen := range want {
+		if !seen {
+			t.Errorf("check %s not reported with a resolvable ref", c.Name())
+		}
+	}
+}

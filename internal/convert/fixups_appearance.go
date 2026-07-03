@@ -42,27 +42,57 @@ func (appearanceFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f appearanceFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	fontSrc := f.fontSrc
-	if fontSrc == nil {
-		fontSrc = &appearanceFontSource{}
-	}
+func (f appearanceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	fontSrc := f.appearanceFont()
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
-			return
+		if fixAnnotAppearanceDict(trailer, d, fontSrc) {
+			changed = true
 		}
-		subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-		if !verify.AllowedAnnotationTypes[subtype.Value] {
-			return
-		}
-		if !annotationNeedsAppearanceFix(d) {
-			return
-		}
-		d.Entries["AP"] = rebuiltAppearanceDict(trailer, d, fontSrc)
-		changed = true
 	})
 	return changed, nil
+}
+
+// fixTargeted rebuilds /AP only on the annotation dicts the issues reference.
+// The same annotation may be flagged under several of this Fixer's checks;
+// later batches find it already fixed and no-op.
+func (f appearanceFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	fontSrc := f.appearanceFont()
+	for _, d := range targets {
+		if fixAnnotAppearanceDict(p.trailer, d, fontSrc) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+func (f appearanceFixer) appearanceFont() *appearanceFontSource {
+	if f.fontSrc != nil {
+		return f.fontSrc
+	}
+	return &appearanceFontSource{}
+}
+
+// fixAnnotAppearanceDict rebuilds d's /AP if d is an annotation violating one
+// of this Fixer's checks; it re-checks the predicate so a stale or
+// already-fixed target is a no-op.
+func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) bool {
+	if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+		return false
+	}
+	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	if !verify.AllowedAnnotationTypes[subtype.Value] {
+		return false
+	}
+	if !annotationNeedsAppearanceFix(d) {
+		return false
+	}
+	d.Entries["AP"] = rebuiltAppearanceDict(trailer, d, fontSrc)
+	return true
 }
 
 // annotationNeedsAppearanceFix reports whether d violates one of this

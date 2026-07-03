@@ -66,6 +66,33 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 	return changed, nil
 }
 
+// fixTargeted remediates only the objects the issues reference: each
+// target's owned scalars are clamped (the graph flavour, reported against
+// the owning dict), and targets that are genuinely content-bearing streams
+// get the content rewrite -- never any other stream, whose bytes the
+// content scanner would corrupt.
+func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if fixOwnedScalars(d, fixScalarLimitsValue) {
+			changed = true
+		}
+		if !d.HasStream || !p.isContentStream(d) {
+			continue
+		}
+		updated, ok := rewriteContentStreamDict(d, rewriteOperatorsAndLimits)
+		if !ok {
+			continue
+		}
+		p.replaceObject(d, updated)
+		changed = true
+	}
+	return changed, true, nil
+}
+
 // rewriteOperatorsAndLimits is contentLimitsFixer's contentOpRewriter: it
 // drops an undefined operator, replaces a non-standard ri/inline-/Intent
 // rendering intent with /RelativeColorimetric, and clamps/repairs any

@@ -453,32 +453,17 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
-		n, ok := v.(pdf.PDFName)
-		if !ok || len(n.Value) <= maxNameLength {
-			return v, false
+		fixed, ok := truncateOverlongName(v)
+		if ok {
+			changed = true
 		}
-		changed = true
-		return pdf.PDFName{Value: n.Value[:maxNameLength]}, true
+		return fixed, ok
 	})
 
 	renames := map[uintptr]map[string]string{} // category-dict ptr -> old name -> new name
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		var overlong []string
-		for k := range d.Entries {
-			if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
-				overlong = append(overlong, k)
-			}
-		}
-		for _, k := range overlong {
-			newKey := shortenDictKey(d, k)
-			d.Entries[newKey] = d.Entries[k]
-			delete(d.Entries, k)
+		if renameOverlongKeys(d, renames) {
 			changed = true
-			ptr := pdf.ValuePointer(d.Entries)
-			if renames[ptr] == nil {
-				renames[ptr] = map[string]string{}
-			}
-			renames[ptr][k] = newKey
 		}
 	})
 	if len(renames) > 0 {
@@ -486,6 +471,63 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 	}
 
 	return changed, nil
+}
+
+// fixTargeted remediates both NameTooLong flavours on just the dicts the
+// issues reference: overlong keys are renamed, and overlong name values
+// owned by the dict (entries and their arrays) are truncated.
+func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	renames := map[uintptr]map[string]string{}
+	for _, d := range targets {
+		if renameOverlongKeys(d, renames) {
+			changed = true
+		}
+		if fixOwnedScalars(d, truncateOverlongName) {
+			changed = true
+		}
+	}
+	if len(renames) > 0 {
+		renameResourceReferences(p.trailer, renames)
+	}
+	return changed, true, nil
+}
+
+// truncateOverlongName shortens a pdf.PDFName value over the 127-byte limit;
+// a name this long is already non-conformant, so truncation is accepted.
+func truncateOverlongName(v pdf.PDFValue) (pdf.PDFValue, bool) {
+	n, ok := v.(pdf.PDFName)
+	if !ok || len(n.Value) <= maxNameLength {
+		return v, false
+	}
+	return pdf.PDFName{Value: n.Value[:maxNameLength]}, true
+}
+
+// renameOverlongKeys renames every over-limit key of d to a short,
+// collision-free replacement, recording old->new per dict for the
+// content-stream reference rewrite.
+func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bool {
+	var overlong []string
+	for k := range d.Entries {
+		if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
+			overlong = append(overlong, k)
+		}
+	}
+	sort.Strings(overlong) // deterministic collision suffixes
+	for _, k := range overlong {
+		newKey := shortenDictKey(d, k)
+		d.Entries[newKey] = d.Entries[k]
+		delete(d.Entries, k)
+		ptr := pdf.ValuePointer(d.Entries)
+		if renames[ptr] == nil {
+			renames[ptr] = map[string]string{}
+		}
+		renames[ptr][k] = newKey
+	}
+	return len(overlong) > 0
 }
 
 // shortenDictKey returns a name under maxNameLength bytes that isn't
@@ -579,27 +621,54 @@ func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.CMapCIDOutOfRange
 }
 
-func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
-			return d, false
+		updated, ok := clampCMapStreamDict(d)
+		if ok {
+			changed = true
 		}
-		data, err := pdf.DecodeStream(d)
-		if err != nil {
-			return d, false
-		}
-		clamped, ok := clampCMapCIDs(data)
-		if !ok {
-			return d, false
-		}
-		if err := writer.SetStreamFlate(&d, clamped); err != nil {
-			return d, false
-		}
-		changed = true
-		return d, true
+		return updated, ok
 	})
 	return changed, nil
+}
+
+// fixTargeted clamps only the CMap streams the issues reference, writing the
+// rewritten dict back into every referencing slot via the pass index.
+func (cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		updated, ok := clampCMapStreamDict(d)
+		if !ok {
+			continue
+		}
+		p.replaceObject(d, updated)
+		changed = true
+	}
+	return changed, true, nil
+}
+
+// clampCMapStreamDict returns a copy of d with out-of-range CIDs clamped in
+// its decoded stream, or ok=false when d is not a CMap stream or needs no fix.
+func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
+		return d, false
+	}
+	data, err := pdf.DecodeStream(d)
+	if err != nil {
+		return d, false
+	}
+	clamped, ok := clampCMapCIDs(data)
+	if !ok {
+		return d, false
+	}
+	if err := writer.SetStreamFlate(&d, clamped); err != nil {
+		return d, false
+	}
+	return d, true
 }
 
 // clampCMapCIDs rewrites every cidrange/cidchar CID token over maxCMapCID in
