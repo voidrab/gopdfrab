@@ -43,7 +43,9 @@ func TestAppearanceFontIsConformant(t *testing.T) {
 // the font in one run cannot leak into later conversions.
 func TestAppearanceFontSourceScoping(t *testing.T) {
 	src := &appearanceFontSource{}
-	if pdf.ValuePointer(src.font().Entries) != pdf.ValuePointer(src.font().Entries) {
+	entries1 := src.font().Entries
+	entries2 := src.font().Entries
+	if pdf.ValuePointer(entries1) != pdf.ValuePointer(entries2) {
 		t.Errorf("one source returned distinct Entries maps across calls, want the same shared instance")
 	}
 	// Hold both maps in locals: ValuePointer returns a bare uintptr, so
