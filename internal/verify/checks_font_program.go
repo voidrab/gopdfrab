@@ -397,14 +397,10 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 		switch name {
 		case "WinAnsiEncoding":
 			table = WinAnsiToUnicode
-		default: // MacRomanEncoding, StandardEncoding, or unspecified
-			for cc, n := range StandardEncoding {
-				if n != "" {
-					if u, ok := GlyphNameToUnicode(n); ok {
-						table[cc] = u
-					}
-				}
-			}
+		case "MacRomanEncoding":
+			table = MacRomanToUnicode
+		default: // StandardEncoding or unspecified
+			table = StandardToUnicode
 		}
 	}
 	switch e := enc.(type) {

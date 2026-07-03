@@ -850,6 +850,37 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 			}
 		}
 	}
+	// No usable embedded program: render through the bundled faces when the
+	// codes' original meaning is known (e.g. standard symbol fonts), so a
+	// rasterized page does not silently drop those glyphs.
+	if origTable, baseKnown := originalSimpleFontCodeToUnicode(font); baseKnown {
+		type parsedFace struct {
+			tables map[string][]byte
+			cmap   map[uint16]uint16
+		}
+		var faces []parsedFace
+		baseFont, _ := font.Entries["BaseFont"].(pdf.PDFName)
+		lib := pickLiberationFace(desc, baseFont.Value)
+		for _, data := range [][]byte{lib.data, notoSymbols2, notoSymbols} {
+			if tables, ok := verify.ParseSfnt(data); ok {
+				if cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables)); cmap != nil {
+					faces = append(faces, parsedFace{tables, cmap})
+				}
+			}
+		}
+		fi.glyphFor = func(code int) (GlyphPath, bool) {
+			if code < 0 || code > 255 || origTable[code] == 0 {
+				return GlyphPath{}, false
+			}
+			for _, f := range faces {
+				if gid, ok := f.cmap[origTable[code]]; ok && gid != 0 {
+					return glyphOutlineFromTrueType(f.tables, int(gid))
+				}
+			}
+			return GlyphPath{}, false
+		}
+		return fi
+	}
 	fi.glyphFor = func(int) (GlyphPath, bool) { return GlyphPath{}, false }
 	return fi
 }
