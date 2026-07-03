@@ -261,6 +261,8 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]
 			local[c] = dcFixer
 		case fontSubstitutionFixer:
 			local[c] = fontSubstitutionFixer{doc: doc}
+		case trueTypeEncodingFixer:
+			local[c] = trueTypeEncodingFixer{doc: doc}
 		default:
 			local[c] = f
 		}

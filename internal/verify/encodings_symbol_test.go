@@ -50,15 +50,15 @@ func TestSymbolToUnicode(t *testing.T) {
 		code int
 		want uint16
 	}{
-		{32, 0x0020},   // space
-		{34, 0x2200},   // universal
-		{67, 0x03A7},   // Chi
-		{97, 0x03B1},   // alpha
-		{165, 0x221E},  // infinity
-		{229, 0x2211},  // summation
-		{240, 0xF8FF},  // apple (PUA)
-		{254, 0xF8FE},  // bracerightbt (PUA)
-		{127, 0},       // undefined
+		{32, 0x0020},  // space
+		{34, 0x2200},  // universal
+		{67, 0x03A7},  // Chi
+		{97, 0x03B1},  // alpha
+		{165, 0x221E}, // infinity
+		{229, 0x2211}, // summation
+		{240, 0xF8FF}, // apple (PUA)
+		{254, 0xF8FE}, // bracerightbt (PUA)
+		{127, 0},      // undefined
 	}
 	for _, c := range cases {
 		if got := SymbolToUnicode[c.code]; got != c.want {

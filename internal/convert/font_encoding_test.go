@@ -21,13 +21,13 @@ func simpleFontDict(baseFont string, flags int) pdf.PDFDict {
 
 func TestOriginalCodeToUnicodeStandardSymbolFonts(t *testing.T) {
 	zapf := simpleFontDict("ZapfDingbats", 4)
-	table := originalSimpleFontCodeToUnicode(zapf)
+	table := mustTable(zapf)
 	if table[52] != 0x2714 {
 		t.Errorf("ZapfDingbats code 52 = %04X, want 2714 (heavy check mark)", table[52])
 	}
 
 	subset := simpleFontDict("ABCDEF+Symbol", 4)
-	table = originalSimpleFontCodeToUnicode(subset)
+	table = mustTable(subset)
 	if table[97] != 0x03B1 {
 		t.Errorf("Symbol code 97 = %04X, want 03B1 (alpha)", table[97])
 	}
@@ -42,7 +42,7 @@ func TestOriginalCodeToUnicodeDifferencesWithDingbatNames(t *testing.T) {
 	}
 	d.Entries["Encoding"] = enc
 
-	table := originalSimpleFontCodeToUnicode(d)
+	table := mustTable(d)
 	if table[52] != 0x2714 {
 		t.Errorf("Differences code 52 = %04X, want 2714 (a20)", table[52])
 	}
@@ -57,7 +57,7 @@ func TestOriginalCodeToUnicodeDifferencesWithDingbatNames(t *testing.T) {
 
 func TestOriginalCodeToUnicodeSymbolicCustomIsUnknown(t *testing.T) {
 	d := simpleFontDict("MyDingFont", 4)
-	table := originalSimpleFontCodeToUnicode(d)
+	table := mustTable(d)
 	for cc, u := range table {
 		if u != 0 {
 			t.Fatalf("symbolic custom font code %d resolved to %04X, want unknown", cc, u)
@@ -68,7 +68,7 @@ func TestOriginalCodeToUnicodeSymbolicCustomIsUnknown(t *testing.T) {
 func TestOriginalCodeToUnicodeNonSymbolicDefaults(t *testing.T) {
 	// No Encoding at all: matches the fixer's WinAnsi assumption.
 	d := simpleFontDict("Helvetica", 32)
-	table := originalSimpleFontCodeToUnicode(d)
+	table := mustTable(d)
 	if table[0x80] != 0x20AC {
 		t.Errorf("no-encoding code 0x80 = %04X, want 20AC (WinAnsi Euro)", table[0x80])
 	}
@@ -77,7 +77,7 @@ func TestOriginalCodeToUnicodeNonSymbolicDefaults(t *testing.T) {
 	enc := pdf.NewPDFDict()
 	enc.Entries["Differences"] = pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "eacute"}}
 	d.Entries["Encoding"] = enc
-	table = originalSimpleFontCodeToUnicode(d)
+	table = mustTable(d)
 	if table[65] != 0x00E9 {
 		t.Errorf("Differences code 65 = %04X, want 00E9 (eacute)", table[65])
 	}
@@ -93,11 +93,16 @@ func TestOriginalCodeToUnicodeToUnicodeFallback(t *testing.T) {
 	toUni.RawStream = []byte("beginbfchar\n<34> <2714>\nendbfchar")
 	d.Entries["ToUnicode"] = toUni
 
-	table := originalSimpleFontCodeToUnicode(d)
+	table := mustTable(d)
 	if table[0x34] != 0x2714 {
 		t.Errorf("ToUnicode code 0x34 = %04X, want 2714", table[0x34])
 	}
 	if table[0x35] != 0 {
 		t.Errorf("unmapped code 0x35 = %04X, want unknown", table[0x35])
 	}
+}
+
+func mustTable(d pdf.PDFDict) [256]uint16 {
+	table, _ := originalSimpleFontCodeToUnicode(d)
+	return table
 }

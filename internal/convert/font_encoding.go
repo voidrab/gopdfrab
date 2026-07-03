@@ -45,11 +45,11 @@ func fontFlagsSymbolic(d pdf.PDFDict) bool {
 
 // originalSimpleFontCodeToUnicode resolves what each character code meant
 // under the font's original encoding, before any fixer rewrites it. A zero
-// entry means the code has no known meaning; callers must refuse rewrites
-// that would give such a used code a new one.
-func originalSimpleFontCodeToUnicode(d pdf.PDFDict) [256]uint16 {
-	var table [256]uint16
+// entry means the code has no known meaning; baseKnown distinguishes "the
+// encoding is known and the code renders .notdef" from "unknowable".
+func originalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnown bool) {
 	applyBase := func(name string) {
+		baseKnown = true
 		switch name {
 		case "WinAnsiEncoding":
 			table = verify.WinAnsiToUnicode
@@ -57,6 +57,8 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) [256]uint16 {
 			table = verify.MacRomanToUnicode
 		case "StandardEncoding":
 			table = verify.StandardToUnicode
+		default:
+			baseKnown = false
 		}
 	}
 
@@ -67,9 +69,9 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) [256]uint16 {
 		if base, ok := enc.Entries["BaseEncoding"].(pdf.PDFName); ok {
 			applyBase(base.Value)
 		} else if t, ok := standardSymbolBuiltinTable(d); ok {
-			table = t
+			table, baseKnown = t, true
 		} else if !fontFlagsSymbolic(d) {
-			table = verify.StandardToUnicode
+			table, baseKnown = verify.StandardToUnicode, true
 		}
 		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
 			code := 0
@@ -88,11 +90,11 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) [256]uint16 {
 		}
 	default:
 		if t, ok := standardSymbolBuiltinTable(d); ok {
-			table = t
+			table, baseKnown = t, true
 		} else if !fontFlagsSymbolic(d) {
 			// Matches the substitution fixer's long-standing assumption for
 			// encoding-less non-symbolic fonts.
-			table = verify.WinAnsiToUnicode
+			table, baseKnown = verify.WinAnsiToUnicode, true
 		}
 	}
 
@@ -106,5 +108,49 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) [256]uint16 {
 			}
 		}
 	}
-	return table
+	return table, baseKnown
+}
+
+// forEachAssumedUsedCode invokes fn for every code d is assumed to render:
+// tracked usage when available, else non-zero-width codes, else every code.
+// It stops early and reports false when fn does.
+func forEachAssumedUsedCode(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, fn func(cc int) bool) bool {
+	if usedCodes != nil {
+		if codes := usedCodes[pdf.ValuePointer(d.Entries)]; codes != nil {
+			for cc := range codes {
+				if cc >= 0 && cc <= 255 && !fn(cc) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
+	widths, _ := d.Entries["Widths"].(pdf.PDFArray)
+	if len(widths) > 0 {
+		for i, w := range widths {
+			if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {
+				if cc := int(firstChar) + i; cc >= 0 && cc <= 255 && !fn(cc) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	for cc := 0; cc < 256; cc++ {
+		if !fn(cc) {
+			return false
+		}
+	}
+	return true
+}
+
+// encodingRewritePreservesMeaning reports whether declaring finalTable's
+// encoding for d keeps origTable's meaning of every code the font is assumed
+// to render; a mismatch means the untouched content-stream bytes would
+// silently change what the reader sees.
+func encodingRewritePreservesMeaning(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, origTable, finalTable [256]uint16) bool {
+	return forEachAssumedUsedCode(d, usedCodes, func(cc int) bool {
+		return origTable[cc] == finalTable[cc]
+	})
 }

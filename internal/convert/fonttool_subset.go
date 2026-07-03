@@ -76,6 +76,76 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 	return packSfnt(out), nil
 }
 
+// subsetTrueTypeSymbolic returns a minimal sfnt program for a symbolic simple
+// font: the glyph for each code's unicode (resolved via src's (3,1) cmap) is
+// exposed through a single (3,0) format-4 cmap under both the raw code and
+// its 0xF000-offset alias, so untouched content-stream bytes keep selecting
+// the glyph the code originally meant. Codes whose unicode is absent from src
+// are silently skipped; callers must pre-check coverage.
+func subsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, error) {
+	tables, ok := verify.ParseSfnt(src)
+	if !ok {
+		return nil, fmt.Errorf("subsetTrueTypeSymbolic: not a valid sfnt")
+	}
+	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	if gidMap == nil {
+		return nil, fmt.Errorf("subsetTrueTypeSymbolic: source has no usable (3,1) cmap")
+	}
+
+	type resolved struct {
+		code   int
+		oldGID int
+	}
+	var used []resolved
+	closure := map[int]bool{0: true}
+	queue := []int{0}
+	addGID := func(gid int) {
+		if !closure[gid] {
+			closure[gid] = true
+			queue = append(queue, gid)
+		}
+	}
+	for code, u := range codeUnicode {
+		if code < 0 || code > 255 {
+			continue
+		}
+		if gid, ok := gidMap[u]; ok && gid != 0 {
+			used = append(used, resolved{code, int(gid)})
+			addGID(int(gid))
+		}
+	}
+	for len(queue) > 0 {
+		gid := queue[0]
+		queue = queue[1:]
+		for _, c := range glyfComponents(glyfRecord(tables, gid)) {
+			addGID(c)
+		}
+	}
+
+	oldGIDs := make([]int, 0, len(closure))
+	for g := range closure {
+		oldGIDs = append(oldGIDs, g)
+	}
+	sort.Ints(oldGIDs)
+	remap := make(map[int]int, len(oldGIDs))
+	oldGIDOf := make(map[int]int, len(oldGIDs))
+	for newGID, oldGID := range oldGIDs {
+		remap[oldGID] = newGID
+		oldGIDOf[newGID] = oldGID
+	}
+
+	newCmap := map[uint16]uint16{}
+	for _, r := range used {
+		gid := uint16(remap[r.oldGID])
+		newCmap[uint16(r.code)] = gid
+		newCmap[0xF000|uint16(r.code)] = gid
+	}
+
+	out := buildSubsetTables(tables, len(oldGIDs), oldGIDOf, remap)
+	out["cmap"] = buildCmapFormat4Table(3, 0, newCmap)
+	return packSfnt(out), nil
+}
+
 // subsetTrueTypeForCID rebuilds src so that the glyph for each unicode in
 // targetGID lands at EXACTLY its given output glyph ID, rather than an
 // auto-assigned dense one -- required because the verifier's CID TrueType
