@@ -472,6 +472,39 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 	}
 }
 
+// TestConvertIsDeterministic converts the corpus fixture that historically
+// flaked (isartor-6-9-t01-fail-a, residual 6.3.2/InvalidProgram in ~1 of 3
+// full-suite runs) several times in one process and asserts every run agrees:
+// same validity and the same residual multiset. Guards the two determinism
+// fixes: per-Run appearance font scoping and sorted fixer application.
+func TestConvertIsDeterministic(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t01-fail-a.pdf"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("Isartor suite not present")
+	}
+
+	var firstValid bool
+	var firstCounts map[pdf.Check]int
+	for i := range 5 {
+		cr, err := Convert(path, pdf.PDFA_1B)
+		if err != nil {
+			t.Fatalf("Convert (run %d): %v", i, err)
+		}
+		counts := violationCounts(cr.Residual())
+		if i == 0 {
+			firstValid, firstCounts = cr.Result.Valid, counts
+			continue
+		}
+		if cr.Result.Valid != firstValid || !sameMultiset(counts, firstCounts) {
+			t.Fatalf("run %d diverged: Valid=%v residual=%v, want Valid=%v residual=%v",
+				i, cr.Result.Valid, issueClauses(cr.Residual()), firstValid, firstCounts)
+		}
+	}
+	if !firstValid {
+		t.Errorf("fixture no longer converts fully; residual: %v", firstCounts)
+	}
+}
+
 // minConvertedFully is a regression floor on how many of both corpora's
 // "fail" fixtures Convert turns fully conformant: all 510, since brute-force
 // recovery of unparseable /Prev xref sections cleared the last hold-out.
