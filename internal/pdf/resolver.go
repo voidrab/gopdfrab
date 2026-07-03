@@ -144,7 +144,19 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 		}
 		return PDFReal(f), nil
 
+	case TokenBoolean:
+		return PDFBoolean(t.Value == "true"), nil
+
+	case TokenName, TokenKeyword:
+		return PDFName{Value: t.Value}, nil
+
+	case TokenString:
+		return PDFString{Value: t.Value}, nil
+
+	case TokenHexString:
+		return PDFHexString{Value: t.Value}, nil
+
 	default:
-		return PDFString{t.Value}, nil
+		return nil, fmt.Errorf("unexpected token %v in object %d", t.Type, ref.ObjNum)
 	}
 }
