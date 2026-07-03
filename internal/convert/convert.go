@@ -251,9 +251,11 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 }
 
 // buildLocalFixers returns a per-run fixer map with run-scoped instances
-// substituted for the registry singletons: the per-run dcFixer, and a
-// fontSubstitutionFixer carrying the run's Reader for cached usage scans.
+// substituted for the registry singletons: the per-run dcFixer, a
+// fontSubstitutionFixer carrying the run's Reader for cached usage scans,
+// and an appearanceFixer carrying the run's appearance font.
 func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]Fixer {
+	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
 		switch f.(type) {
@@ -263,6 +265,8 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]
 			local[c] = fontSubstitutionFixer{doc: doc}
 		case trueTypeEncodingFixer:
 			local[c] = trueTypeEncodingFixer{doc: doc}
+		case appearanceFixer:
+			local[c] = appearanceFixer{fontSrc: fontSrc}
 		default:
 			local[c] = f
 		}

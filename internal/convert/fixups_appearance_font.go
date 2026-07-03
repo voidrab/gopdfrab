@@ -30,25 +30,28 @@ const (
 	liberationSansStemV   = 80
 )
 
-var (
-	appearanceFontOnce sync.Once
-	appearanceFontDict pdf.PDFDict
-)
+// appearanceFontSource lazily builds the PDF/A-1b-conformant simple TrueType
+// font object used by synthesized appearance streams (fixups_appearance.go).
+// One source per convert Run: every widget in a run shares the same
+// pdf.PDFDict value, so the writer's identity-based dedup (writer.go)
+// coalesces all references into one embedded object -- but no graph node is
+// shared across Runs, where a fixer mutating the font in one document would
+// leak into every later conversion in the process. The font is embedded
+// whole (no subset prefix on BaseFont) specifically to keep BaseFont outside
+// the subset-tag pattern -- SubsetGlyphCoverage (6.3.5) only applies to
+// subset-tagged fonts, and Widths is built straight from hmtx, so
+// AdvanceWidthMismatch (6.3.6) cannot fire either.
+type appearanceFontSource struct {
+	once sync.Once
+	dict pdf.PDFDict
+}
 
-// appearanceFont returns the shared, PDF/A-1b-conformant simple TrueType
-// font object used by synthesized appearance streams (fixups_appearance.go),
-// building it once and reusing the same pdf.PDFDict value on every call so the
-// writer's identity-based dedup (writer.go) coalesces every reference into a
-// single embedded object. The font is embedded whole (no subset prefix on
-// BaseFont) specifically to keep BaseFont outside the subset-tag pattern --
-// SubsetGlyphCoverage (6.3.5) only applies to subset-tagged fonts, and
-// Widths is built straight from hmtx, so AdvanceWidthMismatch (6.3.6) cannot
-// fire either.
-func appearanceFont() pdf.PDFDict {
-	appearanceFontOnce.Do(func() {
-		appearanceFontDict = buildAppearanceFont()
+// font returns the source's shared font dict, building it on first use.
+func (s *appearanceFontSource) font() pdf.PDFDict {
+	s.once.Do(func() {
+		s.dict = buildAppearanceFont()
 	})
-	return appearanceFontDict
+	return s.dict
 }
 
 func buildAppearanceFont() pdf.PDFDict {
