@@ -49,7 +49,16 @@ func (d *Reader) parseReference(ref PDFRef) (PDFValue, error) {
 	if entry, ok := d.compressedXref[ref.ObjNum]; ok {
 		return d.resolveCompressedObject(ref, entry)
 	}
-	return nil, fmt.Errorf("object %d not found in xref table", ref.ObjNum)
+	// Absent from every xref section: scan once for physically present but
+	// unlisted objects, then treat a still-missing target as the null object
+	// (ISO 32000-1 7.3.10).
+	if !d.danglingScanRan {
+		d.danglingScanRan = true
+		if d.recoverXRefByBruteForceScan(true) == nil {
+			return d.parseReference(ref)
+		}
+	}
+	return nil, nil
 }
 
 // parseClassicReference performs the actual disk read and parse for an
