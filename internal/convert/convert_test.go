@@ -72,10 +72,10 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
 // resolved, instead of failing outright: no rewrite is possible, but a
-// Result should still come back. The input is a fixture with a broken first
-// xref section whose object 2 header is additionally mangled, so neither
-// xref parsing nor the brute-force recovery scan can locate the referenced
-// object anywhere in the file.
+// Result should still come back. The input is a fixture whose object 2 body
+// is mangled into an unparseable dictionary; a reference to a missing object
+// resolves to null (ISO 32000-1 7.3.10), but a present-yet-unparseable one
+// still fails resolution.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
@@ -85,9 +85,9 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	mangled := bytes.ReplaceAll(data, []byte("\n2 0 obj"), []byte("\n2_0_obj"))
+	mangled := bytes.ReplaceAll(data, []byte("\n/First 6 0 R"), []byte("\n]First 6 0 R"))
 	if bytes.Equal(mangled, data) {
-		t.Fatalf("fixture no longer contains an object 2 header; test input needs updating")
+		t.Fatalf("fixture no longer contains object 2's /First entry; test input needs updating")
 	}
 
 	cr, err := ConvertBytes(mangled, pdf.PDFA_1B)

@@ -70,6 +70,10 @@ type Reader struct {
 	resolvedGraph PDFValue
 	graphResolved bool
 
+	// danglingScanRan dedupes the one-shot fill-in scan parseReference runs
+	// before resolving a reference with no xref entry to null.
+	danglingScanRan bool
+
 	// decodedCache memoizes DecodeStream's output keyed by StreamKeyOf, so
 	// repeated verify passes over the same Reader -- e.g. convert's fixer
 	// iterations, which reseed the same Reader via SeedResolvedGraph -- decode
