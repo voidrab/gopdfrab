@@ -722,19 +722,8 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		}
 	}
 
-	baseFont, _ := cid.Entries["BaseFont"].(pdf.PDFName)
-	face := pickLiberationFace(desc, baseFont.Value)
-	faceTables, ok := verify.ParseSfnt(face.data)
-	if !ok {
-		return false
-	}
-	faceCmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(faceTables))
-	if faceCmap == nil {
-		return false
-	}
-
 	// Every rendered CID must survive the substitution; CID 0 (.notdef) needs
-	// no mapping. A CID the face cannot represent would silently lose its
+	// no mapping. A CID with no recoverable meaning would silently lose its
 	// glyph, so refuse and leave the page to raster fallback.
 	targetCIDs := map[uint16][]int{}
 	for c := range cids {
@@ -745,16 +734,51 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		if !ok {
 			return false
 		}
-		if _, ok := faceCmap[u]; !ok {
-			return false
-		}
 		targetCIDs[u] = append(targetCIDs[u], c)
 	}
 	if len(targetCIDs) == 0 {
 		return false
 	}
 
-	subset, err := subsetTrueTypeForCID(face.data, targetCIDs)
+	// Prefer the style-matched Liberation face, falling back to the bundled
+	// Noto symbol repertoires before giving the page to raster fallback.
+	baseFont, _ := cid.Entries["BaseFont"].(pdf.PDFName)
+	face := pickLiberationFace(desc, baseFont.Value)
+	var faceData []byte
+	family := ""
+	for _, cand := range []struct {
+		data   []byte
+		family string
+	}{
+		{face.data, liberationFamilyName(face)},
+		{notoSymbols2, "NotoSansSymbols2"},
+		{notoSymbols, "NotoSansSymbols"},
+	} {
+		faceTables, ok := verify.ParseSfnt(cand.data)
+		if !ok {
+			continue
+		}
+		faceCmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(faceTables))
+		if faceCmap == nil {
+			continue
+		}
+		covered := true
+		for u := range targetCIDs {
+			if _, ok := faceCmap[u]; !ok {
+				covered = false
+				break
+			}
+		}
+		if covered {
+			faceData, family = cand.data, cand.family
+			break
+		}
+	}
+	if faceData == nil {
+		return false
+	}
+
+	subset, err := subsetTrueTypeForCID(faceData, targetCIDs)
 	if err != nil {
 		return false
 	}
@@ -781,7 +805,7 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		cid.Entries["FontDescriptor"] = desc
 	}
 
-	newName := substituteBaseFontName(face, baseFont.Value)
+	newName := substituteTaggedName(family, baseFont.Value)
 	applySubstituteDescriptor(desc, tables, subset, face)
 	desc.Entries["FontName"] = pdf.PDFName{Value: newName}
 	cid.Entries["BaseFont"] = pdf.PDFName{Value: newName}
