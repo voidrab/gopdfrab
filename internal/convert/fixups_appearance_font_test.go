@@ -46,8 +46,12 @@ func TestAppearanceFontSourceScoping(t *testing.T) {
 	if pdf.ValuePointer(src.font().Entries) != pdf.ValuePointer(src.font().Entries) {
 		t.Errorf("one source returned distinct Entries maps across calls, want the same shared instance")
 	}
+	// Hold both maps in locals: ValuePointer returns a bare uintptr, so
+	// comparing call results directly lets the GC free the first map and
+	// hand its address to the second (a real, observed flake).
 	other := &appearanceFontSource{}
-	if pdf.ValuePointer(src.font().Entries) == pdf.ValuePointer(other.font().Entries) {
+	srcEntries, otherEntries := src.font().Entries, other.font().Entries
+	if pdf.ValuePointer(srcEntries) == pdf.ValuePointer(otherEntries) {
 		t.Errorf("two sources share one Entries map, want per-run isolation")
 	}
 }
