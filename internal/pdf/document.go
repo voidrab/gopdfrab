@@ -360,7 +360,7 @@ func (d *Reader) initializeStructure() error {
 		} else {
 			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
 				[]error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)}, 1, nil))
-			if err := d.recoverXRefByBruteForceScan(); err != nil {
+			if err := d.recoverXRefByBruteForceScan(false); err != nil {
 				return fmt.Errorf("failed to parse xref table: %w", xrefErr)
 			}
 		}
@@ -436,6 +436,10 @@ func (d *Reader) followXRefPrevChain() {
 			// updates that all use xref streams).
 			prevTrailer, err = d.tryParseXRefStream(offset, true /* fillIn */)
 			if err != nil {
+				// The older section is unparseable (6.1.4); recover its
+				// objects by brute force so the graph stays resolvable. The
+				// scan covers the whole file, so stop following the chain.
+				d.recoverXRefByBruteForceScan(true)
 				return
 			}
 		}
@@ -464,23 +468,34 @@ var xrefLineRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)
 var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
 
 // recoverXRefByBruteForceScan rebuilds d.xrefTable by scanning the file for
-// "N G obj" headers, used when the xref table cannot be parsed (6.1.4).
+// "N G obj" headers, used when an xref section cannot be parsed (6.1.4).
 // Later occurrences win, matching how a real /Prev chain resolves duplicates.
-func (d *Reader) recoverXRefByBruteForceScan() error {
+// In fillIn mode existing entries are kept (newer revisions take precedence).
+func (d *Reader) recoverXRefByBruteForceScan(fillIn bool) error {
 	raw, err := d.fullBytes()
 	if err != nil {
 		return err
 	}
 
-	d.xrefTable = make(map[int]int64)
+	if !fillIn {
+		d.xrefTable = make(map[int]int64)
+	}
+	existing := map[int]bool{}
+	if fillIn {
+		for objNum := range d.xrefTable {
+			existing[objNum] = true
+		}
+	}
+	found := false
 	for _, loc := range bruteForceObjRe.FindAllSubmatchIndex(raw, -1) {
 		objNum, err := strconv.Atoi(string(raw[loc[2]:loc[3]]))
-		if err != nil {
+		if err != nil || existing[objNum] {
 			continue
 		}
 		d.xrefTable[objNum] = int64(loc[2])
+		found = true
 	}
-	if len(d.xrefTable) == 0 {
+	if !found {
 		return errors.New("no indirect objects found")
 	}
 	return nil

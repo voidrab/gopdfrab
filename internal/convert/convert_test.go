@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -71,19 +72,27 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
 // resolved, instead of failing outright: no rewrite is possible, but a
-// Result should still come back. veraPDF's 6-1-4-t02-fail-b deliberately
-// breaks the cross-reference table such that the brute-force recovery scan
-// (recoverXRefByBruteForceScan, used as a last resort once classic and
-// xref-stream parsing both fail) cannot locate every referenced object.
+// Result should still come back. The input is a fixture with a broken first
+// xref section whose object 2 header is additionally mangled, so neither
+// xref parsing nor the brute-force recovery scan can locate the referenced
+// object anywhere in the file.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("veraPDF suite not present")
 	}
-
-	cr, err := Convert(path, pdf.PDFA_1B)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("Convert: %v", err)
+		t.Fatalf("ReadFile: %v", err)
+	}
+	mangled := bytes.ReplaceAll(data, []byte("\n2 0 obj"), []byte("\n2_0_obj"))
+	if bytes.Equal(mangled, data) {
+		t.Fatalf("fixture no longer contains an object 2 header; test input needs updating")
+	}
+
+	cr, err := ConvertBytes(mangled, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
 	}
 	if cr.Result.Valid {
 		t.Fatalf("expected a non-conformant Result for an unresolvable graph, got Valid=true")
