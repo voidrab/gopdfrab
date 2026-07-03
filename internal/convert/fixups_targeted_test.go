@@ -75,6 +75,15 @@ func TestFontMetricFixerTargetsIssueRefs(t *testing.T) {
 	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Font.AdvanceWidthMismatch)
 }
 
+func TestFontSubsetMetaFixerTargetsIssueRefs(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t02-fail-a.pdf"
+	pass, issues, done := targetedFixture(t, path, pdf.Checks.Font.Type1SubsetCharSet)
+	defer done()
+
+	runTargetedAndCheckIdempotent(t, fontSubsetMetaFixer{}, pass, issues)
+	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Font.Type1SubsetCharSet)
+}
+
 func TestFontMetricFixerTargetedFallsBackWithoutRefs(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.6 Font metrics/isartor-6-3-6-t01-fail-b.pdf"
 	pass, issues, done := targetedFixture(t, path, pdf.Checks.Font.AdvanceWidthMismatch)
