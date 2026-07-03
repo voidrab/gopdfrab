@@ -66,21 +66,23 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 	return changed, nil
 }
 
-// fixTargeted rewrites only the content streams the issues reference. The
-// graph-scalar flavour of the shared checks is reported against bare scalars
-// without refs, so any such issue in the batch forces the full-walk fallback;
-// a resolvable non-stream target likewise falls back rather than guessing.
+// fixTargeted remediates only the objects the issues reference: each
+// target's owned scalars are clamped (the graph flavour, reported against
+// the owning dict), and targets that are genuinely content-bearing streams
+// get the content rewrite -- never any other stream, whose bytes the
+// content scanner would corrupt.
 func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		if !d.HasStream {
-			return false, false, nil
+		if fixOwnedScalars(d, fixScalarLimitsValue) {
+			changed = true
 		}
-	}
-	for _, d := range targets {
+		if !d.HasStream || !p.isContentStream(d) {
+			continue
+		}
 		updated, ok := rewriteContentStreamDict(d, rewriteOperatorsAndLimits)
 		if !ok {
 			continue

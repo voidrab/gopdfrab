@@ -453,12 +453,11 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
-		n, ok := v.(pdf.PDFName)
-		if !ok || len(n.Value) <= maxNameLength {
-			return v, false
+		fixed, ok := truncateOverlongName(v)
+		if ok {
+			changed = true
 		}
-		changed = true
-		return pdf.PDFName{Value: n.Value[:maxNameLength]}, true
+		return fixed, ok
 	})
 
 	renames := map[uintptr]map[string]string{} // category-dict ptr -> old name -> new name
@@ -474,9 +473,9 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 	return changed, nil
 }
 
-// fixTargeted renames overlong keys only on the dicts the issues reference.
-// The value flavour of NameTooLong is reported against the bare name without
-// a ref, so its presence in the batch forces the full-walk fallback.
+// fixTargeted remediates both NameTooLong flavours on just the dicts the
+// issues reference: overlong keys are renamed, and overlong name values
+// owned by the dict (entries and their arrays) are truncated.
 func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
@@ -487,11 +486,24 @@ func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed,
 		if renameOverlongKeys(d, renames) {
 			changed = true
 		}
+		if fixOwnedScalars(d, truncateOverlongName) {
+			changed = true
+		}
 	}
 	if len(renames) > 0 {
 		renameResourceReferences(p.trailer, renames)
 	}
 	return changed, true, nil
+}
+
+// truncateOverlongName shortens a pdf.PDFName value over the 127-byte limit;
+// a name this long is already non-conformant, so truncation is accepted.
+func truncateOverlongName(v pdf.PDFValue) (pdf.PDFValue, bool) {
+	n, ok := v.(pdf.PDFName)
+	if !ok || len(n.Value) <= maxNameLength {
+		return v, false
+	}
+	return pdf.PDFName{Value: n.Value[:maxNameLength]}, true
 }
 
 // renameOverlongKeys renames every over-limit key of d to a short,

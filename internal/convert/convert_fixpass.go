@@ -26,6 +26,10 @@ type fixPass struct {
 	// parents maps a dict's Entries identity to every graph slot holding it,
 	// lazily built on first replaceObject call and shared for the iteration.
 	parents map[uintptr][]parentSlot
+
+	// contentStreams holds the Entries identities of content-bearing streams,
+	// lazily built on first isContentStream call.
+	contentStreams map[uintptr]bool
 }
 
 // parentSlot writes a replacement dict value into one graph location that
@@ -107,6 +111,98 @@ func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
 			p.objs[ref.ObjNum] = updated
 		}
 	}
+}
+
+// isContentStream reports whether d is one of the content-bearing streams
+// walkContentStreams would rewrite; running the content rewriter over any
+// other stream's bytes would corrupt it (e.g. an image flagged for an
+// out-of-range entry value).
+func (p *fixPass) isContentStream(d pdf.PDFDict) bool {
+	if p.contentStreams == nil {
+		p.contentStreams = map[uintptr]bool{}
+		collectContentStreamPtrs(*p.trailer, p.contentStreams)
+	}
+	return p.contentStreams[pdf.ValuePointer(d.Entries)]
+}
+
+// collectContentStreamPtrs records the Entries identity of every content-
+// bearing stream, mirroring walkContentStreams' positional dispatch (page
+// Contents, tiling patterns, form XObjects, Type3 CharProcs) without
+// decoding anything.
+func collectContentStreamPtrs(trailer pdf.PDFDict, out map[uintptr]bool) {
+	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		switch {
+		case (d.Entries["Type"] == pdf.PDFName{Value: "Page"}):
+			switch contents := d.Entries["Contents"].(type) {
+			case pdf.PDFDict:
+				if contents.HasStream {
+					out[pdf.ValuePointer(contents.Entries)] = true
+				}
+			case pdf.PDFArray:
+				for _, item := range contents {
+					if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+						out[pdf.ValuePointer(cd.Entries)] = true
+					}
+				}
+			}
+		case d.Entries["PatternType"] == pdf.PDFInteger(1) && d.HasStream,
+			(d.Entries["Subtype"] == pdf.PDFName{Value: "Form"}) && d.HasStream:
+			out[pdf.ValuePointer(d.Entries)] = true
+		case (d.Entries["Subtype"] == pdf.PDFName{Value: "Type3"}):
+			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
+				for _, v := range procs.Entries {
+					if pd, ok := v.(pdf.PDFDict); ok && pd.HasStream {
+						out[pdf.ValuePointer(pd.Entries)] = true
+					}
+				}
+			}
+		}
+	})
+}
+
+// fixOwnedScalars applies fix to every scalar d owns -- its entry values
+// and, transitively, elements of arrays -- without descending into child
+// dicts, mirroring the verifier's owner threading: a child dict's scalars
+// are reported against the child, which is its own fix target.
+func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool)) bool {
+	changed := false
+	visited := map[uintptr]bool{}
+	var fixArray func(a pdf.PDFArray)
+	fixArray = func(a pdf.PDFArray) {
+		ptr := pdf.ValuePointer(a)
+		if visited[ptr] {
+			return
+		}
+		visited[ptr] = true
+		for i, item := range a {
+			switch v := item.(type) {
+			case pdf.PDFDict:
+			case pdf.PDFArray:
+				fixArray(v)
+			default:
+				if nv, ok := fix(item); ok {
+					a[i] = nv
+					changed = true
+				}
+			}
+		}
+	}
+	for k, val := range d.Entries {
+		if k == "_ref" || k == "_dirty" {
+			continue
+		}
+		switch v := val.(type) {
+		case pdf.PDFDict:
+		case pdf.PDFArray:
+			fixArray(v)
+		default:
+			if nv, ok := fix(val); ok {
+				d.Entries[k] = nv
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // collectParentSlots records, for every dict reachable from v, a setter per

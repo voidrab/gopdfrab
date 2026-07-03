@@ -210,12 +210,18 @@ func TestContentLimitsFixerTargetsIssueRefs(t *testing.T) {
 	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Colour.UndefinedOperator)
 }
 
-// TestContentLimitsFixerTargetedRejectsNonStreamTargets covers the gate for
-// the graph-scalar flavour once it carries owner refs: a resolvable target
-// without a stream must force the full-walk fallback.
-func TestContentLimitsFixerTargetedRejectsNonStreamTargets(t *testing.T) {
+// TestContentLimitsFixerTargetsOwnedScalars covers the graph-scalar flavour:
+// the verifier reports a scalar violation against its owning dict, and the
+// targeted fix clamps exactly that dict's owned scalars (entries and nested
+// arrays, but not child dicts, which are their own targets).
+func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 	plain := pdf.NewPDFDict()
 	plain.Entries["_ref"] = pdf.PDFRef{ObjNum: 30}
+	plain.Entries["Big"] = pdf.PDFInteger(3_000_000_000)
+	plain.Entries["List"] = pdf.PDFArray{pdf.PDFReal(40000)}
+	child := pdf.NewPDFDict()
+	child.Entries["Big"] = pdf.PDFInteger(3_000_000_000)
+	plain.Entries["Child"] = child
 	root := pdf.NewPDFDict()
 	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 31}
 	root.Entries["Thing"] = plain
@@ -227,12 +233,97 @@ func TestContentLimitsFixerTargetedRejectsNonStreamTargets(t *testing.T) {
 	ref := plain.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
 
-	_, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
-	if handled {
-		t.Fatal("handled = true for a non-stream target, want full-walk fallback")
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+	if got := plain.Entries["Big"]; got != pdf.PDFInteger(2147483647) {
+		t.Errorf("owned integer = %v, want clamped to 2147483647", got)
+	}
+	if got := plain.Entries["List"].(pdf.PDFArray)[0]; got != pdf.PDFReal(32767) {
+		t.Errorf("owned array real = %v, want clamped to 32767", got)
+	}
+	if got := child.Entries["Big"]; got != pdf.PDFInteger(3_000_000_000) {
+		t.Errorf("child dict scalar = %v, want untouched (child is its own target)", got)
+	}
+}
+
+// TestContentLimitsFixerTargetedNeverRewritesNonContentStreams guards the
+// corruption hazard: a stream flagged for an out-of-range entry value (e.g.
+// an image XObject) must keep its bytes; only walkContentStreams' dispatch
+// set gets the content rewrite.
+func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) {
+	raw := []byte{0x00, 0x01, 0xfe, 0xff, ' ', 'q', ' ', 0x03}
+	img := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"},
+			"Bad":     pdf.PDFInteger(3_000_000_000),
+			"_ref":    pdf.PDFRef{ObjNum: 50},
+		},
+		HasStream: true,
+		RawStream: raw,
+	}
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 51}
+	root.Entries["Img"] = img
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := img.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
+
+	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+	if got := root.Entries["Img"].(pdf.PDFDict); !bytes.Equal(got.RawStream, raw) {
+		t.Errorf("image stream bytes were rewritten: %v", got.RawStream)
+	}
+	if got := img.Entries["Bad"]; got != pdf.PDFInteger(2147483647) {
+		t.Errorf("entry scalar = %v, want clamped", got)
+	}
+}
+
+// TestNameTooLongFixerTargetsValueFlavour covers overlong name values owned
+// by the flagged dict, directly and inside arrays.
+func TestNameTooLongFixerTargetsValueFlavour(t *testing.T) {
+	long := strings.Repeat("N", maxNameLength+5)
+	d := pdf.NewPDFDict()
+	d.Entries["_ref"] = pdf.PDFRef{ObjNum: 60}
+	d.Entries["Name"] = pdf.PDFName{Value: long}
+	d.Entries["Arr"] = pdf.PDFArray{pdf.PDFName{Value: long}}
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 61}
+	root.Entries["D"] = d
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := d.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
+
+	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+	want := long[:maxNameLength]
+	if got := d.Entries["Name"].(pdf.PDFName).Value; got != want {
+		t.Errorf("entry name len = %d, want truncated to %d", len(got), maxNameLength)
+	}
+	if got := d.Entries["Arr"].(pdf.PDFArray)[0].(pdf.PDFName).Value; got != want {
+		t.Errorf("array name len = %d, want truncated to %d", len(got), maxNameLength)
 	}
 }
 
