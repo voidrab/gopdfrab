@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -232,6 +233,45 @@ func TestContentLimitsFixerTargetedRejectsNonStreamTargets(t *testing.T) {
 	}
 	if handled {
 		t.Fatal("handled = true for a non-stream target, want full-walk fallback")
+	}
+}
+
+func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
+	longKey := strings.Repeat("A", maxNameLength+10)
+	makeDict := func(objNum int) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.Entries["_ref"] = pdf.PDFRef{ObjNum: objNum}
+		d.Entries[longKey] = pdf.PDFInteger(1)
+		return d
+	}
+	flagged, other := makeDict(40), makeDict(41)
+	root := pdf.NewPDFDict()
+	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 42}
+	root.Entries["A"] = flagged
+	root.Entries["B"] = other
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	objs := writer.NumberObjects(trailer)
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	ref := flagged.Entries["_ref"].(pdf.PDFRef)
+	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
+
+	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil {
+		t.Fatalf("fixTargeted: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
+	}
+	if _, exists := flagged.Entries[longKey]; exists {
+		t.Error("flagged dict still has the overlong key")
+	}
+	if _, exists := flagged.Entries[longKey[:maxNameLength-8]]; !exists {
+		t.Error("flagged dict has no shortened replacement key")
+	}
+	if _, exists := other.Entries[longKey]; !exists {
+		t.Error("unflagged dict was touched by the targeted fix")
 	}
 }
 

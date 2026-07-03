@@ -463,22 +463,8 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 
 	renames := map[uintptr]map[string]string{} // category-dict ptr -> old name -> new name
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		var overlong []string
-		for k := range d.Entries {
-			if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
-				overlong = append(overlong, k)
-			}
-		}
-		for _, k := range overlong {
-			newKey := shortenDictKey(d, k)
-			d.Entries[newKey] = d.Entries[k]
-			delete(d.Entries, k)
+		if renameOverlongKeys(d, renames) {
 			changed = true
-			ptr := pdf.ValuePointer(d.Entries)
-			if renames[ptr] == nil {
-				renames[ptr] = map[string]string{}
-			}
-			renames[ptr][k] = newKey
 		}
 	})
 	if len(renames) > 0 {
@@ -486,6 +472,50 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 	}
 
 	return changed, nil
+}
+
+// fixTargeted renames overlong keys only on the dicts the issues reference.
+// The value flavour of NameTooLong is reported against the bare name without
+// a ref, so its presence in the batch forces the full-walk fallback.
+func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	renames := map[uintptr]map[string]string{}
+	for _, d := range targets {
+		if renameOverlongKeys(d, renames) {
+			changed = true
+		}
+	}
+	if len(renames) > 0 {
+		renameResourceReferences(p.trailer, renames)
+	}
+	return changed, true, nil
+}
+
+// renameOverlongKeys renames every over-limit key of d to a short,
+// collision-free replacement, recording old->new per dict for the
+// content-stream reference rewrite.
+func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bool {
+	var overlong []string
+	for k := range d.Entries {
+		if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
+			overlong = append(overlong, k)
+		}
+	}
+	sort.Strings(overlong) // deterministic collision suffixes
+	for _, k := range overlong {
+		newKey := shortenDictKey(d, k)
+		d.Entries[newKey] = d.Entries[k]
+		delete(d.Entries, k)
+		ptr := pdf.ValuePointer(d.Entries)
+		if renames[ptr] == nil {
+			renames[ptr] = map[string]string{}
+		}
+		renames[ptr][k] = newKey
+	}
+	return len(overlong) > 0
 }
 
 // shortenDictKey returns a name under maxNameLength bytes that isn't
