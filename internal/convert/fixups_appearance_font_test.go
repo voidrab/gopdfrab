@@ -15,7 +15,7 @@ import (
 // SubsetGlyphCoverage, and Widths built from the embedded hmtx table can
 // never disagree with AdvanceWidthMismatch's own hmtx read.
 func TestAppearanceFontIsConformant(t *testing.T) {
-	font := appearanceFont()
+	font := (&appearanceFontSource{}).font()
 	ctx := &verify.ValidationContext{}
 	verify.ValidateFontDict(font, ctx)
 
@@ -30,21 +30,25 @@ func TestAppearanceFontIsConformant(t *testing.T) {
 	}
 	for _, err := range ctx.Issues() {
 		if disallowed[err.Check()] {
-			t.Errorf("appearanceFont() failed %s: %v", err.Check().Name(), err)
+			t.Errorf("appearance font failed %s: %v", err.Check().Name(), err)
 		}
 	}
 }
 
-// TestAppearanceFontIsCachedAndShared checks that appearanceFont() returns
-// the same underlying Entries map on every call, which is what lets the
-// writer's identity-based dedup (writer.go) coalesce every reference into a
-// single embedded font object instead of duplicating the font program once
-// per widget.
-func TestAppearanceFontIsCachedAndShared(t *testing.T) {
-	a := appearanceFont()
-	b := appearanceFont()
-	if pdf.ValuePointer(a.Entries) != pdf.ValuePointer(b.Entries) {
-		t.Errorf("appearanceFont() returned distinct Entries maps across calls, want the same shared instance")
+// TestAppearanceFontSourceScoping checks both halves of the source's
+// contract: one source returns the same underlying Entries map on every
+// call (what lets the writer's identity-based dedup coalesce every widget's
+// reference into a single embedded font object), while distinct sources --
+// distinct convert Runs -- never share a graph node, so a fixer mutating
+// the font in one run cannot leak into later conversions.
+func TestAppearanceFontSourceScoping(t *testing.T) {
+	src := &appearanceFontSource{}
+	if pdf.ValuePointer(src.font().Entries) != pdf.ValuePointer(src.font().Entries) {
+		t.Errorf("one source returned distinct Entries maps across calls, want the same shared instance")
+	}
+	other := &appearanceFontSource{}
+	if pdf.ValuePointer(src.font().Entries) == pdf.ValuePointer(other.font().Entries) {
+		t.Errorf("two sources share one Entries map, want per-run isolation")
 	}
 }
 
@@ -54,7 +58,7 @@ func TestAppearanceFontIsCachedAndShared(t *testing.T) {
 // Widths-building loop directly rather than only via the absence of a
 // reported error.
 func TestAppearanceFontWidthsMatchHmtx(t *testing.T) {
-	font := appearanceFont()
+	font := (&appearanceFontSource{}).font()
 	desc := font.Entries["FontDescriptor"].(pdf.PDFDict)
 	ff := desc.Entries["FontFile2"].(pdf.PDFDict)
 	data, err := pdf.DecodeStream(ff)

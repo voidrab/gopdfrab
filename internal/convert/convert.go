@@ -139,10 +139,11 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		changed := false
 		// Per-dict-local fixers (batchDictFixer) share one graph walk this
 		// pass instead of each walking the whole graph; everything else runs
-		// its own Fix as before.
+		// its own Fix as before. Sorted order keeps fixer application -- and
+		// with it the whole conversion -- deterministic across runs.
 		var visitors []func(pdf.PDFDict)
 		batched := map[Fixer]bool{}
-		for c := range counts {
+		for _, c := range sortedChecks(counts) {
 			fixer, ok := localFixers[c]
 			if !ok {
 				continue
@@ -251,9 +252,11 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 }
 
 // buildLocalFixers returns a per-run fixer map with run-scoped instances
-// substituted for the registry singletons: the per-run dcFixer, and a
-// fontSubstitutionFixer carrying the run's Reader for cached usage scans.
+// substituted for the registry singletons: the per-run dcFixer, a
+// fontSubstitutionFixer carrying the run's Reader for cached usage scans,
+// and an appearanceFixer carrying the run's appearance font.
 func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]Fixer {
+	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
 		switch f.(type) {
@@ -263,6 +266,8 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]
 			local[c] = fontSubstitutionFixer{doc: doc}
 		case trueTypeEncodingFixer:
 			local[c] = trueTypeEncodingFixer{doc: doc}
+		case appearanceFixer:
+			local[c] = appearanceFixer{fontSrc: fontSrc}
 		default:
 			local[c] = f
 		}
@@ -346,6 +351,25 @@ func flattenPagesParallel(pages []pageTarget) bool {
 		changed = changed || r
 	}
 	return changed
+}
+
+// sortedChecks returns counts' keys ordered by clause, subclause, and name,
+// giving the fixer loop a stable application order.
+func sortedChecks(counts map[pdf.Check]int) []pdf.Check {
+	checks := make([]pdf.Check, 0, len(counts))
+	for c := range counts {
+		checks = append(checks, c)
+	}
+	sort.Slice(checks, func(i, j int) bool {
+		if checks[i].Clause() != checks[j].Clause() {
+			return checks[i].Clause() < checks[j].Clause()
+		}
+		if checks[i].Subclause() != checks[j].Subclause() {
+			return checks[i].Subclause() < checks[j].Subclause()
+		}
+		return checks[i].Name() < checks[j].Name()
+	})
+	return checks
 }
 
 // violationCounts tallies how many times each Check is violated, used to

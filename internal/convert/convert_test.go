@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -71,19 +72,27 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
 // resolved, instead of failing outright: no rewrite is possible, but a
-// Result should still come back. veraPDF's 6-1-4-t02-fail-b deliberately
-// breaks the cross-reference table such that the brute-force recovery scan
-// (recoverXRefByBruteForceScan, used as a last resort once classic and
-// xref-stream parsing both fail) cannot locate every referenced object.
+// Result should still come back. The input is a fixture with a broken first
+// xref section whose object 2 header is additionally mangled, so neither
+// xref parsing nor the brute-force recovery scan can locate the referenced
+// object anywhere in the file.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
 		t.Skip("veraPDF suite not present")
 	}
-
-	cr, err := Convert(path, pdf.PDFA_1B)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("Convert: %v", err)
+		t.Fatalf("ReadFile: %v", err)
+	}
+	mangled := bytes.ReplaceAll(data, []byte("\n2 0 obj"), []byte("\n2_0_obj"))
+	if bytes.Equal(mangled, data) {
+		t.Fatalf("fixture no longer contains an object 2 header; test input needs updating")
+	}
+
+	cr, err := ConvertBytes(mangled, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
 	}
 	if cr.Result.Valid {
 		t.Fatalf("expected a non-conformant Result for an unresolvable graph, got Valid=true")
@@ -463,14 +472,44 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 	}
 }
 
+// TestConvertIsDeterministic converts the corpus fixture that historically
+// flaked (isartor-6-9-t01-fail-a, residual 6.3.2/InvalidProgram in ~1 of 3
+// full-suite runs) several times in one process and asserts every run agrees:
+// same validity and the same residual multiset. Guards the two determinism
+// fixes: per-Run appearance font scoping and sorted fixer application.
+func TestConvertIsDeterministic(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t01-fail-a.pdf"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("Isartor suite not present")
+	}
+
+	var firstValid bool
+	var firstCounts map[pdf.Check]int
+	for i := range 5 {
+		cr, err := Convert(path, pdf.PDFA_1B)
+		if err != nil {
+			t.Fatalf("Convert (run %d): %v", i, err)
+		}
+		counts := violationCounts(cr.Residual())
+		if i == 0 {
+			firstValid, firstCounts = cr.Result.Valid, counts
+			continue
+		}
+		if cr.Result.Valid != firstValid || !sameMultiset(counts, firstCounts) {
+			t.Fatalf("run %d diverged: Valid=%v residual=%v, want Valid=%v residual=%v",
+				i, cr.Result.Valid, issueClauses(cr.Residual()), firstValid, firstCounts)
+		}
+	}
+	if !firstValid {
+		t.Errorf("fixture no longer converts fully; residual: %v", firstCounts)
+	}
+}
+
 // minConvertedFully is a regression floor on how many of both corpora's
-// "fail" fixtures Convert turns fully conformant, recorded empirically after
-// rasterization became Convert's automatic last resort: 509 of 510, up from
-// 502. The single hold-out is a fixture whose cross-reference table can't be
-// parsed (6.1.4/6.1.6) -- the graph never resolves, so there is nothing to
-// rewrite or rasterize. Should only ever increase; a drop means something
-// regressed.
-const minConvertedFully = 509
+// "fail" fixtures Convert turns fully conformant: all 510, since brute-force
+// recovery of unparseable /Prev xref sections cleared the last hold-out.
+// A drop means something regressed.
+const minConvertedFully = 510
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome.

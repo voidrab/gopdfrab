@@ -47,7 +47,7 @@ func contentBytesOf(t *testing.T, xobj pdf.PDFDict) []byte {
 // TestAppearanceFixerSynthesizesTextFieldAppearance builds a text-field
 // widget with a value and no /AP, runs the fixer, and checks that /AP/N
 // becomes a Form XObject stream whose content draws the field's text using
-// the bundled appearanceFont(), then checks that a second pass is a no-op
+// the bundled appearance font, then checks that a second pass is a no-op
 // (idempotent, required for the bounded convert loop to terminate).
 func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 	widget := pdf.NewPDFDict()

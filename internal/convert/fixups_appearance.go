@@ -17,7 +17,7 @@ import (
 // (extra entries, missing N, or N of the wrong shape, 6.5.3). It rebuilds
 // /AP from scratch as "<< /N <value> >>", synthesizing a minimal Form
 // XObject -- with rendered text for text/choice field values, using the
-// bundled appearanceFont() (fixups_appearance_font.go) -- wherever no
+// run-scoped appearance font (fixups_appearance_font.go) -- wherever no
 // already-valid N value can be kept as-is.
 
 func init() {
@@ -26,8 +26,11 @@ func init() {
 
 // appearanceFixer remediates WidgetMissingAppearance, MissingAppearance,
 // AppearanceMissingN, AppearanceExtraEntries and AppearanceNNotStream,
-// mirroring the /AP block of validateAnnotation (checks_dict.go).
-type appearanceFixer struct{}
+// mirroring the /AP block of validateAnnotation (checks_dict.go). fontSrc is
+// the run-scoped appearance font, substituted by buildLocalFixers.
+type appearanceFixer struct {
+	fontSrc *appearanceFontSource
+}
 
 func (appearanceFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -39,7 +42,11 @@ func (appearanceFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (appearanceFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f appearanceFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	fontSrc := f.fontSrc
+	if fontSrc == nil {
+		fontSrc = &appearanceFontSource{}
+	}
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
@@ -52,7 +59,7 @@ func (appearanceFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, e
 		if !annotationNeedsAppearanceFix(d) {
 			return
 		}
-		d.Entries["AP"] = rebuiltAppearanceDict(trailer, d)
+		d.Entries["AP"] = rebuiltAppearanceDict(trailer, d, fontSrc)
 		changed = true
 	})
 	return changed, nil
@@ -110,7 +117,7 @@ func isBtnField(d pdf.PDFDict) bool {
 // annotationNeedsAppearanceFix's shape rule) is kept as-is -- e.g. when the
 // only violation was an extra /D or /R entry -- rather than discarding a
 // perfectly good appearance just to strip the other keys.
-func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict) pdf.PDFDict {
+func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) pdf.PDFDict {
 	isBtn := isBtnField(d)
 	var newN pdf.PDFValue
 
@@ -130,7 +137,7 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict) pdf.PDFDict {
 	}
 
 	if newN == nil {
-		box := buildAppearanceXObject(trailer, d, isBtn)
+		box := buildAppearanceXObject(trailer, d, isBtn, fontSrc)
 		if isBtn {
 			newN = pdf.PDFDict{Entries: map[string]pdf.PDFValue{buttonState(d): box}}
 		} else {
@@ -155,7 +162,7 @@ func buttonState(d pdf.PDFDict) string {
 // /Rect: rendered text for a text/choice field's current value, or an empty
 // (but structurally valid) appearance otherwise -- buttons render no text
 // here since their caption belongs on the state stream, not the box itself.
-func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool) pdf.PDFDict {
+func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool, fontSrc *appearanceFontSource) pdf.PDFDict {
 	w, h := annotBBox(d)
 
 	xobj := pdf.NewPDFDict()
@@ -168,7 +175,7 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool) pdf
 	resources := pdf.NewPDFDict()
 	if !isBtn && isTextLikeField(d) {
 		if text := fieldDisplayText(d); text != "" {
-			content, resources = buildTextAppearanceContent(trailer, d, text, w, h)
+			content, resources = buildTextAppearanceContent(trailer, d, text, w, h, fontSrc)
 		}
 	}
 
@@ -307,8 +314,8 @@ func sanitizeSingleLine(s string) string {
 
 // parseDA extracts the font size (Tf's second operand) and non-stroking
 // colour operator from a /DA default-appearance string; the font name
-// itself is ignored since the synthesized appearance always uses
-// appearanceFont().
+// itself is ignored since the synthesized appearance always uses the
+// bundled appearance font.
 func parseDA(da string) (size float64, colorOps []writer.ContentOp) {
 	pdf.NewContentScanner([]byte(da)).Scan(func(op string, operands []pdf.PDFValue) {
 		switch op {
@@ -346,7 +353,7 @@ func formLevelDA(trailer *pdf.PDFDict) string {
 // buildTextAppearanceContent renders text as a single left-aligned,
 // vertically-centered line clipped to the BBox, using size/colour parsed
 // from the field's effective /DA (or the AcroForm's, or a fallback).
-func buildTextAppearanceContent(trailer *pdf.PDFDict, d pdf.PDFDict, text string, w, h float64) ([]byte, pdf.PDFDict) {
+func buildTextAppearanceContent(trailer *pdf.PDFDict, d pdf.PDFDict, text string, w, h float64, fontSrc *appearanceFontSource) ([]byte, pdf.PDFDict) {
 	daStr := ""
 	if da, ok := climbField(d, "DA"); ok {
 		if s, ok := da.(pdf.PDFString); ok {
@@ -395,7 +402,7 @@ func buildTextAppearanceContent(trailer *pdf.PDFDict, d pdf.PDFDict, text string
 
 	resources := pdf.NewPDFDict()
 	fontRes := pdf.NewPDFDict()
-	fontRes.Entries["F0"] = appearanceFont()
+	fontRes.Entries["F0"] = fontSrc.font()
 	resources.Entries["Font"] = fontRes
 	return content, resources
 }
