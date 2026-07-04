@@ -6,7 +6,63 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
+
+// -- Top-level entry points
+
+func TestVerifyFile(t *testing.T) {
+	res, err := VerifyFile(sampleVeraPassFile, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("VerifyFile: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyFile(%s) = invalid, want valid: %v", sampleVeraPassFile, res.Issues)
+	}
+
+	if _, err := VerifyFile("/nonexistent/path.pdf", pdf.PDFA_1B); err == nil {
+		t.Error("VerifyFile should error for a nonexistent path")
+	}
+}
+
+func TestVerifyBytes(t *testing.T) {
+	data, err := os.ReadFile(sampleVeraPassFile)
+	if err != nil {
+		t.Skip("corpus not available")
+	}
+	res, err := VerifyBytes(data, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyBytes(pass file) = invalid, want valid: %v", res.Issues)
+	}
+
+	if _, err := VerifyBytes([]byte("not a pdf"), pdf.PDFA_1B); err == nil {
+		t.Error("VerifyBytes should error for malformed data")
+	}
+}
+
+func TestVerifyAll(t *testing.T) {
+	paths := []string{sampleVeraPassFile, "/nonexistent/path.pdf"}
+	results, err := VerifyAll(paths, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("VerifyAll: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("VerifyAll returned %d results, want 2", len(results))
+	}
+	if results[0].Path != sampleVeraPassFile || results[0].Err != nil || !results[0].Result.Valid {
+		t.Errorf("VerifyAll[0] = %+v, want a valid result for the pass file", results[0])
+	}
+	if results[1].Err == nil {
+		t.Error("VerifyAll[1] should carry an error for the nonexistent path")
+	}
+
+	if results, err := VerifyAll(nil, pdf.PDFA_1B); err != nil || len(results) != 0 {
+		t.Errorf("VerifyAll(nil) = %v, %v, want empty slice, nil error", results, err)
+	}
+}
 
 // -- PDF/A-1b
 
@@ -1098,5 +1154,381 @@ func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
 		if !seen {
 			t.Errorf("check %s not reported with a resolvable ref", c.Name())
 		}
+	}
+}
+
+func TestCollectAPEntryUsage(t *testing.T) {
+	xobj := pdf.NewPDFDict()
+	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.HasStream = true
+	xobj.RawStream = []byte("q Q\n")
+	xobjPtr := pdf.ValuePointer(xobj.Entries)
+
+	resources := pdf.NewPDFDict()
+	xobjDict := pdf.NewPDFDict()
+	xobjDict.Entries["X1"] = xobj
+	resources.Entries["XObject"] = xobjDict
+
+	doContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := pdf.NewPDFDict()
+	direct.HasStream = true
+	direct.RawStream = doContent
+	direct.Entries["Resources"] = resources
+
+	ctx := &ValidationContext{}
+	reachable := map[uintptr]bool{}
+	fu := &fontUsage{visible: map[uintptr]bool{}, invisible: map[uintptr]bool{}, usedCodes: map[uintptr]map[int]bool{}, usedCIDs: map[uintptr]map[int]bool{}}
+	collectAPEntryUsage(ctx, direct, reachable, fu)
+	if !reachable[xobjPtr] {
+		t.Error("expected the Do-invoked XObject to be marked reachable via a direct AP/N stream")
+	}
+
+	// Subdictionary-of-states form (Btn widget).
+	states := pdf.NewPDFDict()
+	states.Entries["On"] = direct
+	states.Entries["Off"] = pdf.NewPDFDict() // no stream: skipped
+	reachable2 := map[uintptr]bool{}
+	collectAPEntryUsage(ctx, states, reachable2, fu)
+	if !reachable2[xobjPtr] {
+		t.Error("expected the Do-invoked XObject to be marked reachable via an appearance-state subdictionary")
+	}
+
+	// Neither a stream nor a dict: no-op, no panic.
+	collectAPEntryUsage(ctx, pdf.PDFName{Value: "x"}, map[uintptr]bool{}, fu)
+}
+
+func TestShownStringBytes(t *testing.T) {
+	got := ShownStringBytes("Tj", []pdf.PDFValue{pdf.PDFString{Value: "AB"}})
+	if string(got) != "AB" {
+		t.Errorf("ShownStringBytes(Tj) = %q, want AB", got)
+	}
+
+	got = ShownStringBytes("TJ", []pdf.PDFValue{pdf.PDFArray{
+		pdf.PDFString{Value: "A"}, pdf.PDFInteger(-100), pdf.PDFHexString{Value: "42"},
+	}})
+	if string(got) != "AB" {
+		t.Errorf("ShownStringBytes(TJ) = %q, want AB", got)
+	}
+
+	got = ShownStringBytes("'", []pdf.PDFValue{pdf.PDFString{Value: "X"}})
+	if string(got) != "X" {
+		t.Errorf(`ShownStringBytes(') = %q, want X`, got)
+	}
+
+	if got := ShownStringBytes("Tj", nil); got != nil {
+		t.Errorf("ShownStringBytes(Tj, no operands) = %q, want nil", got)
+	}
+}
+
+// buildValidICCProfile returns a minimal 128-byte ICC profile header with a
+// valid version, device class, colour space and matching /N.
+func buildValidICCProfile() []byte {
+	data := make([]byte, 128)
+	data[8] = 2 // major version 2
+	copy(data[12:16], "mntr")
+	copy(data[16:20], "RGB ")
+	copy(data[36:40], "acsp")
+	return data
+}
+
+func TestValidateICCProfileStream(t *testing.T) {
+	good := pdf.NewPDFDict()
+	good.HasStream = true
+	good.RawStream = buildValidICCProfile()
+	good.Entries["N"] = pdf.PDFInteger(3)
+	if err := ValidateICCProfileStream(good); err != nil {
+		t.Errorf("unexpected error for a valid ICC profile: %v", err)
+	}
+
+	notStream := pdf.NewPDFDict()
+	if err := ValidateICCProfileStream(notStream); err == nil {
+		t.Error("expected an error when the stream cannot be decoded")
+	}
+
+	tooShort := pdf.NewPDFDict()
+	tooShort.HasStream = true
+	tooShort.RawStream = make([]byte, 10)
+	if err := ValidateICCProfileStream(tooShort); err == nil {
+		t.Error("expected an error for a too-short ICC profile")
+	}
+
+	noSig := pdf.NewPDFDict()
+	noSig.HasStream = true
+	noSig.RawStream = buildValidICCProfile()
+	noSig.RawStream[36] = 'x'
+	if err := ValidateICCProfileStream(noSig); err == nil {
+		t.Error("expected an error when the acsp signature is missing")
+	}
+
+	badVersion := pdf.NewPDFDict()
+	badVersion.HasStream = true
+	badVersion.RawStream = buildValidICCProfile()
+	badVersion.RawStream[8] = 4
+	if err := ValidateICCProfileStream(badVersion); err == nil {
+		t.Error("expected an error for ICC version >= 3.0")
+	}
+
+	badClass := pdf.NewPDFDict()
+	badClass.HasStream = true
+	badClass.RawStream = buildValidICCProfile()
+	copy(badClass.RawStream[12:16], "xxxx")
+	if err := ValidateICCProfileStream(badClass); err == nil {
+		t.Error("expected an error for an invalid device class")
+	}
+
+	badCS := pdf.NewPDFDict()
+	badCS.HasStream = true
+	badCS.RawStream = buildValidICCProfile()
+	copy(badCS.RawStream[16:20], "xxxx")
+	if err := ValidateICCProfileStream(badCS); err == nil {
+		t.Error("expected an error for an invalid colour space")
+	}
+
+	noN := pdf.NewPDFDict()
+	noN.HasStream = true
+	noN.RawStream = buildValidICCProfile()
+	if err := ValidateICCProfileStream(noN); err == nil {
+		t.Error("expected an error when /N is missing")
+	}
+
+	badNType := pdf.NewPDFDict()
+	badNType.HasStream = true
+	badNType.RawStream = buildValidICCProfile()
+	badNType.Entries["N"] = pdf.PDFName{Value: "3"}
+	if err := ValidateICCProfileStream(badNType); err == nil {
+		t.Error("expected an error when /N is not an integer")
+	}
+
+	mismatch := pdf.NewPDFDict()
+	mismatch.HasStream = true
+	mismatch.RawStream = buildValidICCProfile()
+	mismatch.Entries["N"] = pdf.PDFInteger(4) // RGB colour space, N=4 mismatched
+	if err := ValidateICCProfileStream(mismatch); err == nil {
+		t.Error("expected an error when /N does not match the profile colour space")
+	}
+}
+
+// TestVerifyCrossReferenceTablePrevChain walks a real incrementally-updated
+// PDF (a /Prev-chained xref) through verifyCrossReferenceTable's loop, which
+// single-generation fixtures elsewhere in this file never exercise.
+func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
+	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-a.pdf"
+	doc, err := pdf.Open(path)
+	if err != nil {
+		t.Skipf("corpus file not available: %v", err)
+	}
+	defer doc.Close()
+	// Not asserting a specific outcome: this file's xref sections may or may
+	// not themselves be spec-conformant. The point is exercising the Prev-walk
+	// loop (and its visited-offset cycle guard) without panicking.
+	_ = verifyCrossReferenceTable(doc)
+}
+
+func TestComputeContentUsageFullFlow(t *testing.T) {
+	// A Type0/Identity-H composite font, a simple font, an XObject invoked
+	// twice (second Do should hit the already-reachable skip), and text shown
+	// under invisible rendering mode (Tr 3) for the simple font.
+	cidDesc := pdf.NewPDFDict()
+	cidDesc.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
+	type0Font := pdf.NewPDFDict()
+	type0Font.Entries["Subtype"] = pdf.PDFName{Value: "Type0"}
+	type0Font.Entries["Encoding"] = pdf.PDFName{Value: "Identity-H"}
+	type0Font.Entries["DescendantFonts"] = pdf.PDFArray{cidDesc}
+
+	simpleFont := pdf.NewPDFDict()
+	simpleFont.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
+
+	fonts := pdf.NewPDFDict()
+	fonts.Entries["F0"] = type0Font
+	fonts.Entries["F1"] = simpleFont
+
+	xobj := pdf.NewPDFDict()
+	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.HasStream = true
+	xobj.RawStream = []byte("q Q\n")
+	xobjs := pdf.NewPDFDict()
+	xobjs.Entries["X1"] = xobj
+
+	resources := pdf.NewPDFDict()
+	resources.Entries["Font"] = fonts
+	resources.Entries["XObject"] = xobjs
+
+	ops := []writer.ContentOp{
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}}, // already reachable: hits the skip branch
+		{Op: "BT", Operands: nil},
+		{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: "F0"}, pdf.PDFInteger(12)}},
+		{Op: "TJ", Operands: []pdf.PDFValue{pdf.PDFArray{pdf.PDFHexString{Value: "0041"}}}},
+		{Op: "Tr", Operands: []pdf.PDFValue{pdf.PDFInteger(3)}}, // invisible
+		{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: "F1"}, pdf.PDFInteger(12)}},
+		{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: "A"}}},
+		{Op: "ET", Operands: nil},
+		{Op: "Do", Operands: nil}, // Do with no operands: early return
+	}
+	content, err := writer.WriteContentStream(ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Resources"] = resources
+	page.Entries["Contents"] = pdf.PDFDict{HasStream: true, RawStream: content, Entries: pdf.NewPDFDict().Entries}
+
+	ctx := &ValidationContext{}
+	reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(page, ctx)
+
+	xobjPtr := pdf.ValuePointer(xobj.Entries)
+	if !reachable[xobjPtr] {
+		t.Error("expected the XObject to be marked reachable")
+	}
+	cidPtr := pdf.ValuePointer(cidDesc.Entries)
+	if len(usedCIDs[cidPtr]) == 0 {
+		t.Error("expected a used CID recorded for the Identity-H composite font")
+	}
+	simplePtr := pdf.ValuePointer(simpleFont.Entries)
+	if !invisibleOnly[simplePtr] {
+		t.Error("expected the simple font to be invisible-only (shown only under Tr 3)")
+	}
+	if len(usedCodes[simplePtr]) == 0 {
+		t.Error("expected a used char code recorded for the simple font")
+	}
+}
+
+func TestCheckLinearizedFileID(t *testing.T) {
+	mismatched := "/ID [<AABBCC>]\nsome bytes in between\n/ID [<DDEEFF>]\n"
+	filename := t.TempDir() + "/lin-mismatch.pdf"
+	if err := os.WriteFile(filename, []byte(mismatched), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	doc := pdf.NewRawReader(f, pdf.NewPDFDict(), int64(len(mismatched)), 0) // no /Root: linearized overflow
+	errs := checkLinearizedFileID(doc)
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.TrailerID {
+		t.Errorf("checkLinearizedFileID(mismatched IDs) = %v, want a single TrailerID", errs)
+	}
+
+	matching := "/ID [<AABBCC>]\nsome bytes in between\n/ID [<AABBCC>]\n"
+	filename2 := t.TempDir() + "/lin-match.pdf"
+	if err := os.WriteFile(filename2, []byte(matching), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f2, err := os.Open(filename2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f2.Close()
+	doc2 := pdf.NewRawReader(f2, pdf.NewPDFDict(), int64(len(matching)), 0)
+	if errs := checkLinearizedFileID(doc2); errs != nil {
+		t.Errorf("unexpected violation for matching IDs: %v", errs)
+	}
+
+	// A trailer with /Root is an ordinary (non-linearized-overflow) file: no-op.
+	rootTrailer := pdf.NewPDFDict()
+	rootTrailer.Entries["Root"] = pdf.NewPDFDict()
+	doc3 := pdf.NewRawReader(f2, rootTrailer, int64(len(matching)), 0)
+	if errs := checkLinearizedFileID(doc3); errs != nil {
+		t.Errorf("unexpected check when trailer has /Root: %v", errs)
+	}
+
+	// Fewer than two /ID matches: no-op.
+	single := "/ID [<AABBCC>]\n"
+	filename3 := t.TempDir() + "/lin-single.pdf"
+	os.WriteFile(filename3, []byte(single), 0644)
+	f3, _ := os.Open(filename3)
+	defer f3.Close()
+	doc4 := pdf.NewRawReader(f3, pdf.NewPDFDict(), int64(len(single)), 0)
+	if errs := checkLinearizedFileID(doc4); errs != nil {
+		t.Errorf("unexpected check with only one /ID occurrence: %v", errs)
+	}
+}
+
+func TestCollectAnnotAppearanceUsageAndContentUsage(t *testing.T) {
+	xobj := pdf.NewPDFDict()
+	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.HasStream = true
+	xobj.RawStream = []byte("q Q\n")
+	xobjPtr := pdf.ValuePointer(xobj.Entries)
+
+	resources := pdf.NewPDFDict()
+	xobjDict := pdf.NewPDFDict()
+	xobjDict.Entries["X1"] = xobj
+	resources.Entries["XObject"] = xobjDict
+
+	doContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apStream := pdf.NewPDFDict()
+	apStream.HasStream = true
+	apStream.RawStream = doContent
+	apStream.Entries["Resources"] = resources
+
+	ap := pdf.NewPDFDict()
+	ap.Entries["N"] = apStream
+	annot := pdf.NewPDFDict()
+	annot.Entries["AP"] = ap
+	page := pdf.NewPDFDict()
+	page.Entries["Annots"] = pdf.PDFArray{annot}
+
+	ctx := &ValidationContext{}
+	reachable := map[uintptr]bool{}
+	fu := &fontUsage{visible: map[uintptr]bool{}, invisible: map[uintptr]bool{}, usedCodes: map[uintptr]map[int]bool{}, usedCIDs: map[uintptr]map[int]bool{}}
+	collectAnnotAppearanceUsage(ctx, page, reachable, fu)
+	if !reachable[xobjPtr] {
+		t.Error("expected the annotation's Do-invoked XObject to be marked reachable")
+	}
+
+	// No Annots entry: no-op, no panic.
+	collectAnnotAppearanceUsage(ctx, pdf.NewPDFDict(), map[uintptr]bool{}, fu)
+
+	// collectContentUsage: single stream dict.
+	reachable2 := map[uintptr]bool{}
+	collectContentUsage(ctx, apStream, resources, reachable2, fu)
+	if !reachable2[xobjPtr] {
+		t.Error("expected collectContentUsage to scan a single content stream dict")
+	}
+
+	// collectContentUsage: array of stream dicts.
+	reachable3 := map[uintptr]bool{}
+	collectContentUsage(ctx, pdf.PDFArray{apStream}, resources, reachable3, fu)
+	if !reachable3[xobjPtr] {
+		t.Error("expected collectContentUsage to scan an array of content streams")
+	}
+
+	// Neither a dict nor an array: no-op.
+	collectContentUsage(ctx, pdf.PDFName{Value: "x"}, resources, map[uintptr]bool{}, fu)
+}
+
+func TestDeviceColourAllowedUnknownModel(t *testing.T) {
+	ctx := &ValidationContext{}
+	if !ctx.deviceColourAllowed("lab") {
+		t.Error("deviceColourAllowed should default to true for an unrecognized model")
+	}
+}
+
+func TestNewContext(t *testing.T) {
+	ctx := NewContext(nil)
+	if ctx == nil {
+		t.Fatal("NewContext(nil) returned nil")
+	}
+	// A throwaway context (nil reader) still decodes streams uncached.
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = []byte("hello")
+	data, err := ctx.decodeStreamCached(dict)
+	if err != nil || string(data) != "hello" {
+		t.Errorf("decodeStreamCached via NewContext(nil) = %q, %v", data, err)
 	}
 }

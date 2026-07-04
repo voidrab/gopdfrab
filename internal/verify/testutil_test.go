@@ -4,7 +4,19 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// hasCheck reports whether ctx recorded a violation of c.
+func hasCheck(ctx *ValidationContext, c pdf.Check) bool {
+	for _, e := range ctx.errs {
+		if e.Check() == c {
+			return true
+		}
+	}
+	return false
+}
 
 // createValidPDF writes a minimal but structurally valid classic-xref PDF to
 // filename, for tests that need a real file Open can parse.
