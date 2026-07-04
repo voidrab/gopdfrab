@@ -197,6 +197,112 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	}
 }
 
+// buildStatefulAPPage constructs a page with one widget annotation whose
+// AP/N is a state sub-dictionary (checkbox On/Off), rather than a direct
+// stream -- the shape scanAPAppearance/fixAPColour dispatch to when /N isn't
+// itself a stream, exercised nowhere else in this file's fixtures.
+func buildStatefulAPPage() (page pdf.PDFDict, onStream pdf.PDFDict) {
+	onContent, _ := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+	})
+	onStream = pdf.NewPDFDict()
+	onStream.HasStream = true
+	onStream.RawStream = onContent
+
+	offContent, _ := writer.WriteContentStream(nil)
+	offStream := pdf.NewPDFDict()
+	offStream.HasStream = true
+	offStream.RawStream = offContent
+
+	n := pdf.NewPDFDict()
+	n.Entries["On"] = onStream
+	n.Entries["Off"] = offStream
+
+	ap := pdf.NewPDFDict()
+	ap.Entries["N"] = n
+
+	annot := pdf.NewPDFDict()
+	annot.Entries["AP"] = ap
+
+	page = pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Annots"] = pdf.PDFArray{annot}
+	return page, onStream
+}
+
+// TestPageDeviceColourModelsFindsStatefulAppearanceRGB covers
+// scanAPAppearance's state-sub-dictionary branch (AP/N with no stream of
+// its own, e.g. a checkbox's On/Off appearances).
+func TestPageDeviceColourModelsFindsStatefulAppearanceRGB(t *testing.T) {
+	page, _ := buildStatefulAPPage()
+	used := pageDeviceColourModels(page, pdf.NewPDFDict(), nil)
+	if !used["rgb"] {
+		t.Error("pageDeviceColourModels did not detect DeviceRGB in a stateful (On/Off) AP/N appearance")
+	}
+}
+
+// TestFixAPColourInjectsIntoEachState covers fixAPColour's matching
+// state-sub-dictionary branch: each state stream must get its own injection.
+func TestFixAPColourInjectsIntoEachState(t *testing.T) {
+	page, onStream := buildStatefulAPPage()
+	annot := page.Entries["Annots"].(pdf.PDFArray)[0].(pdf.PDFDict)
+	n := annot.Entries["AP"].(pdf.PDFDict).Entries["N"]
+
+	sharedRGB := iccBasedColourSpace(3, []byte("fakeicc"))
+	if !fixAPColour(n, true, false, sharedRGB, nil, nil) {
+		t.Fatal("fixAPColour returned false, expected an injection into the On state")
+	}
+	onRes, _ := onStream.Entries["Resources"].(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("rgb", onRes) {
+		t.Error("DefaultRGB not injected into the On state's own resources")
+	}
+}
+
+// TestPageDeviceColourModelsFindsShadingPatternAndArrayContents covers the
+// remaining pageDeviceColourModels branches untouched by the other tests in
+// this file: an array-form /Contents, a /Shading resource dict entry, and a
+// tiling Pattern's own /Shading entry.
+func TestPageDeviceColourModelsFindsShadingPatternAndArrayContents(t *testing.T) {
+	contentA, _ := writer.WriteContentStream(nil)
+	dictA := pdf.NewPDFDict()
+	dictA.HasStream = true
+	dictA.RawStream = contentA
+	contentB, _ := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "k", Operands: []pdf.PDFValue{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}},
+	})
+	dictB := pdf.NewPDFDict()
+	dictB.HasStream = true
+	dictB.RawStream = contentB
+
+	shading := pdf.NewPDFDict()
+	shading.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	shadings := pdf.NewPDFDict()
+	shadings.Entries["Sh1"] = shading
+
+	patternShading := pdf.NewPDFDict()
+	patternShading.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	pattern := pdf.NewPDFDict()
+	pattern.Entries["Shading"] = patternShading
+	patterns := pdf.NewPDFDict()
+	patterns.Entries["P1"] = pattern
+
+	resources := pdf.NewPDFDict()
+	resources.Entries["Shading"] = shadings
+	resources.Entries["Pattern"] = patterns
+
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Contents"] = pdf.PDFArray{dictA, dictB}
+
+	used := pageDeviceColourModels(page, resources, nil)
+	if !used["cmyk"] {
+		t.Errorf("expected cmyk from the array-form Contents' second stream, got %v", used)
+	}
+	if !used["rgb"] {
+		t.Errorf("expected rgb from the /Shading resource and the Pattern's own /Shading, got %v", used)
+	}
+}
+
 // TestPageDeviceColourModelsFindsContentAndDictUsage checks
 // pageDeviceColourModels against a synthetic page mixing a content-stream
 // "k" operator (CMYK) with an Image XObject whose own /ColorSpace is

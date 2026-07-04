@@ -83,6 +83,74 @@ func TestBuildXMPPacketKeepsParens(t *testing.T) {
 	}
 }
 
+// TestNormalizePDFDate covers the already-"D:"-prefixed pass-through, the
+// ISO-8601 fallback at several precisions (including a "Z" and a "+HH:MM"
+// offset), and the no-match rejection.
+func TestNormalizePDFDate(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"D:20080513090000+02'00'", "D:20080513090000+02'00'", true}, // already prefixed
+		{"2008-05-13T09:00:00+02:00", "D:20080513090000+02'00'", true},
+		{"2008-05-13T09:00:00Z", "D:20080513090000Z", true},
+		{"2008", "D:2008", true},               // year only
+		{"not a date at all", "", false},       // no match
+		{"  D:20080513  ", "D:20080513", true}, // whitespace trimmed around a D: value
+	}
+	for _, c := range cases {
+		got, ok := normalizePDFDate(c.in)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("normalizePDFDate(%q) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestNormalizeInfoDict covers each per-key branch: absent Info is a no-op,
+// a nil/non-string text entry is dropped, an empty decoded string is
+// dropped, Author is trimmed, an invalid /Trapped is dropped, and
+// CreationDate/ModDate are normalized or dropped if unparseable.
+func TestNormalizeInfoDict(t *testing.T) {
+	// Absent Info: must not panic and must not add one.
+	noInfo := pdf.NewPDFDict()
+	normalizeInfoDict(&noInfo)
+	if noInfo.Entries["Info"] != nil {
+		t.Error("normalizeInfoDict added an Info dict where none existed")
+	}
+
+	info := pdf.NewPDFDict()
+	info.Entries["Title"] = pdf.PDFInteger(1) // wrong type: dropped
+	info.Entries["Subject"] = pdf.PDFString{Value: ""}
+	info.Entries["Author"] = pdf.PDFString{Value: "  Jane Doe  "}
+	info.Entries["Trapped"] = pdf.PDFInteger(1) // not a name: dropped
+	info.Entries["CreationDate"] = pdf.PDFString{Value: "2008-05-13T09:00:00Z"}
+	info.Entries["ModDate"] = pdf.PDFInteger(1) // not a string: dropped
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Info"] = info
+
+	normalizeInfoDict(&trailer)
+	got := trailer.Entries["Info"].(pdf.PDFDict)
+
+	if got.Entries["Title"] != nil {
+		t.Error("wrong-typed Title not dropped")
+	}
+	if got.Entries["Subject"] != nil {
+		t.Error("empty-string Subject not dropped")
+	}
+	if s, ok := got.Entries["Author"].(pdf.PDFString); !ok || s.Value != "Jane Doe" {
+		t.Errorf("Author = %v, want trimmed \"Jane Doe\"", got.Entries["Author"])
+	}
+	if got.Entries["Trapped"] != nil {
+		t.Error("non-name Trapped not dropped")
+	}
+	if s, ok := got.Entries["CreationDate"].(pdf.PDFString); !ok || s.Value != "D:20080513090000Z" {
+		t.Errorf("CreationDate = %v, want normalized D:20080513090000Z", got.Entries["CreationDate"])
+	}
+	if got.Entries["ModDate"] != nil {
+		t.Error("non-string ModDate not dropped")
+	}
+}
+
 func TestXMLEscapeAttr(t *testing.T) {
 	got := xmlEscapeAttr("a&b<c>d\"e\x01f\tg")
 	want := "a&amp;b&lt;c&gt;d&quot;ef\tg" // control char x01 dropped, tab kept

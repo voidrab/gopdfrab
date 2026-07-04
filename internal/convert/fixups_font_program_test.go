@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
 	"testing"
 
@@ -10,6 +11,93 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
+
+// buildMinimalCIDCFF assembles a tiny CID-keyed CFF font with 3 glyphs
+// (.notdef, CID 1 width 600, CID 2 width 700), a format-0 CID charset, a
+// single FDArray Font DICT (format-0 FDSelect), and a Private DICT with zero
+// width defaults. Ported from verify.buildMinimalCIDCFF (internal/verify's
+// test-only helper isn't importable across packages).
+func buildMinimalCIDCFF() []byte {
+	i32 := func(v int) []byte {
+		var b [5]byte
+		b[0] = 29
+		binary.BigEndian.PutUint32(b[1:], uint32(v))
+		return b[:]
+	}
+
+	header := []byte{0x01, 0x00, 0x04, 0x01}
+	nameIndex := []byte{0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't'}
+
+	topDictLen := 6 + 6 + 2 + 7 + 7 // CharStrings, charset, ROS, FDArray, FDSelect
+	topDictIndex := []byte{0x00, 0x01, 0x01, byte(1), byte(topDictLen + 1)}
+
+	nameEnd := len(header) + len(nameIndex)
+	topDictEnd := nameEnd + len(topDictIndex) + topDictLen
+	stringIndex := []byte{0x00, 0x00}
+	globalSubrIndex := []byte{0x00, 0x00}
+	stringEnd := topDictEnd + len(stringIndex)
+	subrEnd := stringEnd + len(globalSubrIndex)
+
+	charsetOff := subrEnd
+	charset := []byte{0x00, 0x00, 0x01, 0x00, 0x02} // format 0: gid1->CID1, gid2->CID2
+	charsetEnd := charsetOff + len(charset)
+
+	csOff := charsetEnd
+	cs0 := []byte{0x0e}           // .notdef: endchar, no width
+	cs1 := []byte{248, 236, 0x0e} // CID1: width 600, endchar
+	cs2 := []byte{249, 80, 0x0e}  // CID2: width 700, endchar
+	csIndex := []byte{0x00, 0x03, 0x01, 1, 2, 5, 8}
+	csIndex = append(csIndex, cs0...)
+	csIndex = append(csIndex, cs1...)
+	csIndex = append(csIndex, cs2...)
+	csEnd := csOff + len(csIndex)
+
+	fdArrayOff := csEnd
+	const fdDictLen = 11
+	fdArrayIndexLen := 2 + 1 + 2 + fdDictLen
+	fdArrayEnd := fdArrayOff + fdArrayIndexLen
+
+	fdSelectOff := fdArrayEnd
+	fdSelect := []byte{0x00, 0x00, 0x00, 0x00} // format 0, FD 0 for all 3 glyphs
+	fdSelectEnd := fdSelectOff + len(fdSelect)
+
+	privOff := fdSelectEnd
+	fdDict := append(i32(4), i32(privOff)...)
+	fdDict = append(fdDict, 18) // Private: [size offset]
+	if len(fdDict) != fdDictLen {
+		panic("buildMinimalCIDCFF: fd dict length mismatch")
+	}
+	fdArrayIndex := []byte{0x00, 0x01, 0x01, 1, byte(fdDictLen + 1)}
+	fdArrayIndex = append(fdArrayIndex, fdDict...)
+
+	privateDict := []byte{0x8b, 20, 0x8b, 21} // defaultWidthX=0, nominalWidthX=0
+
+	topDict := append(i32(csOff), 17)
+	topDict = append(topDict, i32(charsetOff)...)
+	topDict = append(topDict, 15)
+	topDict = append(topDict, 12, 30) // ROS
+	topDict = append(topDict, i32(fdArrayOff)...)
+	topDict = append(topDict, 12, 36)
+	topDict = append(topDict, i32(fdSelectOff)...)
+	topDict = append(topDict, 12, 37)
+	if len(topDict) != topDictLen {
+		panic("buildMinimalCIDCFF: top dict length mismatch")
+	}
+
+	var cff []byte
+	cff = append(cff, header...)
+	cff = append(cff, nameIndex...)
+	cff = append(cff, topDictIndex...)
+	cff = append(cff, topDict...)
+	cff = append(cff, stringIndex...)
+	cff = append(cff, globalSubrIndex...)
+	cff = append(cff, charset...)
+	cff = append(cff, csIndex...)
+	cff = append(cff, fdArrayIndex...)
+	cff = append(cff, fdSelect...)
+	cff = append(cff, privateDict...)
+	return cff
+}
 
 // fixtureTrailer opens path and returns its fully-resolved object graph,
 // skipping the test if the corpus isn't present. The caller must keep doc
@@ -161,6 +249,74 @@ func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
 
 	runFixerAndCheckIdempotent(t, fontMetricFixer{}, &trailer)
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.AdvanceWidthMismatch)
+}
+
+// TestFixCIDCFFWidthsCorrectsMismatch drives fixCIDCFFWidths directly: no
+// corpus fixture exercises a CIDFontType0/CFF width mismatch, so the font
+// program is hand-built (buildMinimalCIDCFF: CID 1 width 600, CID 2 width 700).
+func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
+	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
+	v := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"W": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500)}},
+	}}
+
+	if !fixCIDCFFWidths(v, ff) {
+		t.Fatalf("fixCIDCFFWidths = false, want true (500/500 mismatches the embedded 600/700)")
+	}
+	want := map[int]int{1: 600, 2: 700}
+	for _, pair := range verify.ParseCIDWidths(v.Entries["W"].(pdf.PDFArray)) {
+		if pair[1] != want[pair[0]] {
+			t.Errorf("CID %d width = %d, want %d", pair[0], pair[1], want[pair[0]])
+		}
+	}
+
+	// Idempotent: the now-correct widths should no longer trigger a change.
+	if fixCIDCFFWidths(v, ff) {
+		t.Error("fixCIDCFFWidths on already-corrected widths = true, want false")
+	}
+}
+
+// TestFixCIDCFFWidthsNoOpWithoutW covers the missing-/W short-circuit.
+func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
+	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
+	if fixCIDCFFWidths(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}, ff) {
+		t.Error("fixCIDCFFWidths without /W = true, want false")
+	}
+}
+
+// TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap covers the CID!=GID guard:
+// a stream (non-/Identity) CIDToGIDMap means CIDs don't correspond to GIDs
+// directly, so fixTrueTypeCIDSet must bail out without touching desc.
+func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"CIDToGIDMap": pdf.PDFDict{HasStream: true, RawStream: []byte{0, 1, 0, 2}},
+	}}
+	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
+
+	if fixTrueTypeCIDSet(d, desc, ff) {
+		t.Error("fixTrueTypeCIDSet with a stream CIDToGIDMap = true, want false")
+	}
+	if desc.Entries["CIDSet"] != nil {
+		t.Error("desc/CIDSet was populated despite the non-Identity CIDToGIDMap guard")
+	}
+}
+
+// TestFixTrueTypeCIDSetNoOpWhenAlreadyComplete covers the already-complete
+// /CIDSet no-op branch via a real embedded TrueType program.
+func TestFixTrueTypeCIDSetNoOpWhenAlreadyComplete(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
+
+	if !fixTrueTypeCIDSet(d, desc, ff) {
+		t.Fatal("sanity: first pass should populate CIDSet")
+	}
+	if fixTrueTypeCIDSet(d, desc, ff) {
+		t.Error("fixTrueTypeCIDSet on an already-complete CIDSet = true, want false")
+	}
 }
 
 // TestFontSubsetMetaFixerSynthesizesType1CharSet covers a raw Type1 program

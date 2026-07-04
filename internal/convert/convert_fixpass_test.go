@@ -160,6 +160,54 @@ func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 	}
 }
 
+// TestFixPassIsContentStream drives collectContentStreamPtrs' four dispatch
+// shapes -- array-form Page /Contents, a tiling Pattern, a Form XObject, and
+// a Type3 CharProcs glyph -- plus a plain (non-content) stream that must not
+// be flagged.
+func TestFixPassIsContentStream(t *testing.T) {
+	pageStreamA := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
+	pageStreamB := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
+	pattern := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"PatternType": pdf.PDFInteger(1)}, HasStream: true, RawStream: []byte("q Q")}
+	form := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}, HasStream: true, RawStream: []byte("q Q")}
+	glyph := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
+	type3Font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Type3"},
+		"CharProcs": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"g1": glyph}},
+	}}
+	notContent := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}, HasStream: true, RawStream: []byte("\x00\x01")}
+
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":     pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFArray{pageStreamA, pageStreamB},
+		"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Pattern": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"P1": pattern}},
+			"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm1": form, "Im1": notContent}},
+			"Font":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"T3": type3Font}},
+		}},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
+		}},
+	}}
+	pass := &fixPass{trailer: &trailer}
+
+	for _, want := range []struct {
+		name string
+		d    pdf.PDFDict
+	}{
+		{"page Contents[0]", pageStreamA}, {"page Contents[1]", pageStreamB},
+		{"Pattern", pattern}, {"Form", form}, {"Type3 glyph", glyph},
+	} {
+		if !pass.isContentStream(want.d) {
+			t.Errorf("isContentStream(%s) = false, want true", want.name)
+		}
+	}
+	if pass.isContentStream(notContent) {
+		t.Error("isContentStream(Image XObject) = true, want false")
+	}
+}
+
 func maxMidMin(nums []int) (max, mid, min int) {
 	max, mid, min = nums[0], nums[0], nums[0]
 	for _, n := range nums {

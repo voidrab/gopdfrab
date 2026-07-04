@@ -83,6 +83,97 @@ func TestDeviceNColorantsFixer(t *testing.T) {
 	}
 }
 
+// TestDeviceNColorantsFixerArrayContents drives the PDFArray branch of
+// rewriteDeviceNPageContents -- a page whose /Contents is an array of
+// multiple content streams, only one of which uses the oversized space.
+func TestDeviceNColorantsFixerArrayContents(t *testing.T) {
+	dn := oversizedDeviceN()
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"DN": dn}},
+	}}
+	unrelated := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")}
+	offending := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(
+		"/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn")}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+		"Contents":  pdf.PDFArray{unrelated, offending},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
+		}},
+	}}
+
+	changed, err := deviceNColorantsFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("deviceNColorantsFixer.Fix: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected the array-Contents page to be rewritten")
+	}
+
+	contents := page.Entries["Contents"].(pdf.PDFArray)
+	decodedOffending, err := pdf.DecodeStream(contents[1].(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream(offending): %v", err)
+	}
+	if string(decodedOffending) == string(offending.RawStream) {
+		t.Errorf("offending stream (array[1]) was not rewritten: %q", decodedOffending)
+	}
+	decodedUnrelated, err := pdf.DecodeStream(contents[0].(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream(unrelated): %v", err)
+	}
+	if string(decodedUnrelated) != string(unrelated.RawStream) {
+		t.Errorf("unrelated stream (array[0]) was rewritten unexpectedly: %q", decodedUnrelated)
+	}
+}
+
+// TestRecurseDeviceNFormEdgeCases covers every early-return branch: no
+// operands, a non-name operand, missing /XObject resources, an unknown/non-
+// Form/streamless target, an already-visited Form, the /Resources
+// inheritance fallback, and a Form whose content needs no rewriting at all.
+func TestRecurseDeviceNFormEdgeCases(t *testing.T) {
+	resourcesNoXObject := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	notForm := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}, HasStream: true}
+	noStream := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}}
+	plainForm := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}, HasStream: true, RawStream: []byte("1 0 0 rg 0 0 1 1 re f")}
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"NotForm": notForm, "NoStream": noStream, "Fm1": plainForm,
+		}},
+	}}
+
+	if _, ok := recurseDeviceNForm(nil, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(no operands) ok = true, want false")
+	}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFInteger(1)}, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(non-name operand) ok = true, want false")
+	}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resourcesNoXObject, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(no XObject resources) ok = true, want false")
+	}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Missing"}}, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(unknown target) ok = true, want false")
+	}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NotForm"}}, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(non-Form target) ok = true, want false")
+	}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "NoStream"}}, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(streamless Form) ok = true, want false")
+	}
+	visited := map[uintptr]bool{pdf.ValuePointer(plainForm.Entries): true}
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, visited); ok {
+		t.Error("recurseDeviceNForm(already-visited Form) ok = true, want false")
+	}
+	// plainForm has no own /Resources and no oversized-DeviceN usage: the
+	// inheritance fallback runs, but rewriteDeviceNStream reports no change.
+	if _, ok := recurseDeviceNForm([]pdf.PDFValue{pdf.PDFName{Value: "Fm1"}}, resources, map[uintptr]bool{}); ok {
+		t.Error("recurseDeviceNForm(Form needing no rewrite) ok = true, want false")
+	}
+}
+
 func TestIsOversizedDeviceN(t *testing.T) {
 	if !isOversizedDeviceN(oversizedDeviceN()) {
 		t.Error("9-colorant DeviceN should be oversized")

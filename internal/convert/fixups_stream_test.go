@@ -3,11 +3,25 @@ package convert
 import (
 	"bytes"
 	"compress/lzw"
+	"encoding/ascii85"
+	"encoding/hex"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
+
+// encodeASCII85/encodeASCIIHex build fixtures in the encodings
+// pdf.DecodeASCII85/pdf.DecodeASCIIHex expect to consume.
+func encodeASCII85(data []byte) []byte {
+	buf := make([]byte, ascii85.MaxEncodedLen(len(data)))
+	n := ascii85.Encode(buf, data)
+	return append(buf[:n], '~', '>')
+}
+
+func encodeASCIIHex(data []byte) []byte {
+	return append([]byte(hex.EncodeToString(data)), '>')
+}
 
 // encodeLZW LZW-encodes data the way a PDF producer would (MSB order, 8-bit
 // initial width), for building test fixtures.
@@ -142,6 +156,83 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 	}
 	if contents.Entries["DecodeParms"] != nil {
 		t.Errorf("DecodeParms = %v, want removed", contents.Entries["DecodeParms"])
+	}
+}
+
+// TestLZWStreamPlaintextChainedFilters drives the ASCII85Decode branch and
+// the multi-filter loop: /Filter [ASCII85Decode LZWDecode] undoes ASCII85
+// first (outermost, applied last when encoding), then LZW.
+func TestLZWStreamPlaintextChainedFilters(t *testing.T) {
+	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
+	lzwed := encodeLZW(t, plaintext)
+	encoded := encodeASCII85(lzwed)
+
+	dict := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"}},
+		},
+		HasStream: true, RawStream: encoded,
+	}
+	got, err := lzwStreamPlaintext(dict)
+	if err != nil {
+		t.Fatalf("lzwStreamPlaintext: %v", err)
+	}
+	if string(got) != string(plaintext) {
+		t.Errorf("lzwStreamPlaintext = %q, want %q", got, plaintext)
+	}
+}
+
+// TestLZWStreamPlaintextASCIIHexAndPNGPredictor drives the ASCIIHexDecode
+// branch and the PNG (predictor >= 10) reconstruction path, using the
+// trivial "None" (filter type 0) row so no per-row math is needed.
+func TestLZWStreamPlaintextASCIIHexAndPNGPredictor(t *testing.T) {
+	plaintext := []byte{10, 20, 30, 40, 5, 5, 5, 5}
+	var predicted []byte
+	for rowStart := 0; rowStart < len(plaintext); rowStart += 4 {
+		predicted = append(predicted, 0) // filter type 0: None
+		predicted = append(predicted, plaintext[rowStart:rowStart+4]...)
+	}
+	hexed := encodeASCIIHex(predicted)
+
+	dict := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Filter": pdf.PDFName{Value: "ASCIIHexDecode"},
+			"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
+			}},
+		},
+		HasStream: true, RawStream: hexed,
+	}
+	got, err := lzwStreamPlaintext(dict)
+	if err != nil {
+		t.Fatalf("lzwStreamPlaintext: %v", err)
+	}
+	if string(got) != string(plaintext) {
+		t.Errorf("lzwStreamPlaintext = %v, want %v", got, plaintext)
+	}
+}
+
+// TestLZWStreamPlaintextUnsupportedFilterOrPredictor covers the two error
+// branches: a filter name outside the decoder chain's switch, and a
+// predictor value that is neither 1 (none), 2 (TIFF), nor >= 10 (PNG).
+func TestLZWStreamPlaintextUnsupportedFilterOrPredictor(t *testing.T) {
+	unsupportedFilter := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}},
+		HasStream: true, RawStream: []byte("whatever"),
+	}
+	if _, err := lzwStreamPlaintext(unsupportedFilter); err == nil {
+		t.Error("lzwStreamPlaintext with an unsupported filter = nil error, want an error")
+	}
+
+	unsupportedPredictor := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Filter":      pdf.PDFName{Value: "LZWDecode"},
+			"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)}},
+		},
+		HasStream: true, RawStream: encodeLZW(t, []byte("abc")),
+	}
+	if _, err := lzwStreamPlaintext(unsupportedPredictor); err == nil {
+		t.Error("lzwStreamPlaintext with an unsupported predictor = nil error, want an error")
 	}
 }
 

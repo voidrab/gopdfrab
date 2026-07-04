@@ -410,6 +410,36 @@ func TestFieldDisplayText(t *testing.T) {
 	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}); got != "" {
 		t.Errorf("no V = %q, want empty", got)
 	}
+	// Undecodable hex string.
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFHexString{Value: "ZZ"}}}); got != "" {
+		t.Errorf("undecodable hex V = %q, want empty", got)
+	}
+	// V present but neither PDFString nor PDFHexString.
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFInteger(1)}}); got != "" {
+		t.Errorf("non-string/hex V = %q, want empty", got)
+	}
+}
+
+func TestAnnotBBox(t *testing.T) {
+	if w, h := annotBBox(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}); w != 0 || h != 0 {
+		t.Errorf("annotBBox(no Rect) = (%v, %v), want (0, 0)", w, h)
+	}
+	wrongLen := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Rect": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2)}}}
+	if w, h := annotBBox(wrongLen); w != 0 || h != 0 {
+		t.Errorf("annotBBox(2-element Rect) = (%v, %v), want (0, 0)", w, h)
+	}
+	nonNumeric := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Rect": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFName{Value: "bad"}, pdf.PDFInteger(10)},
+	}}
+	if w, h := annotBBox(nonNumeric); w != 0 || h != 0 {
+		t.Errorf("annotBBox(non-numeric Rect element) = (%v, %v), want (0, 0)", w, h)
+	}
+	valid := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Rect": pdf.PDFArray{pdf.PDFInteger(10), pdf.PDFInteger(20), pdf.PDFInteger(50), pdf.PDFInteger(60)},
+	}}
+	if w, h := annotBBox(valid); w != 40 || h != 40 {
+		t.Errorf("annotBBox(valid Rect) = (%v, %v), want (40, 40)", w, h)
+	}
 }
 
 func TestFormLevelDA(t *testing.T) {
@@ -424,5 +454,17 @@ func TestFormLevelDA(t *testing.T) {
 	empty := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
 	if got := formLevelDA(&empty); got != "" {
 		t.Errorf("formLevelDA(no Root) = %q, want empty", got)
+	}
+	noAcroForm := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}}}
+	if got := formLevelDA(&noAcroForm); got != "" {
+		t.Errorf("formLevelDA(no AcroForm) = %q, want empty", got)
+	}
+	wrongDAType := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"AcroForm": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"DA": pdf.PDFInteger(1)}},
+		}},
+	}}
+	if got := formLevelDA(&wrongDAType); got != "" {
+		t.Errorf("formLevelDA(non-string DA) = %q, want empty", got)
 	}
 }

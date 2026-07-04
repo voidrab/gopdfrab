@@ -109,6 +109,120 @@ func TestFixInlineImageInterpolateNoOpWhenAlreadyFalse(t *testing.T) {
 	}
 }
 
+// TestInlineImageRawOperandEdgeCases covers the two ok=false paths: no
+// operands at all, and operands whose last entry isn't a pdf.InlineImageRaw.
+func TestInlineImageRawOperandEdgeCases(t *testing.T) {
+	if _, _, ok := inlineImageRawOperand(nil); ok {
+		t.Error("inlineImageRawOperand(nil) ok = true, want false")
+	}
+	notRaw := []pdf.PDFValue{pdf.PDFName{Value: "W"}, pdf.PDFInteger(1)}
+	if _, _, ok := inlineImageRawOperand(notRaw); ok {
+		t.Error("inlineImageRawOperand(no trailing raw) ok = true, want false")
+	}
+}
+
+func TestHasInlineImageKey(t *testing.T) {
+	params := []pdf.PDFValue{pdf.PDFName{Value: "W"}, pdf.PDFInteger(1), pdf.PDFName{Value: "H"}, pdf.PDFInteger(2)}
+	if !hasInlineImageKey(params, "H") {
+		t.Error("hasInlineImageKey(H) = false, want true")
+	}
+	if hasInlineImageKey(params, "BPC") {
+		t.Error("hasInlineImageKey(BPC) = true, want false (key absent)")
+	}
+}
+
+// TestInlineImageDecodeParms covers the absent, single-dict (already exercised
+// elsewhere), and array-of-dicts forms, mirroring streamDecodeParms.
+func TestInlineImageDecodeParms(t *testing.T) {
+	if got := inlineImageDecodeParms(nil); got.Entries != nil {
+		t.Errorf("inlineImageDecodeParms(nil) = %#v, want zero-value dict", got)
+	}
+
+	dp := pdf.PDFArray{
+		pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Ignored": pdf.PDFInteger(1)}},
+		pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(12)}},
+	}
+	params := []pdf.PDFValue{pdf.PDFName{Value: "DecodeParms"}, dp}
+	got := inlineImageDecodeParms(params)
+	if pdf.DictInt(got, "Predictor", 1) != 12 {
+		t.Errorf("inlineImageDecodeParms(array form) = %#v, want the last dict entry (Predictor=12)", got)
+	}
+}
+
+// TestUndoInlineImagePredictorNoPredictorAndPNG covers the predictor==1
+// (unchanged data) and predictor>=10 (PNG) branches; TIFF (predictor==2) is
+// already exercised by TestFixInlineImageLZWUndoesPredictor.
+func TestUndoInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
+	data := []byte{1, 2, 3, 4}
+	got, err := undoInlineImagePredictor(data, nil)
+	if err != nil || string(got) != string(data) {
+		t.Errorf("undoInlineImagePredictor(no params) = (%v, %v), want (%v, nil)", got, err, data)
+	}
+
+	plaintext := []byte{10, 20, 30, 40}
+	predicted := append([]byte{0}, plaintext...) // one row, PNG filter type 0 (None)
+	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
+	}}
+	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
+	got, err = undoInlineImagePredictor(predicted, params)
+	if err != nil {
+		t.Fatalf("undoInlineImagePredictor (PNG): %v", err)
+	}
+	if string(got) != string(plaintext) {
+		t.Errorf("undoInlineImagePredictor (PNG) = %v, want %v", got, plaintext)
+	}
+}
+
+// TestUndoInlineImagePredictorUnsupported covers the default (neither 1, 2,
+// nor >= 10) error branch.
+func TestUndoInlineImagePredictorUnsupported(t *testing.T) {
+	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)}}
+	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
+	if _, err := undoInlineImagePredictor([]byte{1, 2, 3, 4}, params); err == nil {
+		t.Error("undoInlineImagePredictor with predictor=3 = nil error, want an error")
+	}
+}
+
+// TestFixInlineImageRenderingIntentFlipsDisallowedIntent drives
+// fixInlineImageRenderingIntent directly, otherwise only exercised
+// indirectly via corpus fixtures in TestInlineImageFixersClearViolations.
+func TestFixInlineImageRenderingIntentFlipsDisallowedIntent(t *testing.T) {
+	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /Intent /Bogus ID \x00 EI\n")
+
+	fixed, ok := fixInlineImageRenderingIntent(operands)
+	if !ok {
+		t.Fatalf("fixInlineImageRenderingIntent ok = false, want true (/Intent /Bogus is disallowed)")
+	}
+	params, _, rawOk := inlineImageRawOperand(fixed)
+	if !rawOk {
+		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
+	}
+	found := false
+	for i := 0; i+1 < len(params); i += 2 {
+		key, ok := params[i].(pdf.PDFName)
+		if !ok || key.Value != "Intent" {
+			continue
+		}
+		found = true
+		if name, ok := params[i+1].(pdf.PDFName); !ok || name.Value != "RelativeColorimetric" {
+			t.Errorf("/Intent = %#v, want /RelativeColorimetric", params[i+1])
+		}
+	}
+	if !found {
+		t.Fatalf("rewritten params lost the /Intent key: %#v", params)
+	}
+}
+
+// TestFixInlineImageRenderingIntentNoOpWhenAllowed checks an already-allowed
+// intent is left untouched.
+func TestFixInlineImageRenderingIntentNoOpWhenAllowed(t *testing.T) {
+	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /Intent /Saturation ID \x00 EI\n")
+	if _, ok := fixInlineImageRenderingIntent(operands); ok {
+		t.Error("fixInlineImageRenderingIntent ok = true, want false (/Saturation is already allowed)")
+	}
+}
+
 func TestFixInlineImageLZWUndoesPredictor(t *testing.T) {
 	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /F /LZW /DP << /Predictor 2 >> ID \x00 EI\n")
 
