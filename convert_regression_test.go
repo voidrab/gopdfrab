@@ -99,7 +99,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 			tmpDir := t.TempDir()
 			outPath := filepath.Join(tmpDir, "converted.pdf")
 
-			if err := os.WriteFile(outPath, cr.Output, 0644); err != nil {
+			if err := cr.Save(outPath); err != nil {
 				t.Fatalf("failed to write converted PDF: %v", err)
 			}
 

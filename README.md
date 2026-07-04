@@ -196,7 +196,7 @@ if err != nil {
     log.Fatal(err)
 }
 
-if err := os.WriteFile("out.pdf", cr.Output, 0o644); err != nil {
+if err := cr.Save("out.pdf"); err != nil {
     log.Fatal(err)
 }
 
