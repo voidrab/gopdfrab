@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/ascii85"
+	"reflect"
 	"testing"
 )
 
@@ -96,5 +97,101 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 	if _, err := DecodeStream(bad); err == nil {
 		t.Error("expected error for an unsupported filter")
+	}
+}
+
+// TestContentScannerOperandTypes covers Scan's per-token-type stack pushes:
+// integer, real, string, hex string, name, boolean, array, and dict operands.
+func TestContentScannerOperandTypes(t *testing.T) {
+	content := `1 2.5 (str) <48656C> /Name true [1 2] << /K 1 >> Tj`
+	ops := TokenizeContent([]byte(content))
+	if len(ops) != 1 || ops[0].Op != "Tj" {
+		t.Fatalf("ops = %+v, want single Tj op", ops)
+	}
+	want := []PDFValue{
+		PDFInteger(1),
+		PDFReal(2.5),
+		PDFString{Value: "str"},
+		PDFHexString{Value: "48656C"},
+		PDFName{Value: "Name"},
+		PDFBoolean(true),
+		PDFArray{PDFInteger(1), PDFInteger(2)},
+		PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
+	}
+	if !reflect.DeepEqual(ops[0].Operands, want) {
+		t.Errorf("operands = %#v, want %#v", ops[0].Operands, want)
+	}
+}
+
+// TestContentScannerMalformedOperands covers the parse-error branches for
+// arrays and dicts: an unterminated composite is dropped, not pushed.
+func TestContentScannerMalformedOperands(t *testing.T) {
+	if ops := TokenizeContent([]byte(`[1 2`)); len(ops) != 0 {
+		t.Errorf("unterminated array: ops = %+v, want none", ops)
+	}
+	if ops := TokenizeContent([]byte(`<< /K 1`)); len(ops) != 0 {
+		t.Errorf("unterminated dict: ops = %+v, want none", ops)
+	}
+}
+
+// TestContentScannerInlineImage covers scanInlineImage's parameter type
+// switch and the full BI...ID...EI span reported via InlineImageRaw.
+func TestContentScannerInlineImage(t *testing.T) {
+	content := `BI /W 1 /H 1 /Decode [0 1] /Gamma 2.2 ID X EI Q`
+	ops := TokenizeContent([]byte(content))
+	if len(ops) != 2 || ops[0].Op != "INLINEIMAGE" || ops[1].Op != "Q" {
+		t.Fatalf("ops = %+v, want [INLINEIMAGE, Q]", ops)
+	}
+	operands := ops[0].Operands
+	wantParams := []PDFValue{
+		PDFName{Value: "W"}, PDFInteger(1),
+		PDFName{Value: "H"}, PDFInteger(1),
+		PDFName{Value: "Decode"}, PDFArray{PDFInteger(0), PDFInteger(1)},
+		PDFName{Value: "Gamma"}, PDFReal(2.2),
+	}
+	if len(operands) != len(wantParams)+1 { // params + trailing InlineImageRaw
+		t.Fatalf("operands = %#v, want %d params + raw", operands, len(wantParams))
+	}
+	if !reflect.DeepEqual(operands[:len(wantParams)], wantParams) {
+		t.Errorf("params = %#v, want %#v", operands[:len(wantParams)], wantParams)
+	}
+
+	raw, ok := operands[len(operands)-1].(InlineImageRaw)
+	if !ok {
+		t.Fatalf("last operand = %#v, want InlineImageRaw", operands[len(operands)-1])
+	}
+	if string(raw.Data) != "X" {
+		t.Errorf("InlineImageRaw.Data = %q, want %q", raw.Data, "X")
+	}
+	if string(raw.Bytes) != content[:len(content)-len(" Q")] {
+		t.Errorf("InlineImageRaw.Bytes = %q, want the full BI...EI span", raw.Bytes)
+	}
+}
+
+// TestContentScannerInlineImageEdgeCases covers scanInlineImage/skipToEI edge
+// branches: missing ID (early EOF return), empty data (dataEnd/dataStart
+// clamp), and an EI-like byte pair inside the image data that must not be
+// mistaken for the terminator.
+func TestContentScannerInlineImageEdgeCases(t *testing.T) {
+	if ops := TokenizeContent([]byte(`BI /W 1`)); len(ops) != 0 {
+		t.Errorf("missing ID: ops = %+v, want none", ops)
+	}
+
+	ops := TokenizeContent([]byte(`BI ID EI Q`))
+	if len(ops) != 2 || ops[0].Op != "INLINEIMAGE" {
+		t.Fatalf("empty data: ops = %+v", ops)
+	}
+	raw := ops[0].Operands[len(ops[0].Operands)-1].(InlineImageRaw)
+	if len(raw.Data) != 0 {
+		t.Errorf("empty data: InlineImageRaw.Data = %q, want empty", raw.Data)
+	}
+
+	ops = TokenizeContent([]byte(`BI ID XEIY EI Q`))
+	if len(ops) != 2 || ops[0].Op != "INLINEIMAGE" {
+		t.Fatalf("false EI: ops = %+v", ops)
+	}
+	raw = ops[0].Operands[len(ops[0].Operands)-1].(InlineImageRaw)
+	if string(raw.Data) != "XEIY" {
+		t.Errorf("false EI: InlineImageRaw.Data = %q, want %q", raw.Data, "XEIY")
 	}
 }

@@ -88,3 +88,27 @@ func TestEqualPDFValue(t *testing.T) {
 		}
 	}
 }
+
+// TestPDFErrorAccessors covers Page, IsDocumentLevel, ObjectRef, and Messages
+// for both a document-level error with no ref and a page-level error with one.
+func TestPDFErrorAccessors(t *testing.T) {
+	plain := NewError(Check{}, []error{errors.New("a"), errors.New("b")}, 0, nil)
+	if plain.Page() != 0 || !plain.IsDocumentLevel() {
+		t.Errorf("plain: Page()=%d IsDocumentLevel()=%v, want 0, true", plain.Page(), plain.IsDocumentLevel())
+	}
+	if _, ok := plain.ObjectRef(); ok {
+		t.Error("plain: ObjectRef() ok should be false")
+	}
+	if msgs := plain.Messages(); len(msgs) != 2 || msgs[0] != "a" || msgs[1] != "b" {
+		t.Errorf("plain: Messages() = %v, want [a b]", msgs)
+	}
+
+	ref := PDFRef{ObjNum: 5, GenNum: 1}
+	withRef := NewError(Check{}, nil, 3, &ref)
+	if withRef.Page() != 3 || withRef.IsDocumentLevel() {
+		t.Errorf("withRef: Page()=%d IsDocumentLevel()=%v, want 3, false", withRef.Page(), withRef.IsDocumentLevel())
+	}
+	if got, ok := withRef.ObjectRef(); !ok || got != ref {
+		t.Errorf("withRef: ObjectRef() = %v, %v; want %v, true", got, ok, ref)
+	}
+}

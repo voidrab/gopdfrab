@@ -91,3 +91,44 @@ func TestPDFNumberToInt(t *testing.T) {
 		t.Error("non-number should be false")
 	}
 }
+
+func TestEncodePDFLiteralString(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"backslash", `a\b`, `a\\b`},
+		{"parens", "a(b)c", `a\(b\)c`},
+		{"CR", "a\rb", `a\rb`},
+		{"LF", "a\nb", `a\nb`},
+		{"plain", "abc", "abc"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EncodePDFLiteralString(tc.in); got != tc.want {
+				t.Errorf("EncodePDFLiteralString(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecodePDFName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"valid escape", "A#41B", "AAB"},
+		{"truncated escape", "A#4", "A#4"},
+		{"invalid hex", "A#ZZB", "A#ZZB"},
+		{"plain text", "Plain", "Plain"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(DecodePDFName(tc.in)); got != tc.want {
+				t.Errorf("DecodePDFName(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
