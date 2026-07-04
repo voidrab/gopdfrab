@@ -67,3 +67,27 @@ func TestDecodeInfoTextString(t *testing.T) {
 		})
 	}
 }
+
+func TestClampInt(t *testing.T) {
+	if ClampInt(5, 0, 10) != 5 {
+		t.Error("in-range")
+	}
+	if ClampInt(-3, 0, 10) != 0 {
+		t.Error("below lo")
+	}
+	if ClampInt(99, 0, 10) != 10 {
+		t.Error("above hi")
+	}
+}
+
+func TestPDFNumberToInt(t *testing.T) {
+	if v, ok := PDFNumberToInt(PDFInteger(7)); !ok || v != 7 {
+		t.Errorf("integer = %d, %v", v, ok)
+	}
+	if v, ok := PDFNumberToInt(PDFReal(3.9)); !ok || v != 3 {
+		t.Errorf("real = %d, %v", v, ok)
+	}
+	if _, ok := PDFNumberToInt(PDFName{Value: "x"}); ok {
+		t.Error("non-number should be false")
+	}
+}

@@ -545,3 +545,16 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 		t.Errorf("only %d fixtures converted fully, want >= %d (regression floor); see minConvertedFully", fullyValid, minConvertedFully)
 	}
 }
+
+func TestConvertResultSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.pdf")
+	if err := (ConvertResult{Output: []byte("%PDF-1.7\n")}).Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "%PDF-1.7\n" {
+		t.Errorf("saved content = %q", b)
+	}
+	if err := (ConvertResult{}).Save(path); err == nil {
+		t.Error("Save with empty Output should error")
+	}
+}

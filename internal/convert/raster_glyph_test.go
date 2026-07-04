@@ -173,3 +173,68 @@ func TestInterpretType1CharstringSquare(t *testing.T) {
 		}
 	}
 }
+
+func b139(v int) byte { return byte(v + 139) }
+
+// TestType2CharstringOperators exercises the Type2 interpreter across the
+// curve operators and every number encoding (single-byte, 247/251 ranges, the
+// 28 int16 form, and the 255 16.16 fixed form).
+func TestType2CharstringOperators(t *testing.T) {
+	var p []byte
+	add := func(bs ...byte) { p = append(p, bs...) }
+
+	add(b139(100), b139(10), b139(20), 18)                                          // width=100, hstemhm 10 20
+	add(b139(5), b139(5), 21)                                                       // rmoveto
+	add(247, 0, 251, 0, 5)                                                          // rlineto with 247/251-range numbers
+	add(28, 0x00, 0x0A, 28, 0x00, 0x0A, 5)                                          // rlineto with int16 numbers
+	add(255, 0, 1, 0, 0, 255, 0, 1, 0, 0, 5)                                        // rlineto with 16.16 fixed numbers
+	add(b139(10), 6)                                                                // hlineto
+	add(b139(10), 7)                                                                // vlineto
+	add(b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), 8)                    // rrcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 26)                                     // vvcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 27)                                     // hhcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 30)                                     // vhcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 31)                                     // hvcurveto
+	add(b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), 24) // rcurveline
+	add(b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), 25) // rlinecurve
+	add(14)                                                                         // endchar
+
+	contours := interpretType2Charstring(p)
+	if len(contours) == 0 {
+		t.Fatal("interpretType2Charstring produced no contours")
+	}
+}
+
+// TestType1CharstringOperators exercises the Type1 interpreter's moveto/curve
+// operators and its number encodings (247/251 ranges and the 255 int32 form).
+func TestType1CharstringOperators(t *testing.T) {
+	var p []byte
+	add := func(bs ...byte) { p = append(p, bs...) }
+
+	add(b139(0), b139(100), 13)                                  // hsbw
+	add(b139(20), 4)                                             // vmoveto
+	add(b139(30), 22)                                            // hmoveto
+	add(247, 0, 251, 0, 5)                                       // rlineto with 247/251-range numbers
+	add(b139(5), b139(5), b139(5), b139(5), b139(5), b139(5), 8) // rrcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 30)                  // vhcurveto
+	add(b139(5), b139(5), b139(5), b139(5), 31)                  // hvcurveto
+	add(255, 0, 0, 0, 50, b139(0), 21)                           // rmoveto with int32 number
+	add(9, 14)                                                   // closepath, endchar
+
+	contours := interpretType1Charstring(p)
+	if len(contours) == 0 {
+		t.Fatal("interpretType1Charstring produced no contours")
+	}
+}
+
+func TestAtoiSafe(t *testing.T) {
+	if atoiSafe("123") != 123 {
+		t.Error("atoiSafe(123)")
+	}
+	if atoiSafe("") != 0 {
+		t.Error("atoiSafe(empty)")
+	}
+	if atoiSafe("12x") != -1 {
+		t.Error("atoiSafe(non-digit) should be -1")
+	}
+}

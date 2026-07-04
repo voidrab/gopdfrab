@@ -131,3 +131,27 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAllowedBlendMode(t *testing.T) {
+	if !IsAllowedBlendMode(pdf.PDFName{Value: "Normal"}) {
+		t.Error("Normal should be allowed")
+	}
+	if !IsAllowedBlendMode(pdf.PDFName{Value: "Compatible"}) {
+		t.Error("Compatible should be allowed")
+	}
+	if IsAllowedBlendMode(pdf.PDFName{Value: "Multiply"}) {
+		t.Error("Multiply should not be allowed")
+	}
+	if !IsAllowedBlendMode(pdf.PDFArray{pdf.PDFName{Value: "Normal"}, pdf.PDFName{Value: "Compatible"}}) {
+		t.Error("array of allowed modes should be allowed")
+	}
+	if IsAllowedBlendMode(pdf.PDFArray{pdf.PDFName{Value: "Normal"}, pdf.PDFName{Value: "Screen"}}) {
+		t.Error("array containing a disallowed mode should be rejected")
+	}
+	if IsAllowedBlendMode(pdf.PDFArray{pdf.PDFInteger(1)}) {
+		t.Error("array with a non-name element should be rejected")
+	}
+	if IsAllowedBlendMode(pdf.PDFInteger(1)) {
+		t.Error("non-name/array should be false")
+	}
+}

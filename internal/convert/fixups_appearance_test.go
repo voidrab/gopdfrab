@@ -363,3 +363,66 @@ func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 		t.Errorf("AP was modified despite already being conformant")
 	}
 }
+
+func TestWinAnsiEncodeHelpers(t *testing.T) {
+	if b, ok := winAnsiForUnicode('A'); !ok || b != 'A' {
+		t.Errorf("winAnsiForUnicode(A) = %d, %v", b, ok)
+	}
+	if _, ok := winAnsiForUnicode(0x0530); ok { // Armenian, not in WinAnsi
+		t.Error("winAnsiForUnicode of an out-of-range rune should be false")
+	}
+	if s := decodeUTF16BEToWinAnsi([]byte{0x00, 'H', 0x00, 'i'}); s != "Hi" {
+		t.Errorf("decodeUTF16BEToWinAnsi = %q, want Hi", s)
+	}
+}
+
+func TestClimbField(t *testing.T) {
+	parent := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFString{Value: "top"}}}
+	child := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Parent": parent}}
+	if v, ok := climbField(child, "V"); !ok || v != (pdf.PDFString{Value: "top"}) {
+		t.Errorf("climbField inherited V = %v, %v", v, ok)
+	}
+	if _, ok := climbField(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}, "V"); ok {
+		t.Error("climbField on a field with no V/Parent should be false")
+	}
+
+	// Parent cycle must terminate.
+	a := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	b := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Parent": a}}
+	a.Entries["Parent"] = b
+	if _, ok := climbField(a, "V"); ok {
+		t.Error("climbField on a Parent cycle should terminate and return false")
+	}
+}
+
+func TestFieldDisplayText(t *testing.T) {
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFString{Value: "hi\tthere"}}}); got != "hi there" {
+		t.Errorf("string V = %q, want \"hi there\"", got)
+	}
+	// UTF-16BE with BOM.
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFHexString{Value: "FEFF00480049"}}}); got != "HI" {
+		t.Errorf("UTF16 hex V = %q, want \"HI\"", got)
+	}
+	// Plain hex (no BOM).
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"V": pdf.PDFHexString{Value: "4869"}}}); got != "Hi" {
+		t.Errorf("plain hex V = %q, want \"Hi\"", got)
+	}
+	if got := fieldDisplayText(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}); got != "" {
+		t.Errorf("no V = %q, want empty", got)
+	}
+}
+
+func TestFormLevelDA(t *testing.T) {
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"AcroForm": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"DA": pdf.PDFString{Value: "/Helv 12 Tf 0 g"}}},
+		}},
+	}}
+	if got := formLevelDA(&trailer); got != "/Helv 12 Tf 0 g" {
+		t.Errorf("formLevelDA = %q", got)
+	}
+	empty := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if got := formLevelDA(&empty); got != "" {
+		t.Errorf("formLevelDA(no Root) = %q, want empty", got)
+	}
+}

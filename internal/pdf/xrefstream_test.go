@@ -3,6 +3,7 @@ package pdf_test
 import (
 	"bytes"
 	"compress/zlib"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -332,5 +333,126 @@ func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want s
 	}
 	if string(data) != want {
 		t.Errorf("content stream = %q, want %q", data, want)
+	}
+}
+
+// buildXRefStreamPDF assembles a minimal PDF 1.5 whose cross-reference section
+// is an uncompressed cross-reference stream (object 4), returning its bytes.
+func buildXRefStreamPDF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.5\n")
+
+	offsets := make([]int, 5)
+	writeObj := func(n int, body string) {
+		offsets[n] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", n, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(2, "<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>")
+
+	// Build the xref stream body: one W=[1,2,1] row per object 0..4.
+	xrefOffset := buf.Len()
+	offsets[4] = xrefOffset
+	var xref bytes.Buffer
+	putRow := func(typ, f2, f3 int) {
+		xref.WriteByte(byte(typ))
+		var b2 [2]byte
+		binary.BigEndian.PutUint16(b2[:], uint16(f2))
+		xref.Write(b2[:])
+		xref.WriteByte(byte(f3))
+	}
+	putRow(0, 0, 255) // object 0: free-list head
+	putRow(1, offsets[1], 0)
+	putRow(1, offsets[2], 0)
+	putRow(1, offsets[3], 0)
+	putRow(1, offsets[4], 0) // the xref stream references itself
+
+	fmt.Fprintf(&buf, "4 0 obj\n<< /Type /XRef /Size 5 /Root 1 0 R /W [1 2 1] /Length %d >>\nstream\n", xref.Len())
+	buf.Write(xref.Bytes())
+	buf.WriteString("\nendstream\nendobj\n")
+
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF", xrefOffset)
+	return buf.Bytes()
+}
+
+// TestOpenXRefStreamPDF opens a cross-reference-stream PDF, exercising the
+// xref-stream parsing path (tryParseXRefStream, xrefFieldWidths,
+// xrefIndexRanges) that classic xref-table fixtures never reach.
+func TestOpenXRefStreamPDF(t *testing.T) {
+	doc, err := pdf.OpenBytes(buildXRefStreamPDF(t))
+	if err != nil {
+		t.Fatalf("OpenBytes(xref-stream PDF): %v", err)
+	}
+	defer doc.Close()
+
+	if n, err := doc.GetPageCount(); err != nil || n != 1 {
+		t.Errorf("GetPageCount = %d, %v; want 1", n, err)
+	}
+	if v, err := doc.GetVersion(); err != nil || v != "1.5" {
+		t.Errorf("GetVersion = %q, %v; want 1.5", v, err)
+	}
+}
+
+// buildObjStmPDF assembles a PDF whose /Pages object is stored inside a
+// compressed object stream (object 5), referenced by a type-2 xref entry.
+func buildObjStmPDF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.5\n")
+
+	offsets := make(map[int]int)
+	writeObj := func(n int, body string) {
+		offsets[n] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", n, body)
+	}
+	writeObj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>")
+
+	// Object 5 is an object stream carrying object 2 (the /Pages node).
+	pairs := "2 0"
+	objData := "<< /Type /Pages /Count 1 /Kids [3 0 R] >>"
+	first := len(pairs) + 1
+	streamData := pairs + "\n" + objData
+	offsets[5] = buf.Len()
+	fmt.Fprintf(&buf, "5 0 obj\n<< /Type /ObjStm /N 1 /First %d /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+		first, len(streamData), streamData)
+
+	// Object 4 is the cross-reference stream.
+	xrefOffset := buf.Len()
+	offsets[4] = xrefOffset
+	var xref bytes.Buffer
+	putRow := func(typ, f2, f3 int) {
+		xref.WriteByte(byte(typ))
+		var b2 [2]byte
+		binary.BigEndian.PutUint16(b2[:], uint16(f2))
+		xref.Write(b2[:])
+		xref.WriteByte(byte(f3))
+	}
+	putRow(0, 0, 255)        // object 0
+	putRow(1, offsets[1], 0) // object 1
+	putRow(2, 5, 0)          // object 2: compressed in object stream 5, index 0
+	putRow(1, offsets[3], 0) // object 3
+	putRow(1, offsets[4], 0) // object 4 (this xref stream)
+	putRow(1, offsets[5], 0) // object 5 (the object stream)
+
+	fmt.Fprintf(&buf, "4 0 obj\n<< /Type /XRef /Size 6 /Root 1 0 R /W [1 2 1] /Length %d >>\nstream\n", xref.Len())
+	buf.Write(xref.Bytes())
+	buf.WriteString("\nendstream\nendobj\n")
+	fmt.Fprintf(&buf, "startxref\n%d\n%%%%EOF", xrefOffset)
+	return buf.Bytes()
+}
+
+// TestOpenObjStmPDF opens a PDF with a compressed object stream, exercising
+// resolveCompressedObject and decodeObjStm when /Pages is resolved.
+func TestOpenObjStmPDF(t *testing.T) {
+	doc, err := pdf.OpenBytes(buildObjStmPDF(t))
+	if err != nil {
+		t.Fatalf("OpenBytes(objstm PDF): %v", err)
+	}
+	defer doc.Close()
+	if n, err := doc.GetPageCount(); err != nil || n != 1 {
+		t.Errorf("GetPageCount = %d, %v; want 1 (resolved from an object stream)", n, err)
 	}
 }

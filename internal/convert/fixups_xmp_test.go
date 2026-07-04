@@ -82,3 +82,19 @@ func TestBuildXMPPacketKeepsParens(t *testing.T) {
 		t.Errorf("buildXMPPacket XMP does not contain (v2): %s", xmp)
 	}
 }
+
+func TestXMLEscapeAttr(t *testing.T) {
+	got := xmlEscapeAttr("a&b<c>d\"e\x01f\tg")
+	want := "a&amp;b&lt;c&gt;d&quot;ef\tg" // control char x01 dropped, tab kept
+	if got != want {
+		t.Errorf("xmlEscapeAttr = %q, want %q", got, want)
+	}
+}
+
+func TestXMLEscapeText(t *testing.T) {
+	got := xmlEscapeText("a&b<c>d\x01e\tf")
+	want := "a&amp;b&lt;c&gt;de\tf" // '"' left as-is, control x01 dropped, tab kept
+	if got != want {
+		t.Errorf("xmlEscapeText = %q, want %q", got, want)
+	}
+}

@@ -69,3 +69,17 @@ func TestCatalog_KnownChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckByName(t *testing.T) {
+	all := AllChecks()
+	if len(all) == 0 {
+		t.Fatal("no checks registered")
+	}
+	name := all[0].Name()
+	if c, ok := CheckByName(name); !ok || c.Name() != name {
+		t.Errorf("CheckByName(%q) = %v, %v", name, c, ok)
+	}
+	if _, ok := CheckByName("no such check name"); ok {
+		t.Error("CheckByName(unknown) should be false")
+	}
+}

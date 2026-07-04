@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // TestViewerPrefFixerRemovesPost14Keys confirms that viewerPrefFixer deletes
@@ -99,5 +100,133 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	// The leaf action dict must also be cleared.
 	if action.Entries["S"] != nil || action.Entries["JS"] != nil {
 		t.Errorf("leaf action dict not cleared: %v", action.Entries)
+	}
+}
+
+func TestExtGStateFixer(t *testing.T) {
+	gs := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":  pdf.PDFName{Value: "ExtGState"},
+		"TR":    pdf.PDFName{Value: "Identity"},
+		"TR2":   pdf.PDFName{Value: "Foo"},
+		"RI":    pdf.PDFName{Value: "BadIntent"},
+		"SMask": pdf.PDFName{Value: "Foo"},
+		"BM":    pdf.PDFName{Value: "Weird"},
+		"CA":    pdf.PDFReal(0.5),
+		"ca":    pdf.PDFReal(0.5),
+	}}
+	trailer := trailerWith("GS", gs)
+	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
+	}
+	if _, ok := gs.Entries["TR"]; ok {
+		t.Error("TR not removed")
+	}
+	if gs.Entries["TR2"] != (pdf.PDFName{Value: "Default"}) {
+		t.Error("TR2 not normalized to Default")
+	}
+	if _, ok := gs.Entries["RI"]; ok {
+		t.Error("invalid RI not removed")
+	}
+	if gs.Entries["SMask"] != (pdf.PDFName{Value: "None"}) {
+		t.Error("SMask not normalized to None")
+	}
+	if gs.Entries["BM"] != (pdf.PDFName{Value: "Normal"}) {
+		t.Error("BM not normalized to Normal")
+	}
+	if gs.Entries["CA"] != pdf.PDFReal(1.0) || gs.Entries["ca"] != pdf.PDFReal(1.0) {
+		t.Error("alpha not normalized to 1.0")
+	}
+}
+
+func TestAnnotationFlagsFixer(t *testing.T) {
+	annot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Annot"},
+		"F":    pdf.PDFInteger(2), // Hidden set, Print not set
+		"CA":   pdf.PDFReal(0.5),
+	}}
+	trailer := trailerWith("Annot0", annot)
+	changed, err := annotationFlagsFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("annotationFlagsFixer.Fix = %v, %v", changed, err)
+	}
+	if annot.Entries["CA"] != pdf.PDFReal(1.0) {
+		t.Error("annotation CA not normalized")
+	}
+	f := int(annot.Entries["F"].(pdf.PDFInteger))
+	if f&verify.AnnotFlagPrint == 0 {
+		t.Error("Print flag not set")
+	}
+	if f&verify.AnnotFlagHidden != 0 {
+		t.Error("Hidden flag not cleared")
+	}
+}
+
+func TestFormFixer(t *testing.T) {
+	widget := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Annot"}, "Subtype": pdf.PDFName{Value: "Widget"},
+		"FT": pdf.PDFName{Value: "Tx"},
+		"A":  pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
+		"AA": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
+	}}
+	acroForm := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"NeedAppearances": pdf.PDFBoolean(true),
+		"XFA":             pdf.PDFArray{},
+		"Fields":          pdf.PDFArray{widget},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Catalog"}, "AcroForm": acroForm,
+		}},
+	}}
+	changed, err := formFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("formFixer.Fix = %v, %v", changed, err)
+	}
+	if acroForm.Entries["NeedAppearances"] != pdf.PDFBoolean(false) {
+		t.Error("NeedAppearances not cleared")
+	}
+	if _, ok := acroForm.Entries["XFA"]; ok {
+		t.Error("XFA not removed")
+	}
+	if _, ok := widget.Entries["A"]; ok {
+		t.Error("widget /A action not removed")
+	}
+	if _, ok := widget.Entries["AA"]; ok {
+		t.Error("widget /AA additional actions not removed")
+	}
+}
+
+func TestPostScriptXObjectFixer(t *testing.T) {
+	xobj := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Subtype":  pdf.PDFName{Value: "Form"},
+		"PS":       pdf.PDFInteger(1),
+		"Subtype2": pdf.PDFName{Value: "PS"},
+	}}
+	trailer := trailerWith("XObj", xobj)
+	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("postScriptXObjectFixer.Fix = %v, %v", changed, err)
+	}
+	if _, ok := xobj.Entries["PS"]; ok {
+		t.Error("PS not removed")
+	}
+	if _, ok := xobj.Entries["Subtype2"]; ok {
+		t.Error("Subtype2 PS not removed")
+	}
+}
+
+func TestOptionalContentFixer(t *testing.T) {
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":         pdf.PDFName{Value: "Catalog"},
+		"OCProperties": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	changed, err := optionalContentFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("optionalContentFixer.Fix = %v, %v", changed, err)
+	}
+	if _, ok := root.Entries["OCProperties"]; ok {
+		t.Error("OCProperties not removed")
 	}
 }
