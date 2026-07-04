@@ -83,3 +83,18 @@ func TestCheckByName(t *testing.T) {
 		t.Error("CheckByName(unknown) should be false")
 	}
 }
+
+func TestChecksForClause(t *testing.T) {
+	got := ChecksForClause("6.1.8")
+	if len(got) == 0 {
+		t.Fatal("expected at least one check for clause 6.1.8")
+	}
+	for _, c := range got {
+		if c.Clause() != "6.1.8" {
+			t.Errorf("ChecksForClause returned check with Clause() = %q, want 6.1.8", c.Clause())
+		}
+	}
+	if got := ChecksForClause("9.9.9-nonexistent"); len(got) != 0 {
+		t.Errorf("ChecksForClause(bogus) = %v, want empty", got)
+	}
+}

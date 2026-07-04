@@ -382,7 +382,11 @@ func createPDFWithInfo(filename string, info map[string]string) error {
 	var infoBody strings.Builder
 	infoBody.WriteString("<< ")
 	for k, v := range info {
-		infoBody.WriteString("/" + k + " (" + v + ") ")
+		infoBody.WriteString("/")
+		infoBody.WriteString(k)
+		infoBody.WriteString(" (")
+		infoBody.WriteString(v)
+		infoBody.WriteString(") ")
 	}
 	infoBody.WriteString(">>")
 	obj3 := "3 0 obj\n" + infoBody.String() + "\nendobj\n"

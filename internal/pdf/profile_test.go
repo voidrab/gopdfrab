@@ -12,3 +12,34 @@ func TestProfileString(t *testing.T) {
 		t.Errorf("Profile.String() = %q", s)
 	}
 }
+
+// TestProfileClearAddCheckHas covers Clear (empties enabled, keeps flags),
+// AddCheck (enables new checks without mutating the receiver), and Has.
+func TestProfileClearAddCheckHas(t *testing.T) {
+	c := Checks.Structure.ObjectFraming
+
+	full := NewFullProfile(A_1B)
+	full.SkipUnreachableXObjects = true
+	if !full.Has(c) {
+		t.Fatal("full profile should have every check enabled")
+	}
+
+	cleared := full.Clear()
+	if cleared.Has(c) {
+		t.Error("Clear() should disable all checks")
+	}
+	if !cleared.SkipUnreachableXObjects {
+		t.Error("Clear() should preserve behavioral flags")
+	}
+	if len(cleared.Checks()) != 0 {
+		t.Errorf("Clear() profile Checks() = %v, want empty", cleared.Checks())
+	}
+
+	added := cleared.AddCheck(c)
+	if !added.Has(c) {
+		t.Error("AddCheck() should enable the given check")
+	}
+	if cleared.Has(c) {
+		t.Error("AddCheck() must not mutate the receiver")
+	}
+}

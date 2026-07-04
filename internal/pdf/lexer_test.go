@@ -163,3 +163,157 @@ func TestLexerReaderPath(t *testing.T) {
 		t.Errorf("final token = %v, want EOF", tok.Type)
 	}
 }
+
+func TestIsHexDigit(t *testing.T) {
+	for _, ch := range []byte("0123456789ABCDEFabcdef") {
+		if !IsHexDigit(ch) {
+			t.Errorf("IsHexDigit(%q) = false, want true", ch)
+		}
+	}
+	for _, ch := range []byte("gG xZ!") {
+		if IsHexDigit(ch) {
+			t.Errorf("IsHexDigit(%q) = true, want false", ch)
+		}
+	}
+}
+
+// TestRequireEOL covers LF, CRLF, bare-CR-at-EOF, non-EOL-byte (error +
+// unread), and immediate-EOF branches.
+func TestRequireEOL(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		wantErr bool
+	}{
+		{"LF", "\n", false},
+		{"CRLF", "\r\n", false},
+		{"bare CR at EOF", "\r", false},
+		{"non-EOL byte", "X", true},
+		{"immediate EOF", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(tc.data), 0)
+			defer l.Release()
+			if err := l.requireEOL(); (err != nil) != tc.wantErr {
+				t.Errorf("requireEOL(%q) = %v, wantErr %v", tc.data, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestSkipEOL covers LF, CRLF, bare-CR, a non-EOL byte (unread, no error),
+// and immediate EOF (error).
+func TestSkipEOL(t *testing.T) {
+	l := NewLexerBytes([]byte("\nrest"), 0)
+	defer l.Release()
+	if err := l.skipEOL(); err != nil {
+		t.Errorf("skipEOL(LF) = %v, want nil", err)
+	}
+
+	l2 := NewLexerBytes([]byte("Xrest"), 0)
+	defer l2.Release()
+	if err := l2.skipEOL(); err != nil {
+		t.Errorf("skipEOL(non-EOL) = %v, want nil", err)
+	}
+	if b, _ := l2.readByte(); b != 'X' {
+		t.Errorf("skipEOL should have unread the non-EOL byte, next byte = %q", b)
+	}
+
+	l3 := NewLexerBytes([]byte(""), 0)
+	defer l3.Release()
+	if err := l3.skipEOL(); err == nil {
+		t.Error("skipEOL at EOF should error")
+	}
+}
+
+// TestRequireSingleSpace covers a lone space at EOF, a non-whitespace first
+// byte, a single space followed by non-whitespace, and multiple whitespace.
+func TestRequireSingleSpace(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		wantErr bool
+	}{
+		{"single space at EOF", " ", false},
+		{"space then non-whitespace", " X", false},
+		{"non-whitespace first", "X", true},
+		{"multiple whitespace", "  ", true},
+		{"immediate EOF", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(tc.data), 0)
+			defer l.Release()
+			if err := l.requireSingleSpace(); (err != nil) != tc.wantErr {
+				t.Errorf("requireSingleSpace(%q) = %v, wantErr %v", tc.data, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateObjectStart covers a well-formed "N G obj" header, leading
+// whitespace, an invalid object/generation number, a missing "obj" keyword,
+// and a missing EOL after "obj".
+func TestValidateObjectStart(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		wantErrs int
+	}{
+		{"well-formed", "1 0 obj\n", 0},
+		{"leading whitespace", " 1 0 obj\n", 1},
+		{"invalid object number", "X 0 obj\n", 1},
+		{"invalid generation number", "1 X obj\n", 1},
+		{"missing obj keyword", "1 0 foo\n", 1},
+		{"obj not followed by EOL", "1 0 obj X", 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(tc.data), 0)
+			defer l.Release()
+			if errs := l.validateObjectStart(); len(errs) != tc.wantErrs {
+				t.Errorf("validateObjectStart(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
+			}
+		})
+	}
+}
+
+// TestValidateEndObj covers a well-formed "\nendobj\n", whitespace before
+// "endobj", a missing "endobj" keyword, and a missing trailing EOL.
+func TestValidateEndObj(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		wantErrs int
+	}{
+		{"well-formed", "\nendobj\n", 0},
+		{"whitespace before endobj", "\n endobj\n", 1},
+		{"missing endobj keyword", "\nfoo\n", 1},
+		{"endobj not followed by EOL", "\nendobj X", 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(tc.data), 0)
+			defer l.Release()
+			if errs := l.validateEndObj(); len(errs) != tc.wantErrs {
+				t.Errorf("validateEndObj(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
+			}
+		})
+	}
+}
+
+// TestValidateObjectEnd covers the trailing-EOL success and failure paths.
+func TestValidateObjectEnd(t *testing.T) {
+	l := NewLexerBytes([]byte("\n"), 0)
+	defer l.Release()
+	if errs := l.validateObjectEnd(); errs != nil {
+		t.Errorf("validateObjectEnd(LF) = %v, want nil", errs)
+	}
+
+	l2 := NewLexerBytes([]byte("X"), 0)
+	defer l2.Release()
+	if errs := l2.validateObjectEnd(); errs == nil {
+		t.Error("validateObjectEnd(non-EOL) should error")
+	}
+}
