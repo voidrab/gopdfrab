@@ -2,6 +2,8 @@
 
 # gopdfrab
 
+[![codecov](https://codecov.io/gh/voidrab/gopdfrab/branch/main/graph/badge.svg)](https://codecov.io/gh/voidrab/gopdfrab)
+
 PDF/A processing for go!
 
 Verify and convert PDF documents with a small, predictable open source library.
