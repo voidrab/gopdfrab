@@ -207,22 +207,16 @@ func DecodeASCII85(data []byte) ([]byte, error) {
 		if n == 0 {
 			break
 		}
-		// Pad with 'u' (84) for partial groups.
+		// A group of n digits decodes to n-1 bytes; capture that before padding
+		// n up to a full group of 5.
+		outBytes := n - 1
 		for n < 5 {
-			b[n] = 84
+			b[n] = 84 // pad with 'u'
 			n++
 		}
 		v := uint32(b[0])*85*85*85*85 + uint32(b[1])*85*85*85 + uint32(b[2])*85*85 + uint32(b[3])*85 + uint32(b[4])
-		// Determine how many output bytes to emit (partial group = n-1 bytes).
-		switch {
-		case n >= 5:
-			out = append(out, byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
-		case n == 4:
-			out = append(out, byte(v>>24), byte(v>>16), byte(v>>8))
-		case n == 3:
-			out = append(out, byte(v>>24), byte(v>>16))
-		case n == 2:
-			out = append(out, byte(v>>24))
+		for k := range outBytes {
+			out = append(out, byte(v>>(24-8*k)))
 		}
 	}
 	return out, nil

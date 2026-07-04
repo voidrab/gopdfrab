@@ -2,6 +2,7 @@ package writer
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -302,4 +303,257 @@ func passFixtures(t *testing.T) []string {
 		return nil
 	})
 	return found
+}
+
+// errAfter is an io.Writer that succeeds for its first n writes, then fails,
+// used to drive each successive "if err != nil { return err }" branch.
+type errAfter struct{ n int }
+
+func (e *errAfter) Write(p []byte) (int, error) {
+	if e.n <= 0 {
+		return 0, errors.New("boom")
+	}
+	e.n--
+	return len(p), nil
+}
+
+// TestIdentityOfPointerBranch covers identityOf's no-_ref (pointer-identity) path.
+func TestIdentityOfPointerBranch(t *testing.T) {
+	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true}
+	if id := identityOf(d); id.hasRef {
+		t.Error("identityOf(no _ref) reported hasRef, want pointer identity")
+	}
+}
+
+// TestWriteErrorPropagation covers the write-failure error branches in
+// writeDictEntries, writeValue, writeOperand, and writeIndirectObject by
+// failing the underlying writer at every successive offset.
+func TestWriteErrorPropagation(t *testing.T) {
+	target := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}}}
+	wr := &pdfWriter{
+		numbers: map[objectIdentity]int{identityOf(target): 1},
+		visited: map[uintptr]bool{},
+	}
+
+	entries := map[string]pdf.PDFValue{
+		"Name": pdf.PDFName{Value: "V"},
+		"Arr":  pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2)},
+		"Sub":  pdf.PDFDict{Entries: map[string]pdf.PDFValue{"X": pdf.PDFInteger(1)}},
+		"Ref":  target,
+	}
+	for n := 0; n < 40; n++ {
+		cw := &countingWriter{w: &errAfter{n: n}}
+		_ = wr.writeDictEntries(cw, entries)
+	}
+
+	op := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFDict{Entries: map[string]pdf.PDFValue{"K": pdf.PDFInteger(1)}}}
+	for n := 0; n < 30; n++ {
+		_ = writeOperand(&errAfter{n: n}, op)
+	}
+
+	streamObj := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 1}},
+		HasStream: true, RawStream: []byte("xyz"),
+	}
+	plainObj := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "X"},
+	}}
+	for n := 0; n < 25; n++ {
+		_ = wr.writeIndirectObject(&countingWriter{w: &errAfter{n: n}}, 1, streamObj)
+		_ = wr.writeIndirectObject(&countingWriter{w: &errAfter{n: n}}, 2, plainObj)
+	}
+}
+
+// TestWriteOperandShapes covers every operand kind writeOperand serializes,
+// including the array, inline-dict, and null branches the round-trip content
+// tests (which use only scalars) never reach.
+func TestWriteOperandShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		v    pdf.PDFValue
+		want string
+	}{
+		{"name", pdf.PDFName{Value: "Foo"}, "/Foo"},
+		{"int", pdf.PDFInteger(42), "42"},
+		{"real", pdf.PDFReal(1.5), "1.5"},
+		{"string", pdf.PDFString{Value: "hi"}, "(hi)"},
+		{"hex", pdf.PDFHexString{Value: "ABCD"}, "<ABCD>"},
+		{"bool-true", pdf.PDFBoolean(true), "true"},
+		{"bool-false", pdf.PDFBoolean(false), "false"},
+		{"nil", nil, "null"},
+		{"array", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFName{Value: "X"}}, "[1 /X]"},
+		{"nested-array", pdf.PDFArray{pdf.PDFArray{pdf.PDFInteger(1)}}, "[[1]]"},
+		{"dict", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"A": pdf.PDFInteger(1), "_ref": pdf.PDFRef{ObjNum: 9}, "_dirty": pdf.PDFBoolean(true),
+		}}, "<< /A 1 >>"},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		if err := writeOperand(&buf, c.v); err != nil {
+			t.Errorf("%s: writeOperand: %v", c.name, err)
+			continue
+		}
+		if got := buf.String(); got != c.want {
+			t.Errorf("%s: writeOperand = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestWriteOperandUnsupported covers writeOperand's default (error) branch.
+func TestWriteOperandUnsupported(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeOperand(&buf, pdf.PDFRef{ObjNum: 1}); err == nil {
+		t.Error("expected error for an unsupported operand type")
+	}
+}
+
+// TestWriteValueErrorBranches covers writeValue's unresolved-reference and
+// undiscovered-indirect-dict error paths.
+func TestWriteValueErrorBranches(t *testing.T) {
+	wr := &pdfWriter{numbers: map[objectIdentity]int{}, visited: map[uintptr]bool{}}
+	cw := &countingWriter{w: &bytes.Buffer{}}
+
+	if err := wr.writeValue(cw, pdf.PDFRef{ObjNum: 3}); err == nil {
+		t.Error("expected error writing an unresolved PDFRef")
+	}
+
+	undiscovered := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 7}}}
+	if err := wr.writeValue(cw, undiscovered); err == nil {
+		t.Error("expected error writing an undiscovered indirect dict")
+	}
+
+	if err := wr.writeValue(cw, pdf.InlineImageRaw{}); err == nil {
+		t.Error("expected error writing an unsupported value type")
+	}
+}
+
+// TestBuildInlineImageBytes covers BuildInlineImageBytes and its param error path.
+func TestBuildInlineImageBytes(t *testing.T) {
+	params := []pdf.PDFValue{
+		pdf.PDFName{Value: "W"}, pdf.PDFInteger(2),
+		pdf.PDFName{Value: "H"}, pdf.PDFInteger(1),
+	}
+	out, err := BuildInlineImageBytes(params, []byte{0xff, 0x00})
+	if err != nil {
+		t.Fatalf("BuildInlineImageBytes: %v", err)
+	}
+	want := "BI /W 2 /H 1 ID \xff\x00 EI"
+	if string(out) != want {
+		t.Errorf("BuildInlineImageBytes = %q, want %q", out, want)
+	}
+
+	if _, err := BuildInlineImageBytes([]pdf.PDFValue{pdf.PDFRef{ObjNum: 1}}, nil); err == nil {
+		t.Error("expected error for an unserializable inline-image param")
+	}
+}
+
+// TestInlineImageBytes covers the empty and wrong-type branches of inlineImageBytes.
+func TestInlineImageBytes(t *testing.T) {
+	if _, ok := inlineImageBytes(nil); ok {
+		t.Error("inlineImageBytes(nil) = ok, want false")
+	}
+	if _, ok := inlineImageBytes([]pdf.PDFValue{pdf.PDFInteger(1)}); ok {
+		t.Error("inlineImageBytes(non-raw) = ok, want false")
+	}
+	if b, ok := inlineImageBytes([]pdf.PDFValue{pdf.InlineImageRaw{Bytes: []byte("x")}}); !ok || string(b) != "x" {
+		t.Errorf("inlineImageBytes(raw) = %q,%v; want \"x\",true", b, ok)
+	}
+}
+
+// TestWriteContentStreamErrors covers WriteContentStream's two error branches:
+// an unserializable operand and an INLINEIMAGE op missing its raw bytes.
+func TestWriteContentStreamErrors(t *testing.T) {
+	if _, err := WriteContentStream([]ContentOp{{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFRef{ObjNum: 1}}}}); err == nil {
+		t.Error("expected error for an unserializable operand")
+	}
+	if _, err := WriteContentStream([]ContentOp{{Op: "INLINEIMAGE"}}); err == nil {
+		t.Error("expected error for an INLINEIMAGE op with no raw bytes")
+	}
+}
+
+// TestNumberObjects covers NumberObjects: every reachable indirect object gets a
+// 1-based number and a matching _ref.
+func TestNumberObjects(t *testing.T) {
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
+	}}
+	catalog := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
+		"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"_ref": pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
+			"Kids": pdf.PDFArray{page},
+		}},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
+
+	objs := NumberObjects(trailer)
+	if len(objs) != 3 {
+		t.Fatalf("NumberObjects mapped %d objects, want 3", len(objs))
+	}
+	for n := 1; n <= 3; n++ {
+		d, ok := objs[n].(pdf.PDFDict)
+		if !ok {
+			t.Fatalf("objs[%d] is not a dict", n)
+		}
+		if ref, _ := d.Entries["_ref"].(pdf.PDFRef); ref.ObjNum != n {
+			t.Errorf("objs[%d] _ref = %v, want ObjNum %d", n, d.Entries["_ref"], n)
+		}
+	}
+}
+
+// TestSetStreamFlateVariants covers SetStreamFlateFast and SetStreamFlateRows,
+// asserting each stores a FlateDecode stream that decodes back to its input.
+func TestSetStreamFlateVariants(t *testing.T) {
+	want := []byte("0 0 0 rg 0 0 100 100 re f")
+
+	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if err := SetStreamFlateFast(&d, want); err != nil {
+		t.Fatalf("SetStreamFlateFast: %v", err)
+	}
+	assertFlateDecodes(t, d, want)
+
+	rows := [][]byte{[]byte("row0\n"), []byte("row1\n"), []byte("row2\n")}
+	var joined []byte
+	for _, r := range rows {
+		joined = append(joined, r...)
+	}
+	d2 := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if err := SetStreamFlateRows(&d2, len(rows), func(i int) []byte { return rows[i] }); err != nil {
+		t.Fatalf("SetStreamFlateRows: %v", err)
+	}
+	assertFlateDecodes(t, d2, joined)
+}
+
+// TestDeflateZlib covers DeflateZlib (success) and deflateZlibLevel's
+// invalid-level error branch.
+func TestDeflateZlib(t *testing.T) {
+	data := []byte("hello deflate")
+	compressed, err := DeflateZlib(data)
+	if err != nil {
+		t.Fatalf("DeflateZlib: %v", err)
+	}
+	d := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}},
+		HasStream: true, RawStream: compressed,
+	}
+	assertFlateDecodes(t, d, data)
+
+	if _, err := deflateZlibLevel(data, 99); err == nil {
+		t.Error("expected error for an invalid compression level")
+	}
+}
+
+// assertFlateDecodes checks that d is a FlateDecode stream decoding to want.
+func assertFlateDecodes(t *testing.T, d pdf.PDFDict, want []byte) {
+	t.Helper()
+	if !pdf.EqualPDFValue(d.Entries["Filter"], pdf.PDFName{Value: "FlateDecode"}) {
+		t.Errorf("Filter = %v, want /FlateDecode", d.Entries["Filter"])
+	}
+	got, err := pdf.DecodeStream(d)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("decoded = %q, want %q", got, want)
+	}
 }

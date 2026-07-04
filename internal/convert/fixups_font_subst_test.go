@@ -71,3 +71,43 @@ func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 		t.Errorf("changed = true on second pass, want false (fixer must be idempotent)")
 	}
 }
+
+func TestCloneFontDescriptor(t *testing.T) {
+	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "FontDescriptor"}, "Flags": pdf.PDFInteger(4),
+		"_ref": pdf.PDFRef{ObjNum: 1}, "_dirty": pdf.PDFBoolean(true),
+	}}
+	next := 42
+	clone := cloneFontDescriptor(desc, &next)
+	if clone.Entries["Flags"] != pdf.PDFInteger(4) {
+		t.Error("clone did not copy Flags")
+	}
+	if ref, _ := clone.Entries["_ref"].(pdf.PDFRef); ref.ObjNum != 42 {
+		t.Errorf("clone _ref = %v, want ObjNum 42", clone.Entries["_ref"])
+	}
+	if _, ok := clone.Entries["_dirty"]; ok {
+		t.Error("clone should not carry _dirty")
+	}
+	if next != 43 {
+		t.Errorf("nextObjNum = %d, want 43", next)
+	}
+}
+
+func TestLiberationFamilyName(t *testing.T) {
+	cases := []struct {
+		face liberationFace
+		want string
+	}{
+		{liberationFace{}, "LiberationSans"},
+		{liberationFace{bold: true}, "LiberationSans-Bold"},
+		{liberationFace{italic: true}, "LiberationSans-Italic"},
+		{liberationFace{bold: true, italic: true}, "LiberationSans-BoldItalic"},
+		{liberationFace{serif: true}, "LiberationSerif"},
+		{liberationFace{fixedPitch: true, bold: true}, "LiberationMono-Bold"},
+	}
+	for _, c := range cases {
+		if got := liberationFamilyName(c.face); got != c.want {
+			t.Errorf("liberationFamilyName(%+v) = %q, want %q", c.face, got, c.want)
+		}
+	}
+}
