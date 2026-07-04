@@ -230,3 +230,36 @@ func TestOptionalContentFixer(t *testing.T) {
 		t.Error("OCProperties not removed")
 	}
 }
+
+// TestOptionalContentFixerNoOp covers the two no-op short-circuits: no Root,
+// and a Root with no /OCProperties to remove.
+func TestOptionalContentFixerNoOp(t *testing.T) {
+	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if changed, err := (optionalContentFixer{}).Fix(&noRoot, nil); err != nil || changed {
+		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
+	}
+
+	noOCProps := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}},
+	}}
+	if changed, err := (optionalContentFixer{}).Fix(&noOCProps, nil); err != nil || changed {
+		t.Errorf("Fix(no OCProperties) = %v, %v, want (false, nil)", changed, err)
+	}
+}
+
+// TestViewerPrefFixerNoOpMissingEntries covers the no-Root and
+// no-ViewerPreferences short-circuits (distinct from TestViewerPrefFixerNoOp,
+// which covers ViewerPreferences present but clean).
+func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
+	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if changed, err := (viewerPrefFixer{}).Fix(&noRoot, nil); err != nil || changed {
+		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
+	}
+
+	noVP := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}},
+	}}
+	if changed, err := (viewerPrefFixer{}).Fix(&noVP, nil); err != nil || changed {
+		t.Errorf("Fix(no ViewerPreferences) = %v, %v, want (false, nil)", changed, err)
+	}
+}

@@ -3,7 +3,64 @@ package convert
 import (
 	"image"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// TestSmaskFullyOpaque covers the empty-bounds guard and both the
+// fully-opaque and not-fully-opaque results.
+func TestSmaskFullyOpaque(t *testing.T) {
+	if smaskFullyOpaque(image.NewRGBA(image.Rect(0, 0, 0, 0))) {
+		t.Error("smaskFullyOpaque on a zero-size image = true, want false")
+	}
+
+	opaque := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for i := 0; i < len(opaque.Pix); i += 4 {
+		opaque.Pix[i] = 255
+	}
+	if !smaskFullyOpaque(opaque) {
+		t.Error("smaskFullyOpaque on an all-255 red channel = false, want true")
+	}
+
+	partial := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for i := 0; i < len(partial.Pix); i += 4 {
+		partial.Pix[i] = 255
+	}
+	partial.Pix[4] = 128 // one pixel's alpha sample below 255
+	if smaskFullyOpaque(partial) {
+		t.Error("smaskFullyOpaque with one non-255 sample = true, want false")
+	}
+}
+
+// TestCanDropGroupSafely covers the decode-error guard, the safe (no gs/Do/
+// inline-image/pattern) content, and each of the disqualifying operators.
+func TestCanDropGroupSafely(t *testing.T) {
+	streamOf := func(content string) pdf.PDFDict {
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(content)}
+	}
+
+	if canDropGroupSafely(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}, HasStream: true, RawStream: []byte{0xFF}}) {
+		t.Error("canDropGroupSafely on an undecodable stream = true, want false")
+	}
+	if !canDropGroupSafely(streamOf("1 0 0 rg 0 0 10 10 re f")) {
+		t.Error("canDropGroupSafely on plain fill content = false, want true")
+	}
+	if canDropGroupSafely(streamOf("/GS1 gs")) {
+		t.Error("canDropGroupSafely with a gs operator = true, want false")
+	}
+	if canDropGroupSafely(streamOf("/Fm1 Do")) {
+		t.Error("canDropGroupSafely with a Do operator = true, want false")
+	}
+	if canDropGroupSafely(streamOf("BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI\n")) {
+		t.Error("canDropGroupSafely with an inline image = true, want false")
+	}
+	if canDropGroupSafely(streamOf("/P1 scn")) {
+		t.Error("canDropGroupSafely with a pattern (named) scn fill = true, want false")
+	}
+	if !canDropGroupSafely(streamOf("1 0 0 scn")) {
+		t.Error("canDropGroupSafely with a plain numeric scn fill = false, want true")
+	}
+}
 
 func TestPackRGBSamples(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))

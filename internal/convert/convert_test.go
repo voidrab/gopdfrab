@@ -558,3 +558,118 @@ func TestConvertResultSave(t *testing.T) {
 		t.Error("Save with empty Output should error")
 	}
 }
+
+// TestConvertBytesOpenError covers the pdf.OpenBytes error path: data too
+// short to even hold a header must surface as an error, not a panic or a
+// silently empty ConvertResult.
+func TestConvertBytesOpenError(t *testing.T) {
+	_, err := ConvertBytes([]byte("tiny"), pdf.PDFA_1B)
+	if err == nil {
+		t.Error("ConvertBytes on unparseable data returned a nil error, want non-nil")
+	}
+}
+
+// TestConvertAll drives the concurrent batch entry point (and, through it,
+// convertFile) over a mix of a conformant fixture, a structurally-corrupted
+// one Convert can fully repair, and a path that doesn't exist at all.
+func TestConvertAll(t *testing.T) {
+	paths := passFixtures(t)
+	if len(paths) == 0 {
+		t.Skip("veraPDF suite not present")
+	}
+
+	clean, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", paths[0], err)
+	}
+	corrupted := writeTempPDF(t, "corrupted.pdf", append([]byte("XXXXX"), clean...))
+	missing := filepath.Join(t.TempDir(), "does-not-exist.pdf")
+
+	results, err := ConvertAll([]string{paths[0], corrupted, missing}, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("ConvertAll: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(results))
+	}
+
+	if results[0].Path != paths[0] || results[0].Err != nil || !results[0].Result.Result.Valid {
+		t.Errorf("results[0] (conformant fixture) = %+v, want Path=%s Err=nil Valid=true", results[0], paths[0])
+	}
+	if results[1].Path != corrupted || results[1].Err != nil || !results[1].Result.Result.Valid {
+		t.Errorf("results[1] (repairable fixture) = %+v, want Path=%s Err=nil Valid=true", results[1], corrupted)
+	}
+	if results[2].Path != missing || results[2].Err == nil {
+		t.Errorf("results[2] (missing path) = %+v, want Path=%s and a non-nil Err", results[2], missing)
+	}
+}
+
+// TestConvertAllEmpty checks the workers<1 short-circuit for an empty batch.
+func TestConvertAllEmpty(t *testing.T) {
+	results, err := ConvertAll(nil, pdf.PDFA_1B)
+	if err != nil || len(results) != 0 {
+		t.Errorf("ConvertAll(nil) = (%v, %v), want (empty, nil)", results, err)
+	}
+}
+
+// TestFlattenAllPages builds a one-page trailer directly (no fixer needed to
+// trigger it) and asserts the page's Contents/Resources are replaced with a
+// single flattened Image XObject.
+func TestFlattenAllPages(t *testing.T) {
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":     pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
+		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":  pdf.PDFName{Value: "Catalog"},
+		"Pages": pages,
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+
+	if !flattenAllPages(&trailer) {
+		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
+	}
+
+	got := assertOnePageGraph(t, trailer)
+	resources, ok := got.Entries["Resources"].(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("Page/Resources did not resolve to a dict after flattening")
+	}
+	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
+	if !ok || xobjects.Entries["Im0"] == nil {
+		t.Errorf("Page/Resources/XObject/Im0 missing after flattening: %v", resources.Entries["XObject"])
+	}
+}
+
+// TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
+func TestFlattenAllPagesNoPages(t *testing.T) {
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	if flattenAllPages(&trailer) {
+		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
+	}
+}
+
+// TestSameMultiset exercises equal, differing-length, and differing-count
+// multisets directly.
+func TestSameMultiset(t *testing.T) {
+	a := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 2, pdf.Checks.Colour.OutputIntentNotDict: 1}
+	b := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 2, pdf.Checks.Colour.OutputIntentNotDict: 1}
+	if !sameMultiset(a, b) {
+		t.Error("sameMultiset(a, a-copy) = false, want true")
+	}
+
+	shorter := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 2}
+	if sameMultiset(a, shorter) {
+		t.Error("sameMultiset(a, shorter) = true, want false (differing length)")
+	}
+
+	diffCount := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 3, pdf.Checks.Colour.OutputIntentNotDict: 1}
+	if sameMultiset(a, diffCount) {
+		t.Error("sameMultiset(a, diffCount) = true, want false (differing count)")
+	}
+}
