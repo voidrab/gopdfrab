@@ -57,7 +57,7 @@ func runConvert(args []string) {
 	end := time.Now()
 	fmt.Printf("convert time: %v\n", end.Sub(start))
 
-	if err := os.WriteFile(output, cr.Output, 0o644); err != nil {
+	if err := cr.Save(output); err != nil {
 		fmt.Fprintf(os.Stderr, "write %s: %v\n", output, err)
 		os.Exit(1)
 	}

@@ -7,6 +7,7 @@ package convert
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -28,6 +29,15 @@ type ConvertResult struct {
 // to fix automatically.
 func (r ConvertResult) Residual() []pdf.PDFError {
 	return r.Result.Issues
+}
+
+// Save writes the converted PDF to the given path. It returns an error if
+// there is no output to save or the file cannot be written.
+func (r ConvertResult) Save(path string) error {
+	if len(r.Output) == 0 {
+		return fmt.Errorf("convert: no output to save")
+	}
+	return os.WriteFile(path, r.Output, 0o644)
 }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
