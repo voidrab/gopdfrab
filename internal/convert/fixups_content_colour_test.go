@@ -340,3 +340,145 @@ func TestPageDeviceColourModelsFindsContentAndDictUsage(t *testing.T) {
 		t.Errorf("expected rgb usage from Image XObject ColorSpace, got %v", used)
 	}
 }
+
+// TestScanContentColourDetectsInlineImageColourSpace covers the INLINEIMAGE
+// operand branch for both an inline image /CS given as a bare name and as
+// an array (e.g. an Indexed base), neither exercised by the other tests in
+// this file, which only use rg/g/k and cs/CS.
+func TestScanContentColourDetectsInlineImageColourSpace(t *testing.T) {
+	visited := map[uintptr]bool{}
+	claim := func(ptr uintptr) bool {
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+		return true
+	}
+
+	t.Run("name form", func(t *testing.T) {
+		dict := pdf.NewPDFDict()
+		dict.HasStream = true
+		dict.RawStream = []byte("BI /CS /DeviceRGB ID X EI")
+		used := map[string]bool{}
+		scanContentColour(dict, pdf.NewPDFDict(), claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
+		if !used["rgb"] {
+			t.Error("did not detect rgb from an inline image's name-form /CS")
+		}
+	})
+
+	t.Run("array form", func(t *testing.T) {
+		dict := pdf.NewPDFDict()
+		dict.HasStream = true
+		dict.RawStream = []byte("BI /CS [/DeviceCMYK] ID X EI")
+		used := map[string]bool{}
+		scanContentColour(dict, pdf.NewPDFDict(), claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
+		if !used["cmyk"] {
+			t.Error("did not detect cmyk from an inline image's array-form /CS")
+		}
+	})
+}
+
+// TestScanContentColourDetectsPatternCMYK covers scanContentColour's scn/SCN
+// tiling-pattern recursion -- a distinct code path from
+// pageDeviceColourModels' own resource-dict-only Pattern/Shading scan
+// (TestPageDeviceColourModelsFindsShadingPatternAndArrayContents).
+func TestScanContentColourDetectsPatternCMYK(t *testing.T) {
+	patternContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "k", Operands: []pdf.PDFValue{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}},
+	})
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	pattern := pdf.NewPDFDict()
+	pattern.HasStream = true
+	pattern.RawStream = patternContent
+
+	patterns := pdf.NewPDFDict()
+	patterns.Entries["P0"] = pattern
+	resources := pdf.NewPDFDict()
+	resources.Entries["Pattern"] = patterns
+
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "scn", Operands: []pdf.PDFValue{pdf.PDFName{Value: "P0"}}},
+	})
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = content
+
+	visited := map[uintptr]bool{}
+	claim := func(ptr uintptr) bool {
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+		return true
+	}
+	used := map[string]bool{}
+	scanContentColour(dict, resources, claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
+
+	if !used["cmyk"] {
+		t.Error("scanContentColour did not detect cmyk usage inside an scn-invoked tiling pattern")
+	}
+}
+
+// TestDeviceColourFixerInjectsCMYKWithoutOutputIntent mirrors the RGB-side
+// tests in this file on the CMYK branches of Fix (needCMYK/apNeedCMYK/
+// sharedCMYK/DefaultCMYK), driven by a document with no OutputIntent at all.
+func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
+	kOp := []writer.ContentOp{
+		{Op: "k", Operands: []pdf.PDFValue{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}},
+	}
+	content, err := writer.WriteContentStream(kOp)
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	contentsDict := pdf.NewPDFDict()
+	contentsDict.HasStream = true
+	contentsDict.RawStream = content
+
+	apContent, err := writer.WriteContentStream(kOp)
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	apStream := pdf.NewPDFDict()
+	apStream.HasStream = true
+	apStream.RawStream = apContent
+
+	ap := pdf.NewPDFDict()
+	ap.Entries["N"] = apStream
+	annot := pdf.NewPDFDict()
+	annot.Entries["AP"] = ap
+
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Contents"] = contentsDict
+	page.Entries["Resources"] = pdf.NewPDFDict()
+	page.Entries["Annots"] = pdf.PDFArray{annot}
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = catalog
+	trailer.Entries["Pages"] = pdf.PDFArray{page}
+
+	fixer := deviceColourFixer{}
+	changed, err := fixer.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected Fix to return changed=true")
+	}
+
+	pageRes, _ := page.Entries["Resources"].(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", pageRes) {
+		t.Error("DefaultCMYK not injected into page resources")
+	}
+	apRes, _ := apStream.Entries["Resources"].(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", apRes) {
+		t.Error("DefaultCMYK not injected into AP stream resources")
+	}
+}

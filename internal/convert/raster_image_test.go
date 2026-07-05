@@ -302,3 +302,184 @@ func TestImageDecodeError(t *testing.T) {
 		t.Error("imageDecodeError.Error()")
 	}
 }
+
+// TestFastColourModel covers every recognized colour space form (both the
+// bare-name and array shapes, plus ICCBased's N=1/N=3 alternate ID) along
+// with the space/shape combinations that fall through to "" (general path).
+func TestFastColourModel(t *testing.T) {
+	iccStream := func(n int) pdf.PDFDict {
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"N": pdf.PDFInteger(n)}}
+	}
+	tests := []struct {
+		name string
+		cs   pdf.PDFValue
+		want string
+	}{
+		{"name CalRGB", pdf.PDFName{Value: "CalRGB"}, "rgb"},
+		{"name CalGray", pdf.PDFName{Value: "CalGray"}, "gray"},
+		{"name unrecognized", pdf.PDFName{Value: "DeviceCMYK"}, ""},
+		{"array DeviceRGB", pdf.PDFArray{pdf.PDFName{Value: "DeviceRGB"}}, "rgb"},
+		{"array CalRGB", pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}}, "rgb"},
+		{"array DeviceGray", pdf.PDFArray{pdf.PDFName{Value: "DeviceGray"}}, "gray"},
+		{"array CalGray", pdf.PDFArray{pdf.PDFName{Value: "CalGray"}}, "gray"},
+		{"array ICCBased N=3", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, iccStream(3)}, "rgb"},
+		{"array ICCBased N=1", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, iccStream(1)}, "gray"},
+		{"array ICCBased N=4", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, iccStream(4)}, ""},
+		{"array ICCBased missing stream", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}, ""},
+		{"empty array", pdf.PDFArray{}, ""},
+		{"array non-name head", pdf.PDFArray{pdf.PDFInteger(1)}, ""},
+		{"neither name nor array", pdf.PDFInteger(1), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := fastColourModel(tt.cs); got != tt.want {
+				t.Errorf("fastColourModel(%v) = %q, want %q", tt.cs, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestConvU16Clamps covers convU16's below-zero and above-one clamps
+// alongside its in-range scaling.
+func TestConvU16Clamps(t *testing.T) {
+	if got := convU16(-0.5); got != 0 {
+		t.Errorf("convU16(-0.5) = %d, want 0", got)
+	}
+	if got := convU16(1.5); got != 65535 {
+		t.Errorf("convU16(1.5) = %d, want 65535", got)
+	}
+	if got := convU16(1); got != 65535 {
+		t.Errorf("convU16(1) = %d, want 65535", got)
+	}
+}
+
+// TestColorRGBA64Clamps covers colorRGBA64.RGBA's own conv closure clamping
+// out-of-range components (a separate copy of convU16's clamp logic).
+func TestColorRGBA64Clamps(t *testing.T) {
+	r, g, b, a := colorRGBA64{-1, 2, 0.5, 1}.RGBA()
+	if r != 0 {
+		t.Errorf("r = %d, want 0 (clamped from -1)", r)
+	}
+	if g != 65535 {
+		t.Errorf("g = %d, want 65535 (clamped from 2)", g)
+	}
+	if a != 65535 {
+		t.Errorf("a = %d, want 65535", a)
+	}
+	half := 0.5 * 65535
+	wantB := uint32(half) * 65535 / 0xFFFF
+	if b != wantB {
+		t.Errorf("b = %d, want %d", b, wantB)
+	}
+}
+
+// TestCcittEncodedBytes covers ccittEncodedBytes' pre-filter branches
+// (ASCIIHexDecode and ASCII85Decode before the CCITT filter) and the
+// unexpected-filter error path.
+func TestCcittEncodedBytes(t *testing.T) {
+	payload := []byte{0x98, 0x01}
+
+	t.Run("ASCIIHexDecode prefilter", func(t *testing.T) {
+		dict := pdf.PDFDict{
+			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
+			RawStream: encodeASCIIHex(payload),
+		}
+		got, err := ccittEncodedBytes(dict)
+		if err != nil {
+			t.Fatalf("ccittEncodedBytes: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Errorf("got %x, want %x", got, payload)
+		}
+	})
+
+	t.Run("ASCII85Decode prefilter", func(t *testing.T) {
+		dict := pdf.PDFDict{
+			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
+			RawStream: encodeASCII85(payload),
+		}
+		got, err := ccittEncodedBytes(dict)
+		if err != nil {
+			t.Fatalf("ccittEncodedBytes: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Errorf("got %x, want %x", got, payload)
+		}
+	})
+
+	t.Run("unexpected filter before CCITT", func(t *testing.T) {
+		dict := pdf.PDFDict{
+			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
+			RawStream: payload,
+		}
+		if _, err := ccittEncodedBytes(dict); err == nil {
+			t.Error("ccittEncodedBytes: want error for unexpected pre-filter, got nil")
+		}
+	})
+}
+
+// TestDecodeImageRawSamplesLZWAndPredictors covers the LZW-filter branch and
+// the TIFF (predictor 2) / PNG (predictor >=10) predictor-undo paths, none
+// of which the colour-space-focused DecodeImageRGBA tests exercise.
+func TestDecodeImageRawSamplesLZWAndPredictors(t *testing.T) {
+	t.Run("LZWDecode filter", func(t *testing.T) {
+		want := []byte{1, 2, 3, 4, 5, 6}
+		dict := pdf.PDFDict{
+			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}},
+			RawStream: encodeLZW(t, want),
+		}
+		got, err := decodeImageRawSamples(dict)
+		if err != nil {
+			t.Fatalf("decodeImageRawSamples: %v", err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("TIFF predictor", func(t *testing.T) {
+		// 2 columns, 1 colour, 8bpc: row [10, 5] TIFF-delta-encoded is [10, 5]
+		// itself (each sample is a delta from the previous, first is raw).
+		dict := pdf.PDFDict{
+			Entries: map[string]pdf.PDFValue{
+				"Width": pdf.PDFInteger(2),
+				"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+					"Predictor": pdf.PDFInteger(2), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
+				}},
+			},
+			HasStream: true,
+			RawStream: []byte{10, 5},
+		}
+		got, err := decodeImageRawSamples(dict)
+		if err != nil {
+			t.Fatalf("decodeImageRawSamples: %v", err)
+		}
+		want := []byte{10, 15}
+		if !bytes.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("PNG predictor", func(t *testing.T) {
+		// PNG predictor 12 (up): a 1-byte-per-pixel filter tag (0=None)
+		// followed by the raw row, decodes to the row unchanged.
+		dict := pdf.PDFDict{
+			Entries: map[string]pdf.PDFValue{
+				"Width": pdf.PDFInteger(2),
+				"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+					"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
+				}},
+			},
+			HasStream: true,
+			RawStream: []byte{0x00, 7, 9},
+		}
+		got, err := decodeImageRawSamples(dict)
+		if err != nil {
+			t.Fatalf("decodeImageRawSamples: %v", err)
+		}
+		want := []byte{7, 9}
+		if !bytes.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}

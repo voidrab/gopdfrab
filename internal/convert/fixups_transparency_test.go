@@ -62,6 +62,35 @@ func TestCanDropGroupSafely(t *testing.T) {
 	}
 }
 
+// TestTransparencyFlattenerFixDropsPageGroup covers the "page" kind branch
+// in Fix -- a transparency group set directly on the page dict itself,
+// rather than on a Form/Image XObject its resources reach -- which none of
+// the corpus-driven Convert tests happen to isolate.
+func TestTransparencyFlattenerFixDropsPageGroup(t *testing.T) {
+	group := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":  pdf.PDFName{Value: "Page"},
+		"Group": group,
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+
+	changed, err := (transparencyFlattener{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true (page had a /Group)")
+	}
+	if page.Entries["Group"] != nil {
+		t.Error("page /Group still present after Fix, want removed")
+	}
+}
+
 func TestPackRGBSamples(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.Pix[0], img.Pix[1], img.Pix[2] = 10, 20, 30

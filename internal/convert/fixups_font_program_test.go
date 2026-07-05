@@ -172,6 +172,51 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 	return found
 }
 
+// TestPromoteEmptyGlyphsInFontsIdempotent covers promoteEmptyGlyphsInFonts'
+// guard cascade (CIDFontType2 dispatch, FontDescriptor/FontFile2 presence,
+// decode success) via a real embedded TrueType program -- Liberation Sans has
+// blank glyphs (e.g. space) that trigger promotion -- and checks the second
+// pass over the already-promoted program is a no-op.
+func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	ff := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: ttf}
+	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"FontFile2": ff}}
+	font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Subtype":        pdf.PDFName{Value: "CIDFontType2"},
+		"FontDescriptor": desc,
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": font}}
+
+	if err := promoteEmptyGlyphsInFonts(&trailer, nil); err != nil {
+		t.Fatalf("promoteEmptyGlyphsInFonts: %v", err)
+	}
+	desc = trailer.Entries["Font"].(pdf.PDFDict).Entries["FontDescriptor"].(pdf.PDFDict)
+	ff1, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("FontFile2 missing after first pass")
+	}
+	repaired1, err := pdf.DecodeStream(ff1)
+	if err != nil {
+		t.Fatalf("DecodeStream (first pass): %v", err)
+	}
+	if string(repaired1) == string(ttf) {
+		t.Fatal("sanity: first pass did not change the font program")
+	}
+
+	if err := promoteEmptyGlyphsInFonts(&trailer, nil); err != nil {
+		t.Fatalf("promoteEmptyGlyphsInFonts (second pass): %v", err)
+	}
+	desc = trailer.Entries["Font"].(pdf.PDFDict).Entries["FontDescriptor"].(pdf.PDFDict)
+	ff2 := desc.Entries["FontFile2"].(pdf.PDFDict)
+	repaired2, err := pdf.DecodeStream(ff2)
+	if err != nil {
+		t.Fatalf("DecodeStream (second pass): %v", err)
+	}
+	if string(repaired2) != string(repaired1) {
+		t.Error("second pass over an already-promoted program changed it further, want a no-op")
+	}
+}
+
 // TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch mirrors
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
 // exactly its Check(s), since registerFixer panics on overlap.

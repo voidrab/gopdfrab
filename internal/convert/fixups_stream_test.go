@@ -3,6 +3,7 @@ package convert
 import (
 	"bytes"
 	"compress/lzw"
+	"compress/zlib"
 	"encoding/ascii85"
 	"encoding/hex"
 	"testing"
@@ -209,6 +210,36 @@ func TestLZWStreamPlaintextASCIIHexAndPNGPredictor(t *testing.T) {
 	}
 	if string(got) != string(plaintext) {
 		t.Errorf("lzwStreamPlaintext = %v, want %v", got, plaintext)
+	}
+}
+
+// TestLZWStreamPlaintextFlateThenLZW drives the FlateDecode branch of the
+// decoder chain: /Filter [FlateDecode LZWDecode] undoes Flate first
+// (outermost), then LZW.
+func TestLZWStreamPlaintextFlateThenLZW(t *testing.T) {
+	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
+	lzwed := encodeLZW(t, plaintext)
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(lzwed); err != nil {
+		t.Fatalf("zlib Write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zlib Close: %v", err)
+	}
+
+	dict := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "LZWDecode"}},
+		},
+		HasStream: true, RawStream: buf.Bytes(),
+	}
+	got, err := lzwStreamPlaintext(dict)
+	if err != nil {
+		t.Fatalf("lzwStreamPlaintext: %v", err)
+	}
+	if string(got) != string(plaintext) {
+		t.Errorf("lzwStreamPlaintext = %q, want %q", got, plaintext)
 	}
 }
 

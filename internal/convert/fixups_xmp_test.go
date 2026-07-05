@@ -166,3 +166,46 @@ func TestXMLEscapeText(t *testing.T) {
 		t.Errorf("xmlEscapeText = %q, want %q", got, want)
 	}
 }
+
+// TestPdfDateToXMP covers every truncation point (year-only through full
+// timestamp with timezone) and the malformed-input guards, including the two
+// distinct places a truncated timezone falls back ("Z" and a defaulted tzm).
+func TestPdfDateToXMP(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{"too short", "D:19", "", false},
+		{"non-digit year", "D:19ab", "", false},
+		{"year only", "D:1999", "1999", true},
+		{"year+month", "D:199912", "1999-12", true},
+		{"year+month+day", "D:19991231", "1999-12-31", true},
+		{"datetime, minute/second defaulted", "D:1999123123", "1999-12-31T23:00:00Z", true},
+		{"full datetime, no timezone", "D:19991231235959", "1999-12-31T23:59:59Z", true},
+		{"timezone, sign but no digits", "D:19991231235959+", "1999-12-31T23:59:59Z", true},
+		{"timezone hour only, minute defaulted", "D:19991231235959+05", "1999-12-31T23:59:59+05:00", true},
+		{"full timezone", "D:19991231235959+05'30'", "1999-12-31T23:59:59+05:30", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := pdfDateToXMP(tt.in)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("pdfDateToXMP(%q) = (%q,%v), want (%q,%v)", tt.in, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestIsAllDigits(t *testing.T) {
+	if !isAllDigits("1999") {
+		t.Error(`isAllDigits("1999") = false, want true`)
+	}
+	if isAllDigits("19a9") {
+		t.Error(`isAllDigits("19a9") = true, want false`)
+	}
+	if !isAllDigits("") {
+		t.Error(`isAllDigits("") = false, want true (vacuously)`)
+	}
+}
