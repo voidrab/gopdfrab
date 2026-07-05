@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"encoding/binary"
+	"os"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -309,5 +311,90 @@ func TestLiberationFamilyName(t *testing.T) {
 		if got := liberationFamilyName(c.face); got != c.want {
 			t.Errorf("liberationFamilyName(%+v) = %q, want %q", c.face, got, c.want)
 		}
+	}
+}
+
+// TestTTScaledCapHeight covers the too-short-table and upm==0 fallbacks
+// alongside the normal scaled-reading path.
+func TestTTScaledCapHeight(t *testing.T) {
+	validHead := make([]byte, 20)
+	binary.BigEndian.PutUint16(validHead[18:20], 1000) // unitsPerEm
+
+	zeroUPMHead := make([]byte, 20) // unitsPerEm left at 0
+
+	validOS2 := make([]byte, 90)
+	binary.BigEndian.PutUint16(validOS2[88:90], 700) // sCapHeight
+
+	tests := []struct {
+		name   string
+		tables map[string][]byte
+		want   int
+	}{
+		{"short OS/2", map[string][]byte{"OS/2": make([]byte, 10), "head": validHead}, -1},
+		{"short head", map[string][]byte{"OS/2": validOS2, "head": make([]byte, 5)}, -1},
+		{"upm zero", map[string][]byte{"OS/2": validOS2, "head": zeroUPMHead}, -1},
+		{"valid", map[string][]byte{"OS/2": validOS2, "head": validHead}, 700},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const fallback = -1
+			if got := ttScaledCapHeight(tt.tables, fallback); got != tt.want {
+				t.Errorf("ttScaledCapHeight() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTrueTypeCmapSubtableCount covers the ParseSfnt-failure path (garbage
+// input) and the success path (a real embedded face).
+func TestTrueTypeCmapSubtableCount(t *testing.T) {
+	if _, ok := trueTypeCmapSubtableCount([]byte("not a font")); ok {
+		t.Error("trueTypeCmapSubtableCount(garbage) ok = true, want false")
+	}
+
+	data, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	if err != nil {
+		t.Skipf("bundled font not present: %v", err)
+	}
+	n, ok := trueTypeCmapSubtableCount(data)
+	if !ok || n <= 0 {
+		t.Errorf("trueTypeCmapSubtableCount(Liberation Sans) = (%d,%v), want a positive count", n, ok)
+	}
+}
+
+// TestTrimSymbolicCmap covers both branches: a multi-subtable face gets
+// trimmed to one, and re-running against that already-trimmed output (now
+// n==1) is a no-op.
+func TestTrimSymbolicCmap(t *testing.T) {
+	data, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	if err != nil {
+		t.Skipf("bundled font not present: %v", err)
+	}
+	n, ok := trueTypeCmapSubtableCount(data)
+	if !ok || n < 2 {
+		t.Skip("bundled face already has a single cmap subtable; nothing to trim")
+	}
+
+	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"FontFile2": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: data},
+	}}
+	if !trimSymbolicCmap(desc) {
+		t.Fatal("trimSymbolicCmap on a multi-subtable face = false, want true")
+	}
+	ff := desc.Entries["FontFile2"].(pdf.PDFDict)
+	trimmed, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if got, ok := trueTypeCmapSubtableCount(trimmed); !ok || got != 1 {
+		t.Errorf("trimmed subtable count = (%d,%v), want (1,true)", got, ok)
+	}
+
+	// Re-running against the already-trimmed (single-subtable) program is a no-op.
+	desc2 := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"FontFile2": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: trimmed},
+	}}
+	if trimSymbolicCmap(desc2) {
+		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")
 	}
 }

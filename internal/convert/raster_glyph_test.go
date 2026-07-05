@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 
@@ -224,6 +225,180 @@ func TestType1CharstringOperators(t *testing.T) {
 	contours := interpretType1Charstring(p)
 	if len(contours) == 0 {
 		t.Fatal("interpretType1Charstring produced no contours")
+	}
+}
+
+// TestReadType2NumberShortBuffer covers the short-buffer fallbacks in every
+// multi-byte encoding (247/251/28/255 ranges) plus the unmatched-byte default.
+func TestReadType2NumberShortBuffer(t *testing.T) {
+	tests := []struct {
+		name  string
+		in    []byte
+		wantV float64
+		wantN int
+	}{
+		{"247-range truncated", []byte{247}, 0, 1},
+		{"251-range truncated", []byte{251}, 0, 1},
+		{"28-form fully truncated", []byte{28}, 0, 1},
+		{"28-form partially truncated", []byte{28, 0x00}, 0, 2},
+		{"255-form truncated", []byte{255, 0, 1}, 0, 3},
+		{"unmatched byte default", []byte{0}, 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, n := readType2Number(tt.in)
+			if v != tt.wantV || n != tt.wantN {
+				t.Errorf("readType2Number(%v) = (%v,%v), want (%v,%v)", tt.in, v, n, tt.wantV, tt.wantN)
+			}
+		})
+	}
+}
+
+// TestReadType1NumberShortBuffer mirrors TestReadType2NumberShortBuffer for
+// the Type1 number encoding (no 28-form; 255 is a plain int32, not fixed).
+func TestReadType1NumberShortBuffer(t *testing.T) {
+	tests := []struct {
+		name  string
+		in    []byte
+		wantV float64
+		wantN int
+	}{
+		{"247-range truncated", []byte{247}, 0, 1},
+		{"251-range truncated", []byte{251}, 0, 1},
+		{"255-form truncated", []byte{255, 0, 1}, 0, 3},
+		{"unmatched byte default", []byte{0}, 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v, n := readType1Number(tt.in)
+			if v != tt.wantV || n != tt.wantN {
+				t.Errorf("readType1Number(%v) = (%v,%v), want (%v,%v)", tt.in, v, n, tt.wantV, tt.wantN)
+			}
+		})
+	}
+}
+
+// TestType2CharstringEscapeAndHintmask covers the two-byte escape operator
+// (12, a no-op on outline geometry) and the hintmask/cntrmask mask-byte skip.
+func TestType2CharstringEscapeAndHintmask(t *testing.T) {
+	var p []byte
+	add := func(bs ...byte) { p = append(p, bs...) }
+
+	add(b139(0), b139(4), b139(0), b139(4), 18) // hstemhm: 2 stems, no leading width
+	add(19, 0xFF)                               // hintmask + 1 mask byte (ceil(2 stems/8))
+	add(12, 0)                                  // two-byte escape, ignored
+	add(b139(10), b139(10), 21)                 // rmoveto
+	add(b139(20), b139(0), 5)                   // rlineto
+	add(14)                                     // endchar
+
+	contours := interpretType2Charstring(p)
+	if len(contours) == 0 {
+		t.Fatal("interpretType2Charstring produced no contours")
+	}
+}
+
+// TestType1CharstringSubrEscapes covers callsubr/return and the div/seac/sbw
+// two-byte escapes, none of which are exercised by the other Type1 tests.
+func TestType1CharstringSubrEscapes(t *testing.T) {
+	var p []byte
+	add := func(bs ...byte) { p = append(p, bs...) }
+
+	add(b139(0), b139(100), 13)                             // hsbw: sbx=0 wx=100
+	add(b139(10), b139(10), 21)                             // rmoveto (10,10)
+	add(b139(5), 10)                                        // push 5, callsubr (drops it)
+	add(11)                                                 // return, no-op
+	add(b139(10), b139(2), 12, 12)                          // div: 10 2 -> 5.0
+	add(22)                                                 // hmoveto consumes the div result
+	add(b139(1), b139(2), b139(3), b139(4), b139(5), 12, 6) // seac: unsupported, stack cleared
+	add(b139(0), b139(0), b139(50), b139(0), 12, 7)         // sbw: sbx=0 sby=0 -> x,y=(0,0)
+	add(b139(20), b139(20), 21)                             // rmoveto for a real contour
+	add(b139(50), 6)                                        // hlineto
+	add(9, 14)                                              // closepath, endchar
+
+	contours := interpretType1Charstring(p)
+	if len(contours) == 0 {
+		t.Fatal("interpretType1Charstring produced no contours")
+	}
+}
+
+// buildTriangleGlyfTables returns a tables map holding a single 3-point
+// simple glyph at gid 0, enough to drive ttGlyfContours/ttCompositeContours
+// directly without assembling a full sfnt binary.
+func buildTriangleGlyfTables() map[string][]byte {
+	var glyf []byte
+	putU16 := func(v uint16) { glyf = binary.BigEndian.AppendUint16(glyf, v) }
+	putI16 := func(v int16) { putU16(uint16(v)) }
+	putI16(1) // numberOfContours
+	putI16(0)
+	putI16(0)
+	putI16(0)
+	putI16(0)                                 // bbox, unused
+	putU16(2)                                 // endPtsOfContours[0]: 3 points
+	putU16(0)                                 // instructionLength
+	glyf = append(glyf, 0x01, 0x01, 0x01)     // 3 on-curve points, no repeat
+	for _, d := range []int16{0, 100, -100} { // x deltas
+		putI16(d)
+	}
+	for _, d := range []int16{0, 100, -100} { // y deltas
+		putI16(d)
+	}
+	if len(glyf)%2 != 0 { // short-format loca offsets are in 2-byte units
+		glyf = append(glyf, 0)
+	}
+
+	loca := make([]byte, 4) // short format: gid0 spans [0, len(glyf)/2)
+	binary.BigEndian.PutUint16(loca[2:], uint16(len(glyf)/2))
+
+	head := make([]byte, 52)
+	binary.BigEndian.PutUint16(head[18:20], 1000) // unitsPerEm
+	// head[50:52] left zero => indexToLocFormat = short
+
+	return map[string][]byte{"head": head, "loca": loca, "glyf": glyf}
+}
+
+// TestTTCompositeContoursByteArgScaleVariants covers the byte-argument
+// component form (as opposed to the word-argument form the other composite
+// test exercises) together with each of the three scale encodings.
+func TestTTCompositeContoursByteArgScaleVariants(t *testing.T) {
+	tables := buildTriangleGlyfTables()
+
+	buildRec := func(flags uint16, scale ...uint16) []byte {
+		var rec []byte
+		rec = binary.BigEndian.AppendUint16(rec, 0xFFFF) // numberOfContours = -1 (composite)
+		rec = binary.BigEndian.AppendUint16(rec, 0)      // xMin
+		rec = binary.BigEndian.AppendUint16(rec, 0)      // yMin
+		rec = binary.BigEndian.AppendUint16(rec, 0)      // xMax
+		rec = binary.BigEndian.AppendUint16(rec, 0)      // yMax
+		rec = binary.BigEndian.AppendUint16(rec, flags)
+		rec = binary.BigEndian.AppendUint16(rec, 0) // component gid = 0
+		rec = append(rec, 10, 5)                    // byte args: dx=10 dy=5
+		for _, s := range scale {
+			rec = binary.BigEndian.AppendUint16(rec, s)
+		}
+		return rec
+	}
+
+	const argsAreXY = 0x0002
+	tests := []struct {
+		name  string
+		flags uint16
+		scale []uint16
+	}{
+		{"WE_HAVE_A_SCALE", argsAreXY | 0x0008, []uint16{16384}},                // 1.0
+		{"WE_HAVE_AN_X_AND_Y_SCALE", argsAreXY | 0x0040, []uint16{16384, 8192}}, // 1.0, 0.5
+		{"WE_HAVE_A_TWO_BY_TWO", argsAreXY | 0x0080, []uint16{16384, 0, 0, 16384}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := buildRec(tt.flags, tt.scale...)
+			contours, ok := ttCompositeContours(tables, rec, 0)
+			if !ok {
+				t.Fatalf("ttCompositeContours failed")
+			}
+			if len(contours) != 1 || len(contours[0]) != 3 {
+				t.Fatalf("got %d contours, want 1 with 3 points", len(contours))
+			}
+		})
 	}
 }
 

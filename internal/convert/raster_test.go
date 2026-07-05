@@ -291,3 +291,137 @@ func TestResolveSimpleEncoding(t *testing.T) {
 		t.Errorf("default encoding code 65 = %q, want A", n[65])
 	}
 }
+
+// TestPageContentBytesArrayAndErrors covers the /Contents-is-an-array join
+// path and both DecodeStream error returns (single stream and within an
+// array), which the single-stream-only RenderPage tests never exercise.
+func TestPageContentBytesArrayAndErrors(t *testing.T) {
+	t.Run("array of streams joined", func(t *testing.T) {
+		page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Contents": pdf.PDFArray{
+				pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg")},
+				pdf.PDFDict{HasStream: true, RawStream: []byte("5 5 10 10 re f")},
+			},
+		}}
+		got, err := pageContentBytes(page)
+		if err != nil {
+			t.Fatalf("pageContentBytes: %v", err)
+		}
+		want := "1 0 0 rg\n5 5 10 10 re f\n"
+		if string(got) != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("single stream decode error", func(t *testing.T) {
+		page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Contents": pdf.PDFDict{
+				Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}},
+				HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
+			},
+		}}
+		if _, err := pageContentBytes(page); err == nil {
+			t.Error("pageContentBytes: want error for undecodable stream, got nil")
+		}
+	})
+
+	t.Run("stream within array decode error", func(t *testing.T) {
+		page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Contents": pdf.PDFArray{
+				pdf.PDFDict{
+					Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}},
+					HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
+				},
+			},
+		}}
+		if _, err := pageContentBytes(page); err == nil {
+			t.Error("pageContentBytes: want error for undecodable stream in array, got nil")
+		}
+	})
+}
+
+// TestResolveOperandColorSpace covers the empty-operands, non-name-operand,
+// device-name, and named-resource-lookup branches.
+func TestResolveOperandColorSpace(t *testing.T) {
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"CS0": pdf.PDFName{Value: "DeviceGray"},
+		}},
+	}}
+
+	if got := resolveOperandColorSpace(nil, resources); got != nil {
+		t.Errorf("empty operands = %v, want nil", got)
+	}
+
+	arrayOperand := pdf.PDFArray{pdf.PDFName{Value: "DeviceRGB"}}
+	if got := resolveOperandColorSpace([]pdf.PDFValue{arrayOperand}, resources); !pdf.EqualPDFValue(got, arrayOperand) {
+		t.Errorf("non-name operand = %v, want passthrough %v", got, arrayOperand)
+	}
+
+	if got := resolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "DeviceRGB"}}, resources); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceRGB"}) {
+		t.Errorf("device name = %v, want /DeviceRGB passthrough", got)
+	}
+
+	got := resolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "CS0"}}, resources)
+	if !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceGray"}) {
+		t.Errorf("named resource lookup = %v, want /DeviceGray", got)
+	}
+}
+
+// TestExtractCFFBytes covers all three shapes: a bare CFF program passed
+// through as-is, a CFF wrapped in an OpenType ("CFF " table) container, and
+// data that is neither.
+func TestExtractCFFBytes(t *testing.T) {
+	cff := buildMinimalCIDCFF()
+
+	if got := extractCFFBytes(cff); string(got) != string(cff) {
+		t.Errorf("bare CFF passthrough = %x, want %x", got, cff)
+	}
+
+	otf := packSfnt(map[string][]byte{"CFF ": cff})
+	if got := extractCFFBytes(otf); string(got) != string(cff) {
+		t.Errorf("OpenType-wrapped CFF extraction = %x, want %x", got, cff)
+	}
+
+	if got := extractCFFBytes([]byte("not a font")); got != nil {
+		t.Errorf("extractCFFBytes(garbage) = %x, want nil", got)
+	}
+}
+
+// TestBuildSimpleFontInfoFontFile3AndFallback covers the FontFile3 (CFF)
+// branch, the bundled-face fallback for a standard-encoded font with no
+// embedded program, and the final "no glyph" closure when neither applies --
+// the FontFile2 branch is already exercised via TestRenderPageEmbeddedSimpleText.
+func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
+	t.Run("FontFile3 CFF", func(t *testing.T) {
+		cff := buildMinimalCIDCFF()
+		desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"FontFile3": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: cff},
+		}}
+		font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"FontDescriptor": desc}}
+		fi := buildSimpleFontInfo(font)
+		if _, ok := fi.glyphFor(1); !ok {
+			t.Error("glyphFor(1) via FontFile3 CFF = false, want true (code-as-GID approximation)")
+		}
+	})
+
+	t.Run("bundled-face fallback", func(t *testing.T) {
+		font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"BaseFont": pdf.PDFName{Value: "Helvetica"},
+			"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"},
+		}}
+		fi := buildSimpleFontInfo(font)
+		if _, ok := fi.glyphFor('A'); !ok {
+			t.Error("glyphFor('A') via bundled-face fallback = false, want true")
+		}
+	})
+
+	t.Run("no usable program or encoding", func(t *testing.T) {
+		desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(4)}} // symbolic
+		font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"FontDescriptor": desc}}
+		fi := buildSimpleFontInfo(font)
+		if _, ok := fi.glyphFor('A'); ok {
+			t.Error("glyphFor('A') with no program/encoding = true, want false")
+		}
+	})
+}
