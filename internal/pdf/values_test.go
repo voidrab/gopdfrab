@@ -113,6 +113,40 @@ func TestEncodePDFLiteralString(t *testing.T) {
 	}
 }
 
+// TestValuePointerDefaultBranch covers the default branch (any Go value
+// whose reflect.Kind supports Pointer(), not just PDFArray/map[string]PDFValue).
+func TestValuePointerDefaultBranch(t *testing.T) {
+	s := []byte("hello")
+	if ValuePointer(s) == 0 {
+		t.Error("ValuePointer(default branch) = 0, want a non-zero pointer")
+	}
+}
+
+func TestAbsInt(t *testing.T) {
+	if AbsInt(-5) != 5 {
+		t.Error("AbsInt(-5) should be 5")
+	}
+	if AbsInt(5) != 5 {
+		t.Error("AbsInt(5) should be 5")
+	}
+}
+
+// TestDecodePDFTextStringOddUTF16 covers the odd-trailing-byte truncation
+// branch of the UTF-16BE path.
+func TestDecodePDFTextStringOddUTF16(t *testing.T) {
+	raw := []byte{0xFE, 0xFF, 0x00, 0x41, 0x00}
+	if got := DecodePDFTextString(raw); got != "A" {
+		t.Errorf("DecodePDFTextString(odd UTF-16) = %q, want %q", got, "A")
+	}
+}
+
+// TestDecodePDFHexStringBytesOddDigits covers the odd-digit-count padding branch.
+func TestDecodePDFHexStringBytesOddDigits(t *testing.T) {
+	if got := DecodePDFHexStringBytes("41 4"); string(got) != "A@" {
+		t.Errorf("DecodePDFHexStringBytes(odd) = %q, want %q", got, "A@")
+	}
+}
+
 func TestDecodePDFName(t *testing.T) {
 	tests := []struct {
 		name string

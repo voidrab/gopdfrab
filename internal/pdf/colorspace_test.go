@@ -220,4 +220,44 @@ func TestIndexedLookupBytes(t *testing.T) {
 	if b := indexedLookupBytes(PDFInteger(1)); b != nil {
 		t.Errorf("unsupported lookup = %v, want nil", b)
 	}
+	badStream := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if b := indexedLookupBytes(badStream); b != nil {
+		t.Errorf("undecodable stream lookup = %v, want nil", b)
+	}
+}
+
+// TestColorHelperShortComponentFallbacks covers comp3, gray, CMYKToRGB,
+// resolveICCBased, resolveIndexed, and labToRGB's too-few-components and
+// malformed-input fallback branches.
+func TestColorHelperShortComponentFallbacks(t *testing.T) {
+	// Too few components falls back to placeholderRGB, which itself grays the
+	// first available component rather than a flat 0.5 when comps is non-empty.
+	if r, g, b := comp3([]float64{0.1, 0.2}); r != 0.1 || g != 0.1 || b != 0.1 {
+		t.Errorf("comp3(<3) = %v,%v,%v, want (0.1,0.1,0.1)", r, g, b)
+	}
+	if r, g, b := gray(nil); r != 0.5 || g != 0.5 || b != 0.5 {
+		t.Errorf("gray(empty) = %v,%v,%v, want mid-gray", r, g, b)
+	}
+	if r, g, b := CMYKToRGB([]float64{0, 0, 0}); r != 0 || g != 0 || b != 0 {
+		t.Errorf("CMYKToRGB(<4) = %v,%v,%v, want (0,0,0)", r, g, b)
+	}
+	if r, g, b := resolveICCBased(PDFArray{PDFName{Value: "ICCBased"}}, nil); r != 0.5 || g != 0.5 || b != 0.5 {
+		t.Errorf("resolveICCBased(len<2) = %v,%v,%v, want mid-gray", r, g, b)
+	}
+	if r, g, b := resolveICCBased(PDFArray{PDFName{Value: "ICCBased"}, PDFInteger(1)}, nil); r != 0.5 || g != 0.5 || b != 0.5 {
+		t.Errorf("resolveICCBased(non-dict) = %v,%v,%v, want mid-gray", r, g, b)
+	}
+	iccOdd := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(2)}}}
+	if r, g, b := resolveICCBased(iccOdd, []float64{0.5}); r != 0.5 || g != 0.5 || b != 0.5 {
+		t.Errorf("resolveICCBased(N=2) = %v,%v,%v, want mid-gray fallback", r, g, b)
+	}
+	if r, g, b := resolveIndexed(PDFArray{PDFName{Value: "Indexed"}}, []float64{0}, PDFDict{}); r != 0 || g != 0 || b != 0 {
+		t.Errorf("resolveIndexed(len<4) = %v,%v,%v, want (0,0,0)", r, g, b)
+	}
+	if r, g, b := labToRGB([]float64{100, 0}); r != 1 || g != 1 || b != 1 {
+		t.Errorf("labToRGB(<3) = %v,%v,%v, want (1,1,1)", r, g, b)
+	}
 }

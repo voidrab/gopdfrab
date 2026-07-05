@@ -31,6 +31,7 @@ func TestDecodeXMPEncoding(t *testing.T) {
 	}{
 		{"empty", []byte{}, []byte{}},
 		{"single byte", []byte{0x41}, []byte{0x41}},
+		{"2-3 bytes delegates to decodeXMPEncoding16", []byte{0x3C, 0x00, 0x41}, []byte("<")},
 		{"utf-32 LE BOM", append([]byte{0xFF, 0xFE, 0x00, 0x00}, encodeUTF32(t, 'A', true)...), []byte("A")},
 		{"utf-32 BE BOM", append([]byte{0x00, 0x00, 0xFE, 0xFF}, encodeUTF32(t, 'A', false)...), []byte("A")},
 		{"bare utf-32 LE", append(encodeUTF32(t, '<', true), encodeUTF32(t, 'B', true)...), []byte("<B")},

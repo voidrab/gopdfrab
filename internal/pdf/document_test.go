@@ -129,6 +129,43 @@ func TestDocument_OpenInvalid(t *testing.T) {
 	}
 }
 
+// TestOpenMissingFile covers Open's os.Open error branch.
+func TestOpenMissingFile(t *testing.T) {
+	if _, err := Open(filepath.Join(t.TempDir(), "does-not-exist.pdf")); err == nil {
+		t.Error("expected error opening a nonexistent path")
+	}
+}
+
+// TestOpenDirectory covers Open's mmapFile error branch: a directory has a
+// nonzero Stat size but cannot be mmapped.
+func TestOpenDirectory(t *testing.T) {
+	if _, err := Open(t.TempDir()); err == nil {
+		t.Error("expected error opening a directory as a PDF")
+	}
+}
+
+// TestNewDocumentHeaderReadError covers newDocument's header-read error
+// branch: an empty byte source has nothing to read for the 8-byte header.
+func TestNewDocumentHeaderReadError(t *testing.T) {
+	if _, err := OpenBytes([]byte{}); err == nil {
+		t.Error("expected error opening empty bytes (header read failure)")
+	}
+}
+
+// TestOpenEmptyFile covers mmapFile's size==0 early return (a real 0-byte
+// file, via the actual Open path rather than OpenBytes). The header read
+// still fails afterward since there's nothing to read, but the mmap-skip
+// branch itself must run without error.
+func TestOpenEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.pdf")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Error("expected an error (empty header) opening a 0-byte file")
+	}
+}
+
 // TestGetVersionBranches covers every branch of GetVersion via a bare Reader.
 func TestGetVersionBranches(t *testing.T) {
 	cases := []struct {
@@ -173,6 +210,90 @@ func writeMinimalPDF(t *testing.T, objs []string, trailerBody string) string {
 		t.Fatalf("write pdf: %v", err)
 	}
 	return path
+}
+
+// buildClassicXRefBody returns a header + objects + valid classic xref table
+// (no trailer section), plus the xref's byte offset, so callers can append
+// custom or deliberately malformed trailer/startxref text.
+func buildClassicXRefBody(objs []string) (body string, xrefOffset int) {
+	header := "%PDF-1.7\n"
+	body = header
+	offsets := make([]int, len(objs)+1)
+	for i, o := range objs {
+		offsets[i+1] = len(body)
+		body += fmt.Sprintf("%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	xrefOffset = len(body)
+	xref := fmt.Sprintf("xref\n0 %d\n0000000000 65535 f \n", len(objs)+1)
+	for i := 1; i <= len(objs); i++ {
+		xref += fmt.Sprintf("%010d 00000 n \n", offsets[i])
+	}
+	body += xref
+	return body, xrefOffset
+}
+
+// TestInitializeStructureMalformedTrailerBranches covers initializeStructure's
+// startxref-parsing errors and its trailer-location/parse error branches.
+func TestInitializeStructureMalformedTrailerBranches(t *testing.T) {
+	objs := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Count 0 /Kids [] >>",
+	}
+
+	t.Run("startxref offset missing", func(t *testing.T) {
+		body, _ := buildClassicXRefBody(objs)
+		body += "startxref\n"
+		if _, err := OpenBytes([]byte(body)); err == nil {
+			t.Error("expected error for a missing startxref offset")
+		}
+	})
+
+	t.Run("startxref offset unparseable", func(t *testing.T) {
+		body, _ := buildClassicXRefBody(objs)
+		body += "startxref\nXYZ\n%%EOF"
+		if _, err := OpenBytes([]byte(body)); err == nil {
+			t.Error("expected error for an unparseable startxref offset")
+		}
+	})
+
+	t.Run("trailer keyword not found", func(t *testing.T) {
+		body, xrefOffset := buildClassicXRefBody(objs)
+		body += fmt.Sprintf("startxref\n%d\n%%%%EOF", xrefOffset)
+		if _, err := OpenBytes([]byte(body)); err == nil {
+			t.Error("expected error when no trailer keyword precedes startxref")
+		}
+	})
+
+	t.Run("expected trailer keyword mismatch", func(t *testing.T) {
+		body, xrefOffset := buildClassicXRefBody(objs)
+		body += "trailerX\n<< /Size 3 /Root 1 0 R >>\n"
+		body += fmt.Sprintf("startxref\n%d\n%%%%EOF", xrefOffset)
+		if _, err := OpenBytes([]byte(body)); err == nil {
+			t.Error("expected error when the located 'trailer' text is part of a longer token")
+		}
+	})
+
+	t.Run("failed to parse trailer dictionary", func(t *testing.T) {
+		body, xrefOffset := buildClassicXRefBody(objs)
+		body += "trailer\n<< /Size 3 /Root 1 0 R\n" // unterminated dict
+		body += fmt.Sprintf("startxref\n%d\n%%%%EOF", xrefOffset)
+		if _, err := OpenBytes([]byte(body)); err == nil {
+			t.Error("expected error for an unterminated trailer dictionary")
+		}
+	})
+
+	t.Run("missing Root triggers first-page-trailer search", func(t *testing.T) {
+		body, xrefOffset := buildClassicXRefBody(objs)
+		body += "trailer\n<< /Size 3 >>\n"
+		body += fmt.Sprintf("startxref\n%d\n%%%%EOF", xrefOffset)
+		doc, err := OpenBytes([]byte(body))
+		if err != nil {
+			t.Fatalf("OpenBytes with rootless trailer: %v", err)
+		}
+		if _, err := doc.GetPageCount(); err == nil {
+			t.Error("expected GetPageCount to fail: no /Root was ever found")
+		}
+	})
 }
 
 // TestAccessorsMissingMetadata covers the error paths of GetMetadata,
@@ -333,6 +454,98 @@ func TestNewRawReaderAndSeedResolvedGraph(t *testing.T) {
 	got, err := d.ResolveGraph()
 	if err != nil || !EqualPDFValue(got, graph) {
 		t.Errorf("ResolveGraph after seeding = %v, %v; want %v", got, err, graph)
+	}
+}
+
+// TestGetMetadataBranches covers the non-dict-Info error and the
+// PDFHexString entry decode branch.
+func TestGetMetadataBranches(t *testing.T) {
+	notDict := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{"Info": PDFInteger(7)}}}
+	if _, err := notDict.GetMetadata(); err == nil {
+		t.Error("expected error when Info is not a dictionary")
+	}
+
+	hexInfo := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{
+		"Info": PDFDict{Entries: map[string]PDFValue{"Title": PDFHexString{Value: "48656C6C6F"}}},
+	}}}
+	meta, err := hexInfo.GetMetadata()
+	if err != nil || meta["Title"] != "Hello" {
+		t.Errorf("GetMetadata(hex title) = %v, %v; want Hello", meta, err)
+	}
+}
+
+// TestRawXMPDecodeError covers RawXMP's DecodeStream error branch: a
+// Metadata stream declaring an unsupported filter.
+func TestRawXMPDecodeError(t *testing.T) {
+	d := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{
+		"Root": PDFDict{Entries: map[string]PDFValue{
+			"Metadata": PDFDict{
+				HasStream: true, RawStream: []byte("x"),
+				Entries: map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+			},
+		}},
+	}}}
+	if _, _, err := d.RawXMP(); err == nil {
+		t.Error("expected error decoding a Metadata stream with an unsupported filter")
+	}
+}
+
+// TestClaimedConformanceNoPart covers the "no PDF/A part identifier" error.
+func TestClaimedConformanceNoPart(t *testing.T) {
+	xmp := `<x>no pdfaid here</x>`
+	path := writeMinimalPDF(t,
+		[]string{
+			"<< /Type /Catalog /Pages 2 0 R /Metadata 3 0 R >>",
+			"<< /Type /Pages /Count 1 /Kids [] >>",
+			buildMetadataStreamObj(xmp),
+		},
+		"<< /Size 4 /Root 1 0 R >>",
+	)
+	doc, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer doc.Close()
+
+	if _, _, err := doc.ClaimedConformance(); err == nil {
+		t.Error("expected error when XMP has no PDF/A part identifier")
+	}
+}
+
+// TestGetPageCountNonInteger covers the "Count is not an integer" fallback.
+func TestGetPageCountNonInteger(t *testing.T) {
+	d := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{
+		"Root": PDFDict{Entries: map[string]PDFValue{
+			"Pages": PDFDict{Entries: map[string]PDFValue{"Count": PDFName{Value: "notanumber"}}},
+		}},
+	}}}
+	n, err := d.GetPageCount()
+	if err != nil || n != 0 {
+		t.Errorf("GetPageCount(non-integer Count) = %d, %v; want 0, nil", n, err)
+	}
+}
+
+// TestResolveGraphByPathEmptyPath covers the empty-path error.
+func TestResolveGraphByPathEmptyPath(t *testing.T) {
+	d := &Reader{}
+	if _, err := d.ResolveGraphByPath(nil); err == nil {
+		t.Error("expected error for an empty path")
+	}
+}
+
+// TestResolveGraphError covers resolveInPlace's error propagating out of
+// ResolveGraph, without caching a partial result.
+func TestResolveGraphError(t *testing.T) {
+	d := &Reader{
+		xrefTable: map[int]int64{404: 0},
+		data:      []byte("404 0 obj\n[1 2"),
+		trailer:   PDFDict{Entries: map[string]PDFValue{"Bad": PDFRef{ObjNum: 404}}},
+	}
+	if _, err := d.ResolveGraph(); err == nil {
+		t.Error("expected error resolving a trailer with a malformed referenced object")
+	}
+	if d.graphResolved {
+		t.Error("graphResolved must not be set after a failed resolve")
 	}
 }
 
@@ -512,6 +725,66 @@ func TestFindAndLoadFirstPageTrailer(t *testing.T) {
 	}
 }
 
+// TestFindAndLoadFirstPageTrailerBranches covers the fullBytes-error early
+// return and the continue-on-parse-error branch (an "xref" line that isn't a
+// parseable section).
+func TestFindAndLoadFirstPageTrailerBranches(t *testing.T) {
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	bad.findAndLoadFirstPageTrailer()
+	if bad.firstPageTrailer.Entries != nil {
+		t.Error("expected no firstPageTrailer when fullBytes fails")
+	}
+
+	data := []byte("garbage\nxref\nnot a valid section\n")
+	r := &Reader{data: data, file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	r.findAndLoadFirstPageTrailer()
+	if r.firstPageTrailer.Entries != nil {
+		t.Error("expected no firstPageTrailer for an unparseable xref section")
+	}
+}
+
+// TestFullBytes covers both branches: the in-memory d.data shortcut and the
+// file-backed read, including its error path.
+func TestFullBytes(t *testing.T) {
+	r := &Reader{data: []byte("in-memory")}
+	got, err := r.fullBytes()
+	if err != nil || string(got) != "in-memory" {
+		t.Errorf("fullBytes(in-memory) = %q, %v", got, err)
+	}
+
+	fileBacked := &Reader{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, size: 7}
+	got, err = fileBacked.fullBytes()
+	if err != nil || string(got) != "on-disk" {
+		t.Errorf("fullBytes(file-backed) = %q, %v", got, err)
+	}
+
+	short := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	if _, err := short.fullBytes(); err == nil {
+		t.Error("expected error reading past the end of a short file source")
+	}
+}
+
+// TestRecoverXRefByBruteForceScanBranches covers the fillIn existing-entry
+// loop, the duplicate-skip continue branch, and the fullBytes-error branch.
+func TestRecoverXRefByBruteForceScanBranches(t *testing.T) {
+	data := []byte("1 0 obj\n<<>>\nendobj\n5 0 obj\n<<>>\nendobj\n")
+	d := &Reader{data: data, xrefTable: map[int]int64{5: 999}}
+	if err := d.recoverXRefByBruteForceScan(true); err != nil {
+		t.Fatalf("recoverXRefByBruteForceScan(fillIn): %v", err)
+	}
+	if d.xrefTable[5] != 999 {
+		t.Errorf("xrefTable[5] = %d, want existing offset 999 preserved (duplicate skipped)", d.xrefTable[5])
+	}
+	if _, ok := d.xrefTable[1]; !ok {
+		t.Error("expected object 1 to be added by the scan")
+	}
+
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	if err := bad.recoverXRefByBruteForceScan(false); err == nil {
+		t.Error("expected fullBytes error to propagate")
+	}
+}
+
 // TestEffectiveTrailer covers both branches: the linearized firstPageTrailer
 // override, and falling back to the main trailer when none is set.
 func TestEffectiveTrailer(t *testing.T) {
@@ -578,10 +851,19 @@ func TestDecodeStreamCached(t *testing.T) {
 	if err != nil || string(got2) != "sync-cached" {
 		t.Fatalf("second (cache-hit) decode = %q, %v", got2, err)
 	}
+
+	badDict := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if _, err := d.DecodeStreamCached(badDict); err == nil {
+		t.Error("expected error decoding an unsupported filter")
+	}
 }
 
 // TestScanStreamCachedNoKeyAndHit covers ScanStreamCached's no-cache-key
-// decode-and-tokenize path and its cache-hit path.
+// decode-and-tokenize path (including its decode-error branch), its
+// with-key decode-error branch, and its cache-hit path.
 func TestScanStreamCachedNoKeyAndHit(t *testing.T) {
 	d := &Reader{}
 	ops, err := d.ScanStreamCached(PDFDict{HasStream: true, RawStream: nil})
@@ -590,6 +872,18 @@ func TestScanStreamCachedNoKeyAndHit(t *testing.T) {
 	}
 	if len(ops) != 0 {
 		t.Errorf("ops = %v, want none for empty stream", ops)
+	}
+
+	if _, err := d.ScanStreamCached(PDFDict{}); err == nil {
+		t.Error("expected error scanning a non-stream dict (no-key decode error)")
+	}
+
+	badDict := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if _, err := d.ScanStreamCached(badDict); err == nil {
+		t.Error("expected error scanning an unsupported filter (with-key decode error)")
 	}
 
 	streamDict := PDFDict{HasStream: true, RawStream: []byte("1 2 Tj")}
@@ -603,5 +897,104 @@ func TestScanStreamCachedNoKeyAndHit(t *testing.T) {
 	ops2, err := d.ScanStreamCached(streamDict)
 	if err != nil || len(ops2) != 1 || ops2[0].Op != "Tj" {
 		t.Fatalf("ScanStreamCached (cache-hit) = %+v, %v", ops2, err)
+	}
+}
+
+// TestResolvePath covers resolvePath's array-index (integer, non-integer,
+// out-of-range), dict-key (found, missing), and scalar-fallthrough branches,
+// plus the initial ResolveObject error and the final ResolveObject call.
+func TestResolvePath(t *testing.T) {
+	d := &Reader{xrefTable: map[int]int64{404: 0}, data: []byte("404 0 obj\n[1 2")}
+
+	if _, err := d.resolvePath(PDFRef{ObjNum: 404}, nil); err == nil {
+		t.Error("expected error resolving a ref to a malformed object")
+	}
+
+	arr := PDFArray{PDFInteger(10), PDFInteger(20)}
+	if got, err := d.resolvePath(arr, []string{"1"}); err != nil || got != PDFInteger(20) {
+		t.Errorf("array index = %v, %v, want 20", got, err)
+	}
+	if got, err := d.resolvePath(arr, []string{"notanumber"}); err != nil {
+		t.Errorf("non-integer key on array: err = %v, want nil", err)
+	} else if !EqualPDFValue(got, arr) {
+		t.Errorf("non-integer key on array = %v, want the array itself", got)
+	}
+	if _, err := d.resolvePath(arr, []string{"5"}); err == nil {
+		t.Error("expected out-of-range error")
+	}
+
+	dict := PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(7)}}
+	if got, err := d.resolvePath(dict, []string{"K"}); err != nil || got != PDFInteger(7) {
+		t.Errorf("dict key = %v, %v, want 7", got, err)
+	}
+	if _, err := d.resolvePath(dict, []string{"Missing"}); err == nil {
+		t.Error("expected error for a missing dict key")
+	}
+
+	scalar := PDFInteger(42)
+	if got, err := d.resolvePath(scalar, []string{"anything"}); err != nil || got != scalar {
+		t.Errorf("scalar fallthrough = %v, %v, want 42 unchanged", got, err)
+	}
+}
+
+// TestResolveInPlace covers resolveInPlace's PDFRef dereference, PDFDict and
+// PDFArray cycle-detection short-circuits, error-during-recursion unmark
+// paths, and the scalar default branch.
+func TestResolveInPlace(t *testing.T) {
+	d := &Reader{}
+
+	inner := PDFDict{Entries: map[string]PDFValue{"V": PDFInteger(1)}}
+	d.objCache = map[int]PDFValue{5: inner}
+	got, err := d.resolveInPlace(PDFRef{ObjNum: 5})
+	if err != nil {
+		t.Fatalf("resolveInPlace(ref): %v", err)
+	}
+	gotDict, ok := got.(PDFDict)
+	if !ok || gotDict.Entries["V"] != PDFInteger(1) {
+		t.Errorf("resolveInPlace(ref) = %#v, want resolved dict", got)
+	}
+
+	if got, err := d.resolveInPlace(PDFInteger(9)); err != nil || got != PDFInteger(9) {
+		t.Errorf("scalar default = %v, %v, want 9 unchanged", got, err)
+	}
+
+	dictEntries := map[string]PDFValue{"K": PDFInteger(1)}
+	dict := PDFDict{Entries: dictEntries}
+	ptr := ValuePointer(dictEntries)
+	d.resolvedPtrs = map[uintptr]bool{ptr: true}
+	if got, err := d.resolveInPlace(dict); err != nil {
+		t.Fatalf("resolveInPlace(dict, already-visited): %v", err)
+	} else if gd := got.(PDFDict); gd.Entries["K"] != PDFInteger(1) {
+		t.Errorf("visited dict should be returned unchanged, got %#v", got)
+	}
+
+	d.xrefTable = map[int]int64{404: 0}
+	d.data = []byte("404 0 obj\n[1 2")
+
+	badDict := PDFDict{Entries: map[string]PDFValue{"K": PDFRef{ObjNum: 404}}}
+	d.resolvedPtrs = nil
+	if _, err := d.resolveInPlace(badDict); err == nil {
+		t.Error("expected error resolving a malformed object inside a dict")
+	}
+	if d.resolvedPtrs[ValuePointer(badDict.Entries)] {
+		t.Error("failed dict resolution must unmark its pointer")
+	}
+
+	arr := PDFArray{PDFInteger(1)}
+	arrPtr := ValuePointer(arr)
+	d.resolvedPtrs = map[uintptr]bool{arrPtr: true}
+	if got, err := d.resolveInPlace(arr); err != nil {
+		t.Fatalf("resolveInPlace(array, already-visited): %v", err)
+	} else if ga := got.(PDFArray); ga[0] != PDFInteger(1) {
+		t.Errorf("visited array should be returned unchanged, got %#v", got)
+	}
+
+	badArr := PDFArray{PDFRef{ObjNum: 404}}
+	d.resolvedPtrs = nil
+	if _, err := d.resolveInPlace(badArr); err == nil {
+		t.Error("expected error resolving a malformed object inside an array")
+	}
+	if d.resolvedPtrs[ValuePointer(badArr)] {
+		t.Error("failed array resolution must unmark its pointer")
 	}
 }
