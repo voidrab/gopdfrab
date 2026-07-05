@@ -49,7 +49,7 @@ func registerFixer(f Fixer) {
 			continue
 		}
 		if dup, ok := fixerRegistry[c]; ok {
-			panic(fmt.Sprintf("pdfrab: check %s/%d already has a registered fixer (%T), cannot also register %T",
+			panic(fmt.Sprintf("gopdfrab: check %s/%d already has a registered fixer (%T), cannot also register %T",
 				c.Clause(), c.Subclause(), dup, f))
 		}
 		fixerRegistry[c] = f

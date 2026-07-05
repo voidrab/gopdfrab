@@ -1,6 +1,5 @@
-// Convert and verify PDF files for PDF/A-1b conformance. See the package
-// documentation for usage examples.
-package pdfrab
+// Convert and verify PDF files for PDF/A-1b conformance.
+package gopdfrab
 
 import (
 	"github.com/voidrab/gopdfrab/internal/convert"

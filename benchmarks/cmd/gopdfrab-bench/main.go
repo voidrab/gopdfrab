@@ -31,7 +31,7 @@ import (
 	"syscall"
 	"time"
 
-	pdfrab "github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab"
 )
 
 type fileResult struct {
@@ -183,11 +183,11 @@ func runOne(path string) fileResult {
 	}
 
 	start := time.Now()
-	doc, err := pdfrab.Open(path)
+	doc, err := gopdfrab.Open(path)
 	if err != nil {
 		return fileResult{Path: path, Size: size, Nanos: time.Since(start).Nanoseconds(), Err: err.Error()}
 	}
-	res, err := doc.Verify(pdfrab.PDFA_1B)
+	res, err := doc.Verify(gopdfrab.PDFA_1B)
 	elapsed := time.Since(start)
 	doc.Close()
 	if err != nil {

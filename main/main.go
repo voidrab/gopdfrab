@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	pdfrab "github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -49,7 +49,7 @@ func runConvert(args []string) {
 	}
 
 	start := time.Now()
-	cr, err := pdfrab.Convert(input, pdf.PDFA_1B)
+	cr, err := gopdfrab.Convert(input, pdf.PDFA_1B)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "convert %s: %v\n", input, err)
 		os.Exit(1)
@@ -117,7 +117,7 @@ func runVerify(args []string) {
 		}
 	}
 
-	results, err := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+	results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA_1B)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "verify: %v\n", err)
 		os.Exit(1)

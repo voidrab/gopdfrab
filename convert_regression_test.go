@@ -1,4 +1,4 @@
-package pdfrab
+package gopdfrab
 
 import (
 	"encoding/xml"
