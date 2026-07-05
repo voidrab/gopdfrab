@@ -3,6 +3,8 @@
 # gopdfrab
 
 [![codecov](https://codecov.io/gh/voidrab/gopdfrab/branch/main/graph/badge.svg)](https://codecov.io/gh/voidrab/gopdfrab)
+[![Go Reference](https://pkg.go.dev/badge/github.com/voidrab/gopdfrab.svg)](https://pkg.go.dev/github.com/voidrab/gopdfrab)
+[![Mentioned in Awesome Go](https://awesome.re/mentioned-badge.svg)](https://github.com/avelino/awesome-go)
 
 PDF/A processing for go!
 
