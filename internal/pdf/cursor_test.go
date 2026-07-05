@@ -54,4 +54,15 @@ func TestCursorReadLine(t *testing.T) {
 			t.Errorf("ReadLine() = %q, %v; want \"abc\", true", line, ok)
 		}
 	})
+
+	t.Run("bare CR as the very last byte", func(t *testing.T) {
+		c := NewCursor([]byte("abc\r"))
+		line, ok := c.ReadLine()
+		if !ok || line != "abc" {
+			t.Errorf("ReadLine() = %q, %v; want \"abc\", true", line, ok)
+		}
+		if _, ok := c.ReadLine(); ok {
+			t.Error("expected a second ReadLine to report exhausted input")
+		}
+	})
 }

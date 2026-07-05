@@ -26,7 +26,7 @@ func (c *Cursor) ReadLine() (string, bool) {
 	switch c.data[c.pos] {
 	case '\r':
 		c.pos++
-		if c.data[c.pos] == '\n' {
+		if c.pos < len(c.data) && c.data[c.pos] == '\n' {
 			c.pos++
 		}
 	case '\n':
