@@ -1,5 +1,3 @@
-<img width="1586" height="634" alt="gopdfrab-gopher" src="https://github.com/user-attachments/assets/837c019b-8c52-4d0f-bfab-9181911cff68" />
-
 # gopdfrab
 
 [![codecov](https://codecov.io/gh/voidrab/gopdfrab/branch/main/graph/badge.svg)](https://codecov.io/gh/voidrab/gopdfrab)

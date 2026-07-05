@@ -1,4 +1,4 @@
-// Convert and verify PDF files for PDF/A-1b conformance.
+// Convert and verify PDF files for PDF/A conformance.
 package gopdfrab
 
 import (
@@ -7,8 +7,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// Result, Check and PDFError are detailed in verify.Result/Check/
-// PDFError; Profile selects which checks a verification run applies.
 type (
 	Result            = pdf.Result
 	FileResult[T any] = pdf.FileResult[T]
@@ -19,21 +17,21 @@ type (
 	ConvertResult     = convert.ConvertResult
 )
 
-// A_1B and Undefined are the conformance levels Verify accepts.
+// PDF/A conformance levels.
 const (
 	A_1B      = pdf.A_1B
 	Undefined = pdf.Undefined
 )
 
-// PDFA_1B and Legacy_1B are the built-in profiles; see pdf.PDFA_1B and
-// pdf.Legacy_1B.
+// PDF/A profiles.
 var (
-	PDFA_1B   = pdf.PDFA_1B
+	// PDFA_1B is the canonical PDF/A-1b profile
+	PDFA_1B = pdf.PDFA_1B
+	// Legacy_1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
 	Legacy_1B = pdf.Legacy_1B
 )
 
-// Checks is the registry of every selectable PDF/A check, grouped by area
-// (Checks.Structure, Checks.Colour, ...).
+// Checks is the registry of every selectable PDF/A check, grouped by area.
 var Checks = pdf.Checks
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -44,13 +42,12 @@ func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 func AllChecks() []Check { return pdf.AllChecks() }
 
 // CheckByClause looks up the registered check for a specific (clause,
-// subclause) pair, e.g. CheckByClause("6.3.4", 1).
+// subclause) pair.
 func CheckByClause(clause string, subclause int) (Check, bool) {
 	return pdf.CheckByClause(clause, subclause)
 }
 
-// ChecksForClause returns every registered check under the given clause
-// (e.g. "6.3.4").
+// ChecksForClause returns every registered check under the given clause.
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
 
 // Verify opens, verifies, and closes a single file.
@@ -99,8 +96,7 @@ func (d *Document) Close() error { return d.r.Close() }
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }
 
 // IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
-// calling Verify(PDFA_1B) and checking the result's Valid field, for callers who
-// only need a yes/no answer.
+// calling Verify(PDFA_1B) and checking the result's Valid field.
 func (d *Document) IsPDFA() (bool, error) {
 	res, err := d.Verify(PDFA_1B)
 	if err != nil {
@@ -110,17 +106,16 @@ func (d *Document) IsPDFA() (bool, error) {
 }
 
 // Convert converts d, an already-open document, attempting to produce a
-// PDF/A-1b conformant rewrite; see Convert (the package-level function).
+// PDF/A-1b conformant rewrite.
 func (d *Document) Convert(p *Profile) (ConvertResult, error) { return convert.Run(d.r, p) }
 
 // XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
 // decoded and normalised to UTF-8. It returns an error if the document has no
-// XMP metadata stream, regardless of whether the document otherwise validates
-// as PDF/A.
+// XMP metadata stream.
 func (d *Document) XMPMetadata() ([]byte, error) { return d.r.XMPMetadata() }
 
 // ClaimedConformance returns the PDF/A part and conformance level the
-// document's XMP metadata claims (e.g. "1", "B"), read from the pdfaid
+// document's XMP metadata claims, read from the pdfaid
 // namespace. This reflects what the file claims, not whether it actually
 // validates — use Verify or IsPDFA to check actual compliance.
 func (d *Document) ClaimedConformance() (part, conformance string, err error) {
