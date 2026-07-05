@@ -43,3 +43,23 @@ func TestProfileClearAddCheckHas(t *testing.T) {
 		t.Error("AddCheck() must not mutate the receiver")
 	}
 }
+
+// TestProfileChecksNonEmpty covers Checks()'s enabled-check append branch.
+func TestProfileChecksNonEmpty(t *testing.T) {
+	full := NewFullProfile(A_1B)
+	if len(full.Checks()) == 0 {
+		t.Error("expected a full profile's Checks() to be non-empty")
+	}
+}
+
+// TestProfileAllows covers both branches: a clause absent from the catalog
+// is always allowed, and a cataloged clause follows the profile's enabled state.
+func TestProfileAllows(t *testing.T) {
+	full := NewFullProfile(A_1B)
+	if !full.Allows("not.a.real.clause", 0) {
+		t.Error("Allows() for an unknown clause should default to true")
+	}
+	if !full.Allows("6.1.7", 3) {
+		t.Error("Allows() should be true for an enabled cataloged clause")
+	}
+}

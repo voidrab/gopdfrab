@@ -17,7 +17,9 @@ func TestClauseLess(t *testing.T) {
 		{"6.2.10", "6.2.9", false},
 		{"6.1", "6.1.2", true},
 		{"6.1.2", "6.1.2", false},
-		{"a.1", "b.1", true}, // non-numeric segment falls back to string compare
+		{"a.1", "b.1", true},  // non-numeric segment falls back to string compare
+		{"a.1", "a.2", true},  // equal non-numeric segment: continue to next segment
+		{"a.2", "a.1", false}, // equal non-numeric segment: continue to next segment
 	}
 	for _, tc := range tests {
 		if got := ClauseLess(tc.a, tc.b); got != tc.want {
@@ -78,5 +80,21 @@ func TestResultAccessors(t *testing.T) {
 	valid := Result{Type: A_1B, Valid: true}
 	if got := valid.Summary(); !strings.Contains(got, "valid (no issues)") {
 		t.Errorf("Summary() for valid result = %q", got)
+	}
+}
+
+// TestResultChecksSameClauseSubclauseOrder covers Checks()'s subclause-level
+// tiebreaker: two checks sharing a clause sort by Subclause().
+func TestResultChecksSameClauseSubclauseOrder(t *testing.T) {
+	c1 := Checks.Structure.StreamFileFilter // 6.1.7, subclause 2
+	c2 := Checks.Structure.StreamFileSpec   // 6.1.7, subclause 1
+
+	r := Result{Issues: []PDFError{
+		NewError(c1, []error{}, 0, nil),
+		NewError(c2, []error{}, 0, nil),
+	}}
+	checks := r.Checks()
+	if len(checks) != 2 || checks[0] != c2 || checks[1] != c1 {
+		t.Errorf("Checks() = %v, want [c2 (subclause 1), c1 (subclause 2)]", checks)
 	}
 }

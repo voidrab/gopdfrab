@@ -81,6 +81,7 @@ func TestEqualPDFValue(t *testing.T) {
 		},
 		{PDFInteger(1), PDFName{Value: "N"}}, // type mismatch
 		{PDFInteger(1), nil},                 // one nil
+		{1, 1},                               // default branch: not a recognized PDFValue variant
 	}
 	for i, c := range unequal {
 		if EqualPDFValue(c.a, c.b) {
