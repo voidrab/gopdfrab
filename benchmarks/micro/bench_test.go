@@ -17,7 +17,7 @@ import (
 	"runtime"
 	"testing"
 
-	pdfrab "github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab"
 )
 
 // repoRoot locates the module root relative to this source file, so the
@@ -67,11 +67,11 @@ func BenchmarkOpenVerify(b *testing.B) {
 		path := filepath.Join(root, rel)
 		b.Run(name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				doc, err := pdfrab.Open(path)
+				doc, err := gopdfrab.Open(path)
 				if err != nil {
 					b.Fatalf("Open(%s): %v", path, err)
 				}
-				if _, err := doc.Verify(pdfrab.PDFA_1B); err != nil {
+				if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
 					doc.Close()
 					b.Fatalf("Verify(%s): %v", path, err)
 				}
@@ -96,7 +96,7 @@ func BenchmarkConvert(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B); err != nil {
+				if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
 					b.Fatalf("ConvertBytes(%s): %v", name, err)
 				}
 			}
@@ -147,12 +147,12 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(3, func() {
-		doc, err := pdfrab.Open(path)
+		doc, err := gopdfrab.Open(path)
 		if err != nil {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 		defer doc.Close()
-		if _, err := doc.Verify(pdfrab.PDFA_1B); err != nil {
+		if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
 			t.Fatalf("Verify(%s): %v", path, err)
 		}
 	})
@@ -195,7 +195,7 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(3, func() {
-		if _, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B); err != nil {
+		if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
 			t.Fatalf("ConvertBytes(large): %v", err)
 		}
 	})
@@ -221,13 +221,13 @@ func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			cr, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B)
+			cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
 			if err != nil {
 				t.Fatalf("ConvertBytes: %v", err)
 			}
 
 			// Independent fresh verify of the same output bytes.
-			fresh, err := pdfrab.VerifyBytes(cr.Output, pdfrab.PDFA_1B)
+			fresh, err := gopdfrab.VerifyBytes(cr.Output, gopdfrab.PDFA_1B)
 			if err != nil {
 				t.Fatalf("VerifyBytes: %v", err)
 			}
@@ -246,7 +246,7 @@ func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
 }
 
 // issueClauses extracts sorted clause strings from a result's issues.
-func issueClauses(issues []pdfrab.PDFError) []string {
+func issueClauses(issues []gopdfrab.PDFError) []string {
 	out := make([]string, len(issues))
 	for i, iss := range issues {
 		out[i] = fmt.Sprintf("%s/%d", iss.Check().Clause(), iss.Check().Subclause())

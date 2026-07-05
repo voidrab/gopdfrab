@@ -1,5 +1,3 @@
-<img width="1586" height="634" alt="gopdfrab-gopher" src="https://github.com/user-attachments/assets/837c019b-8c52-4d0f-bfab-9181911cff68" />
-
 # gopdfrab
 
 [![codecov](https://codecov.io/gh/voidrab/gopdfrab/branch/main/graph/badge.svg)](https://codecov.io/gh/voidrab/gopdfrab)
@@ -73,24 +71,24 @@ PDF/A-1b conversion is fully implemented. See [Converting to PDF/A](#converting-
 
 A full example can be found under `main/main.go`
 
-### Add pdfrab
+### Add gopdfrab
 
 ```bash
 go get github.com/voidrab/gopdfrab
 ```
 
-### Import pdfrab
+### Import gopdfrab
 
 ```go
 import (
-  pdfrab "github.com/voidrab/gopdfrab"
+  "github.com/voidrab/gopdfrab"
 )
 ```
 
 ### Initialize a Document
 
 ```go
-doc, err := pdfrab.Open(path)
+doc, err := gopdfrab.Open(path)
 if err != nil {
   log.Fatal(err)
 }
@@ -99,7 +97,7 @@ if err != nil {
 ### PDF/A Validation
 
 ```go
-v, err := doc.Verify(pdfrab.PDFA_1B)
+v, err := doc.Verify(gopdfrab.PDFA_1B)
 if err != nil {
   log.Println(err)
 }
@@ -126,7 +124,7 @@ doc.Close()
 `Verify` opens, verifies, and closes a file.
 
 ```go
-result, err := pdfrab.Verify(path, pdfrab.PDFA_1B)
+result, err := gopdfrab.Verify(path, gopdfrab.PDFA_1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -138,7 +136,7 @@ fmt.Println(result.Valid)
 `VerifyBytes` is `Verify` for an in-memory PDF.
 
 ```go
-result, err := pdfrab.VerifyBytes(data, pdfrab.PDFA_1B)
+result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
 ```
 
 ### Verifying Multiple Files
@@ -146,7 +144,7 @@ result, err := pdfrab.VerifyBytes(data, pdfrab.PDFA_1B)
 `VerifyAll` opens, verifies, and closes a batch of files concurrently.
 
 ```go
-results, err := pdfrab.VerifyAll(paths, pdfrab.PDFA_1B)
+results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA_1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -195,7 +193,7 @@ xmp, err := doc.XMPMetadata()     // raw XMP packet bytes, decoded to UTF-8
 `Convert` produces a PDF/A conformant rewrite. It runs pre-emptive fixups, then a verify/fix loop, and rasterizes pages as a last resort when no in-place fixer can repair them.
 
 ```go
-cr, err := pdfrab.Convert(path, pdfrab.PDFA_1B)
+cr, err := gopdfrab.Convert(path, gopdfrab.PDFA_1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -211,7 +209,7 @@ fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
 ### Converting an Open Document
 
 ```go
-cr, err := doc.Convert(pdfrab.PDFA_1B)
+cr, err := doc.Convert(gopdfrab.PDFA_1B)
 ```
 
 ### Converting In-Memory Data
@@ -219,7 +217,7 @@ cr, err := doc.Convert(pdfrab.PDFA_1B)
 `ConvertBytes` is `Convert` for an in-memory PDF.
 
 ```go
-cr, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B)
+cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
 ```
 
 ### Converting Multiple Files
@@ -227,7 +225,7 @@ cr, err := pdfrab.ConvertBytes(data, pdfrab.PDFA_1B)
 `ConvertAll` opens, converts, and closes a batch of files concurrently.
 
 ```go
-results, err := pdfrab.ConvertAll(paths, pdfrab.PDFA_1B)
+results, err := gopdfrab.ConvertAll(paths, gopdfrab.PDFA_1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -260,9 +258,9 @@ Verification can be narrowed to a specific set of rules using `Verify`.
 ### Start from the full profile and remove checks
 
 ```go
-p := pdfrab.PDFA_1B.
-    RemoveCheck(pdfrab.Checks.Structure.FileHeaderSignature).
-    RemoveCheck(pdfrab.Checks.Font.SimpleNotEmbedded)
+p := gopdfrab.PDFA_1B.
+    RemoveCheck(gopdfrab.Checks.Structure.FileHeaderSignature).
+    RemoveCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
 
 res, err := doc.Verify(p)
 ```
@@ -270,10 +268,10 @@ res, err := doc.Verify(p)
 ### Start from an empty profile and add checks
 
 ```go
-p := pdfrab.PDFA_1B.Clear().
+p := gopdfrab.PDFA_1B.Clear().
     AddCheck(
-        pdfrab.Checks.Transparency.ImageWithSoftMask,
-        pdfrab.Checks.Metadata.PDFAIdentifierMissing,
+        gopdfrab.Checks.Transparency.ImageWithSoftMask,
+        gopdfrab.Checks.Metadata.PDFAIdentifierMissing,
     )
 
 res, err := doc.Verify(p)
@@ -293,7 +291,7 @@ res, err := doc.Verify(p)
 | `Checks.Metadata` | 6.7.x XMP metadata, extension schemas, PDF/A identifier |
 | `Checks.Form` | 6.9 interactive forms |
 
-Use `pdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `pdfrab.CheckByClause("6.3.4", 1)` and `pdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
+Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `gopdfrab.CheckByClause("6.3.4", 1)` and `gopdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
 
 ## Performance
 
