@@ -1,0 +1,13 @@
+Key	Type	SinceVersion	DeprecatedIn	Required	IndirectReference	Inheritable	DefaultValue	PossibleValues	SpecialCase	Link	Note
+HideToolbar	boolean	1.2		FALSE	FALSE	FALSE	false				Table 147
+HideMenubar	boolean	1.2		FALSE	FALSE	FALSE	false				
+HideWindowUI	boolean	1.2		FALSE	FALSE	FALSE	false				
+FitWindow	boolean	1.2		FALSE	FALSE	FALSE	false				
+CenterWindow	boolean	1.2		FALSE	FALSE	FALSE	false				
+DisplayDocTitle	boolean	1.4		FALSE	FALSE	FALSE	false				
+NonFullScreenPageMode	name	1.2		FALSE	FALSE	FALSE	UseNone	[UseNone,UseOutlines,UseThumbs,UseOC]	[fn:IsMeaningful(trailer::Catalog::@PageMode==FullScreen)]		https://github.com/pdf-association/pdf-issues/issues/275
+Direction	name	1.3		FALSE	FALSE	FALSE	L2R	[L2R,R2L]			
+ViewArea	name	1.4	2.0	FALSE	FALSE	FALSE	CropBox	[MediaBox,CropBox,BleedBox,TrimBox,ArtBox]			
+ViewClip	name	1.4	2.0	FALSE	FALSE	FALSE	CropBox	[MediaBox,CropBox,BleedBox,TrimBox,ArtBox]			
+PrintArea	name	1.4	2.0	FALSE	FALSE	FALSE	CropBox	[MediaBox,CropBox,BleedBox,TrimBox,ArtBox]			
+PrintClip	name	1.4	2.0	FALSE	FALSE	FALSE	CropBox	[MediaBox,CropBox,BleedBox,TrimBox,ArtBox]			
