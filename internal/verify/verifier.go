@@ -532,10 +532,13 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 	// owner is the nearest enclosing dict, threaded through arrays, so
 	// scalar-limit violations are reported against an object fixers can
-	// resolve by ref instead of the bare scalar.
-	var walk func(node any, owner pdf.PDFValue)
+	// resolve by ref instead of the bare scalar. expectedType is the
+	// Arlington type name this node should conform to (per the parent key's
+	// Link), or "" once the descent has lost track of it; see
+	// arlingtonChildType/arlingtonElementType.
+	var walk func(node any, owner pdf.PDFValue, expectedType string)
 
-	walk = func(node any, owner pdf.PDFValue) {
+	walk = func(node any, owner pdf.PDFValue, expectedType string) {
 		if node == nil {
 			return
 		}
@@ -571,6 +574,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			ValidateFontDict(v, ctx)
 			validateCMapStream(v, ctx)
 			validateViewerPreferences(v, ctx)
+			if expectedType != "" {
+				validateAgainstSchema(v, expectedType, ctx)
+			}
 
 			for k, val := range v.Entries {
 				// 6.1.12: a dictionary key shall not exceed 127 bytes after
@@ -585,8 +591,12 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 						)
 					}
 				}
+				var childType string
+				if expectedType != "" && k != "_ref" {
+					childType = arlingtonChildType(expectedType, k)
+				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
-				walk(val, node)
+				walk(val, node, childType)
 			}
 
 		case pdf.PDFArray:
@@ -607,8 +617,12 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				)
 			}
 
+			var elemType string
+			if expectedType != "" {
+				elemType = arlingtonElementType(expectedType)
+			}
 			for _, item := range v {
-				walk(item, owner)
+				walk(item, owner, elemType)
 			}
 
 		case pdf.PDFHexString:
@@ -620,7 +634,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		validateArchitecturalLimits(node, owner, ctx)
 	}
 
-	walk(graph, nil)
+	walk(graph, nil, "FileTrailer")
 }
 
 // ComputeContentUsage walks the resolved graph once, decoding each page's

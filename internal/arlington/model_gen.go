@@ -6167,6 +6167,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				PossibleValues:    []string{"Btn"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6205,6 +6206,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "AA",
@@ -6219,6 +6221,7 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6233,18 +6236,21 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				Link:              []string{"ArrayOfStringsText"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "V",
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "DV",
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 		},
 	},
@@ -6258,6 +6264,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				PossibleValues:    []string{"Btn"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6296,6 +6303,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "AA",
@@ -6310,6 +6318,7 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6323,12 +6332,14 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "DV",
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 		},
 	},
@@ -6342,6 +6353,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				PossibleValues:    []string{"Btn"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6380,6 +6392,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "AA",
@@ -6394,6 +6407,7 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6408,18 +6422,21 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				Link:              []string{"ArrayOfStringsText"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "V",
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "DV",
 				Types:             []ValueType{Name},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 		},
 	},
@@ -6433,6 +6450,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				PossibleValues:    []string{"Ch"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6471,6 +6489,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "V",
@@ -6478,6 +6497,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				Link:              []string{"ArrayOfStringsText"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "DV",
@@ -6485,6 +6505,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				Link:              []string{"ArrayOfStringsText"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "AA",
@@ -6499,6 +6520,7 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6513,12 +6535,14 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				Link:              []string{"ArrayOfFieldChoiceOpt"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "TI",
 				Types:             []ValueType{Integer},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 				Predicated:        true,
 			},
 			{
@@ -6527,6 +6551,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				Link:              []string{"ArrayOfNonNegativeIntegersGeneral"},
+				Inheritable:       true,
 			},
 		},
 	},
@@ -6540,6 +6565,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.3",
 				PossibleValues:    []string{"Sig"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6578,6 +6604,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.3",
+				Inheritable:       true,
 			},
 			{
 				Name:              "V",
@@ -6585,6 +6612,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.3",
 				Link:              []string{"Signature"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "DV",
@@ -6592,6 +6620,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.3",
 				Link:              []string{"Signature"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "AA",
@@ -6605,6 +6634,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{StringByte},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.3",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6625,6 +6655,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
 				PossibleValues:    []string{"Tx"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "Parent",
@@ -6663,18 +6694,21 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Bitmask},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "V",
 				Types:             []ValueType{StringText},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:         "DV",
 				Types:        []ValueType{Stream, StringText},
 				SinceVersion: "1.2",
 				Link:         []string{"Stream"},
+				Inheritable:  true,
 			},
 			{
 				Name:              "AA",
@@ -6689,6 +6723,7 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Q",
@@ -6702,6 +6737,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Integer},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.2",
+				Inheritable:       true,
 			},
 		},
 	},
@@ -10881,6 +10917,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
 				Link:              []string{"Resource"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "MediaBox",
@@ -10888,12 +10925,14 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 			},
 			{
 				Name:              "CropBox",
 				Types:             []ValueType{Rectangle},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 			},
 			{
 				Name:              "BleedBox",
@@ -10931,6 +10970,7 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Integer},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 				Predicated:        true,
 			},
 			{
@@ -11027,6 +11067,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.1",
 				DeprecatedIn:      "1.3",
+				Inheritable:       true,
 			},
 		},
 	},
@@ -11081,24 +11122,28 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
 				Link:              []string{"Resource"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "MediaBox",
 				Types:             []ValueType{Rectangle},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 			},
 			{
 				Name:              "CropBox",
 				Types:             []ValueType{Rectangle},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 			},
 			{
 				Name:              "Rotate",
 				Types:             []ValueType{Integer},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.0",
+				Inheritable:       true,
 				Predicated:        true,
 			},
 		},
@@ -12824,6 +12869,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"LrTb", "RlTb", "TbRl"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "SpaceBefore",
@@ -12842,18 +12888,21 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Number},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
+				Inheritable:       true,
 			},
 			{
 				Name:              "EndIndent",
 				Types:             []ValueType{Number},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
+				Inheritable:       true,
 			},
 			{
 				Name:              "TextIndent",
 				Types:             []ValueType{Number},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
+				Inheritable:       true,
 			},
 			{
 				Name:              "TextAlign",
@@ -12861,6 +12910,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"Start", "Center", "End", "Justify"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "BBox",
@@ -12886,6 +12936,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"Before", "Middle", "After", "Justify"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "InlineAlign",
@@ -12893,12 +12944,14 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"Start", "Center", "End"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "BaselineShift",
 				Types:             []ValueType{Number},
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
+				Inheritable:       true,
 			},
 			{
 				Name:              "LineHeight",
@@ -12906,6 +12959,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"Normal", "Auto"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "TextDecorationType",
@@ -12913,6 +12967,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"None", "Underline", "Overline", "LineThrough"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "ListNumbering",
@@ -12920,6 +12975,7 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectForbidden,
 				SinceVersion:      "1.4",
 				PossibleValues:    []string{"None", "Disc", "Circle", "Square", "Ordered", "Decimal", "UpperRoman", "LowerRoman", "UpperAlpha", "LowerAlpha"},
+				Inheritable:       true,
 			},
 			{
 				Name:              "RowSpan",

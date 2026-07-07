@@ -262,6 +262,15 @@ type formChecks struct {
 	WidgetMissingAppearance Check
 }
 
+// objectModelChecks are generic ISO 32000 object-model checks, driven by the
+// Arlington PDF Model table (internal/arlington) rather than by hand-written
+// per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
+// PDF/A-specific restrictions the other check groups enforce.
+type objectModelChecks struct {
+	MissingRequiredKey Check
+	WrongValueType     Check
+}
+
 type checksRegistry struct {
 	Structure        structureChecks
 	Colour           colourChecks
@@ -273,6 +282,7 @@ type checksRegistry struct {
 	Action           actionChecks
 	Metadata         metadataChecks
 	Form             formChecks
+	ObjectModel      objectModelChecks
 }
 
 var Checks checksRegistry
@@ -978,6 +988,17 @@ func init() {
 				"WidgetMissingAppearance",
 				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
 				"6.9", 5),
+		},
+
+		ObjectModel: objectModelChecks{
+			MissingRequiredKey: newCheck(
+				"MissingRequiredKey",
+				"A dictionary is missing a key the ISO 32000 object model requires for its type",
+				"objmodel", 1),
+			WrongValueType: newCheck(
+				"WrongValueType",
+				"A key's value is not one of the ISO 32000 object model's allowed types for it",
+				"objmodel", 2),
 		},
 	}
 }

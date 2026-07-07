@@ -1,10 +1,9 @@
 //go:build ignore
 
 // Command gen reads the vendored Arlington PDF Model TSVs under testdata/tsv/1.4 and emits
-// model_gen.go: one Go map literal (Types) with one ObjectType entry per TSV file.
+// one Go map literal with one ObjectType entry per TSV file.
 //
-// Arlington PDF Model is copyright PDF Association, Inc., licensed Apache-2.0; see
-// testdata/LICENSE. Invoke via `go generate ./internal/arlington/...`.
+// Invoke via `go generate ./internal/arlington/...`.
 package main
 
 import (
@@ -63,6 +62,7 @@ type keyDef struct {
 	possibleValues    []string
 	link              []string
 	predicated        bool
+	inheritable       bool
 }
 
 func main() {
@@ -164,6 +164,9 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 	}
 	writeStringSlice(b, "PossibleValues", kd.possibleValues)
 	writeStringSlice(b, "Link", kd.link)
+	if kd.inheritable {
+		b.WriteString("Inheritable: true,\n")
+	}
 	if kd.predicated {
 		b.WriteString("Predicated: true,\n")
 	}
@@ -243,6 +246,8 @@ func buildKeyDef(r row) keyDef {
 	if strings.Contains(r.indirectRef, "fn:") {
 		kd.predicated = true
 	}
+
+	kd.inheritable = r.inheritable == "TRUE"
 
 	if strings.Contains(r.possibleValues, "fn:") {
 		kd.predicated = true

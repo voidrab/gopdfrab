@@ -4,7 +4,7 @@
 //
 // Arlington describes what ISO 32000 permits for every dictionary/array/stream type in the
 // spec; it does not encode PDF/A's narrower restrictions, and this package has no opinion on
-// those — it is a lookup table only. See arlington.md at the repo root for the intended use.
+// those — it is a lookup table only.
 package arlington
 
 //go:generate go run gen.go
@@ -12,8 +12,7 @@ package arlington
 // ValueType is one of the plain PDF value types Arlington's Type column enumerates.
 type ValueType int
 
-// The set of value types Arlington's TSV Type column uses, in the order they were first
-// observed in the vendored corpus. Keep in sync with valueTypeIdent in gen.go.
+// The set of value types Arlington's TSV Type column uses.
 const (
 	Array ValueType = iota
 	Bitmask
@@ -35,7 +34,7 @@ const (
 	StringText
 )
 
-// String returns the Arlington TSV token for t (e.g. "string-text"), or "unknown" if t is not
+// String returns the Arlington TSV token for t, or "unknown" if t is not
 // one of the declared constants.
 func (t ValueType) String() string {
 	switch t {
@@ -105,6 +104,9 @@ type KeyDef struct {
 	DeprecatedIn      string   // empty if never deprecated
 	PossibleValues    []string // enumerated legal values, when constrained; predicate-only entries are dropped
 	Link              []string // Arlington type name(s) the value should itself conform to
+	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
+	// instead, so its absence here is not itself a violation.
+	Inheritable bool
 	// Predicated marks a row whose Required, IndirectReference, or PossibleValues carried an
 	// fn: predicate this generator does not evaluate. Consumers should skip predicated rows
 	// rather than flag them, erring toward false negatives over false positives.

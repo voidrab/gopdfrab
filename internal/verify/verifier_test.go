@@ -418,6 +418,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "XXXX"}
@@ -451,6 +452,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "AAA"}
@@ -486,6 +488,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.HasStream = true
 
@@ -520,6 +523,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.HasStream = true
 
@@ -554,6 +558,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.HasStream = true
 
@@ -590,6 +595,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.HasStream = true
 
@@ -626,6 +632,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["EF"] = pdf.PDFHexString{Value: "aaaa"}
@@ -659,6 +666,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["EmbeddedFiles"] = pdf.PDFHexString{Value: "aaaa"}
@@ -694,6 +702,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
@@ -727,6 +736,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
