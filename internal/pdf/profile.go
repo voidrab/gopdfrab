@@ -50,12 +50,19 @@ func init() {
 	// disabled (veraPDF's own corpus intentionally includes one in a pass
 	// file); 6.3.4 simple-font embedding is only required for fonts actually
 	// shown in content (SkipUnusedSimpleFonts), not for fonts in AcroForm /DR.
+	// KeyIntroducedAfterPDF14 is disabled: real-world files carry post-1.4
+	// keys that are purely structural/informational (e.g. FileTrailer's
+	// hybrid-reference XRefStm, Catalog's Extensions) and are ignorable by a
+	// PDF 1.4 reader, but Arlington has no data distinguishing those from
+	// keys that actually change required interpretation -- veraPDF does not
+	// flag them, so this stays Legacy_1B-only (spec-literal) for now.
 	PDFA_1B = NewFullProfile(A_1B)
 	PDFA_1B.SkipUnreachableXObjects = true
 	PDFA_1B.SkipUnusedSimpleFonts = true
 	PDFA_1B = PDFA_1B.RemoveCheck(
 		Checks.Image.FormPostScript,
 		Checks.Image.PostScriptXObject,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
 }
 

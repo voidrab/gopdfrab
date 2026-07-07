@@ -267,8 +267,11 @@ type formChecks struct {
 // per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
 // PDF/A-specific restrictions the other check groups enforce.
 type objectModelChecks struct {
-	MissingRequiredKey Check
-	WrongValueType     Check
+	MissingRequiredKey      Check
+	WrongValueType          Check
+	DisallowedValue         Check
+	IndirectRequired        Check
+	KeyIntroducedAfterPDF14 Check
 }
 
 type checksRegistry struct {
@@ -999,6 +1002,18 @@ func init() {
 				"WrongValueType",
 				"A key's value is not one of the ISO 32000 object model's allowed types for it",
 				"objmodel", 2),
+			DisallowedValue: newCheck(
+				"DisallowedValue",
+				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it",
+				"objmodel", 3),
+			IndirectRequired: newCheck(
+				"IndirectRequired",
+				"A key whose value the ISO 32000 object model requires to be an indirect reference is a direct object",
+				"objmodel", 4),
+			KeyIntroducedAfterPDF14: newCheck(
+				"KeyIntroducedAfterPDF14",
+				"A dictionary contains a key the ISO 32000 object model introduced after PDF 1.4",
+				"objmodel", 5),
 		},
 	}
 }

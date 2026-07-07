@@ -2,17 +2,21 @@ package verify
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 // validateAgainstSchema checks v's keys against the Arlington object-model schema for typeName:
-// a required, non-inheritable key must be present (MissingRequiredKey), and a present key's
-// value must be one of its schema-allowed types (WrongValueType). Predicated schema rows --
-// those with an fn: condition the Arlington generator does not evaluate -- are never enforced,
-// erring toward false negatives over false positives. Extra keys not in the schema are not
-// flagged here; that is KeyIntroducedAfterPDF14's job, not yet implemented.
+// a required, non-inheritable key must be present (MissingRequiredKey); a present key's value
+// must be one of its schema-allowed types (WrongValueType); a present key with an enumerated
+// PossibleValues list must use one of them (DisallowedValue); a key requiring an indirect
+// reference must not be inlined (IndirectRequired); and a key the model says was introduced
+// after PDF 1.4 must not appear on a non-wildcard type (KeyIntroducedAfterPDF14). Predicated
+// schema rows -- those with an fn: condition the Arlington generator does not evaluate -- are
+// never enforced, erring toward false negatives over false positives. Keys absent from both the
+// 1.4 and post-1.4 schema (custom/private keys) are never flagged.
 func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContext) {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
@@ -45,8 +49,79 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 				v,
 				fmt.Sprintf("%s key %q has an unexpected value type", typeName, kd.Name),
 			)
+			continue
+		}
+
+		if present && !kd.Predicated && len(kd.PossibleValues) > 0 {
+			if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
+				ctx.Report(
+					pdf.Checks.ObjectModel.DisallowedValue,
+					v,
+					fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, kd.Name),
+				)
+			}
+		}
+
+		if present && !kd.Predicated && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+			ctx.Report(
+				pdf.Checks.ObjectModel.IndirectRequired,
+				v,
+				fmt.Sprintf("%s key %q must be an indirect reference", typeName, kd.Name),
+			)
 		}
 	}
+
+	// A wildcard type allows arbitrary keys, so there is nothing "introduced after PDF 1.4"
+	// to flag there; a custom/private key on a non-wildcard type is likewise never in
+	// Post14Keys, so it is never flagged either.
+	if ot.Wildcard == nil {
+		for k := range v.Entries {
+			if k != "_ref" && stringInList(k, ot.Post14Keys) {
+				ctx.Report(
+					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
+					v,
+					fmt.Sprintf("%s key %q was introduced after PDF 1.4", typeName, k),
+				)
+			}
+		}
+	}
+}
+
+// isIndirect reports whether val was reached through an indirect reference. Only dicts and
+// streams carry the resolver's "_ref" marker (internal/pdf/resolver.go); arrays required to be
+// indirect (3 rows in the model) have no such marker and are always treated as satisfied,
+// erring toward false negatives.
+func isIndirect(val pdf.PDFValue) bool {
+	d, ok := val.(pdf.PDFDict)
+	if !ok {
+		return true
+	}
+	_, ok = d.Entries["_ref"]
+	return ok
+}
+
+// scalarEnumString returns val's string form for PossibleValues membership testing, for the
+// name and integer types only: string/real matching against Arlington's enum column is
+// format-fragile (quoting, precision) and covers very few keys, so it is left unenforced.
+func scalarEnumString(val pdf.PDFValue) (string, bool) {
+	switch v := val.(type) {
+	case pdf.PDFName:
+		return v.Value, true
+	case pdf.PDFInteger:
+		return strconv.Itoa(int(v)), true
+	default:
+		return "", false
+	}
+}
+
+// stringInList reports whether s appears in list.
+func stringInList(s string, list []string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }
 
 // matchesValueType reports whether val's PDF type is one of allowed. An empty allowed list

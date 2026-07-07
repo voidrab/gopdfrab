@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	tsvDir  = "testdata/tsv/1.4"
-	outFile = "model_gen.go"
+	tsvDir    = "testdata/tsv/1.4"
+	latestDir = "testdata/tsv/latest"
+	outFile   = "model_gen.go"
 )
 
 // valueTypeIdent maps an Arlington TSV Type token to the matching Go identifier declared in
@@ -80,6 +81,11 @@ func main() {
 	b.WriteString("package arlington\n\n")
 	b.WriteString("var Types = map[string]ObjectType{\n")
 
+	post14Keys, err := computePost14Keys()
+	if err != nil {
+		log.Fatalf("computing post-1.4 keys: %v", err)
+	}
+
 	totalRows, simpleRows := 0, 0
 	for _, path := range files {
 		typeName := strings.TrimSuffix(filepath.Base(path), ".tsv")
@@ -112,6 +118,7 @@ func main() {
 			writeKeyDefFields(&b, *wildcard)
 			b.WriteString("},\n")
 		}
+		writeStringSlice(&b, "Post14Keys", post14Keys[typeName])
 		b.WriteString("},\n")
 	}
 	b.WriteString("}\n")
@@ -184,6 +191,81 @@ func writeStringSlice(b *strings.Builder, field string, values []string) {
 		fmt.Fprintf(b, "%q", v)
 	}
 	b.WriteString("},\n")
+}
+
+// computePost14Keys returns, per type name (TSV basename), the keys present in testdata/tsv/latest
+// but absent from testdata/tsv/1.4 -- i.e. keys the Arlington PDF Model says were introduced
+// after PDF 1.4. A type absent from tsv/latest (renamed across versions) is simply omitted,
+// which yields an empty, safe (false-negative) Post14Keys for it.
+func computePost14Keys() (map[string][]string, error) {
+	keys14, err := keySetsByType(tsvDir)
+	if err != nil {
+		return nil, err
+	}
+	keysLatest, err := keySetsByType(latestDir)
+	if err != nil {
+		return nil, err
+	}
+
+	post14 := make(map[string][]string, len(keysLatest))
+	for typeName, latestKeys := range keysLatest {
+		old := keys14[typeName]
+		var added []string
+		for k := range latestKeys {
+			if k == "*" || old[k] {
+				continue
+			}
+			added = append(added, k)
+		}
+		if len(added) > 0 {
+			sort.Strings(added)
+			post14[typeName] = added
+		}
+	}
+	return post14, nil
+}
+
+// keySetsByType reads every TSV under dir and returns, per type name, the set of Key column
+// values (order not preserved; only membership matters). Unlike parseTSV, this only reads the
+// first column and tolerates rows with fewer than 12 columns -- tsv/latest, being upstream's
+// unfiltered live set, has a handful of vendor-extension rows short a trailing empty column.
+func keySetsByType(dir string) (map[string]map[string]bool, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.tsv"))
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]map[string]bool, len(files))
+	for _, path := range files {
+		typeName := strings.TrimSuffix(filepath.Base(path), ".tsv")
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		set := map[string]bool{}
+		first := true
+		for sc.Scan() {
+			if first {
+				first = false // header row
+				continue
+			}
+			line := sc.Text()
+			if line == "" {
+				continue
+			}
+			if i := strings.IndexByte(line, '\t'); i >= 0 {
+				set[line[:i]] = true
+			}
+		}
+		err = sc.Err()
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		out[typeName] = set
+	}
+	return out, nil
 }
 
 func parseTSV(path string) ([]row, error) {
@@ -261,8 +343,11 @@ func buildKeyDef(r row) keyDef {
 // parseIndirectReference resolves the IndirectReference column to a single IndirectRule.
 // The column is a flat scalar (TRUE/FALSE/fn:...) for single-type keys, or bracket-grouped
 // per type alternative ("[FALSE];[TRUE]") for multi-type keys; an fn: predicate is always
-// flat regardless of type count. Mixed groups (some TRUE, some FALSE) resolve to Either,
-// since the requirement depends on which type alternative applies.
+// flat regardless of type count. FALSE means the value need not be indirect (both direct and
+// indirect are legal), not that it must be direct -- that is a separate, always-predicated
+// fn:MustBeDirect() column value. So only an all-TRUE column resolves to IndirectRequired;
+// every other case (including all-FALSE, and mixed TRUE/FALSE across type alternatives) is
+// unconstrained.
 func parseIndirectReference(raw string) string {
 	if strings.Contains(raw, "fn:") {
 		return "IndirectEither"
@@ -271,25 +356,17 @@ func parseIndirectReference(raw string) string {
 	if len(groups) == 0 {
 		return "IndirectEither"
 	}
-	allTrue, allFalse := true, true
+	allTrue := true
 	for _, g := range groups {
-		switch g {
-		case "TRUE":
-			allFalse = false
-		case "FALSE":
+		if g != "TRUE" {
 			allTrue = false
-		default:
-			allTrue, allFalse = false, false
+			break
 		}
 	}
-	switch {
-	case allTrue:
+	if allTrue {
 		return "IndirectRequired"
-	case allFalse:
-		return "IndirectForbidden"
-	default:
-		return "IndirectEither"
 	}
+	return "IndirectEither"
 }
 
 // splitGroups splits a possibly bracket-grouped, ";"-joined column ("[a];[b]") into its
@@ -323,6 +400,7 @@ func parsePossibleValues(raw string) []string {
 			if item == "" || strings.HasPrefix(item, "fn:") {
 				continue
 			}
+			item = strings.Trim(item, "'")
 			out = append(out, item)
 		}
 	}

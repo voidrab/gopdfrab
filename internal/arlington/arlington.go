@@ -118,6 +118,10 @@ type ObjectType struct {
 	Name     string
 	Keys     []KeyDef // named keys and fixed array indices, in TSV row order
 	Wildcard *KeyDef  // the "*" row, if this type has one; nil otherwise
+	// Post14Keys lists keys this type gained after PDF 1.4, computed by diffing the vendored
+	// tsv/latest set against tsv/1.4. Empty if the type itself did not exist in tsv/latest
+	// (e.g. renamed across versions), which is a safe (false-negative) default.
+	Post14Keys []string
 }
 
 // Type looks up a vendored PDF 1.4 Arlington type by name (e.g. "Catalog", "ExtGState").

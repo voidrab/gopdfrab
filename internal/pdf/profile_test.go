@@ -63,3 +63,17 @@ func TestProfileAllows(t *testing.T) {
 		t.Error("Allows() should be true for an enabled cataloged clause")
 	}
 }
+
+// TestPDFA1BDisablesKeyIntroducedAfterPDF14 documents the veraPDF divergence:
+// PDFA_1B drops this check (structural/informational post-1.4 keys like
+// FileTrailer.XRefStm are ignorable by a 1.4 reader and veraPDF does not flag
+// them), while Legacy_1B keeps the full, spec-literal catalog.
+func TestPDFA1BDisablesKeyIntroducedAfterPDF14(t *testing.T) {
+	c := Checks.ObjectModel.KeyIntroducedAfterPDF14
+	if PDFA_1B.Has(c) {
+		t.Error("PDFA_1B should not enforce KeyIntroducedAfterPDF14")
+	}
+	if !Legacy_1B.Has(c) {
+		t.Error("Legacy_1B should enforce KeyIntroducedAfterPDF14")
+	}
+}

@@ -51,10 +51,12 @@ func minimalConformantRoot(trailer pdf.PDFDict) {
 	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
 	pages.Entries["Kids"] = pdf.PDFArray{}
 	pages.Entries["Count"] = pdf.PDFInteger(0)
+	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
 	catalog.Entries["Pages"] = pages
+	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
 
 	trailer.Entries["Root"] = catalog
 	if trailer.Entries["Size"] == nil {

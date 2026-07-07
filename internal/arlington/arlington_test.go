@@ -101,6 +101,29 @@ func TestGraphicsStateParameter(t *testing.T) {
 	}
 }
 
+// TestPost14Keys checks the tsv/latest-vs-tsv/1.4 diff against ViewerPreferences, whose
+// post-1.4 keys are independently documented by the hand-written Post14ViewerPrefKeys
+// (internal/verify/checks_dict.go) that this data-driven check generalizes.
+func TestPost14Keys(t *testing.T) {
+	vp, ok := Type("ViewerPreferences")
+	if !ok {
+		t.Fatal("ViewerPreferences type not found")
+	}
+	want := []string{"PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"}
+	for _, k := range want {
+		found := false
+		for _, p := range vp.Post14Keys {
+			if p == k {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("ViewerPreferences.Post14Keys = %v, want to contain %q", vp.Post14Keys, k)
+		}
+	}
+}
+
 func TestArrayOfOutputIntentsWildcard(t *testing.T) {
 	a, ok := Type("ArrayOfOutputIntents")
 	if !ok {

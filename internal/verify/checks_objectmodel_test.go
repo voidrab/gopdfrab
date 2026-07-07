@@ -76,6 +76,7 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
 	pages := pdf.NewPDFDict()
 	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
 	catalog.Entries["Pages"] = pages
 	catalog.Entries["ACustomVendorKey"] = pdf.PDFInteger(42)
 
@@ -97,6 +98,134 @@ func TestValidateAgainstSchema_LengthSkippedOnStream(t *testing.T) {
 	validateAgainstSchema(meta, "Metadata", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
 		t.Errorf("Length must never trigger MissingRequiredKey on a stream dict, got %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_DisallowedValue(t *testing.T) {
+	vp := pdf.NewPDFDict()
+	vp.Entries["NonFullScreenPageMode"] = pdf.PDFName{Value: "Bogus"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(vp, "ViewerPreferences", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for a NonFullScreenPageMode value outside its enum")
+	}
+}
+
+func TestValidateAgainstSchema_AllowedValueNotFlagged(t *testing.T) {
+	vp := pdf.NewPDFDict()
+	vp.Entries["NonFullScreenPageMode"] = pdf.PDFName{Value: "UseOutlines"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(vp, "ViewerPreferences", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a value within the enum must not be flagged, got %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_DisallowedValueSkipsNonScalar(t *testing.T) {
+	// PossibleValues enforcement only covers name/integer scalars; an array
+	// value must never be flagged even though it can't match a string enum.
+	vp := pdf.NewPDFDict()
+	vp.Entries["NonFullScreenPageMode"] = pdf.PDFArray{}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(vp, "ViewerPreferences", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a non-scalar value must not be checked against PossibleValues, got %v", ctx.errs)
+	}
+}
+
+func TestScalarEnumString(t *testing.T) {
+	cases := []struct {
+		name    string
+		val     pdf.PDFValue
+		wantStr string
+		wantOK  bool
+	}{
+		{"name", pdf.PDFName{Value: "Foo"}, "Foo", true},
+		{"integer", pdf.PDFInteger(3), "3", true},
+		{"real not enforced", pdf.PDFReal(1.5), "", false},
+		{"string not enforced", pdf.PDFString{Value: "x"}, "", false},
+		{"nil not enforced", nil, "", false},
+	}
+	for _, c := range cases {
+		s, ok := scalarEnumString(c.val)
+		if s != c.wantStr || ok != c.wantOK {
+			t.Errorf("%s: scalarEnumString(%#v) = (%q, %v), want (%q, %v)", c.name, c.val, s, ok, c.wantStr, c.wantOK)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_IndirectRequired(t *testing.T) {
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	pages := pdf.NewPDFDict() // no _ref: inlined directly rather than referenced
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	catalog.Entries["Pages"] = pages
+
+	ctx := &ValidationContext{}
+	validateAgainstSchema(catalog, "Catalog", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
+		t.Error("expected IndirectRequired for a Catalog.Pages inlined without _ref")
+	}
+}
+
+func TestValidateAgainstSchema_IndirectRequiredSatisfied(t *testing.T) {
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	catalog.Entries["Pages"] = pages
+
+	ctx := &ValidationContext{}
+	validateAgainstSchema(catalog, "Catalog", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
+		t.Errorf("a Pages value carrying _ref must not be flagged, got %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_KeyIntroducedAfterPDF14(t *testing.T) {
+	vp := pdf.NewPDFDict()
+	vp.Entries["PrintScaling"] = pdf.PDFName{Value: "AppDefault"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(vp, "ViewerPreferences", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
+		t.Error("expected KeyIntroducedAfterPDF14 for ViewerPreferences.PrintScaling (introduced in PDF 1.6)")
+	}
+}
+
+func TestValidateAgainstSchema_CustomKeyNotPost14(t *testing.T) {
+	vp := pdf.NewPDFDict()
+	vp.Entries["ACustomVendorKey"] = pdf.PDFInteger(1)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(vp, "ViewerPreferences", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
+		t.Errorf("a custom key absent from both the 1.4 and post-1.4 schema must not be flagged, got %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_WildcardTypeSkipsKeyIntroducedAfterPDF14(t *testing.T) {
+	// RoleMap has a "*" wildcard entry, so it accepts arbitrary keys; the
+	// post-1.4 check must not run against it at all.
+	rm := pdf.NewPDFDict()
+	rm.Entries["AnyRoleName"] = pdf.PDFName{Value: "Note"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(rm, "RoleMap", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
+		t.Errorf("a wildcard type must never trigger KeyIntroducedAfterPDF14, got %v", ctx.errs)
+	}
+}
+
+func TestIsIndirect(t *testing.T) {
+	ref := pdf.NewPDFDict()
+	ref.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	if !isIndirect(ref) {
+		t.Error("a dict carrying _ref must be indirect")
+	}
+	if isIndirect(pdf.NewPDFDict()) {
+		t.Error("a dict without _ref must not be indirect")
+	}
+	if !isIndirect(pdf.PDFArray{}) {
+		t.Error("a non-dict value must be treated as satisfied (no _ref marker exists for arrays)")
 	}
 }
 
