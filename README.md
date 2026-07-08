@@ -181,11 +181,13 @@ v.IssuesOnPage(1)                 // issues found on page 1 (0 = document-level)
 ### Document Helpers
 
 ```go
-ok, err := doc.IsPDFA()           // shorthand for Verify(A_1B).Valid
+ok, err := doc.IsPDFA()                      // shorthand for Verify(A_1B).Valid
+
+ok, err := doc.IsPDF()                       // shorthand for VerifyObjectModel().Valid
 
 part, level, err := doc.ClaimedConformance() // e.g. "1", "B" — what the file claims, not whether it's valid
 
-xmp, err := doc.XMPMetadata()     // raw XMP packet bytes, decoded to UTF-8
+xmp, err := doc.XMPMetadata()                // raw XMP packet bytes, decoded to UTF-8
 ```
 
 ### Converting to PDF/A

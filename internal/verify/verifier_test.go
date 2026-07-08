@@ -763,11 +763,10 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
 
-	info.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
-
-	trailer.Entries["Info"] = info
+	// Staged on an untyped custom trailer key: DocInfo's wildcard row types any
+	// custom Info key as string-text, which would add objmodel findings here.
+	trailer.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -797,12 +796,11 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
 
-	info.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
-	info.Entries["TooSmall"] = pdf.PDFInteger(-2_147_483_649)
-
-	trailer.Entries["Info"] = info
+	// Staged on untyped custom trailer keys: DocInfo's wildcard row types any
+	// custom Info key as string-text, which would add objmodel findings here.
+	trailer.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
+	trailer.Entries["TooSmall"] = pdf.PDFInteger(-2_147_483_649)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)

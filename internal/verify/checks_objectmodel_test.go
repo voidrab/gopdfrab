@@ -359,10 +359,10 @@ func TestResolveLinkGroups(t *testing.T) {
 	}
 	// Next's Array-typed group has a single candidate (ArrayOfActions); a Name value matches
 	// neither the Array nor the Dictionary group, so it must stay unresolved.
-	if got := resolveLinkGroups(nextKey.LinkGroups, pdf.PDFName{Value: "X"}); got != "" {
+	if got := resolveLinkGroups(nextKey.LinkGroups, nextKey.Types, pdf.PDFName{Value: "X"}); got != "" {
 		t.Errorf("resolveLinkGroups(Next, a name) = %q, want \"\" (no matching group)", got)
 	}
-	if got := resolveLinkGroups(nextKey.LinkGroups, pdf.PDFArray{}); got != "ArrayOfActions" {
+	if got := resolveLinkGroups(nextKey.LinkGroups, nextKey.Types, pdf.PDFArray{}); got != "ArrayOfActions" {
 		t.Errorf("resolveLinkGroups(Next, an array) = %q, want ArrayOfActions", got)
 	}
 }
@@ -405,7 +405,7 @@ func TestResolveLinkGroupsZeroCandidates(t *testing.T) {
 	groups := []arlington.LinkGroup{
 		{ValueTypes: []arlington.ValueType{arlington.Name}}, // no Candidates
 	}
-	if got := resolveLinkGroups(groups, pdf.PDFName{Value: "X"}); got != "" {
+	if got := resolveLinkGroups(groups, nil, pdf.PDFName{Value: "X"}); got != "" {
 		t.Errorf("resolveLinkGroups(zero-candidate group) = %q, want \"\"", got)
 	}
 }
@@ -607,5 +607,90 @@ func TestArraySchemaCheckedInWalk(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected IndirectRequired for the direct kid via the walk, got %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
+	// XObjectMap's wildcard requires every value to be an indirect stream.
+	m := pdf.NewPDFDict()
+	m.Entries["Im1"] = pdf.PDFName{Value: "NotAStream"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(m, "XObjectMap", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
+		t.Error("expected WrongValueType for a name in an XObject resource map")
+	}
+
+	direct := pdf.NewPDFDict()
+	direct.HasStream = true
+	m = pdf.NewPDFDict()
+	m.Entries["Im1"] = direct
+	ctx = &ValidationContext{}
+	validateAgainstSchema(m, "XObjectMap", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
+		t.Error("expected IndirectRequired for a direct stream in an XObject resource map")
+	}
+
+	indirect := pdf.NewPDFDict()
+	indirect.HasStream = true
+	indirect.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	m = pdf.NewPDFDict()
+	m.Entries["Im1"] = indirect
+	ctx = &ValidationContext{}
+	validateAgainstSchema(m, "XObjectMap", ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for a conformant XObject resource map: %v", ctx.errs)
+	}
+}
+
+func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
+	// DocInfo's wildcard types custom keys as string-text; named rows (Trapped
+	// is a name) must stay governed by their own row, not the wildcard.
+	info := pdf.NewPDFDict()
+	info.Entries["Trapped"] = pdf.PDFName{Value: "True"}
+	info.Entries["Custom"] = pdf.PDFInteger(7)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(info, "DocInfo", ctx)
+	count := 0
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.ObjectModel.WrongValueType {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one WrongValueType (Custom), got %d: %v", count, ctx.errs)
+	}
+}
+
+// TestChildTypeRequiresMatchingKind: a single-alternative Link (nil ValueTypes) must not
+// propagate its type to a value whose kind contradicts the key's declared types, e.g. a
+// stream where FileTrailer.Info declares a dictionary.
+func TestChildTypeRequiresMatchingKind(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	if got := arlingtonChildType("FileTrailer", "Info", stream); got != "" {
+		t.Errorf("arlingtonChildType(FileTrailer, Info, stream) = %q, want \"\"", got)
+	}
+	plain := pdf.NewPDFDict()
+	if got := arlingtonChildType("FileTrailer", "Info", plain); got != "DocInfo" {
+		t.Errorf("arlingtonChildType(FileTrailer, Info, dict) = %q, want DocInfo", got)
+	}
+}
+
+func TestValidateArrayAgainstSchema_NonArrayTypeNames(t *testing.T) {
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{}, "NoSuchType", pdf.NewPDFDict(), ctx)
+	// Catalog has only named (non-index) rows and no wildcard: nothing applies positionally.
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(1)}, "Catalog", pdf.NewPDFDict(), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("expected no findings for non-array type names, got %v", ctx.errs)
+	}
+}
+
+func TestValidateArrayAgainstSchema_WildcardEnum(t *testing.T) {
+	// ArrayOfFilterNames enumerates the legal stream filter names.
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for an unknown filter name")
 	}
 }

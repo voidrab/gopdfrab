@@ -71,6 +71,42 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 		}
 	}
 
+	// The wildcard row governs every key without an explicit row: its type, enumerated
+	// values, and indirect-reference constraints apply to each such entry (e.g. XObject
+	// resource-map values must be indirect streams). Same Length exemption as above.
+	if wc := ot.Wildcard; wc != nil && !wc.Predicated {
+		for _, k := range sortedKeys(v.Entries) {
+			if k == "_ref" || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
+				continue
+			}
+			val := v.Entries[k]
+			if len(wc.Types) > 0 && !matchesValueType(val, wc.Types) {
+				ctx.Report(
+					pdf.Checks.ObjectModel.WrongValueType,
+					v,
+					fmt.Sprintf("%s key %q has an unexpected value type", typeName, k),
+				)
+				continue
+			}
+			if len(wc.PossibleValues) > 0 {
+				if s, ok := scalarEnumString(val); ok && !stringInList(s, wc.PossibleValues) {
+					ctx.Report(
+						pdf.Checks.ObjectModel.DisallowedValue,
+						v,
+						fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, k),
+					)
+				}
+			}
+			if wc.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+				ctx.Report(
+					pdf.Checks.ObjectModel.IndirectRequired,
+					v,
+					fmt.Sprintf("%s key %q must be an indirect reference", typeName, k),
+				)
+			}
+		}
+	}
+
 	// A wildcard type allows arbitrary keys, so there is nothing "introduced after PDF 1.4"
 	// to flag there; a custom/private key on a non-wildcard type is likewise never in
 	// Post14Keys, so it is never flagged either.
@@ -259,7 +295,7 @@ func arlingtonChildType(parentType, key string, val pdf.PDFValue) string {
 	if kd == nil {
 		return ""
 	}
-	return resolveLinkGroups(kd.LinkGroups, val)
+	return resolveLinkGroups(kd.LinkGroups, kd.Types, val)
 }
 
 // arlingtonElementType returns the Arlington type name that item (an element of an array of
@@ -269,7 +305,7 @@ func arlingtonElementType(arrayType string, item pdf.PDFValue) string {
 	if !ok || ot.Wildcard == nil {
 		return ""
 	}
-	return resolveLinkGroups(ot.Wildcard.LinkGroups, item)
+	return resolveLinkGroups(ot.Wildcard.LinkGroups, ot.Wildcard.Types, item)
 }
 
 // resolveLinkGroups picks the LinkGroup matching val's Go-level kind, then resolves it to a
@@ -277,13 +313,19 @@ func arlingtonElementType(arrayType string, item pdf.PDFValue) string {
 // Discriminator key (e.g. Subtype, S, FunctionType) otherwise. Any step that doesn't produce an
 // exact match -- no group matches val's kind, no discriminator was found at generation time, the
 // discriminator key is absent, or its value is unrecognized -- returns "": never propagate a
-// guessed type.
-func resolveLinkGroups(groups []arlington.LinkGroup, val pdf.PDFValue) string {
+// guessed type. A group with nil ValueTypes (the key's only Type alternative) still requires
+// val's kind to match the key's declared keyTypes, so a mis-shaped value (e.g. a stream where
+// a dictionary is declared) never inherits a wrong-shaped schema.
+func resolveLinkGroups(groups []arlington.LinkGroup, keyTypes []arlington.ValueType, val pdf.PDFValue) string {
 	if val == nil {
 		return ""
 	}
 	for _, g := range groups {
-		if !linkGroupMatchesKind(val, g.ValueTypes) {
+		kinds := g.ValueTypes
+		if kinds == nil {
+			kinds = keyTypes
+		}
+		if !linkGroupMatchesKind(val, kinds) {
 			continue
 		}
 		switch len(g.Candidates) {
@@ -310,7 +352,7 @@ func resolveLinkGroups(groups []arlington.LinkGroup, val pdf.PDFValue) string {
 }
 
 // linkGroupMatchesKind reports whether val's Go-level kind matches one of valueTypes. nil
-// valueTypes means the group is the key's only Type alternative, so it always matches. Unlike
+// valueTypes means no type constraint is known at all, so it always matches. Unlike
 // valueTypeAllowed (which defaults permissively -- there, false means "flag a violation"), an
 // unrecognized or non-matching kind here always fails closed: picking the wrong LinkGroup risks
 // propagating the wrong schema to an entire subtree, a worse outcome than leaving it unresolved.
@@ -350,6 +392,16 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 			case pdf.PDFString, pdf.PDFHexString:
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// hasNamedKey reports whether ot declares an explicit (non-wildcard) row for key.
+func hasNamedKey(ot arlington.ObjectType, key string) bool {
+	for i := range ot.Keys {
+		if ot.Keys[i].Name == key {
+			return true
 		}
 	}
 	return false

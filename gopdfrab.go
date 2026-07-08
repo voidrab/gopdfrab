@@ -125,6 +125,18 @@ func (d *Document) IsPDFA() (bool, error) {
 	return res.Valid, nil
 }
 
+// IsPDF reports whether the document is valid against the generic
+// ISO 32000 object-model checks only, independent of any PDF/A conformance
+// level. It is equivalent to calling VerifyObjectModel and checking the
+// result's Valid field.
+func (d *Document) IsPDF() (bool, error) {
+	res, err := d.VerifyObjectModel()
+	if err != nil {
+		return false, err
+	}
+	return res.Valid, nil
+}
+
 // Convert converts d, an already-open document, attempting to produce a
 // PDF/A-1b conformant rewrite.
 func (d *Document) Convert(p *Profile) (ConvertResult, error) { return convert.Run(d.r, p) }

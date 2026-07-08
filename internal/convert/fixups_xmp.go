@@ -133,6 +133,21 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 			delete(info.Entries, key)
 		}
 	}
+	// The object model (DocInfo's wildcard row) types every custom Info key as
+	// a text string; a non-string custom value has no faithful coercion, so it
+	// is dropped (real-world producers park integers/names here, e.g. /SPDF).
+	for key, v := range info.Entries {
+		switch key {
+		case "_ref", "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
+			"Trapped", "CreationDate", "ModDate":
+			continue
+		}
+		switch v.(type) {
+		case nil, pdf.PDFString, pdf.PDFHexString:
+		default:
+			delete(info.Entries, key)
+		}
+	}
 }
 
 // isoDateRe loosely matches an ISO-8601-ish date/time, every component but
