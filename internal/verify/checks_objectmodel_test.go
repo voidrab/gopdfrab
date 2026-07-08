@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
@@ -406,5 +407,97 @@ func TestResolveLinkGroupsZeroCandidates(t *testing.T) {
 	}
 	if got := resolveLinkGroups(groups, pdf.PDFName{Value: "X"}); got != "" {
 		t.Errorf("resolveLinkGroups(zero-candidate group) = %q, want \"\"", got)
+	}
+}
+
+// TestSchemaCheckAfterUntypedFirstVisit builds a dict shared between an untyped custom
+// trailer key (sorted first, so the untyped path wins the initial visit) and the typed
+// Catalog.Pages edge: the typed re-descent must still schema-check it.
+func TestSchemaCheckAfterUntypedFirstVisit(t *testing.T) {
+	shared := pdf.NewPDFDict() // empty: missing PageTreeNodeRoot's required Type/Kids/Count
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries["Pages"] = shared
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["AAACustom"] = shared
+	trailer.Entries["Root"] = catalog
+	trailer.Entries["Size"] = pdf.PDFInteger(3)
+
+	ctx := &ValidationContext{}
+	verifyDocument(trailer, ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("expected MissingRequiredKey for a shared dict reached untyped first and typed later")
+	}
+}
+
+// TestSchemaCheckUnderEveryReachableType shares one dict between two differently-typed
+// edges (Catalog.AcroForm -> InteractiveForm, Catalog.Pages -> PageTreeNodeRoot); it must
+// be schema-checked under both types, regardless of visit order.
+func TestSchemaCheckUnderEveryReachableType(t *testing.T) {
+	shared := pdf.NewPDFDict()
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries["AcroForm"] = shared // InteractiveForm requires Fields
+	catalog.Entries["Pages"] = shared    // PageTreeNodeRoot requires Type/Kids/Count
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = catalog
+	trailer.Entries["Size"] = pdf.PDFInteger(3)
+
+	ctx := &ValidationContext{}
+	verifyDocument(trailer, ctx)
+
+	var gotForm, gotPages bool
+	for _, e := range ctx.errs {
+		if e.Check() != pdf.Checks.ObjectModel.MissingRequiredKey {
+			continue
+		}
+		for _, m := range e.Messages() {
+			if strings.Contains(m, "InteractiveForm") {
+				gotForm = true
+			}
+			if strings.Contains(m, "PageTreeNodeRoot") {
+				gotPages = true
+			}
+		}
+	}
+	if !gotForm || !gotPages {
+		t.Errorf("expected MissingRequiredKey under both InteractiveForm and PageTreeNodeRoot, got form=%v pages=%v (%v)", gotForm, gotPages, ctx.errs)
+	}
+}
+
+// TestSchemaCheckOncePerType asserts a (node, type) pair is validated exactly once even
+// when the same typed edge is reachable twice, so re-descents cannot duplicate findings.
+func TestSchemaCheckOncePerType(t *testing.T) {
+	form := pdf.NewPDFDict() // InteractiveForm missing required Fields
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries["AcroForm"] = form
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{}
+	pages.Entries["Count"] = pdf.PDFInteger(0)
+	catalog.Entries["Pages"] = pages
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = catalog
+	trailer.Entries["AAAAlias"] = catalog // second, untyped route to the same catalog
+	trailer.Entries["Size"] = pdf.PDFInteger(3)
+
+	ctx := &ValidationContext{}
+	verifyDocument(trailer, ctx)
+
+	count := 0
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.ObjectModel.MissingRequiredKey {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one MissingRequiredKey (Fields), got %d: %v", count, ctx.errs)
 	}
 }

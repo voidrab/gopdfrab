@@ -1,276 +1,184 @@
-# Integrating the Arlington PDF Model
+# Arlington PDF Model Integration — Implementation Review
 
-This document tracks how the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model)
-was integrated into gopdfrab. The integration is **done**: `internal/arlington` is a compiled-in
-PDF 1.4 object-model table, `internal/verify` drives five generic checks from it over the resolved
-graph, and all five are enabled in both `PDFA_1B` and `Legacy_1B`. What follows is the original
-design rationale (still accurate) plus a record of what was actually built and the false positives
-found along the way, so a future change to this area doesn't have to rediscover the same traps.
+Reviewed 2026-07-08 on branch `feature/arlington` (6 commits, ~2.5k lines of hand-written
+code plus the vendored TSVs and the 17.8k-line generated table). This replaces the original
+design/rollout document; the maintainer reference at the bottom preserves the traps recorded
+there.
 
-## What Arlington is
+## Verdict
 
-Arlington is a machine-readable definition of the PDF object model (ISO 32000-2, with
-version annotations reaching back to PDF 1.0), maintained by the PDF Association under
-Apache-2.0. For every dictionary/array/stream type in the spec ("Catalog", "Page",
-"ExtGState", "ArrayOf...", ...) it provides a TSV row per key/index with:
+**The branch fulfills its goals.** It set out to add a generic ISO 32000 object-model
+conformance layer — driven by the Arlington PDF Model as data instead of hand-written
+per-rule Go — without regressing any existing gate, and it did exactly that. All claims
+were re-verified for this review:
 
-- `Key` — the entry name (or `*` for wildcard/array element)
-- `Type` — one or more allowed PDF types (`dictionary`, `array`, `name`, `integer`, ...),
-  sometimes gated by a predicate (`fn:IsPDFVersion(1.5)`)
-- `Required` — whether the key must be present (itself sometimes predicated)
-- `IndirectReference` — whether the value must/must not/may be an indirect reference
-- `Inheritable` — whether the key inherits from an ancestor (relevant for e.g. `Page`)
-- `DefaultValue`, `PossibleValues` — enumerated legal values, when constrained
-- `SinceVersion`, `DeprecatedIn` — the PDF version a key/value was introduced/withdrawn
-- `Link` — the Arlington type(s) that a dict/array value should itself conform to
+- `go test` green across `internal/arlington`, `internal/verify`, `internal/pdf`,
+  `internal/convert`; Isartor and veraPDF corpus suites pass.
+- 100% statement coverage on `internal/verify/checks_objectmodel.go`; `internal/verify`
+  overall at 89.7%.
+- The predicate-classification floor is test-gated (`TestClassificationFloor`, floor 0.85,
+  observed ~87.3%).
+- The integration already paid for itself: type propagation surfaced two real conformance
+  bugs in `internal/convert`'s font-substitution fixer (synthesized `FontDescriptor` dicts
+  missing `/Type`; orphaned scratch descriptors), both fixed on this branch with tests.
 
-## Why this matters for gopdfrab
+## What the branch delivers
 
-`internal/verify` encodes PDF/A-1b's clause-by-clause requirements as hand-written Go, one
-function per rule area: `checks_dict.go`, `checks_colour.go`, `checks_font.go`, etc. A recurring
-pattern there — `AllowedAnnotationTypes`, `ActionTypes`, `AllowedIntents`, `Post14ViewerPrefKeys`,
-`IsAllowedBlendMode` (`checks_dict.go`) — is a hand-maintained Go map or switch standing in for
-"the set of legal values/keys/types the PDF spec defines for this object." These tables are
-correct because the corpora (Isartor, veraPDF) are green, but each is a second, independent
-transcription of the spec that can silently drift. Before this integration there was no generic
-check for "does this dictionary have keys/types/values the base PDF object model doesn't allow at
-all," only for the specific PDF/A-narrowed subset someone already wrote a check for.
+1. **`internal/arlington`** — a compiled-in, dependency-free, allocation-free lookup table
+   generated (`gen.go`, `go generate`) from two vendored Apache-2.0 TSV sets:
+   `tsv/1.4/` (288 files, upstream's own PDF-1.4-only subset, the source of truth) and
+   `tsv/latest/` (613 files, used only to diff out `Post14Keys`). No runtime TSV parsing.
+2. **Generic discriminator resolution at codegen time** — ambiguous `Link` columns (19
+   `Annot*` candidates, 13 `Action*`, ...) are resolved by searching each candidate's own
+   schema for a `Required=TRUE` key with exactly one `PossibleValues` entry (`Subtype`,
+   `S`, `FunctionType`). No hand-written name-mapping table; `/S = JavaScript` →
+   `ActionECMAScript` falls out of the data. Every ambiguous step fails closed to `""`
+   (untyped) — never a guessed type.
+3. **Type propagation through the existing walk** — `verifyDocument`'s single recursion
+   (`internal/verify/verifier.go`) threads `expectedType`, seeded `"FileTrailer"` at the
+   trailer. No second graph walk.
+4. **Five checks from one table-driven function** —
+   `validateAgainstSchema` (`checks_objectmodel.go`) fires `MissingRequiredKey`,
+   `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14`,
+   registered under synthetic clause `"objmodel"` and reported through the same
+   `ctx.Report` path every other check uses, so fixers resolve findings by ref as usual.
+   `KeyIntroducedAfterPDF14` is `Legacy_1B`-only (`RemoveCheck` in `profile.go`) because
+   real files carry harmless post-1.4 keys (`XRefStm`, `Extensions`) veraPDF doesn't flag.
+5. **A standalone public API** — `pdf.ObjectModel` level, `ObjectModelOnly()` profile, and
+   `VerifyObjectModel{,File,Bytes}` wrappers re-exported at the package root: "is this even
+   valid PDF" without any PDF/A framing.
 
-Arlington fills that gap: a generic **object-model conformance layer**, orthogonal to the
-existing PDF/A-specific clause checks. All five checks below are now implemented:
+The two-layer split is architecturally right and clearly documented in code: Arlington says
+what ISO 32000 *permits*, the existing hand-written checks say what PDF/A *further forbids*.
+The overlapping hand-written tables (`AllowedAnnotationTypes`, `IsAllowedBlendMode`, ...)
+were each investigated for deletion and correctly kept — they encode PDF/A judgment
+Arlington has no data for.
 
-- **`MissingRequiredKey`** — a dictionary lacking a key its Arlington type requires.
-- **`WrongValueType`** — a key's value isn't one of its schema-allowed types.
-- **`DisallowedValue`** — a key's value isn't one of its enumerated `PossibleValues`.
-- **`IndirectRequired`** — a key whose value must be an indirect reference is inlined directly.
-- **`KeyIntroducedAfterPDF14`** — a key the model says was introduced after PDF 1.4 is present
-  (generalizes the old `Post14ViewerPrefKeys` one-off, from the full Arlington key set rather
-  than one hand-picked dictionary).
+## Review — strengths worth keeping
 
-None of this replaces the PDF/A-specific restriction logic (Arlington describes what ISO
-32000 *permits*; PDF/A narrows that further, e.g. forbidding `JavaScript` actions that are
-otherwise perfectly legal PDF). The two layers are complementary: Arlington catches "this
-isn't even valid PDF," the existing checks catch "this is valid PDF but not valid PDF/A."
+- **Fail-closed bias is applied consistently and correctly.** Predicated rows skipped,
+  ambiguous links unresolved, unrecognized Go kinds treated as matching (in the *flagging*
+  path) but non-matching (in the *type-propagation* path). The asymmetry between
+  `valueTypeAllowed` (permissive default) and `linkGroupMatchesKind` (closed default) is
+  deliberate and documented at both sites — the right call, since a wrong flag is noise but
+  a wrong propagated type misvalidates a subtree.
+- **Codegen over runtime parsing** matches the repo's existing pattern and the
+  no-full-heap-load constraint; the generated table costs no startup work.
+- **Reusing the existing walk and report path** means zero new infrastructure to maintain
+  and fixers work on objmodel findings for free.
+- **Each check landed one at a time, corpus-gated** — the false-positive traps below were
+  found because of that discipline, not despite it.
 
-## Architecture, as built
+## Room for improvement
 
-### 1. Vendor + codegen, not a runtime TSV parser
+Prioritized. Items 1–4 are being implemented stage by stage; see "Implementation progress"
+at the bottom for status.
 
-Following the same pattern as `internal/pdf/checks_catalog.go`, TSVs are not parsed at runtime.
-`internal/arlington` is populated by `go generate ./internal/arlington/...`, which runs
-`gen.go` (`//go:build ignore`) and writes the checked-in `model_gen.go`.
+1. **`VerifyObjectModel` pays full PDF/A verification cost.** The `ObjectModel` level
+   reuses `verifyPdfA1b` wholesale: content streams are decoded, font programs parsed, XMP
+   validated — then `filterByProfile` throws away everything but the five objmodel
+   findings. Correct, but wasteful for the advertised "just check the object model" entry
+   point, and the cost gap grows with file size. Fix: gate the expensive check families
+   (`validateContentStreams`, `ValidateFontDict`/font-program parsing, XMP) on the profile
+   before running them, not after. This also benefits any future narrow profile.
+2. **First-arrival-wins typing is nondeterministic.** `verifyDocument`'s `visited` map
+   means a shared dict is schema-checked only under the `expectedType` of whichever path
+   reaches it first — and Go's random map iteration order makes that path nondeterministic.
+   A dict reachable via a typed path and an untyped (or differently-typed) path can gain or
+   lose findings run-to-run. Today this only toggles false negatives (all gates are clean
+   either way), but this project has already been bitten by nondeterministic ordering once
+   (the convert-corpus 509 flake). Cheapest fix: iterate dict keys in sorted order during
+   the walk; fuller fix: track `visited[ptr] → typeName` and re-visit (schema-check only,
+   no recursion) when a node is later reached with a type it hasn't been checked under.
+3. **Array-shaped types are never validated — 72 of 288 types (25% of the model).**
+   `validateAgainstSchema` only fires on `PDFDict`; `ArrayOf*`, `Rectangle`-like, and
+   fixed-index array schemas (required indices `0..3`, per-index types) are used solely to
+   propagate element types into dict children. A `Rectangle` holding a string, or a
+   required fixed index missing, is invisible to all five checks. A
+   `validateArrayAgainstSchema` handling wildcard element types and fixed-index rows would
+   close the single largest coverage gap — corpus-gate it like the others, since array
+   shape is where malformed real-world files are common.
+4. **Wildcard-row constraints on dict entries are unenforced.** `validateAgainstSchema`
+   iterates `ot.Keys` only; a type's `*` row is used for `Post14Keys` suppression and child
+   typing but its own `Types`/`IndirectReference` are never checked. Example: entries of a
+   resource `XObject` map must be indirect streams — never flagged. Small, contained
+   addition to the same function.
+5. **Predicate evaluator for the ~13% skipped rows** — already flagged as next step in the
+   original design, still the right long-term item. Do it per predicate family
+   (`fn:IsRequired`, `fn:SinceVersion`, ...) with corpus gates per increment; it converts
+   pure false negatives into catches across all five checks at once.
+6. **Type re-anchoring when the descent loses track.** Once `expectedType` degrades to
+   `""`, the entire subtree goes unchecked, even when a child self-identifies via
+   `/Type /Page`, `/Type /Font`, etc. Sniffing a closed allowlist of unambiguous `/Type`
+   (+`/Subtype`) values to re-anchor would recover coverage lost to the colour-space-array
+   discrimination gap and to shared-object first-arrival ordering. Keep the allowlist
+   small; a wrong re-anchor has the same subtree-misvalidation risk the discriminator
+   design guards against.
+7. **Array-first-element discrimination** (colour space arrays and similar) — structurally
+   different from the dict-key discriminator; still unresolved (`""`), no regression but no
+   win either. Reasonable to fold into item 6.
+8. **Inheritable required keys are never checked.** `Required && Inheritable`
+   (e.g. `Page.Resources`) is skipped outright rather than walked up the `Pages` ancestor
+   chain. Existing hand-written checks cover the important cases, so this is low value —
+   note it as a known false-negative class rather than build inheritance resolution.
+9. **Minor cleanups.** `IndirectForbidden` is declared but never generated (zero
+   occurrences in `model_gen.go` — `fn:MustBeDirect` rows are all predicated); either drop
+   the constant or leave a comment that it's reserved for the predicate evaluator.
+   `SinceVersion`/`DeprecatedIn` are carried per-key in the generated table but unread at
+   runtime (the 1.4 TSV set is pre-filtered) — dropping them would shrink `model_gen.go`
+   for free, keeping them only makes sense as predicate-evaluator groundwork; decide
+   intentionally either way. `DisallowedValue` only enforces name/integer enums
+   (string/real matching is format-fragile — documented, fine, but worth a line in the
+   check's description).
 
-Two TSV sets are vendored under `internal/arlington/testdata/tsv/` (Apache-2.0, upstream
-`LICENSE` + provenance `README.md`):
+## Reference for maintainers
 
-- **`1.4/`** (288 files) — upstream's own pre-filtered, PDF-1.4-only subset. This is the source
-  of truth for the generated `Types` table; PDF/A-1b is built on PDF 1.4, so no extra
-  `SinceVersion`/`DeprecatedIn` filtering is needed beyond consuming this set as given.
-- **`latest/`** (613 files) — the unfiltered current set, used *only* to compute
-  `ObjectType.Post14Keys` (see `KeyIntroducedAfterPDF14` below) by diffing its key set against
-  `1.4/`'s per type. It does not otherwise feed the generated table.
+Kept from the original document — traps that made each check corpus-clean, relevant to
+anyone touching `validateAgainstSchema` or adding a sixth check:
 
-The generated API (`internal/arlington/arlington.go`):
+1. **PDF null (Go `nil`) always matches any key's type**, regardless of the schema's
+   `Type` list. ISO 32000 §7.3.9: null ≡ absent key. (Real veraPDF pass file: `/Title` as
+   an indirect ref to a null object.)
+2. **Never check `/Length` on stream dicts** — `internal/writer` recomputes it from
+   `RawStream` at serialize time, so the in-memory value is meaningless.
+   `validateAgainstSchema` special-cases this.
+3. **Arlington's `bitmask` maps to `pdf.PDFInteger`** alongside `integer`/`number`.
+4. **Arlington's `IndirectReference=FALSE` means "not required to be indirect"**, not
+   "must be direct" — all-`FALSE` → `IndirectEither`; only all-`TRUE` → `IndirectRequired`.
+   (`fn:MustBeDirect()` is the separate, always-predicated must-be-direct case.)
+5. **`_ref` is the resolver's indirect-object marker key** and leaks into `Entries`; every
+   key iteration in this layer must skip it, and `isIndirect` relies on it (arrays carry no
+   marker, so array indirect-required rows — 3 in the model — always pass, a deliberate
+   false negative).
 
-```go
-type ObjectType struct {
-    Name       string
-    Keys       []KeyDef
-    Wildcard   *KeyDef  // the "*" row, if this type has one
-    Post14Keys []string // keys present in tsv/latest but absent from tsv/1.4
-}
+Gate status at review time: Isartor 204/204 (`Legacy_1B`), veraPDF 569/569 (`PDFA_1B`),
+convert corpus 510/510, all five checks enabled in both profiles except
+`KeyIntroducedAfterPDF14` (`Legacy_1B` only).
 
-type KeyDef struct {
-    Name              string
-    Types             []ValueType
-    Required          bool
-    IndirectReference IndirectRule // Either | Required | Forbidden
-    SinceVersion      string
-    DeprecatedIn      string
-    PossibleValues    []string
-    LinkGroups        []LinkGroup  // see "Resolving ambiguous Link edges" below
-    Inheritable       bool
-    Predicated        bool
-}
+## Implementation progress
 
-var Types = map[string]ObjectType{ /* generated */ }
-func Type(name string) (ObjectType, bool)
-```
+The four improvement items are being implemented one stage per commit, every stage gated on
+the full test suite plus all three corpora (Isartor, veraPDF, convert). Determinism (review
+item 2) went first, because the profile-gating stage's equivalence test is only reliable
+once schema typing no longer depends on map iteration order.
 
-Hot-path allocation-free and dependency-free, consistent with [[large-file-no-full-load]].
+### Stage 1 — deterministic schema typing (review item 2) ✅ 2026-07-08
 
-### 2. Resolving "which Arlington type is this dict" at a graph position
+`verifyDocument`'s walk no longer lets the first arrival at a shared node decide its schema
+coverage:
 
-`verifyDocument`'s existing `walk` (`internal/verify/verifier.go`) threads a third parameter,
-`expectedType string`, alongside the pre-existing `owner`, seeded at the trailer as
-`"FileTrailer"`. `FileTrailer.Root` links to `Catalog`, so the whole graph types itself from the
-root down through the *same* single recursion — no second graph walk, matching the project's own
-`ComputeContentUsage` guidance against duplicate walks.
+- **Sorted key iteration** (`sortedKeys`, `internal/verify/verifier.go`): dict entries are
+  walked in sorted order, so walk order — and with it finding order and `CurrentPage`
+  attribution for shared objects — is independent of Go map iteration order.
+- **Type-aware re-descent** (`typedVisit`): `visited` still gates the per-node PDF/A checks
+  (exactly once per node, as before), but schema validation is deduped per *(node, Arlington
+  type)*. A node first reached untyped (or as type A) is re-descended when later reached as
+  type B: schema checks and child-type propagation run under the new type, while scalar
+  children — fully checked on the first visit — are skipped (`isContainer`) so no duplicate
+  6.1.x findings can arise. Cycle-safe: each (node, type) pair is entered at most once.
 
-**Resolving ambiguous `Link` edges (the biggest single piece of work here).** Many keys don't
-link to a single Arlington type: `PageObject.Annots` → `ArrayOfAnnots`'s wildcard has 19
-candidate `Annot*` types; any action dispatch site has 13 `Action*` candidates;
-`Resources.XObject`'s wildcard has 4. The generator resolves these **generically, at `go
-generate` time**, not via a hand-written name-mapping table:
-
-- `Type` and `Link` columns are split in lockstep into one `LinkGroup` per type alternative
-  (`ValueTypes`, `Candidates`).
-- For any group with more than one candidate, every candidate's *own* schema is searched for a
-  key it declares `Required=TRUE` with exactly one `PossibleValues` entry (e.g.
-  `AnnotText.Subtype`→`[Text]`, `ActionGoTo.S`→`[GoTo]`, `FunctionType2.FunctionType`→`[2]`).
-  The key name covering the most candidates (ties broken alphabetically) becomes the group's
-  `Discriminator`, and its `ByValue` map is built from the candidates that cleanly qualify —
-  candidates that collide on the same value are dropped from the map rather than guessed.
-  This is not a `"Action"+S` naming convention: `/S == "JavaScript"` correctly resolves to
-  `ActionECMAScript`, discovered from `ActionECMAScript`'s own schema row, not string-built.
-- At runtime, `arlingtonChildType`/`arlingtonElementType`
-  (`internal/verify/checks_objectmodel.go`) pick the `LinkGroup` matching the concrete value's
-  Go-level kind, then resolve via the single candidate or the discriminator lookup. Every
-  ambiguous step — no group matches, no discriminator was found, the discriminator key is
-  absent, its value is unrecognized — fails closed (`""`, untyped): propagating a wrong guessed
-  type would misvalidate an entire subtree, a worse outcome than leaving it unchecked.
-
-### 3. Checks, wired as a distinct group
-
-`internal/pdf/checks_catalog.go`'s `objectModelChecks` group holds all five checks, registered
-under a synthetic non-numeric clause `"objmodel"` (subclauses 1–5; `ClauseLess` already sorts
-non-numeric clauses safely via string fallback). All five fire from one generic function,
-`validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContext)`
-(`internal/verify/checks_objectmodel.go`), driven by table lookup rather than per-rule Go code —
-deliberately the opposite of the existing one-function-per-clause style, appropriate here because
-the "rule" is genuinely data (the Arlington row), not spec prose requiring interpretation.
-Reports go through the same `ctx.Report(...)` every other check uses, so fixers resolve
-violations by ref exactly like any other finding.
-
-Registering a check puts it in `NewFullProfile`, so both `PDFA_1B` and `Legacy_1B` enable it
-automatically — **with one exception**: `KeyIntroducedAfterPDF14` is disabled in `PDFA_1B` (see
-Known limitation below), so `PDFA_1B` explicitly `RemoveCheck`s it in `internal/pdf/profile.go`,
-alongside the pre-existing `FormPostScript`/`PostScriptXObject` veraPDF divergences.
-
-### 4. PDF 1.4 gating for PDF/A-1b
-
-Handled entirely by consuming `tsv/1.4/` as the source of truth (see §1) — no extra gating logic
-needed, since upstream's own per-version filtering already does this correctly (confirmed:
-`Catalog.tsv` shrinks from 33 rows in `latest` to 24 in `1.4`).
-
-## What stays hand-written
-
-Arlington does not model, and these remain exactly as before:
-
-- PDF/A's own restrictions on top of otherwise-legal PDF: forbidden action types
-  (`ForbiddenActions`), forbidden blend modes (`IsAllowedBlendMode`'s "must be Normal/Compatible"
-  restriction), mandatory `Print` flag, XMP/Info synchronization, ICC profile internals
-  (`ValidateICCProfileStream`). `AllowedAnnotationTypes`/`ActionTypes`/`AllowedIntents` also stay:
-  their *value lists* overlap Arlington's `PossibleValues`, but the restriction logic wrapping
-  them (which subset PDF/A forbids) is PDF/A-specific judgment Arlington has no opinion on.
-- Content-stream operator semantics (`checks_content.go`) — Arlington covers objects, not the
-  operator grammar.
-- Font program internals (`checks_font_program.go`) — glyph tables, CFF/Type1 parsing.
-
-**`Post14ViewerPrefKeys`/`PostPDF14ViewerPref` specifically was investigated for deletion** (the
-one genuine full overlap with `KeyIntroducedAfterPDF14`) and kept: `KeyIntroducedAfterPDF14` is
-`Legacy_1B`-only (see below), so the hand-written check still carries real weight under
-`PDFA_1B`, where nothing else covers this today.
-
-## Known limitations
-
-**Predicate handling.** Arlington rows are sometimes conditional (`fn:Eval`, `fn:IsRequired(...)`,
-`fn:BeforeVersion(...)`, cross-key predicates). The codegen step classifies each row as **simple**
-(plain type list, plain boolean-or-absent `Required`, plain `SinceVersion`/`DeprecatedIn`) or
-**predicated**, and only simple rows feed the checks. Predicated rows are skipped (never flagged),
-erring toward false negatives — consistent with [[coverage-target-95]]. Currently classified as
-simple: **87.3%** of rows (`TestClassificationFloor` in `arlington_test.go` gates against a 0.85
-floor). A full predicate evaluator remains unbuilt — see Next steps.
-
-**`KeyIntroducedAfterPDF14` is enabled in `Legacy_1B` only, not `PDFA_1B`.** Found via real
-(non-corpus) files: `FileTrailer.XRefStm` (a hybrid-xref compatibility pointer, by design
-ignorable by a PDF 1.4 reader) and `Catalog.Extensions` (a purely informational
-extension-declaration dict) are both keys Arlington introduced after 1.4, but real veraPDF
-(external tool) does not flag either — Arlington's post-1.4 key list has no way to distinguish
-"changes required interpretation" (genuinely forbidden in PDF/A-1b) from "purely
-additive/ignorable" (harmless), and that distinction is PDF/A-specific judgment outside
-Arlington's data. Handled via the same `RemoveCheck` precedent already used for
-`FormPostScript`/`PostScriptXObject`.
-
-**Array-first-element-style discrimination is not covered.** Colour space arrays (and a few
-other special-cased arrays) are disambiguated by their first element being a name, not by a
-dict key — a structurally different shape than the `Subtype`/`S`/`FunctionType` discriminator
-mechanism handles. These stay unresolved (`""`), same as before this work — no regression, just
-not a win yet.
-
-## False-positive traps found while making each check corpus-clean
-
-Relevant to anyone touching `validateAgainstSchema` or adding a sixth check:
-
-1. **PDF null (Go `nil`) must always match any key's type**, unconditionally, regardless of
-   whether the schema's `Type` list includes `null`. ISO 32000 §7.3.9: null is structurally
-   equivalent to the key being absent. (Real case: a veraPDF pass file with `/Title` as an
-   indirect ref to a null object.) See [[pdf-null-and-parse-paths]].
-2. **`/Length` must never be checked on stream dicts.** `internal/writer/writer.go` unconditionally
-   recomputes `Length` from `RawStream` at serialize time, so its in-memory presence/value before
-   that point is never a meaningful signal — `validateAgainstSchema` special-cases
-   `kd.Name == "Length" && v.HasStream` to always skip.
-3. **Arlington's `bitmask` type token maps to `pdf.PDFInteger`** alongside `integer`/`number` —
-   flags fields (e.g. `OutlineItem.F`) are typed `bitmask` in Arlington but represented as a plain
-   Go `pdf.PDFInteger` here.
-4. **`gen.go`'s `IndirectReference` parsing had a real bug**: Arlington's `FALSE` means "not
-   *required* to be indirect" (either legal), not "must be direct" (that's the separate,
-   always-predicated `fn:MustBeDirect()` case). Fixed to map all-`FALSE` → `IndirectEither`; only
-   all-`TRUE` rows → `IndirectRequired`.
-5. **Widening type propagation (discriminators) surfaced two real conformance bugs in
-   `internal/convert`**, not false positives: the font-substitution fixer
-   (`fixups_font_subst.go`) built synthesized `FontDescriptor` dicts that never set `/Type`, and
-   separately left an all-fields-missing scratch `FontDescriptor` behind whenever substitution
-   was skipped (e.g. an AcroForm/DR font with all-zero `Widths`). Both were genuine ISO 32000
-   object-model violations `Convert` was silently producing — fixed at the source, confirming the
-   integration is pulling its weight rather than just adding noise.
-
-## Rollout history
-
-1. ~~Vendor Arlington TSVs~~ — done, `tsv/1.4/` + `tsv/latest/`.
-2. ~~Codegen: `internal/arlington` package, unit-tested against `Catalog`/`Page`/`ExtGState`~~ —
-   done, no verifier wiring in this step.
-3. ~~Wire `MissingRequiredKey`/`WrongValueType`, enable in both profiles~~ — done, corpus-clean
-   (Isartor 204/204, veraPDF 569/569).
-4. ~~Add `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14`~~ — done, one at a time,
-   each corpus-clean before the next landed. `KeyIntroducedAfterPDF14` ended up `Legacy_1B`-only
-   (see Known limitations).
-5. ~~Revisit deleting overlapping hand-written tables~~ — investigated, nothing deleted:
-   `AllowedAnnotationTypes`/`IsAllowedBlendMode`/`AllowedIntents`/`ActionTypes` all encode PDF/A
-   restrictions Arlington doesn't model; `Post14ViewerPrefKeys` still carries real weight under
-   `PDFA_1B` (see above).
-6. ~~Discriminator-based type propagation~~ — done. Before this, `arlingtonChildType`/
-   `arlingtonElementType` only propagated through single-candidate `Link` columns, so every
-   annotation and action in every real PDF got zero schema checking. Now resolved generically via
-   each candidate's own discriminating key, corpus-clean, and found/fixed two real `Convert`
-   defects as a direct result (see above).
-7. ~~Standalone "object-model conformance" API, independent of PDF/A~~ — done. Previously the
-   only way to run these five checks was through `verify.Verify(d, profile)` with a PDF/A-1b
-   profile (`PDFA_1B`/`Legacy_1B`); there was no entry point for "just tell me what's wrong with
-   this PDF's base object model," decoupled from any PDF/A conformance level. Needed no changes
-   to the verification engine itself: `verifyDocument`'s walk already computes every registered
-   check's findings unconditionally (`ctx.Report` never consults the profile), and `Verify` only
-   narrows the result set at the very end via `filterByProfile(issues, p)`. So the entire feature
-   is a new `pdf.ObjectModel` `LevelType` (reporting-only), `pdf.ObjectModelOnly()` (a profile
-   enabling just the five `objmodel` checks), one widened gate in `verify.Verify`
-   (`if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel`), and the
-   `VerifyObjectModel`/`VerifyObjectModelFile`/`VerifyObjectModelBytes` convenience wrappers
-   (mirroring `Verify`/`VerifyFile`/`VerifyBytes`), all re-exported at the package root
-   (`gopdfrab.VerifyObjectModel`, `gopdfrab.VerifyObjectModelBytes`, `gopdfrab.ObjectModelOnly`,
-   `(*Document).VerifyObjectModel`). See `README.md`'s "Object-Model Conformance" section.
-
-All five checks are corpus-clean on all three gates as of the latest work: Isartor 204/204
-(`Legacy_1B`), veraPDF 569/569 (`PDFA_1B`), convert corpus 510/510 fully conformant. 100% test
-coverage on `checks_objectmodel.go`.
-
-## Next steps
-
-Remaining candidates, roughly in order of value/risk:
-
-- **Predicate evaluator** for the ~13% of rows currently skipped as predicated (`fn:IsRequired`,
-  `fn:SinceVersion`, `fn:IsPresent`, ...). Flagged in the original design as "a project of its
-  own" — real value (turns false negatives into real catches across all five checks) but open-
-  ended scope and real corpus risk per row-shape newly enforced. Do this in small, corpus-gated
-  increments per predicate family, not as one pass.
-- **Array-first-element discrimination** (colour space arrays and similar), to close the one
-  known gap in the discriminator mechanism.
+Regression tests (`checks_objectmodel_test.go`): untyped-path-first still schema-checks the
+typed re-descent; a dict shared between two differently-typed edges is checked under both
+types; a doubly-referenced typed node yields exactly one finding. All gates green
+(full suite, Isartor 204/204, veraPDF 569/569, convert corpus). `BenchmarkOpenVerify`
+magnitudes unchanged (large ≈ 310ms).

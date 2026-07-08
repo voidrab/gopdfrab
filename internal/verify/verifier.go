@@ -557,6 +557,16 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
+	// typedVisit dedupes schema validation per (node, Arlington type): a node shared
+	// between differently-typed paths is re-descended once per new type, so schema
+	// coverage does not depend on map iteration order, while every per-node PDF/A
+	// check still runs exactly once (on the first visit).
+	type typedVisit struct {
+		ptr uintptr
+		typ string
+	}
+	visitedTyped := make(map[typedVisit]bool)
+
 	// owner is the nearest enclosing dict, threaded through arrays, so
 	// scalar-limit violations are reported against an object fixers can
 	// resolve by ref instead of the bare scalar. expectedType is the
@@ -573,10 +583,14 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		switch v := node.(type) {
 		case pdf.PDFDict:
 			ptr := pdf.ValuePointer(v.Entries)
-			if visited[ptr] {
+			first := !visited[ptr]
+			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {
 				return
 			}
 			visited[ptr] = true
+			if expectedType != "" {
+				visitedTyped[typedVisit{ptr, expectedType}] = true
+			}
 
 			if (v.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
 				if ref, ok := v.Entries["_ref"].(pdf.PDFRef); ok {
@@ -584,39 +598,48 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 			}
 
-			if v.HasStream {
-				validateStreamObject(v, ctx)
-			}
+			if first {
+				if v.HasStream {
+					validateStreamObject(v, ctx)
+				}
 
-			validateObject(v, ctx)
-			validateActions(v, ctx)
-			validateAdditionalActions(v, ctx)
-			validateExtGState(v, ctx)
-			validateTransparencyGroup(v, ctx)
-			validateXObjectDict(v, ctx)
-			validateAnnotation(v, ctx)
-			validateFormField(v, ctx)
-			validateColourSpaceUsage(v, ctx)
-			validateContentStreams(v, ctx)
-			ValidateFontDict(v, ctx)
-			validateCMapStream(v, ctx)
-			validateViewerPreferences(v, ctx)
+				validateObject(v, ctx)
+				validateActions(v, ctx)
+				validateAdditionalActions(v, ctx)
+				validateExtGState(v, ctx)
+				validateTransparencyGroup(v, ctx)
+				validateXObjectDict(v, ctx)
+				validateAnnotation(v, ctx)
+				validateFormField(v, ctx)
+				validateColourSpaceUsage(v, ctx)
+				validateContentStreams(v, ctx)
+				ValidateFontDict(v, ctx)
+				validateCMapStream(v, ctx)
+				validateViewerPreferences(v, ctx)
+			}
 			if expectedType != "" {
 				validateAgainstSchema(v, expectedType, ctx)
 			}
 
-			for k, val := range v.Entries {
-				// 6.1.12: a dictionary key shall not exceed 127 bytes after
-				// decoding PDF name-escape sequences (#XX).
-				if k != "_ref" && len(k) > 127 {
-					decoded := pdf.DecodePDFName(k)
-					if len(decoded) > 127 {
-						ctx.Report(
-							pdf.Checks.Structure.NameTooLong,
-							v,
-							fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
-						)
+			for _, k := range sortedKeys(v.Entries) {
+				val := v.Entries[k]
+				if first {
+					// 6.1.12: a dictionary key shall not exceed 127 bytes after
+					// decoding PDF name-escape sequences (#XX).
+					if k != "_ref" && len(k) > 127 {
+						decoded := pdf.DecodePDFName(k)
+						if len(decoded) > 127 {
+							ctx.Report(
+								pdf.Checks.Structure.NameTooLong,
+								v,
+								fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
+							)
+						}
 					}
+				} else if !isContainer(val) {
+					// A re-descent only refines schema typing; scalar children
+					// were fully checked on the first visit.
+					continue
 				}
 				var childType string
 				if expectedType != "" && k != "_ref" {
@@ -625,31 +648,46 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, childType)
 			}
+			if !first {
+				return
+			}
 
 		case pdf.PDFArray:
 			ptr := pdf.ValuePointer(v)
-			if visited[ptr] {
+			first := !visited[ptr]
+			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {
 				return
 			}
 			visited[ptr] = true
+			if expectedType != "" {
+				visitedTyped[typedVisit{ptr, expectedType}] = true
+			}
 
-			validateColourSpaceArray(v, ctx)
+			if first {
+				validateColourSpaceArray(v, ctx)
 
-			// 6.1.12: maximum number of elements in an array is 8191.
-			if len(v) > 8191 {
-				ctx.Report(
-					pdf.Checks.Structure.ArrayTooLarge,
-					v,
-					fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
-				)
+				// 6.1.12: maximum number of elements in an array is 8191.
+				if len(v) > 8191 {
+					ctx.Report(
+						pdf.Checks.Structure.ArrayTooLarge,
+						v,
+						fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
+					)
+				}
 			}
 
 			for _, item := range v {
+				if !first && !isContainer(item) {
+					continue
+				}
 				var elemType string
 				if expectedType != "" {
 					elemType = arlingtonElementType(expectedType, item)
 				}
 				walk(item, owner, elemType)
+			}
+			if !first {
+				return
 			}
 
 		case pdf.PDFHexString:
@@ -662,6 +700,27 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	}
 
 	walk(graph, nil, "FileTrailer")
+}
+
+// sortedKeys returns m's keys in sorted order so the walk visits entries
+// deterministically regardless of Go map iteration order.
+func sortedKeys(m map[string]pdf.PDFValue) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// isContainer reports whether val is a dict or array, i.e. a node that can
+// carry an Arlington type on a re-descent.
+func isContainer(val pdf.PDFValue) bool {
+	switch val.(type) {
+	case pdf.PDFDict, pdf.PDFArray:
+		return true
+	}
+	return false
 }
 
 // ComputeContentUsage walks the resolved graph once, decoding each page's
