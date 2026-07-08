@@ -64,6 +64,33 @@ func TestProfileAllows(t *testing.T) {
 	}
 }
 
+// TestObjectModelOnly covers the standalone object-model profile: it must be
+// tagged with the ObjectModel level, enable exactly the five objmodel checks
+// (including KeyIntroducedAfterPDF14, unlike PDFA_1B), and nothing else.
+func TestObjectModelOnly(t *testing.T) {
+	p := ObjectModelOnly()
+	if p.Level != ObjectModel {
+		t.Errorf("ObjectModelOnly Level = %v, want %v", p.Level, ObjectModel)
+	}
+
+	want := []Check{
+		Checks.ObjectModel.MissingRequiredKey,
+		Checks.ObjectModel.WrongValueType,
+		Checks.ObjectModel.DisallowedValue,
+		Checks.ObjectModel.IndirectRequired,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+	}
+	got := p.Checks()
+	if len(got) != len(want) {
+		t.Fatalf("ObjectModelOnly enabled %d checks, want %d: %v", len(got), len(want), got)
+	}
+	for _, c := range want {
+		if !p.Has(c) {
+			t.Errorf("ObjectModelOnly missing expected check %v", c)
+		}
+	}
+}
+
 // TestPDFA1BDisablesKeyIntroducedAfterPDF14 documents the veraPDF divergence:
 // PDFA_1B drops this check (structural/informational post-1.4 keys like
 // FileTrailer.XRefStm are ignorable by a 1.4 reader and veraPDF does not flag

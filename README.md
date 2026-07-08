@@ -290,8 +290,30 @@ res, err := doc.Verify(p)
 | `Checks.Action` | 6.6.x action types and additional actions |
 | `Checks.Metadata` | 6.7.x XMP metadata, extension schemas, PDF/A identifier |
 | `Checks.Form` | 6.9 interactive forms |
+| `Checks.ObjectModel` | Generic ISO 32000 object-model conformance, independent of PDF/A — see below |
 
 Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `gopdfrab.CheckByClause("6.3.4", 1)` and `gopdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
+
+## Object-Model Conformance (independent of PDF/A)
+
+`Checks.ObjectModel` holds five checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level. See `arlington.md` for the full design rationale.
+
+```go
+res, err := gopdfrab.VerifyObjectModel(path)
+```
+
+`VerifyObjectModelBytes` is the in-memory equivalent, and `doc.VerifyObjectModel()` runs it on an already-open `Document`:
+
+```go
+res, err := gopdfrab.VerifyObjectModelBytes(data)
+res, err := doc.VerifyObjectModel()
+```
+
+These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.ObjectModelOnly()`, a profile enabling only the five checks above:
+
+```go
+res, err := doc.Verify(gopdfrab.ObjectModelOnly())
+```
 
 ## Performance
 

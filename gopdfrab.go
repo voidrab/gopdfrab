@@ -21,6 +21,9 @@ type (
 const (
 	A_1B      = pdf.A_1B
 	Undefined = pdf.Undefined
+	// ObjectModel is a reporting-only level for the generic ISO 32000
+	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
+	ObjectModel = pdf.ObjectModel
 )
 
 // PDF/A profiles.
@@ -36,6 +39,11 @@ var Checks = pdf.Checks
 
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
+
+// ObjectModelOnly returns a profile enabling only the generic ISO 32000
+// object-model checks, independent of any PDF/A conformance level -- useful
+// for asking "is this even valid PDF" on its own.
+func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 
 // AllChecks returns every registered check with its name, description, and
 // clause number.
@@ -60,6 +68,14 @@ func VerifyBytes(data []byte, p *Profile) (Result, error) { return verify.Verify
 func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
 	return verify.VerifyAll(paths, p)
 }
+
+// VerifyObjectModel opens, checks, and closes a single file against the
+// generic ISO 32000 object-model checks only, independent of any PDF/A
+// conformance level.
+func VerifyObjectModel(path string) (Result, error) { return verify.VerifyObjectModelFile(path) }
+
+// VerifyObjectModelBytes is VerifyObjectModel for an in-memory PDF.
+func VerifyObjectModelBytes(data []byte) (Result, error) { return verify.VerifyObjectModelBytes(data) }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite.
@@ -94,6 +110,10 @@ func (d *Document) Close() error { return d.r.Close() }
 
 // Verify verifies d against the checks enabled in profile p.
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }
+
+// VerifyObjectModel checks d against the generic ISO 32000 object-model
+// checks only, independent of any PDF/A conformance level.
+func (d *Document) VerifyObjectModel() (Result, error) { return verify.VerifyObjectModel(d.r) }
 
 // IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
 // calling Verify(PDFA_1B) and checking the result's Valid field.

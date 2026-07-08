@@ -2,6 +2,7 @@ package gopdfrab
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -55,6 +56,70 @@ func TestVerifyWrappers(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Errorf("VerifyAll returned %d results, want 1", len(results))
+	}
+}
+
+// plainPDF is a minimal one-page PDF with no PDF/A structure but a
+// well-formed base object model, so object-model-only checks pass on it.
+const plainPDF = "%PDF-1.4\n" +
+	"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n" +
+	"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n" +
+	"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>\nendobj\n" +
+	"xref\n0 4\n" +
+	"0000000000 65535 f \n" +
+	"0000000009 00000 n \n" +
+	"0000000054 00000 n \n" +
+	"0000000105 00000 n \n" +
+	"trailer\n<</Size 4/Root 1 0 R>>\n" +
+	"startxref\n170\n%%EOF"
+
+// TestObjectModelWrappers exercises every ObjectModel-related facade
+// function, independent of any PDF/A profile or corpus fixture.
+func TestObjectModelWrappers(t *testing.T) {
+	if p := ObjectModelOnly(); p == nil {
+		t.Fatal("ObjectModelOnly returned nil")
+	} else if p.Level != ObjectModel {
+		t.Errorf("ObjectModelOnly Level = %v, want %v", p.Level, ObjectModel)
+	}
+
+	data := []byte(plainPDF)
+
+	res, err := VerifyObjectModelBytes(data)
+	if err != nil {
+		t.Fatalf("VerifyObjectModelBytes: %v", err)
+	}
+	if res.Type != ObjectModel {
+		t.Errorf("VerifyObjectModelBytes Type = %v, want %v", res.Type, ObjectModel)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModelBytes Valid = false, issues: %v", res.Issues)
+	}
+
+	path := filepath.Join(t.TempDir(), "plain.pdf")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	res, err = VerifyObjectModel(path)
+	if err != nil {
+		t.Fatalf("VerifyObjectModel: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModel Valid = false, issues: %v", res.Issues)
+	}
+
+	doc, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer doc.Close()
+
+	res, err = doc.VerifyObjectModel()
+	if err != nil {
+		t.Fatalf("Document.VerifyObjectModel: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("Document.VerifyObjectModel Valid = false, issues: %v", res.Issues)
 	}
 }
 

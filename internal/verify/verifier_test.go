@@ -64,6 +64,62 @@ func TestVerifyAll(t *testing.T) {
 	}
 }
 
+// plainPDF is a minimal one-page PDF with no PDF/A structure but a
+// well-formed base object model, so object-model-only checks pass on it.
+const plainPDF = "%PDF-1.4\n" +
+	"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n" +
+	"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n" +
+	"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>\nendobj\n" +
+	"xref\n0 4\n" +
+	"0000000000 65535 f \n" +
+	"0000000009 00000 n \n" +
+	"0000000054 00000 n \n" +
+	"0000000105 00000 n \n" +
+	"trailer\n<</Size 4/Root 1 0 R>>\n" +
+	"startxref\n170\n%%EOF"
+
+// TestVerifyObjectModelBytes covers the widened Verify gate: a plain PDF with
+// no PDF/A structure but a conformant base object model must come back
+// Valid, tagged with the ObjectModel level rather than A_1B.
+func TestVerifyObjectModelBytes(t *testing.T) {
+	res, err := VerifyObjectModelBytes([]byte(plainPDF))
+	if err != nil {
+		t.Fatalf("VerifyObjectModelBytes: %v", err)
+	}
+	if res.Type != pdf.ObjectModel {
+		t.Errorf("VerifyObjectModelBytes Type = %v, want %v", res.Type, pdf.ObjectModel)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModelBytes(plainPDF) = invalid, want valid: %v", res.Issues)
+	}
+
+	if _, err := VerifyObjectModelBytes([]byte("not a pdf")); err == nil {
+		t.Error("VerifyObjectModelBytes should error for malformed data")
+	}
+}
+
+// TestVerifyObjectModelFile covers the file-opening wrapper, including its
+// open-error path.
+func TestVerifyObjectModelFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/plain.pdf"
+	if err := os.WriteFile(path, []byte(plainPDF), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	res, err := VerifyObjectModelFile(path)
+	if err != nil {
+		t.Fatalf("VerifyObjectModelFile: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModelFile(plainPDF) = invalid, want valid: %v", res.Issues)
+	}
+
+	if _, err := VerifyObjectModelFile("/nonexistent/path.pdf"); err == nil {
+		t.Error("VerifyObjectModelFile should error for a nonexistent path")
+	}
+}
+
 // -- PDF/A-1b
 
 // 6.1.2

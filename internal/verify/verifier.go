@@ -25,7 +25,7 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	}
 
 	var issues []pdf.PDFError
-	if p.Level == pdf.A_1B {
+	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
 		issues = verifyPdfA1b(d, p)
 	}
 	issues = filterByProfile(issues, p)
@@ -83,6 +83,33 @@ func VerifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
 	}
 	defer doc.Close()
 	return Verify(doc, p)
+}
+
+// VerifyObjectModel checks d against the generic ISO 32000 object-model
+// checks only, independent of any PDF/A conformance level.
+func VerifyObjectModel(d *pdf.Reader) (pdf.Result, error) {
+	return Verify(d, pdf.ObjectModelOnly())
+}
+
+// VerifyObjectModelFile opens, checks, and closes a single file against the
+// generic ISO 32000 object-model checks only.
+func VerifyObjectModelFile(path string) (pdf.Result, error) {
+	doc, err := pdf.Open(path)
+	if err != nil {
+		return pdf.Result{}, err
+	}
+	defer doc.Close()
+	return VerifyObjectModel(doc)
+}
+
+// VerifyObjectModelBytes is VerifyObjectModelFile for an in-memory PDF.
+func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		return pdf.Result{}, fmt.Errorf("verify: %w", err)
+	}
+	defer doc.Close()
+	return VerifyObjectModel(doc)
 }
 
 func verifyFile(path string, p *pdf.Profile) pdf.FileResult[pdf.Result] {

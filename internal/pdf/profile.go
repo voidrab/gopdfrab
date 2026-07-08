@@ -10,6 +10,9 @@ type LevelType string
 const (
 	Undefined LevelType = "undefined"
 	A_1B      LevelType = "A-1b"
+	// ObjectModel is a reporting-only level for the generic ISO 32000
+	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
+	ObjectModel LevelType = "ObjectModel"
 )
 
 // Profile is a mutable set of enabled PDF/A checks for a conformance level,
@@ -69,6 +72,21 @@ func init() {
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile {
 	return &Profile{Level: level, enabled: make(map[int]bool)}
+}
+
+// ObjectModelOnly returns a profile enabling only the generic ISO 32000
+// object-model checks (MissingRequiredKey, WrongValueType, DisallowedValue,
+// IndirectRequired, KeyIntroducedAfterPDF14), with every PDF/A-specific check
+// disabled -- useful for asking "is this even valid PDF" independent of any
+// PDF/A conformance level.
+func ObjectModelOnly() *Profile {
+	return NewProfile(ObjectModel).AddCheck(
+		Checks.ObjectModel.MissingRequiredKey,
+		Checks.ObjectModel.WrongValueType,
+		Checks.ObjectModel.DisallowedValue,
+		Checks.ObjectModel.IndirectRequired,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+	)
 }
 
 func NewFullProfile(level LevelType) *Profile {

@@ -244,6 +244,20 @@ Relevant to anyone touching `validateAgainstSchema` or adding a sixth check:
    annotation and action in every real PDF got zero schema checking. Now resolved generically via
    each candidate's own discriminating key, corpus-clean, and found/fixed two real `Convert`
    defects as a direct result (see above).
+7. ~~Standalone "object-model conformance" API, independent of PDF/A~~ — done. Previously the
+   only way to run these five checks was through `verify.Verify(d, profile)` with a PDF/A-1b
+   profile (`PDFA_1B`/`Legacy_1B`); there was no entry point for "just tell me what's wrong with
+   this PDF's base object model," decoupled from any PDF/A conformance level. Needed no changes
+   to the verification engine itself: `verifyDocument`'s walk already computes every registered
+   check's findings unconditionally (`ctx.Report` never consults the profile), and `Verify` only
+   narrows the result set at the very end via `filterByProfile(issues, p)`. So the entire feature
+   is a new `pdf.ObjectModel` `LevelType` (reporting-only), `pdf.ObjectModelOnly()` (a profile
+   enabling just the five `objmodel` checks), one widened gate in `verify.Verify`
+   (`if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel`), and the
+   `VerifyObjectModel`/`VerifyObjectModelFile`/`VerifyObjectModelBytes` convenience wrappers
+   (mirroring `Verify`/`VerifyFile`/`VerifyBytes`), all re-exported at the package root
+   (`gopdfrab.VerifyObjectModel`, `gopdfrab.VerifyObjectModelBytes`, `gopdfrab.ObjectModelOnly`,
+   `(*Document).VerifyObjectModel`). See `README.md`'s "Object-Model Conformance" section.
 
 All five checks are corpus-clean on all three gates as of the latest work: Isartor 204/204
 (`Legacy_1B`), veraPDF 569/569 (`PDFA_1B`), convert corpus 510/510 fully conformant. 100% test
@@ -251,55 +265,7 @@ coverage on `checks_objectmodel.go`.
 
 ## Next steps
 
-### A standalone "object-model conformance" API, independent of PDF/A
-
-Today the only way to run these five checks is through `verify.Verify(d, profile)` with a
-PDF/A-1b profile (`PDFA_1B`/`Legacy_1B`) — there is no entry point for "just tell me what's wrong
-with this PDF's base object model," decoupled from any PDF/A conformance level. This is a real
-gap: the object-model layer is explicitly designed to catch "this isn't even valid PDF"
-independent of PDF/A (see "Why this matters," above), but nothing currently exposes that
-independently.
-
-**This turns out to need no changes to the verification engine itself.** `verifyDocument`'s walk
-already computes *every* registered check's findings unconditionally (`ctx.Report` never
-consults the profile); `Verify` only narrows the result set at the very end via
-`filterByProfile(issues, p)` based on `p.Allows(clause, subclause)`. So an object-model-only
-report is purely a matter of profile construction, not new traversal or validation logic:
-
-```go
-// internal/pdf/profile.go
-// ObjectModelOnly returns a profile enabling only the generic ISO 32000 object-model checks
-// (MissingRequiredKey, WrongValueType, DisallowedValue, IndirectRequired,
-// KeyIntroducedAfterPDF14), with every PDF/A-specific check disabled -- useful for asking
-// "is this even valid PDF" independent of any PDF/A conformance level.
-func ObjectModelOnly() *Profile {
-    return NewProfile(A_1B).AddCheck(
-        Checks.ObjectModel.MissingRequiredKey,
-        Checks.ObjectModel.WrongValueType,
-        Checks.ObjectModel.DisallowedValue,
-        Checks.ObjectModel.IndirectRequired,
-        Checks.ObjectModel.KeyIntroducedAfterPDF14,
-    )
-}
-```
-
-```go
-// internal/verify/verifier.go
-// VerifyObjectModel checks d against the generic ISO 32000 object-model checks only,
-// independent of any PDF/A conformance level.
-func VerifyObjectModel(d *pdf.Reader) (pdf.Result, error) {
-    return Verify(d, pdf.ObjectModelOnly())
-}
-// + VerifyObjectModelFile(path string), VerifyObjectModelBytes(data []byte), mirroring the
-// existing VerifyFile/VerifyBytes convenience wrappers.
-```
-
-Add a genuinely new `LevelType` (e.g. `pdf.ObjectModel`) purely for reporting, and generalize
-  `Verify`'s internal gate (currently `if p.Level == pdf.A_1B { issues = verifyPdfA1b(d, p) }`)
-  to run the same computation for this level too — a small, low-risk change since profile-based
-  filtering already does all the real work.
-
-### Other candidates, roughly in order of value/risk
+Remaining candidates, roughly in order of value/risk:
 
 - **Predicate evaluator** for the ~13% of rows currently skipped as predicated (`fn:IsRequired`,
   `fn:SinceVersion`, `fn:IsPresent`, ...). Flagged in the original design as "a project of its
