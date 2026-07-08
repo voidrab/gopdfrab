@@ -76,6 +76,7 @@ type keyDef struct {
 	name              string
 	types             []string // Go identifiers, e.g. "Dictionary"
 	required          bool
+	requiredWhen      *condExpr
 	indirectReference string // Go identifier, e.g. "IndirectEither"
 	sinceVersion      string
 	deprecatedIn      string
@@ -208,6 +209,9 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 	if kd.required {
 		b.WriteString("Required: true,\n")
 	}
+	if kd.requiredWhen != nil {
+		fmt.Fprintf(b, "RequiredWhen: &Cond%s,\n", condLiteral(*kd.requiredWhen))
+	}
 	if kd.indirectReference != "IndirectEither" {
 		fmt.Fprintf(b, "IndirectReference: %s,\n", kd.indirectReference)
 	}
@@ -237,6 +241,25 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 		}
 		fmt.Fprintf(b, "Predicated: Predication{%s},\n", strings.Join(cols, ", "))
 	}
+}
+
+// condLiteral renders a condExpr as the brace-literal part of an arlington.Cond.
+func condLiteral(c condExpr) string {
+	parts := []string{"Op: " + c.op}
+	if c.key != "" {
+		parts = append(parts, fmt.Sprintf("Key: %q", c.key))
+	}
+	if c.value != "" {
+		parts = append(parts, fmt.Sprintf("Value: %q", c.value))
+	}
+	if len(c.kids) > 0 {
+		var ks []string
+		for _, k := range c.kids {
+			ks = append(ks, condLiteral(k))
+		}
+		parts = append(parts, "Kids: []Cond{"+strings.Join(ks, ", ")+"}")
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 func writeStringSlice(b *strings.Builder, field string, values []string) {
@@ -421,9 +444,12 @@ func buildKeyDef(r row) keyDef {
 	case r.required == "TRUE":
 		kd.required = true
 	case strings.Contains(r.required, "fn:"):
-		if req, ok := foldRequired(r.required); ok {
-			kd.required = req
-		} else {
+		switch res := compileRequired(r.required); {
+		case res.ok && res.isConst:
+			kd.required = res.constVal
+		case res.ok:
+			kd.requiredWhen = res.tree
+		default:
 			kd.predicated.required = true
 		}
 	}
@@ -568,14 +594,32 @@ func foldValueEntry(item string) (val string, keep, ok bool) {
 	return "", false, false
 }
 
-// foldRequired constant-folds a Required column of the form fn:IsRequired(expr) whose
-// condition is a pure version-gate expression.
-func foldRequired(raw string) (required, ok bool) {
+// condExpr is the Go source representation of an arlington.Cond literal.
+type condExpr struct {
+	op         string // Cond* identifier
+	key, value string
+	kids       []condExpr
+}
+
+// condResult is compileCond's outcome: a constant, a runtime condition tree, or not ok
+// (the expression depends on state this compiler cannot express).
+type condResult struct {
+	ok       bool
+	isConst  bool
+	constVal bool
+	tree     *condExpr
+}
+
+func constCond(v bool) condResult    { return condResult{ok: true, isConst: true, constVal: v} }
+func treeCond(t condExpr) condResult { return condResult{ok: true, tree: &t} }
+
+// compileRequired compiles a Required column of the form fn:IsRequired(expr).
+func compileRequired(raw string) condResult {
 	name, args, wrapped := splitPredicate(strings.TrimSpace(raw))
 	if !wrapped || name != "fn:IsRequired" || len(args) != 1 {
-		return false, false
+		return condResult{}
 	}
-	return foldVersionExpr(args[0])
+	return compileCond(args[0])
 }
 
 // foldIndirect constant-folds an IndirectReference column of the form fn:MustBeIndirect(expr)
@@ -589,9 +633,11 @@ func foldIndirect(raw string) (rule string, ok bool) {
 	}
 	must := true
 	if len(args) == 1 && args[0] != "" {
-		if must, ok = foldVersionExpr(args[0]); !ok {
+		res := compileCond(args[0])
+		if !res.ok || !res.isConst {
 			return "", false
 		}
+		must = res.constVal
 	}
 	if must {
 		return "IndirectRequired", true
@@ -599,38 +645,55 @@ func foldIndirect(raw string) (rule string, ok bool) {
 	return "IndirectEither", true
 }
 
-// foldVersionExpr constant-folds a predicate expression built from the version primitives
-// fn:SinceVersion/fn:BeforeVersion/fn:IsPDFVersion, fn:Not, parentheses, and ||/&& against
-// modelVersion. ok is false as soon as any subexpression that could still decide the result
-// depends on runtime document state -- the caller must then keep the row predicated.
-func foldVersionExpr(expr string) (val, ok bool) {
+// compileCond compiles a predicate expression into a constant (version primitives fold
+// against modelVersion) or a runtime condition over the owning dict's own entries
+// (fn:IsPresent of a sibling key, @Key ==/!= literal comparisons), combined with fn:Not,
+// parentheses, and ||/&&. Anything else -- cross-object paths (::), parent::, domain
+// predicates -- is not ok, and the caller must keep the column predicated.
+func compileCond(expr string) condResult {
 	expr = trimOuterParens(strings.TrimSpace(expr))
 
 	if parts := splitTopLevelOp(expr, "||"); len(parts) > 1 {
-		return foldBool(parts, false)
+		return compileBool(parts, false)
 	}
 	if parts := splitTopLevelOp(expr, "&&"); len(parts) > 1 {
-		return foldBool(parts, true)
+		return compileBool(parts, true)
+	}
+
+	if key, value, op, ok := splitComparison(expr); ok {
+		return treeCond(condExpr{op: op, key: key, value: value})
 	}
 
 	name, args, wrapped := splitPredicate(expr)
 	if !wrapped {
-		return false, false
+		return condResult{}
 	}
 	switch name {
 	case "fn:Not":
 		if len(args) != 1 {
-			return false, false
+			return condResult{}
 		}
-		v, ok := foldVersionExpr(args[0])
-		return !v, ok
+		res := compileCond(args[0])
+		switch {
+		case !res.ok:
+			return condResult{}
+		case res.isConst:
+			return constCond(!res.constVal)
+		default:
+			return treeCond(condExpr{op: "CondNot", kids: []condExpr{*res.tree}})
+		}
+	case "fn:IsPresent":
+		if len(args) == 1 && plainKey(args[0]) {
+			return treeCond(condExpr{op: "CondPresent", key: args[0]})
+		}
+		return condResult{}
 	case "fn:SinceVersion", "fn:BeforeVersion", "fn:IsPDFVersion":
 		if len(args) == 0 || len(args) > 2 {
-			return false, false
+			return condResult{}
 		}
 		cmp, verOK := versionCmp(modelVersion, args[0])
 		if !verOK {
-			return false, false
+			return condResult{}
 		}
 		var gate bool
 		switch name {
@@ -642,30 +705,107 @@ func foldVersionExpr(expr string) (val, ok bool) {
 			gate = cmp == 0
 		}
 		if !gate {
-			return false, true // the payload can no longer apply
+			return constCond(false) // the payload can no longer apply
 		}
 		if len(args) == 1 {
-			return true, true
+			return constCond(true)
 		}
-		return foldVersionExpr(args[1])
+		return compileCond(args[1])
 	}
-	return false, false
+	return condResult{}
 }
 
-// foldBool folds the operands of a top-level || (and=false) or && (and=true): one decisive
-// operand (true for ||, false for &&) settles the result even if siblings are unfoldable.
-func foldBool(parts []string, and bool) (val, ok bool) {
-	allFolded := true
+// compileBool combines the operands of a top-level || (and=false) or && (and=true): one
+// decisive constant operand (true for ||, false for &&) settles the whole expression even if
+// siblings are uncompilable; neutral constants drop out; the remaining runtime trees combine.
+func compileBool(parts []string, and bool) condResult {
+	var kids []condExpr
+	anyBad := false
 	for _, p := range parts {
-		v, pOK := foldVersionExpr(p)
-		if pOK && v != and {
-			return !and, true
-		}
-		if !pOK {
-			allFolded = false
+		res := compileCond(p)
+		switch {
+		case res.ok && res.isConst && res.constVal != and:
+			return constCond(!and)
+		case res.ok && res.isConst:
+			// neutral operand, drop
+		case res.ok:
+			kids = append(kids, *res.tree)
+		default:
+			anyBad = true
 		}
 	}
-	return and, allFolded
+	if anyBad {
+		return condResult{}
+	}
+	switch len(kids) {
+	case 0:
+		return constCond(and)
+	case 1:
+		return treeCond(kids[0])
+	}
+	op := "CondOr"
+	if and {
+		op = "CondAnd"
+	}
+	return treeCond(condExpr{op: op, kids: kids})
+}
+
+// splitComparison recognizes a top-level "@Key==literal" / "@Key!=literal" comparison.
+func splitComparison(expr string) (key, value, op string, ok bool) {
+	depth := 0
+	for i := 0; i+1 < len(expr); i++ {
+		switch expr[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '=', '!':
+			if depth != 0 || expr[i+1] != '=' {
+				continue
+			}
+			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+2:])
+			op = "CondEq"
+			if expr[i] == '!' {
+				op = "CondNe"
+			}
+			if strings.HasPrefix(lhs, "@") && plainKey(lhs[1:]) && plainValue(rhs) {
+				return lhs[1:], rhs, op, true
+			}
+			return "", "", "", false
+		}
+	}
+	return "", "", "", false
+}
+
+// plainKey reports whether s is a bare sibling key name (no path, no operators).
+func plainKey(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// plainValue reports whether s is a bare comparison literal (name/number token).
+func plainValue(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '_' || c == '.' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // splitPredicate splits "fn:Name(arg0,arg1)" into its name and top-level comma-separated

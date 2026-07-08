@@ -367,6 +367,7 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
+				RequiredWhen: &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "Win"}, {Op: CondPresent, Key: "Mac"}, {Op: CondPresent, Key: "Unix"}}}}},
 				SinceVersion: "1.1",
 				LinkGroups: []LinkGroup{
 					{
@@ -374,7 +375,6 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FileSpecification"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "Win",
@@ -3305,13 +3305,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "LastModified",
 				Types:        []ValueType{Date},
+				RequiredWhen: &Cond{Op: CondAnd, Kids: []Cond{{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Version"}}}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "AnnotStates"}}}}},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Version",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondAnd, Kids: []Cond{{Op: CondPresent, Key: "AnnotStates"}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "LastModified"}}}}},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
 				LinkGroups: []LinkGroup{
@@ -3319,11 +3320,11 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfTrapNetVersionObjects"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "AnnotStates",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondAnd, Kids: []Cond{{Op: CondPresent, Key: "Version"}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "LastModified"}}}}},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
 				LinkGroups: []LinkGroup{
@@ -3331,7 +3332,6 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfAnnotStates"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "FontFauxing",
@@ -6921,13 +6921,13 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Recipients",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "SubFilter", Value: "adbe.pkcs7.s3"}, {Op: CondEq, Key: "SubFilter", Value: "adbe.pkcs7.s4"}}},
 				SinceVersion: "1.3",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"ArrayOfStringsByte"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "P",
@@ -7021,14 +7021,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "OE",
 				Types:        []ValueType{StringByte},
+				RequiredWhen: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "R", Value: "5"}, {Op: CondEq, Key: "R", Value: "6"}}},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "UE",
 				Types:        []ValueType{StringByte},
+				RequiredWhen: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "R", Value: "5"}, {Op: CondEq, Key: "R", Value: "6"}}},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "P",
@@ -7039,8 +7039,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Perms",
 				Types:        []ValueType{StringByte},
+				RequiredWhen: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "R", Value: "5"}, {Op: CondEq, Key: "R", Value: "6"}}},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Required: true},
 			},
 		},
 		Post14Keys: []string{"CF", "EncryptMetadata", "KDFSalt", "StmF", "StrF"},
@@ -7791,9 +7791,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:           "Type",
 				Types:          []ValueType{Name},
+				RequiredWhen:   &Cond{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "EF"}, {Op: CondPresent, Key: "RF"}}},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"Filespec"},
-				Predicated:     Predication{Required: true},
 			},
 			{
 				Name:         "FS",
@@ -7803,8 +7803,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "F",
 				Types:        []ValueType{String},
+				RequiredWhen: &Cond{Op: CondAnd, Kids: []Cond{{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "DOS"}}}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Mac"}}}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Unix"}}}}},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "DOS",
@@ -7842,13 +7842,13 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "EF",
 				Types:        []ValueType{Dictionary},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "RF"},
 				SinceVersion: "1.3",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"FileSpecEF"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "RF",
@@ -7918,13 +7918,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "ID",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "Encrypt"},
 				SinceVersion: "1.1",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"TrailerIDArray"},
 					},
 				},
-				Predicated: Predication{Required: true, Indirect: true},
+				Predicated: Predication{Indirect: true},
 			},
 			{
 				Name:         "AdditionalStreams",
@@ -12402,6 +12403,7 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Size",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "CropRect"},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
 				LinkGroups: []LinkGroup{
@@ -12409,14 +12411,13 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOf_2Numbers"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "CropRect",
 				Types:        []ValueType{Rectangle},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "Size"},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Overprint",
@@ -12758,6 +12759,7 @@ var Types = map[string]ObjectType{
 			{
 				Name:              "Parent",
 				Types:             []ValueType{Dictionary},
+				RequiredWhen:      &Cond{Op: CondNe, Key: "Type", Value: "Template"},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
 				LinkGroups: []LinkGroup{
@@ -12765,13 +12767,12 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"PageTreeNode", "PageTreeNodeRoot"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:         "LastModified",
 				Types:        []ValueType{Date},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "PieceInfo"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Resources",
@@ -14640,6 +14641,7 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Cert",
 				Types:        []ValueType{Array, StringByte},
+				RequiredWhen: &Cond{Op: CondEq, Key: "SubFilter", Value: "adbe.x509.rsa_sha1"},
 				SinceVersion: "1.3",
 				LinkGroups: []LinkGroup{
 					{
@@ -14647,7 +14649,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfStringsByte"},
 					},
 				},
-				Predicated: Predication{Required: true, Indirect: true},
+				Predicated: Predication{Indirect: true},
 			},
 			{
 				Name:         "ByteRange",
@@ -16577,8 +16579,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "LastModified",
 				Types:        []ValueType{Date},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "PieceInfo"},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "StructParent",
@@ -16793,9 +16795,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "LastModified",
 				Types:        []ValueType{Date},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "PieceInfo"},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "StructParent",
@@ -17030,8 +17032,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "LastModified",
 				Types:        []ValueType{Date},
+				RequiredWhen: &Cond{Op: CondPresent, Key: "PieceInfo"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "StructParent",

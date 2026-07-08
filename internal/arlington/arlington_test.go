@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -335,11 +336,43 @@ func TestVersionGateFolding(t *testing.T) {
 	}
 }
 
+// TestCompiledConditions pins representative fn:IsRequired conditions the generator compiles
+// into runtime Cond trees instead of leaving the row predicated.
+func TestCompiledConditions(t *testing.T) {
+	// fn:IsRequired(@Type!=Template) -> a plain comparison leaf.
+	parent := findKey(Types["PageObject"], "Parent")
+	wantParent := &Cond{Op: CondNe, Key: "Type", Value: "Template"}
+	if parent == nil || parent.Predicated.Required || !reflect.DeepEqual(parent.RequiredWhen, wantParent) {
+		t.Errorf("PageObject.Parent: want RequiredWhen %+v, got %+v", wantParent, parent)
+	}
+
+	// fn:IsRequired(fn:IsPresent(EF) || fn:SinceVersion(2.0,fn:IsPresent(EP)) || fn:IsPresent(RF)):
+	// the 2.0-gated operand folds away, the sibling-presence operands survive.
+	typ := findKey(Types["FileSpecification"], "Type")
+	wantTyp := &Cond{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "EF"}, {Op: CondPresent, Key: "RF"}}}
+	if typ == nil || !reflect.DeepEqual(typ.RequiredWhen, wantTyp) {
+		t.Errorf("FileSpecification.Type: want RequiredWhen %+v, got %+v", wantTyp, typ)
+	}
+
+	// fn:IsRequired((@R==5) || (@R==6)) -> comparison alternatives.
+	oe := findKey(Types["EncryptionStandard"], "OE")
+	wantOE := &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "R", Value: "5"}, {Op: CondEq, Key: "R", Value: "6"}}}
+	if oe == nil || !reflect.DeepEqual(oe.RequiredWhen, wantOE) {
+		t.Errorf("EncryptionStandard.OE: want RequiredWhen %+v, got %+v", wantOE, oe)
+	}
+
+	// Cross-object paths stay out of reach: AnnotText.AS (AP::N::*) has no compiled tree.
+	as := findKey(Types["AnnotText"], "AS")
+	if as == nil || as.RequiredWhen != nil {
+		t.Errorf("AnnotText.AS: want no RequiredWhen (path condition), got %+v", as)
+	}
+}
+
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.88 // observed ~89.3% after version-gate folding; headroom for TSV churn
+	const floor = 0.89 // observed ~90.2% after compiled conditions; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

@@ -307,3 +307,33 @@ PDF 1.4 baseline (`modelVersion`, `gen.go`):
 
 All gates green (full suite, Isartor 204/204, veraPDF 569/569, convert corpus 510/510);
 `BenchmarkOpenVerify` magnitudes unchanged (folding costs nothing at runtime).
+
+### Stage B2 — compiled fn:IsRequired conditions (review item 5, second increment) ✅ 2026-07-08
+
+The first *runtime* predicate family: `fn:IsRequired(cond)` rows whose condition only
+touches the owning dict's own entries now compile to a `RequiredWhen *arlington.Cond` tree
+(20 rows) instead of staying predicated:
+
+- **Codegen** (`compileCond`, `gen.go`, superseding B1's `foldVersionExpr` as the general
+  engine): sibling presence (`fn:IsPresent(Key)`), comparisons (`@Key==literal`,
+  `@Key!=literal`), `fn:Not`, `||`/`&&`, and B1's version gates folding inline —
+  `fn:IsPresent(EF) || fn:SinceVersion(2.0, ...) || fn:IsPresent(RF)` compiles to
+  `Or(Present EF, Present RF)`. Cross-object paths (`::`, `parent::`) and domain
+  predicates (`fn:NotStandard14Font`, ...) stay predicated. Decisive constants settle a
+  boolean even when a sibling operand is uncompilable.
+- **Runtime** (`evalCond`, `checks_objectmodel.go`): evaluates the tree against the dict,
+  fail-closed — a present-but-non-scalar comparison operand makes the condition unknown
+  and the requirement is skipped; an absent/null sibling is a *definite* state (`Present`
+  false, `==` false, `!=` true). Only `MissingRequiredKey` consumes it; the array path
+  ignores `RequiredWhen` (no compiled array rows exist).
+- Newly live requirements include `PageObject.Parent` (when `@Type!=Template`),
+  `FileTrailer.ID` (when `Encrypt` present), `EncryptionStandard.OE/UE/Perms` (when
+  `@R==5||6`), `FileSpecification.F/EF/Type`, `Page/XObjectForm*.LastModified` (when
+  `PieceInfo` present), `ActionLaunch.F`. Corpus-clean on the first run; one verify
+  fixture needed a `Parent` it had genuinely omitted.
+- Classification: 89.3% → 90.2% simple rows; floor raised 0.88 → 0.89.
+  `TestCompiledConditions` pins representative trees, `TestEvalCond` the evaluator's
+  tri-state semantics.
+
+All gates green; `BenchmarkOpenVerify` magnitudes unchanged (the tree is a few pointer
+hops per conditionally-required key, no allocations).

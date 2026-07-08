@@ -121,13 +121,39 @@ type Predication struct {
 // Any reports whether any column of the row is predicated.
 func (p Predication) Any() bool { return p.Required || p.Types || p.Values || p.Indirect }
 
+// CondOp enumerates the operators a compiled runtime condition can use.
+type CondOp int
+
+const (
+	CondPresent CondOp = iota // the sibling Key exists and is not null
+	CondEq                    // the sibling Key's scalar value equals Value
+	CondNe                    // the sibling Key's scalar value differs from Value
+	CondAnd
+	CondOr
+	CondNot
+)
+
+// Cond is a compiled fn: condition over the owning dictionary's own entries, produced at
+// generation time from predicate forms with no cross-object paths. Leaf ops use Key (and
+// Value for comparisons); CondAnd/CondOr/CondNot use Kids. Consumers evaluate it fail-closed:
+// an unresolvable operand must skip the dependent check, never flag.
+type Cond struct {
+	Op    CondOp
+	Key   string
+	Value string
+	Kids  []Cond
+}
+
 // KeyDef is one row of an Arlington type: a single named key (or a fixed array index, which
 // Arlington also expresses as a Key), or the wildcard entry (Name == "*") that governs
 // arbitrary dictionary keys or repeating array elements.
 type KeyDef struct {
-	Name              string
-	Types             []ValueType
-	Required          bool
+	Name     string
+	Types    []ValueType
+	Required bool
+	// RequiredWhen makes the key conditionally required: it must be present whenever the
+	// condition holds. Mutually exclusive with Required and Predicated.Required.
+	RequiredWhen      *Cond
 	IndirectReference IndirectRule
 	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);
 	// kept as groundwork for the predicate evaluator's version-gate families.

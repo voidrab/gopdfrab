@@ -22,6 +22,9 @@ func TestValidateAgainstSchema_MissingRequiredKey(t *testing.T) {
 func TestValidateAgainstSchema_InheritableKeyNotFlagged(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	parent := pdf.NewPDFDict()
+	parent.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	page.Entries["Parent"] = parent
 	// Resources/MediaBox omitted: both are Inheritable on PageObject, so their
 	// absence here is not itself a violation.
 	ctx := &ValidationContext{}
@@ -692,6 +695,81 @@ func TestValidateArrayAgainstSchema_WildcardEnum(t *testing.T) {
 	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for an unknown filter name")
+	}
+}
+
+func TestEvalCond(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["R"] = pdf.PDFInteger(5)
+	d.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	d.Entries["Null"] = nil
+	d.Entries["Dict"] = pdf.NewPDFDict()
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		val, ok bool
+	}{
+		{"present", arlington.Cond{Op: arlington.CondPresent, Key: "R"}, true, true},
+		{"absent", arlington.Cond{Op: arlington.CondPresent, Key: "X"}, false, true},
+		{"null is absent", arlington.Cond{Op: arlington.CondPresent, Key: "Null"}, false, true},
+		{"eq match", arlington.Cond{Op: arlington.CondEq, Key: "R", Value: "5"}, true, true},
+		{"eq mismatch", arlington.Cond{Op: arlington.CondEq, Key: "R", Value: "6"}, false, true},
+		{"eq absent", arlington.Cond{Op: arlington.CondEq, Key: "X", Value: "5"}, false, true},
+		{"ne name", arlington.Cond{Op: arlington.CondNe, Key: "Type", Value: "Template"}, true, true},
+		{"ne absent is true", arlington.Cond{Op: arlington.CondNe, Key: "X", Value: "5"}, true, true},
+		{"eq non-scalar fails closed", arlington.Cond{Op: arlington.CondEq, Key: "Dict", Value: "5"}, false, false},
+		{"not", arlington.Cond{Op: arlington.CondNot, Kids: []arlington.Cond{{Op: arlington.CondPresent, Key: "X"}}}, true, true},
+		{"or decisive beats bad kid", arlington.Cond{Op: arlington.CondOr, Kids: []arlington.Cond{
+			{Op: arlington.CondEq, Key: "Dict", Value: "5"}, {Op: arlington.CondPresent, Key: "R"}}}, true, true},
+		{"or all false", arlington.Cond{Op: arlington.CondOr, Kids: []arlington.Cond{
+			{Op: arlington.CondPresent, Key: "X"}, {Op: arlington.CondPresent, Key: "Y"}}}, false, true},
+		{"and decisive beats bad kid", arlington.Cond{Op: arlington.CondAnd, Kids: []arlington.Cond{
+			{Op: arlington.CondEq, Key: "Dict", Value: "5"}, {Op: arlington.CondPresent, Key: "X"}}}, false, true},
+		{"and bad kid fails closed", arlington.Cond{Op: arlington.CondAnd, Kids: []arlington.Cond{
+			{Op: arlington.CondEq, Key: "Dict", Value: "5"}, {Op: arlington.CondPresent, Key: "R"}}}, false, false},
+	}
+	for _, tc := range cases {
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
+	// PageObject.Parent is required when @Type!=Template.
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(page, "PageObject", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("expected MissingRequiredKey for a Page without Parent")
+	}
+
+	tmpl := pdf.NewPDFDict()
+	tmpl.Entries["Type"] = pdf.PDFName{Value: "Template"}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(tmpl, "PageObject", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("a Template page must not require Parent")
+	}
+
+	// FileTrailer.ID is required when Encrypt is present.
+	trailer := pdf.NewPDFDict()
+	enc := pdf.NewPDFDict()
+	enc.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	trailer.Entries["Encrypt"] = enc
+	ctx = &ValidationContext{}
+	validateAgainstSchema(trailer, "FileTrailer", ctx)
+	found := false
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.ObjectModel.MissingRequiredKey {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected MissingRequiredKey for an encrypted trailer without ID")
 	}
 }
 

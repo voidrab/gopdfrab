@@ -34,7 +34,12 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 
 		val, present := v.Entries[kd.Name]
 
-		if kd.Required && !kd.Predicated.Required && !kd.Inheritable && !present {
+		required := kd.Required
+		if !required && kd.RequiredWhen != nil {
+			req, ok := evalCond(kd.RequiredWhen, v)
+			required = ok && req
+		}
+		if required && !kd.Predicated.Required && !kd.Inheritable && !present {
 			ctx.Report(
 				pdf.Checks.ObjectModel.MissingRequiredKey,
 				v,
@@ -196,6 +201,53 @@ func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeN
 			fmt.Sprintf("%s element %d must be an indirect reference", typeName, idx),
 		)
 	}
+}
+
+// evalCond evaluates a compiled Arlington condition against v's own entries. ok is false when
+// an operand is unresolvable (a present comparison value that is not a name/integer scalar);
+// callers must then skip the dependent check, never flag. An absent or null sibling is a
+// definite state: CondPresent is false, CondEq false, CondNe true. Boolean operands
+// short-circuit on a decisive kid (true for Or, false for And) even when a sibling is not ok.
+func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
+	switch c.Op {
+	case arlington.CondPresent:
+		sib, present := v.Entries[c.Key]
+		return present && sib != nil, true
+	case arlington.CondEq, arlington.CondNe:
+		sib, present := v.Entries[c.Key]
+		eq := false
+		if present && sib != nil {
+			s, scalar := scalarEnumString(sib)
+			if !scalar {
+				return false, false
+			}
+			eq = s == c.Value
+		}
+		return eq == (c.Op == arlington.CondEq), true
+	case arlington.CondNot:
+		if len(c.Kids) != 1 {
+			return false, false
+		}
+		kv, kok := evalCond(&c.Kids[0], v)
+		return !kv, kok
+	case arlington.CondAnd, arlington.CondOr:
+		decisive := c.Op == arlington.CondOr
+		allOK := true
+		for i := range c.Kids {
+			kv, kok := evalCond(&c.Kids[i], v)
+			if kok && kv == decisive {
+				return decisive, true
+			}
+			if !kok {
+				allOK = false
+			}
+		}
+		if !allOK {
+			return false, false
+		}
+		return !decisive, true
+	}
+	return false, false
 }
 
 // isIndirect reports whether val was reached through an indirect reference. Only dicts and
