@@ -277,29 +277,134 @@ func TestMatchesValueType(t *testing.T) {
 }
 
 func TestArlingtonChildType(t *testing.T) {
-	if got := arlingtonChildType("Catalog", "Pages"); got != "PageTreeNodeRoot" {
+	pagesDict := pdf.NewPDFDict()
+	if got := arlingtonChildType("Catalog", "Pages", pagesDict); got != "PageTreeNodeRoot" {
 		t.Errorf("arlingtonChildType(Catalog, Pages) = %q, want PageTreeNodeRoot", got)
 	}
-	if got := arlingtonChildType("Catalog", "OpenAction"); got != "" {
-		t.Errorf("arlingtonChildType(Catalog, OpenAction) = %q, want \"\" (ambiguous Link)", got)
+
+	// OpenAction's dict alternative resolves via its S discriminator, including the
+	// JavaScript -> ActionECMAScript case (not a naive "Action"+S concatenation).
+	goTo := pdf.NewPDFDict()
+	goTo.Entries["S"] = pdf.PDFName{Value: "GoTo"}
+	if got := arlingtonChildType("Catalog", "OpenAction", goTo); got != "ActionGoTo" {
+		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=GoTo) = %q, want ActionGoTo", got)
 	}
-	if got := arlingtonChildType("NotAType", "Pages"); got != "" {
+	js := pdf.NewPDFDict()
+	js.Entries["S"] = pdf.PDFName{Value: "JavaScript"}
+	if got := arlingtonChildType("Catalog", "OpenAction", js); got != "ActionECMAScript" {
+		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=JavaScript) = %q, want ActionECMAScript", got)
+	}
+	unknownAction := pdf.NewPDFDict()
+	unknownAction.Entries["S"] = pdf.PDFName{Value: "NotARealActionType"}
+	if got := arlingtonChildType("Catalog", "OpenAction", unknownAction); got != "" {
+		t.Errorf("arlingtonChildType(Catalog, OpenAction, unrecognized S) = %q, want \"\" (no guess)", got)
+	}
+	noDiscriminator := pdf.NewPDFDict()
+	if got := arlingtonChildType("Catalog", "OpenAction", noDiscriminator); got != "" {
+		t.Errorf("arlingtonChildType(Catalog, OpenAction, no S) = %q, want \"\" (no guess)", got)
+	}
+
+	if got := arlingtonChildType("NotAType", "Pages", pagesDict); got != "" {
 		t.Errorf("arlingtonChildType(unknown type) = %q, want \"\"", got)
 	}
-	if got := arlingtonChildType("Catalog", "NoSuchKey"); got != "" {
+	if got := arlingtonChildType("Catalog", "NoSuchKey", pagesDict); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, NoSuchKey) = %q, want \"\"", got)
+	}
+	if got := arlingtonChildType("Catalog", "Pages", nil); got != "" {
+		t.Errorf("arlingtonChildType(Catalog, Pages, nil) = %q, want \"\" (null never resolves)", got)
 	}
 }
 
 func TestArlingtonElementType(t *testing.T) {
-	if got := arlingtonElementType("ArrayOfOutputIntents"); got != "OutputIntents" {
+	oi := pdf.NewPDFDict()
+	if got := arlingtonElementType("ArrayOfOutputIntents", oi); got != "OutputIntents" {
 		t.Errorf("arlingtonElementType(ArrayOfOutputIntents) = %q, want OutputIntents", got)
 	}
-	if got := arlingtonElementType("NotAType"); got != "" {
+
+	// ArrayOfAnnots' wildcard resolves each element via its own Subtype.
+	widget := pdf.NewPDFDict()
+	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
+	if got := arlingtonElementType("ArrayOfAnnots", widget); got != "AnnotWidget" {
+		t.Errorf("arlingtonElementType(ArrayOfAnnots, Subtype=Widget) = %q, want AnnotWidget", got)
+	}
+	noSubtype := pdf.NewPDFDict()
+	if got := arlingtonElementType("ArrayOfAnnots", noSubtype); got != "" {
+		t.Errorf("arlingtonElementType(ArrayOfAnnots, no Subtype) = %q, want \"\" (no guess)", got)
+	}
+
+	if got := arlingtonElementType("NotAType", oi); got != "" {
 		t.Errorf("arlingtonElementType(unknown type) = %q, want \"\"", got)
 	}
 	// ArrayOf_2Numbers has fixed-position keys ("0", "1"), not a wildcard.
-	if got := arlingtonElementType("ArrayOf_2Numbers"); got != "" {
+	if got := arlingtonElementType("ArrayOf_2Numbers", oi); got != "" {
 		t.Errorf("arlingtonElementType(ArrayOf_2Numbers) = %q, want \"\" (no wildcard)", got)
+	}
+	if got := arlingtonElementType("ArrayOfOutputIntents", nil); got != "" {
+		t.Errorf("arlingtonElementType(ArrayOfOutputIntents, nil) = %q, want \"\" (null never resolves)", got)
+	}
+}
+
+func TestResolveLinkGroups(t *testing.T) {
+	// A group whose ValueTypes doesn't match val's kind is skipped entirely.
+	next, _ := arlington.Type("ActionGoTo")
+	var nextKey *arlington.KeyDef
+	for i := range next.Keys {
+		if next.Keys[i].Name == "Next" {
+			nextKey = &next.Keys[i]
+		}
+	}
+	if nextKey == nil {
+		t.Fatal("ActionGoTo.Next not found")
+	}
+	// Next's Array-typed group has a single candidate (ArrayOfActions); a Name value matches
+	// neither the Array nor the Dictionary group, so it must stay unresolved.
+	if got := resolveLinkGroups(nextKey.LinkGroups, pdf.PDFName{Value: "X"}); got != "" {
+		t.Errorf("resolveLinkGroups(Next, a name) = %q, want \"\" (no matching group)", got)
+	}
+	if got := resolveLinkGroups(nextKey.LinkGroups, pdf.PDFArray{}); got != "ArrayOfActions" {
+		t.Errorf("resolveLinkGroups(Next, an array) = %q, want ArrayOfActions", got)
+	}
+}
+
+func TestLinkGroupMatchesKind(t *testing.T) {
+	streamDict := pdf.NewPDFDict()
+	streamDict.HasStream = true
+
+	cases := []struct {
+		name       string
+		val        pdf.PDFValue
+		valueTypes []arlington.ValueType
+		want       bool
+	}{
+		{"nil ValueTypes always matches", pdf.NewPDFDict(), nil, true},
+		{"array matches Array", pdf.PDFArray{}, []arlington.ValueType{arlington.Array}, true},
+		{"dict matches Dictionary", pdf.NewPDFDict(), []arlington.ValueType{arlington.Dictionary}, true},
+		{"stream dict matches Stream", streamDict, []arlington.ValueType{arlington.Stream}, true},
+		{"non-stream dict does not match Stream", pdf.NewPDFDict(), []arlington.ValueType{arlington.Stream}, false},
+		{"stream dict does not match Dictionary", streamDict, []arlington.ValueType{arlington.Dictionary}, false},
+		{"name matches Name", pdf.PDFName{Value: "X"}, []arlington.ValueType{arlington.Name}, true},
+		{"integer matches Integer", pdf.PDFInteger(1), []arlington.ValueType{arlington.Integer}, true},
+		{"real matches Number", pdf.PDFReal(1.5), []arlington.ValueType{arlington.Number}, true},
+		{"boolean matches Boolean", pdf.PDFBoolean(true), []arlington.ValueType{arlington.Boolean}, true},
+		{"string matches StringText", pdf.PDFString{Value: "x"}, []arlington.ValueType{arlington.StringText}, true},
+		{"hex string matches String", pdf.PDFHexString{Value: "aa"}, []arlington.ValueType{arlington.String}, true},
+		{"integer does not match Name (fails closed)", pdf.PDFInteger(1), []arlington.ValueType{arlington.Name}, false},
+		{"boolean does not match any of a multi-type list", pdf.PDFBoolean(true), []arlington.ValueType{arlington.Array, arlington.Name}, false},
+	}
+	for _, c := range cases {
+		if got := linkGroupMatchesKind(c.val, c.valueTypes); got != c.want {
+			t.Errorf("%s: linkGroupMatchesKind(%#v, %v) = %v, want %v", c.name, c.val, c.valueTypes, got, c.want)
+		}
+	}
+}
+
+// TestResolveLinkGroupsZeroCandidates covers a matching group with no candidates at all (a
+// Type alternative with no sub-schema, e.g. a plain scalar type alongside a dict alternative).
+func TestResolveLinkGroupsZeroCandidates(t *testing.T) {
+	groups := []arlington.LinkGroup{
+		{ValueTypes: []arlington.ValueType{arlington.Name}}, // no Candidates
+	}
+	if got := resolveLinkGroups(groups, pdf.PDFName{Value: "X"}); got != "" {
+		t.Errorf("resolveLinkGroups(zero-candidate group) = %q, want \"\"", got)
 	}
 }

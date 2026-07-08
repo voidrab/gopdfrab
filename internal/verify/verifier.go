@@ -593,7 +593,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				var childType string
 				if expectedType != "" && k != "_ref" {
-					childType = arlingtonChildType(expectedType, k)
+					childType = arlingtonChildType(expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, childType)
@@ -617,11 +617,11 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				)
 			}
 
-			var elemType string
-			if expectedType != "" {
-				elemType = arlingtonElementType(expectedType)
-			}
 			for _, item := range v {
+				var elemType string
+				if expectedType != "" {
+					elemType = arlingtonElementType(expectedType, item)
+				}
 				walk(item, owner, elemType)
 			}
 

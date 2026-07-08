@@ -24,7 +24,11 @@ var Types = map[string]ObjectType{
 				Name:         "Offset",
 				Types:        []ValueType{Array},
 				SinceVersion: "fn:Extension(AAPL,1.2)",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Radius",
@@ -36,13 +40,24 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "fn:Extension(AAPL,1.2)",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Color",
 				Types:        []ValueType{Array},
 				SinceVersion: "fn:Extension(AAPL,1.2)",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 		},
 	},
@@ -66,14 +81,30 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "JS",
 				Types:        []ValueType{Stream, StringText},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 	},
@@ -97,15 +128,33 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Array, Name, StringByte},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
+				Predicated: true,
 			},
 		},
 		Post14Keys: []string{"SD"},
@@ -130,21 +179,44 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Array, Name, StringByte},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
 			},
 			{
 				Name:         "NewWindow",
@@ -174,14 +246,36 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "T",
 				Types:        []ValueType{Array, Dictionary, StringText},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActionHideAnnots", "AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActionHideAnnots"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Circle": "AnnotCircle", "FileAttachment": "AnnotFileAttachment", "FreeText": "AnnotFreeText", "Highlight": "AnnotHighlight", "Ink": "AnnotInk", "Line": "AnnotLine", "Link": "AnnotLink", "Movie": "AnnotMovie", "Popup": "AnnotPopup", "PrinterMark": "AnnotPrinterMark", "Sound": "AnnotSound", "Square": "AnnotSquare", "Squiggly": "AnnotSquiggly", "Stamp": "AnnotStamp", "StrikeOut": "AnnotStrikeOut", "Text": "AnnotText", "TrapNet": "AnnotTrapNetwork", "Underline": "AnnotUnderline", "Widget": "AnnotWidget"},
+					},
+				},
 			},
 			{
 				Name:         "H",
@@ -210,14 +304,30 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 		},
 	},
@@ -241,21 +351,41 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.1",
-				Link:         []string{"FileSpecification"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Win",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
 				DeprecatedIn: "2.0",
-				Link:         []string{"MicrosoftWindowsLaunchParam"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"MicrosoftWindowsLaunchParam"},
+					},
+				},
 			},
 			{
 				Name:         "Mac",
@@ -299,14 +429,29 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "Annotation",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"AnnotMovie"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotMovie"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -343,7 +488,18 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:           "N",
@@ -374,13 +530,28 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "Fields",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFieldID"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFieldID"},
+					},
+				},
 			},
 			{
 				Name:           "Flags",
@@ -413,7 +584,18 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:              "Sound",
@@ -422,7 +604,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"SoundObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"SoundObject"},
+					},
+				},
 			},
 			{
 				Name:         "Volume",
@@ -472,13 +658,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, String},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "Fields",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFieldID"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFieldID"},
+					},
+				},
 			},
 			{
 				Name:         "Flags",
@@ -495,7 +690,18 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 		},
 	},
@@ -519,28 +725,54 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.1",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Dictionary, Integer, StringText},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"Thread"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"Thread"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "B",
 				Types:        []ValueType{Dictionary, Integer},
 				SinceVersion: "1.1",
-				Link:         []string{"Bead"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"Bead"},
+					},
+				},
+				Predicated: true,
 			},
 		},
 	},
@@ -564,7 +796,18 @@ var Types = map[string]ObjectType{
 				Name:         "Next",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfActions", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfActions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "URI",
@@ -586,31 +829,51 @@ var Types = map[string]ObjectType{
 				Name:         "DC",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "WS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "DS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "WP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "DP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 		},
 	},
@@ -621,25 +884,41 @@ var Types = map[string]ObjectType{
 				Name:         "K",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "V",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 		},
 	},
@@ -650,13 +929,25 @@ var Types = map[string]ObjectType{
 				Name:         "O",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 		},
 	},
@@ -667,37 +958,73 @@ var Types = map[string]ObjectType{
 				Name:         "E",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "X",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "U",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "Fo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "Bl",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"PC", "PI", "PO", "PV"},
@@ -711,7 +1038,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectImage"},
+					},
+				},
 			},
 			{
 				Name:         "DefaultForPrinting",
@@ -753,7 +1084,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -774,8 +1109,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -787,13 +1126,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -816,19 +1163,31 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 			{
 				Name:         "IC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BE", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RD", "RT", "Subj", "ca"},
@@ -865,7 +1224,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -886,8 +1249,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -899,13 +1266,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -928,14 +1303,23 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "FS",
 				Types:        []ValueType{Dictionary, String},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "Name",
@@ -978,7 +1362,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -999,8 +1387,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1012,13 +1404,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1041,7 +1441,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -1090,7 +1494,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1111,8 +1519,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1124,13 +1536,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1153,14 +1573,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "QuadPoints",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfQuadPoints"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfQuadPoints"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RT", "Subj", "ca"},
@@ -1197,7 +1625,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1218,8 +1650,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1231,13 +1667,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1260,20 +1704,32 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "InkList",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfArraysInkList"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfArraysInkList"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "Path", "RC", "RT", "Subj", "ca"},
@@ -1310,7 +1766,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1331,8 +1791,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1344,13 +1808,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1373,32 +1845,52 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "L",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 			{
 				Name:         "LE",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_2LineEndingsNames"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2LineEndingsNames"},
+					},
+				},
 			},
 			{
 				Name:         "IC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CO", "CP", "Cap", "CreationDate", "ExData", "IRT", "IT", "LL", "LLE", "LLO", "Lang", "Measure", "OC", "RC", "RT", "Subj", "ca"},
@@ -1435,7 +1927,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1456,7 +1952,11 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Appearance"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
 			},
 			{
 				Name:         "AS",
@@ -1468,13 +1968,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1485,13 +1993,26 @@ var Types = map[string]ObjectType{
 				Name:         "A",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "Dest",
 				Types:        []ValueType{Array, Name, StringByte},
 				SinceVersion: "1.0",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
 			},
 			{
 				Name:           "H",
@@ -1503,13 +2024,21 @@ var Types = map[string]ObjectType{
 				Name:         "PA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionURI"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CA", "Lang", "OC", "Path", "QuadPoints", "ca"},
@@ -1551,7 +2080,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1576,8 +2109,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1591,14 +2128,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1618,14 +2163,23 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Movie"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Movie"},
+					},
+				},
 			},
 			{
 				Name:         "A",
 				Types:        []ValueType{Boolean, Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"MovieActivation"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"MovieActivation"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CA", "Lang", "OC", "ca"},
@@ -1662,7 +2216,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1683,7 +2241,11 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
 			},
 			{
 				Name:         "AS",
@@ -1695,13 +2257,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1712,7 +2282,13 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Circle": "AnnotCircle", "FileAttachment": "AnnotFileAttachment", "FreeText": "AnnotFreeText", "Highlight": "AnnotHighlight", "Ink": "AnnotInk", "Line": "AnnotLine", "Link": "AnnotLink", "Movie": "AnnotMovie", "Popup": "AnnotPopup", "PrinterMark": "AnnotPrinterMark", "Sound": "AnnotSound", "Square": "AnnotSquare", "Squiggly": "AnnotSquiggly", "Stamp": "AnnotStamp", "StrikeOut": "AnnotStrikeOut", "Text": "AnnotText", "Underline": "AnnotUnderline", "Widget": "AnnotWidget"},
+					},
+				},
 			},
 			{
 				Name:         "Open",
@@ -1754,7 +2330,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1776,8 +2356,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"AppearancePrinterMark"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AppearancePrinterMark"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1789,13 +2373,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1848,7 +2440,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1873,8 +2469,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -1888,14 +2488,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -1922,7 +2530,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:              "Sound",
@@ -1931,7 +2543,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"SoundObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"SoundObject"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -1974,7 +2590,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -1995,8 +2615,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2008,13 +2632,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2031,19 +2663,31 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 			{
 				Name:         "IC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BE", "BM", "CA", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RD", "RT", "Subj", "ca"},
@@ -2080,7 +2724,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2101,8 +2749,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2114,13 +2766,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2143,14 +2803,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "QuadPoints",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfQuadPoints"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfQuadPoints"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RT", "Subj", "ca"},
@@ -2187,7 +2855,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2208,8 +2880,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2221,13 +2897,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2250,7 +2934,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:           "Name",
@@ -2293,7 +2981,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2314,8 +3006,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2327,13 +3023,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2356,14 +3060,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "QuadPoints",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfQuadPoints"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfQuadPoints"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RT", "Subj", "ca"},
@@ -2400,7 +3112,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2421,8 +3137,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2434,13 +3154,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2463,7 +3191,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "Open",
@@ -2516,7 +3248,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2543,7 +3279,11 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"AppearanceTrapNet"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AppearanceTrapNet"},
+					},
+				},
 			},
 			{
 				Name:         "AS",
@@ -2557,14 +3297,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2584,23 +3332,35 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfTrapNetVersionObjects"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfTrapNetVersionObjects"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AnnotStates",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfAnnotStates"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfAnnotStates"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "FontFauxing",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfFonts"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFonts"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CA", "Lang", "OC", "ca"},
@@ -2637,7 +3397,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2658,8 +3422,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2671,13 +3439,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2700,14 +3476,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"AnnotPopup"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AnnotPopup"},
+					},
+				},
 			},
 			{
 				Name:         "QuadPoints",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfQuadPoints"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfQuadPoints"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "BM", "CreationDate", "ExData", "IRT", "IT", "Lang", "OC", "RC", "RT", "Subj", "ca"},
@@ -2744,7 +3528,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "NM",
@@ -2765,8 +3553,12 @@ var Types = map[string]ObjectType{
 				Name:         "AP",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Appearance"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Appearance"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AS",
@@ -2778,13 +3570,21 @@ var Types = map[string]ObjectType{
 				Name:         "Border",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOf_4AnnotBorderCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4AnnotBorderCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOf_4NumbersColorAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4NumbersColorAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "StructParent",
@@ -2801,37 +3601,65 @@ var Types = map[string]ObjectType{
 				Name:         "MK",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"AppearanceCharacteristics"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AppearanceCharacteristics"},
+					},
+				},
 			},
 			{
 				Name:         "A",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"AddActionWidgetAnnotation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionWidgetAnnotation"},
+					},
+				},
 			},
 			{
 				Name:         "BS",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"BorderStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BorderStyle"},
+					},
+				},
 			},
 			{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -2864,19 +3692,52 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"AppearanceSubDict", "XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceSubDict"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:         "R",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.2",
-				Link:         []string{"AppearanceSubDict", "XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceSubDict"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.2",
-				Link:         []string{"AppearanceSubDict", "XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceSubDict"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1"},
+					},
+				},
 			},
 		},
 	},
@@ -2892,13 +3753,21 @@ var Types = map[string]ObjectType{
 				Name:         "BC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BG",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "CA",
@@ -2920,27 +3789,49 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"XObjectFormType1", "XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"XObjectFormType1", "XObjectImage"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1", "Image": "XObjectImage"},
+					},
+				},
 			},
 			{
 				Name:              "RI",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"XObjectFormType1", "XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"XObjectFormType1", "XObjectImage"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1", "Image": "XObjectImage"},
+					},
+				},
 			},
 			{
 				Name:              "IX",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"XObjectFormType1", "XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"XObjectFormType1", "XObjectImage"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1", "Image": "XObjectImage"},
+					},
+				},
 			},
 			{
 				Name:         "IF",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"IconFit"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"IconFit"},
+					},
+				},
 			},
 			{
 				Name:           "TP",
@@ -2958,19 +3849,46 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.4",
-				Link:         []string{"AppearancePrinterMarkSubDict", "XObjectFormPrinterMark"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearancePrinterMarkSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormPrinterMark"},
+					},
+				},
 			},
 			{
 				Name:         "R",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.4",
-				Link:         []string{"AppearancePrinterMarkSubDict", "XObjectFormPrinterMark"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearancePrinterMarkSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormPrinterMark"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.4",
-				Link:         []string{"AppearancePrinterMarkSubDict", "XObjectFormPrinterMark"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearancePrinterMarkSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormPrinterMark"},
+					},
+				},
 			},
 		},
 	},
@@ -2981,7 +3899,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.4",
-			Link:              []string{"XObjectFormPrinterMark"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"XObjectFormPrinterMark"},
+				},
+			},
 		},
 	},
 	"AppearanceSubDict": {
@@ -2991,7 +3913,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
-			Link:              []string{"XObjectFormType1"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"XObjectFormType1"},
+				},
+			},
 		},
 	},
 	"AppearanceTrapNet": {
@@ -3003,21 +3929,48 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"AppearanceTrapNetSubDict", "XObjectFormTrapNet"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceTrapNetSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormTrapNet"},
+					},
+				},
 			},
 			{
 				Name:         "R",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"AppearanceTrapNetSubDict", "XObjectFormTrapNet"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceTrapNetSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormTrapNet"},
+					},
+				},
 			},
 			{
 				Name:         "D",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"AppearanceTrapNetSubDict", "XObjectFormTrapNet"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AppearanceTrapNetSubDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectFormTrapNet"},
+					},
+				},
 			},
 		},
 	},
@@ -3029,7 +3982,11 @@ var Types = map[string]ObjectType{
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
 			DeprecatedIn:      "2.0",
-			Link:              []string{"XObjectFormTrapNet"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"XObjectFormTrapNet"},
+				},
+			},
 		},
 	},
 	"ArrayOf4Functions": {
@@ -3040,28 +3997,80 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "1",
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "2",
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "3",
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 		},
 	},
@@ -3071,7 +4080,14 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, StringText},
 			SinceVersion: "1.2",
-			Link:         []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"Circle": "AnnotCircle", "FileAttachment": "AnnotFileAttachment", "FreeText": "AnnotFreeText", "Highlight": "AnnotHighlight", "Ink": "AnnotInk", "Line": "AnnotLine", "Link": "AnnotLink", "Movie": "AnnotMovie", "Popup": "AnnotPopup", "PrinterMark": "AnnotPrinterMark", "Sound": "AnnotSound", "Square": "AnnotSquare", "Squiggly": "AnnotSquiggly", "Stamp": "AnnotStamp", "StrikeOut": "AnnotStrikeOut", "Text": "AnnotText", "TrapNet": "AnnotTrapNetwork", "Underline": "AnnotUnderline", "Widget": "AnnotWidget"},
+				},
+			},
 		},
 	},
 	"ArrayOfActions": {
@@ -3080,7 +4096,13 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.2",
-			Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+					Discriminator: "S",
+					ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+				},
+			},
 		},
 	},
 	"ArrayOfAnnotStates": {
@@ -3098,8 +4120,14 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.0",
-			Link:         []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
-			Predicated:   true,
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"AnnotText", "AnnotLink", "AnnotFreeText", "AnnotLine", "AnnotSquare", "AnnotCircle", "AnnotHighlight", "AnnotUnderline", "AnnotSquiggly", "AnnotStrikeOut", "AnnotStamp", "AnnotInk", "AnnotPopup", "AnnotFileAttachment", "AnnotSound", "AnnotMovie", "AnnotWidget", "AnnotPrinterMark", "AnnotTrapNetwork"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"Circle": "AnnotCircle", "FileAttachment": "AnnotFileAttachment", "FreeText": "AnnotFreeText", "Highlight": "AnnotHighlight", "Ink": "AnnotInk", "Line": "AnnotLine", "Link": "AnnotLink", "Movie": "AnnotMovie", "Popup": "AnnotPopup", "PrinterMark": "AnnotPrinterMark", "Sound": "AnnotSound", "Square": "AnnotSquare", "Squiggly": "AnnotSquiggly", "Stamp": "AnnotStamp", "StrikeOut": "AnnotStrikeOut", "Text": "AnnotText", "TrapNet": "AnnotTrapNetwork", "Underline": "AnnotUnderline", "Widget": "AnnotWidget"},
+				},
+			},
+			Predicated: true,
 		},
 	},
 	"ArrayOfArraysInkList": {
@@ -3108,7 +4136,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array},
 			SinceVersion: "1.3",
-			Link:         []string{"ArrayOfNumbersGeneral"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"ArrayOfNumbersGeneral"},
+				},
+			},
 		},
 	},
 	"ArrayOfArraysURLStrings": {
@@ -3117,7 +4149,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array},
 			SinceVersion: "1.3",
-			Link:         []string{"ArrayOfURLStrings"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"ArrayOfURLStrings"},
+				},
+			},
 		},
 	},
 	"ArrayOfAttributeObjects": {
@@ -3126,7 +4162,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.3",
-			Link:         []string{"StructureAttributesDict"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"StructureAttributesDict"},
+				},
+			},
 		},
 	},
 	"ArrayOfAttributeRevisions": {
@@ -3137,7 +4177,16 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"StructureAttributesDict", "Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"StructureAttributesDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "1*",
@@ -3154,7 +4203,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Dictionary},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.1",
-			Link:              []string{"BeadFirst", "Bead"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"BeadFirst", "Bead"},
+				},
+			},
 		},
 	},
 	"ArrayOfBlendModes": {
@@ -3174,7 +4227,12 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Integer, Number},
 			SinceVersion: "1.2",
-			Link:         []string{"ArrayOfNumbersGeneral"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"ArrayOfNumbersGeneral"},
+				},
+			},
 		},
 	},
 	"ArrayOfCIDGlyphMetricsW2": {
@@ -3183,7 +4241,12 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Integer, Number},
 			SinceVersion: "1.2",
-			Link:         []string{"ArrayOfNumbersGeneral"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"ArrayOfNumbersGeneral"},
+				},
+			},
 		},
 	},
 	"ArrayOfClassNamesRevisions": {
@@ -3227,7 +4290,12 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Null},
 			SinceVersion: "1.0",
-			Link:         []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				},
+			},
 		},
 	},
 	"ArrayOfDescendantFonts": {
@@ -3238,7 +4306,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FontCIDType0", "FontCIDType2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FontCIDType0", "FontCIDType2"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"CIDFontType0": "FontCIDType0", "CIDFontType2": "FontCIDType2"},
+					},
+				},
 			},
 		},
 	},
@@ -3277,7 +4351,12 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, StringText},
 			SinceVersion: "1.2",
-			Link:         []string{"ArrayOf_2StringsText"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"ArrayOf_2StringsText"},
+				},
+			},
 		},
 	},
 	"ArrayOfFieldID": {
@@ -3286,7 +4365,14 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, StringText},
 			SinceVersion: "1.2",
-			Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+					Discriminator: "FT",
+					ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+				},
+			},
 		},
 	},
 	"ArrayOfFields": {
@@ -3295,7 +4381,13 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.2",
-			Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field", "AnnotWidget"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field", "AnnotWidget"},
+					Discriminator: "FT",
+					ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+				},
+			},
 		},
 	},
 	"ArrayOfFilterNames": {
@@ -3316,7 +4408,13 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"CIDFontType0": "FontCIDType0", "CIDFontType2": "FontCIDType2", "MMType1": "FontMultipleMaster", "TrueType": "FontTrueType", "Type0": "FontType0", "Type1": "FontType1", "Type3": "FontType3"},
+					},
+				},
 			},
 			{
 				Name:         "1",
@@ -3333,7 +4431,13 @@ var Types = map[string]ObjectType{
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.3",
 			DeprecatedIn: "2.0",
-			Link:         []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"CIDFontType0": "FontCIDType0", "CIDFontType2": "FontCIDType2", "MMType1": "FontMultipleMaster", "TrueType": "FontTrueType", "Type0": "FontType0", "Type1": "FontType1", "Type3": "FontType3"},
+				},
+			},
 		},
 	},
 	"ArrayOfFunctions": {
@@ -3342,7 +4446,20 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Stream},
 			SinceVersion: "1.2",
-			Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"FunctionType2", "FunctionType3"},
+					Discriminator: "FunctionType",
+					ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+				},
+				{
+					ValueTypes:    []ValueType{Stream},
+					Candidates:    []string{"FunctionType0", "FunctionType4"},
+					Discriminator: "FunctionType",
+					ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+				},
+			},
 		},
 	},
 	"ArrayOfGSPDashPatterns": {
@@ -3353,7 +4470,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDashPatterns"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfDashPatterns"},
+					},
+				},
 			},
 			{
 				Name:         "1",
@@ -3369,7 +4490,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.3",
-			Link:         []string{"AlternateImage"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"AlternateImage"},
+				},
+			},
 		},
 	},
 	"ArrayOfIntegersGeneral": {
@@ -3487,7 +4612,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.4",
-			Link:         []string{"OutputIntents"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"OutputIntents"},
+				},
+			},
 		},
 	},
 	"ArrayOfPageTreeNodeKids": {
@@ -3497,7 +4626,13 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Dictionary},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.0",
-			Link:              []string{"PageTreeNode", "PageObject"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"PageTreeNode", "PageObject"},
+					Discriminator: "Type",
+					ByValue:       map[string]string{"Pages": "PageTreeNode"},
+				},
+			},
 		},
 	},
 	"ArrayOfPages": {
@@ -3507,7 +4642,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Dictionary},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
-			Link:              []string{"PageObject"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"PageObject"},
+				},
+			},
 		},
 	},
 	"ArrayOfQuadPoints": {
@@ -3569,7 +4708,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.3",
-			Link:         []string{"SourceInformation"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"SourceInformation"},
+				},
+			},
 		},
 	},
 	"ArrayOfStreamsGeneral": {
@@ -3579,7 +4722,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.0",
-			Link:              []string{"Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"Stream"},
+				},
+			},
 		},
 	},
 	"ArrayOfStringsByte": {
@@ -3605,7 +4752,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Dictionary},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
-			Link:              []string{"StructElem"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"StructElem"},
+				},
+			},
 		},
 	},
 	"ArrayOfStructElemKids": {
@@ -3614,7 +4765,14 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Integer},
 			SinceVersion: "1.3",
-			Link:         []string{"StructElem", "MarkedContentReference", "ObjectReference"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"StructElem", "MarkedContentReference", "ObjectReference"},
+					Discriminator: "Type",
+					ByValue:       map[string]string{"MCR": "MarkedContentReference", "OBJR": "ObjectReference"},
+				},
+			},
 		},
 	},
 	"ArrayOfStructElemParentTree": {
@@ -3623,7 +4781,12 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Null},
 			SinceVersion: "1.3",
-			Link:         []string{"StructElem"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"StructElem"},
+				},
+			},
 		},
 	},
 	"ArrayOfTags": {
@@ -3651,7 +4814,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.1",
-			Link:         []string{"Thread"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"Thread"},
+				},
+			},
 		},
 	},
 	"ArrayOfTrapNetVersionObjects": {
@@ -3662,7 +4829,26 @@ var Types = map[string]ObjectType{
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
 			DeprecatedIn:      "2.0",
-			Link:              []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace", "OPIVersion13Dict", "OPIVersion20Dict", "GraphicsStateParameter", "PatternType2", "ShadingType1", "ShadingType2", "ShadingType3", "XObjectFormType1", "XObjectImage", "XObjectFormPS", "XObjectFormPSpassthrough", "FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2", "PatternType1", "ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7", "Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Array},
+					Candidates:    []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace"},
+					Discriminator: "0",
+					ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceN": "DeviceNColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Pattern": "PatternColorSpace", "Separation": "SeparationColorSpace"},
+				},
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"OPIVersion13Dict", "OPIVersion20Dict", "GraphicsStateParameter", "PatternType2", "ShadingType1", "ShadingType2", "ShadingType3", "XObjectFormType1", "XObjectImage", "XObjectFormPS", "XObjectFormPSpassthrough", "FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"CIDFontType0": "FontCIDType0", "CIDFontType2": "FontCIDType2", "Form": "XObjectFormType1", "Image": "XObjectImage", "MMType1": "FontMultipleMaster", "TrueType": "FontTrueType", "Type0": "FontType0", "Type1": "FontType1", "Type3": "FontType3"},
+				},
+				{
+					ValueTypes:    []ValueType{Stream},
+					Candidates:    []string{"PatternType1", "ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7", "Stream"},
+					Discriminator: "ShadingType",
+					ByValue:       map[string]string{"4": "ShadingType4", "5": "ShadingType5", "6": "ShadingType6", "7": "ShadingType7"},
+				},
+			},
 		},
 	},
 	"ArrayOfTrapRegions": {
@@ -3673,7 +4859,11 @@ var Types = map[string]ObjectType{
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
 			DeprecatedIn:      "2.0",
-			Link:              []string{"TrapRegion"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"TrapRegion"},
+				},
+			},
 		},
 	},
 	"ArrayOfURLStrings": {
@@ -3692,7 +4882,11 @@ var Types = map[string]ObjectType{
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
 			DeprecatedIn:      "2.0",
-			Link:              []string{"WebCaptureCommand"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"WebCaptureCommand"},
+				},
+			},
 		},
 	},
 	"ArrayOfWebCaptureImages": {
@@ -3702,7 +4896,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
-			Link:              []string{"XObjectImage"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"XObjectImage"},
+				},
+			},
 		},
 	},
 	"ArrayOfWebCapturePages": {
@@ -3712,7 +4910,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Dictionary},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.3",
-			Link:              []string{"PageObject"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"PageObject"},
+				},
+			},
 		},
 	},
 	"ArrayOf_2Booleans": {
@@ -3916,7 +5118,11 @@ var Types = map[string]ObjectType{
 				Name:         "3",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOf_2DashNumbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2DashNumbers"},
+					},
+				},
 			},
 		},
 	},
@@ -4167,7 +5373,11 @@ var Types = map[string]ObjectType{
 			Types:        []ValueType{Array},
 			SinceVersion: "1.3",
 			DeprecatedIn: "2.0",
-			Link:         []string{"ArrayOfNumbersGeneral"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"ArrayOfNumbersGeneral"},
+				},
+			},
 		},
 	},
 	"Bead": {
@@ -4184,7 +5394,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"Thread"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Thread"},
+					},
+				},
 			},
 			{
 				Name:              "N",
@@ -4192,7 +5406,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"BeadFirst", "Bead"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BeadFirst", "Bead"},
+					},
+				},
 			},
 			{
 				Name:              "V",
@@ -4200,7 +5418,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"BeadFirst", "Bead"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BeadFirst", "Bead"},
+					},
+				},
 			},
 			{
 				Name:              "P",
@@ -4208,7 +5430,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "R",
@@ -4233,7 +5459,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"Thread"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Thread"},
+					},
+				},
 			},
 			{
 				Name:              "N",
@@ -4241,7 +5471,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"BeadFirst", "Bead"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BeadFirst", "Bead"},
+					},
+				},
 			},
 			{
 				Name:              "V",
@@ -4249,7 +5483,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"BeadFirst", "Bead"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BeadFirst", "Bead"},
+					},
+				},
 			},
 			{
 				Name:              "P",
@@ -4257,7 +5495,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "R",
@@ -4318,7 +5560,11 @@ var Types = map[string]ObjectType{
 				Name:         "D",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDashPatterns"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfDashPatterns"},
+					},
+				},
 			},
 		},
 	},
@@ -4329,25 +5575,41 @@ var Types = map[string]ObjectType{
 				Name:         "CropBox",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"BoxStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BoxStyle"},
+					},
+				},
 			},
 			{
 				Name:         "BleedBox",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"BoxStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BoxStyle"},
+					},
+				},
 			},
 			{
 				Name:         "TrimBox",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"BoxStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BoxStyle"},
+					},
+				},
 			},
 			{
 				Name:         "ArtBox",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"BoxStyle"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BoxStyle"},
+					},
+				},
 			},
 		},
 	},
@@ -4358,7 +5620,11 @@ var Types = map[string]ObjectType{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_3RGBNumbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_3RGBNumbers"},
+					},
+				},
 			},
 			{
 				Name:         "W",
@@ -4375,7 +5641,11 @@ var Types = map[string]ObjectType{
 				Name:         "D",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDashPatterns"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfDashPatterns"},
+					},
+				},
 			},
 		},
 	},
@@ -4519,7 +5789,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"CIDSystemInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CIDSystemInfo"},
+					},
+				},
 			},
 			{
 				Name:           "WMode",
@@ -4532,7 +5806,12 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"GB-EUC-H", "GB-EUC-V", "GBpc-EUC-H", "GBpc-EUC-V", "GBK-EUC-H", "GBK-EUC-V", "GBKp-EUC-H", "GBKp-EUC-V", "GBK2K-H", "GBK2K-V", "UniGB-UCS2-H", "UniGB-UCS2-V", "UniGB-UTF16-H", "UniGB-UTF16-V", "B5pc-H", "B5pc-V", "HKscs-B5-H", "HKscs-B5-V", "ETen-B5-H", "ETen-B5-V", "ETenms-B5-H", "ETenms-B5-V", "CNS-EUC-H", "CNS-EUC-V", "UniCNS-UCS2-H", "UniCNS-UCS2-V", "UniCNS-UTF16-H", "UniCNS-UTF16-V", "83pv-RKSJ-H", "90ms-RKSJ-H", "90ms-RKSJ-V", "90msp-RKSJ-H", "90msp-RKSJ-V", "90pv-RKSJ-H", "Add-RKSJ-H", "Add-RKSJ-V", "EUC-H", "EUC-V", "Ext-RKSJ-H", "Ext-RKSJ-V", "H", "V", "UniJIS-UCS2-H", "UniJIS-UCS2-V", "UniJIS-UCS2-HW-H", "UniJIS-UCS2-HW-V", "UniJIS-UTF16-H", "UniJIS-UTF16-V", "KSC-EUC-H", "KSC-EUC-V", "KSCms-UHC-H", "KSCms-UHC-V", "KSCms-UHC-HW-H", "KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H", "UniKS-UTF16-V", "Identity-H", "Identity-V"},
-				Link:           []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -4545,32 +5824,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -4590,7 +5902,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"CalGrayDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CalGrayDict"},
+					},
+				},
 			},
 		},
 	},
@@ -4602,13 +5918,21 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"WhitepointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WhitepointArray"},
+					},
+				},
 			},
 			{
 				Name:         "BlackPoint",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"BlackpointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BlackpointArray"},
+					},
+				},
 			},
 			{
 				Name:         "Gamma",
@@ -4633,7 +5957,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"CalRGBDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CalRGBDict"},
+					},
+				},
 			},
 		},
 	},
@@ -4645,25 +5973,41 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"WhitepointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WhitepointArray"},
+					},
+				},
 			},
 			{
 				Name:         "BlackPoint",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"BlackpointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BlackpointArray"},
+					},
+				},
 			},
 			{
 				Name:         "Gamma",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"GammaArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GammaArray"},
+					},
+				},
 			},
 			{
 				Name:         "Matrix",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOf_9Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_9Numbers"},
+					},
+				},
 			},
 		},
 	},
@@ -4689,32 +6033,52 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"PageTreeNodeRoot"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageTreeNodeRoot"},
+					},
+				},
 			},
 			{
 				Name:         "PageLabels",
 				Types:        []ValueType{NumberTree},
 				SinceVersion: "1.3",
-				Link:         []string{"PageLabel"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageLabel"},
+					},
+				},
 			},
 			{
 				Name:         "Names",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Name"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Name"},
+					},
+				},
 			},
 			{
 				Name:         "Dests",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"DestsMap"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"DestsMap"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "ViewerPreferences",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ViewerPreferences"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ViewerPreferences"},
+					},
+				},
 			},
 			{
 				Name:           "PageLayout",
@@ -4732,59 +6096,104 @@ var Types = map[string]ObjectType{
 				Name:         "Outlines",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"Outline"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Outline"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Threads",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOfThreads"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfThreads"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "OpenAction",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array", "ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"AddActionCatalog"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionCatalog"},
+					},
+				},
 			},
 			{
 				Name:         "URI",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"URI"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"URI"},
+					},
+				},
 			},
 			{
 				Name:         "AcroForm",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"InteractiveForm"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"InteractiveForm"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:              "StructTreeRoot",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"StructTreeRoot"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"StructTreeRoot"},
+					},
+				},
 			},
 			{
 				Name:         "MarkInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"MarkInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"MarkInfo"},
+					},
+				},
 			},
 			{
 				Name:         "Lang",
@@ -4795,19 +6204,31 @@ var Types = map[string]ObjectType{
 				Name:         "SpiderInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"WebCaptureInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WebCaptureInfo"},
+					},
+				},
 			},
 			{
 				Name:         "OutputIntents",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfOutputIntents"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfOutputIntents"},
+					},
+				},
 			},
 			{
 				Name:         "PieceInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"PagePiece"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PagePiece"},
+					},
+				},
 			},
 			{
 				Name:         "NeedsRendering",
@@ -4825,7 +6246,11 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.0",
-			Link:              []string{"Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"Stream"},
+				},
+			},
 		},
 	},
 	"ClassMap": {
@@ -4834,7 +6259,16 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Dictionary},
 			SinceVersion: "1.3",
-			Link:         []string{"ArrayOfAttributeObjects", "StructureAttributesDict"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"ArrayOfAttributeObjects"},
+				},
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"StructureAttributesDict"},
+				},
+			},
 		},
 	},
 	"ColorSpaceMap": {
@@ -4844,19 +6278,37 @@ var Types = map[string]ObjectType{
 				Name:         "DefaultRGB",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"CalRGBColorSpace", "ICCBasedColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"CalRGBColorSpace", "ICCBasedColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalRGB": "CalRGBColorSpace", "DeviceN": "DeviceNColorSpace", "ICCBased": "ICCBasedColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "DefaultCMYK",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ICCBasedColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ICCBasedColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"DeviceN": "DeviceNColorSpace", "ICCBased": "ICCBasedColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "DefaultGray",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"CalGrayColorSpace", "ICCBasedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"CalGrayColorSpace", "ICCBasedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "DeviceN": "DeviceNColorSpace", "ICCBased": "ICCBasedColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 		},
 		Wildcard: &KeyDef{
@@ -4864,7 +6316,14 @@ var Types = map[string]ObjectType{
 			Types:          []ValueType{Array, Name},
 			SinceVersion:   "1.0",
 			PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray", "Pattern"},
-			Link:           []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Array},
+					Candidates:    []string{"CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace"},
+					Discriminator: "0",
+					ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceN": "DeviceNColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Pattern": "PatternColorSpace", "Separation": "SeparationColorSpace"},
+				},
+			},
 		},
 	},
 	"ColorantsDict": {
@@ -4873,7 +6332,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array},
 			SinceVersion: "1.3",
-			Link:         []string{"SeparationColorSpace"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"SeparationColorSpace"},
+				},
+			},
 		},
 	},
 	"Data": {
@@ -4889,14 +6352,40 @@ var Types = map[string]ObjectType{
 				Name:         "Private",
 				Types:        []ValueType{Array, Boolean, Dictionary, Integer, Name, Number, Stream, String},
 				SinceVersion: "1.3",
-				Link:         []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"_UniversalArray"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"_UniversalDictionary"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 		Wildcard: &KeyDef{
 			Name:         "*",
 			Types:        []ValueType{Array, Boolean, Dictionary, Integer, Name, Number, Stream, String},
 			SinceVersion: "1.3",
-			Link:         []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"_UniversalArray"},
+				},
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"_UniversalDictionary"},
+				},
+				{
+					ValueTypes: []ValueType{Stream},
+					Candidates: []string{"Stream"},
+				},
+			},
 		},
 	},
 	"Dest0Array": {
@@ -4907,8 +6396,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Number},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"PageObject"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "1",
@@ -4927,8 +6421,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Number},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"PageObject"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "1",
@@ -4953,8 +6452,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Number},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"PageObject"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "1",
@@ -4997,7 +6501,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"SD"},
@@ -5010,8 +6520,13 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Number},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"PageObject"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "1",
@@ -5046,7 +6561,20 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Dictionary},
 			SinceVersion: "1.1",
-			Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array", "ActionGoTo", "ActionGoToR", "DestDict"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Array},
+					Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+					Discriminator: "1",
+					ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+				},
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"ActionGoTo", "ActionGoToR", "DestDict"},
+					Discriminator: "S",
+					ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR"},
+				},
+			},
 		},
 	},
 	"DeviceCMYKColorSpace": {
@@ -5088,7 +6616,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNamesGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNamesGeneral"},
+					},
+				},
 			},
 			{
 				Name:           "2",
@@ -5096,20 +6628,44 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Lab": "LabColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "3",
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "4",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"DeviceNDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"DeviceNDict"},
+					},
+				},
 			},
 		},
 	},
@@ -5120,7 +6676,11 @@ var Types = map[string]ObjectType{
 				Name:         "Colorants",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ColorantsDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ColorantsDict"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"MixingHints", "Process", "Subtype"},
@@ -5143,7 +6703,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.2",
-			Link:         []string{"_UniversalDictionary"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"_UniversalDictionary"},
+				},
+			},
 		},
 	},
 	"DocInfo": {
@@ -5235,7 +6799,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Mac"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Mac"},
+					},
+				},
 			},
 			{
 				Name:         "CheckSum",
@@ -5262,7 +6830,11 @@ var Types = map[string]ObjectType{
 				Name:         "Params",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"EmbeddedFileParameter"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"EmbeddedFileParameter"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -5275,32 +6847,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL", "Mail_MediaTypeParameters"},
@@ -5324,7 +6929,11 @@ var Types = map[string]ObjectType{
 				Name:         "Differences",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfDifferences"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfDifferences"},
+					},
+				},
 			},
 		},
 	},
@@ -5335,8 +6944,12 @@ var Types = map[string]ObjectType{
 				Name:         "Recipients",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfStringsByte"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfStringsByte"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "P",
@@ -5462,7 +7075,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.2",
-			Link:         []string{"CIDFontDescriptorMetrics"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"CIDFontDescriptorMetrics"},
+				},
+			},
 		},
 	},
 	"Field": {
@@ -5472,13 +7089,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5504,7 +7131,11 @@ var Types = map[string]ObjectType{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 		},
 	},
@@ -5523,13 +7154,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5556,7 +7197,11 @@ var Types = map[string]ObjectType{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -5575,8 +7220,12 @@ var Types = map[string]ObjectType{
 				Name:         "Opt",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfStringsText"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfStringsText"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "V",
@@ -5608,13 +7257,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5641,7 +7300,11 @@ var Types = map[string]ObjectType{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -5686,13 +7349,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5719,7 +7392,11 @@ var Types = map[string]ObjectType{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -5738,8 +7415,12 @@ var Types = map[string]ObjectType{
 				Name:         "Opt",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfStringsText"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfStringsText"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "V",
@@ -5771,13 +7452,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5804,21 +7495,35 @@ var Types = map[string]ObjectType{
 				Name:         "V",
 				Types:        []ValueType{Array, StringText},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfStringsText"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStringsText"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "DV",
 				Types:        []ValueType{Array, StringText},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfStringsText"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStringsText"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -5837,8 +7542,12 @@ var Types = map[string]ObjectType{
 				Name:         "Opt",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFieldChoiceOpt"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFieldChoiceOpt"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "TI",
@@ -5851,8 +7560,12 @@ var Types = map[string]ObjectType{
 				Name:         "I",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfNonNegativeIntegersGeneral"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNonNegativeIntegersGeneral"},
+					},
+				},
+				Inheritable: true,
 			},
 		},
 		Post14Keys: []string{"DS", "RV"},
@@ -5872,13 +7585,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5905,21 +7628,33 @@ var Types = map[string]ObjectType{
 				Name:         "V",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Signature"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Signature"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "DV",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Signature"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Signature"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -5951,13 +7686,23 @@ var Types = map[string]ObjectType{
 				Name:         "Parent",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"FieldTx", "FieldBtnPush", "FieldBtnCheckbox", "FieldBtnRadio", "FieldChoice", "FieldSig", "Field"},
+						Discriminator: "FT",
+						ByValue:       map[string]string{"Ch": "FieldChoice", "Sig": "FieldSig", "Tx": "FieldTx"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "T",
@@ -5990,14 +7735,23 @@ var Types = map[string]ObjectType{
 				Name:         "DV",
 				Types:        []ValueType{Stream, StringText},
 				SinceVersion: "1.2",
-				Link:         []string{"Stream"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"AddActionFormField"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionFormField"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -6029,7 +7783,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"EmbeddedFileStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"EmbeddedFileStream"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"UF"},
@@ -6042,7 +7800,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Array},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"RelatedFilesArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"RelatedFilesArray"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"UF"},
@@ -6091,7 +7853,11 @@ var Types = map[string]ObjectType{
 				Name:         "ID",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOf_2StringsByte"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2StringsByte"},
+					},
+				},
 			},
 			{
 				Name:         "V",
@@ -6102,14 +7868,22 @@ var Types = map[string]ObjectType{
 				Name:         "EF",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecEF"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FileSpecEF"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "RF",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecRF"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FileSpecRF"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AFRelationship", "CI", "Desc", "EP", "Thumb", "UF"},
@@ -6136,34 +7910,56 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"Catalog"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Catalog"},
+					},
+				},
 			},
 			{
 				Name:         "Encrypt",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"EncryptionStandard", "EncryptionPublicKey"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"EncryptionStandard", "EncryptionPublicKey"},
+						Discriminator: "Filter",
+						ByValue:       map[string]string{"Standard": "EncryptionStandard"},
+					},
+				},
 			},
 			{
 				Name:         "Info",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"DocInfo"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"DocInfo"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "ID",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"TrailerIDArray"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"TrailerIDArray"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "AdditionalStreams",
 				Types:        []ValueType{Array},
 				SinceVersion: "fn:Extension(OpenOffice)",
-				Link:         []string{"OOAdditionalStmsArray"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OOAdditionalStmsArray"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "DocChecksum",
@@ -6274,7 +8070,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 	},
@@ -6340,15 +8140,23 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"CIDSystemInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CIDSystemInfo"},
+					},
+				},
 			},
 			{
 				Name:         "FontDescriptor",
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FontDescriptorCIDType0"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorCIDType0"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "DW",
@@ -6359,33 +8167,54 @@ var Types = map[string]ObjectType{
 				Name:         "W",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfCIDGlyphMetricsW"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfCIDGlyphMetricsW"},
+					},
+				},
 			},
 			{
 				Name:         "DW2",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "W2",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfCIDGlyphMetricsW2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfCIDGlyphMetricsW2"},
+					},
+				},
 			},
 			{
 				Name:           "CIDToGIDMap",
 				Types:          []ValueType{Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -6417,15 +8246,23 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"CIDSystemInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CIDSystemInfo"},
+					},
+				},
 			},
 			{
 				Name:         "FontDescriptor",
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FontDescriptorCIDType2"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorCIDType2"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "DW",
@@ -6436,34 +8273,55 @@ var Types = map[string]ObjectType{
 				Name:         "W",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfCIDGlyphMetricsW"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfCIDGlyphMetricsW"},
+					},
+				},
 			},
 			{
 				Name:         "DW2",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "W2",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfCIDGlyphMetricsW2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfCIDGlyphMetricsW2"},
+					},
+				},
 			},
 			{
 				Name:           "CIDToGIDMap",
 				Types:          []ValueType{Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"Stream"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -6561,26 +8419,42 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"FontFile"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile"},
+					},
+				},
 			},
 			{
 				Name:              "FontFile3",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"FontFile3CIDType0"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile3CIDType0"},
+					},
+				},
 			},
 			{
 				Name:         "Style",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"StyleDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"StyleDict"},
+					},
+				},
 			},
 			{
 				Name:         "FD",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FDDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FDDict"},
+					},
+				},
 			},
 			{
 				Name:              "CIDSet",
@@ -6588,7 +8462,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"FontFamily", "FontStretch", "FontWeight", "Lang"},
@@ -6687,26 +8565,42 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"FontFile"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile"},
+					},
+				},
 			},
 			{
 				Name:              "FontFile2",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"FontFile2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile2"},
+					},
+				},
 			},
 			{
 				Name:         "Style",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"StyleDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"StyleDict"},
+					},
+				},
 			},
 			{
 				Name:         "FD",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"FDDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FDDict"},
+					},
+				},
 			},
 			{
 				Name:              "CIDSet",
@@ -6714,7 +8608,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"FontFamily", "FontFile3", "FontStretch", "FontWeight", "Lang"},
@@ -6813,14 +8711,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"FontFileType1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFileType1"},
+					},
+				},
 			},
 			{
 				Name:              "FontFile2",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"FontFile2"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile2"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"FontFamily", "FontFile3", "FontStretch", "FontWeight"},
@@ -6918,14 +8824,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"FontFileType1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFileType1"},
+					},
+				},
 			},
 			{
 				Name:              "FontFile3",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"FontFile3Type1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontFile3Type1"},
+					},
+				},
 			},
 			{
 				Name:         "CharSet",
@@ -7058,39 +8972,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7130,39 +9081,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7203,39 +9191,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7276,39 +9301,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7351,39 +9413,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7394,7 +9493,13 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.0",
-			Link:         []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"FontType1", "FontTrueType", "FontMultipleMaster", "FontType3", "FontType0", "FontCIDType0", "FontCIDType2"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"CIDFontType0": "FontCIDType0", "CIDFontType2": "FontCIDType2", "MMType1": "FontMultipleMaster", "TrueType": "FontTrueType", "Type0": "FontType0", "Type1": "FontType1", "Type3": "FontType3"},
+				},
+			},
 		},
 	},
 	"FontMultipleMaster": {
@@ -7443,30 +9548,47 @@ var Types = map[string]ObjectType{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:              "FontDescriptor",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"FontDescriptorType1"},
-				Predicated:        true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorType1"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "Encoding",
 				Types:          []ValueType{Dictionary, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"},
-				Link:           []string{"Encoding"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"Encoding"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -7516,30 +9638,47 @@ var Types = map[string]ObjectType{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:              "FontDescriptor",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"FontDescriptorTrueType"},
-				Predicated:        true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorTrueType"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "Encoding",
 				Types:          []ValueType{Dictionary, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"},
-				Link:           []string{"Encoding"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"Encoding"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -7572,21 +9711,34 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"GB-EUC-H", "GB-EUC-V", "GBpc-EUC-H", "GBpc-EUC-V", "GBK-EUC-H", "GBK-EUC-V", "GBKp-EUC-H", "GBKp-EUC-V", "GBK2K-H", "GBK2K-V", "UniGB-UCS2-H", "UniGB-UCS2-V", "UniGB-UTF16-H", "UniGB-UTF16-V", "B5pc-H", "B5pc-V", "HKscs-B5-H", "HKscs-B5-V", "ETen-B5-H", "ETen-B5-V", "ETenms-B5-H", "ETenms-B5-V", "CNS-EUC-H", "CNS-EUC-V", "UniCNS-UCS2-H", "UniCNS-UCS2-V", "UniCNS-UTF16-H", "UniCNS-UTF16-V", "83pv-RKSJ-H", "90ms-RKSJ-H", "90ms-RKSJ-V", "90msp-RKSJ-H", "90msp-RKSJ-V", "90pv-RKSJ-H", "Add-RKSJ-H", "Add-RKSJ-V", "EUC-H", "EUC-V", "Ext-RKSJ-H", "Ext-RKSJ-V", "H", "V", "UniJIS-UCS2-H", "UniJIS-UCS2-V", "UniJIS-UCS2-HW-H", "UniJIS-UCS2-HW-V", "UniJIS-UTF16-H", "UniJIS-UTF16-V", "KSC-EUC-H", "KSC-EUC-V", "KSCms-UHC-H", "KSCms-UHC-V", "KSCms-UHC-HW-H", "KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H", "UniKS-UTF16-V", "Identity-H", "Identity-V"},
-				Link:           []string{"CMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"CMapStream"},
+					},
+				},
 			},
 			{
 				Name:         "DescendantFonts",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDescendantFonts"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfDescendantFonts"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -7636,29 +9788,46 @@ var Types = map[string]ObjectType{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "FontDescriptor",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"FontDescriptorType1"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorType1"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "Encoding",
 				Types:          []ValueType{Dictionary, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"MacRomanEncoding", "MacExpertEncoding", "WinAnsiEncoding"},
-				Link:           []string{"Encoding"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"Encoding"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -7702,14 +9871,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"CharProcMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CharProcMap"},
+					},
+				},
 			},
 			{
 				Name:         "Encoding",
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"Encoding"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Encoding"},
+					},
+				},
 			},
 			{
 				Name:         "FirstChar",
@@ -7728,27 +9905,43 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "FontDescriptor",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"FontDescriptorType3"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontDescriptorType3"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Resources",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:              "ToUnicode",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.2",
-				Link:              []string{"ToUnicodeCMapStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ToUnicodeCMapStream"},
+					},
+				},
 			},
 		},
 	},
@@ -7767,21 +9960,33 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Size",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfIntegersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+				},
 			},
 			{
 				Name:           "BitsPerSample",
@@ -7800,13 +10005,21 @@ var Types = map[string]ObjectType{
 				Name:         "Encode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -7819,32 +10032,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -7864,25 +10110,41 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "C0",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "C1",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "N",
@@ -7907,34 +10169,54 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Functions",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+				},
 			},
 			{
 				Name:         "Bounds",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Encode",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 		},
 	},
@@ -7953,14 +10235,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -7973,32 +10263,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -8066,7 +10389,11 @@ var Types = map[string]ObjectType{
 				Name:         "D",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfGSPDashPatterns"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfGSPDashPatterns"},
+					},
+				},
 			},
 			{
 				Name:           "RI",
@@ -8094,51 +10421,154 @@ var Types = map[string]ObjectType{
 				Name:         "Font",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFontAndSize"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFontAndSize"},
+					},
+				},
 			},
 			{
 				Name:         "BG",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "BG2",
 				Types:        []ValueType{Dictionary, Name, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "UCR",
 				Types:        []ValueType{Dictionary, Stream},
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "UCR2",
 				Types:        []ValueType{Dictionary, Name, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "TR",
 				Types:        []ValueType{Array, Dictionary, Name, Stream},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf4Functions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOf4Functions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "TR2",
 				Types:        []ValueType{Array, Dictionary, Name, Stream},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf4Functions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOf4Functions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "HT",
 				Types:        []ValueType{Dictionary, Name, Stream},
 				SinceVersion: "1.2",
-				Link:         []string{"HalftoneType1", "HalftoneType5", "HalftoneType6", "HalftoneType10", "HalftoneType16"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"HalftoneType1", "HalftoneType5"},
+						Discriminator: "HalftoneType",
+						ByValue:       map[string]string{"1": "HalftoneType1", "5": "HalftoneType5"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"HalftoneType6", "HalftoneType10", "HalftoneType16"},
+						Discriminator: "HalftoneType",
+						ByValue:       map[string]string{"10": "HalftoneType10", "16": "HalftoneType16", "6": "HalftoneType6"},
+					},
+				},
 			},
 			{
 				Name:         "FL",
@@ -8162,15 +10592,27 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Normal", "Multiply", "Screen", "Difference", "Darken", "Lighten", "ColorDodge", "ColorBurn", "Exclusion", "HardLight", "Overlay", "SoftLight", "Luminosity", "Hue", "Saturation", "Color"},
-				Link:           []string{"ArrayOfBlendModes"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfBlendModes"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "SMask",
 				Types:          []ValueType{Dictionary, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"None"},
-				Link:           []string{"SoftMaskAlpha", "SoftMaskLuminosity"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"SoftMaskAlpha", "SoftMaskLuminosity"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"Alpha": "SoftMaskAlpha", "Luminosity": "SoftMaskLuminosity"},
+					},
+				},
 			},
 			{
 				Name:         "CA",
@@ -8199,7 +10641,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOf_2Integers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers"},
+					},
+				},
 			},
 			{
 				Name:         "AAPL:AA",
@@ -8210,7 +10656,12 @@ var Types = map[string]ObjectType{
 				Name:         "AAPL:ST",
 				Types:        []ValueType{Dictionary, Name},
 				SinceVersion: "fn:Extension(AAPL,1.2)",
-				Link:         []string{"AAPL_ST"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"AAPL_ST"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"HTO", "UseBlackPtComp"},
@@ -8221,7 +10672,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.2",
-			Link:         []string{"GraphicsStateParameter"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"GraphicsStateParameter"},
+				},
+			},
 		},
 	},
 	"GroupAttributes": {
@@ -8245,7 +10700,14 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "ICCBasedColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "ICCBasedColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "I",
@@ -8299,7 +10761,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"SimpleDot", "InvertedSimpleDot", "DoubleDot", "InvertedDoubleDot", "CosineDot", "Double", "InvertedDouble", "Line", "LineX", "LineY", "Round", "Ellipse", "EllipseA", "InvertedEllipseA", "EllipseB", "EllipseC", "InvertedEllipseC", "Square", "Cross", "Rhomboid", "Diamond"},
-				Link:           []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "AccurateScreens",
@@ -8311,8 +10790,21 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
+				Predicated: true,
 			},
 		},
 	},
@@ -8356,8 +10848,21 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Length",
@@ -8370,32 +10875,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -8452,8 +10990,21 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Length",
@@ -8466,32 +11017,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -8522,14 +11106,36 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"HalftoneType1", "HalftoneType6", "HalftoneType10", "HalftoneType16"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"HalftoneType1"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"HalftoneType6", "HalftoneType10", "HalftoneType16"},
+						Discriminator: "HalftoneType",
+						ByValue:       map[string]string{"10": "HalftoneType10", "16": "HalftoneType16", "6": "HalftoneType6"},
+					},
+				},
 			},
 		},
 		Wildcard: &KeyDef{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Stream},
 			SinceVersion: "1.2",
-			Link:         []string{"HalftoneType1", "HalftoneType6", "HalftoneType10", "HalftoneType16"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"HalftoneType1"},
+				},
+				{
+					ValueTypes:    []ValueType{Stream},
+					Candidates:    []string{"HalftoneType6", "HalftoneType10", "HalftoneType16"},
+					Discriminator: "HalftoneType",
+					ByValue:       map[string]string{"10": "HalftoneType10", "16": "HalftoneType16", "6": "HalftoneType6"},
+				},
+			},
 		},
 	},
 	"HalftoneType6": {
@@ -8572,7 +11178,20 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -8585,32 +11204,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -8631,7 +11283,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"ICCProfileStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ICCProfileStream"},
+					},
+				},
 			},
 		},
 	},
@@ -8650,20 +11306,35 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceGray", "DeviceRGB", "DeviceCMYK"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "DeviceNColorSpace", "IndexedColorSpace", "LabColorSpace", "SeparationColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "DeviceNColorSpace", "IndexedColorSpace", "LabColorSpace", "SeparationColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -8676,32 +11347,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -8725,7 +11429,11 @@ var Types = map[string]ObjectType{
 				Name:         "A",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"FB"},
@@ -8746,7 +11454,14 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "2",
@@ -8760,7 +11475,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Stream, String},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 	},
@@ -8772,7 +11492,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "NeedAppearances",
@@ -8789,13 +11513,21 @@ var Types = map[string]ObjectType{
 				Name:         "CO",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFields"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfFields"},
+					},
+				},
 			},
 			{
 				Name:         "DR",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "DA",
@@ -8826,7 +11558,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"LabDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"LabDict"},
+					},
+				},
 			},
 		},
 	},
@@ -8838,19 +11574,31 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.1",
-				Link:         []string{"WhitepointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WhitepointArray"},
+					},
+				},
 			},
 			{
 				Name:         "BlackPoint",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"BlackpointArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BlackpointArray"},
+					},
+				},
 			},
 			{
 				Name:         "Range",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"LabRangeArray"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"LabRangeArray"},
+					},
+				},
 			},
 		},
 	},
@@ -8910,8 +11658,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOf_2Integers", "ArrayOf_4Integers"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers", "ArrayOf_4Integers"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "O",
@@ -8970,7 +11722,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 	},
@@ -9000,22 +11756,43 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
-				Predicated:        true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:              "Stm",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"XObjectFormType1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:              "StmOwn",
 				Types:             []ValueType{Array, Dictionary, Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"_UniversalArray"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"_UniversalDictionary"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "MCID",
@@ -9053,32 +11830,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.4",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -9123,14 +11933,23 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "Aspect",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Rotate",
@@ -9144,7 +11963,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Boolean, Stream},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectImage"},
+					},
+				},
 			},
 		},
 	},
@@ -9156,14 +11980,24 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Integer, StringByte},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfDuration"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDuration"},
+					},
+				},
 			},
 			{
 				Name:         "Duration",
 				Types:        []ValueType{Array, Integer, StringByte},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfDuration"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDuration"},
+					},
+				},
 			},
 			{
 				Name:         "Rate",
@@ -9202,14 +12036,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Integers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers"},
+					},
+				},
 			},
 			{
 				Name:         "FWPosition",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 		},
 	},
@@ -9220,56 +12062,100 @@ var Types = map[string]ObjectType{
 				Name:         "Dests",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.2",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "DestDict", "DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "DestDict", "DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
 			},
 			{
 				Name:         "AP",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"XObjectFormType1", "XObjectFormPS", "XObjectFormPSpassthrough"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:         "JavaScript",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ActionECMAScript"},
+					},
+				},
 			},
 			{
 				Name:         "Pages",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "Templates",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "IDS",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"WebCaptureImageSet", "WebCapturePageSet"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"WebCaptureImageSet", "WebCapturePageSet"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"SIS": "WebCaptureImageSet", "SPS": "WebCapturePageSet"},
+					},
+				},
 			},
 			{
 				Name:         "URLS",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"WebCaptureImageSet", "WebCapturePageSet"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"WebCaptureImageSet", "WebCapturePageSet"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"SIS": "WebCaptureImageSet", "SPS": "WebCapturePageSet"},
+					},
+				},
 			},
 			{
 				Name:         "EmbeddedFiles",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.4",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "AlternatePresentations",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Link:         []string{"SlideShow"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"SlideShow"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"Renditions", "XFAResources"},
@@ -9290,7 +12176,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "fn:Extension(OpenOffice)",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 		},
 	},
@@ -9302,7 +12192,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13Dict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13Dict"},
+					},
+				},
 			},
 		},
 	},
@@ -9330,7 +12224,12 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "ID",
@@ -9349,7 +12248,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Integers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers"},
+					},
+				},
 			},
 			{
 				Name:         "CropRect",
@@ -9362,21 +12265,33 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_4Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Position",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_8Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_8Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Resolution",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "ColorType",
@@ -9389,7 +12304,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfOPI13Color"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfOPI13Color"},
+					},
+				},
 			},
 			{
 				Name:         "Tint",
@@ -9408,14 +12327,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Integers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers"},
+					},
+				},
 			},
 			{
 				Name:         "GrayMap",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfIntegersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Transparency",
@@ -9428,7 +12355,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfTags"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfTags"},
+					},
+				},
 			},
 		},
 	},
@@ -9440,7 +12371,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion20Dict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion20Dict"},
+					},
+				},
 			},
 		},
 	},
@@ -9468,7 +12403,12 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "MainImage",
@@ -9481,15 +12421,23 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfTags"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfTags"},
+					},
+				},
 			},
 			{
 				Name:         "Size",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Numbers"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "CropRect",
@@ -9510,14 +12458,23 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.2",
 				DeprecatedIn:   "2.0",
 				PossibleValues: []string{"full_color", "registration"},
-				Link:           []string{"ArrayOfOPI2Inks"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfOPI2Inks"},
+					},
+				},
 			},
 			{
 				Name:         "IncludedImageDimensions",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_2Integers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Integers"},
+					},
+				},
 			},
 			{
 				Name:           "IncludedImageQuality",
@@ -9543,8 +12500,12 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
-				Predicated:        true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:              "Obj",
@@ -9552,7 +12513,22 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"_UniversalArray", "_UniversalDictionary", "XObjectFormType1", "XObjectImage"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"_UniversalArray"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"_UniversalDictionary"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"XObjectFormType1", "XObjectImage"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Form": "XObjectFormType1", "Image": "XObjectImage"},
+					},
+				},
 			},
 		},
 	},
@@ -9570,14 +12546,22 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:              "Last",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:         "Count",
@@ -9602,35 +12586,55 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem", "Outline"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem", "Outline"},
+					},
+				},
 			},
 			{
 				Name:              "Prev",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:              "Next",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:              "First",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:              "Last",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"OutlineItem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OutlineItem"},
+					},
+				},
 			},
 			{
 				Name:         "Count",
@@ -9641,26 +12645,47 @@ var Types = map[string]ObjectType{
 				Name:         "Dest",
 				Types:        []ValueType{Array, Name, StringByte},
 				SinceVersion: "1.0",
-				Link:         []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DestXYZArray", "Dest0Array", "Dest1Array", "Dest4Array"},
+						Discriminator: "1",
+						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
+					},
+				},
 			},
 			{
 				Name:         "A",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ActionGoTo", "ActionGoToR", "ActionLaunch", "ActionThread", "ActionURI", "ActionSound", "ActionMovie", "ActionHide", "ActionNamed", "ActionSubmitForm", "ActionResetForm", "ActionImportData", "ActionECMAScript"},
+						Discriminator: "S",
+						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
+					},
+				},
 			},
 			{
 				Name:              "SE",
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"StructElem"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"StructElem"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_3RGBNumbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_3RGBNumbers"},
+					},
+				},
 			},
 			{
 				Name:         "F",
@@ -9711,7 +12736,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"ICCProfileStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ICCProfileStream"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DestOutputProfileRef", "MixingHints", "SpectralData"},
@@ -9759,8 +12788,12 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"PageTreeNode", "PageTreeNodeRoot"},
-				Predicated:        true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageTreeNode", "PageTreeNodeRoot"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "LastModified",
@@ -9773,8 +12806,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"Resource"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "MediaBox",
@@ -9808,13 +12845,26 @@ var Types = map[string]ObjectType{
 				Name:         "BoxColorInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"BoxColorInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BoxColorInfo"},
+					},
+				},
 			},
 			{
 				Name:         "Contents",
 				Types:        []ValueType{Array, Stream},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfStreamsGeneral", "Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStreamsGeneral"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "Rotate",
@@ -9827,20 +12877,32 @@ var Types = map[string]ObjectType{
 				Name:         "Group",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"GroupAttributes"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GroupAttributes"},
+					},
+				},
 			},
 			{
 				Name:              "Thumb",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"Thumbnail"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Thumbnail"},
+					},
+				},
 			},
 			{
 				Name:         "B",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.1",
-				Link:         []string{"ArrayOfBeads"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfBeads"},
+					},
+				},
 			},
 			{
 				Name:         "Dur",
@@ -9851,32 +12913,52 @@ var Types = map[string]ObjectType{
 				Name:         "Trans",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"Transition"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Transition"},
+					},
+				},
 			},
 			{
 				Name:         "Annots",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfAnnots"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfAnnots"},
+					},
+				},
 			},
 			{
 				Name:         "AA",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"AddActionPageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"AddActionPageObject"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "PieceInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"PagePiece"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PagePiece"},
+					},
+				},
 			},
 			{
 				Name:         "StructParents",
@@ -9898,7 +12980,11 @@ var Types = map[string]ObjectType{
 				Name:         "SeparationInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"Separation"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Separation"},
+					},
+				},
 			},
 			{
 				Name:         "Hid",
@@ -9916,7 +13002,11 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary},
 			SinceVersion: "1.3",
-			Link:         []string{"Data"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates: []string{"Data"},
+				},
+			},
 		},
 	},
 	"PageTreeNode": {
@@ -9935,14 +13025,22 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
-				Link:              []string{"PageTreeNode", "PageTreeNodeRoot"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageTreeNode", "PageTreeNodeRoot"},
+					},
+				},
 			},
 			{
 				Name:         "Kids",
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfPageTreeNodeKids"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfPageTreeNodeKids"},
+					},
+				},
 			},
 			{
 				Name:         "Count",
@@ -9955,8 +13053,12 @@ var Types = map[string]ObjectType{
 				Name:         "Resources",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"Resource"},
-				Inheritable:  true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
+				Inheritable: true,
 			},
 			{
 				Name:         "MediaBox",
@@ -9994,7 +13096,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfPageTreeNodeKids"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfPageTreeNodeKids"},
+					},
+				},
 			},
 			{
 				Name:         "Count",
@@ -10007,7 +13113,11 @@ var Types = map[string]ObjectType{
 				Name:         "Resources",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "MediaBox",
@@ -10042,7 +13152,14 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 		},
 	},
@@ -10052,7 +13169,16 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Stream},
 			SinceVersion: "1.2",
-			Link:         []string{"PatternType2", "PatternType1"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"PatternType2"},
+				},
+				{
+					ValueTypes: []ValueType{Stream},
+					Candidates: []string{"PatternType1"},
+				},
+			},
 		},
 	},
 	"PatternType1": {
@@ -10108,7 +13234,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "Matrix",
@@ -10126,39 +13256,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "XUID",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.2",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfIntegersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10184,7 +13351,20 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ShadingType1", "ShadingType2", "ShadingType3", "ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"ShadingType1", "ShadingType2", "ShadingType3"},
+						Discriminator: "ShadingType",
+						ByValue:       map[string]string{"1": "ShadingType1", "2": "ShadingType2", "3": "ShadingType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7"},
+						Discriminator: "ShadingType",
+						ByValue:       map[string]string{"4": "ShadingType4", "5": "ShadingType5", "6": "ShadingType6", "7": "ShadingType7"},
+					},
+				},
 			},
 			{
 				Name:         "Matrix",
@@ -10195,7 +13375,11 @@ var Types = map[string]ObjectType{
 				Name:         "ExtGState",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"GraphicsStateParameter"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GraphicsStateParameter"},
+					},
+				},
 			},
 		},
 	},
@@ -10207,7 +13391,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, String},
 				Required:     true,
 				SinceVersion: "1.4",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:         "Page",
@@ -10220,7 +13409,11 @@ var Types = map[string]ObjectType{
 				Name:         "ID",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOf_2StringsByte"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2StringsByte"},
+					},
+				},
 			},
 		},
 	},
@@ -10239,7 +13432,11 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"EmbeddedFileStream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"EmbeddedFileStream"},
+					},
+				},
 			},
 		},
 	},
@@ -10250,57 +13447,93 @@ var Types = map[string]ObjectType{
 				Name:         "ExtGState",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"GraphicsStateParameterMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GraphicsStateParameterMap"},
+					},
+				},
 			},
 			{
 				Name:         "ColorSpace",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"ColorSpaceMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ColorSpaceMap"},
+					},
+				},
 			},
 			{
 				Name:         "Pattern",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"PatternMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PatternMap"},
+					},
+				},
 			},
 			{
 				Name:         "Shading",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ShadingMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ShadingMap"},
+					},
+				},
 			},
 			{
 				Name:         "XObject",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"XObjectMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectMap"},
+					},
+				},
 			},
 			{
 				Name:         "Font",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"FontMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"FontMap"},
+					},
+				},
 			},
 			{
 				Name:         "ProcSet",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfNamesForProcSet"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNamesForProcSet"},
+					},
+				},
 			},
 			{
 				Name:         "Properties",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"DictionaryOfDictionaries"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"DictionaryOfDictionaries"},
+					},
+				},
 			},
 			{
 				Name:         "Encoding",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.0",
 				DeprecatedIn: "1.2",
-				Link:         []string{"Encoding"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Encoding"},
+					},
+				},
 			},
 		},
 	},
@@ -10320,7 +13553,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfPages"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfPages"},
+					},
+				},
 			},
 			{
 				Name:         "DeviceColorant",
@@ -10332,7 +13569,13 @@ var Types = map[string]ObjectType{
 				Name:         "ColorSpace",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"DeviceN": "DeviceNColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 		},
 	},
@@ -10358,14 +13601,34 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Lab": "LabColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "3",
 				Types:        []ValueType{Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 		},
 	},
@@ -10375,7 +13638,20 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Dictionary, Stream},
 			SinceVersion: "1.3",
-			Link:         []string{"ShadingType1", "ShadingType2", "ShadingType3", "ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes:    []ValueType{Dictionary},
+					Candidates:    []string{"ShadingType1", "ShadingType2", "ShadingType3"},
+					Discriminator: "ShadingType",
+					ByValue:       map[string]string{"1": "ShadingType1", "2": "ShadingType2", "3": "ShadingType3"},
+				},
+				{
+					ValueTypes:    []ValueType{Stream},
+					Candidates:    []string{"ShadingType4", "ShadingType5", "ShadingType6", "ShadingType7"},
+					Discriminator: "ShadingType",
+					ByValue:       map[string]string{"4": "ShadingType4", "5": "ShadingType5", "6": "ShadingType6", "7": "ShadingType7"},
+				},
+			},
 		},
 	},
 	"ShadingType1": {
@@ -10385,7 +13661,11 @@ var Types = map[string]ObjectType{
 				Name:         "Domain",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Matrix",
@@ -10397,7 +13677,24 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10412,13 +13709,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10440,26 +13748,55 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_4Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_4Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Domain",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "Extend",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_2Booleans"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Booleans"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10474,13 +13811,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10502,26 +13850,55 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_6Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_6Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Domain",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_2Numbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Numbers"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:         "Extend",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_2Booleans"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_2Booleans"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10536,13 +13913,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10584,13 +13972,34 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10605,13 +14014,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10634,32 +14054,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10692,13 +14145,34 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10713,13 +14187,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10742,32 +14227,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10799,13 +14317,34 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10820,13 +14359,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10849,32 +14399,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10906,13 +14489,34 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Function",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfFunctions", "FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFunctions"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 			{
 				Name:           "ShadingType",
@@ -10927,13 +14531,24 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
 			},
 			{
 				Name:         "Background",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "BBox",
@@ -10956,32 +14571,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11022,22 +14670,35 @@ var Types = map[string]ObjectType{
 				Name:         "Cert",
 				Types:        []ValueType{Array, StringByte},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfStringsByte"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStringsByte"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "ByteRange",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfNonNegativeIntegersGeneral"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNonNegativeIntegersGeneral"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Changes",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOf_3NonNegativeIntegers"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_3NonNegativeIntegers"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "Name",
@@ -11111,7 +14772,13 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Link:         []string{"XObjectImage", "FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"XObjectImage", "FileSpecification"},
+						Discriminator: "Subtype",
+						ByValue:       map[string]string{"Image": "XObjectImage"},
+					},
+				},
 			},
 			{
 				Name:         "StartResource",
@@ -11144,20 +14811,41 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"XObjectFormType1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:         "BC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:           "TR",
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 		},
 	},
@@ -11183,20 +14871,41 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"XObjectFormType1"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectFormType1"},
+					},
+				},
 			},
 			{
 				Name:         "BC",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:           "TR",
 				Types:          []ValueType{Dictionary, Name, Stream},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Identity"},
-				Link:           []string{"FunctionType2", "FunctionType3", "FunctionType0", "FunctionType4"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"FunctionType2", "FunctionType3"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"2": "FunctionType2", "3": "FunctionType3"},
+					},
+					{
+						ValueTypes:    []ValueType{Stream},
+						Candidates:    []string{"FunctionType0", "FunctionType4"},
+						Discriminator: "FunctionType",
+						ByValue:       map[string]string{"0": "FunctionType0", "4": "FunctionType4"},
+					},
+				},
 			},
 		},
 	},
@@ -11250,7 +14959,20 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"_UniversalArray"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"_UniversalDictionary"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -11263,32 +14985,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11301,7 +15056,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary, StringASCII},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"URLAlias"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"URLAlias"},
+					},
+				},
 			},
 			{
 				Name:         "TS",
@@ -11324,7 +15084,11 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"WebCaptureCommand"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WebCaptureCommand"},
+					},
+				},
 			},
 		},
 	},
@@ -11342,32 +15106,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11393,7 +15190,13 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"StructElem", "StructTreeRoot"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"StructElem", "StructTreeRoot"},
+						Discriminator: "Type",
+						ByValue:       map[string]string{"StructTreeRoot": "StructTreeRoot"},
+					},
+				},
 			},
 			{
 				Name:         "ID",
@@ -11405,26 +15208,59 @@ var Types = map[string]ObjectType{
 				Types:             []ValueType{Dictionary},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.3",
-				Link:              []string{"PageObject"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PageObject"},
+					},
+				},
 			},
 			{
 				Name:         "K",
 				Types:        []ValueType{Array, Dictionary, Integer},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfStructElemKids", "StructElem", "MarkedContentReference", "ObjectReference"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStructElemKids"},
+					},
+					{
+						ValueTypes:    []ValueType{Dictionary},
+						Candidates:    []string{"StructElem", "MarkedContentReference", "ObjectReference"},
+						Discriminator: "Type",
+						ByValue:       map[string]string{"MCR": "MarkedContentReference", "OBJR": "ObjectReference"},
+					},
+				},
 			},
 			{
 				Name:         "A",
 				Types:        []ValueType{Array, Dictionary, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfAttributeRevisions", "StructureAttributesDict", "Stream"},
-				Predicated:   true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfAttributeRevisions"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"StructureAttributesDict"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Array, Name},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfClassNamesRevisions"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfClassNamesRevisions"},
+					},
+				},
 			},
 			{
 				Name:         "R",
@@ -11470,19 +15306,40 @@ var Types = map[string]ObjectType{
 				Name:         "K",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfStructElem", "StructElem"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfStructElem"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"StructElem"},
+					},
+				},
 			},
 			{
 				Name:         "IDTree",
 				Types:        []ValueType{NameTree},
 				SinceVersion: "1.3",
-				Link:         []string{"StructElem", "MarkedContentReference", "ObjectReference"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"StructElem", "MarkedContentReference", "ObjectReference"},
+						Discriminator: "Type",
+						ByValue:       map[string]string{"MCR": "MarkedContentReference", "OBJR": "ObjectReference"},
+					},
+				},
 			},
 			{
 				Name:         "ParentTree",
 				Types:        []ValueType{NumberTree},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfStructElemParentTree", "StructElem", "MarkedContentReference", "ObjectReference"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates:    []string{"ArrayOfStructElemParentTree", "StructElem", "MarkedContentReference", "ObjectReference"},
+						Discriminator: "Type",
+						ByValue:       map[string]string{"MCR": "MarkedContentReference", "OBJR": "ObjectReference"},
+					},
+				},
 			},
 			{
 				Name:         "ParentTreeNextKey",
@@ -11493,13 +15350,21 @@ var Types = map[string]ObjectType{
 				Name:         "RoleMap",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"RoleMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"RoleMap"},
+					},
+				},
 			},
 			{
 				Name:         "ClassMap",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ClassMap"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ClassMap"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "Namespaces", "PronunciationLexicon"},
@@ -11633,7 +15498,11 @@ var Types = map[string]ObjectType{
 				Name:         "Headers",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfStringsByte"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfStringsByte"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"BackgroundColor", "BorderColor", "BorderStyle", "BorderThickness", "Checked", "Color", "ColumnCount", "ColumnGap", "ColumnWidths", "Contents", "ContinuedFrom", "ContinuedList", "Desc", "GlyphOrientationVertical", "NS", "NoteType", "P", "Padding", "Role", "RubyAlign", "RubyPosition", "Scope", "Short", "Subtype", "Summary", "TBorderStyle", "TPadding", "TextDecorationColor", "TextDecorationThickness", "TextPosition", "Type", "checked"},
@@ -11663,13 +15532,21 @@ var Types = map[string]ObjectType{
 				Required:          true,
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
-				Link:              []string{"BeadFirst"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"BeadFirst"},
+					},
+				},
 			},
 			{
 				Name:         "I",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.1",
-				Link:         []string{"DocInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"DocInfo"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"Metadata"},
@@ -11707,7 +15584,14 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "IndexedColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "IndexedColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"DeviceGray": "DeviceGrayColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "Indexed": "IndexedColorSpace"},
+					},
+				},
 			},
 			{
 				Name:           "BitsPerComponent",
@@ -11720,7 +15604,11 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -11733,32 +15621,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11781,7 +15702,11 @@ var Types = map[string]ObjectType{
 				Name:         "CIDSystemInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"CIDSystemInfo"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"CIDSystemInfo"},
+					},
+				},
 			},
 			{
 				Name:           "WMode",
@@ -11794,7 +15719,12 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name, Stream},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"GB-EUC-H", "GB-EUC-V", "GBpc-EUC-H", "GBpc-EUC-V", "GBK-EUC-H", "GBK-EUC-V", "GBKp-EUC-H", "GBKp-EUC-V", "GBK2K-H", "GBK2K-V", "UniGB-UCS2-H", "UniGB-UCS2-V", "UniGB-UTF16-H", "UniGB-UTF16-V", "B5pc-H", "B5pc-V", "HKscs-B5-H", "HKscs-B5-V", "ETen-B5-H", "ETen-B5-V", "ETenms-B5-H", "ETenms-B5-V", "CNS-EUC-H", "CNS-EUC-V", "UniCNS-UCS2-H", "UniCNS-UCS2-V", "UniCNS-UTF16-H", "UniCNS-UTF16-V", "83pv-RKSJ-H", "90ms-RKSJ-H", "90ms-RKSJ-V", "90msp-RKSJ-H", "90msp-RKSJ-V", "90pv-RKSJ-H", "Add-RKSJ-H", "Add-RKSJ-V", "EUC-H", "EUC-V", "Ext-RKSJ-H", "Ext-RKSJ-V", "H", "V", "UniJIS-UCS2-H", "UniJIS-UCS2-V", "UniJIS-UCS2-HW-H", "UniJIS-UCS2-HW-V", "UniJIS-UTF16-H", "UniJIS-UTF16-V", "KSC-EUC-H", "KSC-EUC-V", "KSCms-UHC-H", "KSCms-UHC-V", "KSCms-UHC-HW-H", "KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H", "UniKS-UTF16-V", "Identity-H", "Identity-V"},
-				Link:           []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -11807,32 +15737,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11913,7 +15876,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOf_ArrayOfNumbers"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOf_ArrayOfNumbers"},
+					},
+				},
 			},
 		},
 	},
@@ -11940,7 +15907,11 @@ var Types = map[string]ObjectType{
 				Name:         "C",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfArraysURLStrings"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfArraysURLStrings"},
+					},
+				},
 			},
 		},
 	},
@@ -12043,7 +16014,12 @@ var Types = map[string]ObjectType{
 				Name:         "P",
 				Types:        []ValueType{Stream, String},
 				SinceVersion: "1.3",
-				Link:         []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "CT",
@@ -12059,7 +16035,11 @@ var Types = map[string]ObjectType{
 				Name:         "S",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"WebCaptureCommandSettings"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"WebCaptureCommandSettings"},
+					},
+				},
 			},
 		},
 	},
@@ -12070,13 +16050,21 @@ var Types = map[string]ObjectType{
 				Name:         "G",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"_UniversalDictionary"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"_UniversalDictionary"},
+					},
+				},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"_UniversalDictionary"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"_UniversalDictionary"},
+					},
+				},
 			},
 		},
 	},
@@ -12107,14 +16095,27 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfWebCaptureImages"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfWebCaptureImages"},
+					},
+				},
 			},
 			{
 				Name:         "SI",
 				Types:        []ValueType{Array, Dictionary},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfSourceInformation", "SourceInformation"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfSourceInformation"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"SourceInformation"},
+					},
+				},
 			},
 			{
 				Name:         "CT",
@@ -12131,7 +16132,12 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array, Integer},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfIntegersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+				},
 			},
 		},
 	},
@@ -12151,7 +16157,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfWebCaptureCommands"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfWebCaptureCommands"},
+					},
+				},
 			},
 		},
 	},
@@ -12182,14 +16192,27 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfWebCapturePages"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfWebCapturePages"},
+					},
+				},
 			},
 			{
 				Name:         "SI",
 				Types:        []ValueType{Array, Dictionary},
 				Required:     true,
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfSourceInformation", "SourceInformation"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfSourceInformation"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"SourceInformation"},
+					},
+				},
 			},
 			{
 				Name:         "CT",
@@ -12263,7 +16286,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
 				DeprecatedIn:      "1.3",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -12278,21 +16305,40 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.1",
 				DeprecatedIn:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.1",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.1",
 				DeprecatedIn: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
@@ -12300,14 +16346,28 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.2",
 				DeprecatedIn:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 	},
@@ -12343,7 +16403,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
 				DeprecatedIn:      "1.3",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:              "PS",
@@ -12352,7 +16416,11 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.1",
 				DeprecatedIn:      "1.3",
-				Link:              []string{"Stream"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Stream"},
+					},
+				},
 			},
 			{
 				Name:           "FormType",
@@ -12389,21 +16457,40 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.1",
 				DeprecatedIn:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.1",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.1",
 				DeprecatedIn: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
@@ -12411,14 +16498,28 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.2",
 				DeprecatedIn:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 		},
 	},
@@ -12459,32 +16560,52 @@ var Types = map[string]ObjectType{
 				Name:         "Resources",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "Group",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"GroupAttributes"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GroupAttributes"},
+					},
+				},
 			},
 			{
 				Name:         "Ref",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"Reference"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Reference"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "PieceInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"PagePiece"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PagePiece"},
+					},
+				},
 			},
 			{
 				Name:         "LastModified",
@@ -12507,7 +16628,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13", "OPIVersion20"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13", "OPIVersion20"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -12526,32 +16651,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.4",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "MarkStyle",
@@ -12562,7 +16720,11 @@ var Types = map[string]ObjectType{
 				Name:         "Colorants",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ColorantsDict"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ColorantsDict"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "Measure", "OC", "PtData"},
@@ -12610,21 +16772,33 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "Group",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Link:         []string{"GroupAttributes"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GroupAttributes"},
+					},
+				},
 			},
 			{
 				Name:         "Ref",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Link:         []string{"Reference"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Reference"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
@@ -12632,14 +16806,22 @@ var Types = map[string]ObjectType{
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
 				DeprecatedIn:      "2.0",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "PieceInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"PagePiece"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PagePiece"},
+					},
+				},
 			},
 			{
 				Name:         "LastModified",
@@ -12665,7 +16847,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13", "OPIVersion20"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13", "OPIVersion20"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -12686,21 +16872,40 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.3",
 				DeprecatedIn:   "2.0",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
@@ -12708,14 +16913,28 @@ var Types = map[string]ObjectType{
 				SinceVersion:   "1.3",
 				DeprecatedIn:   "2.0",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:           "PCM",
@@ -12730,14 +16949,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfNamesGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNamesGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "TrapRegions",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"ArrayOfTrapRegions"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfTrapRegions"},
+					},
+				},
 			},
 			{
 				Name:         "TrapStyles",
@@ -12788,32 +17015,52 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				Required:     true,
 				SinceVersion: "1.2",
-				Link:         []string{"Resource"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Resource"},
+					},
+				},
 			},
 			{
 				Name:         "Group",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"GroupAttributes"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"GroupAttributes"},
+					},
+				},
 			},
 			{
 				Name:         "Ref",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"Reference"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Reference"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "PieceInfo",
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"PagePiece"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"PagePiece"},
+					},
+				},
 			},
 			{
 				Name:         "LastModified",
@@ -12836,7 +17083,11 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13", "OPIVersion20"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13", "OPIVersion20"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -12856,39 +17107,76 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.2",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode"},
-				Link:           []string{"ArrayOfCompressionFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfCompressionFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
+					},
+				},
 			},
 			{
 				Name:         "XUID",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
 				DeprecatedIn: "1.3",
-				Link:         []string{"ArrayOfIntegersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "GTS_Encapsulated", "GTS_Env", "GTS_Scope", "GTS_XID", "Measure", "OC", "PtData"},
@@ -12926,8 +17214,15 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace"},
-				Predicated:     true,
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes:    []ValueType{Array},
+						Candidates:    []string{"DeviceGrayColorSpace", "DeviceRGBColorSpace", "DeviceCMYKColorSpace", "CalGrayColorSpace", "CalRGBColorSpace", "LabColorSpace", "ICCBasedColorSpace", "IndexedColorSpace", "SeparationColorSpace", "DeviceNColorSpace", "PatternColorSpace"},
+						Discriminator: "0",
+						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Pattern": "PatternColorSpace", "Separation": "SeparationColorSpace"},
+					},
+				},
+				Predicated: true,
 			},
 			{
 				Name:           "BitsPerComponent",
@@ -12950,13 +17245,26 @@ var Types = map[string]ObjectType{
 				Name:         "Mask",
 				Types:        []ValueType{Array, Stream},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfIntegersGeneral", "XObjectImageMask"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfIntegersGeneral"},
+					},
+					{
+						ValueTypes: []ValueType{Stream},
+						Candidates: []string{"XObjectImageMask"},
+					},
+				},
 			},
 			{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Interpolate",
@@ -12967,14 +17275,22 @@ var Types = map[string]ObjectType{
 				Name:         "Alternates",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfImageAlternates"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfImageAlternates"},
+					},
+				},
 			},
 			{
 				Name:              "SMask",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"XObjectImageSoftMask"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectImageSoftMask"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -12999,14 +17315,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13", "OPIVersion20"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13", "OPIVersion20"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -13019,32 +17343,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.0",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.0",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.2",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "GTS_Encapsulated", "GTS_Env", "GTS_Scope", "GTS_XID", "Measure", "OC", "PtData", "SMaskInData"},
@@ -13099,7 +17456,11 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"[0 1]", "[1 0]"},
-				Link:           []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Interpolate",
@@ -13110,14 +17471,22 @@ var Types = map[string]ObjectType{
 				Name:         "Alternates",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfImageAlternates"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfImageAlternates"},
+					},
+				},
 			},
 			{
 				Name:              "SMask",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"XObjectImageSoftMask"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"XObjectImageSoftMask"},
+					},
+				},
 			},
 			{
 				Name:         "Name",
@@ -13141,14 +17510,22 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Dictionary},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Link:         []string{"OPIVersion13", "OPIVersion20"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"OPIVersion13", "OPIVersion20"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -13161,32 +17538,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.3",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.3",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.3",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "Measure", "OC", "PtData", "SMaskInData"},
@@ -13225,7 +17635,12 @@ var Types = map[string]ObjectType{
 				Required:       true,
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"DeviceGray"},
-				Link:           []string{"DeviceGrayColorSpace"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"DeviceGrayColorSpace"},
+					},
+				},
 			},
 			{
 				Name:           "BitsPerComponent",
@@ -13254,7 +17669,11 @@ var Types = map[string]ObjectType{
 				Name:         "Decode",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:         "Interpolate",
@@ -13265,14 +17684,22 @@ var Types = map[string]ObjectType{
 				Name:         "Matte",
 				Types:        []ValueType{Array},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfNumbersGeneral"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"ArrayOfNumbersGeneral"},
+					},
+				},
 			},
 			{
 				Name:              "Metadata",
 				Types:             []ValueType{Stream},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.4",
-				Link:              []string{"Metadata"},
+				LinkGroups: []LinkGroup{
+					{
+						Candidates: []string{"Metadata"},
+					},
+				},
 			},
 			{
 				Name:         "Length",
@@ -13285,32 +17712,65 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "DecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 			{
 				Name:         "F",
 				Types:        []ValueType{Dictionary, String},
 				SinceVersion: "1.4",
-				Link:         []string{"FileSpecification"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FileSpecification"},
+					},
+				},
 			},
 			{
 				Name:           "FFilter",
 				Types:          []ValueType{Array, Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"ASCIIHexDecode", "ASCII85Decode", "LZWDecode", "FlateDecode", "RunLengthDecode", "CCITTFaxDecode", "JBIG2Decode", "DCTDecode"},
-				Link:           []string{"ArrayOfFilterNames"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfFilterNames"},
+					},
+				},
 			},
 			{
 				Name:         "FDecodeParms",
 				Types:        []ValueType{Array, Dictionary},
 				SinceVersion: "1.4",
-				Link:         []string{"ArrayOfDecodeParams", "FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+				LinkGroups: []LinkGroup{
+					{
+						ValueTypes: []ValueType{Array},
+						Candidates: []string{"ArrayOfDecodeParams"},
+					},
+					{
+						ValueTypes: []ValueType{Dictionary},
+						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
+					},
+				},
 			},
 		},
 		Post14Keys: []string{"AF", "DL"},
@@ -13322,7 +17782,13 @@ var Types = map[string]ObjectType{
 			Types:             []ValueType{Stream},
 			IndirectReference: IndirectRequired,
 			SinceVersion:      "1.0",
-			Link:              []string{"XObjectFormType1", "XObjectImage", "XObjectFormPS", "XObjectFormPSpassthrough"},
+			LinkGroups: []LinkGroup{
+				{
+					Candidates:    []string{"XObjectFormType1", "XObjectImage", "XObjectFormPS", "XObjectFormPSpassthrough"},
+					Discriminator: "Subtype",
+					ByValue:       map[string]string{"Form": "XObjectFormType1", "Image": "XObjectImage"},
+				},
+			},
 		},
 	},
 	"_UniversalArray": {
@@ -13331,7 +17797,20 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Boolean, Dictionary, Name, Null, Number, Stream, String},
 			SinceVersion: "1.2",
-			Link:         []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"_UniversalArray"},
+				},
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"_UniversalDictionary"},
+				},
+				{
+					ValueTypes: []ValueType{Stream},
+					Candidates: []string{"Stream"},
+				},
+			},
 		},
 	},
 	"_UniversalDictionary": {
@@ -13340,7 +17819,20 @@ var Types = map[string]ObjectType{
 			Name:         "*",
 			Types:        []ValueType{Array, Boolean, Dictionary, Name, Null, Number, Stream, String},
 			SinceVersion: "1.2",
-			Link:         []string{"_UniversalArray", "_UniversalDictionary", "Stream"},
+			LinkGroups: []LinkGroup{
+				{
+					ValueTypes: []ValueType{Array},
+					Candidates: []string{"_UniversalArray"},
+				},
+				{
+					ValueTypes: []ValueType{Dictionary},
+					Candidates: []string{"_UniversalDictionary"},
+				},
+				{
+					ValueTypes: []ValueType{Stream},
+					Candidates: []string{"Stream"},
+				},
+			},
 		},
 	},
 }

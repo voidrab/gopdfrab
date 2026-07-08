@@ -31,8 +31,8 @@ func TestCatalog(t *testing.T) {
 	if pages == nil || !pages.Required || pages.IndirectReference != IndirectRequired {
 		t.Errorf("Catalog.Pages: want Required + IndirectRequired, got %+v", pages)
 	}
-	if pages == nil || len(pages.Link) != 1 || pages.Link[0] != "PageTreeNodeRoot" {
-		t.Errorf("Catalog.Pages: want Link [PageTreeNodeRoot], got %+v", pages)
+	if pages == nil || !equalStrings(soleCandidates(pages), []string{"PageTreeNodeRoot"}) {
+		t.Errorf("Catalog.Pages: want sole candidate [PageTreeNodeRoot], got %+v", pages)
 	}
 
 	version := findKey(cat, "Version")
@@ -51,9 +51,18 @@ func TestCatalog(t *testing.T) {
 	}
 
 	outputIntents := findKey(cat, "OutputIntents")
-	if outputIntents == nil || len(outputIntents.Link) != 1 || outputIntents.Link[0] != "ArrayOfOutputIntents" {
-		t.Errorf("Catalog.OutputIntents: want Link [ArrayOfOutputIntents], got %+v", outputIntents)
+	if outputIntents == nil || !equalStrings(soleCandidates(outputIntents), []string{"ArrayOfOutputIntents"}) {
+		t.Errorf("Catalog.OutputIntents: want sole candidate [ArrayOfOutputIntents], got %+v", outputIntents)
 	}
+}
+
+// soleCandidates returns kd's Candidates when it has exactly one LinkGroup, for asserting the
+// common unambiguous case; nil otherwise.
+func soleCandidates(kd *KeyDef) []string {
+	if len(kd.LinkGroups) != 1 {
+		return nil
+	}
+	return kd.LinkGroups[0].Candidates
 }
 
 func TestValueTypeString(t *testing.T) {
@@ -132,8 +141,84 @@ func TestArrayOfOutputIntentsWildcard(t *testing.T) {
 	if a.Wildcard == nil {
 		t.Fatal("ArrayOfOutputIntents: want a Wildcard entry")
 	}
-	if len(a.Wildcard.Link) != 1 || a.Wildcard.Link[0] != "OutputIntents" {
-		t.Errorf("ArrayOfOutputIntents.Wildcard: want Link [OutputIntents], got %+v", a.Wildcard)
+	if !equalStrings(soleCandidates(a.Wildcard), []string{"OutputIntents"}) {
+		t.Errorf("ArrayOfOutputIntents.Wildcard: want sole candidate [OutputIntents], got %+v", a.Wildcard)
+	}
+}
+
+// TestAnnotationDiscriminator confirms the wildcard entry of ArrayOfAnnots -- 19 candidate
+// Annot* types -- resolves via its Subtype key, and that a couple of representative subtypes
+// map to the expected Arlington type.
+func TestAnnotationDiscriminator(t *testing.T) {
+	a, ok := Type("ArrayOfAnnots")
+	if !ok {
+		t.Fatal("ArrayOfAnnots type not found")
+	}
+	if a.Wildcard == nil || len(a.Wildcard.LinkGroups) != 1 {
+		t.Fatalf("ArrayOfAnnots.Wildcard: want exactly one LinkGroup, got %+v", a.Wildcard)
+	}
+	g := a.Wildcard.LinkGroups[0]
+	if g.Discriminator != "Subtype" {
+		t.Errorf("ArrayOfAnnots.Wildcard: want Discriminator %q, got %q", "Subtype", g.Discriminator)
+	}
+	for value, want := range map[string]string{"Widget": "AnnotWidget", "Popup": "AnnotPopup", "Text": "AnnotText"} {
+		if got := g.ByValue[value]; got != want {
+			t.Errorf("ArrayOfAnnots.Wildcard.ByValue[%q] = %q, want %q", value, got, want)
+		}
+	}
+}
+
+// TestActionDiscriminator confirms an action-dispatch group resolves via S, specifically that
+// /S == "JavaScript" maps to Arlington type ActionECMAScript -- not a naive "Action"+S
+// concatenation, which would wrongly produce "ActionJavaScript".
+func TestActionDiscriminator(t *testing.T) {
+	a, ok := Type("ActionGoTo")
+	if !ok {
+		t.Fatal("ActionGoTo type not found")
+	}
+	next := findKey(a, "Next")
+	if next == nil {
+		t.Fatal("ActionGoTo.Next not found")
+	}
+	var dictGroup *LinkGroup
+	for i := range next.LinkGroups {
+		for _, vt := range next.LinkGroups[i].ValueTypes {
+			if vt == Dictionary {
+				dictGroup = &next.LinkGroups[i]
+			}
+		}
+	}
+	if dictGroup == nil {
+		t.Fatal("ActionGoTo.Next: want a Dictionary-typed LinkGroup")
+	}
+	if dictGroup.Discriminator != "S" {
+		t.Errorf("ActionGoTo.Next dict group: want Discriminator %q, got %q", "S", dictGroup.Discriminator)
+	}
+	if got := dictGroup.ByValue["JavaScript"]; got != "ActionECMAScript" {
+		t.Errorf(`ActionGoTo.Next dict group ByValue["JavaScript"] = %q, want "ActionECMAScript"`, got)
+	}
+}
+
+// TestXObjectDiscriminator confirms XObjectMap's wildcard resolves via Subtype, and that the
+// two PostScript XObject variants -- which collide with XObjectFormType1's Subtype value
+// "Form" -- are correctly absent from ByValue rather than guessed.
+func TestXObjectDiscriminator(t *testing.T) {
+	xm, ok := Type("XObjectMap")
+	if !ok {
+		t.Fatal("XObjectMap type not found")
+	}
+	if xm.Wildcard == nil || len(xm.Wildcard.LinkGroups) != 1 {
+		t.Fatalf("XObjectMap.Wildcard: want exactly one LinkGroup, got %+v", xm.Wildcard)
+	}
+	g := xm.Wildcard.LinkGroups[0]
+	if g.Discriminator != "Subtype" {
+		t.Errorf("XObjectMap.Wildcard: want Discriminator %q, got %q", "Subtype", g.Discriminator)
+	}
+	if got := g.ByValue["Form"]; got != "XObjectFormType1" {
+		t.Errorf(`XObjectMap.Wildcard ByValue["Form"] = %q, want "XObjectFormType1"`, got)
+	}
+	if got := g.ByValue["Image"]; got != "XObjectImage" {
+		t.Errorf(`XObjectMap.Wildcard ByValue["Image"] = %q, want "XObjectImage"`, got)
 	}
 }
 
@@ -145,10 +230,26 @@ func TestTableIntegrity(t *testing.T) {
 		t.Errorf("Types: want %d entries, got %d", wantTypes, len(Types))
 	}
 
-	checkLinks := func(owner string, links []string) {
-		for _, link := range links {
-			if _, ok := Types[link]; !ok {
-				t.Errorf("%s: Link %q does not resolve to a known Arlington type", owner, link)
+	checkLinkGroups := func(owner string, groups []LinkGroup) {
+		for _, g := range groups {
+			for _, c := range g.Candidates {
+				if _, ok := Types[c]; !ok {
+					t.Errorf("%s: Candidate %q does not resolve to a known Arlington type", owner, c)
+				}
+			}
+			if g.Discriminator == "" {
+				if len(g.ByValue) != 0 {
+					t.Errorf("%s: ByValue set without a Discriminator", owner)
+				}
+				continue
+			}
+			if len(g.Candidates) < 2 {
+				t.Errorf("%s: Discriminator %q set on a group with < 2 Candidates", owner, g.Discriminator)
+			}
+			for value, candidate := range g.ByValue {
+				if !stringSliceContains(g.Candidates, candidate) {
+					t.Errorf("%s: ByValue[%q] = %q, not among Candidates %v", owner, value, candidate, g.Candidates)
+				}
 			}
 		}
 	}
@@ -157,12 +258,21 @@ func TestTableIntegrity(t *testing.T) {
 			t.Errorf("Types[%q].Name = %q, want %q", name, ot.Name, name)
 		}
 		for _, kd := range ot.Keys {
-			checkLinks(name+"."+kd.Name, kd.Link)
+			checkLinkGroups(name+"."+kd.Name, kd.LinkGroups)
 		}
 		if ot.Wildcard != nil {
-			checkLinks(name+".*", ot.Wildcard.Link)
+			checkLinkGroups(name+".*", ot.Wildcard.LinkGroups)
 		}
 	}
+}
+
+func stringSliceContains(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as

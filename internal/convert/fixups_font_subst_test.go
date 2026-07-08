@@ -46,6 +46,50 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	if !verify.HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3") {
 		t.Errorf("FontDescriptor still has no embedded program after substitution")
 	}
+	if (desc.Entries["Type"] != pdf.PDFName{Value: "FontDescriptor"}) {
+		t.Errorf("FontDescriptor.Type = %v, want /FontDescriptor", desc.Entries["Type"])
+	}
+	if _, ok := desc.Entries["FontName"].(pdf.PDFName); !ok {
+		t.Errorf("FontDescriptor.FontName not set after substitution")
+	}
+}
+
+// TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped covers a
+// standard Type1 font with no FontDescriptor whose declared Widths are all
+// zero, so substituteSimpleFont bails (no characters actually need glyphs)
+// before writing anything. The fixer must not leave behind the scratch
+// FontDescriptor it created to attempt substitution -- doing so previously
+// planted an all-fields-missing descriptor where the PDF legitimately had
+// none.
+func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
+	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
+	font.Entries["FirstChar"] = pdf.PDFInteger(32)
+	font.Entries["LastChar"] = pdf.PDFInteger(33)
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0)}
+	// No FontDescriptor: the fixer must create one only as scratch space.
+
+	dr := pdf.NewPDFDict()
+	dr.Entries["Font"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Helv": font}}
+	acroForm := pdf.NewPDFDict()
+	acroForm.Entries["DR"] = dr
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"AcroForm": acroForm}}
+
+	fixer := fontSubstitutionFixer{}
+	changed, err := fixer.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if changed {
+		t.Errorf("changed = true, want false (all-zero Widths means no glyphs are actually used)")
+	}
+	if font.Entries["FontDescriptor"] != nil {
+		t.Errorf("FontDescriptor = %v, want absent (scratch descriptor must not be left behind)", font.Entries["FontDescriptor"])
+	}
 }
 
 // TestFontSubstitutionFixerIdempotentAfterStandardType1 confirms that a

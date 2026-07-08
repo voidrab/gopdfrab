@@ -92,6 +92,20 @@ const (
 	IndirectForbidden
 )
 
+// LinkGroup is one Type alternative's set of candidate Arlington types for a key's value: which
+// of the key's declared Types this alternative applies to (nil if it is the key's only
+// alternative, so no kind check is needed), the candidate type name(s) a matching value should
+// itself conform to, and -- when more than one candidate exists -- the discriminator key (e.g.
+// Subtype, S, FunctionType) each candidate declares as Required with a single PossibleValues
+// entry, and the map from that value to the one matching candidate. Discriminator/ByValue are
+// zero if no such key was found (the group stays ambiguous) or if there is only one candidate.
+type LinkGroup struct {
+	ValueTypes    []ValueType
+	Candidates    []string
+	Discriminator string
+	ByValue       map[string]string
+}
+
 // KeyDef is one row of an Arlington type: a single named key (or a fixed array index, which
 // Arlington also expresses as a Key), or the wildcard entry (Name == "*") that governs
 // arbitrary dictionary keys or repeating array elements.
@@ -101,9 +115,9 @@ type KeyDef struct {
 	Required          bool
 	IndirectReference IndirectRule
 	SinceVersion      string
-	DeprecatedIn      string   // empty if never deprecated
-	PossibleValues    []string // enumerated legal values, when constrained; predicate-only entries are dropped
-	Link              []string // Arlington type name(s) the value should itself conform to
+	DeprecatedIn      string      // empty if never deprecated
+	PossibleValues    []string    // enumerated legal values, when constrained; predicate-only entries are dropped
+	LinkGroups        []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
 	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
 	// instead, so its absence here is not itself a violation.
 	Inheritable bool

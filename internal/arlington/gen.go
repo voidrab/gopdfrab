@@ -52,6 +52,14 @@ type row struct {
 	inheritable, defaultValue, possibleValues, specialCase, link, note string
 }
 
+// linkGroup is the Go source representation of an arlington.LinkGroup literal.
+type linkGroup struct {
+	valueTypes    []string // Go ValueType identifiers this alternative applies to; nil means "the only alternative"
+	candidates    []string
+	discriminator string
+	byValue       map[string]string // discriminator value -> candidate type name
+}
+
 // keyDef is the Go source representation of an arlington.KeyDef literal.
 type keyDef struct {
 	name              string
@@ -61,9 +69,16 @@ type keyDef struct {
 	sinceVersion      string
 	deprecatedIn      string
 	possibleValues    []string
-	link              []string
+	linkGroups        []linkGroup
 	predicated        bool
 	inheritable       bool
+}
+
+// typeEntry is one parsed Arlington type (one TSV file), before discriminator resolution.
+type typeEntry struct {
+	name     string
+	keys     []keyDef
+	wildcard *keyDef
 }
 
 func main() {
@@ -85,6 +100,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("computing post-1.4 keys: %v", err)
 	}
+
+	// First pass: parse every type's own keys. keyDefsByType is needed by the second pass to
+	// look up each LinkGroup candidate's own schema (its discriminator key, if any).
+	var types []typeEntry
+	keyDefsByType := map[string][]keyDef{}
 
 	totalRows, simpleRows := 0, 0
 	for _, path := range files {
@@ -109,16 +129,31 @@ func main() {
 			}
 			keys = append(keys, kd)
 		}
+		types = append(types, typeEntry{name: typeName, keys: keys, wildcard: wildcard})
+		keyDefsByType[typeName] = keys
+	}
 
-		fmt.Fprintf(&b, "%q: {\n", typeName)
-		fmt.Fprintf(&b, "Name: %q,\n", typeName)
-		writeKeysLiteral(&b, "Keys", keys)
-		if wildcard != nil {
+	// Second pass: now that every type's own keys are known, resolve a discriminator for every
+	// LinkGroup with more than one candidate.
+	for i := range types {
+		for j := range types[i].keys {
+			resolveDiscriminators(&types[i].keys[j], keyDefsByType)
+		}
+		if types[i].wildcard != nil {
+			resolveDiscriminators(types[i].wildcard, keyDefsByType)
+		}
+	}
+
+	for _, t := range types {
+		fmt.Fprintf(&b, "%q: {\n", t.name)
+		fmt.Fprintf(&b, "Name: %q,\n", t.name)
+		writeKeysLiteral(&b, "Keys", t.keys)
+		if t.wildcard != nil {
 			b.WriteString("Wildcard: &KeyDef{\n")
-			writeKeyDefFields(&b, *wildcard)
+			writeKeyDefFields(&b, *t.wildcard)
 			b.WriteString("},\n")
 		}
-		writeStringSlice(&b, "Post14Keys", post14Keys[typeName])
+		writeStringSlice(&b, "Post14Keys", post14Keys[t.name])
 		b.WriteString("},\n")
 	}
 	b.WriteString("}\n")
@@ -170,7 +205,7 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 		fmt.Fprintf(b, "DeprecatedIn: %q,\n", kd.deprecatedIn)
 	}
 	writeStringSlice(b, "PossibleValues", kd.possibleValues)
-	writeStringSlice(b, "Link", kd.link)
+	writeLinkGroups(b, kd.linkGroups)
 	if kd.inheritable {
 		b.WriteString("Inheritable: true,\n")
 	}
@@ -189,6 +224,47 @@ func writeStringSlice(b *strings.Builder, field string, values []string) {
 			b.WriteString(", ")
 		}
 		fmt.Fprintf(b, "%q", v)
+	}
+	b.WriteString("},\n")
+}
+
+func writeLinkGroups(b *strings.Builder, groups []linkGroup) {
+	if len(groups) == 0 {
+		return
+	}
+	b.WriteString("LinkGroups: []LinkGroup{\n")
+	for _, g := range groups {
+		b.WriteString("{\n")
+		if len(g.valueTypes) > 0 {
+			fmt.Fprintf(b, "ValueTypes: []ValueType{%s},\n", strings.Join(g.valueTypes, ", "))
+		}
+		writeStringSlice(b, "Candidates", g.candidates)
+		if g.discriminator != "" {
+			fmt.Fprintf(b, "Discriminator: %q,\n", g.discriminator)
+			writeStringMap(b, "ByValue", g.byValue)
+		}
+		b.WriteString("},\n")
+	}
+	b.WriteString("},\n")
+}
+
+// writeStringMap emits a map[string]string literal with keys in sorted order, so generator
+// output stays deterministic (required by TestGeneratorIdempotent).
+func writeStringMap(b *strings.Builder, field string, m map[string]string) {
+	if len(m) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fmt.Fprintf(b, "%s: map[string]string{", field)
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "%q: %q", k, m[k])
 	}
 	b.WriteString("},\n")
 }
@@ -335,7 +411,7 @@ func buildKeyDef(r row) keyDef {
 		kd.predicated = true
 	}
 	kd.possibleValues = parsePossibleValues(r.possibleValues)
-	kd.link = parseGroupedNames(r.link)
+	kd.linkGroups = parseLinkGroups(r.typ, r.link)
 
 	return kd
 }
@@ -407,22 +483,125 @@ func parsePossibleValues(raw string) []string {
 	return out
 }
 
-// parseGroupedNames flattens a (possibly per-type-grouped) comma-separated Link column into a
-// single list of Arlington type names.
-func parseGroupedNames(raw string) []string {
-	if raw == "" {
+// parseLinkGroups splits typ and link in lockstep, one linkGroup per Type alternative, so a
+// key's runtime value (once its Go kind is known) can be resolved to the right subset of
+// candidate Arlington types. Falls back to a single, kind-unconditional group covering every
+// candidate (the pre-discriminator flattened behavior) when there is only one Type alternative,
+// or when the two columns' alternative counts don't line up (a shape this generator doesn't
+// expect) -- never guess which alternative a candidate belongs to.
+func parseLinkGroups(typ, link string) []linkGroup {
+	if link == "" {
 		return nil
 	}
+	linkParts := splitGroups(link)
+	typeToks := strings.Split(typ, ";")
+
+	if len(typeToks) <= 1 || len(typeToks) != len(linkParts) {
+		var candidates []string
+		for _, part := range linkParts {
+			candidates = append(candidates, splitNames(part)...)
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+		return []linkGroup{{candidates: candidates}}
+	}
+
+	var groups []linkGroup
+	for i, tok := range typeToks {
+		candidates := splitNames(linkParts[i])
+		if len(candidates) == 0 {
+			continue // this alternative has no sub-schema (e.g. a plain scalar type)
+		}
+		ident, ok := valueTypeIdent[tok]
+		if !ok {
+			continue // an unrecognized/predicated type token can't be gated on kind; skip it
+		}
+		groups = append(groups, linkGroup{valueTypes: []string{ident}, candidates: candidates})
+	}
+	return groups
+}
+
+// splitNames splits one bracket-group's comma-separated Arlington type names.
+func splitNames(group string) []string {
 	var out []string
-	for _, group := range splitGroups(raw) {
-		for _, item := range strings.Split(group, ",") {
-			item = strings.TrimSpace(item)
-			if item != "" {
-				out = append(out, item)
-			}
+	for _, item := range strings.Split(group, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
 		}
 	}
 	return out
+}
+
+// resolveDiscriminators fills in each of kd's LinkGroups' discriminator, if any group has more
+// than one candidate. keyDefsByType looks up each candidate's own schema.
+func resolveDiscriminators(kd *keyDef, keyDefsByType map[string][]keyDef) {
+	for gi := range kd.linkGroups {
+		g := &kd.linkGroups[gi]
+		if len(g.candidates) < 2 {
+			continue
+		}
+		key, byValue := bestDiscriminator(g.candidates, keyDefsByType)
+		if len(byValue) == 0 {
+			continue
+		}
+		g.discriminator = key
+		g.byValue = byValue
+	}
+}
+
+// bestDiscriminator finds the key name that most cleanly disambiguates candidates: a key that
+// some candidates declare as Required, non-Predicated, with exactly one PossibleValues entry
+// (e.g. AnnotText.Subtype -> [Text], ActionGoTo.S -> [GoTo], FunctionType2.FunctionType -> [2]).
+// A candidate that doesn't qualify for the chosen key, or whose value collides with another
+// candidate's, is simply absent from the returned map -- partial coverage is safe, since an
+// unresolvable candidate is never guessed, just never selected at runtime. Ties (equal
+// candidate coverage) break alphabetically by key name, for deterministic generator output.
+func bestDiscriminator(candidates []string, keyDefsByType map[string][]keyDef) (string, map[string]string) {
+	qualifying := map[string]map[string]string{} // candidate type -> key name -> its one possible value
+	keyNameSet := map[string]bool{}
+	for _, c := range candidates {
+		q := map[string]string{}
+		for _, kd := range keyDefsByType[c] {
+			if kd.required && !kd.predicated && len(kd.possibleValues) == 1 {
+				q[kd.name] = kd.possibleValues[0]
+				keyNameSet[kd.name] = true
+			}
+		}
+		qualifying[c] = q
+	}
+
+	var keyNames []string
+	for k := range keyNameSet {
+		keyNames = append(keyNames, k)
+	}
+	sort.Strings(keyNames)
+
+	var bestKey string
+	var bestMap map[string]string
+	for _, k := range keyNames {
+		byValue := map[string]string{}
+		collided := map[string]bool{}
+		for _, c := range candidates {
+			v, ok := qualifying[c][k]
+			if !ok {
+				continue
+			}
+			if existing, taken := byValue[v]; taken && existing != c {
+				collided[v] = true
+				continue
+			}
+			byValue[v] = c
+		}
+		for v := range collided {
+			delete(byValue, v)
+		}
+		if len(byValue) > len(bestMap) {
+			bestKey, bestMap = k, byValue
+		}
+	}
+	return bestKey, bestMap
 }
 
 // splitTopLevelComma splits s on commas that are not nested inside parentheses, so that

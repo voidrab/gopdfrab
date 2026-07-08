@@ -169,30 +169,113 @@ func valueTypeAllowed(val pdf.PDFValue, vt arlington.ValueType) bool {
 	}
 }
 
-// arlingtonChildType returns the Arlington type name that key's value inside a dict of type
-// parentType should conform to, or "" if parentType is unknown, key has no schema entry, or
-// the entry's Link is absent or ambiguous (more than one candidate type). Deliberately
-// conservative: propagating a wrong guessed type would misvalidate an entire subtree.
-func arlingtonChildType(parentType, key string) string {
+// arlingtonChildType returns the Arlington type name that val (key's value inside a dict of type
+// parentType) should conform to, or "" if parentType is unknown, key has no schema entry, or
+// val doesn't resolve to a single candidate type. Deliberately conservative: propagating a
+// wrong guessed type would misvalidate an entire subtree.
+func arlingtonChildType(parentType, key string, val pdf.PDFValue) string {
 	ot, ok := arlington.Type(parentType)
 	if !ok {
 		return ""
 	}
 	kd := findArlingtonKey(ot, key)
-	if kd == nil || len(kd.Link) != 1 {
+	if kd == nil {
 		return ""
 	}
-	return kd.Link[0]
+	return resolveLinkGroups(kd.LinkGroups, val)
 }
 
-// arlingtonElementType returns the Arlington type name that each element of an array of type
-// arrayType should conform to, or "" if unknown or ambiguous.
-func arlingtonElementType(arrayType string) string {
+// arlingtonElementType returns the Arlington type name that item (an element of an array of
+// type arrayType) should conform to, or "" if unknown or unresolved.
+func arlingtonElementType(arrayType string, item pdf.PDFValue) string {
 	ot, ok := arlington.Type(arrayType)
-	if !ok || ot.Wildcard == nil || len(ot.Wildcard.Link) != 1 {
+	if !ok || ot.Wildcard == nil {
 		return ""
 	}
-	return ot.Wildcard.Link[0]
+	return resolveLinkGroups(ot.Wildcard.LinkGroups, item)
+}
+
+// resolveLinkGroups picks the LinkGroup matching val's Go-level kind, then resolves it to a
+// single Arlington candidate: directly if there is exactly one, or via the group's
+// Discriminator key (e.g. Subtype, S, FunctionType) otherwise. Any step that doesn't produce an
+// exact match -- no group matches val's kind, no discriminator was found at generation time, the
+// discriminator key is absent, or its value is unrecognized -- returns "": never propagate a
+// guessed type.
+func resolveLinkGroups(groups []arlington.LinkGroup, val pdf.PDFValue) string {
+	if val == nil {
+		return ""
+	}
+	for _, g := range groups {
+		if !linkGroupMatchesKind(val, g.ValueTypes) {
+			continue
+		}
+		switch len(g.Candidates) {
+		case 0:
+			return ""
+		case 1:
+			return g.Candidates[0]
+		default:
+			if g.Discriminator == "" {
+				return ""
+			}
+			d, ok := val.(pdf.PDFDict)
+			if !ok {
+				return ""
+			}
+			s, ok := scalarEnumString(d.Entries[g.Discriminator])
+			if !ok {
+				return ""
+			}
+			return g.ByValue[s] // zero value "" if s isn't a known discriminator value
+		}
+	}
+	return ""
+}
+
+// linkGroupMatchesKind reports whether val's Go-level kind matches one of valueTypes. nil
+// valueTypes means the group is the key's only Type alternative, so it always matches. Unlike
+// valueTypeAllowed (which defaults permissively -- there, false means "flag a violation"), an
+// unrecognized or non-matching kind here always fails closed: picking the wrong LinkGroup risks
+// propagating the wrong schema to an entire subtree, a worse outcome than leaving it unresolved.
+func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bool {
+	if valueTypes == nil {
+		return true
+	}
+	for _, vt := range valueTypes {
+		switch vt {
+		case arlington.Array, arlington.Rectangle, arlington.Matrix:
+			if _, ok := val.(pdf.PDFArray); ok {
+				return true
+			}
+		case arlington.Dictionary, arlington.NameTree, arlington.NumberTree:
+			if d, ok := val.(pdf.PDFDict); ok && !d.HasStream {
+				return true
+			}
+		case arlington.Stream:
+			if d, ok := val.(pdf.PDFDict); ok && d.HasStream {
+				return true
+			}
+		case arlington.Name:
+			if _, ok := val.(pdf.PDFName); ok {
+				return true
+			}
+		case arlington.Integer, arlington.Number, arlington.Bitmask:
+			switch val.(type) {
+			case pdf.PDFInteger, pdf.PDFReal:
+				return true
+			}
+		case arlington.Boolean:
+			if _, ok := val.(pdf.PDFBoolean); ok {
+				return true
+			}
+		case arlington.String, arlington.StringText, arlington.StringByte, arlington.StringASCII, arlington.Date:
+			switch val.(type) {
+			case pdf.PDFString, pdf.PDFHexString:
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // findArlingtonKey returns the KeyDef governing key within ot: an explicit named entry if
