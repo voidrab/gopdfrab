@@ -98,14 +98,17 @@ func TestGraphicsStateParameter(t *testing.T) {
 
 	ri := findKey(gs, "RI")
 	wantRI := []string{"AbsoluteColorimetric", "RelativeColorimetric", "Saturation", "Perceptual"}
-	if ri == nil || !equalStrings(ri.PossibleValues, wantRI) || ri.Predicated {
+	if ri == nil || !equalStrings(ri.PossibleValues, wantRI) || ri.Predicated.Any() {
 		t.Errorf("GraphicsStateParameter.RI: want PossibleValues %v, not Predicated, got %+v", wantRI, ri)
 	}
 
+	// LW/LC carry fn:Eval range constraints: only the Values column is predicated, so their
+	// type checks still run.
 	for _, name := range []string{"LW", "LC"} {
 		kd := findKey(gs, name)
-		if kd == nil || !kd.Predicated || len(kd.PossibleValues) != 0 {
-			t.Errorf("GraphicsStateParameter.%s: want Predicated with empty PossibleValues, got %+v", name, kd)
+		want := Predication{Values: true}
+		if kd == nil || kd.Predicated != want || len(kd.PossibleValues) != 0 {
+			t.Errorf("GraphicsStateParameter.%s: want Predicated %+v with empty PossibleValues, got %+v", name, want, kd)
 		}
 	}
 }
@@ -275,23 +278,80 @@ func stringSliceContains(list []string, s string) bool {
 	return false
 }
 
+// TestVersionGateFolding pins representative rows whose fn: version-gate predicates the
+// generator folds against the model's PDF 1.4 baseline, plus rows that must stay predicated
+// because their condition depends on runtime document state.
+func TestVersionGateFolding(t *testing.T) {
+	// fn:MustBeIndirect(fn:BeforeVersion(2.0)) -> IndirectRequired at 1.4.
+	outlines := findKey(Types["Catalog"], "Outlines")
+	if outlines == nil || outlines.Predicated.Any() || outlines.IndirectReference != IndirectRequired {
+		t.Errorf("Catalog.Outlines: want folded IndirectRequired, got %+v", outlines)
+	}
+
+	// The Indirect column folds even when the row's Required column stays predicated
+	// (it carries a runtime fn:IsPresent condition).
+	info := findKey(Types["FileTrailer"], "Info")
+	wantInfo := Predication{Required: true}
+	if info == nil || info.Predicated != wantInfo || info.IndirectReference != IndirectRequired {
+		t.Errorf("FileTrailer.Info: want folded IndirectRequired with Predicated %+v, got %+v", wantInfo, info)
+	}
+
+	// fn:IsRequired(fn:BeforeVersion(1.3)) -> not required at 1.4.
+	matrix := findKey(Types["XObjectFormType1"], "Matrix")
+	if matrix == nil || matrix.Predicated.Any() || matrix.Required {
+		t.Errorf("XObjectFormType1.Matrix: want folded not-Required, got %+v", matrix)
+	}
+
+	// fn:IsRequired(fn:SinceVersion(2.0,...)) -> not required at 1.4, runtime payload moot.
+	ap := findKey(Types["AnnotText"], "AP")
+	if ap == nil || ap.Predicated.Any() || ap.Required {
+		t.Errorf("AnnotText.AP: want folded not-Required, got %+v", ap)
+	}
+
+	// fn:MustBeIndirect(fn:SinceVersion(1.7)) -> unconstrained at 1.4, wildcard un-predicated.
+	annots := Types["ArrayOfAnnots"].Wildcard
+	if annots == nil || annots.Predicated.Any() || annots.IndirectReference != IndirectEither {
+		t.Errorf("ArrayOfAnnots.*: want folded IndirectEither, got %+v", annots)
+	}
+
+	// Version-gated enum entries fold entry-wise: deprecated values stay legal, values
+	// introduced after 1.4 drop out.
+	v := findKey(Types["EncryptionStandard"], "V")
+	want := []string{"0", "1", "2", "3"}
+	if v == nil || v.Predicated.Any() || !equalStrings(v.PossibleValues, want) {
+		t.Errorf("EncryptionStandard.V: want folded PossibleValues %v, got %+v", want, v)
+	}
+
+	// A literal "*" entry legalizes any value, so the list must not be emitted at all.
+	n := findKey(Types["ActionNamed"], "N")
+	if n == nil || len(n.PossibleValues) != 0 {
+		t.Errorf("ActionNamed.N: want no PossibleValues (list contains *), got %+v", n)
+	}
+
+	// Runtime conditions stay predicated in exactly their own column.
+	as := findKey(Types["AnnotText"], "AS")
+	if as == nil || as.Predicated != (Predication{Required: true}) {
+		t.Errorf("AnnotText.AS: want only Required predicated (runtime fn:IsPresent), got %+v", as)
+	}
+}
+
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.85 // observed ~87.3%; leaves headroom for upstream TSV churn
+	const floor = 0.88 // observed ~89.3% after version-gate folding; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {
 		for _, kd := range ot.Keys {
 			total++
-			if !kd.Predicated {
+			if !kd.Predicated.Any() {
 				simple++
 			}
 		}
 		if ot.Wildcard != nil {
 			total++
-			if !ot.Wildcard.Predicated {
+			if !ot.Wildcard.Predicated.Any() {
 				simple++
 			}
 		}

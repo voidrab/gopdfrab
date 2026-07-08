@@ -107,6 +107,20 @@ type LinkGroup struct {
 	ByValue       map[string]string
 }
 
+// Predication marks the columns of a row whose constraint carried an fn: predicate the
+// generator could not fold. Each check must skip exactly its own column's flag -- the other
+// columns' constraints remain fully known -- erring toward false negatives over false
+// positives.
+type Predication struct {
+	Required bool // the Required column is unresolved
+	Types    bool // a Type column token was unrecognized
+	Values   bool // PossibleValues carries an unfoldable entry
+	Indirect bool // the IndirectReference column is unresolved
+}
+
+// Any reports whether any column of the row is predicated.
+func (p Predication) Any() bool { return p.Required || p.Types || p.Values || p.Indirect }
+
 // KeyDef is one row of an Arlington type: a single named key (or a fixed array index, which
 // Arlington also expresses as a Key), or the wildcard entry (Name == "*") that governs
 // arbitrary dictionary keys or repeating array elements.
@@ -124,10 +138,8 @@ type KeyDef struct {
 	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
 	// instead, so its absence here is not itself a violation.
 	Inheritable bool
-	// Predicated marks a row whose Required, IndirectReference, or PossibleValues carried an
-	// fn: predicate this generator does not evaluate. Consumers should skip predicated rows
-	// rather than flag them, erring toward false negatives over false positives.
-	Predicated bool
+	// Predicated marks the columns whose fn: predicate could not be folded at generation time.
+	Predicated Predication
 }
 
 // ObjectType is one Arlington-defined dictionary/array/stream schema (one TSV file).

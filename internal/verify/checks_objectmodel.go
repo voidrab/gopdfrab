@@ -13,9 +13,9 @@ import (
 // must be one of its schema-allowed types (WrongValueType); a present key with an enumerated
 // PossibleValues list must use one of them (DisallowedValue); a key requiring an indirect
 // reference must not be inlined (IndirectRequired); and a key the model says was introduced
-// after PDF 1.4 must not appear on a non-wildcard type (KeyIntroducedAfterPDF14). Predicated
-// schema rows -- those with an fn: condition the Arlington generator does not evaluate -- are
-// never enforced, erring toward false negatives over false positives. Keys absent from both the
+// after PDF 1.4 must not appear on a non-wildcard type (KeyIntroducedAfterPDF14). A predicated
+// column -- one whose fn: condition the Arlington generator could not fold -- suppresses only
+// its own check, erring toward false negatives over false positives. Keys absent from both the
 // 1.4 and post-1.4 schema (custom/private keys) are never flagged.
 func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContext) {
 	ot, ok := arlington.Type(typeName)
@@ -34,7 +34,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 
 		val, present := v.Entries[kd.Name]
 
-		if kd.Required && !kd.Predicated && !kd.Inheritable && !present {
+		if kd.Required && !kd.Predicated.Required && !kd.Inheritable && !present {
 			ctx.Report(
 				pdf.Checks.ObjectModel.MissingRequiredKey,
 				v,
@@ -43,7 +43,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			continue
 		}
 
-		if present && !kd.Predicated && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
+		if present && !kd.Predicated.Types && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.WrongValueType,
 				v,
@@ -52,7 +52,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			continue
 		}
 
-		if present && !kd.Predicated && len(kd.PossibleValues) > 0 {
+		if present && !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 			if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
 				ctx.Report(
 					pdf.Checks.ObjectModel.DisallowedValue,
@@ -62,7 +62,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			}
 		}
 
-		if present && !kd.Predicated && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+		if present && !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.IndirectRequired,
 				v,
@@ -74,13 +74,13 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// The wildcard row governs every key without an explicit row: its type, enumerated
 	// values, and indirect-reference constraints apply to each such entry (e.g. XObject
 	// resource-map values must be indirect streams). Same Length exemption as above.
-	if wc := ot.Wildcard; wc != nil && !wc.Predicated {
+	if wc := ot.Wildcard; wc != nil {
 		for _, k := range sortedKeys(v.Entries) {
 			if k == "_ref" || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
 				continue
 			}
 			val := v.Entries[k]
-			if len(wc.Types) > 0 && !matchesValueType(val, wc.Types) {
+			if !wc.Predicated.Types && len(wc.Types) > 0 && !matchesValueType(val, wc.Types) {
 				ctx.Report(
 					pdf.Checks.ObjectModel.WrongValueType,
 					v,
@@ -88,7 +88,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 				)
 				continue
 			}
-			if len(wc.PossibleValues) > 0 {
+			if !wc.Predicated.Values && len(wc.PossibleValues) > 0 {
 				if s, ok := scalarEnumString(val); ok && !stringInList(s, wc.PossibleValues) {
 					ctx.Report(
 						pdf.Checks.ObjectModel.DisallowedValue,
@@ -97,7 +97,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 					)
 				}
 			}
-			if wc.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+			if !wc.Predicated.Indirect && wc.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 				ctx.Report(
 					pdf.Checks.ObjectModel.IndirectRequired,
 					v,
@@ -128,7 +128,8 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 // fixed-index rows first, the wildcard row for the rest -- must satisfy its allowed types
 // (WrongValueType), enumerated values (DisallowedValue), and indirect-reference requirement
 // (IndirectRequired). Violations are reported against owner, the nearest enclosing dict, so
-// fixers can resolve them by ref. Predicated rows are skipped, as in validateAgainstSchema.
+// fixers can resolve them by ref. A predicated column suppresses only its own check, as in
+// validateAgainstSchema.
 func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
@@ -147,7 +148,7 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 		}
 		fixed[idx] = true
 		if idx >= len(v) {
-			if kd.Required && !kd.Predicated {
+			if kd.Required && !kd.Predicated.Required {
 				ctx.Report(
 					pdf.Checks.ObjectModel.MissingRequiredKey,
 					owner,
@@ -171,10 +172,7 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 // validateArrayElement applies kd's type/value/indirect constraints to element idx of a
 // typeName-typed array, mirroring validateAgainstSchema's per-key logic.
 func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
-	if kd.Predicated {
-		return
-	}
-	if len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
+	if !kd.Predicated.Types && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
 		ctx.Report(
 			pdf.Checks.ObjectModel.WrongValueType,
 			owner,
@@ -182,7 +180,7 @@ func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeN
 		)
 		return
 	}
-	if len(kd.PossibleValues) > 0 {
+	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 		if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.DisallowedValue,
@@ -191,7 +189,7 @@ func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeN
 			)
 		}
 	}
-	if kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+	if !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 		ctx.Report(
 			pdf.Checks.ObjectModel.IndirectRequired,
 			owner,

@@ -482,6 +482,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "XXXX"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -516,6 +517,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "AAA"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -549,12 +551,13 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["F"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["F"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -584,12 +587,13 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["FFilter"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["FFilter"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -619,12 +623,13 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["FDecodeParms"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["FDecodeParms"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -656,12 +661,14 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	// A custom trailer key keeps the stream outside the FileTrailer schema, so only
+	// the filter check fires.
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.Entries["Filter"] = pdf.PDFName{Value: "LZWDecode"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	info.Entries["Filter"] = pdf.PDFName{Value: "LZWDecode"}
-
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -696,6 +703,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	info := pdf.NewPDFDict()
 
 	info.Entries["EF"] = pdf.PDFHexString{Value: "aaaa"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -730,6 +738,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	info := pdf.NewPDFDict()
 
 	info.Entries["EmbeddedFiles"] = pdf.PDFHexString{Value: "aaaa"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 

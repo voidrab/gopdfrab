@@ -267,3 +267,43 @@ All gates green (full suite, Isartor 204/204, veraPDF 569/569, convert corpus 51
 generated table, now commented as deliberate groundwork for the evaluator's version-gate
 families. `DisallowedValue`'s check description states the name/integer-enum limitation.
 A wildcard-dict-enum test restores `checks_objectmodel.go` to 100% statement coverage.
+
+### Stage B1 — version-gate predicate folding + per-column predication (review item 5, first increment) ✅ 2026-07-08
+
+The predicate evaluator's foundation, entirely at codegen time — no runtime evaluator
+exists yet, because every version-gate predicate constant-folds against the model's pinned
+PDF 1.4 baseline (`modelVersion`, `gen.go`):
+
+- **Expression folder** (`foldVersionExpr` and helpers in `gen.go`): recursive-descent
+  folding of `fn:SinceVersion`/`fn:BeforeVersion`/`fn:IsPDFVersion` (with or without
+  payloads), `fn:Not`, parentheses, and `||`/`&&` with decisive-operand short-circuiting
+  (`fn:SinceVersion(2.0, <runtime payload>)` folds to false at 1.4 — the payload can no
+  longer matter). Anything else stays unresolved. This parser is the compilation
+  infrastructure the later runtime families (B2–B4) plug into.
+- **Folds applied**: `fn:IsRequired(<pure version expr>)` → `Required` true/false
+  (~27 rows, e.g. `XObjectFormType1.Matrix` required only before 1.3);
+  `fn:MustBeIndirect(<version expr>)` → `IndirectRequired`/`IndirectEither`
+  (9 rows: `Catalog` `Dests`/`Outlines`/`Threads`, four font `FontDescriptor`s,
+  `FileTrailer.Info` all fold to must-be-indirect at 1.4); version-gated `PossibleValues`
+  entries fold entry-wise (`fn:Deprecated`/`fn:Extension` values stay legal —
+  false-negative direction; `fn:SinceVersion(1.5,...)` values drop out, e.g.
+  `EncryptionStandard.V` now enforces `0..3`).
+- **Per-column predication** (`arlington.Predication` replacing the row-level bool): each
+  of Required/Types/Values/Indirect carries its own flag, and every check skips exactly
+  its own column — a row whose Required condition is runtime-only still gets its type,
+  enum, and indirection checks (e.g. `FileTrailer.Info`'s fold lands even though its
+  Required column stays predicated; `GraphicsStateParameter.LW`'s type check now runs
+  despite the `fn:Eval` range in its PossibleValues).
+- **`*` enum entries fixed**: a literal `*` in PossibleValues means "any value", so such
+  lists are no longer emitted — this removed a latent false positive on rows like
+  `ActionNamed.N` whose list was already being enforced with `*` as a literal.
+- **Third real convert bug caught**: the Isartor checkbox fixture converts with a *direct*
+  `FontDescriptor`, which ISO 32000 requires to be indirect. Fixed generically by the new
+  `indirectRequiredFixer` (`internal/convert/fixups_objectmodel.go`): any direct dict
+  under a key the model requires indirect gets its own object number, so the writer hoists
+  it — promotion is always conformance-neutral, since no enforced row demands directness.
+- Classification: 87.3% → 89.3% simple rows; `TestClassificationFloor` raised 0.85 → 0.88.
+  `TestVersionGateFolding` pins representative folds and still-predicated runtime rows.
+
+All gates green (full suite, Isartor 204/204, veraPDF 569/569, convert corpus 510/510);
+`BenchmarkOpenVerify` magnitudes unchanged (folding costs nothing at runtime).

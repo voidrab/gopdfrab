@@ -21,6 +21,10 @@ const (
 	tsvDir    = "testdata/tsv/1.4"
 	latestDir = "testdata/tsv/latest"
 	outFile   = "model_gen.go"
+
+	// modelVersion pins the PDF version version-gate predicates are folded against; it must
+	// match the vendored TSV subset under tsvDir.
+	modelVersion = "1.4"
 )
 
 // valueTypeIdent maps an Arlington TSV Type token to the matching Go identifier declared in
@@ -60,6 +64,13 @@ type linkGroup struct {
 	byValue       map[string]string // discriminator value -> candidate type name
 }
 
+// predication mirrors arlington.Predication for the generated literal.
+type predication struct {
+	required, types, values, indirect bool
+}
+
+func (p predication) any() bool { return p.required || p.types || p.values || p.indirect }
+
 // keyDef is the Go source representation of an arlington.KeyDef literal.
 type keyDef struct {
 	name              string
@@ -70,7 +81,7 @@ type keyDef struct {
 	deprecatedIn      string
 	possibleValues    []string
 	linkGroups        []linkGroup
-	predicated        bool
+	predicated        predication
 	inheritable       bool
 }
 
@@ -119,7 +130,7 @@ func main() {
 		for _, r := range rows {
 			totalRows++
 			kd := buildKeyDef(r)
-			if !kd.predicated {
+			if !kd.predicated.any() {
 				simpleRows++
 			}
 			if kd.name == "*" {
@@ -209,8 +220,22 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 	if kd.inheritable {
 		b.WriteString("Inheritable: true,\n")
 	}
-	if kd.predicated {
-		b.WriteString("Predicated: true,\n")
+	if kd.predicated.any() {
+		var cols []string
+		for _, c := range []struct {
+			set  bool
+			name string
+		}{
+			{kd.predicated.required, "Required"},
+			{kd.predicated.types, "Types"},
+			{kd.predicated.values, "Values"},
+			{kd.predicated.indirect, "Indirect"},
+		} {
+			if c.set {
+				cols = append(cols, c.name+": true")
+			}
+		}
+		fmt.Fprintf(b, "Predicated: Predication{%s},\n", strings.Join(cols, ", "))
 	}
 }
 
@@ -378,16 +403,15 @@ func parseTSV(path string) ([]row, error) {
 	return rows, sc.Err()
 }
 
-// buildKeyDef converts one TSV row into its Go source representation, classifying the row as
-// predicated whenever Required, IndirectReference, or PossibleValues carries an fn: predicate
-// this generator does not evaluate.
+// buildKeyDef converts one TSV row into its Go source representation, marking each column
+// whose fn: predicate could not be folded so consumers skip exactly that column's check.
 func buildKeyDef(r row) keyDef {
 	kd := keyDef{name: r.key, sinceVersion: r.sinceVersion, deprecatedIn: r.deprecatedIn}
 
 	for _, tok := range strings.Split(r.typ, ";") {
 		ident, ok := valueTypeIdent[tok]
 		if !ok {
-			kd.predicated = true
+			kd.predicated.types = true
 			continue
 		}
 		kd.types = append(kd.types, ident)
@@ -397,20 +421,29 @@ func buildKeyDef(r row) keyDef {
 	case r.required == "TRUE":
 		kd.required = true
 	case strings.Contains(r.required, "fn:"):
-		kd.predicated = true
+		if req, ok := foldRequired(r.required); ok {
+			kd.required = req
+		} else {
+			kd.predicated.required = true
+		}
 	}
 
 	kd.indirectReference = parseIndirectReference(r.indirectRef)
 	if strings.Contains(r.indirectRef, "fn:") {
-		kd.predicated = true
+		if rule, ok := foldIndirect(r.indirectRef); ok {
+			kd.indirectReference = rule
+		} else {
+			kd.predicated.indirect = true
+		}
 	}
 
 	kd.inheritable = r.inheritable == "TRUE"
 
-	if strings.Contains(r.possibleValues, "fn:") {
-		kd.predicated = true
+	values, unresolved := parsePossibleValues(r.possibleValues)
+	kd.possibleValues = values
+	if unresolved {
+		kd.predicated.values = true
 	}
-	kd.possibleValues = parsePossibleValues(r.possibleValues)
 	kd.linkGroups = parseLinkGroups(r.typ, r.link)
 
 	return kd
@@ -462,25 +495,281 @@ func splitGroups(raw string) []string {
 }
 
 // parsePossibleValues flattens the (possibly per-type-grouped) PossibleValues column into a
-// single enumerated list, dropping any fn:-predicated entry (a whole-group range constraint
-// like fn:Eval(@LW>=0), or a single deprecated/version-gated option mixed into an otherwise
-// plain list like fn:Deprecated(1.4,Compatible)).
-func parsePossibleValues(raw string) []string {
+// single enumerated list. Version-gated entries (fn:SinceVersion/fn:IsPDFVersion/
+// fn:BeforeVersion wrapping a plain value) are folded against modelVersion; fn:Deprecated and
+// fn:Extension entries stay legal (deprecated/extension values still occur in real files --
+// the false-negative direction). unresolved reports whether any entry carried a predicate this
+// generator could not fold (e.g. a whole-group range constraint like fn:Eval(@LW>=0)), in
+// which case the row must stay predicated. A literal "*" entry means any value is legal, so
+// the whole list enforces nothing and is dropped -- along with any unresolved entry in it.
+func parsePossibleValues(raw string) (values []string, unresolved bool) {
 	if raw == "" {
-		return nil
+		return nil, false
 	}
-	var out []string
 	for _, group := range splitGroups(raw) {
 		for _, item := range splitTopLevelComma(group) {
 			item = strings.TrimSpace(item)
-			if item == "" || strings.HasPrefix(item, "fn:") {
+			if item == "" {
 				continue
 			}
+			if strings.HasPrefix(item, "fn:") {
+				val, keep, ok := foldValueEntry(item)
+				if !ok {
+					unresolved = true
+					continue
+				}
+				if !keep {
+					continue
+				}
+				item = val
+			}
 			item = strings.Trim(item, "'")
-			out = append(out, item)
+			if item == "*" {
+				return nil, false
+			}
+			values = append(values, item)
 		}
 	}
-	return out
+	return values, unresolved
+}
+
+// foldValueEntry resolves one fn:-wrapped PossibleValues entry against modelVersion: keep
+// reports whether the wrapped value is legal at modelVersion, ok whether the entry was fully
+// resolved. A version gate that is false at modelVersion resolves to "omit" even when its
+// payload carries a nested predicate; a kept payload must be a plain value.
+func foldValueEntry(item string) (val string, keep, ok bool) {
+	name, args, wrapped := splitPredicate(item)
+	if !wrapped || len(args) != 2 {
+		return "", false, false
+	}
+	plain := !strings.Contains(args[1], "fn:")
+	switch name {
+	case "fn:Deprecated", "fn:Extension":
+		return args[1], true, plain
+	case "fn:SinceVersion", "fn:BeforeVersion", "fn:IsPDFVersion":
+		cmp, verOK := versionCmp(modelVersion, args[0])
+		if !verOK {
+			return "", false, false
+		}
+		var gate bool
+		switch name {
+		case "fn:SinceVersion":
+			gate = cmp >= 0
+		case "fn:BeforeVersion":
+			gate = cmp < 0
+		case "fn:IsPDFVersion":
+			gate = cmp == 0
+		}
+		if !gate {
+			return "", false, true
+		}
+		return args[1], true, plain
+	}
+	return "", false, false
+}
+
+// foldRequired constant-folds a Required column of the form fn:IsRequired(expr) whose
+// condition is a pure version-gate expression.
+func foldRequired(raw string) (required, ok bool) {
+	name, args, wrapped := splitPredicate(strings.TrimSpace(raw))
+	if !wrapped || name != "fn:IsRequired" || len(args) != 1 {
+		return false, false
+	}
+	return foldVersionExpr(args[0])
+}
+
+// foldIndirect constant-folds an IndirectReference column of the form fn:MustBeIndirect(expr)
+// with a pure version-gate condition (empty means unconditionally indirect). fn:MustBeDirect
+// is not folded here: a true result needs the IndirectForbidden disposition, which no check
+// consumes yet.
+func foldIndirect(raw string) (rule string, ok bool) {
+	name, args, wrapped := splitPredicate(strings.TrimSpace(raw))
+	if !wrapped || name != "fn:MustBeIndirect" || len(args) > 1 {
+		return "", false
+	}
+	must := true
+	if len(args) == 1 && args[0] != "" {
+		if must, ok = foldVersionExpr(args[0]); !ok {
+			return "", false
+		}
+	}
+	if must {
+		return "IndirectRequired", true
+	}
+	return "IndirectEither", true
+}
+
+// foldVersionExpr constant-folds a predicate expression built from the version primitives
+// fn:SinceVersion/fn:BeforeVersion/fn:IsPDFVersion, fn:Not, parentheses, and ||/&& against
+// modelVersion. ok is false as soon as any subexpression that could still decide the result
+// depends on runtime document state -- the caller must then keep the row predicated.
+func foldVersionExpr(expr string) (val, ok bool) {
+	expr = trimOuterParens(strings.TrimSpace(expr))
+
+	if parts := splitTopLevelOp(expr, "||"); len(parts) > 1 {
+		return foldBool(parts, false)
+	}
+	if parts := splitTopLevelOp(expr, "&&"); len(parts) > 1 {
+		return foldBool(parts, true)
+	}
+
+	name, args, wrapped := splitPredicate(expr)
+	if !wrapped {
+		return false, false
+	}
+	switch name {
+	case "fn:Not":
+		if len(args) != 1 {
+			return false, false
+		}
+		v, ok := foldVersionExpr(args[0])
+		return !v, ok
+	case "fn:SinceVersion", "fn:BeforeVersion", "fn:IsPDFVersion":
+		if len(args) == 0 || len(args) > 2 {
+			return false, false
+		}
+		cmp, verOK := versionCmp(modelVersion, args[0])
+		if !verOK {
+			return false, false
+		}
+		var gate bool
+		switch name {
+		case "fn:SinceVersion":
+			gate = cmp >= 0
+		case "fn:BeforeVersion":
+			gate = cmp < 0
+		case "fn:IsPDFVersion":
+			gate = cmp == 0
+		}
+		if !gate {
+			return false, true // the payload can no longer apply
+		}
+		if len(args) == 1 {
+			return true, true
+		}
+		return foldVersionExpr(args[1])
+	}
+	return false, false
+}
+
+// foldBool folds the operands of a top-level || (and=false) or && (and=true): one decisive
+// operand (true for ||, false for &&) settles the result even if siblings are unfoldable.
+func foldBool(parts []string, and bool) (val, ok bool) {
+	allFolded := true
+	for _, p := range parts {
+		v, pOK := foldVersionExpr(p)
+		if pOK && v != and {
+			return !and, true
+		}
+		if !pOK {
+			allFolded = false
+		}
+	}
+	return and, allFolded
+}
+
+// splitPredicate splits "fn:Name(arg0,arg1)" into its name and top-level comma-separated
+// arguments; wrapped is false when expr is not a single fn: call spanning the whole string.
+func splitPredicate(expr string) (name string, args []string, wrapped bool) {
+	if !strings.HasPrefix(expr, "fn:") {
+		return "", nil, false
+	}
+	open := strings.IndexByte(expr, '(')
+	if open < 0 || !strings.HasSuffix(expr, ")") {
+		return "", nil, false
+	}
+	inner := expr[open+1 : len(expr)-1]
+	depth := 0
+	for _, c := range inner {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return "", nil, false // the closing paren is not this call's
+			}
+		}
+	}
+	if depth != 0 {
+		return "", nil, false
+	}
+	if inner == "" {
+		return expr[:open], nil, true
+	}
+	for _, a := range splitTopLevelComma(inner) {
+		args = append(args, strings.TrimSpace(a))
+	}
+	return expr[:open], args, true
+}
+
+// splitTopLevelOp splits expr on a two-character boolean operator at paren depth 0.
+func splitTopLevelOp(expr, op string) []string {
+	var parts []string
+	depth, start := 0, 0
+	for i := 0; i < len(expr); i++ {
+		switch expr[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		default:
+			if depth == 0 && strings.HasPrefix(expr[i:], op) {
+				parts = append(parts, strings.TrimSpace(expr[start:i]))
+				i += len(op) - 1
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, strings.TrimSpace(expr[start:]))
+	return parts
+}
+
+// trimOuterParens strips one pair of parentheses when they enclose the whole expression.
+func trimOuterParens(expr string) string {
+	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		depth := 0
+		for i := 0; i < len(expr); i++ {
+			switch expr[i] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+				if depth == 0 && i != len(expr)-1 {
+					return expr // e.g. "(a) && (b)" -- the outer parens don't match
+				}
+			}
+		}
+		expr = strings.TrimSpace(expr[1 : len(expr)-1])
+	}
+	return expr
+}
+
+// versionCmp numerically compares two "major.minor" PDF version strings; ok is false when
+// either operand does not have that shape.
+func versionCmp(a, b string) (cmp int, ok bool) {
+	pa, okA := parseVersion(a)
+	pb, okB := parseVersion(b)
+	if !okA || !okB {
+		return 0, false
+	}
+	if pa != pb {
+		if pa < pb {
+			return -1, true
+		}
+		return 1, true
+	}
+	return 0, true
+}
+
+// parseVersion converts "1.4" into a single comparable number (major*100+minor).
+func parseVersion(s string) (int, bool) {
+	major, minor, found := strings.Cut(s, ".")
+	if !found || len(major) != 1 || len(minor) != 1 ||
+		major[0] < '0' || major[0] > '9' || minor[0] < '0' || minor[0] > '9' {
+		return 0, false
+	}
+	return int(major[0]-'0')*100 + int(minor[0]-'0'), true
 }
 
 // parseLinkGroups splits typ and link in lockstep, one linkGroup per Type alternative, so a
@@ -564,7 +853,7 @@ func bestDiscriminator(candidates []string, keyDefsByType map[string][]keyDef) (
 	for _, c := range candidates {
 		q := map[string]string{}
 		for _, kd := range keyDefsByType[c] {
-			if kd.required && !kd.predicated && len(kd.possibleValues) == 1 {
+			if kd.required && !kd.predicated.required && !kd.predicated.values && len(kd.possibleValues) == 1 {
 				q[kd.name] = kd.possibleValues[0]
 				keyNameSet[kd.name] = true
 			}
