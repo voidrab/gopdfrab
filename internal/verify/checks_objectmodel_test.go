@@ -737,6 +737,60 @@ func TestEvalCond(t *testing.T) {
 	}
 }
 
+func TestEvalCondOrdering(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["CA"] = pdf.PDFReal(0.5)
+	d.Entries["LC"] = pdf.PDFInteger(2)
+	d.Entries["Name"] = pdf.PDFName{Value: "X"}
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		val, ok bool
+	}{
+		{"ge real", arlington.Cond{Op: arlington.CondGe, Key: "CA", Value: "0.0"}, true, true},
+		{"le real", arlington.Cond{Op: arlington.CondLe, Key: "CA", Value: "1.0"}, true, true},
+		{"gt fails", arlington.Cond{Op: arlington.CondGt, Key: "CA", Value: "0.5"}, false, true},
+		{"lt int", arlington.Cond{Op: arlington.CondLt, Key: "LC", Value: "3"}, true, true},
+		{"absent fails closed", arlington.Cond{Op: arlington.CondGe, Key: "X", Value: "0"}, false, false},
+		{"non-numeric fails closed", arlington.Cond{Op: arlington.CondGe, Key: "Name", Value: "0"}, false, false},
+	}
+	for _, tc := range cases {
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
+	// GraphicsStateParameter.CA must satisfy 0 <= CA <= 1.
+	gs := pdf.NewPDFDict()
+	gs.Entries["CA"] = pdf.PDFReal(1.5)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for CA outside [0,1]")
+	}
+
+	gs = pdf.NewPDFDict()
+	gs.Entries["CA"] = pdf.PDFReal(0.5)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a CA within [0,1] must not be flagged, got %v", ctx.errs)
+	}
+
+	// A value of the wrong shape is the type check's business, not the range check's.
+	gs = pdf.NewPDFDict()
+	gs.Entries["CA"] = pdf.PDFName{Value: "NotANumber"}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a non-numeric CA must fail closed in the range check, got %v", ctx.errs)
+	}
+}
+
 func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// PageObject.Parent is required when @Type!=Template.
 	page := pdf.NewPDFDict()

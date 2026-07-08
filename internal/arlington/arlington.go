@@ -128,6 +128,10 @@ const (
 	CondPresent CondOp = iota // the sibling Key exists and is not null
 	CondEq                    // the sibling Key's scalar value equals Value
 	CondNe                    // the sibling Key's scalar value differs from Value
+	CondLt                    // the sibling Key's numeric value is < Value
+	CondLe                    // the sibling Key's numeric value is <= Value
+	CondGt                    // the sibling Key's numeric value is > Value
+	CondGe                    // the sibling Key's numeric value is >= Value
 	CondAnd
 	CondOr
 	CondNot
@@ -153,7 +157,11 @@ type KeyDef struct {
 	Required bool
 	// RequiredWhen makes the key conditionally required: it must be present whenever the
 	// condition holds. Mutually exclusive with Required and Predicated.Required.
-	RequiredWhen      *Cond
+	RequiredWhen *Cond
+	// ValueCond constrains the key's present value (a compiled whole-column fn:Eval range,
+	// e.g. 0 <= CA <= 1), evaluated over the owning dict like RequiredWhen. Mutually
+	// exclusive with PossibleValues and Predicated.Values.
+	ValueCond         *Cond
 	IndirectReference IndirectRule
 	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);
 	// kept as groundwork for the predicate evaluator's version-gate families.

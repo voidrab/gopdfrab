@@ -612,9 +612,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Volume",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "Volume", Value: "-1"}, {Op: CondLe, Key: "Volume", Value: "1"}}},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Synchronous",
@@ -1148,8 +1148,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -1287,8 +1287,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -1423,8 +1423,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -1554,8 +1554,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -1684,8 +1684,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -1824,8 +1824,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -2502,9 +2502,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -2776,8 +2776,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -2906,8 +2906,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -3030,8 +3030,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -3160,8 +3160,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -3444,8 +3444,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0.0"}, {Op: CondLe, Key: "CA", Value: "1.0"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -5525,8 +5525,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "W",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGe, Key: "W", Value: "0.0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "S",
@@ -5671,8 +5671,8 @@ var Types = map[string]ObjectType{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -5915,8 +5915,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Gamma",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGt, Key: "Gamma", Value: "0"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},
@@ -6759,8 +6759,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Size",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Size", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "CreationDate",
@@ -7870,8 +7870,9 @@ var Types = map[string]ObjectType{
 				Name:         "Size",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Size", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "Prev",
@@ -7968,14 +7969,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Columns",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Columns", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Rows",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Rows", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "EndOfBlock",
@@ -7990,8 +7991,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "DamagedRowsBeforeError",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "DamagedRowsBeforeError", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Blackls1",
@@ -8023,8 +8024,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Colors",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Colors", Value: "1"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "BitsPerComponent",
@@ -8067,8 +8068,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Colors",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Colors", Value: "1"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "BitsPerComponent",
@@ -8345,8 +8346,8 @@ var Types = map[string]ObjectType{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -8491,8 +8492,8 @@ var Types = map[string]ObjectType{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -8637,8 +8638,8 @@ var Types = map[string]ObjectType{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -8751,8 +8752,8 @@ var Types = map[string]ObjectType{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -8866,8 +8867,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Descent",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondLe, Key: "Descent", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Leading",
@@ -10338,26 +10339,26 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "LW",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGe, Key: "LW", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "LC",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "LC", Value: "0"}, {Op: CondLe, Key: "LC", Value: "2"}}},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "LJ",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "LJ", Value: "0"}, {Op: CondLe, Key: "LJ", Value: "2"}}},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "ML",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGe, Key: "ML", Value: "1"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "D",
@@ -10388,8 +10389,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "OPM",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "OPM", Value: "0"}, {Op: CondLe, Key: "OPM", Value: "1"}}},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Font",
@@ -10547,14 +10548,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "FL",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGt, Key: "FL", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "SM",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "SM", Value: "0"}, {Op: CondLe, Key: "SM", Value: "1"}}},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "SA",
@@ -10590,14 +10591,14 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "CA",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "CA", Value: "0"}, {Op: CondLe, Key: "CA", Value: "1"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "ca",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "ca", Value: "0"}, {Op: CondLe, Key: "ca", Value: "1"}}},
 				SinceVersion: "1.4",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "AIS",
@@ -10719,8 +10720,8 @@ var Types = map[string]ObjectType{
 				Name:         "Frequency",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "Frequency", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Angle",
@@ -10806,15 +10807,15 @@ var Types = map[string]ObjectType{
 				Name:         "Xsquare",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Xsquare", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Ysquare",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Ysquare", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "TransferFunction",
@@ -10936,27 +10937,27 @@ var Types = map[string]ObjectType{
 				Name:         "Width",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Width", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Height",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Height", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Width2",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGt, Key: "Width2", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Height2",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGt, Key: "Height2", Value: "0"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "TransferFunction",
@@ -11136,15 +11137,15 @@ var Types = map[string]ObjectType{
 				Name:         "Width",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Width", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Height",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "Height", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "TransferFunction",
@@ -11623,8 +11624,9 @@ var Types = map[string]ObjectType{
 				Name:         "L",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "L", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "H",
@@ -11642,8 +11644,9 @@ var Types = map[string]ObjectType{
 				Name:         "O",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "O", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "E",
@@ -11656,21 +11659,24 @@ var Types = map[string]ObjectType{
 				Name:         "N",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "N", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "T",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "T", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "P",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "P", Value: "0"},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 		},
 	},
@@ -11981,9 +11987,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Volume",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "Volume", Value: "-1"}, {Op: CondLe, Key: "Volume", Value: "1"}}},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "ShowControls",
@@ -12539,8 +12545,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Count",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "Count", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},
@@ -12741,8 +12747,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "St",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "St", Value: "1"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},
@@ -13019,8 +13025,8 @@ var Types = map[string]ObjectType{
 				Name:         "Count",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "Count", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Resources",
@@ -13079,8 +13085,8 @@ var Types = map[string]ObjectType{
 				Name:         "Count",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "Count", Value: "0"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Resources",
@@ -14111,8 +14117,8 @@ var Types = map[string]ObjectType{
 				Name:         "VerticesPerRow",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "VerticesPerRow", Value: "2"},
 				SinceVersion: "1.3",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Decode",
@@ -14896,23 +14902,23 @@ var Types = map[string]ObjectType{
 				Name:         "R",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGt, Key: "R", Value: "0"},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "C",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGt, Key: "C", Value: "0"},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "B",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGt, Key: "B", Value: "0"},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "E",
@@ -15238,9 +15244,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "R",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondGe, Key: "R", Value: "0"},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "T",
@@ -15808,8 +15814,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "D",
 				Types:        []ValueType{Number},
+				ValueCond:    &Cond{Op: CondGe, Key: "D", Value: "0"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:           "Dm",

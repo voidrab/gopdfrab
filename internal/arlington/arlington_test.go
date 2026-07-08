@@ -103,14 +103,17 @@ func TestGraphicsStateParameter(t *testing.T) {
 		t.Errorf("GraphicsStateParameter.RI: want PossibleValues %v, not Predicated, got %+v", wantRI, ri)
 	}
 
-	// LW/LC carry fn:Eval range constraints: only the Values column is predicated, so their
-	// type checks still run.
+	// LW/LC carry fn:Eval range constraints, compiled into ValueCond trees.
 	for _, name := range []string{"LW", "LC"} {
 		kd := findKey(gs, name)
-		want := Predication{Values: true}
-		if kd == nil || kd.Predicated != want || len(kd.PossibleValues) != 0 {
-			t.Errorf("GraphicsStateParameter.%s: want Predicated %+v with empty PossibleValues, got %+v", name, want, kd)
+		if kd == nil || kd.Predicated.Any() || kd.ValueCond == nil || len(kd.PossibleValues) != 0 {
+			t.Errorf("GraphicsStateParameter.%s: want compiled ValueCond, no PossibleValues, got %+v", name, kd)
 		}
+	}
+	lw := findKey(gs, "LW")
+	wantLW := &Cond{Op: CondGe, Key: "LW", Value: "0"}
+	if lw == nil || !reflect.DeepEqual(lw.ValueCond, wantLW) {
+		t.Errorf("GraphicsStateParameter.LW: want ValueCond %+v, got %+v", wantLW, lw.ValueCond)
 	}
 }
 
@@ -372,7 +375,7 @@ func TestCompiledConditions(t *testing.T) {
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.89 // observed ~90.2% after compiled conditions; headroom for TSV churn
+	const floor = 0.92 // observed ~93.2% after compiled value ranges; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

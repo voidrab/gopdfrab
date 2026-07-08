@@ -67,6 +67,16 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			}
 		}
 
+		if present && val != nil && kd.ValueCond != nil {
+			if legal, ok := evalCond(kd.ValueCond, v); ok && !legal {
+				ctx.Report(
+					pdf.Checks.ObjectModel.DisallowedValue,
+					v,
+					fmt.Sprintf("%s key %q has a value outside its legal range", typeName, kd.Name),
+				)
+			}
+		}
+
 		if present && !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.IndirectRequired,
@@ -224,6 +234,26 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 			eq = s == c.Value
 		}
 		return eq == (c.Op == arlington.CondEq), true
+	case arlington.CondLt, arlington.CondLe, arlington.CondGt, arlington.CondGe:
+		sib, present := v.Entries[c.Key]
+		if !present || sib == nil {
+			return false, false
+		}
+		n, numeric := numericValue(sib)
+		bound, err := strconv.ParseFloat(c.Value, 64)
+		if !numeric || err != nil {
+			return false, false
+		}
+		switch c.Op {
+		case arlington.CondLt:
+			return n < bound, true
+		case arlington.CondLe:
+			return n <= bound, true
+		case arlington.CondGt:
+			return n > bound, true
+		default:
+			return n >= bound, true
+		}
 	case arlington.CondNot:
 		if len(c.Kids) != 1 {
 			return false, false
@@ -248,6 +278,17 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 		return !decisive, true
 	}
 	return false, false
+}
+
+// numericValue converts a PDF integer or real to float64 for range conditions.
+func numericValue(val pdf.PDFValue) (float64, bool) {
+	switch n := val.(type) {
+	case pdf.PDFInteger:
+		return float64(n), true
+	case pdf.PDFReal:
+		return float64(n), true
+	}
+	return 0, false
 }
 
 // isIndirect reports whether val was reached through an indirect reference. Only dicts and

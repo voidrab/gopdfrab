@@ -77,6 +77,7 @@ type keyDef struct {
 	types             []string // Go identifiers, e.g. "Dictionary"
 	required          bool
 	requiredWhen      *condExpr
+	valueCond         *condExpr
 	indirectReference string // Go identifier, e.g. "IndirectEither"
 	sinceVersion      string
 	deprecatedIn      string
@@ -212,6 +213,9 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 	if kd.requiredWhen != nil {
 		fmt.Fprintf(b, "RequiredWhen: &Cond%s,\n", condLiteral(*kd.requiredWhen))
 	}
+	if kd.valueCond != nil {
+		fmt.Fprintf(b, "ValueCond: &Cond%s,\n", condLiteral(*kd.valueCond))
+	}
 	if kd.indirectReference != "IndirectEither" {
 		fmt.Fprintf(b, "IndirectReference: %s,\n", kd.indirectReference)
 	}
@@ -240,6 +244,33 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 			}
 		}
 		fmt.Fprintf(b, "Predicated: Predication{%s},\n", strings.Join(cols, ", "))
+	}
+}
+
+// compileValueCond compiles a PossibleValues column that is exactly one whole-group
+// fn:Eval(...) constraint into a runtime condition on the key's value. Multi-group columns
+// (per-type-alternative constraints) are not compiled: the matching alternative is unknown
+// at runtime, so enforcing all groups could flag a legal value. ok with a nil tree means the
+// constraint resolved to nothing enforceable (vacuous or constant-true).
+func compileValueCond(raw string) (tree *condExpr, ok bool) {
+	groups := splitGroups(raw)
+	if len(groups) != 1 {
+		return nil, false
+	}
+	items := splitTopLevelComma(groups[0])
+	if len(items) != 1 || !strings.HasPrefix(strings.TrimSpace(items[0]), "fn:Eval(") {
+		return nil, false
+	}
+	res := compileCond(strings.TrimSpace(items[0]))
+	switch {
+	case !res.ok:
+		return nil, false
+	case res.vacuous || (res.isConst && res.constVal):
+		return nil, true
+	case res.isConst:
+		return nil, false // a constant-false constraint would flag every value: fail closed
+	default:
+		return res.tree, true
 	}
 }
 
@@ -465,10 +496,17 @@ func buildKeyDef(r row) keyDef {
 
 	kd.inheritable = r.inheritable == "TRUE"
 
+	// ValueCond only compiles for named dict keys: wildcard and fixed-index rows have no
+	// owning dictionary for the runtime evaluation to resolve sibling references against.
 	values, unresolved := parsePossibleValues(r.possibleValues)
 	kd.possibleValues = values
 	if unresolved {
-		kd.predicated.values = true
+		if tree, ok := compileValueCond(r.possibleValues); ok && plainKey(kd.name) {
+			kd.valueCond = tree
+			kd.possibleValues = nil
+		} else {
+			kd.predicated.values = true
+		}
 	}
 	kd.linkGroups = parseLinkGroups(r.typ, r.link)
 
@@ -601,25 +639,33 @@ type condExpr struct {
 	kids       []condExpr
 }
 
-// condResult is compileCond's outcome: a constant, a runtime condition tree, or not ok
-// (the expression depends on state this compiler cannot express).
+// condResult is compileCond's outcome: a constant, a runtime condition tree, a vacuous
+// term (a payload version gate whose gate is false -- the constraint does not apply, so it
+// is neutral in whatever boolean context encloses it), or not ok (the expression depends on
+// state this compiler cannot express).
 type condResult struct {
 	ok       bool
 	isConst  bool
 	constVal bool
+	vacuous  bool
 	tree     *condExpr
 }
 
 func constCond(v bool) condResult    { return condResult{ok: true, isConst: true, constVal: v} }
 func treeCond(t condExpr) condResult { return condResult{ok: true, tree: &t} }
 
-// compileRequired compiles a Required column of the form fn:IsRequired(expr).
+// compileRequired compiles a Required column of the form fn:IsRequired(expr). A vacuous
+// condition means the requirement does not apply.
 func compileRequired(raw string) condResult {
 	name, args, wrapped := splitPredicate(strings.TrimSpace(raw))
 	if !wrapped || name != "fn:IsRequired" || len(args) != 1 {
 		return condResult{}
 	}
-	return compileCond(args[0])
+	res := compileCond(args[0])
+	if res.vacuous {
+		return constCond(false)
+	}
+	return res
 }
 
 // foldIndirect constant-folds an IndirectReference column of the form fn:MustBeIndirect(expr)
@@ -677,6 +723,8 @@ func compileCond(expr string) condResult {
 		switch {
 		case !res.ok:
 			return condResult{}
+		case res.vacuous:
+			return res // an inapplicable constraint stays inapplicable under negation
 		case res.isConst:
 			return constCond(!res.constVal)
 		default:
@@ -687,6 +735,11 @@ func compileCond(expr string) condResult {
 			return treeCond(condExpr{op: "CondPresent", key: args[0]})
 		}
 		return condResult{}
+	case "fn:Eval":
+		if len(args) != 1 {
+			return condResult{}
+		}
+		return compileCond(args[0])
 	case "fn:SinceVersion", "fn:BeforeVersion", "fn:IsPDFVersion":
 		if len(args) == 0 || len(args) > 2 {
 			return condResult{}
@@ -705,7 +758,11 @@ func compileCond(expr string) condResult {
 			gate = cmp == 0
 		}
 		if !gate {
-			return constCond(false) // the payload can no longer apply
+			if len(args) == 2 {
+				// The gated constraint does not apply at modelVersion: neutral, not false.
+				return condResult{ok: true, vacuous: true}
+			}
+			return constCond(false)
 		}
 		if len(args) == 1 {
 			return constCond(true)
@@ -724,6 +781,8 @@ func compileBool(parts []string, and bool) condResult {
 	for _, p := range parts {
 		res := compileCond(p)
 		switch {
+		case res.ok && res.vacuous:
+			// an inapplicable constraint is neutral in either context, drop
 		case res.ok && res.isConst && res.constVal != and:
 			return constCond(!and)
 		case res.ok && res.isConst:
@@ -750,24 +809,33 @@ func compileBool(parts []string, and bool) condResult {
 	return treeCond(condExpr{op: op, kids: kids})
 }
 
-// splitComparison recognizes a top-level "@Key==literal" / "@Key!=literal" comparison.
+// splitComparison recognizes a top-level "@Key <op> literal" comparison, where <op> is one
+// of ==, !=, >=, <=, > or <.
 func splitComparison(expr string) (key, value, op string, ok bool) {
 	depth := 0
-	for i := 0; i+1 < len(expr); i++ {
+	for i := 0; i < len(expr); i++ {
 		switch expr[i] {
 		case '(':
 			depth++
 		case ')':
 			depth--
-		case '=', '!':
-			if depth != 0 || expr[i+1] != '=' {
+		case '=', '!', '<', '>':
+			if depth != 0 {
 				continue
 			}
-			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+2:])
-			op = "CondEq"
-			if expr[i] == '!' {
-				op = "CondNe"
+			width := 1
+			switch {
+			case i+1 < len(expr) && expr[i+1] == '=':
+				width = 2
+				op = map[byte]string{'=': "CondEq", '!': "CondNe", '<': "CondLe", '>': "CondGe"}[expr[i]]
+			case expr[i] == '<':
+				op = "CondLt"
+			case expr[i] == '>':
+				op = "CondGt"
+			default:
+				return "", "", "", false // bare '=' or '!'
 			}
+			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+width:])
 			if strings.HasPrefix(lhs, "@") && plainKey(lhs[1:]) && plainValue(rhs) {
 				return lhs[1:], rhs, op, true
 			}
@@ -777,19 +845,24 @@ func splitComparison(expr string) (key, value, op string, ok bool) {
 	return "", "", "", false
 }
 
-// plainKey reports whether s is a bare sibling key name (no path, no operators).
+// plainKey reports whether s is a bare sibling key name (no path, no operators). All-digit
+// names are array-index references (@0, @1), which have no dictionary to resolve against.
 func plainKey(s string) bool {
 	if s == "" {
 		return false
 	}
+	hasLetter := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' {
-			continue
+		switch {
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_':
+			hasLetter = true
+		case c >= '0' && c <= '9':
+		default:
+			return false
 		}
-		return false
 	}
-	return true
+	return hasLetter
 }
 
 // plainValue reports whether s is a bare comparison literal (name/number token).

@@ -337,3 +337,30 @@ touches the owning dict's own entries now compile to a `RequiredWhen *arlington.
 
 All gates green; `BenchmarkOpenVerify` magnitudes unchanged (the tree is a few pointer
 hops per conditionally-required key, no allocations).
+
+### Stage B3 — compiled fn:Eval value-range constraints (review item 5, third increment) ✅ 2026-07-08
+
+Whole-column `fn:Eval` range constraints in PossibleValues — 62 named dict keys, e.g.
+`GraphicsStateParameter.CA` ∈ [0,1], `FontDescriptor.Descent` ≤ 0, `DecodeParms.Columns`
+≥ 0 — now compile to `ValueCond *arlington.Cond` and are enforced as `DisallowedValue`
+("outside its legal range"):
+
+- **Ordering operators**: `Cond` gains `CondLt/Le/Gt/Ge` (numeric comparison of the key's
+  value against a literal); `compileCond` parses `>=`, `<=`, `>`, `<` alongside `==`/`!=`
+  and unwraps nested `fn:Eval`. The condition references the key itself as a sibling
+  (`@CA` inside the `CA` row), so `evalCond` needed no new operand concept.
+- **Vacuous version gates**: a payload gate whose version test fails (e.g.
+  `fn:BeforeVersion(1.3, fn:Eval(@Colors<=4))` at 1.4) is *neutral in its boolean
+  context* — dropped from `&&`/`||` — not false; folding it to false would have made
+  `(@Colors>=1) && fn:BeforeVersion(1.3,...)` unsatisfiable and flagged every legal value.
+  B1/B2's existing folds were audited against this rule: all of them sat in contexts where
+  false and neutral coincide (Required top level, `||` operands), so none change.
+- **Fail-closed boundaries**: multi-group columns (per-type-alternative constraints,
+  `[fn:Eval(@Page>=0)];[]`) are not compiled — the matching alternative is unknown at
+  runtime; wildcard/fixed-index rows are not compiled (`@0` references an array element,
+  not a sibling); `mod`, `fn:ArrayLength`, `fn:FileSize` operands stay predicated. At
+  runtime an absent or non-numeric operand makes the condition unknown → no flag (the
+  wrong-shape case is `WrongValueType`'s business).
+- Classification: 90.2% → 93.2% simple rows; floor raised 0.89 → 0.92.
+
+All gates green on the first corpus run; coverage held (verify 93.5%, arlington 100%).
