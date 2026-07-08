@@ -694,3 +694,22 @@ func TestValidateArrayAgainstSchema_WildcardEnum(t *testing.T) {
 		t.Error("expected DisallowedValue for an unknown filter name")
 	}
 }
+
+func TestValidateAgainstSchema_WildcardDictEnum(t *testing.T) {
+	// ColorSpaceMap's wildcard enumerates the legal name-valued entries.
+	m := pdf.NewPDFDict()
+	m.Entries["CS0"] = pdf.PDFName{Value: "BogusColorSpace"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(m, "ColorSpaceMap", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for an unknown colour space name")
+	}
+
+	m = pdf.NewPDFDict()
+	m.Entries["CS0"] = pdf.PDFName{Value: "DeviceRGB"}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(m, "ColorSpaceMap", ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for a conformant colour space map: %v", ctx.errs)
+	}
+}

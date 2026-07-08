@@ -1008,7 +1008,7 @@ func init() {
 				ObjectModelClause, 2),
 			DisallowedValue: newCheck(
 				"DisallowedValue",
-				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it",
+				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it (only name and integer enums are enforced)",
 				ObjectModelClause, 3),
 			IndirectRequired: newCheck(
 				"IndirectRequired",

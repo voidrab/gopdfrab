@@ -88,7 +88,8 @@ const (
 	IndirectEither IndirectRule = iota
 	// IndirectRequired means the value must be an indirect reference.
 	IndirectRequired
-	// IndirectForbidden means the value must be a direct object.
+	// IndirectForbidden means the value must be a direct object. Never generated today --
+	// all fn:MustBeDirect rows are predicated; reserved for the predicate evaluator.
 	IndirectForbidden
 )
 
@@ -114,10 +115,12 @@ type KeyDef struct {
 	Types             []ValueType
 	Required          bool
 	IndirectReference IndirectRule
-	SinceVersion      string
-	DeprecatedIn      string      // empty if never deprecated
-	PossibleValues    []string    // enumerated legal values, when constrained; predicate-only entries are dropped
-	LinkGroups        []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
+	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);
+	// kept as groundwork for the predicate evaluator's version-gate families.
+	SinceVersion   string
+	DeprecatedIn   string      // empty if never deprecated
+	PossibleValues []string    // enumerated legal values, when constrained; predicate-only entries are dropped
+	LinkGroups     []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
 	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
 	// instead, so its absence here is not itself a violation.
 	Inheritable bool

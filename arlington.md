@@ -15,7 +15,7 @@ were re-verified for this review:
 - `go test` green across `internal/arlington`, `internal/verify`, `internal/pdf`,
   `internal/convert`; Isartor and veraPDF corpus suites pass.
 - 100% statement coverage on `internal/verify/checks_objectmodel.go`; `internal/verify`
-  overall at 89.7%.
+  overall at 89.7% (93.5% as of stage 4, all `internal/` packages ≥90%).
 - The predicate-classification floor is test-gated (`TestClassificationFloor`, floor 0.85,
   observed ~87.3%).
 - The integration already paid for itself: type propagation surfaced two real conformance
@@ -71,8 +71,9 @@ Arlington has no data for.
 
 ## Room for improvement
 
-Prioritized. Items 1–4 are being implemented stage by stage; see "Implementation progress"
-at the bottom for status.
+Prioritized. Items 1–4 and 9 are done — see "Implementation progress" at the bottom.
+Item 5 (predicate evaluator) is next, one predicate family per corpus-gated commit;
+items 6–7 follow; item 8 stays a documented false-negative class.
 
 1. **`VerifyObjectModel` pays full PDF/A verification cost.** The `ObjectModel` level
    reuses `verifyPdfA1b` wholesale: content streams are decoded, font programs parsed, XMP
@@ -233,3 +234,36 @@ remaining niche: `ValuePointer` of a zero-length array is not unique, so two dis
 arrays sharing a pointer dedupe as one node per type (pre-existing `visited` behavior, now
 merely per-type); harmless for these checks since an empty array yields at most
 `MissingRequiredKey`, which both would report identically.
+
+### Stage 4 — wildcard dict-row constraints (review item 4) ✅ 2026-07-08
+
+`validateAgainstSchema` now enforces the wildcard row on dictionary entries, not just uses
+it for `Post14Keys` suppression and child typing:
+
+- Every key without an explicit named row is checked against the `*` row's `Types`
+  (`WrongValueType`), `PossibleValues` (`DisallowedValue`), and `IndirectReference`
+  (`IndirectRequired`) — e.g. entries of a resource `XObject` map must be indirect streams,
+  `ColorSpaceMap` name entries must be one of the device colour spaces. Same exemptions as
+  named rows: `_ref` skipped, `Length` on streams skipped, predicated wildcard rows skipped.
+- **Typing fix found while landing this**: a `LinkGroup` with nil `ValueTypes` (the key's
+  only Type alternative) previously matched any value kind; `resolveLinkGroups` now falls
+  back to the key's declared `Types`, so a mis-shaped value (a stream where a dictionary is
+  declared) never inherits a wrong-shaped schema.
+- **Convert-side trap**: `DocInfo`'s wildcard types every custom Info key as a text string,
+  and real-world producers park integers/names there (e.g. `/SPDF`). A non-string custom
+  value has no faithful coercion, so `normalizeInfoDict` (`internal/convert/fixups_xmp.go`)
+  drops it.
+- New public convenience `Document.IsPDF()` — `VerifyObjectModel` + `Valid`, the
+  object-model counterpart to `IsPDFA()`.
+- `KeyIntroducedAfterPDF14` is unaffected: wildcard types still skip it (arbitrary keys are
+  never "introduced"), and custom keys on non-wildcard types are never in `Post14Keys`.
+
+All gates green (full suite, Isartor 204/204, veraPDF 569/569, convert corpus 510/510).
+
+### Housekeeping — review item 9 ✅ 2026-07-08
+
+`IndirectForbidden` is commented as reserved for the predicate evaluator (all
+`fn:MustBeDirect` rows are predicated today). `SinceVersion`/`DeprecatedIn` stay in the
+generated table, now commented as deliberate groundwork for the evaluator's version-gate
+families. `DisallowedValue`'s check description states the name/integer-enum limitation.
+A wildcard-dict-enum test restores `checks_objectmodel.go` to 100% statement coverage.
