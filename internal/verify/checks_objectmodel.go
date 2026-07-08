@@ -87,6 +87,83 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	}
 }
 
+// validateArrayAgainstSchema checks array v against the Arlington object-model schema for
+// typeName: a required fixed index must exist (MissingRequiredKey), and every element --
+// fixed-index rows first, the wildcard row for the rest -- must satisfy its allowed types
+// (WrongValueType), enumerated values (DisallowedValue), and indirect-reference requirement
+// (IndirectRequired). Violations are reported against owner, the nearest enclosing dict, so
+// fixers can resolve them by ref. Predicated rows are skipped, as in validateAgainstSchema.
+func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
+	ot, ok := arlington.Type(typeName)
+	if !ok {
+		return
+	}
+
+	var fixed map[int]bool
+	for i := range ot.Keys {
+		kd := &ot.Keys[i]
+		idx, err := strconv.Atoi(kd.Name)
+		if err != nil || idx < 0 {
+			continue
+		}
+		if fixed == nil {
+			fixed = make(map[int]bool, len(ot.Keys))
+		}
+		fixed[idx] = true
+		if idx >= len(v) {
+			if kd.Required && !kd.Predicated {
+				ctx.Report(
+					pdf.Checks.ObjectModel.MissingRequiredKey,
+					owner,
+					fmt.Sprintf("%s is missing required element %d", typeName, idx),
+				)
+			}
+			continue
+		}
+		validateArrayElement(v[idx], kd, idx, typeName, owner, ctx)
+	}
+
+	if ot.Wildcard != nil {
+		for i, item := range v {
+			if !fixed[i] {
+				validateArrayElement(item, ot.Wildcard, i, typeName, owner, ctx)
+			}
+		}
+	}
+}
+
+// validateArrayElement applies kd's type/value/indirect constraints to element idx of a
+// typeName-typed array, mirroring validateAgainstSchema's per-key logic.
+func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
+	if kd.Predicated {
+		return
+	}
+	if len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
+		ctx.Report(
+			pdf.Checks.ObjectModel.WrongValueType,
+			owner,
+			fmt.Sprintf("%s element %d has an unexpected value type", typeName, idx),
+		)
+		return
+	}
+	if len(kd.PossibleValues) > 0 {
+		if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
+			ctx.Report(
+				pdf.Checks.ObjectModel.DisallowedValue,
+				owner,
+				fmt.Sprintf("%s element %d has a value not in its enumerated legal values", typeName, idx),
+			)
+		}
+	}
+	if kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
+		ctx.Report(
+			pdf.Checks.ObjectModel.IndirectRequired,
+			owner,
+			fmt.Sprintf("%s element %d must be an indirect reference", typeName, idx),
+		)
+	}
+}
+
 // isIndirect reports whether val was reached through an indirect reference. Only dicts and
 // streams carry the resolver's "_ref" marker (internal/pdf/resolver.go); arrays required to be
 // indirect (3 rows in the model) have no such marker and are always treated as satisfied,

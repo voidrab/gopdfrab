@@ -688,6 +688,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 					)
 				}
 			}
+			if expectedType != "" {
+				validateArrayAgainstSchema(v, expectedType, owner, ctx)
+			}
 
 			for _, item := range v {
 				if (!first || ctx.schemaOnly) && !isContainer(item) {

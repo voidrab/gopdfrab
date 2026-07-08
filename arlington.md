@@ -207,3 +207,29 @@ schema checks genuinely need). Guarded by `TestVerifyObjectModelMatchesFilteredF
 (`verifier_test.go`), which asserts the fast path's findings are identical to a full
 PDF/A-1b run filtered to the objmodel clause across all 204 Isartor files — this equivalence
 is exactly what stage 1's determinism made testable. All gates green.
+
+### Stage 3 — array-shaped types validated (review item 3) ✅ 2026-07-08
+
+`validateArrayAgainstSchema` (`checks_objectmodel.go`), called from the walk's array case
+under the same per-(node, type) dedup as dicts, closes the 25%-of-the-model gap:
+
+- **Fixed-index rows** (`"0"`, `"1"`, ...): a required index beyond the array's length is a
+  `MissingRequiredKey`; a present element must match the row's types (`WrongValueType`),
+  enumerated values (`DisallowedValue`), and indirect-reference requirement
+  (`IndirectRequired`).
+- **Wildcard rows** govern every element without a fixed row, with the same three
+  element-level checks — e.g. `ArrayOfPageTreeNodeKids` requires indirect dictionary kids,
+  `ArrayOfNumbersGeneral` (font `Widths`) requires numbers.
+- Violations are reported against the *owner* (nearest enclosing dict), following the walk's
+  existing convention for values that carry no `_ref` of their own, so fixers can resolve
+  them. Predicated rows are skipped and PDF null matches everything, exactly as in the dict
+  path — the shared `matchesValueType`/`scalarEnumString` helpers keep the two in lockstep.
+- `KeyIntroducedAfterPDF14` is deliberately not applied to arrays: post-1.4 index additions
+  are rare and `Post14Keys` is key-name-based; erring to false negatives.
+
+Landed corpus-clean on the first run (Isartor, veraPDF, convert corpus, full suite) — no
+false-positive traps surfaced beyond those the dict path had already codified. Known
+remaining niche: `ValuePointer` of a zero-length array is not unique, so two distinct empty
+arrays sharing a pointer dedupe as one node per type (pre-existing `visited` behavior, now
+merely per-type); harmless for these checks since an empty array yields at most
+`MissingRequiredKey`, which both would report identically.

@@ -501,3 +501,111 @@ func TestSchemaCheckOncePerType(t *testing.T) {
 		t.Errorf("expected exactly one MissingRequiredKey (Fields), got %d: %v", count, ctx.errs)
 	}
 }
+
+func TestValidateArrayAgainstSchema_MissingRequiredElement(t *testing.T) {
+	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612)}
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("expected MissingRequiredKey for a 3-element ArrayOf_4Numbers")
+	}
+}
+
+func TestValidateArrayAgainstSchema_FixedIndexWrongType(t *testing.T) {
+	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "x"}, pdf.PDFInteger(612), pdf.PDFInteger(792)}
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
+		t.Error("expected WrongValueType for a string in ArrayOf_4Numbers")
+	}
+}
+
+func TestValidateArrayAgainstSchema_ConformantFixedArray(t *testing.T) {
+	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFReal(0.5), pdf.PDFInteger(612), pdf.PDFInteger(792)}
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for a conformant ArrayOf_4Numbers: %v", ctx.errs)
+	}
+}
+
+func TestValidateArrayAgainstSchema_DisallowedValue(t *testing.T) {
+	// Dest1Array element 1 is enumerated (FitH/FitV/FitBH/FitBV); element 2 is
+	// null|number, so a PDF null (Go nil) there must not be flagged.
+	arr := pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFName{Value: "XYZ"}, nil}
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(arr, "Dest1Array", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for Dest1Array element 1 = XYZ")
+	}
+	if hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
+		t.Errorf("null element must never be a WrongValueType: %v", ctx.errs)
+	}
+}
+
+func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
+	// ArrayOfPageTreeNodeKids' wildcard requires indirect dictionary elements.
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5)}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
+		t.Error("expected WrongValueType for an integer kid")
+	}
+
+	direct := pdf.NewPDFDict()
+	direct.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{direct}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
+		t.Error("expected IndirectRequired for a direct kid dict")
+	}
+
+	indirect := pdf.NewPDFDict()
+	indirect.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	indirect.Entries["Kids"] = pdf.PDFArray{}
+	indirect.Entries["Count"] = pdf.PDFInteger(0)
+	indirect.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for an indirect kid: %v", ctx.errs)
+	}
+}
+
+// TestArraySchemaCheckedInWalk asserts verifyDocument types and checks arrays reached
+// through Link edges: a direct (non-indirect) kid inside Pages.Kids must be flagged.
+func TestArraySchemaCheckedInWalk(t *testing.T) {
+	kid := pdf.NewPDFDict()
+	kid.Entries["Type"] = pdf.PDFName{Value: "Page"}
+
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{kid}
+	pages.Entries["Count"] = pdf.PDFInteger(1)
+	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries["Pages"] = pages
+	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = catalog
+	trailer.Entries["Size"] = pdf.PDFInteger(3)
+
+	ctx := &ValidationContext{}
+	verifyDocument(trailer, ctx)
+
+	found := false
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.ObjectModel.IndirectRequired {
+			for _, m := range e.Messages() {
+				if strings.Contains(m, "ArrayOfPageTreeNodeKids element 0") {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected IndirectRequired for the direct kid via the walk, got %v", ctx.errs)
+	}
+}
