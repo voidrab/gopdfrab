@@ -54,6 +54,11 @@ type ValidationContext struct {
 	// fall back to checking every W entry.
 	UsedCIDs map[uintptr]map[int]bool
 
+	// schemaOnly restricts verifyDocument's walk to the generic object-model
+	// schema checks, skipping every PDF/A-specific family whose findings the
+	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
+	schemaOnly bool
+
 	// pageResources is the Resources dict of the current page. Default* colour
 	// spaces defined at page level are inherited by patterns and Form XObjects
 	// that do not define their own Default*.

@@ -1,7 +1,11 @@
 package verify
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1597,4 +1601,58 @@ func TestNewContext(t *testing.T) {
 	if err != nil || string(data) != "hello" {
 		t.Errorf("decodeStreamCached via NewContext(nil) = %q, %v", data, err)
 	}
+}
+
+// TestVerifyObjectModelMatchesFilteredFullRun asserts the schema-only fast path reports
+// exactly the object-model findings a full PDF/A-1b run (filtered to the objmodel clause)
+// produces, across the whole Isartor corpus.
+func TestVerifyObjectModelMatchesFilteredFullRun(t *testing.T) {
+	if _, err := os.Stat(isartorDir); err != nil {
+		t.Skip("Isartor corpus not present")
+	}
+	var files []string
+	err := filepath.WalkDir(isartorDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".pdf") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil || len(files) == 0 {
+		t.Fatalf("collecting corpus files: %v (%d files)", err, len(files))
+	}
+
+	for _, path := range files {
+		fast, fastErr := VerifyObjectModelFile(path)
+		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A_1B))
+		if (fastErr != nil) != (fullErr != nil) {
+			t.Errorf("%s: fast err %v vs full err %v", path, fastErr, fullErr)
+			continue
+		}
+		if fastErr != nil {
+			continue
+		}
+		got := objModelSummaries(fast.Issues)
+		want := objModelSummaries(full.Issues)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: schema-only run diverges from filtered full run:\n got %v\nwant %v", path, got, want)
+		}
+	}
+}
+
+// objModelSummaries reduces issues to sorted objmodel-clause summary strings for
+// order-insensitive comparison.
+func objModelSummaries(issues []pdf.PDFError) []string {
+	var out []string
+	for _, e := range issues {
+		if e.Check().Clause() != pdf.ObjectModelClause {
+			continue
+		}
+		ref, _ := e.ObjectRef()
+		out = append(out, fmt.Sprintf("%d|%d|%v|%v", e.Check().Subclause(), e.Page(), ref, e.Messages()))
+	}
+	slices.Sort(out)
+	return out
 }

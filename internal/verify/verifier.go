@@ -132,23 +132,30 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
+	// A profile enabling nothing but the object-model checks skips every
+	// PDF/A-specific family up front instead of filtering its findings away
+	// at the end, so VerifyObjectModel never decodes content streams, parses
+	// font programs, or validates XMP.
+	schemaOnly := p.OnlyObjectModelChecks()
 	issues := []pdf.PDFError{}
 
-	errs := verifyFileHeader(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = checkLinearizedFileID(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyFileTrailer(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyCrossReferenceTable(d)
-	if errs != nil {
-		issues = append(issues, errs...)
+	if !schemaOnly {
+		errs := verifyFileHeader(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = checkLinearizedFileID(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = verifyFileTrailer(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = verifyCrossReferenceTable(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
 	}
 
 	// Resolve the graph once up front; all subsequent checks work on the
@@ -158,9 +165,11 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 		return append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
 	}
 
-	errs = verifyDocumentInformationDictionary(graph)
-	if errs != nil {
-		issues = append(issues, errs...)
+	if !schemaOnly {
+		errs := verifyDocumentInformationDictionary(graph)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
 	}
 
 	pageIndex, err := d.BuildPageIndex(graph)
@@ -169,23 +178,26 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	}
 
 	ctx := &ValidationContext{
-		PageIndex: pageIndex,
-		reader:    d,
+		PageIndex:  pageIndex,
+		reader:     d,
+		schemaOnly: schemaOnly,
 	}
-	reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
-	if p.SkipUnreachableXObjects {
-		ctx.ReachableXObjectPtrs = reachable
+	if !schemaOnly {
+		reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
+		if p.SkipUnreachableXObjects {
+			ctx.ReachableXObjectPtrs = reachable
+		}
+		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
+		ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
+		computeColourCoverage(d, ctx)
 	}
-	ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
-	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
-	computeColourCoverage(d, ctx)
 
 	verifyDocument(graph, ctx)
-	errs = ctx.errs
-	if errs != nil {
-		issues = append(issues, errs...)
+	issues = append(issues, ctx.errs...)
+	if schemaOnly {
+		return issues
 	}
-	errs = verifyOptionalContent(d)
+	errs := verifyOptionalContent(d)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -598,7 +610,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 			}
 
-			if first {
+			if first && !ctx.schemaOnly {
 				if v.HasStream {
 					validateStreamObject(v, ctx)
 				}
@@ -623,7 +635,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			for _, k := range sortedKeys(v.Entries) {
 				val := v.Entries[k]
-				if first {
+				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed 127 bytes after
 					// decoding PDF name-escape sequences (#XX).
 					if k != "_ref" && len(k) > 127 {
@@ -636,9 +648,10 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 							)
 						}
 					}
-				} else if !isContainer(val) {
-					// A re-descent only refines schema typing; scalar children
-					// were fully checked on the first visit.
+				}
+				if (!first || ctx.schemaOnly) && !isContainer(val) {
+					// Scalars carry no schema, and on a re-descent they were
+					// already fully checked on the first visit.
 					continue
 				}
 				var childType string
@@ -663,7 +676,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				visitedTyped[typedVisit{ptr, expectedType}] = true
 			}
 
-			if first {
+			if first && !ctx.schemaOnly {
 				validateColourSpaceArray(v, ctx)
 
 				// 6.1.12: maximum number of elements in an array is 8191.
@@ -677,7 +690,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			for _, item := range v {
-				if !first && !isContainer(item) {
+				if (!first || ctx.schemaOnly) && !isContainer(item) {
 					continue
 				}
 				var elemType string
@@ -691,12 +704,16 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFHexString:
-			// Hexadecimal strings shall contain an even number of non-white-space characters,
-			// each in the range 0 to 9, A to F or a to f.
-			validateHexString(v, owner, ctx)
+			if !ctx.schemaOnly {
+				// Hexadecimal strings shall contain an even number of non-white-space
+				// characters, each in the range 0 to 9, A to F or a to f.
+				validateHexString(v, owner, ctx)
+			}
 		}
 
-		validateArchitecturalLimits(node, owner, ctx)
+		if !ctx.schemaOnly {
+			validateArchitecturalLimits(node, owner, ctx)
+		}
 	}
 
 	walk(graph, nil, "FileTrailer")

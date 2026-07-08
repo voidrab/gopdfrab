@@ -104,3 +104,18 @@ func TestPDFA1BDisablesKeyIntroducedAfterPDF14(t *testing.T) {
 		t.Error("Legacy_1B should enforce KeyIntroducedAfterPDF14")
 	}
 }
+
+func TestOnlyObjectModelChecks(t *testing.T) {
+	if !ObjectModelOnly().OnlyObjectModelChecks() {
+		t.Error("ObjectModelOnly must report OnlyObjectModelChecks")
+	}
+	if PDFA_1B.OnlyObjectModelChecks() {
+		t.Error("PDFA_1B enables PDF/A checks, must not report OnlyObjectModelChecks")
+	}
+	if !NewProfile(ObjectModel).OnlyObjectModelChecks() {
+		t.Error("an empty profile enables nothing outside objmodel")
+	}
+	if ObjectModelOnly().AddCheck(Checks.Structure.TrailerID).OnlyObjectModelChecks() {
+		t.Error("adding a PDF/A check must clear OnlyObjectModelChecks")
+	}
+}

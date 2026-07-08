@@ -262,6 +262,10 @@ type formChecks struct {
 	WidgetMissingAppearance Check
 }
 
+// ObjectModelClause is the synthetic clause the generic object-model checks
+// register under, distinguishing them from numeric PDF/A clauses.
+const ObjectModelClause = "objmodel"
+
 // objectModelChecks are generic ISO 32000 object-model checks, driven by the
 // Arlington PDF Model table (internal/arlington) rather than by hand-written
 // per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
@@ -997,23 +1001,23 @@ func init() {
 			MissingRequiredKey: newCheck(
 				"MissingRequiredKey",
 				"A dictionary is missing a key the ISO 32000 object model requires for its type",
-				"objmodel", 1),
+				ObjectModelClause, 1),
 			WrongValueType: newCheck(
 				"WrongValueType",
 				"A key's value is not one of the ISO 32000 object model's allowed types for it",
-				"objmodel", 2),
+				ObjectModelClause, 2),
 			DisallowedValue: newCheck(
 				"DisallowedValue",
 				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it",
-				"objmodel", 3),
+				ObjectModelClause, 3),
 			IndirectRequired: newCheck(
 				"IndirectRequired",
 				"A key whose value the ISO 32000 object model requires to be an indirect reference is a direct object",
-				"objmodel", 4),
+				ObjectModelClause, 4),
 			KeyIntroducedAfterPDF14: newCheck(
 				"KeyIntroducedAfterPDF14",
 				"A dictionary contains a key the ISO 32000 object model introduced after PDF 1.4",
-				"objmodel", 5),
+				ObjectModelClause, 5),
 		},
 	}
 }

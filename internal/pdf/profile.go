@@ -160,6 +160,18 @@ func (p *Profile) Has(c Check) bool {
 	return p.enabled[c.ID()]
 }
 
+// OnlyObjectModelChecks reports whether p enables no check outside the generic
+// object-model group, so a verifier may skip every PDF/A-specific check family
+// whose findings would be filtered out anyway.
+func (p *Profile) OnlyObjectModelChecks() bool {
+	for _, c := range p.Checks() {
+		if c.Clause() != ObjectModelClause {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *Profile) Allows(clause string, subclause int) bool {
 	c, inCatalog := CheckByClause(clause, subclause)
 	if !inCatalog {

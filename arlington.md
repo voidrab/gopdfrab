@@ -182,3 +182,28 @@ typed re-descent; a dict shared between two differently-typed edges is checked u
 types; a doubly-referenced typed node yields exactly one finding. All gates green
 (full suite, Isartor 204/204, veraPDF 569/569, convert corpus). `BenchmarkOpenVerify`
 magnitudes unchanged (large ≈ 310ms).
+
+### Stage 2 — profile-gated check families (review item 1) ✅ 2026-07-08
+
+`VerifyObjectModel` no longer pays full PDF/A verification cost:
+
+- `Profile.OnlyObjectModelChecks()` (`internal/pdf/profile.go`) reports whether a profile
+  enables nothing outside the objmodel clause (now the exported `pdf.ObjectModelClause`
+  constant instead of a string literal).
+- When it does, `verifyPdfA1b` skips every PDF/A-specific family up front instead of
+  filtering its findings away at the end: header/trailer/xref checks, the info dictionary,
+  `ComputeContentUsage` (content-stream decoding), `computeColourCoverage`, and everything
+  after the walk (optional content, output intents, forms, XMP, object framing). Inside the
+  walk, a `ctx.schemaOnly` flag suppresses the per-dict PDF/A validators (font parsing,
+  content streams, ...), the 6.1.x scalar/limit checks, and scalar descent entirely — only
+  schema validation and container descent remain.
+- The gate is profile-driven, not level-driven, but deliberately coarse: it only fires for
+  objmodel-only profiles. Finer per-family gating (e.g. a structure-only profile skipping
+  font parsing) would need a family→check matrix and wasn't worth the risk yet.
+
+Measured (5 iterations, in-process): the ~203KB font-heavy corpus file drops 7.7ms → 0.37ms
+(~20×); the 3.9MB 40k-object file drops 314ms → 195ms (the rest is graph resolution, which
+schema checks genuinely need). Guarded by `TestVerifyObjectModelMatchesFilteredFullRun`
+(`verifier_test.go`), which asserts the fast path's findings are identical to a full
+PDF/A-1b run filtered to the objmodel clause across all 204 Isartor files — this equivalence
+is exactly what stage 1's determinism made testable. All gates green.
