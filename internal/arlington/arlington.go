@@ -88,8 +88,10 @@ const (
 	IndirectEither IndirectRule = iota
 	// IndirectRequired means the value must be an indirect reference.
 	IndirectRequired
-	// IndirectForbidden means the value must be a direct object. Never generated today --
-	// all fn:MustBeDirect rows are predicated; reserved for the predicate evaluator.
+	// IndirectForbidden means the value must be a direct object. Never generated: every
+	// fn:MustBeDirect row in the model has a scalar or array value type, and the resolver
+	// only marks indirection on dicts/streams (_ref), so the constraint is unenforceable.
+	// Kept so the disposition is representable if the resolver ever learns scalar marking.
 	IndirectForbidden
 )
 

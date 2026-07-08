@@ -71,9 +71,11 @@ Arlington has no data for.
 
 ## Room for improvement
 
-Prioritized. Items 1–4 and 9 are done — see "Implementation progress" at the bottom.
-Item 5 (predicate evaluator) is next, one predicate family per corpus-gated commit;
-items 6–7 follow; item 8 stays a documented false-negative class.
+Prioritized. Items 1–4 and 9 are done, and item 5 is implemented through stages B1–B4
+(what stays predicated: cross-object `::`/`parent::` paths, domain predicates like
+`fn:NotStandard14Font`, `mod`/`fn:ArrayLength`/`fn:FileSize` operands, and the
+unenforceable `fn:MustBeDirect` family) — see "Implementation progress" at the bottom.
+Items 6–7 are next; item 8 stays a documented false-negative class.
 
 1. **`VerifyObjectModel` pays full PDF/A verification cost.** The `ObjectModel` level
    reuses `verifyPdfA1b` wholesale: content streams are decoded, font programs parsed, XMP
@@ -364,3 +366,18 @@ Whole-column `fn:Eval` range constraints in PossibleValues — 62 named dict key
 - Classification: 90.2% → 93.2% simple rows; floor raised 0.89 → 0.92.
 
 All gates green on the first corpus run; coverage held (verify 93.5%, arlington 100%).
+
+### Stage B4 — fn:MustBeDirect: closed as unenforceable ✅ 2026-07-08
+
+Surveying the 30 `fn:MustBeDirect` rows before building the check showed **every one has a
+scalar or array value type** (trailer/linearization integers and names, signature strings
+and arrays) — and indirection is only observable on dicts/streams, which carry the
+resolver's `_ref` marker; a resolved indirect scalar is indistinguishable from a direct
+one. The check would never fire. Decision: no `DirectRequired` check, no fixer; the rows
+stay `Predicated.Indirect` (honest classification), and their *other* columns are already
+enforced thanks to B1's per-column predication (e.g. `Signature.SubFilter`'s enum,
+`LinearizationParameterDict`'s integer types). `IndirectForbidden` stays reserved with a
+comment recording this analysis. This is a permanent, documented false-negative class —
+same standing as the array-indirect-required niche in the maintainer reference — unless
+the resolver ever learns to mark scalar indirection, which its perf constraints argue
+against.
