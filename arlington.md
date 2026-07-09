@@ -619,3 +619,25 @@ ref-and-page resolver (`newError`). Messages are unchanged; non-objmodel finding
 detail. `TestObjModelDetailAttached` pins every site's detail; all gates green (full suite,
 Isartor 204/204, veraPDF 569/569, convert corpus), coverage pdf 95.0%, verify 93.9%, new
 code 100%.
+
+### Stage F2 — conversion plumbing: raster gating, ConvertObjectModel, CLI ✅ 2026-07-09
+
+- **Raster gate honesty** (`hasFixableIssue`, `convert.go`): the gate used to key on
+  `Check` alone, so any objmodel residual whose check has *some* fixer could trigger a
+  document-wide flatten — which can never repair dict structure. Objmodel findings now
+  justify only the page pass and only when page-attributed (flattening removes that page's
+  whole subtree); with `docWide` set they never count.
+  `TestConvertObjectModelDocLevelResidualNotRastered` pins the regression: a trailer-level
+  `/Trapped /Maybe` (DisallowedValue, registered-but-unable fixer) survives as a residual
+  with the page content byte-identical, where the old gate would have flattened every page.
+- **Public API symmetry**: `ConvertObjectModel{,Bytes}` and `(*Document).ConvertObjectModel`
+  — convert with the `ObjectModelOnly()` profile, the conversion counterpart to
+  `VerifyObjectModel`. Pre-emptive fixups still run (they are conformance-neutral
+  normalizations and keep one code path). `TestConvertObjectModelAPI` proves the loop
+  end-to-end: a direct `FontDescriptor` fixture converts to a fully valid rewrite through
+  all three entry points. The PDF/A-oriented pre-emptive fixups (XMP, output intent) do not
+  disturb objmodel-only conversion — first corpus-quality evidence the two layers compose.
+- **CLI**: `convert -pdf` selects object-model repair; README documents the new API and
+  corrects the check count (six, not five).
+
+All gates green; convert coverage 91.6% (floor holds), `hasFixableIssue` 100%.

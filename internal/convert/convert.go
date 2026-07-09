@@ -205,7 +205,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	// always converts. Only trigger when there are fixer-addressable issues;
 	// structural violations (no registered fixer) are fixed by construction by
 	// the writer and do not need rasterization.
-	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) {
+	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
 			result, _, err := inHeapVerify(doc, trailer, p)
@@ -214,7 +214,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 			}
 			cr.Result = result
 		}
-		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers) && flattenAllPages(&trailer) {
+		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(&trailer) {
 			cr.Iterations++
 			result, _, err := inHeapVerify(doc, trailer, p)
 			if err != nil {
@@ -409,13 +409,20 @@ func violationCounts(issues []pdf.PDFError) map[pdf.Check]int {
 }
 
 // hasFixableIssue reports whether any issue in the list has a registered
-// fixer, used to avoid triggering the raster fallback for purely structural
-// violations that the writer fixes by construction.
-func hasFixableIssue(issues []pdf.PDFError, fixers map[pdf.Check]Fixer) bool {
+// fixer and could plausibly be repaired by rasterization, used to gate the
+// raster fallback. Object-model findings are dict-structural: flattening a
+// page removes its whole subtree (so page-attributed ones justify the page
+// pass), but no amount of rasterizing repairs document-level dict structure,
+// so with docWide set they never count.
+func hasFixableIssue(issues []pdf.PDFError, fixers map[pdf.Check]Fixer, docWide bool) bool {
 	for _, iss := range issues {
-		if _, ok := fixers[iss.Check()]; ok {
-			return true
+		if _, ok := fixers[iss.Check()]; !ok {
+			continue
 		}
+		if iss.Check().Clause() == pdf.ObjectModelClause && (docWide || iss.Page() == 0) {
+			continue
+		}
+		return true
 	}
 	return false
 }

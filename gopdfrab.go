@@ -93,6 +93,17 @@ func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error)
 	return convert.ConvertAll(paths, p)
 }
 
+// ConvertObjectModel reads the PDF at path and attempts to produce a rewrite
+// conformant with the generic ISO 32000 object-model checks only, independent
+// of any PDF/A conformance level -- the conversion counterpart to
+// VerifyObjectModel.
+func ConvertObjectModel(path string) (ConvertResult, error) { return convert.Convert(path, PDF) }
+
+// ConvertObjectModelBytes is ConvertObjectModel for an in-memory PDF.
+func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
+	return convert.ConvertBytes(data, PDF)
+}
+
 // Document represents an open PDF file.
 type Document struct {
 	r *pdf.Reader
@@ -142,6 +153,10 @@ func (d *Document) IsPDF() (bool, error) {
 // Convert converts d, an already-open document, attempting to produce a
 // PDF/A-1b conformant rewrite.
 func (d *Document) Convert(p *Profile) (ConvertResult, error) { return convert.Run(d.r, p) }
+
+// ConvertObjectModel converts d against the generic ISO 32000 object-model
+// checks only, independent of any PDF/A conformance level.
+func (d *Document) ConvertObjectModel() (ConvertResult, error) { return convert.Run(d.r, PDF) }
 
 // XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
 // decoded and normalised to UTF-8. It returns an error if the document has no

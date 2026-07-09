@@ -260,7 +260,7 @@ Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, 
 
 ## PDF Object-Model Conformance
 
-`Checks.ObjectModel` holds five checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level.
+`Checks.ObjectModel` holds six checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14`, `ConstraintViolated` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level.
 
 ```go
 res, err := gopdfrab.VerifyObjectModel(path)
@@ -273,10 +273,18 @@ res, err := gopdfrab.VerifyObjectModelBytes(data)
 res, err := doc.VerifyObjectModel()
 ```
 
-These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.ObjectModelOnly()`, a profile enabling only the five checks above:
+These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.ObjectModelOnly()`, a profile enabling only the six checks above:
 
 ```go
 res, err := doc.Verify(gopdfrab.ObjectModelOnly())
+```
+
+`ConvertObjectModel` is the conversion counterpart: it produces a rewrite repaired against the object-model checks only, applying every fix that is safe and semantics-preserving and reporting anything else as a residual.
+
+```go
+cr, err := gopdfrab.ConvertObjectModel(path)
+cr, err := gopdfrab.ConvertObjectModelBytes(data)
+cr, err := doc.ConvertObjectModel()
 ```
 
 ## Performance
