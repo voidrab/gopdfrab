@@ -153,6 +153,204 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 	}
 }
 
+func TestArrayElemTargetFailsClosed(t *testing.T) {
+	owner := pdf.NewPDFDict()
+	owner.Entries["Arr"] = pdf.PDFArray{pdf.PDFInteger(1)}
+	owner.Entries["NotArr"] = pdf.PDFInteger(1)
+	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["O"] = owner
+	ref := pdf.PDFRef{ObjNum: 5}
+	dead := pdf.PDFRef{ObjNum: 9}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
+
+	c := pdf.Checks.ObjectModel.WrongValueType
+	for name, iss := range map[string]pdf.PDFError{
+		"no detail":         pdf.NewError(c, nil, 0, &ref),
+		"empty entry":       objModelIssue(c, &ref, "ArrayOf_4Numbers", "0"),
+		"non-index key":     objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "Arr", "NotAnIndex"),
+		"no ref":            objModelElemIssue(c, nil, "ArrayOf_4Numbers", "Arr", "0"),
+		"dead ref":          objModelElemIssue(c, &dead, "ArrayOf_4Numbers", "Arr", "0"),
+		"entry not array":   objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "NotArr", "0"),
+		"entry absent":      objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "Absent", "0"),
+		"index out of rang": objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "Arr", "7"),
+		"unknown type":      objModelElemIssue(c, &ref, "NoSuchType", "Arr", "0"),
+		"no governing row":  objModelElemIssue(c, &ref, "Catalog", "Arr", "0"),
+	} {
+		if _, _, _, ok := arrayElemTarget(pass, iss); ok {
+			t.Errorf("%s: arrayElemTarget must fail closed", name)
+		}
+	}
+}
+
+func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries["MediaBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "0"}, pdf.PDFInteger(612), pdf.NewPDFDict()}
+	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["P"] = page
+	ref := pdf.PDFRef{ObjNum: 3}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: page}}
+	c := pdf.Checks.ObjectModel.WrongValueType
+	issues := []pdf.PDFError{
+		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "MediaBox", "1"),
+		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "MediaBox", "0"), // stale: already a number
+		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "MediaBox", "3"), // uncoercible dict: residual
+	}
+
+	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	arr := page.Entries["MediaBox"].(pdf.PDFArray)
+	if !pdf.EqualPDFValue(arr[1], pdf.PDFReal(0)) {
+		t.Errorf("element 1 = %v, want coerced 0", arr[1])
+	}
+	if arr[0] != pdf.PDFInteger(0) {
+		t.Errorf("element 0 = %v, want untouched", arr[0])
+	}
+	if _, isDict := arr[3].(pdf.PDFDict); !isDict {
+		t.Error("an uncoercible element must never be deleted or nulled")
+	}
+
+	changed, _, err = wrongValueTypeFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
+	owner := pdf.NewPDFDict()
+	owner.Entries["CS"] = pdf.PDFArray{pdf.PDFName{Value: "Bogus"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(300), pdf.PDFString{Value: "x"}}
+	owner.Entries["Gamma"] = pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFReal(1), pdf.PDFReal(1)}
+	owner.Entries["WP"] = pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(2), pdf.PDFReal(1.089), nil}
+	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["O"] = owner
+	ref := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
+	c := pdf.Checks.ObjectModel.DisallowedValue
+	issues := []pdf.PDFError{
+		objModelElemIssue(c, &ref, "IndexedColorSpace", "CS", "0"), // single enum -> /Indexed
+		objModelElemIssue(c, &ref, "IndexedColorSpace", "CS", "2"), // hival 300 -> clamp 255
+		objModelElemIssue(c, &ref, "GammaArray", "Gamma", "0"),     // -1 -> clamp 0
+		objModelElemIssue(c, &ref, "WhitepointArray", "WP", "0"),   // strict > 0: unclampable residual
+		objModelElemIssue(c, &ref, "WhitepointArray", "WP", "1"),   // pinned numeric enum: uncoercible residual
+		objModelElemIssue(c, &ref, "WhitepointArray", "WP", "3"),   // null element: never repaired
+		objModelElemIssue(c, &ref, "GammaArray", "Gamma", "1"),     // stale: already legal
+	}
+
+	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	cs := owner.Entries["CS"].(pdf.PDFArray)
+	if !pdf.EqualPDFValue(cs[0], pdf.PDFName{Value: "Indexed"}) {
+		t.Errorf("CS[0] = %v, want /Indexed", cs[0])
+	}
+	if cs[2] != pdf.PDFInteger(255) {
+		t.Errorf("CS[2] = %v, want clamped 255", cs[2])
+	}
+	gamma := owner.Entries["Gamma"].(pdf.PDFArray)
+	if gamma[0] != pdf.PDFReal(0) {
+		t.Errorf("Gamma[0] = %v, want clamped 0", gamma[0])
+	}
+	wp := owner.Entries["WP"].(pdf.PDFArray)
+	if wp[0] != pdf.PDFReal(-1) || wp[1] != pdf.PDFInteger(2) || wp[3] != nil {
+		t.Errorf("WP = %v, want untouched residuals", wp)
+	}
+
+	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
+	// An indirect-required wildcard array under an arbitrary dict key: the
+	// whole-graph name table cannot see it, only the targeted element path.
+	owner := pdf.NewPDFDict()
+	direct := pdf.NewPDFDict()
+	owner.Entries["MyArr"] = pdf.PDFArray{direct, pdf.PDFInteger(1)}
+	owner.Entries["Nums"] = pdf.PDFArray{pdf.PDFInteger(1)}
+	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["O"] = owner
+	ref := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
+	c := pdf.Checks.ObjectModel.IndirectRequired
+	issues := []pdf.PDFError{
+		objModelElemIssue(c, &ref, "ArrayOfPageTreeNodeKids", "MyArr", "0"),
+		objModelElemIssue(c, &ref, "ArrayOfPageTreeNodeKids", "MyArr", "1"), // non-dict element
+		objModelElemIssue(c, &ref, "GammaArray", "Nums", "0"),               // row not indirect-required
+		objModelElemIssue(c, &ref, "ArrayOf_4Numbers", "Absent", "0"),       // unresolvable target
+	}
+
+	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+		t.Error("the direct array element was not promoted")
+	}
+
+	changed, _, err = indirectRequiredFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+// TestConvertObjectModelClampsIndexedHival proves the element repair end to
+// end: an Indexed colour space with hival 300 (legal range 0..255) converts
+// to a fully valid rewrite with the page content untouched. The chain under
+// test: array-first-element discrimination types the array, the finding
+// carries the owner entry, and the fixer clamps the element in place.
+func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		csMap := pdf.NewPDFDict()
+		csMap.Entries["CS0"] = pdf.PDFArray{
+			pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"},
+			pdf.PDFInteger(300), pdf.PDFString{Value: "lookup"},
+		}
+		csMap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+		resources := pdf.NewPDFDict()
+		resources.Entries["ColorSpace"] = csMap
+		page.Entries["Resources"] = resources
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Fatalf("fixture must fail with DisallowedValue, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+
+	out, err := pdf.OpenBytes(cr.Output)
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph(output): %v", err)
+	}
+	page := assertOnePageGraph(t, graph)
+	cs := page.Entries["Resources"].(pdf.PDFDict).Entries["ColorSpace"].(pdf.PDFDict).Entries["CS0"].(pdf.PDFArray)
+	if cs[2] != pdf.PDFInteger(255) {
+		t.Errorf("hival = %v, want clamped 255", cs[2])
+	}
+	assertContentStream(t, page, onePageContent)
+}
+
 func TestPost14KeyFixerAppliesExclusively(t *testing.T) {
 	fixer := post14KeyFixer{}
 	for _, c := range pdf.AllChecks() {
@@ -285,6 +483,13 @@ func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 func objModelIssue(c pdf.Check, ref *pdf.PDFRef, typeName, key string) pdf.PDFError {
 	e := pdf.NewError(c, nil, 0, ref)
 	return e.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: key})
+}
+
+// objModelElemIssue builds an array-element finding: entry is the owner dict's key holding
+// the array, key the decimal element index.
+func objModelElemIssue(c pdf.Check, ref *pdf.PDFRef, typeName, entry, key string) pdf.PDFError {
+	e := pdf.NewError(c, nil, 0, ref)
+	return e.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: key, Entry: entry})
 }
 
 func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
@@ -1007,6 +1212,16 @@ func TestConstraintHelperEdges(t *testing.T) {
 	}
 	if _, ok := lengthCoupledSibling(&arlington.Cond{Op: arlington.CondPresent, Key: "X"}, "X"); ok {
 		t.Error("a non-comparison leaf must not match")
+	}
+	// Affine couplings must not match: resizing Functions to len(Bounds) would be off by one.
+	for _, affine := range []arlington.Cond{
+		{Op: arlington.CondEq, Key: "Functions", Fn: arlington.FnArrayLength, RHSKey: "Bounds", RHSFn: arlington.FnArrayLength, RHSAdd: 1},
+		{Op: arlington.CondEq, Key: "Range", Fn: arlington.FnArrayLength, RHSKey: "N", RHSFn: arlington.FnArrayLength, RHSMul: 2},
+		{Op: arlington.CondEq, Key: "Widths", Fn: arlington.FnArrayLength, RHSKey: "LastChar", RHSFn: arlington.FnArrayLength, RHSKey2: "FirstChar"},
+	} {
+		if _, ok := lengthCoupledSibling(&affine, affine.Key); ok {
+			t.Errorf("an affine coupling %+v must not resize", affine)
+		}
 	}
 
 	d := pdf.NewPDFDict()

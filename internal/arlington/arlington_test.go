@@ -497,8 +497,8 @@ func TestSpecialCaseConstraints(t *testing.T) {
 			t.Errorf("%s: wildcard rows must not carry SpecialCase (no position to resolve against)", ot.Name)
 		}
 	}
-	if total < 210 {
-		t.Errorf("compiled SpecialCase constraints dropped to %d, floor is 210", total)
+	if total < 225 {
+		t.Errorf("compiled SpecialCase constraints dropped to %d, floor is 225", total)
 	}
 	t.Logf("compiled SpecialCase constraints: %d", total)
 
@@ -543,11 +543,33 @@ func TestSpecialCaseConstraints(t *testing.T) {
 	if pi == nil || pi.SpecialCase != nil {
 		t.Errorf("PageObject.PieceInfo: want SpecialCase dropped by override, got %+v", pi)
 	}
+
+	// Affine right sides: a literal offset over a two-key difference, a scaled sibling
+	// length, and offset sibling lengths all compile.
+	widths := findKey(Types["FontType1"], "Widths")
+	wantWidths := &Cond{Op: CondEq, Key: "Widths", Fn: FnArrayLength, RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"}
+	if widths == nil || !reflect.DeepEqual(widths.SpecialCase, wantWidths) {
+		t.Errorf("FontType1.Widths: want SpecialCase %+v, got %+v", wantWidths, widths)
+	}
+	size := findKey(Types["FunctionType0"], "Size")
+	wantSize := &Cond{Op: CondEq, Key: "Domain", Fn: FnArrayLength, RHSKey: "Size", RHSFn: FnArrayLength, RHSMul: 2}
+	if size == nil || !reflect.DeepEqual(size.SpecialCase, wantSize) {
+		t.Errorf("FunctionType0.Size: want SpecialCase %+v, got %+v", wantSize, size)
+	}
+	bounds := findKey(Types["FunctionType3"], "Bounds")
+	wantBounds := &Cond{Op: CondEq, Key: "Bounds", Fn: FnArrayLength, RHSKey: "Functions", RHSFn: FnArrayLength, RHSAdd: -1}
+	if bounds == nil || !reflect.DeepEqual(bounds.SpecialCase, wantBounds) {
+		t.Errorf("FunctionType3.Bounds: want SpecialCase %+v, got %+v", wantBounds, bounds)
+	}
+	icc := findKey(Types["ICCProfileStream"], "Range")
+	wantICC := &Cond{Op: CondEq, Key: "Range", Fn: FnArrayLength, RHSKey: "N", RHSMul: 2}
+	if icc == nil || !reflect.DeepEqual(icc.SpecialCase, wantICC) {
+		t.Errorf("ICCProfileStream.Range: want SpecialCase %+v, got %+v", wantICC, icc)
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
-// simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
-// a visible regression guard per arlington.md's Limitations section, not a target to chase.
+// simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues).
 func TestClassificationFloor(t *testing.T) {
 	const floor = 0.955 // observed ~96.0% after fn:NotStandard14Font; headroom for TSV churn
 

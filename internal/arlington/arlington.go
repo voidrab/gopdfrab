@@ -180,6 +180,12 @@ type Cond struct {
 	// the Value literal ("@0<=@1", "@TI<fn:ArrayLength(Opt)").
 	RHSKey string
 	RHSFn  CondFn
+	// RHSAdd, RHSMul and RHSKey2 extend the second-entry right operand to the affine form
+	// RHSAdd + RHSMul*op(RHSKey,RHSFn) - value(RHSKey2), compiled from arithmetic
+	// expressions like "1+(@LastChar - @FirstChar)" or "2 * @N". RHSMul 0 means 1.
+	RHSAdd  int
+	RHSMul  int
+	RHSKey2 string
 	// Mod, when nonzero, compares the (integer) left operand modulo Mod against Value
 	// ("(@Rotate mod 90)==0"); only generated with CondEq/CondNe and a literal right side.
 	Mod int

@@ -508,7 +508,7 @@ func TestSchemaCheckOncePerType(t *testing.T) {
 func TestValidateArrayAgainstSchema_MissingRequiredElement(t *testing.T) {
 	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612)}
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
 		t.Error("expected MissingRequiredKey for a 3-element ArrayOf_4Numbers")
 	}
@@ -517,7 +517,7 @@ func TestValidateArrayAgainstSchema_MissingRequiredElement(t *testing.T) {
 func TestValidateArrayAgainstSchema_FixedIndexWrongType(t *testing.T) {
 	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "x"}, pdf.PDFInteger(612), pdf.PDFInteger(792)}
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
 		t.Error("expected WrongValueType for a string in ArrayOf_4Numbers")
 	}
@@ -526,7 +526,7 @@ func TestValidateArrayAgainstSchema_FixedIndexWrongType(t *testing.T) {
 func TestValidateArrayAgainstSchema_ConformantFixedArray(t *testing.T) {
 	arr := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFReal(0.5), pdf.PDFInteger(612), pdf.PDFInteger(792)}
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(arr, "ArrayOf_4Numbers", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("unexpected violations for a conformant ArrayOf_4Numbers: %v", ctx.errs)
 	}
@@ -537,7 +537,7 @@ func TestValidateArrayAgainstSchema_DisallowedValue(t *testing.T) {
 	// null|number, so a PDF null (Go nil) there must not be flagged.
 	arr := pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFName{Value: "XYZ"}, nil}
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(arr, "Dest1Array", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(arr, "Dest1Array", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for Dest1Array element 1 = XYZ")
 	}
@@ -549,7 +549,7 @@ func TestValidateArrayAgainstSchema_DisallowedValue(t *testing.T) {
 func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	// ArrayOfPageTreeNodeKids' wildcard requires indirect dictionary elements.
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5)}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5)}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
 		t.Error("expected WrongValueType for an integer kid")
 	}
@@ -557,7 +557,7 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	direct := pdf.NewPDFDict()
 	direct.Entries["Type"] = pdf.PDFName{Value: "Pages"}
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{direct}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{direct}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
 		t.Error("expected IndirectRequired for a direct kid dict")
 	}
@@ -568,7 +568,7 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	indirect.Entries["Count"] = pdf.PDFInteger(0)
 	indirect.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("unexpected violations for an indirect kid: %v", ctx.errs)
 	}
@@ -681,9 +681,9 @@ func TestChildTypeRequiresMatchingKind(t *testing.T) {
 
 func TestValidateArrayAgainstSchema_NonArrayTypeNames(t *testing.T) {
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{}, "NoSuchType", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{}, "NoSuchType", pdf.NewPDFDict(), "", ctx)
 	// Catalog has only named (non-index) rows and no wildcard: nothing applies positionally.
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(1)}, "Catalog", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(1)}, "Catalog", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("expected no findings for non-array type names, got %v", ctx.errs)
 	}
@@ -692,7 +692,7 @@ func TestValidateArrayAgainstSchema_NonArrayTypeNames(t *testing.T) {
 func TestValidateArrayAgainstSchema_WildcardEnum(t *testing.T) {
 	// ArrayOfFilterNames enumerates the legal stream filter names.
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for an unknown filter name")
 	}
@@ -823,6 +823,86 @@ func TestEvalCondOperandsAndContains(t *testing.T) {
 	}}, []arlington.ValueType{arlington.String}, pdf.PDFString{Value: "X"})
 	if got != "" {
 		t.Errorf("resolveLinkGroups on a scalar: want \"\", got %q", got)
+	}
+}
+
+func TestEvalCondAffineRHS(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["FirstChar"] = pdf.PDFInteger(32)
+	d.Entries["LastChar"] = pdf.PDFInteger(35)
+	d.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
+	d.Entries["N"] = pdf.PDFInteger(3)
+	d.Entries["Range"] = pdf.PDFArray{nil, nil, nil, nil, nil, nil}
+	d.Entries["Bounds"] = pdf.PDFArray{pdf.PDFInteger(1)}
+	d.Entries["Functions"] = pdf.PDFArray{nil, nil}
+	d.Entries["Name"] = pdf.PDFName{Value: "x"}
+
+	widths := arlington.Cond{Op: arlington.CondEq, Key: "Widths", Fn: arlington.FnArrayLength,
+		RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"}
+	scaled := arlington.Cond{Op: arlington.CondEq, Key: "Range", Fn: arlington.FnArrayLength,
+		RHSKey: "N", RHSMul: 2}
+	offset := arlington.Cond{Op: arlington.CondEq, Key: "Functions", Fn: arlington.FnArrayLength,
+		RHSKey: "Bounds", RHSFn: arlington.FnArrayLength, RHSAdd: 1}
+	badKey2 := widths
+	badKey2.RHSKey2 = "Name"
+	absentKey2 := widths
+	absentKey2.RHSKey2 = "Absent"
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		mutate  func()
+		val, ok bool
+	}{
+		{"widths coupling holds", widths, nil, true, true},
+		{"widths coupling violated", widths, func() { d.Entries["LastChar"] = pdf.PDFInteger(40) }, false, true},
+		{"non-numeric subtrahend fails closed", badKey2, nil, false, false},
+		{"absent subtrahend fails closed", absentKey2, nil, false, false},
+		{"scaled sibling holds", scaled, nil, true, true},
+		{"scaled sibling violated", scaled, func() { d.Entries["N"] = pdf.PDFInteger(4) }, false, true},
+		{"offset sibling length holds", offset, nil, true, true},
+		{"offset non-array fails closed", offset, func() { d.Entries["Bounds"] = pdf.PDFInteger(1) }, false, false},
+	}
+	for _, tc := range cases {
+		if tc.mutate != nil {
+			tc.mutate()
+		}
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+NotStandard"}
+	font.Entries["FirstChar"] = pdf.PDFInteger(32)
+	font.Entries["LastChar"] = pdf.PDFInteger(34)
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)} // needs 3 entries
+	ctx := &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for a Widths/FirstChar/LastChar count mismatch")
+	}
+
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("a matching Widths count must not be flagged, got %v", ctx.errs)
+	}
+
+	// An absent FirstChar leaves the coupling unknown: no flag (its own absence is
+	// MissingRequiredKey's business).
+	delete(font.Entries, "FirstChar")
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("an absent FirstChar must leave the coupling unknown, got %v", ctx.errs)
 	}
 }
 
@@ -981,12 +1061,12 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// Fixed-index rows carry constraints too: an annotation colour array with exactly two
 	// components is malformed (element 1 present requires element 2).
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
 		t.Error("expected ConstraintViolated for a two-component colour annotation array")
 	}
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), "", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
 		t.Errorf("a three-component colour array must not be flagged, got %v", ctx.errs)
 	}
@@ -1045,13 +1125,13 @@ func TestValidateArrayAgainstSchema_ElementComparison(t *testing.T) {
 	// LabRangeArray requires amin <= amax and bmin <= bmax.
 	owner := pdf.NewPDFDict()
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5), pdf.PDFInteger(-5), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5), pdf.PDFInteger(-5), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for amin > amax")
 	}
 
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(-100), pdf.PDFInteger(100), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(-100), pdf.PDFInteger(100), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, "", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("unexpected violations for an ordered Lab range: %v", ctx.errs)
 	}
@@ -1172,20 +1252,20 @@ func TestValidateArrayAgainstSchema_ValueCondRange(t *testing.T) {
 	// WhitepointArray elements 0 and 2 must be > 0.
 	owner := pdf.NewPDFDict()
 	ctx := &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for a non-positive whitepoint X")
 	}
 
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.9505), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.9505), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, "", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("unexpected violations for a conformant whitepoint: %v", ctx.errs)
 	}
 
 	// A null element matches everything: the range check must not fire on it.
 	ctx = &ValidationContext{}
-	validateArrayAgainstSchema(pdf.PDFArray{nil, pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	validateArrayAgainstSchema(pdf.PDFArray{nil, pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, "", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Errorf("a null element must not be range-checked, got %v", ctx.errs)
 	}
@@ -1335,13 +1415,13 @@ func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
 }
 
 // hasDetail reports whether ctx holds a finding of c carrying exactly the
-// Arlington schema location (typeName, key).
-func hasDetail(ctx *ValidationContext, c pdf.Check, typeName, key string) bool {
+// Arlington schema location (typeName, key, entry).
+func hasDetail(ctx *ValidationContext, c pdf.Check, typeName, key, entry string) bool {
 	for _, e := range ctx.errs {
 		if e.Check() != c {
 			continue
 		}
-		if d, ok := e.ObjModelDetail(); ok && d.TypeName == typeName && d.Key == key {
+		if d, ok := e.ObjModelDetail(); ok && d.TypeName == typeName && d.Key == key && d.Entry == entry {
 			return true
 		}
 	}
@@ -1364,23 +1444,23 @@ func TestObjModelDetailAttached(t *testing.T) {
 	directStream.HasStream = true
 
 	cases := []struct {
-		name          string
-		run           func(ctx *ValidationContext)
-		check         pdf.Check
-		typeName, key string
+		name                 string
+		run                  func(ctx *ValidationContext)
+		check                pdf.Check
+		typeName, key, entry string
 	}{
 		{"dict missing required", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}), "Catalog", ctx)
-		}, pdf.Checks.ObjectModel.MissingRequiredKey, "Catalog", "Pages"},
+		}, pdf.Checks.ObjectModel.MissingRequiredKey, "Catalog", "Pages", ""},
 		{"dict wrong type", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Type": pdf.PDFInteger(1)}), "Catalog", ctx)
-		}, pdf.Checks.ObjectModel.WrongValueType, "Catalog", "Type"},
+		}, pdf.Checks.ObjectModel.WrongValueType, "Catalog", "Type", ""},
 		{"dict disallowed enum", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"NonFullScreenPageMode": pdf.PDFName{Value: "Bogus"}}), "ViewerPreferences", ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "ViewerPreferences", "NonFullScreenPageMode"},
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ViewerPreferences", "NonFullScreenPageMode", ""},
 		{"dict range", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"CA": pdf.PDFReal(1.5)}), "GraphicsStateParameter", ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "GraphicsStateParameter", "CA"},
+		}, pdf.Checks.ObjectModel.DisallowedValue, "GraphicsStateParameter", "CA", ""},
 		{"dict pinned value", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{
 				"Filter": pdf.PDFName{Value: "Standard"},
@@ -1388,7 +1468,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 				"O": pdf.PDFString{Value: "o"}, "U": pdf.PDFString{Value: "u"},
 				"P": pdf.PDFInteger(-4),
 			}), "EncryptionStandard", ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "EncryptionStandard", "R"},
+		}, pdf.Checks.ObjectModel.DisallowedValue, "EncryptionStandard", "R", ""},
 		{"dict special case", func(ctx *ValidationContext) {
 			s := dict(map[string]pdf.PDFValue{
 				"Filter":      pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
@@ -1396,53 +1476,56 @@ func TestObjModelDetailAttached(t *testing.T) {
 			})
 			s.HasStream = true
 			validateAgainstSchema(s, "Stream", ctx)
-		}, pdf.Checks.ObjectModel.ConstraintViolated, "Stream", "DecodeParms"},
+		}, pdf.Checks.ObjectModel.ConstraintViolated, "Stream", "DecodeParms", ""},
 		{"dict indirect required", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{
 				"Type": pdf.PDFName{Value: "Catalog"}, "Pages": directPages,
 			}), "Catalog", ctx)
-		}, pdf.Checks.ObjectModel.IndirectRequired, "Catalog", "Pages"},
+		}, pdf.Checks.ObjectModel.IndirectRequired, "Catalog", "Pages", ""},
 		{"dict post-1.4 key", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"PrintScaling": pdf.PDFName{Value: "AppDefault"}}), "ViewerPreferences", ctx)
-		}, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14, "ViewerPreferences", "PrintScaling"},
+		}, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14, "ViewerPreferences", "PrintScaling", ""},
 		{"wildcard wrong type", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Im1": pdf.PDFName{Value: "NotAStream"}}), "XObjectMap", ctx)
-		}, pdf.Checks.ObjectModel.WrongValueType, "XObjectMap", "Im1"},
+		}, pdf.Checks.ObjectModel.WrongValueType, "XObjectMap", "Im1", ""},
 		{"wildcard disallowed enum", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"CS0": pdf.PDFName{Value: "BogusColorSpace"}}), "ColorSpaceMap", ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "ColorSpaceMap", "CS0"},
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ColorSpaceMap", "CS0", ""},
 		{"wildcard indirect required", func(ctx *ValidationContext) {
 			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Im1": directStream}), "XObjectMap", ctx)
-		}, pdf.Checks.ObjectModel.IndirectRequired, "XObjectMap", "Im1"},
+		}, pdf.Checks.ObjectModel.IndirectRequired, "XObjectMap", "Im1", ""},
 		{"array missing required element", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.MissingRequiredKey, "ArrayOf_4Numbers", "3"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), "MediaBox", ctx)
+		}, pdf.Checks.ObjectModel.MissingRequiredKey, "ArrayOf_4Numbers", "3", "MediaBox"},
 		{"array element wrong type", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "x"}, pdf.PDFInteger(612), pdf.PDFInteger(792)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.WrongValueType, "ArrayOf_4Numbers", "1"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "x"}, pdf.PDFInteger(612), pdf.PDFInteger(792)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), "MediaBox", ctx)
+		}, pdf.Checks.ObjectModel.WrongValueType, "ArrayOf_4Numbers", "1", "MediaBox"},
 		{"array element disallowed enum", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFName{Value: "XYZ"}, nil}, "Dest1Array", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "Dest1Array", "1"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFName{Value: "XYZ"}, nil}, "Dest1Array", pdf.NewPDFDict(), "Dest", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "Dest1Array", "1", "Dest"},
 		{"array element range", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "WhitepointArray", "0"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", pdf.NewPDFDict(), "WhitePoint", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "WhitepointArray", "0", "WhitePoint"},
 		{"array element special case", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.ConstraintViolated, "ArrayOf_4NumbersColorAnnotation", "1"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), "C", ctx)
+		}, pdf.Checks.ObjectModel.ConstraintViolated, "ArrayOf_4NumbersColorAnnotation", "1", "C"},
 		{"array wildcard element indirect", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{directPages}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.IndirectRequired, "ArrayOfPageTreeNodeKids", "0"},
+			validateArrayAgainstSchema(pdf.PDFArray{directPages}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "Kids", ctx)
+		}, pdf.Checks.ObjectModel.IndirectRequired, "ArrayOfPageTreeNodeKids", "0", "Kids"},
 		{"array wildcard element enum", func(ctx *ValidationContext) {
-			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), ctx)
-		}, pdf.Checks.ObjectModel.DisallowedValue, "ArrayOfFilterNames", "0"},
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), "Filter", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ArrayOfFilterNames", "0", "Filter"},
+		{"nested array carries no entry", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), "", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ArrayOfFilterNames", "0", ""},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := &ValidationContext{}
 			tc.run(ctx)
-			if !hasDetail(ctx, tc.check, tc.typeName, tc.key) {
-				t.Errorf("no %s finding carrying detail {%s, %s}; findings: %v", tc.check.Name(), tc.typeName, tc.key, ctx.errs)
+			if !hasDetail(ctx, tc.check, tc.typeName, tc.key, tc.entry) {
+				t.Errorf("no %s finding carrying detail {%s, %s, %s}; findings: %v", tc.check.Name(), tc.typeName, tc.key, tc.entry, ctx.errs)
 			}
 		})
 	}
@@ -1460,5 +1543,9 @@ func TestExportedFixerHelpers(t *testing.T) {
 	}
 	if MatchesValueType(pdf.PDFName{Value: "X"}, []arlington.ValueType{arlington.Integer}) {
 		t.Error("MatchesValueType(name, [integer]) must be false")
+	}
+	hival := &arlington.Cond{Op: arlington.CondLe, Key: "2", Value: "255"}
+	if legal, ok := EvalCondArray(hival, pdf.PDFArray{nil, nil, pdf.PDFInteger(300)}); legal || !ok {
+		t.Errorf("EvalCondArray(hival 300) = (%v, %v), want (false, true)", legal, ok)
 	}
 }

@@ -581,13 +581,14 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 	// owner is the nearest enclosing dict, threaded through arrays, so
 	// scalar-limit violations are reported against an object fixers can
-	// resolve by ref instead of the bare scalar. expectedType is the
-	// Arlington type name this node should conform to (per the parent key's
-	// Link), or "" once the descent has lost track of it; see
-	// arlingtonChildType/arlingtonElementType.
-	var walk func(node any, owner pdf.PDFValue, expectedType string)
+	// resolve by ref instead of the bare scalar. ownerKey is owner's entry
+	// holding node ("" once an array descent makes node not directly
+	// addressable). expectedType is the Arlington type name this node should
+	// conform to (per the parent key's Link), or "" once the descent has lost
+	// track of it; see arlingtonChildType/arlingtonElementType.
+	var walk func(node any, owner pdf.PDFValue, ownerKey, expectedType string)
 
-	walk = func(node any, owner pdf.PDFValue, expectedType string) {
+	walk = func(node any, owner pdf.PDFValue, ownerKey, expectedType string) {
 		if node == nil {
 			return
 		}
@@ -664,7 +665,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 					childType = arlingtonChildType(expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
-				walk(val, node, childType)
+				walk(val, node, k, childType)
 			}
 			if !first {
 				return
@@ -694,7 +695,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 			}
 			if expectedType != "" {
-				validateArrayAgainstSchema(v, expectedType, owner, ctx)
+				validateArrayAgainstSchema(v, expectedType, owner, ownerKey, ctx)
 			}
 
 			for _, item := range v {
@@ -705,7 +706,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				if expectedType != "" {
 					elemType = arlingtonElementType(expectedType, item)
 				}
-				walk(item, owner, elemType)
+				walk(item, owner, "", elemType)
 			}
 			if !first {
 				return
@@ -724,7 +725,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		}
 	}
 
-	walk(graph, nil, "FileTrailer")
+	walk(graph, nil, "", "FileTrailer")
 }
 
 // sortedKeys returns m's keys in sorted order so the walk visits entries

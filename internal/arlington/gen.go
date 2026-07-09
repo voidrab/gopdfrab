@@ -376,6 +376,15 @@ func condLiteral(c condExpr) string {
 		if c.rhsFn != "" {
 			parts = append(parts, "RHSFn: "+c.rhsFn)
 		}
+		if c.rhsAdd != 0 {
+			parts = append(parts, fmt.Sprintf("RHSAdd: %d", c.rhsAdd))
+		}
+		if c.rhsMul != 0 {
+			parts = append(parts, fmt.Sprintf("RHSMul: %d", c.rhsMul))
+		}
+		if c.rhsKey2 != "" {
+			parts = append(parts, fmt.Sprintf("RHSKey2: %q", c.rhsKey2))
+		}
 	}
 	if c.mod != 0 {
 		parts = append(parts, fmt.Sprintf("Mod: %d", c.mod))
@@ -843,7 +852,10 @@ type condExpr struct {
 	fn         string // Fn* identifier deriving the left operand ("" for the value itself)
 	rhsKey     string // right operand is another entry's value instead of the value literal
 	rhsFn      string
-	mod        int // nonzero for "(<operand> mod N) == value" comparisons
+	rhsAdd     int    // affine right side: rhsAdd + rhsMul*op(rhsKey) - value(rhsKey2)
+	rhsMul     int    // 0 means 1
+	rhsKey2    string // subtracted second entry (plain value only)
+	mod        int    // nonzero for "(<operand> mod N) == value" comparisons
 	bitLo      int // 1-based inclusive bit range for the CondBits* ops
 	bitHi      int
 	kids       []condExpr
@@ -1116,11 +1128,14 @@ func splitComparison(expr string) (c condExpr, ok bool) {
 			case c.mod != 0:
 				return condExpr{}, false // modulo compares against a literal only
 			default:
-				rk, rfn, rhsOK := parseOperand(trimOuterParens(rhs))
-				if !rhsOK {
+				if rk, rfn, rhsOK := parseOperand(trimOuterParens(rhs)); rhsOK {
+					c.rhsKey, c.rhsFn = rk, rfn
+				} else if aff, affOK := parseAffineRHS(rhs); affOK {
+					c.rhsKey, c.rhsFn = aff.rhsKey, aff.rhsFn
+					c.rhsAdd, c.rhsMul, c.rhsKey2 = aff.rhsAdd, aff.rhsMul, aff.rhsKey2
+				} else {
 					return condExpr{}, false
 				}
-				c.rhsKey, c.rhsFn = rk, rfn
 			}
 			if c.mod != 0 && op != "CondEq" && op != "CondNe" {
 				return condExpr{}, false // modulo only pins equality; anything else fails closed
@@ -1144,6 +1159,80 @@ func splitModOperand(lhs string) (c condExpr, ok bool) {
 	}
 	c.key, c.fn, ok = parseOperand(lhs)
 	return c, ok
+}
+
+// parseAffineRHS recognizes a comparison's arithmetic right side: an integer literal
+// combined with an operand by one top-level + / - / * ("1+(@LastChar - @FirstChar)",
+// "2 * @N", "fn:ArrayLength(Bounds)+1"), where the operand may itself be the difference of
+// two plain entries. Division, literal-minus-operand, and deeper arithmetic fail closed.
+func parseAffineRHS(s string) (condExpr, bool) {
+	lhs, op, rhs, ok := splitTopLevelArith(trimOuterParens(strings.TrimSpace(s)))
+	if !ok {
+		return condExpr{}, false
+	}
+	ln, lErr := strconv.Atoi(lhs)
+	rn, rErr := strconv.Atoi(rhs)
+	switch {
+	case op == '+' && lErr == nil:
+		return affineOperand(rhs, ln, 0)
+	case op == '+' && rErr == nil:
+		return affineOperand(lhs, rn, 0)
+	case op == '-' && rErr == nil:
+		return affineOperand(lhs, -rn, 0)
+	case op == '-' && lErr != nil:
+		return affineDiff(lhs, rhs, 0)
+	case op == '*' && lErr == nil:
+		return affineOperand(rhs, 0, ln)
+	case op == '*' && rErr == nil:
+		return affineOperand(lhs, 0, rn)
+	}
+	return condExpr{}, false
+}
+
+// affineOperand parses the non-literal side of an affine expression: a plain or derived
+// operand, or -- only unscaled -- the difference of two plain entries.
+func affineOperand(s string, add, mul int) (condExpr, bool) {
+	s = trimOuterParens(strings.TrimSpace(s))
+	if k, fn, ok := parseOperand(s); ok {
+		return condExpr{rhsKey: k, rhsFn: fn, rhsAdd: add, rhsMul: mul}, true
+	}
+	if mul != 0 {
+		return condExpr{}, false // a scaled difference does not occur in the model
+	}
+	if l, op, r, ok := splitTopLevelArith(s); ok && op == '-' {
+		return affineDiff(l, r, add)
+	}
+	return condExpr{}, false
+}
+
+// affineDiff parses "@A - @B": a derived-or-plain minuend and a plain-value subtrahend.
+func affineDiff(lhs, rhs string, add int) (condExpr, bool) {
+	lk, lfn, lok := parseOperand(lhs)
+	rk, rfn, rok := parseOperand(rhs)
+	if !lok || !rok || rfn != "" {
+		return condExpr{}, false
+	}
+	return condExpr{rhsKey: lk, rhsFn: lfn, rhsAdd: add, rhsKey2: rk}, true
+}
+
+// splitTopLevelArith splits s at its first top-level binary + / - / * (a '-' with nothing
+// before it is a sign, not a split point).
+func splitTopLevelArith(s string) (lhs string, op byte, rhs string, ok bool) {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '+', '-', '*':
+			if depth != 0 || (c == '-' && strings.TrimSpace(s[:i]) == "") {
+				continue
+			}
+			return strings.TrimSpace(s[:i]), c, strings.TrimSpace(s[i+1:]), true
+		}
+	}
+	return "", 0, "", false
 }
 
 // parseBitRange resolves a bit predicate's arguments to a 1-based inclusive bit range:
@@ -1253,7 +1342,7 @@ func condOperandsResolvable(tree *condExpr, rowName string) bool {
 		if c.bitLo != 0 && c.key == "" {
 			return false // a bit predicate outside SpecialCase has no key to test
 		}
-		for _, k := range []string{c.key, c.rhsKey} {
+		for _, k := range []string{c.key, c.rhsKey, c.rhsKey2} {
 			if k == "" {
 				continue
 			}
