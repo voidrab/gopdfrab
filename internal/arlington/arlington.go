@@ -177,6 +177,14 @@ type Cond struct {
 	Kids []Cond
 }
 
+// PinnedValue pins a key to one specific value whenever its condition holds
+// (fn:RequiredValue -- e.g. EncryptionStandard.R must be 3 when V is 2 or 3). The pinned
+// value is also an ordinary member of the key's PossibleValues.
+type PinnedValue struct {
+	When  *Cond
+	Value string
+}
+
 // KeyDef is one row of an Arlington type: a single named key (or a fixed array index, which
 // Arlington also expresses as a Key), or the wildcard entry (Name == "*") that governs
 // arbitrary dictionary keys or repeating array elements.
@@ -198,8 +206,11 @@ type KeyDef struct {
 	// kept as groundwork for the predicate evaluator's version-gate families.
 	SinceVersion   string
 	DeprecatedIn   string      // empty if never deprecated
-	PossibleValues []string    // enumerated legal values, when constrained; predicate-only entries are dropped
-	LinkGroups     []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
+	PossibleValues []string // enumerated legal values, when constrained; predicate-only entries are dropped
+	// PinnedValues narrows PossibleValues conditionally: whenever a pin's condition holds,
+	// the key must have exactly that pin's value.
+	PinnedValues []PinnedValue
+	LinkGroups   []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
 	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
 	// instead, so its absence here is not itself a violation.
 	Inheritable bool

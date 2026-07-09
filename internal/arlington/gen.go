@@ -83,6 +83,7 @@ type keyDef struct {
 	sinceVersion      string
 	deprecatedIn      string
 	possibleValues    []string
+	pinnedValues      []pinnedExpr
 	linkGroups        []linkGroup
 	predicated        predication
 	inheritable       bool
@@ -232,6 +233,16 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 		fmt.Fprintf(b, "DeprecatedIn: %q,\n", kd.deprecatedIn)
 	}
 	writeStringSlice(b, "PossibleValues", kd.possibleValues)
+	if len(kd.pinnedValues) > 0 {
+		b.WriteString("PinnedValues: []PinnedValue{")
+		for i, p := range kd.pinnedValues {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "{When: &Cond%s, Value: %q}", condLiteral(p.cond), p.value)
+		}
+		b.WriteString("},\n")
+	}
 	writeLinkGroups(b, kd.linkGroups)
 	if kd.inheritable {
 		b.WriteString("Inheritable: true,\n")
@@ -588,8 +599,13 @@ func buildKeyDef(r row) keyDef {
 	// ValueCond compiles for named dict keys (operands are sibling key names) and for fixed
 	// array indices (operands are element indices, resolved against the owning array at
 	// runtime). Wildcard and offset-wildcard rows have no single position to resolve against.
-	values, unresolved := parsePossibleValues(r.possibleValues)
+	values, pins, unresolved := parsePossibleValues(r.possibleValues)
 	kd.possibleValues = values
+	for _, p := range pins {
+		if cond := p.cond; condOperandsResolvable(&cond, kd.name) {
+			kd.pinnedValues = append(kd.pinnedValues, p)
+		}
+	}
 	if unresolved {
 		if tree, ok := compileValueCond(r.possibleValues); ok && condOperandsResolvable(tree, kd.name) {
 			kd.valueCond = tree
@@ -648,25 +664,50 @@ func splitGroups(raw string) []string {
 	return out
 }
 
+// pinnedExpr is the codegen form of one fn:RequiredValue entry: a compiled condition and the
+// value the key must have while it holds.
+type pinnedExpr struct {
+	cond  condExpr
+	value string
+}
+
 // parsePossibleValues flattens the (possibly per-type-grouped) PossibleValues column into a
 // single enumerated list. Version-gated entries (fn:SinceVersion/fn:IsPDFVersion/
 // fn:BeforeVersion wrapping a plain value) are folded against modelVersion; fn:Deprecated and
 // fn:Extension entries stay legal (deprecated/extension values still occur in real files --
-// the false-negative direction). unresolved reports whether any entry carried a predicate this
-// generator could not fold (e.g. a whole-group range constraint like fn:Eval(@LW>=0)), in
-// which case the row must stay predicated. A literal "*" entry means any value is legal, so
-// the whole list enforces nothing and is dropped -- along with any unresolved entry in it.
-func parsePossibleValues(raw string) (values []string, unresolved bool) {
+// the false-negative direction). fn:RequiredValue(cond, v) keeps v legal and, on a
+// single-group column with a compilable condition, additionally emits a pin -- an
+// uncompilable condition just loses the pin, never the entry. unresolved reports whether any
+// entry carried a predicate this generator could not fold (e.g. a whole-group range
+// constraint like fn:Eval(@LW>=0)), in which case the row must stay predicated. A literal "*"
+// entry means any value is legal, so the whole list enforces nothing and is dropped -- along
+// with any unresolved entry in it.
+func parsePossibleValues(raw string) (values []string, pins []pinnedExpr, unresolved bool) {
 	if raw == "" {
-		return nil, false
+		return nil, nil, false
 	}
-	for _, group := range splitGroups(raw) {
+	groups := splitGroups(raw)
+	for _, group := range groups {
 		for _, item := range splitTopLevelComma(group) {
 			item = strings.TrimSpace(item)
 			if item == "" {
 				continue
 			}
 			if strings.HasPrefix(item, "fn:") {
+				if name, args, wrapped := splitPredicate(item); wrapped && name == "fn:RequiredValue" && len(args) == 2 {
+					v := strings.Trim(args[1], "'")
+					if strings.Contains(args[1], "fn:") || v == "*" {
+						unresolved = true
+						continue
+					}
+					values = append(values, v)
+					if len(groups) == 1 {
+						if res := compileCond(args[0]); res.ok && res.tree != nil {
+							pins = append(pins, pinnedExpr{cond: *res.tree, value: v})
+						}
+					}
+					continue
+				}
 				val, keep, ok := foldValueEntry(item)
 				if !ok {
 					unresolved = true
@@ -679,12 +720,12 @@ func parsePossibleValues(raw string) (values []string, unresolved bool) {
 			}
 			item = strings.Trim(item, "'")
 			if item == "*" {
-				return nil, false
+				return nil, nil, false
 			}
 			values = append(values, item)
 		}
 	}
-	return values, unresolved
+	return values, pins, unresolved
 }
 
 // foldValueEntry resolves one fn:-wrapped PossibleValues entry against modelVersion: keep

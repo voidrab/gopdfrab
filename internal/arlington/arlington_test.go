@@ -449,13 +449,30 @@ func TestCompiledConditions(t *testing.T) {
 	if lab == nil || lab.Predicated.Values || !reflect.DeepEqual(lab.ValueCond, wantLab) {
 		t.Errorf("LabRangeArray.0: want ValueCond %+v, got %+v", wantLab, lab)
 	}
+
+	// fn:RequiredValue entries stay legal enum members and emit conditional pins.
+	r := findKey(Types["EncryptionStandard"], "R")
+	wantRVals := []string{"2", "3", "4"}
+	wantRPins := []PinnedValue{
+		{When: &Cond{Op: CondLt, Key: "V", Value: "2"}, Value: "2"},
+		{When: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "V", Value: "2"}, {Op: CondEq, Key: "V", Value: "3"}}}, Value: "3"},
+		{When: &Cond{Op: CondEq, Key: "V", Value: "4"}, Value: "4"},
+	}
+	if r == nil || r.Predicated.Values || !equalStrings(r.PossibleValues, wantRVals) || !reflect.DeepEqual(r.PinnedValues, wantRPins) {
+		t.Errorf("EncryptionStandard.R: want values %v pins %+v, got %+v", wantRVals, wantRPins, r)
+	}
+
+	bpc := findKey(Types["XObjectImage"], "BitsPerComponent")
+	if bpc == nil || bpc.Predicated.Values || !equalStrings(bpc.PossibleValues, []string{"1", "2", "4", "8"}) || len(bpc.PinnedValues) != 2 {
+		t.Errorf("XObjectImage.BitsPerComponent: want enum {1,2,4,8} with 2 pins, got %+v", bpc)
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.945 // observed ~95.2% after operand functions; headroom for TSV churn
+	const floor = 0.95 // observed ~95.4% after fn:RequiredValue pins; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

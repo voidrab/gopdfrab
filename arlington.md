@@ -496,3 +496,22 @@ Comparisons are no longer limited to "key's value vs literal" (95.2% simple, flo
 
 All gates green on the first corpus run; `checks_objectmodel.go` back at 100% per-function
 statement coverage (verify 93.8%), arlington 100%.
+
+### Stage D4 — fn:RequiredValue conditional enums ✅ 2026-07-09
+
+The last three Values-predicated dict rows with own-entry conditions compile (95.4% simple,
+floor 0.95). `fn:RequiredValue(cond, v)` has two effects, both landed:
+
+- **The value stays a legal enum member** (`parsePossibleValues`), so the columns resume
+  plain enum enforcement: `EncryptionStandard.R` ∈ {2,3,4} and both image types'
+  `BitsPerComponent` ∈ {1,2,4,8} — the latter two had their enum lists emitted but
+  suppressed by predication until now.
+- **`KeyDef.PinnedValues`** (`[]PinnedValue{When *Cond, Value}`): when a pin's condition is
+  definitely true and the key's scalar value differs, `DisallowedValue` fires — R must be 2
+  when V<2, 3 when V∈{2,3}, 4 when V==4; a CCITT/JBIG2/ImageMask image must use 1 bit per
+  component, RunLength/DCT 8 (via D3's `CondContains` on the soft-mask variant, plain
+  equality on `XObjectImage`, so a `/Filter` array there makes the condition unknown → no
+  flag). Pins whose condition cannot compile just lose the pin, never the enum entry;
+  multi-group columns never pin (the matching type alternative is unknown at runtime).
+
+All gates green on the first corpus run; coverage holds (arlington 100%, verify 93.8%).

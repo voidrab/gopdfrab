@@ -857,6 +857,61 @@ func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	}
 }
 
+func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
+	// EncryptionStandard.R must be 3 when V is 2.
+	enc := pdf.NewPDFDict()
+	enc.Entries["Filter"] = pdf.PDFName{Value: "Standard"}
+	enc.Entries["V"] = pdf.PDFInteger(2)
+	enc.Entries["R"] = pdf.PDFInteger(2)
+	enc.Entries["O"] = pdf.PDFString{Value: "o"}
+	enc.Entries["U"] = pdf.PDFString{Value: "u"}
+	enc.Entries["P"] = pdf.PDFInteger(-4)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(enc, "EncryptionStandard", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for R=2 with V=2")
+	}
+
+	enc.Entries["R"] = pdf.PDFInteger(3)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(enc, "EncryptionStandard", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("R=3 with V=2 must not be flagged, got %v", ctx.errs)
+	}
+
+	// A DCT-encoded image must use 8 bits per component; the pin fires on 4, and 16 is
+	// outside the (now unpredicated) enum regardless of filter.
+	img := pdf.NewPDFDict()
+	img.HasStream = true
+	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
+	img.Entries["Width"] = pdf.PDFInteger(1)
+	img.Entries["Height"] = pdf.PDFInteger(1)
+	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceGray"}
+	img.Entries["Filter"] = pdf.PDFName{Value: "DCTDecode"}
+	img.Entries["BitsPerComponent"] = pdf.PDFInteger(4)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for a 4-bit DCT image")
+	}
+
+	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("an 8-bit DCT image must not be flagged, got %v", ctx.errs)
+	}
+
+	// An unresolvable pin condition (Filter as an array makes @Filter== unknown) never flags.
+	img.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "DCTDecode"}}
+	img.Entries["BitsPerComponent"] = pdf.PDFInteger(4)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("an unknown pin condition must fail closed, got %v", ctx.errs)
+	}
+}
+
 func TestValidateArrayAgainstSchema_ElementComparison(t *testing.T) {
 	// LabRangeArray requires amin <= amax and bmin <= bmax.
 	owner := pdf.NewPDFDict()

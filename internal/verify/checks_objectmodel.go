@@ -77,6 +77,23 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			}
 		}
 
+		if present && val != nil {
+			for i := range kd.PinnedValues {
+				pin := &kd.PinnedValues[i]
+				pinned, ok := evalCond(pin.When, v)
+				if !ok || !pinned {
+					continue
+				}
+				if s, sok := scalarEnumString(val); sok && s != pin.Value {
+					ctx.Report(
+						pdf.Checks.ObjectModel.DisallowedValue,
+						v,
+						fmt.Sprintf("%s key %q must be %s under its current sibling entries", typeName, kd.Name, pin.Value),
+					)
+				}
+			}
+		}
+
 		if present && !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.IndirectRequired,
