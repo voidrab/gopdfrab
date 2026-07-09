@@ -594,3 +594,238 @@ func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
 		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil) for a null value", changed, handled, err)
 	}
 }
+
+func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
+	// No /Type: invisible to the whole-graph flag pass, only targeting finds it.
+	fd := pdf.NewPDFDict()
+	fd.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14) // Nonsymbolic + reserved bit 15
+	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["FD"] = fd
+	ref := pdf.PDFRef{ObjNum: 4}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorType1", "Flags")}
+
+	changed, handled, err := constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if got := fd.Entries["Flags"]; got != pdf.PDFInteger(32) {
+		t.Errorf("Flags = %v, want 32 (reserved bit cleared)", got)
+	}
+
+	changed, _, err = constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestConstraintFixerResizesDecodeParms(t *testing.T) {
+	pad := pdf.NewPDFDict()
+	pad.HasStream = true
+	pad.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}}
+	pad.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
+	pad.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trim := pdf.NewPDFDict()
+	trim.HasStream = true
+	trim.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}}
+	trim.Entries["DecodeParms"] = pdf.PDFArray{nil, nil, nil}
+	trim.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["A"] = pad
+	trailer.Entries["B"] = trim
+	refPad := pdf.PDFRef{ObjNum: 4}
+	refTrim := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: pad, 5: trim}}
+	issues := []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &refPad, "Stream", "DecodeParms"),
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &refTrim, "Stream", "DecodeParms"),
+	}
+
+	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	padded, _ := pad.Entries["DecodeParms"].(pdf.PDFArray)
+	if len(padded) != 2 || padded[1] != nil {
+		t.Errorf("DecodeParms = %v, want padded to [parms null]", padded)
+	}
+	trimmed, _ := trim.Entries["DecodeParms"].(pdf.PDFArray)
+	if len(trimmed) != 1 {
+		t.Errorf("DecodeParms = %v, want trimmed to 1 element", trimmed)
+	}
+}
+
+func TestConstraintFixerPrunesFontFiles(t *testing.T) {
+	fd := pdf.NewPDFDict()
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff2 := pdf.NewPDFDict()
+	ff2.HasStream = true
+	fd.Entries["FontFile"] = ff
+	fd.Entries["FontFile2"] = ff2
+	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["FD"] = fd
+	ref := pdf.PDFRef{ObjNum: 4}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorTrueType", "FontFile2")}
+
+	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	if _, ok := fd.Entries["FontFile2"]; !ok {
+		t.Error("a TrueType descriptor must keep FontFile2")
+	}
+	if _, ok := fd.Entries["FontFile"]; ok {
+		t.Error("the surplus FontFile must be deleted")
+	}
+
+	// An unknown descriptor flavor fails closed.
+	if pruneFontFiles(fd, "NoSuchDescriptor") {
+		t.Error("pruneFontFiles must fail closed on unknown types")
+	}
+}
+
+func TestConstraintFixerClampsLength1(t *testing.T) {
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.Entries["Length1"] = pdf.PDFInteger(-5)
+	ff.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["FF"] = ff
+	ref := pdf.PDFRef{ObjNum: 4}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: ff}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontFile", "Length1")}
+
+	changed, _, err := constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	if got := ff.Entries["Length1"]; got != pdf.PDFInteger(0) {
+		t.Errorf("Length1 = %v, want clamped 0", got)
+	}
+}
+
+func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
+	// A pushbutton's Ff must have bit 17 set; setting a semantic bit is never
+	// neutral, so the violation stays.
+	btn := pdf.NewPDFDict()
+	btn.Entries["FT"] = pdf.PDFName{Value: "Btn"}
+	btn.Entries["Ff"] = pdf.PDFInteger(0)
+	btn.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["F"] = btn
+	ref := pdf.PDFRef{ObjNum: 4}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: btn}}
+	issues := []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FieldBtnPush", "Ff"),
+		// Skip cases: array element, no SpecialCase row, null value, dead ref, no detail.
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "ArrayOf_4NumbersColorAnnotation", "1"),
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FieldBtnPush", "FT"),
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FieldBtnPush", "Absent"),
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, nil, "FieldBtnPush", "Ff"),
+		pdf.NewError(pdf.Checks.ObjectModel.ConstraintViolated, nil, 0, &ref),
+	}
+
+	changed, handled, err := constraintFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
+	}
+	if got := btn.Entries["Ff"]; got != pdf.PDFInteger(0) {
+		t.Errorf("Ff = %v, want untouched 0", got)
+	}
+}
+
+// TestConvertObjectModelResizesDecodeParms proves the fixer end to end: a
+// content stream whose DecodeParms array is shorter than its Filter array
+// converts to a fully valid rewrite.
+func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		contents := page.Entries["Contents"].(pdf.PDFDict)
+		hexed := []byte("30203020313030203130302072652066>") // "0 0 100 100 re f" hex-encoded
+		contents.RawStream = hexed
+		contents.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}}
+		contents.Entries["DecodeParms"] = pdf.PDFArray{nil, nil}
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Fatalf("fixture must fail with ConstraintViolated, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+}
+
+// TestConstraintHelperEdges covers the helper branches the fixer-level tests
+// don't reach: the whole-graph flag walk, non-array and equal-length resizes,
+// nested couplings, and single-variant descriptors.
+func TestConstraintHelperEdges(t *testing.T) {
+	fd := pdf.NewPDFDict()
+	fd.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
+	fd.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["FD"] = fd
+	changed, err := constraintFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = (%v, %v), want the typed descriptor's reserved bit cleared", changed, err)
+	}
+	if got := fd.Entries["Flags"]; got != pdf.PDFInteger(32) {
+		t.Errorf("Flags = %v, want 32", got)
+	}
+
+	eq := arlington.Cond{Op: arlington.CondEq, Key: "DecodeParms", Fn: arlington.FnArrayLength, RHSKey: "Filter", RHSFn: arlington.FnArrayLength}
+	and := arlington.Cond{Op: arlington.CondAnd, Kids: []arlington.Cond{eq}}
+	if sib, ok := lengthCoupledSibling(&and, "DecodeParms"); !ok || sib != "Filter" {
+		t.Errorf("nested coupling = (%q, %v), want (Filter, true)", sib, ok)
+	}
+	if _, ok := lengthCoupledSibling(&eq, "Other"); ok {
+		t.Error("a coupling keyed elsewhere must not match")
+	}
+	if _, ok := lengthCoupledSibling(&arlington.Cond{Op: arlington.CondPresent, Key: "X"}, "X"); ok {
+		t.Error("a non-comparison leaf must not match")
+	}
+
+	d := pdf.NewPDFDict()
+	d.Entries["DecodeParms"] = pdf.PDFName{Value: "NotAnArray"}
+	d.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}}
+	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
+		t.Error("a non-array key must not resize")
+	}
+	d.Entries["DecodeParms"] = pdf.PDFArray{nil}
+	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
+		t.Error("equal lengths must not resize")
+	}
+	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
+		t.Error("a non-array sibling must not resize")
+	}
+
+	single := pdf.NewPDFDict()
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	single.Entries["FontFile"] = ff
+	if pruneFontFiles(single, "FontDescriptorType1") {
+		t.Error("a single present variant must not prune")
+	}
+
+	// A dead ref in the targeted loop is skipped.
+	dead := pdf.PDFRef{ObjNum: 9}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{}}
+	changed, handled, err := constraintFixer{}.fixTargeted(pass, []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &dead, "Stream", "DecodeParms"),
+	})
+	if err != nil || changed || !handled {
+		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
+	}
+}

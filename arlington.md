@@ -717,3 +717,32 @@ Descent negation and adding the schema-derived repairs:
   are pinned with synthetic KeyDefs.
 
 All gates green on the first corpus run; convert 91.9%, every new/changed function 100%.
+
+### Stage F6 — ConstraintViolated extension ✅ 2026-07-09
+
+`descriptorFlagsFixer` generalizes into `constraintFixer` (same registration), keeping the
+whole-graph reserved-bit table and adding targeted repairs for the constraint families with
+a conformance-neutral fix:
+
+- **Targeted bit clearing**: the must-be-clear mask is derived per finding from the
+  compiled tree (`clearMaskFromCond`, now shared with `mustBeClearMask`), covering
+  descriptors without `/Type` the whole-graph table can't identify.
+- **DecodeParms/Filter length coupling** (the 124-row workhorse): `lengthCoupledSibling`
+  recognizes the conjunctive `ArrayLength(key)==ArrayLength(sib)` leaf and
+  `resizeToSiblingLength` pads with nulls or trims. Safe by construction: the model only
+  ever keys this coupling on the parameter array (62 `DecodeParms` + 62 `FDecodeParms`
+  rows, zero on `Filter`), so decode semantics are never touched.
+- **FontFile mutual exclusion**: `pruneFontFiles` keeps the variant matching the
+  descriptor's technology (`fontFilePreference` per `FontDescriptor*` type, fail-closed on
+  unknown flavors) and deletes the surplus.
+- **Own-key bounds** (`Length1/2/3 >= 0`): reuses F5's `clampToBounds` on the SpecialCase
+  tree — clamping was chosen over the plan's deletion since it also works if a row is
+  required, and a negative length is garbage either way.
+- **Deliberately not repaired**: `CondBitsSet` violations (setting a semantic bit is never
+  neutral — a pushbutton's missing bit 17 stays, pinned by test), and cross-key semantic
+  couplings (image-mask consistency, structure-attribute `/O` key sets) where deleting the
+  anchor key would be wrong — deletion is intentionally *not* a ConstraintViolated
+  fallback, unlike WrongValueType/DisallowedValue.
+
+All gates green on the first corpus run; convert 92.2%, `fixups_objectmodel.go` at 100%
+statement coverage in its entirety.

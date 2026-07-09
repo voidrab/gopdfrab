@@ -13,7 +13,7 @@ import (
 func init() {
 	registerFixer(indirectRequiredFixer{})
 	registerFixer(disallowedValueFixer{})
-	registerFixer(descriptorFlagsFixer{})
+	registerFixer(constraintFixer{})
 	registerFixer(missingRequiredKeyFixer{})
 	registerFixer(wrongValueTypeFixer{})
 }
@@ -62,9 +62,25 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	return changed, nil
 }
 
+// clearMaskFromCond collects the bits cond requires clear on key, from its conjunctive
+// structure only (an Or/Not subtree could make clearing wrong, so it contributes nothing).
+func clearMaskFromCond(c *arlington.Cond, key string) int64 {
+	var mask int64
+	switch c.Op {
+	case arlington.CondBitsClear:
+		if c.Key == key {
+			mask |= (1<<uint(c.BitHi) - 1) &^ (1<<uint(c.BitLo-1) - 1)
+		}
+	case arlington.CondAnd:
+		for i := range c.Kids {
+			mask |= clearMaskFromCond(&c.Kids[i], key)
+		}
+	}
+	return mask
+}
+
 // mustBeClearMask collects the bits an Arlington type's SpecialCase requires clear on the
-// given key, from the constraint's conjunctive structure only (an Or/Not subtree could make
-// clearing wrong, so it contributes nothing). Zero means no clearable rule.
+// given key. Zero means no clearable rule.
 func mustBeClearMask(typeName, key string) int64 {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
@@ -72,34 +88,22 @@ func mustBeClearMask(typeName, key string) int64 {
 	}
 	var mask int64
 	for _, kd := range ot.Keys {
-		if kd.Name != key || kd.SpecialCase == nil {
-			continue
+		if kd.Name == key && kd.SpecialCase != nil {
+			mask |= clearMaskFromCond(kd.SpecialCase, key)
 		}
-		var collect func(c *arlington.Cond)
-		collect = func(c *arlington.Cond) {
-			switch c.Op {
-			case arlington.CondBitsClear:
-				if c.Key == key {
-					mask |= (1<<uint(c.BitHi) - 1) &^ (1<<uint(c.BitLo-1) - 1)
-				}
-			case arlington.CondAnd:
-				for i := range c.Kids {
-					collect(&c.Kids[i])
-				}
-			}
-		}
-		collect(kd.SpecialCase)
 	}
 	return mask
 }
 
-// descriptorFlagsFixer remediates the object model's ConstraintViolated check on flag words:
-// real files carry junk in reserved bits (FontDescriptor /Flags, text field /Ff), which
-// readers must ignore anyway, so masking off the bits the model requires clear is
-// conformance-neutral. The masks come from the compiled Arlington SpecialCase constraints.
-type descriptorFlagsFixer struct{}
+// constraintFixer remediates the object model's ConstraintViolated check where a
+// conformance-neutral repair exists: reserved flag bits are cleared (readers must ignore
+// them), a DecodeParms array is resized to its Filter coupling, surplus FontFile* variants
+// are pruned to the descriptor's preferred one, and own-key numeric bounds (Length1 >= 0)
+// are clamped. Cross-key semantic couplings (image-mask consistency, must-be-set bits,
+// structure-attribute key sets) have no neutral repair and stay residuals.
+type constraintFixer struct{}
 
-func (descriptorFlagsFixer) Applies(c pdf.Check) bool {
+func (constraintFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.ConstraintViolated
 }
 
@@ -112,7 +116,7 @@ var reservedFlagBits = map[string]struct {
 	"FieldCh":        {"FT", "Ch", "Ff", mustBeClearMask("FieldCh", "Ff")},
 }
 
-func (descriptorFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for _, r := range reservedFlagBits {
@@ -126,6 +130,140 @@ func (descriptorFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, e
 		}
 	})
 	return changed, nil
+}
+
+func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+	// Ref-less flag words keep their whole-graph repair regardless of targeting.
+	changed, _ := f.Fix(p.trailer, nil)
+	for _, iss := range issues {
+		detail, ok := iss.ObjModelDetail()
+		if !ok || isArrayIndexKey(detail.Key) {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			continue
+		}
+		d, ok := p.dictForRef(ref)
+		if !ok {
+			continue
+		}
+		kd := keyDefFor(detail.TypeName, detail.Key)
+		if kd == nil || kd.SpecialCase == nil || d.Entries[detail.Key] == nil {
+			continue
+		}
+		if holds, ok := verify.EvalCond(kd.SpecialCase, d); !ok || holds {
+			continue // stale or undecidable finding
+		}
+		if repairConstraint(d, detail.TypeName, detail.Key, kd) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+// repairConstraint applies the neutral repair for key's violated SpecialCase on d.
+func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef) bool {
+	if mask := clearMaskFromCond(kd.SpecialCase, key); mask != 0 {
+		if v, ok := d.Entries[key].(pdf.PDFInteger); ok && int64(v)&mask != 0 {
+			d.Entries[key] = v &^ pdf.PDFInteger(mask)
+			return true
+		}
+	}
+	if sib, ok := lengthCoupledSibling(kd.SpecialCase, key); ok && resizeToSiblingLength(d, key, sib) {
+		return true
+	}
+	if strings.HasPrefix(key, "FontFile") && pruneFontFiles(d, typeName) {
+		return true
+	}
+	if nv, ok := clampToBounds(d.Entries[key], kd.SpecialCase, key); ok {
+		d.Entries[key] = nv
+		return true
+	}
+	return false
+}
+
+// lengthCoupledSibling returns the entry whose array length key's value must match,
+// from a conjunctive ArrayLength(key) == ArrayLength(sibling) leaf of cond.
+func lengthCoupledSibling(c *arlington.Cond, key string) (string, bool) {
+	switch c.Op {
+	case arlington.CondEq:
+		if c.Key == key && c.Fn == arlington.FnArrayLength &&
+			c.RHSKey != "" && c.RHSFn == arlington.FnArrayLength && c.Mod == 0 {
+			return c.RHSKey, true
+		}
+	case arlington.CondAnd:
+		for i := range c.Kids {
+			if sib, ok := lengthCoupledSibling(&c.Kids[i], key); ok {
+				return sib, true
+			}
+		}
+	}
+	return "", false
+}
+
+// resizeToSiblingLength pads d's key array with nulls or trims it to the sibling array's
+// length. The model only couples parameter arrays to their filter arrays this way, so the
+// resize never touches decode semantics.
+func resizeToSiblingLength(d pdf.PDFDict, key, sib string) bool {
+	a, ok := d.Entries[key].(pdf.PDFArray)
+	if !ok {
+		return false
+	}
+	b, ok := d.Entries[sib].(pdf.PDFArray)
+	if !ok || len(a) == len(b) {
+		return false
+	}
+	if len(a) > len(b) {
+		d.Entries[key] = a[:len(b)]
+		return true
+	}
+	resized := make(pdf.PDFArray, len(b))
+	copy(resized, a)
+	d.Entries[key] = resized
+	return true
+}
+
+// fontFilePreference orders the FontFile variants each descriptor type should keep when
+// several are present, matching the font technology the descriptor describes.
+var fontFilePreference = map[string][]string{
+	"FontDescriptorType1":    {"FontFile", "FontFile3", "FontFile2"},
+	"FontDescriptorTrueType": {"FontFile2", "FontFile3", "FontFile"},
+	"FontDescriptorCIDType0": {"FontFile3", "FontFile", "FontFile2"},
+	"FontDescriptorCIDType2": {"FontFile2", "FontFile3", "FontFile"},
+}
+
+// pruneFontFiles keeps the descriptor's preferred present FontFile variant and deletes the
+// others; ISO 32000 permits at most one embedded font program per descriptor.
+func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
+	pref, ok := fontFilePreference[typeName]
+	if !ok {
+		return false
+	}
+	present := 0
+	for _, k := range pref {
+		if v, exists := d.Entries[k]; exists && v != nil {
+			present++
+		}
+	}
+	if present < 2 {
+		return false
+	}
+	kept := false
+	changed := false
+	for _, k := range pref {
+		v, exists := d.Entries[k]
+		if !exists || v == nil {
+			continue
+		}
+		if !kept {
+			kept = true
+			continue
+		}
+		delete(d.Entries, k)
+		changed = true
+	}
+	return changed
 }
 
 // missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
