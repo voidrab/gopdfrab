@@ -33,6 +33,219 @@ func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 	}
 }
 
+func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	owner := pdf.NewPDFDict()
+	direct := pdf.NewPDFDict()
+	direct.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	already := pdf.NewPDFDict()
+	already.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	owner.Entries["Kids"] = pdf.PDFArray{direct, already, pdf.PDFInteger(1), pdf.PDFDict{}}
+	unlisted := pdf.NewPDFDict()
+	owner.Entries["ZZ"] = pdf.PDFArray{unlisted}
+	owner.Entries["Count"] = pdf.PDFInteger(2) // non-array under a non-listed key
+	trailer.Entries["P"] = owner
+
+	changed, err := indirectRequiredFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
+	}
+	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+		t.Error("a direct dict inside an indirect-required array was not promoted")
+	}
+	if got := already.Entries["_ref"]; got != (pdf.PDFRef{ObjNum: 3}) {
+		t.Errorf("an already-indirect element's ref = %v, want untouched 3", got)
+	}
+	if _, ok := unlisted.Entries["_ref"]; ok {
+		t.Error("an array under a key outside the element-indirect set must stay direct")
+	}
+
+	changed, err = indirectRequiredFixer{}.Fix(&trailer, nil)
+	if err != nil || changed {
+		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
+	// A resource XObject map's entries are wildcard rows -- arbitrary key
+	// names the whole-graph tables can never cover.
+	xmap := pdf.NewPDFDict()
+	direct := pdf.NewPDFDict()
+	xmap.Entries["Fx0"] = direct
+	xmap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["XMap"] = xmap
+	ref := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: xmap}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.IndirectRequired, &ref, "XObjectMap", "Fx0")}
+
+	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+		t.Error("the wildcard-keyed direct dict was not promoted")
+	}
+
+	changed, _, err = indirectRequiredFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
+	xmap := pdf.NewPDFDict()
+	xmap.Entries["Scalar"] = pdf.PDFInteger(1)
+	xmap.Entries["NilDict"] = pdf.PDFDict{}
+	already := pdf.NewPDFDict()
+	already.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	xmap.Entries["Already"] = already
+	xmap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["XMap"] = xmap
+	ref := pdf.PDFRef{ObjNum: 5}
+	dead := pdf.PDFRef{ObjNum: 9}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: xmap}}
+
+	c := pdf.Checks.ObjectModel.IndirectRequired
+	issues := []pdf.PDFError{
+		objModelIssue(c, &ref, "ArrayOfPageTreeNodeKids", "0"), // array element: whole-graph territory
+		pdf.NewError(c, nil, 0, &ref),                          // no detail
+		objModelIssue(c, nil, "XObjectMap", "Fx0"),             // no ref
+		objModelIssue(c, &dead, "XObjectMap", "Fx0"),           // dead ref
+		objModelIssue(c, &ref, "NoSuchType", "Fx0"),            // unknown type
+		objModelIssue(c, &ref, "DocInfo", "Custom"),            // wildcard row not indirect-required
+		objModelIssue(c, &ref, "XObjectMap", "Scalar"),         // non-dict child
+		objModelIssue(c, &ref, "XObjectMap", "NilDict"),        // nil-Entries child
+		objModelIssue(c, &ref, "XObjectMap", "Already"),        // already indirect
+	}
+	changed, handled, err := indirectRequiredFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
+	}
+	if got := already.Entries["_ref"]; got != (pdf.PDFRef{ObjNum: 7}) {
+		t.Errorf("Already ref = %v, want untouched 7", got)
+	}
+}
+
+// TestConvertObjectModelPromotesDirectKid proves the array-element promotion
+// end to end: a page stored directly inside its Pages /Kids array converts to
+// a fully valid rewrite.
+func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		delete(page.Entries, "_ref")
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.IndirectRequired) {
+		t.Fatalf("fixture must fail with IndirectRequired, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+}
+
+func TestPost14KeyFixerAppliesExclusively(t *testing.T) {
+	fixer := post14KeyFixer{}
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14
+		if got := fixer.Applies(c); got != want {
+			t.Errorf("Applies(%s) = %v, want %v", c.Name(), got, want)
+		}
+	}
+}
+
+func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["UserUnit"] = pdf.PDFReal(2)
+	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["P"] = page
+	ref := pdf.PDFRef{ObjNum: 3}
+	dead := pdf.PDFRef{ObjNum: 9}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: page}}
+
+	c := pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14
+	issues := []pdf.PDFError{
+		objModelIssue(c, &ref, "PageObject", "UserUnit"),
+		// Skip cases: _ref and array-index detail keys, no detail, no ref,
+		// dead ref, already-absent key.
+		objModelIssue(c, &ref, "PageObject", "_ref"),
+		objModelIssue(c, &ref, "ArrayOf_4Numbers", "2"),
+		pdf.NewError(c, nil, 0, &ref),
+		objModelIssue(c, nil, "PageObject", "UserUnit"),
+		objModelIssue(c, &dead, "PageObject", "UserUnit"),
+		objModelIssue(c, &ref, "PageObject", "Absent"),
+	}
+	changed, handled, err := post14KeyFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if _, ok := page.Entries["UserUnit"]; ok {
+		t.Error("the reported post-1.4 key must be deleted")
+	}
+	if _, ok := page.Entries["_ref"].(pdf.PDFRef); !ok {
+		t.Error("_ref must never be deleted")
+	}
+
+	changed, _, err = post14KeyFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+	if got, err := (post14KeyFixer{}).Fix(&trailer, nil); got || err != nil {
+		t.Errorf("Fix = (%v, %v), want targeted-only no-op", got, err)
+	}
+}
+
+// TestConvertObjectModelDeletesPost14Key proves the fixer end to end: a page
+// carrying a post-1.4 key (/UserUnit, PDF 1.6) converts to a fully valid
+// rewrite with the key removed and the page content untouched.
+func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		page.Entries["UserUnit"] = pdf.PDFReal(2)
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
+		t.Fatalf("fixture must fail with KeyIntroducedAfterPDF14, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+
+	out, err := pdf.OpenBytes(cr.Output)
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph(output): %v", err)
+	}
+	page := assertOnePageGraph(t, graph)
+	if _, still := page.Entries["UserUnit"]; still {
+		t.Error("UserUnit must be deleted from the output page")
+	}
+	assertContentStream(t, page, onePageContent)
+}
+
 func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	fd := pdf.NewPDFDict()

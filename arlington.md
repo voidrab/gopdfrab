@@ -746,3 +746,29 @@ a conformance-neutral fix:
 
 All gates green on the first corpus run; convert 92.2%, `fixups_objectmodel.go` at 100%
 statement coverage in its entirety.
+
+### Stage F7 — IndirectRequired completion + post-1.4 key removal ✅ 2026-07-09
+
+The last two checks without full repair coverage, closing the fixer matrix — **all six
+object-model checks now have a registered fixer**:
+
+- **`indirectRequiredFixer` extended** on both paths: the whole-graph pass also promotes
+  direct dicts inside arrays whose linked type's wildcard row requires indirect elements
+  (`arrayElemIndirectKeys` — `Kids`, `Contents`, resource `XObject` values, 14 keys), and a
+  new targeted path handles wildcard *dict* rows (`XObjectMap`, `CharProcMap`,
+  `AppearanceSubDict`, ...) where the key name is arbitrary and no name table can apply —
+  the finding's `ObjModelDetail` supplies the (type, key) and `keyDefFor` falls through to
+  the wildcard row. Promotion stays conformance-neutral (no enforced row demands
+  directness); already-indirect, non-dict, and nil-Entries children skip, array-element
+  findings stay with the whole-graph pass.
+- **`post14KeyFixer`** (targeted-only, F3's shape): deletes the reported key — the 1.4
+  model cannot require a key it does not know, and 1.4 readers must ignore unknown keys, so
+  removal is always conformant. Only fires when the profile enforces the check
+  (`Legacy_1B` / `ObjectModelOnly`), implementing the agreed stance from this section's
+  intro. `_ref`, array-index details, and already-absent keys skip.
+- End-to-end: a page stored *directly* inside its `/Kids` array and a page carrying
+  `/UserUnit` (PDF 1.6) both convert to fully valid rewrites under `ObjectModelOnly()`,
+  the latter with byte-identical page content (no raster involvement).
+
+All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
+convert corpus 510/510); convert 92.3%, `fixups_objectmodel.go` still 100% in its entirety.

@@ -16,6 +16,7 @@ func init() {
 	registerFixer(constraintFixer{})
 	registerFixer(missingRequiredKeyFixer{})
 	registerFixer(wrongValueTypeFixer{})
+	registerFixer(post14KeyFixer{})
 }
 
 // indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
@@ -32,10 +33,34 @@ var indirectRequiredKeys = func() map[string]bool {
 	return keys
 }()
 
+// arrayElemIndirectKeys holds every dict key whose linked array type requires its elements
+// to be indirect (unpredicated wildcard rows only), e.g. Kids -> ArrayOfPageTreeNodeKids.
+var arrayElemIndirectKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	for _, ot := range arlington.Types {
+		for _, kd := range ot.Keys {
+			for _, g := range kd.LinkGroups {
+				for _, cand := range g.Candidates {
+					ct, ok := arlington.Type(cand)
+					if !ok || ct.Wildcard == nil {
+						continue
+					}
+					if ct.Wildcard.IndirectReference == arlington.IndirectRequired && !ct.Wildcard.Predicated.Indirect {
+						keys[kd.Name] = true
+					}
+				}
+			}
+		}
+	}
+	return keys
+}()
+
 // indirectRequiredFixer remediates the object model's IndirectRequired check: a direct
-// dictionary under an indirect-required key gets its own object number, so the writer
-// serializes it as an indirect object. No enforced row demands directness, so promoting by
-// key name across all types is a safe overshoot.
+// dictionary under an indirect-required key -- or inside an array whose elements the model
+// requires indirect -- gets its own object number, so the writer serializes it as an
+// indirect object. No enforced row demands directness, so promoting by key name across all
+// types is a safe overshoot; wildcard-row requirements (e.g. XObject resource maps), where
+// the key name is arbitrary, are handled by the targeted path.
 type indirectRequiredFixer struct{}
 
 func (indirectRequiredFixer) Applies(c pdf.Check) bool {
@@ -45,21 +70,101 @@ func (indirectRequiredFixer) Applies(c pdf.Check) bool {
 func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	next := nextAvailableObjNum(*trailer)
 	changed := false
+	promote := func(v pdf.PDFValue) {
+		child, ok := v.(pdf.PDFDict)
+		if !ok || child.Entries == nil || child.Entries["_ref"] != nil {
+			return
+		}
+		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
+		next++
+		changed = true
+	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries {
-			if k == "_ref" || !indirectRequiredKeys[k] {
+			if k == "_ref" {
 				continue
 			}
-			child, ok := v.(pdf.PDFDict)
-			if !ok || child.Entries == nil || child.Entries["_ref"] != nil {
-				continue
+			if indirectRequiredKeys[k] {
+				promote(v)
 			}
-			child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
-			next++
-			changed = true
+			if arr, ok := v.(pdf.PDFArray); ok && arrayElemIndirectKeys[k] {
+				for _, item := range arr {
+					promote(item)
+				}
+			}
 		}
 	})
 	return changed, nil
+}
+
+func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+	changed, _ := f.Fix(p.trailer, nil)
+	next := nextAvailableObjNum(*p.trailer)
+	for _, iss := range issues {
+		detail, ok := iss.ObjModelDetail()
+		if !ok || isArrayIndexKey(detail.Key) {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			continue
+		}
+		d, ok := p.dictForRef(ref)
+		if !ok {
+			continue
+		}
+		kd := keyDefFor(detail.TypeName, detail.Key)
+		if kd == nil || kd.IndirectReference != arlington.IndirectRequired {
+			continue
+		}
+		child, ok := d.Entries[detail.Key].(pdf.PDFDict)
+		if !ok || child.Entries == nil || child.Entries["_ref"] != nil {
+			continue
+		}
+		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
+		next++
+		changed = true
+	}
+	return changed, true, nil
+}
+
+// post14KeyFixer remediates the object model's KeyIntroducedAfterPDF14 check by deleting
+// the reported key: the 1.4 model cannot require a key it does not know, so removal is
+// always conformant, and 1.4 readers must ignore unknown keys anyway. Only runs when the
+// profile enables the check (Legacy_1B / ObjectModelOnly).
+type post14KeyFixer struct{}
+
+func (post14KeyFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14
+}
+
+// Fix is targeted-only, like missingRequiredKeyFixer.
+func (post14KeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	return false, nil
+}
+
+func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+	changed := false
+	for _, iss := range issues {
+		detail, ok := iss.ObjModelDetail()
+		if !ok || detail.Key == "_ref" || isArrayIndexKey(detail.Key) {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			continue
+		}
+		d, ok := p.dictForRef(ref)
+		if !ok {
+			continue
+		}
+		if _, present := d.Entries[detail.Key]; !present {
+			continue
+		}
+		delete(d.Entries, detail.Key)
+		changed = true
+	}
+	return changed, true, nil
 }
 
 // clearMaskFromCond collects the bits cond requires clear on key, from its conjunctive
