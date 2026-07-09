@@ -515,3 +515,23 @@ floor 0.95). `fn:RequiredValue(cond, v)` has two effects, both landed:
   multi-group columns never pin (the matching type alternative is unknown at runtime).
 
 All gates green on the first corpus run; coverage holds (arlington 100%, verify 93.8%).
+
+### Stage D5 — fn:NotStandard14Font ✅ 2026-07-09
+
+The first compiled domain predicate (96.0% simple, floor 0.955): `fn:NotStandard14Font()`
+is really an own-entry condition — it reads the owning font dict's `BaseFont` — so it
+compiles to a `CondNotStd14` leaf with `Key: "BaseFont"` and rides the existing evaluator:
+
+- `arlington.IsStandard14` (hand-maintained ISO 32000-1 §9.6.2.2 list, not TSV data) matches
+  the 14 exact base names; a subset-tagged name (`ABCDEF+Helvetica`) is an embedded subset,
+  not a standard font, so the requirements apply to it. An absent or non-name `BaseFont`
+  leaves the condition unknown → requirement skipped (BaseFont's own absence is already a
+  `MissingRequiredKey`).
+- Newly live: `FirstChar`/`LastChar`/`Widths`/`FontDescriptor` required on
+  `FontType1`/`FontTrueType`/`FontMultipleMaster` exactly when the font is not standard-14.
+  (`FontType3.FontDescriptor` remains predicated — its condition is `fn:IsPDFTagged()`,
+  document-global.)
+- The anticipated corpus conflict never appeared: convert's font machinery already emits
+  complete font dicts, and PDF/A validators require strictly more than ISO 32000 here.
+
+All gates green on the first corpus run; coverage holds (arlington 100%, verify 93.8%).

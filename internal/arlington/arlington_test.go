@@ -466,13 +466,28 @@ func TestCompiledConditions(t *testing.T) {
 	if bpc == nil || bpc.Predicated.Values || !equalStrings(bpc.PossibleValues, []string{"1", "2", "4", "8"}) || len(bpc.PinnedValues) != 2 {
 		t.Errorf("XObjectImage.BitsPerComponent: want enum {1,2,4,8} with 2 pins, got %+v", bpc)
 	}
+
+	// fn:IsRequired(fn:NotStandard14Font()) -> a BaseFont domain leaf on all three simple
+	// font flavours.
+	wantStd14 := &Cond{Op: CondNotStd14, Key: "BaseFont"}
+	for _, typ := range []string{"FontType1", "FontTrueType", "FontMultipleMaster"} {
+		for _, key := range []string{"FirstChar", "LastChar", "Widths", "FontDescriptor"} {
+			kd := findKey(Types[typ], key)
+			if kd == nil || kd.Predicated.Required || !reflect.DeepEqual(kd.RequiredWhen, wantStd14) {
+				t.Errorf("%s.%s: want RequiredWhen %+v, got %+v", typ, key, wantStd14, kd)
+			}
+		}
+	}
+	if IsStandard14("Helvetica-BoldOblique") != true || IsStandard14("ABCDEF+Helvetica") || IsStandard14("Arial") {
+		t.Error("IsStandard14: exact base names only")
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.95 // observed ~95.4% after fn:RequiredValue pins; headroom for TSV churn
+	const floor = 0.955 // observed ~96.0% after fn:NotStandard14Font; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

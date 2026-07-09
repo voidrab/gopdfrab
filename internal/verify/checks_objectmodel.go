@@ -359,6 +359,13 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		// An extension gate: unresolvable by design, so only a decisive sibling operand
 		// can settle the enclosing And/Or.
 		return false, false
+	case arlington.CondNotStd14:
+		sib, present := src.lookup(c.Key)
+		name, isName := sib.(pdf.PDFName)
+		if !present || !isName {
+			return false, false
+		}
+		return !arlington.IsStandard14(name.Value), true
 	case arlington.CondNot:
 		if len(c.Kids) != 1 {
 			return false, false

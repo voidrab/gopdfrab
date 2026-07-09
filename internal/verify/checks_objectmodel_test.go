@@ -912,6 +912,41 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	}
 }
 
+func TestValidateAgainstSchema_NotStandard14Font(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+SomeFont"}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("expected MissingRequiredKey for a non-standard Type1 font without Widths")
+	}
+
+	// A standard-14 base font carries its own metrics; nothing further is required.
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Errorf("a standard-14 font must not require Widths, got %v", ctx.errs)
+	}
+
+	// Without BaseFont the standard-14 test is unknowable: the conditional requirements are
+	// skipped, only BaseFont's own absence is flagged.
+	delete(font.Entries, "BaseFont")
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	count := 0
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.ObjectModel.MissingRequiredKey {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("want exactly one MissingRequiredKey (BaseFont itself), got %d: %v", count, ctx.errs)
+	}
+}
+
 func TestValidateArrayAgainstSchema_ElementComparison(t *testing.T) {
 	// LabRangeArray requires amin <= amax and bmin <= bmax.
 	owner := pdf.NewPDFDict()

@@ -144,6 +144,10 @@ const (
 	// CondContains is true when Key's value equals Value or is an array with an element equal
 	// to Value (fn:Contains(@Filter,JPXDecode) -- /Filter may be a name or a name array).
 	CondContains
+	// CondNotStd14 is true when Key (always BaseFont) names a font outside the standard 14
+	// (fn:NotStandard14Font). A subset-tagged name (ABCDEF+Helvetica) is not a standard font;
+	// an absent or non-name value leaves the condition unknown.
+	CondNotStd14
 )
 
 // CondFn transforms a comparison operand: the key's value itself, or a derived quantity.
@@ -228,6 +232,19 @@ type ObjectType struct {
 	// (e.g. renamed across versions), which is a safe (false-negative) default.
 	Post14Keys []string
 }
+
+// standard14Fonts is the set of base font names every conforming reader must provide
+// (ISO 32000-1 §9.6.2.2); hand-maintained, not TSV data.
+var standard14Fonts = map[string]bool{
+	"Times-Roman": true, "Times-Bold": true, "Times-Italic": true, "Times-BoldItalic": true,
+	"Helvetica": true, "Helvetica-Bold": true, "Helvetica-Oblique": true, "Helvetica-BoldOblique": true,
+	"Courier": true, "Courier-Bold": true, "Courier-Oblique": true, "Courier-BoldOblique": true,
+	"Symbol": true, "ZapfDingbats": true,
+}
+
+// IsStandard14 reports whether name is exactly one of the 14 standard font names. A
+// subset-tagged name (ABCDEF+Helvetica) refers to an embedded subset, not a standard font.
+func IsStandard14(name string) bool { return standard14Fonts[name] }
 
 // Type looks up a vendored PDF 1.4 Arlington type by name (e.g. "Catalog", "ExtGState").
 func Type(name string) (ObjectType, bool) {

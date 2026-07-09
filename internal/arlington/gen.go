@@ -879,6 +879,13 @@ func compileCond(expr string) condResult {
 			}
 		}
 		return condResult{}
+	case "fn:NotStandard14Font":
+		// The predicate reads the owning font dict's own BaseFont, so it is an own-entry
+		// condition despite its domain-function spelling.
+		if len(args) == 0 {
+			return treeCond(condExpr{op: "CondNotStd14", key: "BaseFont"})
+		}
+		return condResult{}
 	case "fn:Eval":
 		if len(args) != 1 {
 			return condResult{}

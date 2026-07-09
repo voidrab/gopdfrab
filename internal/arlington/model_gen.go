@@ -9512,29 +9512,30 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "FirstChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "LastChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:              "FontDescriptor",
 				Types:             []ValueType{Dictionary},
+				RequiredWhen:      &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
 				LinkGroups: []LinkGroup{
@@ -9542,7 +9543,6 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontDescriptorType1"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:           "Encoding",
@@ -9601,29 +9601,30 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "FirstChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "LastChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:              "FontDescriptor",
 				Types:             []ValueType{Dictionary},
+				RequiredWhen:      &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
 				LinkGroups: []LinkGroup{
@@ -9631,7 +9632,6 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontDescriptorTrueType"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:           "Encoding",
@@ -9750,29 +9750,30 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "FirstChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "LastChar",
 				Types:        []ValueType{Integer},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Widths",
 				Types:        []ValueType{Array},
+				RequiredWhen: &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				SinceVersion: "1.0",
 				LinkGroups: []LinkGroup{
 					{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:              "FontDescriptor",
 				Types:             []ValueType{Dictionary},
+				RequiredWhen:      &Cond{Op: CondNotStd14, Key: "BaseFont"},
 				IndirectReference: IndirectRequired,
 				SinceVersion:      "1.0",
 				LinkGroups: []LinkGroup{
@@ -9780,7 +9781,6 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontDescriptorType1"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:           "Encoding",
