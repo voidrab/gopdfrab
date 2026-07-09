@@ -76,9 +76,9 @@ func NewProfile(level LevelType) *Profile {
 
 // ObjectModelOnly returns a profile enabling only the generic ISO 32000
 // object-model checks (MissingRequiredKey, WrongValueType, DisallowedValue,
-// IndirectRequired, KeyIntroducedAfterPDF14), with every PDF/A-specific check
-// disabled -- useful for asking "is this even valid PDF" independent of any
-// PDF/A conformance level.
+// IndirectRequired, KeyIntroducedAfterPDF14, ConstraintViolated), with every
+// PDF/A-specific check disabled -- useful for asking "is this even valid PDF"
+// independent of any PDF/A conformance level.
 func ObjectModelOnly() *Profile {
 	return NewProfile(ObjectModel).AddCheck(
 		Checks.ObjectModel.MissingRequiredKey,
@@ -86,6 +86,7 @@ func ObjectModelOnly() *Profile {
 		Checks.ObjectModel.DisallowedValue,
 		Checks.ObjectModel.IndirectRequired,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+		Checks.ObjectModel.ConstraintViolated,
 	)
 }
 

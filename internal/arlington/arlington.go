@@ -215,6 +215,12 @@ type KeyDef struct {
 	// the key must have exactly that pin's value.
 	PinnedValues []PinnedValue
 	LinkGroups   []LinkGroup // per-Type-alternative candidate Arlington type(s) the value should itself conform to
+	// SpecialCase is a compiled consistency constraint from the TSV SpecialCase column
+	// (e.g. fn:ArrayLength(DecodeParms)==fn:ArrayLength(Filter)); it must hold whenever the
+	// key is present. Only constraints over the owning container's own entries are compiled;
+	// the rest of the column (cross-object paths, fn:Ignore advisories, domain predicates)
+	// is not represented.
+	SpecialCase *Cond
 	// Inheritable means an ancestor node (e.g. a Page's Pages ancestor) may supply this key
 	// instead, so its absence here is not itself a violation.
 	Inheritable bool

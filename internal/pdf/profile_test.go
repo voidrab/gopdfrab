@@ -79,6 +79,7 @@ func TestObjectModelOnly(t *testing.T) {
 		Checks.ObjectModel.DisallowedValue,
 		Checks.ObjectModel.IndirectRequired,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+		Checks.ObjectModel.ConstraintViolated,
 	}
 	got := p.Checks()
 	if len(got) != len(want) {

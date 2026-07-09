@@ -276,6 +276,7 @@ type objectModelChecks struct {
 	DisallowedValue         Check
 	IndirectRequired        Check
 	KeyIntroducedAfterPDF14 Check
+	ConstraintViolated      Check
 }
 
 type checksRegistry struct {
@@ -1008,7 +1009,7 @@ func init() {
 				ObjectModelClause, 2),
 			DisallowedValue: newCheck(
 				"DisallowedValue",
-				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it (only name and integer enums are enforced)",
+				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it (only name, integer, and boolean enums are enforced)",
 				ObjectModelClause, 3),
 			IndirectRequired: newCheck(
 				"IndirectRequired",
@@ -1018,6 +1019,10 @@ func init() {
 				"KeyIntroducedAfterPDF14",
 				"A dictionary contains a key the ISO 32000 object model introduced after PDF 1.4",
 				ObjectModelClause, 5),
+			ConstraintViolated: newCheck(
+				"ConstraintViolated",
+				"A key's value violates an ISO 32000 object-model consistency constraint (an Arlington SpecialCase rule, e.g. coupled array lengths)",
+				ObjectModelClause, 6),
 		},
 	}
 }

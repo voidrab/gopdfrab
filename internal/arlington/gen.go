@@ -84,6 +84,7 @@ type keyDef struct {
 	deprecatedIn      string
 	possibleValues    []string
 	pinnedValues      []pinnedExpr
+	specialCase       *condExpr
 	linkGroups        []linkGroup
 	predicated        predication
 	inheritable       bool
@@ -121,7 +122,7 @@ func main() {
 	var types []typeEntry
 	keyDefsByType := map[string][]keyDef{}
 
-	totalRows, simpleRows := 0, 0
+	totalRows, simpleRows, specialCases := 0, 0, 0
 	for _, path := range files {
 		typeName := strings.TrimSuffix(filepath.Base(path), ".tsv")
 		rows, err := parseTSV(path)
@@ -139,8 +140,14 @@ func main() {
 				kd.requiredWhen = nil
 				kd.predicated.required = false
 			}
+			if _, ok := specialCaseOverrides[[2]string{typeName, kd.name}]; ok {
+				kd.specialCase = nil
+			}
 			if !kd.predicated.any() {
 				simpleRows++
+			}
+			if kd.specialCase != nil {
+				specialCases++
 			}
 			if kd.name == "*" {
 				w := kd
@@ -184,8 +191,8 @@ func main() {
 	if totalRows > 0 {
 		fraction = float64(simpleRows) / float64(totalRows) * 100
 	}
-	fmt.Fprintf(os.Stderr, "arlington: %d/%d rows simple (%.1f%%), %d types\n",
-		simpleRows, totalRows, fraction, len(files))
+	fmt.Fprintf(os.Stderr, "arlington: %d/%d rows simple (%.1f%%), %d types, %d SpecialCase constraints\n",
+		simpleRows, totalRows, fraction, len(files), specialCases)
 
 	src, err := format.Source([]byte(b.String()))
 	if err != nil {
@@ -244,6 +251,9 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 		b.WriteString("},\n")
 	}
 	writeLinkGroups(b, kd.linkGroups)
+	if kd.specialCase != nil {
+		fmt.Fprintf(b, "SpecialCase: &Cond%s,\n", condLiteral(*kd.specialCase))
+	}
 	if kd.inheritable {
 		b.WriteString("Inheritable: true,\n")
 	}
@@ -555,6 +565,19 @@ var requiredOverrides = map[[2]string]bool{
 	{"StructElem", "P"}: false,
 }
 
+// specialCaseOverrides drops (type, key) SpecialCase constraints for the same reason
+// requiredOverrides exists: no PDF/A validator enforces them and real files violate them
+// routinely, so compiling them would flag files the pass corpora accept.
+var specialCaseOverrides = map[[2]string]bool{
+	// fn:Eval(fn:IsPresent(LastModified)): the SpecialCase mirror of the
+	// required-if-PieceInfo rule requiredOverrides already neutralizes on PageObject --
+	// LastModified is universally omitted in real files carrying PieceInfo.
+	{"PageObject", "PieceInfo"}:            false,
+	{"XObjectFormType1", "PieceInfo"}:      false,
+	{"XObjectFormPrinterMark", "PieceInfo"}: false,
+	{"XObjectFormTrapNet", "PieceInfo"}:    false,
+}
+
 // buildKeyDef converts one TSV row into its Go source representation, marking each column
 // whose fn: predicate could not be folded so consumers skip exactly that column's check.
 func buildKeyDef(r row) keyDef {
@@ -614,9 +637,41 @@ func buildKeyDef(r row) keyDef {
 			kd.predicated.values = true
 		}
 	}
+	kd.specialCase = compileSpecialCase(r.specialCase, kd.name)
 	kd.linkGroups = parseLinkGroups(r.typ, r.link)
 
 	return kd
+}
+
+// compileSpecialCase compiles the SpecialCase column into an own-entry consistency
+// constraint. Per-type-alternative groups must agree: the column compiles only when exactly
+// one distinct non-empty group remains after deduplication ("[X];[]" and "[X];[X]" compile X,
+// differing groups don't) -- safe because a constraint whose operands don't resolve against
+// the value's actual shape evaluates as unknown, never as a flag. Everything uncompilable
+// (fn:Ignore advisories, bit predicates, cross-object paths, domain predicates) is dropped;
+// the column carries no predication accounting.
+func compileSpecialCase(raw, rowName string) *condExpr {
+	if raw == "" || strings.Contains(raw, "::") {
+		return nil
+	}
+	distinct := ""
+	for _, g := range splitGroups(raw) {
+		if g == "" {
+			continue
+		}
+		if distinct != "" && g != distinct {
+			return nil
+		}
+		distinct = g
+	}
+	if distinct == "" {
+		return nil
+	}
+	res := compileCond(distinct)
+	if !res.ok || res.tree == nil || !condOperandsResolvable(res.tree, rowName) {
+		return nil
+	}
+	return res.tree
 }
 
 // parseIndirectReference resolves the IndirectReference column to a single IndirectRule.

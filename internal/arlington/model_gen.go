@@ -34,6 +34,7 @@ var Types = map[string]ObjectType{
 				Name:         "Radius",
 				Types:        []ValueType{Number},
 				SinceVersion: "fn:Extension(AAPL,1.2)",
+				SpecialCase:  &Cond{Op: CondGt, Key: "Radius", Value: "0"},
 			},
 			{
 				Name:           "ColorSpace",
@@ -5808,6 +5809,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -5823,6 +5825,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -5846,6 +5849,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -5861,6 +5865,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -6787,6 +6792,7 @@ var Types = map[string]ObjectType{
 				Name:         "CheckSum",
 				Types:        []ValueType{StringByte},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondEq, Key: "CheckSum", Value: "16", Fn: FnStringLength},
 			},
 		},
 	},
@@ -6831,6 +6837,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -6846,6 +6853,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -6869,6 +6877,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -6884,6 +6893,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL", "Mail_MediaTypeParameters"},
@@ -7747,6 +7757,7 @@ var Types = map[string]ObjectType{
 				Name:         "MaxLen",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "MaxLen", Value: "0"},
 				Inheritable:  true,
 			},
 		},
@@ -7782,6 +7793,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"RelatedFilesArray"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "F", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 		},
 		Post14Keys: []string{"UF"},
@@ -7938,7 +7950,8 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"OOAdditionalStmsArray"},
 					},
 				},
-				Predicated: Predication{Indirect: true},
+				SpecialCase: &Cond{Op: CondEq, Key: "AdditionalStreams", Value: "0", Fn: FnArrayLength, Mod: 2},
+				Predicated:  Predication{Indirect: true},
 			},
 			{
 				Name:         "DocChecksum",
@@ -8402,6 +8415,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "FontFile3"}}},
 			},
 			{
 				Name:              "FontFile3",
@@ -8413,6 +8427,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile3CIDType0"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "FontFile"}}},
 			},
 			{
 				Name:         "Style",
@@ -8548,6 +8563,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "FontFile2"}, {Op: CondPresent, Key: "FontFile3"}}}}},
 			},
 			{
 				Name:              "FontFile2",
@@ -8559,6 +8575,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile2"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "FontFile"}, {Op: CondPresent, Key: "FontFile3"}}}}},
 			},
 			{
 				Name:         "Style",
@@ -8694,6 +8711,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFileType1"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "FontFile2"}, {Op: CondPresent, Key: "FontFile3"}}}}},
 			},
 			{
 				Name:              "FontFile2",
@@ -8705,6 +8723,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile2"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "FontFile"}, {Op: CondPresent, Key: "FontFile3"}}}}},
 			},
 		},
 		Post14Keys: []string{"FontFamily", "FontFile3", "FontStretch", "FontWeight"},
@@ -8807,6 +8826,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFileType1"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "FontFile3"}}},
 			},
 			{
 				Name:              "FontFile3",
@@ -8818,6 +8838,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FontFile3Type1"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "FontFile"}}},
 			},
 			{
 				Name:         "CharSet",
@@ -8922,16 +8943,19 @@ var Types = map[string]ObjectType{
 				Name:         "Length1",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length1", Value: "0"},
 			},
 			{
 				Name:         "Length2",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length2", Value: "0"},
 			},
 			{
 				Name:         "Length3",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length3", Value: "0"},
 			},
 			{
 				Name:           "Subtype",
@@ -8956,6 +8980,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -8971,6 +8996,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -8994,6 +9020,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -9009,6 +9036,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -9031,17 +9059,20 @@ var Types = map[string]ObjectType{
 				Name:         "Length1",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length1", Value: "0"},
 				Predicated:   Predication{Required: true},
 			},
 			{
 				Name:         "Length2",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length2", Value: "0"},
 			},
 			{
 				Name:         "Length3",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length3", Value: "0"},
 			},
 			{
 				Name:         "Subtype",
@@ -9065,6 +9096,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -9080,6 +9112,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -9103,6 +9136,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -9118,6 +9152,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -9140,16 +9175,19 @@ var Types = map[string]ObjectType{
 				Name:         "Length1",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length1", Value: "0"},
 			},
 			{
 				Name:         "Length2",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length2", Value: "0"},
 			},
 			{
 				Name:         "Length3",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length3", Value: "0"},
 			},
 			{
 				Name:           "Subtype",
@@ -9175,6 +9213,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -9190,6 +9229,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -9213,6 +9253,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -9228,6 +9269,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -9250,16 +9292,19 @@ var Types = map[string]ObjectType{
 				Name:         "Length1",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length1", Value: "0"},
 			},
 			{
 				Name:         "Length2",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length2", Value: "0"},
 			},
 			{
 				Name:         "Length3",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length3", Value: "0"},
 			},
 			{
 				Name:           "Subtype",
@@ -9285,6 +9330,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -9300,6 +9346,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -9323,6 +9370,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -9338,6 +9386,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -9361,18 +9410,21 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Integer},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length1", Value: "0"},
 			},
 			{
 				Name:         "Length2",
 				Types:        []ValueType{Integer},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length2", Value: "0"},
 			},
 			{
 				Name:         "Length3",
 				Types:        []ValueType{Integer},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondGe, Key: "Length3", Value: "0"},
 			},
 			{
 				Name:           "Subtype",
@@ -9397,6 +9449,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -9412,6 +9465,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -9435,6 +9489,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -9450,6 +9505,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -9941,6 +9997,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Domain", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Range",
@@ -9952,6 +10009,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Range", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Size",
@@ -9996,6 +10054,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Decode", Fn: FnArrayLength, RHSKey: "Range", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "Length",
@@ -10014,6 +10073,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -10029,6 +10089,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -10052,6 +10113,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -10067,6 +10129,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10091,6 +10154,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Domain", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Range",
@@ -10101,6 +10165,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Range", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "C0",
@@ -10111,6 +10176,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "C0", Fn: FnArrayLength, RHSKey: "C1", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "C1",
@@ -10121,6 +10187,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "C1", Fn: FnArrayLength, RHSKey: "C0", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "N",
@@ -10150,6 +10217,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Domain", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Range",
@@ -10160,6 +10228,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Range", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Functions",
@@ -10193,6 +10262,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Encode", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 		},
 	},
@@ -10216,6 +10286,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Domain", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Range",
@@ -10227,6 +10298,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Range", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Length",
@@ -10245,6 +10317,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -10260,6 +10333,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -10283,6 +10357,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -10298,6 +10373,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10856,6 +10932,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -10871,6 +10948,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -10894,6 +10972,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -10909,6 +10988,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -10959,6 +11039,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Integer},
 				ValueCond:    &Cond{Op: CondGt, Key: "Height2", Value: "0"},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondPresent, Key: "Width2"},
 			},
 			{
 				Name:           "TransferFunction",
@@ -10998,6 +11079,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -11013,6 +11095,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -11036,6 +11119,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -11051,6 +11135,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11185,6 +11270,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -11200,6 +11286,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -11223,6 +11310,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -11238,6 +11326,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11328,6 +11417,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -11343,6 +11433,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -11366,6 +11457,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -11381,6 +11473,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -11817,6 +11910,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -11832,6 +11926,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -11855,6 +11950,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -11870,6 +11966,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -12324,6 +12421,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfIntegersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "GrayMap", Value: "0", Fn: FnArrayLength, Mod: 2},
 			},
 			{
 				Name:         "Transparency",
@@ -12634,6 +12732,7 @@ var Types = map[string]ObjectType{
 						ByValue:       map[string]string{"FitR": "Dest4Array", "XYZ": "DestXYZArray"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "A"}}},
 			},
 			{
 				Name:         "A",
@@ -12646,6 +12745,7 @@ var Types = map[string]ObjectType{
 						ByValue:       map[string]string{"GoTo": "ActionGoTo", "GoToR": "ActionGoToR", "Hide": "ActionHide", "ImportData": "ActionImportData", "JavaScript": "ActionECMAScript", "Launch": "ActionLaunch", "Movie": "ActionMovie", "Named": "ActionNamed", "ResetForm": "ActionResetForm", "Sound": "ActionSound", "SubmitForm": "ActionSubmitForm", "Thread": "ActionThread", "URI": "ActionURI"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Dest"}}},
 			},
 			{
 				Name:              "SE",
@@ -13021,6 +13121,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfPageTreeNodeKids"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondGt, Key: "Kids", Value: "0", Fn: FnArrayLength},
 			},
 			{
 				Name:         "Count",
@@ -13242,6 +13343,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -13257,6 +13359,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -13280,6 +13383,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -13295,6 +13399,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "XUID",
@@ -14040,6 +14145,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -14055,6 +14161,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -14078,6 +14185,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -14093,6 +14201,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -14213,6 +14322,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -14228,6 +14338,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -14251,6 +14362,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -14266,6 +14378,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -14385,6 +14498,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -14400,6 +14514,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -14423,6 +14538,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -14438,6 +14554,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -14557,6 +14674,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -14572,6 +14690,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -14595,6 +14714,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -14610,6 +14730,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -14667,7 +14788,8 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNonNegativeIntegersGeneral"},
 					},
 				},
-				Predicated: Predication{Indirect: true},
+				SpecialCase: &Cond{Op: CondEq, Key: "ByteRange", Value: "0", Fn: FnArrayLength, Mod: 2},
+				Predicated:  Predication{Indirect: true},
 			},
 			{
 				Name:         "Changes",
@@ -14971,6 +15093,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -14986,6 +15109,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -15009,6 +15133,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -15024,6 +15149,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -15092,6 +15218,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -15107,6 +15234,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -15130,6 +15258,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -15145,6 +15274,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -15362,40 +15492,47 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Block", "Before", "Start", "End", "Inline"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:           "WritingMode",
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"LrTb", "RlTb", "TbRl"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
 				Name:         "SpaceBefore",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:         "SpaceAfter",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:         "StartIndent",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:  true,
 			},
 			{
 				Name:         "EndIndent",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:  true,
 			},
 			{
 				Name:         "TextIndent",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:  true,
 			},
 			{
@@ -15403,28 +15540,33 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Start", "Center", "End", "Justify"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
 				Name:         "BBox",
 				Types:        []ValueType{Rectangle},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondEq, Key: "O", Value: "Artifact"}}}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:         "Width",
 				Types:        []ValueType{Name, Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:         "Height",
 				Types:        []ValueType{Name, Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 			},
 			{
 				Name:           "BlockAlign",
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Before", "Middle", "After", "Justify"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
@@ -15432,12 +15574,14 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Start", "Center", "End"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
 				Name:         "BaselineShift",
 				Types:        []ValueType{Number},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:  true,
 			},
 			{
@@ -15445,6 +15589,7 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name, Number},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"Normal", "Auto"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
@@ -15452,6 +15597,7 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"None", "Underline", "Overline", "LineThrough"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Layout"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
@@ -15459,17 +15605,20 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Name},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"None", "Disc", "Circle", "Square", "Ordered", "Decimal", "UpperRoman", "LowerRoman", "UpperAlpha", "LowerAlpha"},
+				SpecialCase:    &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "List"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "Layout"}, {Op: CondNe, Key: "O", Value: "Table"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Table"}}}}},
 				Inheritable:    true,
 			},
 			{
 				Name:         "RowSpan",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Table"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "Layout"}, {Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Artifact"}}}}},
 			},
 			{
 				Name:         "ColSpan",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Table"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "Layout"}, {Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Artifact"}}}}},
 			},
 			{
 				Name:         "Headers",
@@ -15480,6 +15629,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfStringsByte"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "O", Value: "Table"}, {Op: CondAnd, Kids: []Cond{{Op: CondNe, Key: "O", Value: "Layout"}, {Op: CondNe, Key: "O", Value: "List"}, {Op: CondNe, Key: "O", Value: "PrintField"}, {Op: CondNe, Key: "O", Value: "Artifact"}}}}},
 			},
 		},
 		Post14Keys: []string{"BackgroundColor", "BorderColor", "BorderStyle", "BorderThickness", "Checked", "Color", "ColumnCount", "ColumnGap", "ColumnWidths", "Contents", "ContinuedFrom", "ContinuedList", "Desc", "GlyphOrientationVertical", "NS", "NoteType", "P", "Padding", "Role", "RubyAlign", "RubyPosition", "Scope", "Short", "Subtype", "Summary", "TBorderStyle", "TPadding", "TextDecorationColor", "TextDecorationThickness", "TextPosition", "Type", "checked"},
@@ -15491,6 +15641,7 @@ var Types = map[string]ObjectType{
 				Name:         "Panose",
 				Types:        []ValueType{StringByte},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondEq, Key: "Panose", Value: "12", Fn: FnStringLength},
 			},
 		},
 	},
@@ -15604,6 +15755,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -15619,6 +15771,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -15642,6 +15795,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -15657,6 +15811,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -15720,6 +15875,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -15735,6 +15891,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -15758,6 +15915,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -15773,6 +15931,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"DL"},
@@ -15889,6 +16048,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfArraysURLStrings"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondGe, Key: "C", Value: "1", Fn: FnArrayLength},
 			},
 		},
 	},
@@ -15981,6 +16141,7 @@ var Types = map[string]ObjectType{
 				Name:         "L",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondGe, Key: "L", Value: "1"},
 			},
 			{
 				Name:         "F",
@@ -16288,6 +16449,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -16304,6 +16466,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -16329,6 +16492,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -16345,6 +16509,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 	},
@@ -16438,6 +16603,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -16454,6 +16620,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -16479,6 +16646,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -16495,6 +16663,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 	},
@@ -16632,6 +16801,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -16647,6 +16817,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -16670,6 +16841,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -16685,6 +16857,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "MarkStyle",
@@ -16853,6 +17026,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -16869,6 +17043,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -16894,6 +17069,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -16910,6 +17086,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:           "PCM",
@@ -17044,11 +17221,13 @@ var Types = map[string]ObjectType{
 				Name:         "StructParent",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "StructParents"}}},
 			},
 			{
 				Name:         "StructParents",
 				Types:        []ValueType{Integer},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "StructParent"}}},
 			},
 			{
 				Name:         "OPI",
@@ -17084,6 +17263,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -17099,6 +17279,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -17122,6 +17303,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfCompressionFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -17137,6 +17319,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "XUID",
@@ -17212,6 +17395,7 @@ var Types = map[string]ObjectType{
 				Name:         "ImageMask",
 				Types:        []ValueType{Boolean},
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondAnd, Kids: []Cond{{Op: CondEq, Key: "ImageMask", Value: "true"}, {Op: CondEq, Key: "BitsPerComponent", Value: "1"}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "ColorSpace"}}}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Mask"}}}}}, {Op: CondEq, Key: "ImageMask", Value: "false"}}},
 			},
 			{
 				Name:         "Mask",
@@ -17320,6 +17504,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -17335,6 +17520,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -17358,6 +17544,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -17373,6 +17560,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "GTS_Encapsulated", "GTS_Env", "GTS_Scope", "GTS_XID", "Measure", "OC", "PtData", "SMaskInData"},
@@ -17421,6 +17609,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Boolean},
 				Required:     true,
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondOr, Kids: []Cond{{Op: CondAnd, Kids: []Cond{{Op: CondEq, Key: "ImageMask", Value: "true"}, {Op: CondEq, Key: "BitsPerComponent", Value: "1"}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "ColorSpace"}}}, {Op: CondNot, Kids: []Cond{{Op: CondPresent, Key: "Mask"}}}}}, {Op: CondEq, Key: "ImageMask", Value: "false"}}},
 			},
 			{
 				Name:           "Decode",
@@ -17515,6 +17704,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -17530,6 +17720,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -17553,6 +17744,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -17568,6 +17760,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"AF", "DL", "Measure", "OC", "PtData", "SMaskInData"},
@@ -17630,6 +17823,7 @@ var Types = map[string]ObjectType{
 				Name:         "ImageMask",
 				Types:        []ValueType{Boolean},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondEq, Key: "ImageMask", Value: "false"},
 			},
 			{
 				Name:         "Name",
@@ -17661,6 +17855,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondGt, Key: "Matte", Value: "0", Fn: FnArrayLength},
 			},
 			{
 				Name:              "Metadata",
@@ -17690,6 +17885,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "DecodeParms",
@@ -17705,6 +17901,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "F",
@@ -17728,6 +17925,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFilterNames"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 			{
 				Name:         "FDecodeParms",
@@ -17743,6 +17941,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"FilterLZWDecode", "FilterFlateDecode", "FilterCCITTFaxDecode", "FilterJBIG2Decode", "FilterDCTDecode"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "FDecodeParms", Fn: FnArrayLength, RHSKey: "FFilter", RHSFn: FnArrayLength},
 			},
 		},
 		Post14Keys: []string{"AF", "DL"},

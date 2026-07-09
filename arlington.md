@@ -535,3 +535,33 @@ compiles to a `CondNotStd14` leaf with `Key: "BaseFont"` and rides the existing 
   complete font dicts, and PDF/A validators require strictly more than ISO 32000 here.
 
 All gates green on the first corpus run; coverage holds (arlington 100%, verify 93.8%).
+
+### Stage E1 — SpecialCase column, sixth check ✅ 2026-07-09
+
+New territory beyond the original review items: the TSV SpecialCase column (col 10) was
+parsed but entirely unused — 324 constraint rows, zero enforcement. Now **199 compile** into
+`KeyDef.SpecialCase *Cond` and a sixth check, `ConstraintViolated` (`objmodel/6`, enabled in
+every profile incl. `ObjectModelOnly`), fires when a present key's constraint is definitely
+false:
+
+- **The workhorse pair** (124 rows): `fn:ArrayLength(DecodeParms)==fn:ArrayLength(Filter)`
+  (and the F* variants) on every stream type — pure D3 machinery. A scalar `Filter` makes
+  the coupling unknown → skip, so only genuinely mismatched arrays flag.
+- Also live: structure-attribute `/O`-conditional key sets (18 rows), `FontFile*` mutual
+  exclusions on font descriptors, `Length1/2/3 >= 0`, function `Domain`/`Range` even-length
+  (`(fn:ArrayLength(X) mod 2)==0` — D2's Mod on D3's derived operand), image-mask consistency.
+- **Group rule**: per-type-alternative groups must agree after deduplication — `"[X];[]"`
+  and `"[X];[X]"` compile X, differing groups drop. Sound because mismatched shapes evaluate
+  unknown, never flag.
+- **`specialCaseOverrides`** (`gen.go`, sibling of `requiredOverrides`): the four
+  `PieceInfo → fn:IsPresent(LastModified)` rows are dropped at generation — they are the
+  SpecialCase mirror of the required-if-PieceInfo rule stage C already neutralized
+  (universally violated in real files, unenforced by validators).
+- Not compiled (fail-closed, uncounted): bit predicates (stage E2), `fn:Ignore` advisories,
+  cross-object paths, domain predicates, and the arithmetic Widths coupling
+  (`fn:ArrayLength(Widths)==(1+(@LastChar - @FirstChar))`, 2 rows — needs an arithmetic RHS,
+  left for a later increment). `TestSpecialCaseConstraints` pins a 190-count floor plus
+  representative trees; wildcard rows never carry a constraint.
+
+All gates green on the first corpus run; coverage arlington 100%, verify 93.7%, pdf 95.0%,
+convert 91.7%; `BenchmarkOpenVerify` magnitudes unchanged (large ≈ 250ms).

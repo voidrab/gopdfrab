@@ -912,6 +912,49 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	}
 }
 
+func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
+	// A stream's DecodeParms array must be as long as its Filter array.
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}}
+	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
+	ctx := &ValidationContext{}
+	validateAgainstSchema(stream, "Stream", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for mismatched DecodeParms/Filter lengths")
+	}
+
+	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict(), nil}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(stream, "Stream", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("matched lengths must not be flagged, got %v", ctx.errs)
+	}
+
+	// A single name Filter makes ArrayLength(Filter) unknown: no flag either way.
+	stream.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(stream, "Stream", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("a scalar Filter must leave the coupling unknown, got %v", ctx.errs)
+	}
+
+	// An odd-length function Domain violates the mod-2 coupling.
+	fn := pdf.NewPDFDict()
+	fn.HasStream = true
+	fn.Entries["FunctionType"] = pdf.PDFInteger(0)
+	fn.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(2)}
+	fn.Entries["Range"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
+	fn.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2)}
+	fn.Entries["BitsPerSample"] = pdf.PDFInteger(8)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(fn, "FunctionType0", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for an odd-length Domain")
+	}
+}
+
 func TestValidateAgainstSchema_NotStandard14Font(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries["Type"] = pdf.PDFName{Value: "Font"}

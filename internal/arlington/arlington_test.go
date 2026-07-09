@@ -483,6 +483,54 @@ func TestCompiledConditions(t *testing.T) {
 	}
 }
 
+// TestSpecialCaseConstraints pins the compiled SpecialCase column: representative trees,
+// the deliberate exclusions, and a count floor (the column carries no predication stats).
+func TestSpecialCaseConstraints(t *testing.T) {
+	total := 0
+	for _, ot := range Types {
+		for _, kd := range ot.Keys {
+			if kd.SpecialCase != nil {
+				total++
+			}
+		}
+		if ot.Wildcard != nil && ot.Wildcard.SpecialCase != nil {
+			t.Errorf("%s: wildcard rows must not carry SpecialCase (no position to resolve against)", ot.Name)
+		}
+	}
+	if total < 190 {
+		t.Errorf("compiled SpecialCase constraints dropped to %d, floor is 190", total)
+	}
+	t.Logf("compiled SpecialCase constraints: %d", total)
+
+	// The workhorse: stream filter/parms array lengths must agree ("[X];[]" groups dedupe).
+	dp := findKey(Types["Stream"], "DecodeParms")
+	wantDP := &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength}
+	if dp == nil || !reflect.DeepEqual(dp.SpecialCase, wantDP) {
+		t.Errorf("Stream.DecodeParms: want SpecialCase %+v, got %+v", wantDP, dp)
+	}
+
+	// Version-gated bit predicates fold their gates but the payload stays uncompilable
+	// until the bit-predicate stage: annotation F rows carry no constraint yet.
+	f := findKey(Types["AnnotText"], "F")
+	if f == nil || f.SpecialCase != nil {
+		t.Errorf("AnnotText.F: want no SpecialCase (bit predicates not yet compiled), got %+v", f)
+	}
+
+	// fn:Eval((fn:ArrayLength(Domain) mod 2)==0) -- derived operand with modulus.
+	dom := findKey(Types["FunctionType0"], "Domain")
+	wantDom := &Cond{Op: CondEq, Key: "Domain", Fn: FnArrayLength, Value: "0", Mod: 2}
+	if dom == nil || !reflect.DeepEqual(dom.SpecialCase, wantDom) {
+		t.Errorf("FunctionType0.Domain: want SpecialCase %+v, got %+v", wantDom, dom)
+	}
+
+	// specialCaseOverrides: the required-if-PieceInfo mirror stays off, same rationale as
+	// requiredOverrides on PageObject.LastModified.
+	pi := findKey(Types["PageObject"], "PieceInfo")
+	if pi == nil || pi.SpecialCase != nil {
+		t.Errorf("PageObject.PieceInfo: want SpecialCase dropped by override, got %+v", pi)
+	}
+}
+
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.

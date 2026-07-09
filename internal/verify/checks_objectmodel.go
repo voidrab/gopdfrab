@@ -94,6 +94,16 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			}
 		}
 
+		if present && val != nil && kd.SpecialCase != nil {
+			if holds, ok := evalCond(kd.SpecialCase, v); ok && !holds {
+				ctx.Report(
+					pdf.Checks.ObjectModel.ConstraintViolated,
+					v,
+					fmt.Sprintf("%s key %q violates an object-model consistency constraint", typeName, kd.Name),
+				)
+			}
+		}
+
 		if present && !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
 			ctx.Report(
 				pdf.Checks.ObjectModel.IndirectRequired,
@@ -197,6 +207,15 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 					pdf.Checks.ObjectModel.DisallowedValue,
 					owner,
 					fmt.Sprintf("%s element %d has a value outside its legal range", typeName, idx),
+				)
+			}
+		}
+		if v[idx] != nil && kd.SpecialCase != nil {
+			if holds, ok := evalCondArray(kd.SpecialCase, v); ok && !holds {
+				ctx.Report(
+					pdf.Checks.ObjectModel.ConstraintViolated,
+					owner,
+					fmt.Sprintf("%s element %d violates an object-model consistency constraint", typeName, idx),
 				)
 			}
 		}
