@@ -140,6 +140,9 @@ func TestDocumentAccessors(t *testing.T) {
 	if _, err := doc.IsPDFA(); err != nil {
 		t.Errorf("IsPDFA: %v", err)
 	}
+	if _, err := doc.IsPDF(); err != nil {
+		t.Errorf("IsPDF: %v", err)
+	}
 	if xmp, err := doc.XMPMetadata(); err != nil {
 		t.Errorf("XMPMetadata: %v", err)
 	} else if len(xmp) == 0 {
@@ -167,12 +170,18 @@ func TestDocumentAccessors(t *testing.T) {
 	// IsPDFA's error path only fires when the underlying verify fails, which
 	// for a fixed profile means an undefined conformance level. Swap PDFA_1B
 	// to drive that branch, then restore it.
-	saved := PDFA_1B
+	savedPDFA := PDFA_1B
+	savedPDF := PDF
 	PDFA_1B = NewProfile(Undefined)
+	PDF = NewProfile(Undefined)
 	if ok, err := doc.IsPDFA(); err == nil || ok {
 		t.Errorf("IsPDFA with undefined profile = (%v, %v), want (false, error)", ok, err)
 	}
-	PDFA_1B = saved
+	if ok, _ := doc.IsPDF(); ok {
+		t.Errorf("IsPDF with undefined profile = (%v), want (false)", ok)
+	}
+	PDFA_1B = savedPDFA
+	PDF = savedPDF
 
 	if _, err := Open("testdata/does-not-exist.pdf"); err == nil {
 		t.Error("Open of a missing file returned nil error")
