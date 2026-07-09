@@ -737,6 +737,58 @@ func TestEvalCond(t *testing.T) {
 	}
 }
 
+func TestEvalCondModAndUnknown(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["Rotate"] = pdf.PDFInteger(270)
+	d.Entries["Skew"] = pdf.PDFInteger(45)
+	d.Entries["Neg"] = pdf.PDFInteger(-90)
+	d.Entries["Real"] = pdf.PDFReal(90)
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		val, ok bool
+	}{
+		{"mod multiple", arlington.Cond{Op: arlington.CondEq, Key: "Rotate", Value: "0", Mod: 90}, true, true},
+		{"mod remainder", arlington.Cond{Op: arlington.CondEq, Key: "Skew", Value: "0", Mod: 90}, false, true},
+		{"mod negative multiple", arlington.Cond{Op: arlington.CondEq, Key: "Neg", Value: "0", Mod: 90}, true, true},
+		{"mod non-integer fails closed", arlington.Cond{Op: arlington.CondEq, Key: "Real", Value: "0", Mod: 90}, false, false},
+		{"mod absent fails closed", arlington.Cond{Op: arlington.CondEq, Key: "X", Value: "0", Mod: 90}, false, false},
+		{"unknown is unresolvable", arlington.Cond{Op: arlington.CondUnknown}, false, false},
+		{"or true beats unknown", arlington.Cond{Op: arlington.CondOr, Kids: []arlington.Cond{
+			{Op: arlington.CondPresent, Key: "Rotate"}, {Op: arlington.CondUnknown}}}, true, true},
+		{"or false with unknown stays unknown", arlington.Cond{Op: arlington.CondOr, Kids: []arlington.Cond{
+			{Op: arlington.CondPresent, Key: "X"}, {Op: arlington.CondUnknown}}}, false, false},
+		{"and false beats unknown", arlington.Cond{Op: arlington.CondAnd, Kids: []arlington.Cond{
+			{Op: arlington.CondPresent, Key: "X"}, {Op: arlington.CondUnknown}}}, false, true},
+	}
+	for _, tc := range cases {
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_RotateMod90(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Parent"] = pdf.PDFRef{ObjNum: 2}
+	page.Entries["Rotate"] = pdf.PDFInteger(45)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(page, "PageObject", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for /Rotate 45")
+	}
+
+	page.Entries["Rotate"] = pdf.PDFInteger(-270)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(page, "PageObject", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a multiple of 90 must not be flagged, got %v", ctx.errs)
+	}
+}
+
 func TestEvalCondOrdering(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries["CA"] = pdf.PDFReal(0.5)

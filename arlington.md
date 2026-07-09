@@ -448,3 +448,27 @@ e.g. `WhitepointArray` X/Z > 0, `GammaArray` ≥ 0, RGB components ∈ [0,1],
 All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
 convert corpus 510/510); coverage arlington 100%, verify 93.6%, convert 91.7%;
 `BenchmarkOpenVerify` magnitudes unchanged.
+
+### Stage D2 — modulo comparisons + fn:Extension as CondUnknown ✅ 2026-07-09
+
+Six more rows compile (94.6% → 94.9%, floor 0.93 → 0.94): `/Rotate mod 90 == 0` on
+`PageObject`/`PageTreeNode`/`PageTreeNodeRoot`/`Movie`, and both encryption dictionaries'
+`Length` ranges:
+
+- **`Cond.Mod`**: `splitComparison` (via the new `splitModOperand`) recognizes
+  `(@Key mod N) ==/!= literal` with a positive integer divisor; any other operator with a
+  modulus fails closed. At runtime the operand must be a PDF integer — a real or absent
+  value makes the condition unknown, never a flag.
+- **`CondUnknown`**: `fn:Extension(...)` in a boolean context compiles to an explicitly
+  unresolvable leaf instead of failing the whole tree, so
+  `(@Length>=40) && ((@Length<=128) || fn:Extension(ADBE_Extn3,(@Length<=256))) && ((@Length mod 8)==0)`
+  enforces the 40..128 range and mod-8 while a 256-bit extension length merely goes
+  unflagged (decisive-operand semantics: a true `||`-sibling settles the Or, anything else
+  leaves it unknown). `condOperandsResolvable` now also rejects trees with no real operand,
+  so a column that is *only* an extension gate stays honestly predicated rather than
+  counting as simple.
+- The same mechanism is deliberate groundwork: any future uncompilable subexpression could
+  map to CondUnknown with sound fail-closed semantics; kept scoped to fn:Extension for now
+  so classification stats stay meaningful.
+
+All gates green on the first corpus run; coverage arlington 100%, verify 93.6%.

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -345,6 +346,9 @@ func condLiteral(c condExpr) string {
 	}
 	if c.value != "" {
 		parts = append(parts, fmt.Sprintf("Value: %q", c.value))
+	}
+	if c.mod != 0 {
+		parts = append(parts, fmt.Sprintf("Mod: %d", c.mod))
 	}
 	if len(c.kids) > 0 {
 		var ks []string
@@ -713,6 +717,7 @@ func foldValueEntry(item string) (val string, keep, ok bool) {
 type condExpr struct {
 	op         string // Cond* identifier
 	key, value string
+	mod        int // nonzero for "(@Key mod N) == value" comparisons
 	kids       []condExpr
 }
 
@@ -769,10 +774,11 @@ func foldIndirect(raw string) (rule string, ok bool) {
 }
 
 // compileCond compiles a predicate expression into a constant (version primitives fold
-// against modelVersion) or a runtime condition over the owning dict's own entries
-// (fn:IsPresent of a sibling key, @Key ==/!= literal comparisons), combined with fn:Not,
-// parentheses, and ||/&&. Anything else -- cross-object paths (::), parent::, domain
-// predicates -- is not ok, and the caller must keep the column predicated.
+// against modelVersion) or a runtime condition over the owning container's own entries
+// (fn:IsPresent of a sibling key, @Key comparisons against a literal, "(@Key mod N)"
+// equality, fn:Extension gates as CondUnknown), combined with fn:Not, parentheses, and
+// ||/&&. Anything else -- cross-object paths (::), parent::, domain predicates -- is not ok,
+// and the caller must keep the column predicated.
 func compileCond(expr string) condResult {
 	expr = trimOuterParens(strings.TrimSpace(expr))
 
@@ -783,8 +789,8 @@ func compileCond(expr string) condResult {
 		return compileBool(parts, true)
 	}
 
-	if key, value, op, ok := splitComparison(expr); ok {
-		return treeCond(condExpr{op: op, key: key, value: value})
+	if c, ok := splitComparison(expr); ok {
+		return treeCond(c)
 	}
 
 	name, args, wrapped := splitPredicate(expr)
@@ -817,6 +823,14 @@ func compileCond(expr string) condResult {
 			return condResult{}
 		}
 		return compileCond(args[0])
+	case "fn:Extension":
+		// Whether an extension is in play is unknowable here, so the term compiles to a
+		// CondUnknown leaf: a decisive sibling operand can still settle the enclosing
+		// And/Or, otherwise the runtime skips the check -- the false-negative direction.
+		if len(args) == 1 || len(args) == 2 {
+			return treeCond(condExpr{op: "CondUnknown"})
+		}
+		return condResult{}
 	case "fn:SinceVersion", "fn:BeforeVersion", "fn:IsPDFVersion":
 		if len(args) == 0 || len(args) > 2 {
 			return condResult{}
@@ -887,8 +901,8 @@ func compileBool(parts []string, and bool) condResult {
 }
 
 // splitComparison recognizes a top-level "@Key <op> literal" comparison, where <op> is one
-// of ==, !=, >=, <=, > or <.
-func splitComparison(expr string) (key, value, op string, ok bool) {
+// of ==, !=, >=, <=, > or <, and the modulo form "(@Key mod N) ==/!= literal".
+func splitComparison(expr string) (c condExpr, ok bool) {
 	depth := 0
 	for i := 0; i < len(expr); i++ {
 		switch expr[i] {
@@ -901,6 +915,7 @@ func splitComparison(expr string) (key, value, op string, ok bool) {
 				continue
 			}
 			width := 1
+			var op string
 			switch {
 			case i+1 < len(expr) && expr[i+1] == '=':
 				width = 2
@@ -910,16 +925,40 @@ func splitComparison(expr string) (key, value, op string, ok bool) {
 			case expr[i] == '>':
 				op = "CondGt"
 			default:
-				return "", "", "", false // bare '=' or '!'
+				return condExpr{}, false // bare '=' or '!'
 			}
 			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+width:])
-			if strings.HasPrefix(lhs, "@") && (plainKey(lhs[1:]) || indexKey(lhs[1:])) && plainValue(rhs) {
-				return lhs[1:], rhs, op, true
+			if !plainValue(rhs) {
+				return condExpr{}, false
 			}
-			return "", "", "", false
+			key, mod, lhsOK := splitModOperand(lhs)
+			if !lhsOK {
+				return condExpr{}, false
+			}
+			if mod != 0 && op != "CondEq" && op != "CondNe" {
+				return condExpr{}, false // modulo only pins equality; anything else fails closed
+			}
+			return condExpr{op: op, key: key, value: rhs, mod: mod}, true
 		}
 	}
-	return "", "", "", false
+	return condExpr{}, false
+}
+
+// splitModOperand parses a comparison's left side: a bare "@Key", or the modulo form
+// "(@Key mod N)" with a positive integer divisor (mod 0 when absent).
+func splitModOperand(lhs string) (key string, mod int, ok bool) {
+	lhs = trimOuterParens(lhs)
+	if before, after, found := strings.Cut(lhs, " mod "); found {
+		n, err := strconv.Atoi(strings.TrimSpace(after))
+		if err != nil || n <= 0 {
+			return "", 0, false
+		}
+		lhs, mod = strings.TrimSpace(before), n
+	}
+	if strings.HasPrefix(lhs, "@") && (plainKey(lhs[1:]) || indexKey(lhs[1:])) {
+		return lhs[1:], mod, true
+	}
+	return "", 0, false
 }
 
 // plainKey reports whether s is a bare sibling key name (no path, no operators). All-digit
@@ -956,9 +995,11 @@ func indexKey(s string) bool {
 }
 
 // condOperandsResolvable reports whether every leaf operand of tree can be resolved from the
-// row it belongs to: sibling key names for a named dict row, element indices for a fixed
-// array-index row. A nil tree (vacuous constraint) is resolvable for either. Wildcard and
-// offset-wildcard rows resolve nothing.
+// row it belongs to -- sibling key names for a named dict row, element indices for a fixed
+// array-index row -- and the tree observes at least one real operand (a tree of only
+// CondUnknown leaves enforces nothing, so its row stays honestly predicated). A nil tree
+// (vacuous constraint) is resolvable for either. Wildcard and offset-wildcard rows resolve
+// nothing.
 func condOperandsResolvable(tree *condExpr, rowName string) bool {
 	var want func(string) bool
 	switch {
@@ -969,10 +1010,14 @@ func condOperandsResolvable(tree *condExpr, rowName string) bool {
 	default:
 		return false
 	}
+	operands := 0
 	var walk func(c condExpr) bool
 	walk = func(c condExpr) bool {
-		if c.key != "" && !want(c.key) {
-			return false
+		if c.key != "" {
+			if !want(c.key) {
+				return false
+			}
+			operands++
 		}
 		for _, k := range c.kids {
 			if !walk(k) {
@@ -981,7 +1026,7 @@ func condOperandsResolvable(tree *condExpr, rowName string) bool {
 		}
 		return true
 	}
-	return tree == nil || walk(*tree)
+	return tree == nil || (walk(*tree) && operands > 0)
 }
 
 // plainValue reports whether s is a bare comparison literal (name/number token).

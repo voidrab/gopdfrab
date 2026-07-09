@@ -6958,9 +6958,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Length",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "Length", Value: "40"}, {Op: CondLe, Key: "Length", Value: "128"}, {Op: CondEq, Key: "Length", Value: "0", Mod: 8}}},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 		},
 		Post14Keys: []string{"CF", "EFF", "EncryptMetadata", "KDFSalt", "StmF", "StrF"},
@@ -6990,9 +6990,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Length",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "Length", Value: "40"}, {Op: CondOr, Kids: []Cond{{Op: CondLe, Key: "Length", Value: "128"}, {Op: CondUnknown}}}, {Op: CondEq, Key: "Length", Value: "0", Mod: 8}}},
 				SinceVersion: "1.4",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "EFF",
@@ -11933,9 +11933,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Rotate",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90},
 				SinceVersion: "1.2",
 				DeprecatedIn: "2.0",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Poster",
@@ -12847,9 +12847,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Rotate",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90},
 				SinceVersion: "1.0",
 				Inheritable:  true,
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "Group",
@@ -13053,9 +13053,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Rotate",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90},
 				SinceVersion: "1.0",
 				Inheritable:  true,
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},
@@ -13110,8 +13110,8 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "Rotate",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90},
 				SinceVersion: "1.0",
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},

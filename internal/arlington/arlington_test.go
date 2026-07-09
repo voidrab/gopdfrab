@@ -397,13 +397,39 @@ func TestCompiledConditions(t *testing.T) {
 			t.Errorf("%s.%s: want Values predicated with no ValueCond, got %+v", tc.typ, tc.key, kd)
 		}
 	}
+
+	// fn:Eval((@Rotate mod 90)==0) -> a modulo equality leaf.
+	rot := findKey(Types["PageObject"], "Rotate")
+	wantRot := &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90}
+	if rot == nil || rot.Predicated.Values || !reflect.DeepEqual(rot.ValueCond, wantRot) {
+		t.Errorf("PageObject.Rotate: want ValueCond %+v, got %+v", wantRot, rot)
+	}
+
+	// EncryptionStandard.Length: the fn:Extension(ADBE_Extn3,...) arm compiles to a
+	// CondUnknown leaf inside the Or, so 40..128 and mod 8 are still enforced.
+	length := findKey(Types["EncryptionStandard"], "Length")
+	wantLen := &Cond{Op: CondAnd, Kids: []Cond{
+		{Op: CondGe, Key: "Length", Value: "40"},
+		{Op: CondOr, Kids: []Cond{{Op: CondLe, Key: "Length", Value: "128"}, {Op: CondUnknown}}},
+		{Op: CondEq, Key: "Length", Value: "0", Mod: 8},
+	}}
+	if length == nil || length.Predicated.Values || !reflect.DeepEqual(length.ValueCond, wantLen) {
+		t.Errorf("EncryptionStandard.Length: want ValueCond %+v, got %+v", wantLen, length)
+	}
+
+	// A tree of only CondUnknown leaves enforces nothing and must stay predicated; FileTrailer
+	// .Prev (fn:FileSize operand) is representative of &&-siblings staying uncompilable too.
+	prev := findKey(Types["FileTrailer"], "Prev")
+	if prev == nil || !prev.Predicated.Values || prev.ValueCond != nil {
+		t.Errorf("FileTrailer.Prev: want Values predicated (fn:FileSize operand), got %+v", prev)
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.93 // observed ~94.6% after array-element value ranges; headroom for TSV churn
+	const floor = 0.94 // observed ~94.9% after mod/extension conditions; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

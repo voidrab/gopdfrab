@@ -270,6 +270,15 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		return present && sib != nil, true
 	case arlington.CondEq, arlington.CondNe:
 		sib, present := src.lookup(c.Key)
+		if c.Mod != 0 {
+			iv, isInt := sib.(pdf.PDFInteger)
+			rhs, err := strconv.ParseInt(c.Value, 10, 64)
+			if !present || !isInt || err != nil {
+				return false, false
+			}
+			eq := int64(iv)%int64(c.Mod) == rhs
+			return eq == (c.Op == arlington.CondEq), true
+		}
 		eq := false
 		if present && sib != nil {
 			s, scalar := scalarEnumString(sib)
@@ -302,6 +311,10 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		default:
 			return n >= bound-eps, true
 		}
+	case arlington.CondUnknown:
+		// An extension gate: unresolvable by design, so only a decisive sibling operand
+		// can settle the enclosing And/Or.
+		return false, false
 	case arlington.CondNot:
 		if len(c.Kids) != 1 {
 			return false, false

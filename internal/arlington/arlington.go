@@ -137,6 +137,10 @@ const (
 	CondAnd
 	CondOr
 	CondNot
+	// CondUnknown is a subexpression the generator recognized as boolean but cannot evaluate
+	// (an fn:Extension gate). It always evaluates as unresolvable, so a decisive sibling
+	// operand can still settle the enclosing And/Or; otherwise the dependent check is skipped.
+	CondUnknown
 )
 
 // Cond is a compiled fn: condition over the owning container's own entries -- sibling keys of
@@ -148,7 +152,10 @@ type Cond struct {
 	Op    CondOp
 	Key   string
 	Value string
-	Kids  []Cond
+	// Mod, when nonzero, compares Key's integer value modulo Mod against Value
+	// ("(@Rotate mod 90)==0"); only generated with CondEq/CondNe.
+	Mod  int
+	Kids []Cond
 }
 
 // KeyDef is one row of an Arlington type: a single named key (or a fixed array index, which
