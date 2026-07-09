@@ -1,7 +1,9 @@
 package convert
 
 import (
+	"math"
 	"strconv"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -13,6 +15,7 @@ func init() {
 	registerFixer(descentSignFixer{})
 	registerFixer(descriptorFlagsFixer{})
 	registerFixer(missingRequiredKeyFixer{})
+	registerFixer(wrongValueTypeFixer{})
 }
 
 // indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
@@ -227,6 +230,128 @@ func scalarFromEnum(s string, types []arlington.ValueType) (pdf.PDFValue, bool) 
 			}
 		case arlington.Name:
 			return pdf.PDFName{Value: s}, true
+		}
+	}
+	return nil, false
+}
+
+// wrongValueTypeFixer remediates the object model's WrongValueType check: a mis-typed
+// value is coerced when a lossless scalar conversion to a schema-allowed type exists;
+// otherwise an unconditionally-optional key is deleted (absence is always conformant),
+// and a required key stays a residual. Array-element findings are skipped -- the finding
+// does not identify which of the owner's entries holds the array.
+type wrongValueTypeFixer struct{}
+
+func (wrongValueTypeFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.ObjectModel.WrongValueType
+}
+
+// Fix is targeted-only, like missingRequiredKeyFixer.
+func (wrongValueTypeFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	return false, nil
+}
+
+func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+	changed := false
+	for _, iss := range issues {
+		detail, ok := iss.ObjModelDetail()
+		if !ok || isArrayIndexKey(detail.Key) {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			continue
+		}
+		d, ok := p.dictForRef(ref)
+		if !ok {
+			continue
+		}
+		kd := keyDefFor(detail.TypeName, detail.Key)
+		if kd == nil || len(kd.Types) == 0 {
+			continue
+		}
+		val, present := d.Entries[detail.Key]
+		if !present || val == nil || verify.MatchesValueType(val, kd.Types) {
+			continue // absent, null, or repaired earlier: stale finding
+		}
+		if nv, ok := coerceScalar(val, kd.Types); ok {
+			d.Entries[detail.Key] = nv
+			changed = true
+			continue
+		}
+		if deletableKey(kd) {
+			delete(d.Entries, detail.Key)
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+// keyDefFor returns the schema row governing key on typeName: the named row if one exists,
+// else the type's wildcard row, else nil.
+func keyDefFor(typeName, key string) *arlington.KeyDef {
+	if kd := namedKeyDef(typeName, key); kd != nil {
+		return kd
+	}
+	ot, ok := arlington.Type(typeName)
+	if !ok {
+		return nil
+	}
+	return ot.Wildcard
+}
+
+// deletableKey reports whether removing the key is unconditionally conformant: never
+// required, under no runtime or predicated requirement condition.
+func deletableKey(kd *arlington.KeyDef) bool {
+	return !kd.Required && kd.RequiredWhen == nil && !kd.Predicated.Required
+}
+
+// coerceScalar converts val to the first schema-allowed type it can represent losslessly:
+// integral real or numeric string to integer, numeric string to number, string to name,
+// name to string, and true/false names or strings to boolean. Date strings are never
+// synthesized from other types.
+func coerceScalar(val pdf.PDFValue, types []arlington.ValueType) (pdf.PDFValue, bool) {
+	for _, vt := range types {
+		switch vt {
+		case arlington.Integer, arlington.Bitmask:
+			switch v := val.(type) {
+			case pdf.PDFReal:
+				if float64(v) == math.Trunc(float64(v)) {
+					return pdf.PDFInteger(int(v)), true
+				}
+			case pdf.PDFString:
+				if n, err := strconv.Atoi(strings.TrimSpace(v.Value)); err == nil {
+					return pdf.PDFInteger(n), true
+				}
+			}
+		case arlington.Number:
+			if v, ok := val.(pdf.PDFString); ok {
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v.Value), 32); err == nil {
+					return pdf.PDFReal(f), true
+				}
+			}
+		case arlington.Name:
+			switch v := val.(type) {
+			case pdf.PDFString:
+				return pdf.PDFName{Value: v.Value}, true
+			case pdf.PDFHexString:
+				return pdf.PDFName{Value: v.Value}, true
+			}
+		case arlington.String, arlington.StringText, arlington.StringByte, arlington.StringASCII:
+			if v, ok := val.(pdf.PDFName); ok {
+				return pdf.PDFString{Value: v.Value}, true
+			}
+		case arlington.Boolean:
+			s := ""
+			switch v := val.(type) {
+			case pdf.PDFName:
+				s = v.Value
+			case pdf.PDFString:
+				s = v.Value
+			}
+			if s == "true" || s == "false" {
+				return pdf.PDFBoolean(s == "true"), true
+			}
 		}
 	}
 	return nil, false

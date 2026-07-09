@@ -300,6 +300,13 @@ func EvalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 	return evalCond(c, v)
 }
 
+// MatchesValueType exposes the schema type check to object-model fixers, so a
+// value already conforming to its row -- e.g. one repaired earlier in the same
+// pass -- is never coerced or deleted on a stale finding.
+func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
+	return matchesValueType(val, allowed)
+}
+
 // evalCondArray evaluates a fixed-index row's compiled condition against the owning array,
 // with the same tri-state semantics as evalCond; an out-of-range index is a definite absence.
 func evalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {

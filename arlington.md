@@ -665,3 +665,28 @@ validated under — the finding's `ObjModelDetail` is the only sound source of (
   `/Type` converts to a fully valid rewrite under `ObjectModelOnly()`.
 
 All gates green on the first corpus run; convert 91.7%, every new function 100%.
+
+### Stage F4 — WrongValueType fixer ✅ 2026-07-09
+
+`wrongValueTypeFixer` (targeted-only, same shape as F3) repairs mis-typed values under the
+agreed deletion policy:
+
+- **Lossless scalar coercions first** (`coerceScalar`): integral real → integer, numeric
+  string → integer/number, string/hex-string → name, name → string, true/false name or
+  string → boolean. Date strings are never synthesized. The governing row comes from
+  `keyDefFor` — named row else wildcard, so custom `DocInfo` keys and resource-map entries
+  are covered too.
+- **Optional + uncoercible → delete** (`deletableKey`): only when removal is
+  *unconditionally* conformant — `Required` false, no `RequiredWhen` condition, Required
+  column unpredicated. Required and conditionally-required keys (e.g. `FileTrailer.ID`)
+  always stay residuals.
+- **Stale-finding safety**: `verify.MatchesValueType` (newly exported alongside `EvalCond`)
+  guards every repair, so a value already conforming — e.g. coerced earlier in the same
+  pass — is never deleted by a leftover finding. Array-element findings are skipped: the
+  detail identifies the element index but not which owner entry holds the array (documented
+  residual class).
+- `TestConvertObjectModelCoercesRotate` end-to-end: `/Rotate ("90")` (a string) converts to
+  a fully valid rewrite. (A fixture lesson: an integral `PDFReal` round-trips through the
+  writer as an integer, so only genuinely string-typed fixtures exercise this path.)
+
+All gates green on the first corpus run; convert 91.8%, every new function 100%.

@@ -1447,3 +1447,18 @@ func TestObjModelDetailAttached(t *testing.T) {
 		})
 	}
 }
+
+// TestExportedFixerHelpers covers the wrappers convert's objmodel fixers use.
+func TestExportedFixerHelpers(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["V"] = pdf.PDFInteger(1)
+	if holds, ok := EvalCond(&arlington.Cond{Op: arlington.CondPresent, Key: "V"}, d); !holds || !ok {
+		t.Errorf("EvalCond(Present V) = (%v, %v), want (true, true)", holds, ok)
+	}
+	if !MatchesValueType(pdf.PDFName{Value: "X"}, []arlington.ValueType{arlington.Name}) {
+		t.Error("MatchesValueType(name, [name]) must be true")
+	}
+	if MatchesValueType(pdf.PDFName{Value: "X"}, []arlington.ValueType{arlington.Integer}) {
+		t.Error("MatchesValueType(name, [integer]) must be false")
+	}
+}
