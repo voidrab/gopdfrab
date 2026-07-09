@@ -690,3 +690,30 @@ agreed deletion policy:
   writer as an integer, so only genuinely string-typed fixtures exercise this path.)
 
 All gates green on the first corpus run; convert 91.8%, every new function 100%.
+
+### Stage F5 — DisallowedValue completion ✅ 2026-07-09
+
+`descentSignFixer` generalizes into `disallowedValueFixer` (same check registration —
+one fixer per check is enforced by `registerFixer`), keeping the magnitude-preserving
+Descent negation and adding the schema-derived repairs:
+
+- **Single-entry enum replacement** (`/Type /Bogus` on `Metadata` → `/Metadata`), **pin
+  enforcement** (`EncryptionStandard.R` 2→3 when V=2, via `verify.EvalCond` — only
+  definitely-true pins repair), and **inclusive range clamping** (`/CA 1.5` → 1.0,
+  `/ca -0.25` → 0.0): `condBounds` extracts bounds from the `ValueCond`'s conjunctive
+  `Ge`/`Le` leaves only — strict comparisons, derived operands (`fn:ArrayLength`), modulo,
+  and Or/Not subtrees contribute nothing, mirroring `mustBeClearMask`'s conservatism. The
+  clamped value keeps its integer/real kind.
+- **Optional + unrepairable → delete** (`/Trapped /Maybe` — the F2 raster-regression
+  fixture is now repaired rather than residual; that test became
+  `TestConvertObjectModelDeletesDisallowedTrapped`, still asserting byte-identical page
+  content so the fix provably never came from the raster backstop). Required keys stay
+  residuals (`EncryptionStandard.R` = 9 with V absent).
+- **Descent stays negation, not clamping**: the targeted path special-cases `Descent`
+  (unique to descriptor types in the model) before the range clamp would zero it, covering
+  descriptors without `/Type` that the whole-graph pass cannot identify.
+- Every repair re-checks the live value first, so stale findings never mis-repair; the
+  deletion fallbacks no real model row reaches (uncoercible pin, unclampable strict range)
+  are pinned with synthetic KeyDefs.
+
+All gates green on the first corpus run; convert 91.9%, every new/changed function 100%.

@@ -12,7 +12,7 @@ import (
 
 func init() {
 	registerFixer(indirectRequiredFixer{})
-	registerFixer(descentSignFixer{})
+	registerFixer(disallowedValueFixer{})
 	registerFixer(descriptorFlagsFixer{})
 	registerFixer(missingRequiredKeyFixer{})
 	registerFixer(wrongValueTypeFixer{})
@@ -357,33 +357,204 @@ func coerceScalar(val pdf.PDFValue, types []arlington.ValueType) (pdf.PDFValue, 
 	return nil, false
 }
 
-// descentSignFixer remediates the object model's DisallowedValue check on font descriptors:
-// ISO 32000 requires /Descent to be non-positive, but some fonts store its magnitude, so a
-// positive value is negated in place.
-type descentSignFixer struct{}
+// disallowedValueFixer remediates the object model's DisallowedValue check. Font
+// descriptors storing /Descent as a magnitude are negated first (whole-graph, needing no
+// finding, since ISO 32000 requires a non-positive value). Targeted repairs then follow
+// the schema: a single-entry enum or a definitely-true pinned value replaces the offending
+// value, a compiled inclusive range clamps it, and an unconditionally-optional key with no
+// repair is deleted.
+type disallowedValueFixer struct{}
 
-func (descentSignFixer) Applies(c pdf.Check) bool {
+func (disallowedValueFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.DisallowedValue
 }
 
-func (descentSignFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (disallowedValueFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		if t, ok := d.Entries["Type"].(pdf.PDFName); !ok || t.Value != "FontDescriptor" {
 			return
 		}
-		switch v := d.Entries["Descent"].(type) {
-		case pdf.PDFInteger:
-			if v > 0 {
-				d.Entries["Descent"] = -v
-				changed = true
-			}
-		case pdf.PDFReal:
-			if v > 0 {
-				d.Entries["Descent"] = -v
-				changed = true
-			}
+		if negateDescent(d) {
+			changed = true
 		}
 	})
 	return changed, nil
+}
+
+func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
+	// Ref-less descriptors keep their magnitude repair regardless of targeting.
+	changed, _ := f.Fix(p.trailer, nil)
+	for _, iss := range issues {
+		detail, ok := iss.ObjModelDetail()
+		if !ok || isArrayIndexKey(detail.Key) {
+			continue
+		}
+		ref, ok := iss.ObjectRef()
+		if !ok {
+			continue
+		}
+		d, ok := p.dictForRef(ref)
+		if !ok {
+			continue
+		}
+		kd := keyDefFor(detail.TypeName, detail.Key)
+		if kd == nil {
+			continue
+		}
+		if val := d.Entries[detail.Key]; val == nil {
+			continue
+		}
+		if repairDisallowedValue(d, detail.Key, kd) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+// negateDescent flips a positive /Descent in place, preserving its magnitude where a clamp
+// to the range bound would zero it.
+func negateDescent(d pdf.PDFDict) bool {
+	switch v := d.Entries["Descent"].(type) {
+	case pdf.PDFInteger:
+		if v > 0 {
+			d.Entries["Descent"] = -v
+			return true
+		}
+	case pdf.PDFReal:
+		if v > 0 {
+			d.Entries["Descent"] = -v
+			return true
+		}
+	}
+	return false
+}
+
+// repairDisallowedValue applies the schema-derived repair for key's current value on d.
+// Every step re-checks the live value, so stale findings never mis-repair.
+func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool {
+	if key == "Descent" && negateDescent(d) {
+		return true // a descriptor without /Type, missed by the whole-graph pass
+	}
+	val := d.Entries[key]
+	violated := false
+
+	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
+		if s, ok := verify.EnumString(val); ok && !stringInList(s, kd.PossibleValues) {
+			if len(kd.PossibleValues) == 1 {
+				if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
+					d.Entries[key] = nv
+					return true
+				}
+			}
+			violated = true
+		}
+	}
+
+	for i := range kd.PinnedValues {
+		pin := &kd.PinnedValues[i]
+		if holds, ok := verify.EvalCond(pin.When, d); !ok || !holds {
+			continue
+		}
+		if s, ok := verify.EnumString(val); ok && s != pin.Value {
+			if nv, ok := scalarFromEnum(pin.Value, kd.Types); ok {
+				d.Entries[key] = nv
+				return true
+			}
+			violated = true
+		}
+	}
+
+	if kd.ValueCond != nil {
+		if legal, ok := verify.EvalCond(kd.ValueCond, d); ok && !legal {
+			if nv, ok := clampToBounds(val, kd.ValueCond, key); ok {
+				d.Entries[key] = nv
+				return true
+			}
+			violated = true
+		}
+	}
+
+	if violated && deletableKey(kd) {
+		delete(d.Entries, key)
+		return true
+	}
+	return false
+}
+
+// clampToBounds moves a numeric value inside the inclusive bounds the conjunctive leaves
+// of cond impose on key's own value, keeping the value's integer/real kind. Strict bounds
+// and derived operands never clamp (fail closed).
+func clampToBounds(val pdf.PDFValue, cond *arlington.Cond, key string) (pdf.PDFValue, bool) {
+	lo, hi, hasLo, hasHi := condBounds(cond, key)
+	if !hasLo && !hasHi {
+		return nil, false
+	}
+	var n float64
+	switch v := val.(type) {
+	case pdf.PDFInteger:
+		n = float64(v)
+	case pdf.PDFReal:
+		n = float64(v)
+	default:
+		return nil, false
+	}
+	c := n
+	if hasLo && c < lo {
+		c = lo
+	}
+	if hasHi && c > hi {
+		c = hi
+	}
+	if c == n {
+		return nil, false // the violation is not a simple bounds excursion
+	}
+	if _, isInt := val.(pdf.PDFInteger); isInt {
+		return pdf.PDFInteger(int(c)), true
+	}
+	return pdf.PDFReal(c), true
+}
+
+// condBounds extracts the inclusive bounds cond's conjunctive comparison leaves impose on
+// key's plain value; Or/Not subtrees, derived operands, and strict comparisons contribute
+// nothing.
+func condBounds(c *arlington.Cond, key string) (lo, hi float64, hasLo, hasHi bool) {
+	leafBound := func(c *arlington.Cond) (float64, bool) {
+		if c.Key != key || c.Fn != arlington.FnValue || c.RHSKey != "" || c.Mod != 0 {
+			return 0, false
+		}
+		v, err := strconv.ParseFloat(c.Value, 64)
+		return v, err == nil
+	}
+	switch c.Op {
+	case arlington.CondGe:
+		if v, ok := leafBound(c); ok {
+			lo, hasLo = v, true
+		}
+	case arlington.CondLe:
+		if v, ok := leafBound(c); ok {
+			hi, hasHi = v, true
+		}
+	case arlington.CondAnd:
+		for i := range c.Kids {
+			l, h, hl, hh := condBounds(&c.Kids[i], key)
+			if hl && (!hasLo || l > lo) {
+				lo, hasLo = l, true
+			}
+			if hh && (!hasHi || h < hi) {
+				hi, hasHi = h, true
+			}
+		}
+	}
+	return lo, hi, hasLo, hasHi
+}
+
+// stringInList reports whether s appears in list.
+func stringInList(s string, list []string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }

@@ -47,7 +47,7 @@ func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 	other.Entries["Descent"] = pdf.PDFInteger(300) // not a FontDescriptor
 	trailer.Entries["Other"] = other
 
-	changed, err := descentSignFixer{}.Fix(&trailer, nil)
+	changed, err := disallowedValueFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
@@ -61,7 +61,7 @@ func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 		t.Errorf("non-descriptor Descent = %v, want untouched 300", got)
 	}
 
-	changed, err = descentSignFixer{}.Fix(&trailer, nil)
+	changed, err = disallowedValueFixer{}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
 	}
@@ -365,5 +365,232 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 	}
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+}
+
+func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
+	meta := pdf.NewPDFDict()
+	meta.HasStream = true
+	meta.Entries["Type"] = pdf.PDFName{Value: "Bogus"} // Metadata.Type has the single legal value /Metadata
+	meta.Entries["Subtype"] = pdf.PDFName{Value: "XML"}
+	meta.Entries["_ref"] = pdf.PDFRef{ObjNum: 6}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["M"] = meta
+	ref := pdf.PDFRef{ObjNum: 6}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{6: meta}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "Metadata", "Type")}
+
+	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if got := meta.Entries["Type"]; !pdf.EqualPDFValue(got, pdf.PDFName{Value: "Metadata"}) {
+		t.Errorf("Type = %v, want /Metadata", got)
+	}
+
+	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}
+
+func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
+	// EncryptionStandard.R must be 3 when V is 2.
+	enc := pdf.NewPDFDict()
+	enc.Entries["V"] = pdf.PDFInteger(2)
+	enc.Entries["R"] = pdf.PDFInteger(2)
+	enc.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Encrypt"] = enc
+	ref := pdf.PDFRef{ObjNum: 7}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{7: enc}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "EncryptionStandard", "R")}
+
+	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	if got := enc.Entries["R"]; got != pdf.PDFInteger(3) {
+		t.Errorf("R = %v, want pinned 3", got)
+	}
+
+	// R=9 with V absent: pins undecidable, the multi-value enum has no single
+	// replacement, and R is required -- must stay a residual.
+	enc2 := pdf.NewPDFDict()
+	enc2.Entries["R"] = pdf.PDFInteger(9)
+	enc2.Entries["_ref"] = pdf.PDFRef{ObjNum: 8}
+	pass = &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{8: enc2}}
+	ref2 := pdf.PDFRef{ObjNum: 8}
+	issues = []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref2, "EncryptionStandard", "R")}
+	changed, _, err = disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed {
+		t.Errorf("fixTargeted changed=%v err=%v, want required key left as residual", changed, err)
+	}
+	if got := enc2.Entries["R"]; got != pdf.PDFInteger(9) {
+		t.Errorf("R = %v, want untouched 9", got)
+	}
+}
+
+func TestDisallowedValueFixerClampsRanges(t *testing.T) {
+	gs := pdf.NewPDFDict()
+	gs.Entries["CA"] = pdf.PDFReal(1.5)
+	gs.Entries["ca"] = pdf.PDFReal(-0.25)
+	gs.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["G"] = gs
+	ref := pdf.PDFRef{ObjNum: 9}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{9: gs}}
+	issues := []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "GraphicsStateParameter", "CA"),
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "GraphicsStateParameter", "ca"),
+	}
+
+	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	if got := gs.Entries["CA"]; got != pdf.PDFReal(1) {
+		t.Errorf("CA = %v, want clamped 1", got)
+	}
+	if got := gs.Entries["ca"]; got != pdf.PDFReal(0) {
+		t.Errorf("ca = %v, want clamped 0", got)
+	}
+}
+
+func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
+	// A descriptor without /Type is invisible to the whole-graph pass; the
+	// targeted path must still prefer negation over clamping to zero.
+	fd := pdf.NewPDFDict()
+	fd.Entries["Descent"] = pdf.PDFInteger(205)
+	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["FD"] = fd
+	ref := pdf.PDFRef{ObjNum: 4}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
+	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "FontDescriptorType1", "Descent")}
+
+	changed, _, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed {
+		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
+	}
+	if got := fd.Entries["Descent"]; got != pdf.PDFInteger(-205) {
+		t.Errorf("Descent = %v, want -205 (negated, not clamped)", got)
+	}
+}
+
+func TestDisallowedValueFixerDeletesOptionalEnum(t *testing.T) {
+	info := pdf.NewPDFDict()
+	info.Entries["Trapped"] = pdf.PDFName{Value: "Maybe"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Info"] = info
+	ref := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
+	issues := []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "DocInfo", "Trapped"),
+		// Skip cases sharing the pass: stale null, array element, unknown type, no ref/detail.
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "DocInfo", "Absent"),
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "WhitepointArray", "0"),
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "NoSuchType", "X"),
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, nil, "DocInfo", "Trapped"),
+		pdf.NewError(pdf.Checks.ObjectModel.DisallowedValue, nil, 0, &ref),
+	}
+
+	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || !changed || !handled {
+		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
+	}
+	if _, ok := info.Entries["Trapped"]; ok {
+		t.Error("an optional multi-enum violation must be deleted")
+	}
+}
+
+func TestCondBoundsAndClamp(t *testing.T) {
+	ge := arlington.Cond{Op: arlington.CondGe, Key: "K", Value: "0"}
+	le := arlington.Cond{Op: arlington.CondLe, Key: "K", Value: "10"}
+	and := arlington.Cond{Op: arlington.CondAnd, Kids: []arlington.Cond{ge, le}}
+
+	if nv, ok := clampToBounds(pdf.PDFInteger(50), &and, "K"); !ok || nv != pdf.PDFInteger(10) {
+		t.Errorf("clamp(50) = (%v, %v), want (10, true)", nv, ok)
+	}
+	if nv, ok := clampToBounds(pdf.PDFReal(-3), &and, "K"); !ok || nv != pdf.PDFReal(0) {
+		t.Errorf("clamp(-3) = (%v, %v), want (0, true)", nv, ok)
+	}
+	if _, ok := clampToBounds(pdf.PDFInteger(5), &and, "K"); ok {
+		t.Error("an in-bounds value must not clamp")
+	}
+	if _, ok := clampToBounds(pdf.PDFName{Value: "x"}, &and, "K"); ok {
+		t.Error("a non-numeric value must not clamp")
+	}
+
+	// Strict, derived, mismatched, and modulo leaves contribute no bounds.
+	for _, c := range []arlington.Cond{
+		{Op: arlington.CondGt, Key: "K", Value: "0"},
+		{Op: arlington.CondGe, Key: "Other", Value: "0"},
+		{Op: arlington.CondGe, Key: "K", Fn: arlington.FnArrayLength, Value: "0"},
+		{Op: arlington.CondGe, Key: "K", RHSKey: "L"},
+		{Op: arlington.CondEq, Key: "K", Mod: 8, Value: "0"},
+		{Op: arlington.CondGe, Key: "K", Value: "notanumber"},
+	} {
+		if _, ok := clampToBounds(pdf.PDFInteger(-1), &c, "K"); ok {
+			t.Errorf("cond %+v must contribute no bounds", c)
+		}
+	}
+}
+
+// TestRepairDisallowedValueFallbacks drives the deletion fallbacks no real
+// model row reaches: an uncoercible pin value and an unclampable range.
+func TestRepairDisallowedValueFallbacks(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["X"] = pdf.PDFInteger(1)
+	d.Entries["K"] = pdf.PDFInteger(5)
+	kd := &arlington.KeyDef{
+		Name:  "K",
+		Types: []arlington.ValueType{arlington.Integer},
+		PinnedValues: []arlington.PinnedValue{{
+			When:  &arlington.Cond{Op: arlington.CondPresent, Key: "X"},
+			Value: "notaninteger",
+		}},
+	}
+	if !repairDisallowedValue(d, "K", kd) {
+		t.Fatal("an uncoercible pin on an optional key must fall back to deletion")
+	}
+	if _, ok := d.Entries["K"]; ok {
+		t.Error("K must be deleted")
+	}
+
+	d.Entries["K"] = pdf.PDFInteger(-1)
+	kd = &arlington.KeyDef{
+		Name:      "K",
+		Types:     []arlington.ValueType{arlington.Integer},
+		ValueCond: &arlington.Cond{Op: arlington.CondGt, Key: "K", Value: "0"},
+	}
+	if !repairDisallowedValue(d, "K", kd) {
+		t.Fatal("a strict, unclampable range on an optional key must fall back to deletion")
+	}
+	if _, ok := d.Entries["K"]; ok {
+		t.Error("K must be deleted after the range fallback")
+	}
+}
+
+// TestDisallowedValueFixerSkipsNullValue covers the stale-null guard in the
+// targeted loop.
+func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
+	info := pdf.NewPDFDict()
+	info.Entries["Trapped"] = nil
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Info"] = info
+	ref := pdf.PDFRef{ObjNum: 5}
+	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
+	dead := pdf.PDFRef{ObjNum: 9}
+	issues := []pdf.PDFError{
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "DocInfo", "Trapped"),
+		objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &dead, "DocInfo", "Trapped"),
+	}
+
+	changed, handled, err := disallowedValueFixer{}.fixTargeted(pass, issues)
+	if err != nil || changed || !handled {
+		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil) for a null value", changed, handled, err)
 	}
 }

@@ -307,6 +307,13 @@ func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
 	return matchesValueType(val, allowed)
 }
 
+// EnumString exposes the verifier's enum-literal formatting to object-model
+// fixers, keeping their PossibleValues membership tests in lockstep with the
+// DisallowedValue check.
+func EnumString(val pdf.PDFValue) (string, bool) {
+	return scalarEnumString(val)
+}
+
 // evalCondArray evaluates a fixed-index row's compiled condition against the owning array,
 // with the same tri-state semantics as evalCond; an out-of-range index is a definite absence.
 func evalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {

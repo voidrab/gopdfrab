@@ -86,11 +86,13 @@ func TestHasFixableIssueRasterGate(t *testing.T) {
 	}
 }
 
-// TestConvertObjectModelDocLevelResidualNotRastered: a document-level objmodel
-// finding whose check has a registered fixer (DisallowedValue) but no repair
-// for this instance must stay a residual without triggering the raster
-// backstop -- flattening pages cannot repair trailer-level dict structure.
-func TestConvertObjectModelDocLevelResidualNotRastered(t *testing.T) {
+// TestConvertObjectModelDeletesDisallowedTrapped: a document-level
+// DisallowedValue on an optional key (/Trapped /Maybe) is repaired by
+// deletion, and the page content stays byte-identical -- proving the fix came
+// from the fixer, never from the raster backstop (which can neither reach nor
+// repair trailer-level dict structure; TestHasFixableIssueRasterGate pins the
+// gate itself).
+func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	data := buildOnePageDoc(t, func(trailer, _, _ pdf.PDFDict) {
 		info := pdf.NewPDFDict()
 		info.Entries["Trapped"] = pdf.PDFName{Value: "Maybe"} // enum allows True/False/Unknown
@@ -110,11 +112,8 @@ func TestConvertObjectModelDocLevelResidualNotRastered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if cr.Result.Valid {
-		t.Fatal("an unrepairable Trapped enum should still be a residual (no fixer handles it yet)")
-	}
-	if !hasIssueForCheck(cr.Residual(), pdf.Checks.ObjectModel.DisallowedValue) {
-		t.Errorf("expected the DisallowedValue residual to survive, got %v", issueClauses(cr.Residual()))
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
 
 	out, err := pdf.OpenBytes(cr.Output)
@@ -125,6 +124,11 @@ func TestConvertObjectModelDocLevelResidualNotRastered(t *testing.T) {
 	graph, err := out.ResolveGraph()
 	if err != nil {
 		t.Fatalf("ResolveGraph(output): %v", err)
+	}
+	if info, ok := graph.(pdf.PDFDict).Entries["Info"].(pdf.PDFDict); ok {
+		if _, still := info.Entries["Trapped"]; still {
+			t.Error("Trapped must be deleted from the output Info dict")
+		}
 	}
 	page := assertOnePageGraph(t, graph)
 	assertContentStream(t, page, onePageContent)
