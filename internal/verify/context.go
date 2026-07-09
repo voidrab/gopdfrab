@@ -2,6 +2,7 @@ package verify
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -184,6 +185,15 @@ func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) 
 func (ctx *ValidationContext) ReportObjModel(c pdf.Check, obj pdf.PDFValue, typeName, key, msg string) {
 	err := ctx.newError(c, obj, []error{errors.New(msg)})
 	ctx.report(err.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: key}))
+}
+
+// ReportObjModelElem is ReportObjModel for an array-element finding: typeName is the
+// array's Arlington type, idx the element index, and entry the owner dict's key holding
+// the array -- "" when the array is nested inside another array (not directly
+// addressable), which fixers must leave as residuals.
+func (ctx *ValidationContext) ReportObjModelElem(c pdf.Check, obj pdf.PDFValue, typeName, entry string, idx int, msg string) {
+	err := ctx.newError(c, obj, []error{errors.New(msg)})
+	ctx.report(err.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: strconv.Itoa(idx), Entry: entry}))
 }
 
 // newError builds a PDFError against obj, resolving the owner ref and current page.

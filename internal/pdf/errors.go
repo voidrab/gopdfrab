@@ -16,10 +16,14 @@ type PDFError struct {
 
 // ObjModelDetail identifies the Arlington schema location behind an
 // object-model finding: the schema type of the reported container and the key
-// (or decimal array index) whose constraint was violated.
+// (or decimal array index) whose constraint was violated. For array-element
+// findings Entry names the owner dict's key holding the array; it is empty for
+// dict findings and for arrays nested inside another array (not directly
+// addressable), which fixers must leave as residuals.
 type ObjModelDetail struct {
 	TypeName string
 	Key      string
+	Entry    string
 }
 
 // NewError constructs a PDFError reporting a violation of c, found on page

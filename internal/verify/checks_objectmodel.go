@@ -170,10 +170,10 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 // fixed-index rows first, the wildcard row for the rest -- must satisfy its allowed types
 // (WrongValueType), enumerated values or compiled value range (DisallowedValue), and
 // indirect-reference requirement (IndirectRequired). Violations are reported against owner,
-// the nearest enclosing dict, so
-// fixers can resolve them by ref. A predicated column suppresses only its own check, as in
-// validateAgainstSchema.
-func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
+// the nearest enclosing dict, so fixers can resolve them by ref; entry is owner's key
+// holding v ("" when v is nested inside another array). A predicated column suppresses
+// only its own check, as in validateAgainstSchema.
+func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, entry string, ctx *ValidationContext) {
 	ot, ok := arlington.Type(typeName)
 	if !ok {
 		return
@@ -192,29 +192,29 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 		fixed[idx] = true
 		if idx >= len(v) {
 			if kd.Required && !kd.Predicated.Required {
-				ctx.ReportObjModel(
+				ctx.ReportObjModelElem(
 					pdf.Checks.ObjectModel.MissingRequiredKey,
-					owner, typeName, strconv.Itoa(idx),
+					owner, typeName, entry, idx,
 					fmt.Sprintf("%s is missing required element %d", typeName, idx),
 				)
 			}
 			continue
 		}
-		validateArrayElement(v[idx], kd, idx, typeName, owner, ctx)
+		validateArrayElement(v[idx], kd, idx, typeName, owner, entry, ctx)
 		if v[idx] != nil && kd.ValueCond != nil {
 			if legal, ok := evalCondArray(kd.ValueCond, v); ok && !legal {
-				ctx.ReportObjModel(
+				ctx.ReportObjModelElem(
 					pdf.Checks.ObjectModel.DisallowedValue,
-					owner, typeName, strconv.Itoa(idx),
+					owner, typeName, entry, idx,
 					fmt.Sprintf("%s element %d has a value outside its legal range", typeName, idx),
 				)
 			}
 		}
 		if v[idx] != nil && kd.SpecialCase != nil {
 			if holds, ok := evalCondArray(kd.SpecialCase, v); ok && !holds {
-				ctx.ReportObjModel(
+				ctx.ReportObjModelElem(
 					pdf.Checks.ObjectModel.ConstraintViolated,
-					owner, typeName, strconv.Itoa(idx),
+					owner, typeName, entry, idx,
 					fmt.Sprintf("%s element %d violates an object-model consistency constraint", typeName, idx),
 				)
 			}
@@ -224,7 +224,7 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 	if ot.Wildcard != nil {
 		for i, item := range v {
 			if !fixed[i] {
-				validateArrayElement(item, ot.Wildcard, i, typeName, owner, ctx)
+				validateArrayElement(item, ot.Wildcard, i, typeName, owner, entry, ctx)
 			}
 		}
 	}
@@ -232,28 +232,28 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 
 // validateArrayElement applies kd's type/value/indirect constraints to element idx of a
 // typeName-typed array, mirroring validateAgainstSchema's per-key logic.
-func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
+func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeName string, owner pdf.PDFValue, entry string, ctx *ValidationContext) {
 	if !kd.Predicated.Types && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
-		ctx.ReportObjModel(
+		ctx.ReportObjModelElem(
 			pdf.Checks.ObjectModel.WrongValueType,
-			owner, typeName, strconv.Itoa(idx),
+			owner, typeName, entry, idx,
 			fmt.Sprintf("%s element %d has an unexpected value type", typeName, idx),
 		)
 		return
 	}
 	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 		if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-			ctx.ReportObjModel(
+			ctx.ReportObjModelElem(
 				pdf.Checks.ObjectModel.DisallowedValue,
-				owner, typeName, strconv.Itoa(idx),
+				owner, typeName, entry, idx,
 				fmt.Sprintf("%s element %d has a value not in its enumerated legal values", typeName, idx),
 			)
 		}
 	}
 	if !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
-		ctx.ReportObjModel(
+		ctx.ReportObjModelElem(
 			pdf.Checks.ObjectModel.IndirectRequired,
-			owner, typeName, strconv.Itoa(idx),
+			owner, typeName, entry, idx,
 			fmt.Sprintf("%s element %d must be an indirect reference", typeName, idx),
 		)
 	}

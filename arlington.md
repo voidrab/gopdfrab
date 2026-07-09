@@ -800,3 +800,27 @@ constraints on named dict rows, now compiled and enforced as `ConstraintViolated
 All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
 convert corpus 510/510) — no real-world corpus file violates the seven couplings; coverage
 arlington 100%, `comparisonOperands`/`lengthCoupledSibling` 100%.
+
+### Stage G2 — array findings carry their owner entry ✅ 2026-07-09
+
+Groundwork for repairing F4's documented array-element residual class: a fixer receiving
+`ObjModelDetail{TypeName: "ArrayOf_4Numbers", Key: "1"}` knew the element index but not
+*which owner entry holds the array* — the walk dropped the dict key on descent, and
+fixer-side scanning for a matching array was rejected as unsound (a stale finding plus a
+coincidentally-matching sibling array mis-repairs the wrong object, the exact trap F1's
+structured detail exists to prevent).
+
+- **`ObjModelDetail.Entry`** (`internal/pdf/errors.go`): for array-element findings, the
+  owner dict's key holding the array; empty for dict findings and for arrays nested inside
+  another array (not directly addressable), which fixers must leave as residuals.
+- **The walk threads `ownerKey`** (`verifier.go`): the dict case passes its entry key, the
+  array element descent and the trailer seed pass `""` — precise and honest, never derived
+  after the fact.
+- **`ctx.ReportObjModelElem`** (sibling of `ReportObjModel`, same `newError` resolver)
+  attaches (typeName, index, entry) at all six array emission sites in
+  `validateArrayAgainstSchema`/`validateArrayElement`. Messages, refs, and page
+  attribution are unchanged — the finding is merely richer.
+
+Pure plumbing gated as usual (full suite, Isartor 204/204, veraPDF 569/569, convert corpus
+510/510); `TestObjModelDetailAttached` now pins `Entry` on every array site, its emptiness
+on every dict site, and the nested-array case. Changed functions 100%.
