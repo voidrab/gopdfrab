@@ -940,6 +940,57 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 		t.Errorf("a scalar Filter must leave the coupling unknown, got %v", ctx.errs)
 	}
 
+	// Bit predicates: reserved FontDescriptor flag bits are an unconditional ISO rule and
+	// flag; annotation F bits are only constrained through version gates, which are dropped
+	// (real files carry post-1.4 flag bits harmlessly -- the KeyIntroducedAfterPDF14 stance).
+	desc := pdf.NewPDFDict()
+	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
+	desc.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14) // Nonsymbolic + reserved bit 15
+	ctx = &ValidationContext{}
+	validateAgainstSchema(desc, "FontDescriptorType1", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for a reserved FontDescriptor flag bit")
+	}
+
+	annot := pdf.NewPDFDict()
+	annot.Entries["Subtype"] = pdf.PDFName{Value: "Text"}
+	annot.Entries["Rect"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}
+	annot.Entries["F"] = pdf.PDFInteger(1 << 9) // bit 10, LockedContents (PDF 1.7)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(annot, "AnnotText", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("post-1.4 annotation flag bits must not be flagged, got %v", ctx.errs)
+	}
+
+	// A negative flag word keeps its two's-complement pattern: bits 13..32 of a standard
+	// permissions value like -44 are set, so CondBitsSet on them holds.
+	perms := pdf.NewPDFDict()
+	perms.Entries["P"] = pdf.PDFInteger(-44)
+	set, ok := evalCond(&arlington.Cond{Op: arlington.CondBitsSet, Key: "P", BitLo: 13, BitHi: 32}, perms)
+	if !set || !ok {
+		t.Errorf("bits 13..32 of -44 must read as set, got (%v, %v)", set, ok)
+	}
+	clear, ok := evalCond(&arlington.Cond{Op: arlington.CondBitsClear, Key: "P", BitLo: 3, BitHi: 3}, perms)
+	if clear != false || !ok {
+		t.Errorf("bit 3 of -44 (print allowed) must read as set, got (%v, %v)", clear, ok)
+	}
+	if _, ok := evalCond(&arlington.Cond{Op: arlington.CondBitsClear, Key: "X", BitLo: 1, BitHi: 1}, perms); ok {
+		t.Error("a bit test on an absent key must fail closed")
+	}
+
+	// Fixed-index rows carry constraints too: an annotation colour array with exactly two
+	// components is malformed (element 1 present requires element 2).
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for a two-component colour annotation array")
+	}
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("a three-component colour array must not be flagged, got %v", ctx.errs)
+	}
+
 	// An odd-length function Domain violates the mod-2 coupling.
 	fn := pdf.NewPDFDict()
 	fn.HasStream = true

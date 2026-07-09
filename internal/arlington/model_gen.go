@@ -558,6 +558,7 @@ var Types = map[string]ObjectType{
 				Types:          []ValueType{Bitmask},
 				SinceVersion:   "1.2",
 				PossibleValues: []string{"0", "1"},
+				SpecialCase:    &Cond{Op: CondBitsClear, Key: "Flags", BitLo: 2, BitHi: 32},
 			},
 		},
 	},
@@ -679,6 +680,7 @@ var Types = map[string]ObjectType{
 				Name:         "Flags",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 13, BitHi: 13}, {Op: CondBitsClear, Key: "Flags", BitLo: 15, BitHi: 32}}},
 			},
 			{
 				Name:           "CharSet",
@@ -3255,6 +3257,7 @@ var Types = map[string]ObjectType{
 				Required:     true,
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "F", BitLo: 1, BitHi: 2}, {Op: CondBitsSet, Key: "F", BitLo: 3, BitHi: 3}, {Op: CondBitsClear, Key: "F", BitLo: 4, BitHi: 6}, {Op: CondBitsSet, Key: "F", BitLo: 7, BitHi: 7}, {Op: CondBitsClear, Key: "F", BitLo: 8, BitHi: 32}}},
 			},
 			{
 				Name:         "AP",
@@ -5177,6 +5180,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Number},
 				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "1", Value: "0"}, {Op: CondLe, Key: "1", Value: "1"}}},
 				SinceVersion: "1.1",
+				SpecialCase:  &Cond{Op: CondPresent, Key: "2"},
 			},
 			{
 				Name:         "2",
@@ -5649,6 +5653,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -6944,6 +6949,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.3",
 				DeprecatedIn: "2.0",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "P", BitLo: 13, BitHi: 32},
 			},
 			{
 				Name:           "Filter",
@@ -7046,6 +7052,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.1",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "P", BitLo: 1, BitHi: 2}, {Op: CondBitsSet, Key: "P", BitLo: 7, BitHi: 8}, {Op: CondBitsSet, Key: "P", BitLo: 13, BitHi: 32}}},
 			},
 			{
 				Name:         "Perms",
@@ -7113,6 +7120,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 32},
 			},
 			{
 				Name:         "AA",
@@ -7178,6 +7186,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 14}, {Op: CondBitsClear, Key: "Ff", BitLo: 16, BitHi: 25}, {Op: CondBitsClear, Key: "Ff", BitLo: 27, BitHi: 32}}},
 				Inheritable:  true,
 			},
 			{
@@ -7281,6 +7290,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 14}, {Op: CondBitsClear, Key: "Ff", BitLo: 16, BitHi: 16}, {Op: CondBitsSet, Key: "Ff", BitLo: 17, BitHi: 17}, {Op: CondBitsClear, Key: "Ff", BitLo: 18, BitHi: 25}, {Op: CondBitsClear, Key: "Ff", BitLo: 27, BitHi: 32}}},
 				Inheritable:  true,
 			},
 			{
@@ -7373,6 +7383,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 14}, {Op: CondBitsSet, Key: "Ff", BitLo: 16, BitHi: 16}, {Op: CondBitsClear, Key: "Ff", BitLo: 17, BitHi: 25}, {Op: CondBitsClear, Key: "Ff", BitLo: 27, BitHi: 32}}},
 				Inheritable:  true,
 			},
 			{
@@ -7476,6 +7487,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 14}, {Op: CondBitsClear, Key: "Ff", BitLo: 21, BitHi: 21}, {Op: CondBitsClear, Key: "Ff", BitLo: 24, BitHi: 26}, {Op: CondBitsClear, Key: "Ff", BitLo: 28, BitHi: 32}}},
 				Inheritable:  true,
 			},
 			{
@@ -7609,6 +7621,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "Ff", BitLo: 4, BitHi: 32},
 				Inheritable:  true,
 			},
 			{
@@ -7710,6 +7723,7 @@ var Types = map[string]ObjectType{
 				Name:         "Ff",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Ff", BitLo: 15, BitHi: 20}, {Op: CondBitsClear, Key: "Ff", BitLo: 22, BitHi: 22}, {Op: CondBitsClear, Key: "Ff", BitLo: 27, BitHi: 32}}},
 				Inheritable:  true,
 			},
 			{
@@ -8337,6 +8351,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -8485,6 +8500,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.2",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -8633,6 +8649,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -8749,6 +8766,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -8869,6 +8887,7 @@ var Types = map[string]ObjectType{
 				Types:        []ValueType{Bitmask},
 				Required:     true,
 				SinceVersion: "1.0",
+				SpecialCase:  &Cond{Op: CondAnd, Kids: []Cond{{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5}, {Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16}, {Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32}}},
 			},
 			{
 				Name:         "FontBBox",
@@ -11576,6 +11595,7 @@ var Types = map[string]ObjectType{
 				Name:         "SigFlags",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "SigFlags", BitLo: 3, BitHi: 32},
 			},
 			{
 				Name:         "CO",
@@ -12772,6 +12792,7 @@ var Types = map[string]ObjectType{
 				Name:         "F",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.4",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "F", BitLo: 3, BitHi: 32},
 			},
 		},
 	},
@@ -16147,6 +16168,7 @@ var Types = map[string]ObjectType{
 				Name:         "F",
 				Types:        []ValueType{Bitmask},
 				SinceVersion: "1.3",
+				SpecialCase:  &Cond{Op: CondBitsClear, Key: "F", BitLo: 4, BitHi: 32},
 			},
 			{
 				Name:         "P",

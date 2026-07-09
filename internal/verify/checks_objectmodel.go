@@ -385,6 +385,20 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 			return false, false
 		}
 		return !arlington.IsStandard14(name.Value), true
+	case arlington.CondBitsClear, arlington.CondBitsSet:
+		sib, present := src.lookup(c.Key)
+		iv, isInt := sib.(pdf.PDFInteger)
+		if !present || !isInt || c.BitLo < 1 || c.BitHi < c.BitLo || c.BitHi > 64 {
+			return false, false
+		}
+		// Bits are 1-based; the uint64 conversion keeps the two's-complement pattern of
+		// negative flag words (e.g. encryption /P).
+		var mask uint64 = (1<<uint(c.BitHi) - 1) &^ (1<<uint(c.BitLo-1) - 1)
+		bits := uint64(iv) & mask
+		if c.Op == arlington.CondBitsClear {
+			return bits == 0, true
+		}
+		return bits == mask, true
 	case arlington.CondNot:
 		if len(c.Kids) != 1 {
 			return false, false

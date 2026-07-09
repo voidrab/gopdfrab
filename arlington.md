@@ -565,3 +565,34 @@ false:
 
 All gates green on the first corpus run; coverage arlington 100%, verify 93.7%, pdf 95.0%,
 convert 91.7%; `BenchmarkOpenVerify` magnitudes unchanged (large ≈ 250ms).
+
+### Stage E2 — bit predicates ✅ 2026-07-09
+
+`fn:BitsClear`/`fn:BitClear`/`fn:BitsSet`/`fn:BitSet` compile to `CondBitsClear`/`CondBitsSet`
+leaves (1-based inclusive `BitLo..BitHi`; the leaf is keyless in the TSV — bit predicates
+implicitly test the value they annotate — so `compileSpecialCase` anchors it to the row's own
+key via `fillBitKeys`, and `condOperandsResolvable` rejects any that were never patched). The
+evaluator converts through uint64, so negative flag words (encryption `/P`) keep their
+two's-complement pattern; a non-integer value is unknown.
+
+Two corpus lessons, both from the L34a real-world regression file:
+
+- **Version-gated bit rules are dropped at fold time** (`treeHasBitLeaf` in the version-gate
+  case): a gated bit is defined in some other PDF version, real files carry such flags
+  harmlessly (L34a: text fields with the PDF 1.5 Comb bit), and no PDF/A validator objects —
+  the `KeyIntroducedAfterPDF14` stance, applied at codegen because the check can't split by
+  profile. What survives is the version-independent residue: FontDescriptor `Flags` reserved
+  bits, per-field-type `Ff` couplings (a pushbutton must have bit 17 set), `SigFlags`,
+  encryption `P` invariants.
+- **Fourth and fifth real convert catches**: L34a's converted output carried font descriptors
+  with reserved `Flags` bit 15 set and text fields with undefined `Ff` bits. The extended
+  `descriptorFlagsFixer` (`fixups_objectmodel.go`) masks off exactly the bits the model
+  requires clear — `mustBeClearMask` derives each mask from the compiled `SpecialCase` tree's
+  conjunctive `CondBitsClear` leaves (Or/Not subtrees contribute nothing), so the fixer stays
+  in sync with the model; clearing reserved bits is conformance-neutral since readers must
+  ignore them. `CondBitsSet` violations are deliberately not auto-fixed (setting a semantic
+  bit is never neutral).
+
+`fn:IsPresent` also learned element-index operands, compiling the last index-row SpecialCase
+(`ArrayOf_4NumbersColorAnnotation`: element 1 requires element 2) and exercising the array
+path end to end. All gates green; coverage arlington 100%, verify 93.8%, convert ≥91.6%.

@@ -497,8 +497,8 @@ func TestSpecialCaseConstraints(t *testing.T) {
 			t.Errorf("%s: wildcard rows must not carry SpecialCase (no position to resolve against)", ot.Name)
 		}
 	}
-	if total < 190 {
-		t.Errorf("compiled SpecialCase constraints dropped to %d, floor is 190", total)
+	if total < 210 {
+		t.Errorf("compiled SpecialCase constraints dropped to %d, floor is 210", total)
 	}
 	t.Logf("compiled SpecialCase constraints: %d", total)
 
@@ -509,11 +509,25 @@ func TestSpecialCaseConstraints(t *testing.T) {
 		t.Errorf("Stream.DecodeParms: want SpecialCase %+v, got %+v", wantDP, dp)
 	}
 
-	// Version-gated bit predicates fold their gates but the payload stays uncompilable
-	// until the bit-predicate stage: annotation F rows carry no constraint yet.
+	// Version-gated bit rules are dropped: the gated bits are defined in some other PDF
+	// version and real files carry them harmlessly (the KeyIntroducedAfterPDF14 stance), so
+	// annotation F rows compile no constraint at all.
 	f := findKey(Types["AnnotText"], "F")
 	if f == nil || f.SpecialCase != nil {
-		t.Errorf("AnnotText.F: want no SpecialCase (bit predicates not yet compiled), got %+v", f)
+		t.Errorf("AnnotText.F: want no SpecialCase (version-gated bit rule), got %+v", f)
+	}
+
+	// FontDescriptor Flags reserved bits (5, 8..16, 20..32) must be clear -- the
+	// version-independent conjunction compiles whole, anchored to the row's own key by
+	// fillBitKeys.
+	flags := findKey(Types["FontDescriptorType1"], "Flags")
+	wantFlags := &Cond{Op: CondAnd, Kids: []Cond{
+		{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5},
+		{Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16},
+		{Op: CondBitsClear, Key: "Flags", BitLo: 20, BitHi: 32},
+	}}
+	if flags == nil || !reflect.DeepEqual(flags.SpecialCase, wantFlags) {
+		t.Errorf("FontDescriptorType1.Flags: want SpecialCase %+v, got %+v", wantFlags, flags)
 	}
 
 	// fn:Eval((fn:ArrayLength(Domain) mod 2)==0) -- derived operand with modulus.

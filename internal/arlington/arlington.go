@@ -148,6 +148,11 @@ const (
 	// (fn:NotStandard14Font). A subset-tagged name (ABCDEF+Helvetica) is not a standard font;
 	// an absent or non-name value leaves the condition unknown.
 	CondNotStd14
+	// CondBitsClear / CondBitsSet test bits BitLo..BitHi (1-based, inclusive) of Key's
+	// integer value: all clear, or all set (fn:BitsClear/fn:BitClear/fn:BitsSet/fn:BitSet --
+	// the single-bit forms compile with BitLo == BitHi). A non-integer value is unknown.
+	CondBitsClear
+	CondBitsSet
 )
 
 // CondFn transforms a comparison operand: the key's value itself, or a derived quantity.
@@ -177,8 +182,10 @@ type Cond struct {
 	RHSFn  CondFn
 	// Mod, when nonzero, compares the (integer) left operand modulo Mod against Value
 	// ("(@Rotate mod 90)==0"); only generated with CondEq/CondNe and a literal right side.
-	Mod  int
-	Kids []Cond
+	Mod int
+	// BitLo/BitHi delimit the 1-based bit range CondBitsClear/CondBitsSet test.
+	BitLo, BitHi int
+	Kids         []Cond
 }
 
 // PinnedValue pins a key to one specific value whenever its condition holds

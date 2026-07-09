@@ -380,6 +380,9 @@ func condLiteral(c condExpr) string {
 	if c.mod != 0 {
 		parts = append(parts, fmt.Sprintf("Mod: %d", c.mod))
 	}
+	if c.bitLo != 0 {
+		parts = append(parts, fmt.Sprintf("BitLo: %d, BitHi: %d", c.bitLo, c.bitHi))
+	}
 	if len(c.kids) > 0 {
 		var ks []string
 		for _, k := range c.kids {
@@ -668,10 +671,25 @@ func compileSpecialCase(raw, rowName string) *condExpr {
 		return nil
 	}
 	res := compileCond(distinct)
-	if !res.ok || res.tree == nil || !condOperandsResolvable(res.tree, rowName) {
+	if !res.ok || res.tree == nil {
+		return nil
+	}
+	fillBitKeys(res.tree, rowName)
+	if !condOperandsResolvable(res.tree, rowName) {
 		return nil
 	}
 	return res.tree
+}
+
+// fillBitKeys anchors keyless bit-predicate leaves to the row's own key -- fn:BitsClear and
+// friends implicitly test the value they annotate.
+func fillBitKeys(c *condExpr, rowName string) {
+	if (c.op == "CondBitsClear" || c.op == "CondBitsSet") && c.key == "" {
+		c.key = rowName
+	}
+	for i := range c.kids {
+		fillBitKeys(&c.kids[i], rowName)
+	}
 }
 
 // parseIndirectReference resolves the IndirectReference column to a single IndirectRule.
@@ -826,6 +844,8 @@ type condExpr struct {
 	rhsKey     string // right operand is another entry's value instead of the value literal
 	rhsFn      string
 	mod        int // nonzero for "(<operand> mod N) == value" comparisons
+	bitLo      int // 1-based inclusive bit range for the CondBits* ops
+	bitHi      int
 	kids       []condExpr
 }
 
@@ -923,7 +943,7 @@ func compileCond(expr string) condResult {
 			return treeCond(condExpr{op: "CondNot", kids: []condExpr{*res.tree}})
 		}
 	case "fn:IsPresent":
-		if len(args) == 1 && plainKey(args[0]) {
+		if len(args) == 1 && (plainKey(args[0]) || indexKey(args[0])) {
 			return treeCond(condExpr{op: "CondPresent", key: args[0]})
 		}
 		return condResult{}
@@ -941,6 +961,19 @@ func compileCond(expr string) condResult {
 			return treeCond(condExpr{op: "CondNotStd14", key: "BaseFont"})
 		}
 		return condResult{}
+	case "fn:BitClear", "fn:BitSet", "fn:BitsClear", "fn:BitsSet":
+		// Bit predicates implicitly test the row's own key; compileSpecialCase fills the
+		// key in afterwards (they occur only in that column), so the leaf compiles keyless
+		// here and condOperandsResolvable rejects any that were never patched.
+		op := "CondBitsClear"
+		if name == "fn:BitSet" || name == "fn:BitsSet" {
+			op = "CondBitsSet"
+		}
+		lo, hi, ok := parseBitRange(name, args)
+		if !ok {
+			return condResult{}
+		}
+		return treeCond(condExpr{op: op, bitLo: lo, bitHi: hi})
 	case "fn:Eval":
 		if len(args) != 1 {
 			return condResult{}
@@ -981,9 +1014,30 @@ func compileCond(expr string) condResult {
 		if len(args) == 1 {
 			return constCond(true)
 		}
-		return compileCond(args[1])
+		res := compileCond(args[1])
+		if res.ok && res.tree != nil && treeHasBitLeaf(*res.tree) {
+			// A version-gated bit rule means those bits are defined in some other PDF
+			// version; real files carry such flags harmlessly and no PDF/A validator
+			// objects (the KeyIntroducedAfterPDF14 precedent), so the payload is dropped.
+			// Unconditional bit rules (reserved-forever bits) still compile.
+			return condResult{ok: true, vacuous: true}
+		}
+		return res
 	}
 	return condResult{}
+}
+
+// treeHasBitLeaf reports whether any leaf of c is a bit predicate.
+func treeHasBitLeaf(c condExpr) bool {
+	if c.bitLo != 0 {
+		return true
+	}
+	for _, k := range c.kids {
+		if treeHasBitLeaf(k) {
+			return true
+		}
+	}
+	return false
 }
 
 // compileBool combines the operands of a top-level || (and=false) or && (and=true): one
@@ -1092,6 +1146,29 @@ func splitModOperand(lhs string) (c condExpr, ok bool) {
 	return c, ok
 }
 
+// parseBitRange resolves a bit predicate's arguments to a 1-based inclusive bit range:
+// one bit position for the singular forms, lo..hi for the plural ones.
+func parseBitRange(name string, args []string) (lo, hi int, ok bool) {
+	single := name == "fn:BitClear" || name == "fn:BitSet"
+	if (single && len(args) != 1) || (!single && len(args) != 2) {
+		return 0, 0, false
+	}
+	lo, err := strconv.Atoi(args[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	hi = lo
+	if !single {
+		if hi, err = strconv.Atoi(args[1]); err != nil {
+			return 0, 0, false
+		}
+	}
+	if lo < 1 || hi < lo || hi > 64 {
+		return 0, 0, false
+	}
+	return lo, hi, true
+}
+
 // parseOperand recognizes a comparison operand: "@Key", or a derived quantity
 // "fn:ArrayLength(Key)" / "fn:StringLength(Key)" (the argument may carry an @ prefix).
 // fn is the Go Fn* identifier, empty for a plain value operand.
@@ -1173,6 +1250,9 @@ func condOperandsResolvable(tree *condExpr, rowName string) bool {
 	operands := 0
 	var walk func(c condExpr) bool
 	walk = func(c condExpr) bool {
+		if c.bitLo != 0 && c.key == "" {
+			return false // a bit predicate outside SpecialCase has no key to test
+		}
 		for _, k := range []string{c.key, c.rhsKey} {
 			if k == "" {
 				continue
