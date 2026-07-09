@@ -641,3 +641,27 @@ code 100%.
   corrects the check count (six, not five).
 
 All gates green; convert coverage 91.6% (floor holds), `hasFixableIssue` 100%.
+
+### Stage F3 — MissingRequiredKey fixer ✅ 2026-07-09
+
+The first fixer built on F1's structured detail, and the first *targeted-only* objmodel
+fixer (`missingRequiredKeyFixer`, `fixups_objectmodel.go`): its `Fix` is a no-op because
+without the walk's type propagation a graph re-scan cannot know which schema a dict was
+validated under — the finding's `ObjModelDetail` is the only sound source of (type, key).
+
+- **Single-legal-value injection**: a missing required key whose row enumerates exactly one
+  unpredicated value is injected (`/Type /Catalog`, `/Type /Font`, ... — the common
+  real-world "missing /Type" defect class).
+- **Pinned-value injection**: a missing key with a `PinnedValue` whose condition definitely
+  holds gets the pin (`EncryptionStandard.R` = 2 when V=1), via the newly exported
+  `verify.EvalCond` — fixers share the verifier's tri-state semantics instead of
+  reimplementing them.
+- **Fail-closed boundaries**: array-element findings (decimal detail keys — no Arlington
+  dict type names a digit key) are never synthesized into the owner dict; multi-value enums
+  (`PageObject.Type`: Page|Template), predicated Values columns, unknown types/keys,
+  ref-less findings, and present-but-stale findings all skip. An explicit null is
+  overwritten (null ≡ absent).
+- `TestConvertObjectModelInjectsMissingType` proves it end to end: a catalog without
+  `/Type` converts to a fully valid rewrite under `ObjectModelOnly()`.
+
+All gates green on the first corpus run; convert 91.7%, every new function 100%.

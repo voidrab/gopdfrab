@@ -293,6 +293,13 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 	return evalCondOn(c, dictOperands{v})
 }
 
+// EvalCond exposes evalCond's tri-state semantics to object-model fixers,
+// which must only apply a schema-derived repair when its condition is
+// definitely settled.
+func EvalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
+	return evalCond(c, v)
+}
+
 // evalCondArray evaluates a fixed-index row's compiled condition against the owning array,
 // with the same tri-state semantics as evalCond; an out-of-range index is a definite absence.
 func evalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {
