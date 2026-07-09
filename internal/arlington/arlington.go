@@ -194,3 +194,16 @@ func Type(name string) (ObjectType, bool) {
 	t, ok := Types[name]
 	return t, ok
 }
+
+// SelfIdentified returns the one Arlington type an untyped dictionary's own /Type (and
+// /Subtype) names unambiguously identify, or "" when the pair is unknown or ambiguous.
+// The generated table only contains pairs exactly one type in the model is consistent with,
+// so re-anchoring on the result never guesses.
+func SelfIdentified(typeVal, subtypeVal string) string {
+	if subtypeVal != "" {
+		if n, ok := selfIdentified[[2]string{typeVal, subtypeVal}]; ok {
+			return n
+		}
+	}
+	return selfIdentified[[2]string{typeVal, ""}]
+}

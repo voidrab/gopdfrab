@@ -459,3 +459,76 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestSelfIdentified pins representative entries of the generated self-identification table:
+// unambiguous (Type, Subtype) pairs resolve, colliding or unknown ones stay "".
+func TestSelfIdentified(t *testing.T) {
+	cases := []struct {
+		typ, sub, want string
+	}{
+		{"Page", "", "PageObject"},
+		{"Template", "", "PageObject"},
+		{"Catalog", "", "Catalog"},
+		{"Annot", "Text", "AnnotText"},
+		{"Font", "Type1", "FontType1"},
+		{"Metadata", "XML", "Metadata"},
+		{"StructElem", "", "StructElem"},
+		// An unknown subtype falls back to the bare (Type, "") claim when one exists.
+		{"Page", "Odd", "PageObject"},
+		// Four FontDescriptor* types collide on the bare pair; XObject types collide on Form.
+		{"FontDescriptor", "", ""},
+		{"XObject", "Form", ""},
+		// Annot alone (no Subtype) is claimed by every annotation type, so it stays ambiguous.
+		{"Annot", "", ""},
+		{"Metadata", "", ""},
+		{"Nope", "", ""},
+	}
+	for _, c := range cases {
+		if got := SelfIdentified(c.typ, c.sub); got != c.want {
+			t.Errorf("SelfIdentified(%q, %q) = %q, want %q", c.typ, c.sub, got, c.want)
+		}
+	}
+}
+
+// TestRequiredOverrides pins the generator's relaxations of vendored Required rows no PDF/A
+// validator enforces (see requiredOverrides in gen.go).
+func TestRequiredOverrides(t *testing.T) {
+	for _, c := range [][2]string{
+		{"XObjectFormType1", "Resources"},
+		{"PageObject", "LastModified"},
+		{"StructElem", "P"},
+	} {
+		ot, ok := Type(c[0])
+		if !ok {
+			t.Fatalf("type %s missing", c[0])
+		}
+		kd := findKey(ot, c[1])
+		if kd == nil {
+			t.Fatalf("%s.%s missing", c[0], c[1])
+		}
+		if kd.Required || kd.RequiredWhen != nil || kd.Predicated.Required {
+			t.Errorf("%s.%s: Required=%v RequiredWhen=%v Predicated.Required=%v, want fully optional",
+				c[0], c[1], kd.Required, kd.RequiredWhen, kd.Predicated.Required)
+		}
+	}
+}
+
+// TestColourSpaceArrayDiscriminator pins the array-index discriminator on colour-space
+// links: the first element's name picks the candidate.
+func TestColourSpaceArrayDiscriminator(t *testing.T) {
+	m, ok := Type("ColorSpaceMap")
+	if !ok {
+		t.Fatal("ColorSpaceMap missing")
+	}
+	rgb := findKey(m, "DefaultRGB")
+	if rgb == nil || len(rgb.LinkGroups) != 1 {
+		t.Fatalf("DefaultRGB LinkGroups = %+v, want one group", rgb)
+	}
+	g := rgb.LinkGroups[0]
+	if g.Discriminator != "0" {
+		t.Errorf("DefaultRGB discriminator = %q, want \"0\"", g.Discriminator)
+	}
+	if g.ByValue["ICCBased"] != "ICCBasedColorSpace" {
+		t.Errorf("ByValue[ICCBased] = %q, want ICCBasedColorSpace", g.ByValue["ICCBased"])
+	}
+}

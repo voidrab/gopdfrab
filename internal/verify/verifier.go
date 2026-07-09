@@ -594,6 +594,11 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 		switch v := node.(type) {
 		case pdf.PDFDict:
+			// A subtree that lost its schema type can re-anchor when the dict's own
+			// /Type (+/Subtype) names identify exactly one Arlington type.
+			if expectedType == "" {
+				expectedType = selfIdentifiedType(v)
+			}
 			ptr := pdf.ValuePointer(v.Entries)
 			first := !visited[ptr]
 			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {

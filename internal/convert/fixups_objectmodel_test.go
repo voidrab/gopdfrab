@@ -30,3 +30,37 @@ func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
 	}
 }
+
+func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	fd := pdf.NewPDFDict()
+	fd.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
+	fd.Entries["Descent"] = pdf.PDFInteger(205)
+	trailer.Entries["FD"] = fd
+	fdReal := pdf.NewPDFDict()
+	fdReal.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
+	fdReal.Entries["Descent"] = pdf.PDFReal(12.5)
+	trailer.Entries["FDReal"] = fdReal
+	other := pdf.NewPDFDict()
+	other.Entries["Descent"] = pdf.PDFInteger(300) // not a FontDescriptor
+	trailer.Entries["Other"] = other
+
+	changed, err := descentSignFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
+	}
+	if got := fd.Entries["Descent"]; got != pdf.PDFInteger(-205) {
+		t.Errorf("integer Descent = %v, want -205", got)
+	}
+	if got := fdReal.Entries["Descent"]; got != pdf.PDFReal(-12.5) {
+		t.Errorf("real Descent = %v, want -12.5", got)
+	}
+	if got := other.Entries["Descent"]; got != pdf.PDFInteger(300) {
+		t.Errorf("non-descriptor Descent = %v, want untouched 300", got)
+	}
+
+	changed, err = descentSignFixer{}.Fix(&trailer, nil)
+	if err != nil || changed {
+		t.Errorf("second Fix: changed=%v err=%v, want idempotent no-op", changed, err)
+	}
+}

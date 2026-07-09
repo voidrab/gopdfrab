@@ -71,11 +71,11 @@ Arlington has no data for.
 
 ## Room for improvement
 
-Prioritized. Items 1–4 and 9 are done, and item 5 is implemented through stages B1–B4
+Prioritized. Items 1–4, 6–7 and 9 are done, and item 5 is implemented through stages B1–B4
 (what stays predicated: cross-object `::`/`parent::` paths, domain predicates like
 `fn:NotStandard14Font`, `mod`/`fn:ArrayLength`/`fn:FileSize` operands, and the
 unenforceable `fn:MustBeDirect` family) — see "Implementation progress" at the bottom.
-Items 6–7 are next; item 8 stays a documented false-negative class.
+Item 8 stays a documented false-negative class.
 
 1. **`VerifyObjectModel` pays full PDF/A verification cost.** The `ObjectModel` level
    reuses `verifyPdfA1b` wholesale: content streams are decoded, font programs parsed, XMP
@@ -381,3 +381,45 @@ comment recording this analysis. This is a permanent, documented false-negative 
 same standing as the array-indirect-required niche in the maintainer reference — unless
 the resolver ever learns to mark scalar indirection, which its perf constraints argue
 against.
+
+### Stage C — type re-anchoring + array-first-element discrimination (review items 6+7) ✅ 2026-07-09
+
+Two recovery mechanisms for descents that lost their schema type, both data-driven and
+fail-closed:
+
+- **Self-identification table** (`writeSelfIdentified` in `gen.go` →
+  `arlington.SelfIdentified`): each type claims every (`/Type`, `/Subtype`) value pair its
+  enumerated PossibleValues allow — multi-value rows (`PageObject`'s `[Page,Template]`)
+  claim each value, so overlapping claims collide and are dropped; a bare (`Type`, `""`)
+  claim survives only when no other type constrains that `Type` value at all. 49
+  unambiguous pairs are generated; the four `FontDescriptor*` types and the `XObject`
+  subtypes collide away as designed. The walk's dict case re-anchors an untyped dict via
+  `selfIdentifiedType` before schema validation.
+- **Array-index discriminators** (`resolveLinkGroups`): `bestDiscriminator` already emitted
+  fixed index `"0"` with a `ByValue` map for colour-space-shaped candidate groups; the
+  runtime side now resolves a numeric discriminator against the array element (e.g.
+  `[/ICCBased ...]` → `ICCBasedColorSpace`, 22 groups in the model). Out-of-range index or
+  non-scalar element fails closed.
+
+**The re-anchor was the first time page subtrees got typed at all**: `PageTreeNode.Kids`
+links to `[PageTreeNode, PageObject]`, and `PageObject`'s multi-value `/Type` means no
+discriminator, so every page arrived untyped until `/Type /Page` self-identified it. That
+newly exposed three Arlington-vs-validator conflicts on the pass corpora, resolved as:
+
+- **`requiredOverrides` in `gen.go`** — a documented codegen exception list for Required
+  rows no PDF/A validator enforces: `XObjectFormType1.Resources` (spec itself says
+  "optional but strongly recommended"), `PageObject.LastModified` (required-if-PieceInfo
+  in ISO 32000, universally omitted), `StructElem.P` (same standing). Overriding at
+  generation keeps the runtime clean and the decision greppable.
+- **Rounding tolerance in `evalCond` ordering ops** — real files carry `/CA 1.0000001`;
+  veraPDF accepts it as 1.0. Values within 1e-5 of the bound compare equal, matching the
+  tolerance the hand-written transparency checks already use.
+- **`descentSignFixer` in convert** (`fixups_objectmodel.go`) — a real catch, not a false
+  positive: fonts that store `/Descent` as a magnitude (`205`) violate ISO 32000's
+  non-positive requirement; the fixer negates it in place. Third real conformance defect
+  this integration has surfaced in convert's output.
+
+Gates: full suite green, Isartor 204/204, veraPDF 569/569 (0 false positives), convert
+corpus 510/510; coverage arlington 100%, verify 93.5%, convert 91.7%. Benchstat: geomean
++1.4% (noise); the 10k-page `large` fixture is +14% (300ms → 343ms, p=0.002) — the honest
+price of schema-validating ten thousand pages that previously went entirely unchecked.

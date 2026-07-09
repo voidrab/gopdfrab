@@ -132,6 +132,11 @@ func main() {
 		for _, r := range rows {
 			totalRows++
 			kd := buildKeyDef(r)
+			if req, ok := requiredOverrides[[2]string{typeName, kd.name}]; ok {
+				kd.required = req
+				kd.requiredWhen = nil
+				kd.predicated.required = false
+			}
 			if !kd.predicated.any() {
 				simpleRows++
 			}
@@ -170,6 +175,8 @@ func main() {
 		b.WriteString("},\n")
 	}
 	b.WriteString("}\n")
+
+	writeSelfIdentified(&b, types)
 
 	fraction := 0.0
 	if totalRows > 0 {
@@ -245,6 +252,62 @@ func writeKeyDefFields(b *strings.Builder, kd keyDef) {
 		}
 		fmt.Fprintf(b, "Predicated: Predication{%s},\n", strings.Join(cols, ", "))
 	}
+}
+
+// writeSelfIdentified emits the unambiguous self-identification table: (Type value, Subtype
+// value) pairs that exactly one Arlington type is consistent with. Each type claims every
+// (Type, Subtype) combination its enumerated PossibleValues allow, so overlapping claims
+// collide and are dropped; a bare (Type, "") claim survives only when no other type
+// constrains that Type value at all. Fail closed: any collision drops the pair. Predicated
+// or unconstrained Type/Subtype rows do not occur in the vendored 1.4 set.
+func writeSelfIdentified(b *strings.Builder, types []typeEntry) {
+	enumPV := func(keys []keyDef, name string) []string {
+		for _, kd := range keys {
+			if kd.name == name && !kd.predicated.values {
+				return kd.possibleValues
+			}
+		}
+		return nil
+	}
+	claims := map[[2]string][]string{}
+	for _, t := range types {
+		tvs := enumPV(t.keys, "Type")
+		svs := enumPV(t.keys, "Subtype")
+		if len(svs) == 0 {
+			svs = []string{""}
+		}
+		for _, tv := range tvs {
+			for _, sv := range svs {
+				claims[[2]string{tv, sv}] = append(claims[[2]string{tv, sv}], t.name)
+			}
+		}
+	}
+	perType := map[string]int{}
+	for k := range claims {
+		perType[k[0]]++
+	}
+	var keys [][2]string
+	for k, names := range claims {
+		if len(names) != 1 {
+			continue
+		}
+		if k[1] == "" && perType[k[0]] > 1 {
+			continue // another type also constrains this Type value: a bare match is ambiguous
+		}
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i][0] != keys[j][0] {
+			return keys[i][0] < keys[j][0]
+		}
+		return keys[i][1] < keys[j][1]
+	})
+	b.WriteString("\nvar selfIdentified = map[[2]string]string{\n")
+	for _, k := range keys {
+		fmt.Fprintf(b, "{%q, %q}: %q,\n", k[0], k[1], claims[k][0])
+	}
+	b.WriteString("}\n")
+	fmt.Fprintf(os.Stderr, "arlington: %d self-identifying (Type, Subtype) pairs\n", len(keys))
 }
 
 // compileValueCond compiles a PossibleValues column that is exactly one whole-group
@@ -455,6 +518,17 @@ func parseTSV(path string) ([]row, error) {
 		})
 	}
 	return rows, sc.Err()
+}
+
+// requiredOverrides relaxes vendored (type, key) rows whose Required constraint no PDF/A
+// validator enforces, so keeping them would flag files the pass corpora accept.
+var requiredOverrides = map[[2]string]bool{
+	// PDF 1.4 Table 4.41 says "optional but strongly recommended"; Arlington marks it TRUE.
+	{"XObjectFormType1", "Resources"}: false,
+	// Required-if-PieceInfo-present in ISO 32000; unenforced by validators on real files.
+	{"PageObject", "LastModified"}: false,
+	// Required in ISO 32000, but real files omit it and no validator flags that.
+	{"StructElem", "P"}: false,
 }
 
 // buildKeyDef converts one TSV row into its Go source representation, marking each column

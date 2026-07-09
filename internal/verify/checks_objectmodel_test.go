@@ -740,6 +740,7 @@ func TestEvalCond(t *testing.T) {
 func TestEvalCondOrdering(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries["CA"] = pdf.PDFReal(0.5)
+	d.Entries["CA1"] = pdf.PDFReal(1.0000001)
 	d.Entries["LC"] = pdf.PDFInteger(2)
 	d.Entries["Name"] = pdf.PDFName{Value: "X"}
 
@@ -754,6 +755,9 @@ func TestEvalCondOrdering(t *testing.T) {
 		{"lt int", arlington.Cond{Op: arlington.CondLt, Key: "LC", Value: "3"}, true, true},
 		{"absent fails closed", arlington.Cond{Op: arlington.CondGe, Key: "X", Value: "0"}, false, false},
 		{"non-numeric fails closed", arlington.Cond{Op: arlington.CondGe, Key: "Name", Value: "0"}, false, false},
+		// Rounding tolerance: values within 1e-5 of the bound compare equal.
+		{"le tolerates rounding", arlington.Cond{Op: arlington.CondLe, Key: "CA1", Value: "1"}, true, true},
+		{"gt respects tolerance", arlington.Cond{Op: arlington.CondGt, Key: "CA1", Value: "1"}, false, true},
 	}
 	for _, tc := range cases {
 		val, ok := evalCond(&tc.cond, d)
@@ -779,6 +783,15 @@ func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Errorf("a CA within [0,1] must not be flagged, got %v", ctx.errs)
+	}
+
+	// Real files carry rounded values like 1.0000001; validators accept them as 1.0.
+	gs = pdf.NewPDFDict()
+	gs.Entries["CA"] = pdf.PDFReal(1.0000001)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a CA within rounding tolerance of 1 must not be flagged, got %v", ctx.errs)
 	}
 
 	// A value of the wrong shape is the type check's business, not the range check's.
@@ -843,5 +856,93 @@ func TestValidateAgainstSchema_WildcardDictEnum(t *testing.T) {
 	validateAgainstSchema(m, "ColorSpaceMap", ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("unexpected violations for a conformant colour space map: %v", ctx.errs)
+	}
+}
+
+// TestSelfIdentifiedType covers the re-anchor lookup: unambiguous /Type (+/Subtype) pairs
+// resolve, ambiguous or malformed ones stay "".
+func TestSelfIdentifiedType(t *testing.T) {
+	mk := func(typ, sub string) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		if typ != "" {
+			d.Entries["Type"] = pdf.PDFName{Value: typ}
+		}
+		if sub != "" {
+			d.Entries["Subtype"] = pdf.PDFName{Value: sub}
+		}
+		return d
+	}
+	cases := []struct {
+		d    pdf.PDFDict
+		want string
+	}{
+		{mk("Page", ""), "PageObject"},
+		{mk("Annot", "Text"), "AnnotText"},
+		{mk("FontDescriptor", ""), ""}, // four types collide on this pair
+		{mk("", ""), ""},               // no /Type at all
+	}
+	for _, c := range cases {
+		if got := selfIdentifiedType(c.d); got != c.want {
+			t.Errorf("selfIdentifiedType(%v) = %q, want %q", c.d.Entries, got, c.want)
+		}
+	}
+
+	// A non-name /Type never re-anchors.
+	d := pdf.NewPDFDict()
+	d.Entries["Type"] = pdf.PDFInteger(3)
+	if got := selfIdentifiedType(d); got != "" {
+		t.Errorf("selfIdentifiedType(non-name Type) = %q, want \"\"", got)
+	}
+}
+
+// TestWalkReanchorsSelfIdentifyingDict reaches a /Type /Page dict only through an untyped
+// custom trailer key: the walk must re-anchor it as PageObject and flag its missing Parent.
+func TestWalkReanchorsSelfIdentifyingDict(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["XOrphan"] = page
+	trailer.Entries["Size"] = pdf.PDFInteger(2)
+
+	ctx := &ValidationContext{}
+	verifyDocument(trailer, ctx)
+
+	found := false
+	for _, e := range ctx.errs {
+		if e.Check() != pdf.Checks.ObjectModel.MissingRequiredKey {
+			continue
+		}
+		for _, m := range e.Messages() {
+			if strings.Contains(m, "PageObject") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a PageObject MissingRequiredKey via re-anchoring, got %v", ctx.errs)
+	}
+}
+
+// TestArlingtonChildTypeColourSpaceArray covers array-first-element discrimination: the
+// name at index 0 of a colour-space array picks the candidate type.
+func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+
+	icc := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
+	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", icc); got != "ICCBasedColorSpace" {
+		t.Errorf("arlingtonChildType(DefaultRGB, [/ICCBased ...]) = %q, want ICCBasedColorSpace", got)
+	}
+
+	// Unknown first element, an empty array, and a non-scalar discriminator all fail closed.
+	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "Bogus"}}); got != "" {
+		t.Errorf("unknown colour-space family resolved to %q, want \"\"", got)
+	}
+	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{}); got != "" {
+		t.Errorf("empty colour-space array resolved to %q, want \"\"", got)
+	}
+	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{stream}); got != "" {
+		t.Errorf("non-scalar discriminator resolved to %q, want \"\"", got)
 	}
 }

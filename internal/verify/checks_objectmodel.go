@@ -244,15 +244,18 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 		if !numeric || err != nil {
 			return false, false
 		}
+		// Values within 1e-5 of the bound compare equal, matching the tolerance the
+		// hand-written checks use for rounded reals (e.g. /CA 1.0000001 passes CA <= 1).
+		const eps = 1e-5
 		switch c.Op {
 		case arlington.CondLt:
-			return n < bound, true
+			return n < bound-eps, true
 		case arlington.CondLe:
-			return n <= bound, true
+			return n <= bound+eps, true
 		case arlington.CondGt:
-			return n > bound, true
+			return n > bound+eps, true
 		default:
-			return n >= bound, true
+			return n >= bound-eps, true
 		}
 	case arlington.CondNot:
 		if len(c.Kids) != 1 {
@@ -278,6 +281,20 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 		return !decisive, true
 	}
 	return false, false
+}
+
+// selfIdentifiedType re-anchors an untyped dict by its own /Type (+/Subtype) names via the
+// generated unambiguous-identification table; "" when they do not identify exactly one type.
+func selfIdentifiedType(v pdf.PDFDict) string {
+	t, ok := v.Entries["Type"].(pdf.PDFName)
+	if !ok {
+		return ""
+	}
+	sub := ""
+	if s, ok := v.Entries["Subtype"].(pdf.PDFName); ok {
+		sub = s.Value
+	}
+	return arlington.SelfIdentified(t.Value, sub)
 }
 
 // numericValue converts a PDF integer or real to float64 for range conditions.
@@ -401,12 +418,14 @@ func arlingtonElementType(arrayType string, item pdf.PDFValue) string {
 
 // resolveLinkGroups picks the LinkGroup matching val's Go-level kind, then resolves it to a
 // single Arlington candidate: directly if there is exactly one, or via the group's
-// Discriminator key (e.g. Subtype, S, FunctionType) otherwise. Any step that doesn't produce an
-// exact match -- no group matches val's kind, no discriminator was found at generation time, the
-// discriminator key is absent, or its value is unrecognized -- returns "": never propagate a
-// guessed type. A group with nil ValueTypes (the key's only Type alternative) still requires
-// val's kind to match the key's declared keyTypes, so a mis-shaped value (e.g. a stream where
-// a dictionary is declared) never inherits a wrong-shaped schema.
+// Discriminator otherwise -- a key name on dict values (e.g. Subtype, S, FunctionType), a
+// fixed element index on array values (e.g. "0" for colour-space arrays like [/ICCBased ...]).
+// Any step that doesn't produce an exact match -- no group matches val's kind, no
+// discriminator was found at generation time, the discriminator is absent, or its value is
+// unrecognized -- returns "": never propagate a guessed type. A group with nil ValueTypes
+// (the key's only Type alternative) still requires val's kind to match the key's declared
+// keyTypes, so a mis-shaped value (e.g. a stream where a dictionary is declared) never
+// inherits a wrong-shaped schema.
 func resolveLinkGroups(groups []arlington.LinkGroup, keyTypes []arlington.ValueType, val pdf.PDFValue) string {
 	if val == nil {
 		return ""
@@ -428,11 +447,20 @@ func resolveLinkGroups(groups []arlington.LinkGroup, keyTypes []arlington.ValueT
 			if g.Discriminator == "" {
 				return ""
 			}
-			d, ok := val.(pdf.PDFDict)
-			if !ok {
+			var dv pdf.PDFValue
+			switch tv := val.(type) {
+			case pdf.PDFDict:
+				dv = tv.Entries[g.Discriminator]
+			case pdf.PDFArray:
+				idx, err := strconv.Atoi(g.Discriminator)
+				if err != nil || idx < 0 || idx >= len(tv) {
+					return ""
+				}
+				dv = tv[idx]
+			default:
 				return ""
 			}
-			s, ok := scalarEnumString(d.Entries[g.Discriminator])
+			s, ok := scalarEnumString(dv)
 			if !ok {
 				return ""
 			}

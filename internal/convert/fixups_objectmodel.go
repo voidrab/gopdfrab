@@ -7,6 +7,7 @@ import (
 
 func init() {
 	registerFixer(indirectRequiredFixer{})
+	registerFixer(descentSignFixer{})
 }
 
 // indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
@@ -48,6 +49,37 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 			child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
 			next++
 			changed = true
+		}
+	})
+	return changed, nil
+}
+
+// descentSignFixer remediates the object model's DisallowedValue check on font descriptors:
+// ISO 32000 requires /Descent to be non-positive, but some fonts store its magnitude, so a
+// positive value is negated in place.
+type descentSignFixer struct{}
+
+func (descentSignFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.ObjectModel.DisallowedValue
+}
+
+func (descentSignFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	changed := false
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		if t, ok := d.Entries["Type"].(pdf.PDFName); !ok || t.Value != "FontDescriptor" {
+			return
+		}
+		switch v := d.Entries["Descent"].(type) {
+		case pdf.PDFInteger:
+			if v > 0 {
+				d.Entries["Descent"] = -v
+				changed = true
+			}
+		case pdf.PDFReal:
+			if v > 0 {
+				d.Entries["Descent"] = -v
+				changed = true
+			}
 		}
 	})
 	return changed, nil
