@@ -300,6 +300,12 @@ func EvalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 	return evalCond(c, v)
 }
 
+// EvalCondArray exposes evalCondArray to object-model fixers repairing array
+// elements, keeping their range re-checks in lockstep with the verifier.
+func EvalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {
+	return evalCondArray(c, v)
+}
+
 // MatchesValueType exposes the schema type check to object-model fixers, so a
 // value already conforming to its row -- e.g. one repaired earlier in the same
 // pass -- is never coerced or deleted on a stale finding.

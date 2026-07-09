@@ -824,3 +824,36 @@ structured detail exists to prevent).
 Pure plumbing gated as usual (full suite, Isartor 204/204, veraPDF 569/569, convert corpus
 510/510); `TestObjModelDetailAttached` now pins `Entry` on every array site, its emptiness
 on every dict site, and the nested-array case. Changed functions 100%.
+
+### Stage G3 — array-element repairs ✅ 2026-07-09
+
+F4's array-element residual class closes: three fixers repair elements through G2's
+`Entry`, via one shared resolver (`arrayElemTarget`, `fixups_objectmodel.go`) that fails
+closed on everything else — empty `Entry` (nested arrays), dead refs, non-array entries,
+out-of-range indices, unknown types/rows:
+
+- **`wrongValueTypeFixer`**: a mis-typed element is coerced in place (`coerceScalar` after
+  a `verify.MatchesValueType` stale-check). **Elements are never deleted or nulled** —
+  index shift and null-element semantics are never conformance-neutral — so uncoercible
+  elements stay residuals, unlike the dict path's optional-key deletion.
+- **`disallowedValueFixer`** (`repairDisallowedElement`): single-entry enum replacement
+  (a misspelled colour-space discriminator at index 0 → `/Indexed`) and inclusive range
+  clamping (`IndexedColorSpace` hival 300 → 255, `GammaArray` −1 → 0) after a
+  `verify.EvalCondArray` re-check (newly exported alongside `EvalCond`). Strict bounds
+  (`WhitepointArray` > 0) and non-name/integer pinned enums stay residuals, mirroring
+  `condBounds`/`scalarFromEnum` conservatism.
+- **`indirectRequiredFixer`**: a direct-dict element is promoted when its row requires
+  indirect — covering wildcard arrays under *arbitrary* dict keys that F7's
+  `arrayElemIndirectKeys` name table cannot see.
+- **Deliberately still skipped**: `missingRequiredKeyFixer` (never pads arrays),
+  `post14KeyFixer` (never applies to arrays), `constraintFixer` array rows (no neutral
+  repair). Rectangle/matrix-typed rows (`MediaBox`, annotation `Rect`) carry no Link in
+  the model, so their elements produce no findings at all — a pre-existing verify-side
+  false-negative class, distinct from what this stage repairs.
+- End-to-end (`TestConvertObjectModelClampsIndexedHival`): an Indexed colour space with
+  hival 300 converts to a fully valid rewrite with byte-identical page content — the full
+  chain of stage C's array-first-element discrimination, G2's entry attribution, and the
+  element clamp.
+
+All gates green on the first corpus run; `fixups_objectmodel.go` and `EvalCondArray` at
+100% statement coverage, convert 92.3%, verify 93.9%.

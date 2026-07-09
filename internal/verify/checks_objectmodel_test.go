@@ -1544,4 +1544,8 @@ func TestExportedFixerHelpers(t *testing.T) {
 	if MatchesValueType(pdf.PDFName{Value: "X"}, []arlington.ValueType{arlington.Integer}) {
 		t.Error("MatchesValueType(name, [integer]) must be false")
 	}
+	hival := &arlington.Cond{Op: arlington.CondLe, Key: "2", Value: "255"}
+	if legal, ok := EvalCondArray(hival, pdf.PDFArray{nil, nil, pdf.PDFInteger(300)}); legal || !ok {
+		t.Errorf("EvalCondArray(hival 300) = (%v, %v), want (false, true)", legal, ok)
+	}
 }

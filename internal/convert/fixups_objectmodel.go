@@ -100,9 +100,29 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
+	promote := func(child pdf.PDFDict) bool {
+		if child.Entries == nil || child.Entries["_ref"] != nil {
+			return false
+		}
+		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
+		next++
+		return true
+	}
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || isArrayIndexKey(detail.Key) {
+		if !ok {
+			continue
+		}
+		if isArrayIndexKey(detail.Key) {
+			// A wildcard array under an arbitrary dict key, invisible to the
+			// whole-graph name table.
+			arr, kd, idx, ok := arrayElemTarget(p, iss)
+			if !ok || kd.IndirectReference != arlington.IndirectRequired {
+				continue
+			}
+			if child, isDict := arr[idx].(pdf.PDFDict); isDict && promote(child) {
+				changed = true
+			}
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -117,13 +137,9 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if kd == nil || kd.IndirectReference != arlington.IndirectRequired {
 			continue
 		}
-		child, ok := d.Entries[detail.Key].(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries["_ref"] != nil {
-			continue
+		if child, isDict := d.Entries[detail.Key].(pdf.PDFDict); isDict && promote(child) {
+			changed = true
 		}
-		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
-		next++
-		changed = true
 	}
 	return changed, true, nil
 }
@@ -430,6 +446,34 @@ func isArrayIndexKey(key string) bool {
 	return err == nil && n >= 0
 }
 
+// arrayElemTarget resolves an array-element finding to its repairable location: the owner
+// entry named by the detail must hold an array, the decimal key an in-range index, and the
+// array's type a governing row (fixed-index else wildcard). ok is false -- the finding
+// stays a residual -- for nested arrays (empty Entry) and anything unresolvable.
+func arrayElemTarget(p *fixPass, iss pdf.PDFError) (arr pdf.PDFArray, kd *arlington.KeyDef, idx int, ok bool) {
+	detail, hasDetail := iss.ObjModelDetail()
+	if !hasDetail || detail.Entry == "" || !isArrayIndexKey(detail.Key) {
+		return nil, nil, 0, false
+	}
+	ref, hasRef := iss.ObjectRef()
+	if !hasRef {
+		return nil, nil, 0, false
+	}
+	d, found := p.dictForRef(ref)
+	if !found {
+		return nil, nil, 0, false
+	}
+	arr, isArr := d.Entries[detail.Entry].(pdf.PDFArray)
+	idx, _ = strconv.Atoi(detail.Key)
+	if !isArr || idx >= len(arr) {
+		return nil, nil, 0, false
+	}
+	if kd = keyDefFor(detail.TypeName, detail.Key); kd == nil {
+		return nil, nil, 0, false
+	}
+	return arr, kd, idx, true
+}
+
 // namedKeyDef returns typeName's schema row for key, or nil when either is unknown.
 func namedKeyDef(typeName, key string) *arlington.KeyDef {
 	ot, ok := arlington.Type(typeName)
@@ -484,8 +528,8 @@ func scalarFromEnum(s string, types []arlington.ValueType) (pdf.PDFValue, bool) 
 // wrongValueTypeFixer remediates the object model's WrongValueType check: a mis-typed
 // value is coerced when a lossless scalar conversion to a schema-allowed type exists;
 // otherwise an unconditionally-optional key is deleted (absence is always conformant),
-// and a required key stays a residual. Array-element findings are skipped -- the finding
-// does not identify which of the owner's entries holds the array.
+// and a required key stays a residual. Array elements are coerced in place but never
+// deleted or nulled (index shift / null-element semantics are never neutral).
 type wrongValueTypeFixer struct{}
 
 func (wrongValueTypeFixer) Applies(c pdf.Check) bool {
@@ -501,7 +545,19 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 	changed := false
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || isArrayIndexKey(detail.Key) {
+		if !ok {
+			continue
+		}
+		if isArrayIndexKey(detail.Key) {
+			arr, kd, idx, ok := arrayElemTarget(p, iss)
+			if !ok || len(kd.Types) == 0 || arr[idx] == nil ||
+				verify.MatchesValueType(arr[idx], kd.Types) {
+				continue // unresolvable, null, or repaired earlier: stale finding
+			}
+			if nv, ok := coerceScalar(arr[idx], kd.Types); ok {
+				arr[idx] = nv
+				changed = true
+			}
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -633,7 +689,13 @@ func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bo
 	changed, _ := f.Fix(p.trailer, nil)
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || isArrayIndexKey(detail.Key) {
+		if !ok {
+			continue
+		}
+		if isArrayIndexKey(detail.Key) {
+			if repairDisallowedElement(p, iss) {
+				changed = true
+			}
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -724,6 +786,34 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if violated && deletableKey(kd) {
 		delete(d.Entries, key)
 		return true
+	}
+	return false
+}
+
+// repairDisallowedElement applies the schema-derived repair to a DisallowedValue array
+// element: a single-entry enum replaces the value (e.g. a misspelled colour-space
+// discriminator), a compiled inclusive range clamps it. Elements are never deleted --
+// index shift is never conformance-neutral -- so anything else stays a residual.
+func repairDisallowedElement(p *fixPass, iss pdf.PDFError) bool {
+	arr, kd, idx, ok := arrayElemTarget(p, iss)
+	if !ok || arr[idx] == nil {
+		return false // unresolvable, or a null element (null matches everything)
+	}
+	if !kd.Predicated.Values && len(kd.PossibleValues) == 1 {
+		if s, ok := verify.EnumString(arr[idx]); ok && s != kd.PossibleValues[0] {
+			if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
+				arr[idx] = nv
+				return true
+			}
+		}
+	}
+	if kd.ValueCond != nil {
+		if legal, ok := verify.EvalCondArray(kd.ValueCond, arr); ok && !legal {
+			if nv, ok := clampToBounds(arr[idx], kd.ValueCond, kd.Name); ok {
+				arr[idx] = nv
+				return true
+			}
+		}
 	}
 	return false
 }
