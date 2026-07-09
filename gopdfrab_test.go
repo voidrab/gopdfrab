@@ -167,9 +167,9 @@ func TestDocumentAccessors(t *testing.T) {
 	// exercise the facade either way.
 	doc.GetMetadata()
 
-	// IsPDFA's error path only fires when the underlying verify fails, which
-	// for a fixed profile means an undefined conformance level. Swap PDFA_1B
-	// to drive that branch, then restore it.
+	// The IsPDFA/IsPDF error paths only fire when the underlying verify
+	// fails, which for a fixed profile means an undefined conformance level.
+	// Swap the profile variables to drive those branches, then restore them.
 	savedPDFA := PDFA_1B
 	savedPDF := PDF
 	PDFA_1B = NewProfile(Undefined)
@@ -177,8 +177,8 @@ func TestDocumentAccessors(t *testing.T) {
 	if ok, err := doc.IsPDFA(); err == nil || ok {
 		t.Errorf("IsPDFA with undefined profile = (%v, %v), want (false, error)", ok, err)
 	}
-	if ok, _ := doc.IsPDF(); ok {
-		t.Errorf("IsPDF with undefined profile = (%v), want (false)", ok)
+	if ok, err := doc.IsPDF(); err == nil || ok {
+		t.Errorf("IsPDF with undefined profile = (%v, %v), want (false, error)", ok, err)
 	}
 	PDFA_1B = savedPDFA
 	PDF = savedPDF

@@ -74,10 +74,10 @@ func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
 // VerifyObjectModel opens, checks, and closes a single file against the
 // generic ISO 32000 object-model checks only, independent of any PDF/A
 // conformance level.
-func VerifyObjectModel(path string) (Result, error) { return verify.VerifyObjectModelFile(path) }
+func VerifyObjectModel(path string) (Result, error) { return verify.VerifyFile(path, PDF) }
 
 // VerifyObjectModelBytes is VerifyObjectModel for an in-memory PDF.
-func VerifyObjectModelBytes(data []byte) (Result, error) { return verify.VerifyObjectModelBytes(data) }
+func VerifyObjectModelBytes(data []byte) (Result, error) { return verify.VerifyBytes(data, PDF) }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite.
@@ -126,7 +126,7 @@ func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r
 
 // VerifyObjectModel checks d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
-func (d *Document) VerifyObjectModel() (Result, error) { return verify.VerifyObjectModel(d.r) }
+func (d *Document) VerifyObjectModel() (Result, error) { return d.Verify(PDF) }
 
 // IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
 // calling Verify(PDFA_1B) and checking the result's Valid field.
