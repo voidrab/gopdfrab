@@ -262,6 +262,23 @@ type formChecks struct {
 	WidgetMissingAppearance Check
 }
 
+// ObjectModelClause is the synthetic clause the generic object-model checks
+// register under, distinguishing them from numeric PDF/A clauses.
+const ObjectModelClause = "objmodel"
+
+// objectModelChecks are generic ISO 32000 object-model checks, driven by the
+// Arlington PDF Model table (internal/arlington) rather than by hand-written
+// per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
+// PDF/A-specific restrictions the other check groups enforce.
+type objectModelChecks struct {
+	MissingRequiredKey      Check
+	WrongValueType          Check
+	DisallowedValue         Check
+	IndirectRequired        Check
+	KeyIntroducedAfterPDF14 Check
+	ConstraintViolated      Check
+}
+
 type checksRegistry struct {
 	Structure        structureChecks
 	Colour           colourChecks
@@ -273,6 +290,7 @@ type checksRegistry struct {
 	Action           actionChecks
 	Metadata         metadataChecks
 	Form             formChecks
+	ObjectModel      objectModelChecks
 }
 
 var Checks checksRegistry
@@ -978,6 +996,33 @@ func init() {
 				"WidgetMissingAppearance",
 				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
 				"6.9", 5),
+		},
+
+		ObjectModel: objectModelChecks{
+			MissingRequiredKey: newCheck(
+				"MissingRequiredKey",
+				"A dictionary is missing a key the ISO 32000 object model requires for its type",
+				ObjectModelClause, 1),
+			WrongValueType: newCheck(
+				"WrongValueType",
+				"A key's value is not one of the ISO 32000 object model's allowed types for it",
+				ObjectModelClause, 2),
+			DisallowedValue: newCheck(
+				"DisallowedValue",
+				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it (only name, integer, and boolean enums are enforced)",
+				ObjectModelClause, 3),
+			IndirectRequired: newCheck(
+				"IndirectRequired",
+				"A key whose value the ISO 32000 object model requires to be an indirect reference is a direct object",
+				ObjectModelClause, 4),
+			KeyIntroducedAfterPDF14: newCheck(
+				"KeyIntroducedAfterPDF14",
+				"A dictionary contains a key the ISO 32000 object model introduced after PDF 1.4",
+				ObjectModelClause, 5),
+			ConstraintViolated: newCheck(
+				"ConstraintViolated",
+				"A key's value violates an ISO 32000 object-model consistency constraint (an Arlington SpecialCase rule, e.g. coupled array lengths)",
+				ObjectModelClause, 6),
 		},
 	}
 }

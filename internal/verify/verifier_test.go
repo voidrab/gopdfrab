@@ -1,7 +1,11 @@
 package verify
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,6 +65,62 @@ func TestVerifyAll(t *testing.T) {
 
 	if results, err := VerifyAll(nil, pdf.PDFA_1B); err != nil || len(results) != 0 {
 		t.Errorf("VerifyAll(nil) = %v, %v, want empty slice, nil error", results, err)
+	}
+}
+
+// plainPDF is a minimal one-page PDF with no PDF/A structure but a
+// well-formed base object model, so object-model-only checks pass on it.
+const plainPDF = "%PDF-1.4\n" +
+	"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n" +
+	"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n" +
+	"3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>\nendobj\n" +
+	"xref\n0 4\n" +
+	"0000000000 65535 f \n" +
+	"0000000009 00000 n \n" +
+	"0000000054 00000 n \n" +
+	"0000000105 00000 n \n" +
+	"trailer\n<</Size 4/Root 1 0 R>>\n" +
+	"startxref\n170\n%%EOF"
+
+// TestVerifyObjectModelBytes covers the widened Verify gate: a plain PDF with
+// no PDF/A structure but a conformant base object model must come back
+// Valid, tagged with the ObjectModel level rather than A_1B.
+func TestVerifyObjectModelBytes(t *testing.T) {
+	res, err := VerifyObjectModelBytes([]byte(plainPDF))
+	if err != nil {
+		t.Fatalf("VerifyObjectModelBytes: %v", err)
+	}
+	if res.Type != pdf.ObjectModel {
+		t.Errorf("VerifyObjectModelBytes Type = %v, want %v", res.Type, pdf.ObjectModel)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModelBytes(plainPDF) = invalid, want valid: %v", res.Issues)
+	}
+
+	if _, err := VerifyObjectModelBytes([]byte("not a pdf")); err == nil {
+		t.Error("VerifyObjectModelBytes should error for malformed data")
+	}
+}
+
+// TestVerifyObjectModelFile covers the file-opening wrapper, including its
+// open-error path.
+func TestVerifyObjectModelFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/plain.pdf"
+	if err := os.WriteFile(path, []byte(plainPDF), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	res, err := VerifyObjectModelFile(path)
+	if err != nil {
+		t.Fatalf("VerifyObjectModelFile: %v", err)
+	}
+	if !res.Valid {
+		t.Errorf("VerifyObjectModelFile(plainPDF) = invalid, want valid: %v", res.Issues)
+	}
+
+	if _, err := VerifyObjectModelFile("/nonexistent/path.pdf"); err == nil {
+		t.Error("VerifyObjectModelFile should error for a nonexistent path")
 	}
 }
 
@@ -418,9 +478,11 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "XXXX"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -451,9 +513,11 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["Title"] = pdf.PDFHexString{Value: "AAA"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -486,12 +550,14 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	minimalConformantRoot(trailer)
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["F"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["F"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -520,12 +586,14 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	minimalConformantRoot(trailer)
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["FFilter"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["FFilter"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -554,12 +622,14 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	minimalConformantRoot(trailer)
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
 
-	info.Entries["FDecodeParms"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["FDecodeParms"] = pdf.PDFHexString{Value: "aaaa"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -590,12 +660,15 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
-	info.HasStream = true
+	minimalConformantRoot(trailer)
+	// A custom trailer key keeps the stream outside the FileTrailer schema, so only
+	// the filter check fires.
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.Entries["Filter"] = pdf.PDFName{Value: "LZWDecode"}
+	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
-	info.Entries["Filter"] = pdf.PDFName{Value: "LZWDecode"}
-
-	trailer.Entries["Info"] = info
+	trailer.Entries["XStream"] = stream
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -626,9 +699,11 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["EF"] = pdf.PDFHexString{Value: "aaaa"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -659,9 +734,11 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 
 	info.Entries["EmbeddedFiles"] = pdf.PDFHexString{Value: "aaaa"}
+	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
 
 	trailer.Entries["Info"] = info
 
@@ -694,11 +771,11 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 
-	info.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
-
-	trailer.Entries["Info"] = info
+	// Staged on an untyped custom trailer key: DocInfo's wildcard row types any
+	// custom Info key as string-text, which would add objmodel findings here.
+	trailer.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -727,12 +804,12 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	info := pdf.NewPDFDict()
+	minimalConformantRoot(trailer)
 
-	info.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
-	info.Entries["TooSmall"] = pdf.PDFInteger(-2_147_483_649)
-
-	trailer.Entries["Info"] = info
+	// Staged on untyped custom trailer keys: DocInfo's wildcard row types any
+	// custom Info key as string-text, which would add objmodel findings here.
+	trailer.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
+	trailer.Entries["TooSmall"] = pdf.PDFInteger(-2_147_483_649)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1531,4 +1608,58 @@ func TestNewContext(t *testing.T) {
 	if err != nil || string(data) != "hello" {
 		t.Errorf("decodeStreamCached via NewContext(nil) = %q, %v", data, err)
 	}
+}
+
+// TestVerifyObjectModelMatchesFilteredFullRun asserts the schema-only fast path reports
+// exactly the object-model findings a full PDF/A-1b run (filtered to the objmodel clause)
+// produces, across the whole Isartor corpus.
+func TestVerifyObjectModelMatchesFilteredFullRun(t *testing.T) {
+	if _, err := os.Stat(isartorDir); err != nil {
+		t.Skip("Isartor corpus not present")
+	}
+	var files []string
+	err := filepath.WalkDir(isartorDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".pdf") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil || len(files) == 0 {
+		t.Fatalf("collecting corpus files: %v (%d files)", err, len(files))
+	}
+
+	for _, path := range files {
+		fast, fastErr := VerifyObjectModelFile(path)
+		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A_1B))
+		if (fastErr != nil) != (fullErr != nil) {
+			t.Errorf("%s: fast err %v vs full err %v", path, fastErr, fullErr)
+			continue
+		}
+		if fastErr != nil {
+			continue
+		}
+		got := objModelSummaries(fast.Issues)
+		want := objModelSummaries(full.Issues)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: schema-only run diverges from filtered full run:\n got %v\nwant %v", path, got, want)
+		}
+	}
+}
+
+// objModelSummaries reduces issues to sorted objmodel-clause summary strings for
+// order-insensitive comparison.
+func objModelSummaries(issues []pdf.PDFError) []string {
+	var out []string
+	for _, e := range issues {
+		if e.Check().Clause() != pdf.ObjectModelClause {
+			continue
+		}
+		ref, _ := e.ObjectRef()
+		out = append(out, fmt.Sprintf("%d|%d|%v|%v", e.Check().Subclause(), e.Page(), ref, e.Messages()))
+	}
+	slices.Sort(out)
+	return out
 }

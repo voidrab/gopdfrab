@@ -42,6 +42,28 @@ func createValidPDF(filename string) error {
 	return os.WriteFile(filename, []byte(content), 0644)
 }
 
+// minimalConformantRoot populates trailer with a Root -> Catalog -> empty PageTreeNodeRoot
+// skeleton (plus Size) that satisfies the generic ObjectModel checks, so unit tests that build
+// a trailer by hand and call verifyDocument can isolate a single violation without also
+// tripping MissingRequiredKey on the surrounding trailer/Catalog/Pages structure.
+func minimalConformantRoot(trailer pdf.PDFDict) {
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{}
+	pages.Entries["Count"] = pdf.PDFInteger(0)
+	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries["Pages"] = pages
+	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+
+	trailer.Entries["Root"] = catalog
+	if trailer.Entries["Size"] == nil {
+		trailer.Entries["Size"] = pdf.PDFInteger(1)
+	}
+}
+
 // isartorDir and veraPDFDir locate the reference test corpora relative to
 // this package's directory (two levels under the repo root).
 const (

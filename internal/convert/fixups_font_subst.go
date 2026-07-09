@@ -626,6 +626,7 @@ func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, progr
 	for _, k := range []string{"FontFile", "FontFile2", "FontFile3", "CharSet", "FontFamily"} {
 		delete(desc.Entries, k)
 	}
+	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
 	desc.Entries["FontFile2"] = fontFile
 	desc.Entries["FontBBox"] = ttScaledBBox(tables)
 	desc.Entries["Flags"] = substituteFlags(face)
@@ -940,12 +941,18 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	changed := false
 	for _, d := range simple {
 		// Standard Type1 fonts (e.g. in AcroForm/DR) have no FontDescriptor;
-		// create a synthetic one so substituteSimpleFont can proceed.
-		if d.Entries["FontDescriptor"] == nil {
+		// create a scratch one so substituteSimpleFont can proceed. Remove it
+		// again if substitution turns out not to be needed -- leaving it
+		// behind would plant an all-fields-missing descriptor where the PDF
+		// legitimately had none.
+		hadDescriptor := d.Entries["FontDescriptor"] != nil
+		if !hadDescriptor {
 			d.Entries["FontDescriptor"] = pdf.NewPDFDict()
 		}
 		if substituteSimpleFont(d, usedCodes, sharedDescs, &nextObjNum) {
 			changed = true
+		} else if !hadDescriptor {
+			delete(d.Entries, "FontDescriptor")
 		}
 	}
 	for _, d := range composite {

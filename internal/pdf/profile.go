@@ -10,6 +10,9 @@ type LevelType string
 const (
 	Undefined LevelType = "undefined"
 	A_1B      LevelType = "A-1b"
+	// ObjectModel is a reporting-only level for the generic ISO 32000
+	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
+	ObjectModel LevelType = "ObjectModel"
 )
 
 // Profile is a mutable set of enabled PDF/A checks for a conformance level,
@@ -32,6 +35,9 @@ type Profile struct {
 	SkipUnusedSimpleFonts bool
 }
 
+// PDF is the default profile for generic ISO 32000 object-model checks.
+var PDF *Profile
+
 // PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
 // interpretation of the spec. Used by Verify(A_1B).
 var PDFA_1B *Profile
@@ -42,6 +48,7 @@ var PDFA_1B *Profile
 var Legacy_1B *Profile
 
 func init() {
+	PDF = ObjectModelOnly()
 	Legacy_1B = NewFullProfile(A_1B)
 
 	// PDFA_1B adjusts the full profile for veraPDF's divergences from the
@@ -50,18 +57,41 @@ func init() {
 	// disabled (veraPDF's own corpus intentionally includes one in a pass
 	// file); 6.3.4 simple-font embedding is only required for fonts actually
 	// shown in content (SkipUnusedSimpleFonts), not for fonts in AcroForm /DR.
+	// KeyIntroducedAfterPDF14 is disabled: real-world files carry post-1.4
+	// keys that are purely structural/informational (e.g. FileTrailer's
+	// hybrid-reference XRefStm, Catalog's Extensions) and are ignorable by a
+	// PDF 1.4 reader, but Arlington has no data distinguishing those from
+	// keys that actually change required interpretation -- veraPDF does not
+	// flag them, so this stays Legacy_1B-only (spec-literal) for now.
 	PDFA_1B = NewFullProfile(A_1B)
 	PDFA_1B.SkipUnreachableXObjects = true
 	PDFA_1B.SkipUnusedSimpleFonts = true
 	PDFA_1B = PDFA_1B.RemoveCheck(
 		Checks.Image.FormPostScript,
 		Checks.Image.PostScriptXObject,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
 }
 
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile {
 	return &Profile{Level: level, enabled: make(map[int]bool)}
+}
+
+// ObjectModelOnly returns a profile enabling only the generic ISO 32000
+// object-model checks (MissingRequiredKey, WrongValueType, DisallowedValue,
+// IndirectRequired, KeyIntroducedAfterPDF14, ConstraintViolated), with every
+// PDF/A-specific check disabled -- useful for asking "is this even valid PDF"
+// independent of any PDF/A conformance level.
+func ObjectModelOnly() *Profile {
+	return NewProfile(ObjectModel).AddCheck(
+		Checks.ObjectModel.MissingRequiredKey,
+		Checks.ObjectModel.WrongValueType,
+		Checks.ObjectModel.DisallowedValue,
+		Checks.ObjectModel.IndirectRequired,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+		Checks.ObjectModel.ConstraintViolated,
+	)
 }
 
 func NewFullProfile(level LevelType) *Profile {
@@ -133,6 +163,18 @@ func (p *Profile) Checks() []Check {
 // Has reports whether check c is currently enabled in this profile.
 func (p *Profile) Has(c Check) bool {
 	return p.enabled[c.ID()]
+}
+
+// OnlyObjectModelChecks reports whether p enables no check outside the generic
+// object-model group, so a verifier may skip every PDF/A-specific check family
+// whose findings would be filtered out anyway.
+func (p *Profile) OnlyObjectModelChecks() bool {
+	for _, c := range p.Checks() {
+		if c.Clause() != ObjectModelClause {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Profile) Allows(clause string, subclause int) bool {

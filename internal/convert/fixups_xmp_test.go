@@ -209,3 +209,36 @@ func TestIsAllDigits(t *testing.T) {
 		t.Error(`isAllDigits("") = false, want true (vacuously)`)
 	}
 }
+
+// TestNormalizeInfoDictCustomKeys covers the custom-key branch: DocInfo's wildcard row
+// types every non-standard Info key as a text string, so non-string custom values are
+// dropped while string (and null) ones survive.
+func TestNormalizeInfoDictCustomKeys(t *testing.T) {
+	info := pdf.NewPDFDict()
+	info.Entries["SPDF"] = pdf.PDFInteger(1153)               // real-world producer key: dropped
+	info.Entries["GTS_PDFXVersion"] = pdf.PDFName{Value: "X"} // name-valued custom key: dropped
+	info.Entries["CustomNote"] = pdf.PDFString{Value: "ok"}
+	info.Entries["CustomHex"] = pdf.PDFHexString{Value: "AB"}
+	info.Entries["CustomNull"] = nil
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Info"] = info
+
+	normalizeInfoDict(&trailer)
+	got := trailer.Entries["Info"].(pdf.PDFDict)
+
+	if got.Entries["SPDF"] != nil {
+		t.Error("integer-valued custom key SPDF not dropped")
+	}
+	if got.Entries["GTS_PDFXVersion"] != nil {
+		t.Error("name-valued custom key not dropped")
+	}
+	if _, ok := got.Entries["CustomNote"].(pdf.PDFString); !ok {
+		t.Error("string custom key must survive")
+	}
+	if _, ok := got.Entries["CustomHex"].(pdf.PDFHexString); !ok {
+		t.Error("hex-string custom key must survive")
+	}
+	if v, present := got.Entries["CustomNull"]; !present || v != nil {
+		t.Error("null custom key must survive as null")
+	}
+}

@@ -63,3 +63,60 @@ func TestProfileAllows(t *testing.T) {
 		t.Error("Allows() should be true for an enabled cataloged clause")
 	}
 }
+
+// TestObjectModelOnly covers the standalone object-model profile: it must be
+// tagged with the ObjectModel level, enable exactly the five objmodel checks
+// (including KeyIntroducedAfterPDF14, unlike PDFA_1B), and nothing else.
+func TestObjectModelOnly(t *testing.T) {
+	p := ObjectModelOnly()
+	if p.Level != ObjectModel {
+		t.Errorf("ObjectModelOnly Level = %v, want %v", p.Level, ObjectModel)
+	}
+
+	want := []Check{
+		Checks.ObjectModel.MissingRequiredKey,
+		Checks.ObjectModel.WrongValueType,
+		Checks.ObjectModel.DisallowedValue,
+		Checks.ObjectModel.IndirectRequired,
+		Checks.ObjectModel.KeyIntroducedAfterPDF14,
+		Checks.ObjectModel.ConstraintViolated,
+	}
+	got := p.Checks()
+	if len(got) != len(want) {
+		t.Fatalf("ObjectModelOnly enabled %d checks, want %d: %v", len(got), len(want), got)
+	}
+	for _, c := range want {
+		if !p.Has(c) {
+			t.Errorf("ObjectModelOnly missing expected check %v", c)
+		}
+	}
+}
+
+// TestPDFA1BDisablesKeyIntroducedAfterPDF14 documents the veraPDF divergence:
+// PDFA_1B drops this check (structural/informational post-1.4 keys like
+// FileTrailer.XRefStm are ignorable by a 1.4 reader and veraPDF does not flag
+// them), while Legacy_1B keeps the full, spec-literal catalog.
+func TestPDFA1BDisablesKeyIntroducedAfterPDF14(t *testing.T) {
+	c := Checks.ObjectModel.KeyIntroducedAfterPDF14
+	if PDFA_1B.Has(c) {
+		t.Error("PDFA_1B should not enforce KeyIntroducedAfterPDF14")
+	}
+	if !Legacy_1B.Has(c) {
+		t.Error("Legacy_1B should enforce KeyIntroducedAfterPDF14")
+	}
+}
+
+func TestOnlyObjectModelChecks(t *testing.T) {
+	if !ObjectModelOnly().OnlyObjectModelChecks() {
+		t.Error("ObjectModelOnly must report OnlyObjectModelChecks")
+	}
+	if PDFA_1B.OnlyObjectModelChecks() {
+		t.Error("PDFA_1B enables PDF/A checks, must not report OnlyObjectModelChecks")
+	}
+	if !NewProfile(ObjectModel).OnlyObjectModelChecks() {
+		t.Error("an empty profile enables nothing outside objmodel")
+	}
+	if ObjectModelOnly().AddCheck(Checks.Structure.TrailerID).OnlyObjectModelChecks() {
+		t.Error("adding a PDF/A check must clear OnlyObjectModelChecks")
+	}
+}

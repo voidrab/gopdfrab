@@ -31,25 +31,32 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  go run main.go convert <input.pdf> [output.pdf]   convert towards PDF/A-1b conformance
-  go run main.go verify <path-or-dir>...            verify PDF/A-1b conformance`)
+  go run main.go convert [-pdf] <input.pdf> [output.pdf]   convert towards PDF/A-1b conformance
+                                                           (-pdf: repair generic ISO 32000
+                                                            object-model conformance instead)
+  go run main.go verify <path-or-dir>...                   verify PDF/A-1b conformance`)
 }
 
 // runConvert converts a single PDF and reports the outcome: how many
 // verify/fixup passes it took and whether the result is fully conformant.
 func runConvert(args []string) {
+	profile, label, suffix := pdf.PDFA_1B, "PDF/A-1b", ".pdfa.pdf"
+	if len(args) > 0 && args[0] == "-pdf" {
+		profile, label, suffix = gopdfrab.PDF, "PDF (object model)", ".fixed.pdf"
+		args = args[1:]
+	}
 	if len(args) < 1 {
 		usage()
 		os.Exit(1)
 	}
 	input := args[0]
-	output := input + ".pdfa.pdf"
+	output := input + suffix
 	if len(args) >= 2 {
 		output = args[1]
 	}
 
 	start := time.Now()
-	cr, err := gopdfrab.Convert(input, pdf.PDFA_1B)
+	cr, err := gopdfrab.Convert(input, profile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "convert %s: %v\n", input, err)
 		os.Exit(1)
@@ -66,7 +73,7 @@ func runConvert(args []string) {
 	fmt.Printf("iterations: %d\n", cr.Iterations)
 
 	if cr.Result.Valid {
-		fmt.Println("result: fully PDF/A-1b conformant")
+		fmt.Printf("result: fully %s conformant\n", label)
 		return
 	}
 
@@ -138,8 +145,28 @@ func runVerify(args []string) {
 		}
 	}
 
-	fmt.Printf("\n--- Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
-	if fail > 0 || errCount > 0 {
+	fmt.Printf("\n--- PDF/A Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
+
+	results, err = gopdfrab.VerifyAll(paths, gopdfrab.PDF)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "verify: %v\n", err)
 		os.Exit(1)
 	}
+
+	pass, fail, errCount = 0, 0, 0
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			fmt.Printf("[ERROR] %s: %v\n", r.Path, r.Err)
+			errCount++
+		case r.Result.Valid:
+			fmt.Printf("[PASS] %s\n", r.Path)
+			pass++
+		default:
+			fmt.Printf("[FAIL] %s: %s\n", r.Path, r.Result.Summary())
+			fail++
+		}
+	}
+
+	fmt.Printf("\n--- PDF Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
 }

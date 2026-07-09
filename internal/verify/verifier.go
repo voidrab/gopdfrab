@@ -25,7 +25,7 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	}
 
 	var issues []pdf.PDFError
-	if p.Level == pdf.A_1B {
+	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
 		issues = verifyPdfA1b(d, p)
 	}
 	issues = filterByProfile(issues, p)
@@ -85,6 +85,33 @@ func VerifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
 	return Verify(doc, p)
 }
 
+// VerifyObjectModel checks d against the generic ISO 32000 object-model
+// checks only, independent of any PDF/A conformance level.
+func VerifyObjectModel(d *pdf.Reader) (pdf.Result, error) {
+	return Verify(d, pdf.ObjectModelOnly())
+}
+
+// VerifyObjectModelFile opens, checks, and closes a single file against the
+// generic ISO 32000 object-model checks only.
+func VerifyObjectModelFile(path string) (pdf.Result, error) {
+	doc, err := pdf.Open(path)
+	if err != nil {
+		return pdf.Result{}, err
+	}
+	defer doc.Close()
+	return VerifyObjectModel(doc)
+}
+
+// VerifyObjectModelBytes is VerifyObjectModelFile for an in-memory PDF.
+func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		return pdf.Result{}, fmt.Errorf("verify: %w", err)
+	}
+	defer doc.Close()
+	return VerifyObjectModel(doc)
+}
+
 func verifyFile(path string, p *pdf.Profile) pdf.FileResult[pdf.Result] {
 	res, err := VerifyFile(path, p)
 	return pdf.FileResult[pdf.Result]{Path: path, Result: res, Err: err}
@@ -105,23 +132,30 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
+	// A profile enabling nothing but the object-model checks skips every
+	// PDF/A-specific family up front instead of filtering its findings away
+	// at the end, so VerifyObjectModel never decodes content streams, parses
+	// font programs, or validates XMP.
+	schemaOnly := p.OnlyObjectModelChecks()
 	issues := []pdf.PDFError{}
 
-	errs := verifyFileHeader(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = checkLinearizedFileID(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyFileTrailer(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyCrossReferenceTable(d)
-	if errs != nil {
-		issues = append(issues, errs...)
+	if !schemaOnly {
+		errs := verifyFileHeader(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = checkLinearizedFileID(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = verifyFileTrailer(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
+		errs = verifyCrossReferenceTable(d)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
 	}
 
 	// Resolve the graph once up front; all subsequent checks work on the
@@ -131,9 +165,11 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 		return append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
 	}
 
-	errs = verifyDocumentInformationDictionary(graph)
-	if errs != nil {
-		issues = append(issues, errs...)
+	if !schemaOnly {
+		errs := verifyDocumentInformationDictionary(graph)
+		if errs != nil {
+			issues = append(issues, errs...)
+		}
 	}
 
 	pageIndex, err := d.BuildPageIndex(graph)
@@ -142,23 +178,26 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	}
 
 	ctx := &ValidationContext{
-		PageIndex: pageIndex,
-		reader:    d,
+		PageIndex:  pageIndex,
+		reader:     d,
+		schemaOnly: schemaOnly,
 	}
-	reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
-	if p.SkipUnreachableXObjects {
-		ctx.ReachableXObjectPtrs = reachable
+	if !schemaOnly {
+		reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
+		if p.SkipUnreachableXObjects {
+			ctx.ReachableXObjectPtrs = reachable
+		}
+		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
+		ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
+		computeColourCoverage(d, ctx)
 	}
-	ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
-	ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
-	computeColourCoverage(d, ctx)
 
 	verifyDocument(graph, ctx)
-	errs = ctx.errs
-	if errs != nil {
-		issues = append(issues, errs...)
+	issues = append(issues, ctx.errs...)
+	if schemaOnly {
+		return issues
 	}
-	errs = verifyOptionalContent(d)
+	errs := verifyOptionalContent(d)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -530,23 +569,45 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	visited := make(map[uintptr]bool)
 
+	// typedVisit dedupes schema validation per (node, Arlington type): a node shared
+	// between differently-typed paths is re-descended once per new type, so schema
+	// coverage does not depend on map iteration order, while every per-node PDF/A
+	// check still runs exactly once (on the first visit).
+	type typedVisit struct {
+		ptr uintptr
+		typ string
+	}
+	visitedTyped := make(map[typedVisit]bool)
+
 	// owner is the nearest enclosing dict, threaded through arrays, so
 	// scalar-limit violations are reported against an object fixers can
-	// resolve by ref instead of the bare scalar.
-	var walk func(node any, owner pdf.PDFValue)
+	// resolve by ref instead of the bare scalar. expectedType is the
+	// Arlington type name this node should conform to (per the parent key's
+	// Link), or "" once the descent has lost track of it; see
+	// arlingtonChildType/arlingtonElementType.
+	var walk func(node any, owner pdf.PDFValue, expectedType string)
 
-	walk = func(node any, owner pdf.PDFValue) {
+	walk = func(node any, owner pdf.PDFValue, expectedType string) {
 		if node == nil {
 			return
 		}
 
 		switch v := node.(type) {
 		case pdf.PDFDict:
+			// A subtree that lost its schema type can re-anchor when the dict's own
+			// /Type (+/Subtype) names identify exactly one Arlington type.
+			if expectedType == "" {
+				expectedType = selfIdentifiedType(v)
+			}
 			ptr := pdf.ValuePointer(v.Entries)
-			if visited[ptr] {
+			first := !visited[ptr]
+			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {
 				return
 			}
 			visited[ptr] = true
+			if expectedType != "" {
+				visitedTyped[typedVisit{ptr, expectedType}] = true
+			}
 
 			if (v.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
 				if ref, ok := v.Entries["_ref"].(pdf.PDFRef); ok {
@@ -554,73 +615,137 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 			}
 
-			if v.HasStream {
-				validateStreamObject(v, ctx)
+			if first && !ctx.schemaOnly {
+				if v.HasStream {
+					validateStreamObject(v, ctx)
+				}
+
+				validateObject(v, ctx)
+				validateActions(v, ctx)
+				validateAdditionalActions(v, ctx)
+				validateExtGState(v, ctx)
+				validateTransparencyGroup(v, ctx)
+				validateXObjectDict(v, ctx)
+				validateAnnotation(v, ctx)
+				validateFormField(v, ctx)
+				validateColourSpaceUsage(v, ctx)
+				validateContentStreams(v, ctx)
+				ValidateFontDict(v, ctx)
+				validateCMapStream(v, ctx)
+				validateViewerPreferences(v, ctx)
+			}
+			if expectedType != "" {
+				validateAgainstSchema(v, expectedType, ctx)
 			}
 
-			validateObject(v, ctx)
-			validateActions(v, ctx)
-			validateAdditionalActions(v, ctx)
-			validateExtGState(v, ctx)
-			validateTransparencyGroup(v, ctx)
-			validateXObjectDict(v, ctx)
-			validateAnnotation(v, ctx)
-			validateFormField(v, ctx)
-			validateColourSpaceUsage(v, ctx)
-			validateContentStreams(v, ctx)
-			ValidateFontDict(v, ctx)
-			validateCMapStream(v, ctx)
-			validateViewerPreferences(v, ctx)
-
-			for k, val := range v.Entries {
-				// 6.1.12: a dictionary key shall not exceed 127 bytes after
-				// decoding PDF name-escape sequences (#XX).
-				if k != "_ref" && len(k) > 127 {
-					decoded := pdf.DecodePDFName(k)
-					if len(decoded) > 127 {
-						ctx.Report(
-							pdf.Checks.Structure.NameTooLong,
-							v,
-							fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
-						)
+			for _, k := range sortedKeys(v.Entries) {
+				val := v.Entries[k]
+				if first && !ctx.schemaOnly {
+					// 6.1.12: a dictionary key shall not exceed 127 bytes after
+					// decoding PDF name-escape sequences (#XX).
+					if k != "_ref" && len(k) > 127 {
+						decoded := pdf.DecodePDFName(k)
+						if len(decoded) > 127 {
+							ctx.Report(
+								pdf.Checks.Structure.NameTooLong,
+								v,
+								fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
+							)
+						}
 					}
 				}
+				if (!first || ctx.schemaOnly) && !isContainer(val) {
+					// Scalars carry no schema, and on a re-descent they were
+					// already fully checked on the first visit.
+					continue
+				}
+				var childType string
+				if expectedType != "" && k != "_ref" {
+					childType = arlingtonChildType(expectedType, k, val)
+				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
-				walk(val, node)
+				walk(val, node, childType)
+			}
+			if !first {
+				return
 			}
 
 		case pdf.PDFArray:
 			ptr := pdf.ValuePointer(v)
-			if visited[ptr] {
+			first := !visited[ptr]
+			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {
 				return
 			}
 			visited[ptr] = true
+			if expectedType != "" {
+				visitedTyped[typedVisit{ptr, expectedType}] = true
+			}
 
-			validateColourSpaceArray(v, ctx)
+			if first && !ctx.schemaOnly {
+				validateColourSpaceArray(v, ctx)
 
-			// 6.1.12: maximum number of elements in an array is 8191.
-			if len(v) > 8191 {
-				ctx.Report(
-					pdf.Checks.Structure.ArrayTooLarge,
-					v,
-					fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
-				)
+				// 6.1.12: maximum number of elements in an array is 8191.
+				if len(v) > 8191 {
+					ctx.Report(
+						pdf.Checks.Structure.ArrayTooLarge,
+						v,
+						fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
+					)
+				}
+			}
+			if expectedType != "" {
+				validateArrayAgainstSchema(v, expectedType, owner, ctx)
 			}
 
 			for _, item := range v {
-				walk(item, owner)
+				if (!first || ctx.schemaOnly) && !isContainer(item) {
+					continue
+				}
+				var elemType string
+				if expectedType != "" {
+					elemType = arlingtonElementType(expectedType, item)
+				}
+				walk(item, owner, elemType)
+			}
+			if !first {
+				return
 			}
 
 		case pdf.PDFHexString:
-			// Hexadecimal strings shall contain an even number of non-white-space characters,
-			// each in the range 0 to 9, A to F or a to f.
-			validateHexString(v, owner, ctx)
+			if !ctx.schemaOnly {
+				// Hexadecimal strings shall contain an even number of non-white-space
+				// characters, each in the range 0 to 9, A to F or a to f.
+				validateHexString(v, owner, ctx)
+			}
 		}
 
-		validateArchitecturalLimits(node, owner, ctx)
+		if !ctx.schemaOnly {
+			validateArchitecturalLimits(node, owner, ctx)
+		}
 	}
 
-	walk(graph, nil)
+	walk(graph, nil, "FileTrailer")
+}
+
+// sortedKeys returns m's keys in sorted order so the walk visits entries
+// deterministically regardless of Go map iteration order.
+func sortedKeys(m map[string]pdf.PDFValue) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// isContainer reports whether val is a dict or array, i.e. a node that can
+// carry an Arlington type on a re-descent.
+func isContainer(val pdf.PDFValue) bool {
+	switch val.(type) {
+	case pdf.PDFDict, pdf.PDFArray:
+		return true
+	}
+	return false
 }
 
 // ComputeContentUsage walks the resolved graph once, decoding each page's
