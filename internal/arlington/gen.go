@@ -347,6 +347,15 @@ func condLiteral(c condExpr) string {
 	if c.value != "" {
 		parts = append(parts, fmt.Sprintf("Value: %q", c.value))
 	}
+	if c.fn != "" {
+		parts = append(parts, "Fn: "+c.fn)
+	}
+	if c.rhsKey != "" {
+		parts = append(parts, fmt.Sprintf("RHSKey: %q", c.rhsKey))
+		if c.rhsFn != "" {
+			parts = append(parts, "RHSFn: "+c.rhsFn)
+		}
+	}
 	if c.mod != 0 {
 		parts = append(parts, fmt.Sprintf("Mod: %d", c.mod))
 	}
@@ -717,7 +726,10 @@ func foldValueEntry(item string) (val string, keep, ok bool) {
 type condExpr struct {
 	op         string // Cond* identifier
 	key, value string
-	mod        int // nonzero for "(@Key mod N) == value" comparisons
+	fn         string // Fn* identifier deriving the left operand ("" for the value itself)
+	rhsKey     string // right operand is another entry's value instead of the value literal
+	rhsFn      string
+	mod        int // nonzero for "(<operand> mod N) == value" comparisons
 	kids       []condExpr
 }
 
@@ -774,9 +786,10 @@ func foldIndirect(raw string) (rule string, ok bool) {
 }
 
 // compileCond compiles a predicate expression into a constant (version primitives fold
-// against modelVersion) or a runtime condition over the owning container's own entries
-// (fn:IsPresent of a sibling key, @Key comparisons against a literal, "(@Key mod N)"
-// equality, fn:Extension gates as CondUnknown), combined with fn:Not, parentheses, and
+// against modelVersion) or a runtime condition over the owning container's own entries:
+// fn:IsPresent and fn:Contains of a sibling key, comparisons between operands (@Key,
+// fn:ArrayLength/fn:StringLength of a key, optionally "mod N") and a literal or second
+// operand, fn:Extension gates as CondUnknown -- combined with fn:Not, parentheses, and
 // ||/&&. Anything else -- cross-object paths (::), parent::, domain predicates -- is not ok,
 // and the caller must keep the column predicated.
 func compileCond(expr string) condResult {
@@ -816,6 +829,13 @@ func compileCond(expr string) condResult {
 	case "fn:IsPresent":
 		if len(args) == 1 && plainKey(args[0]) {
 			return treeCond(condExpr{op: "CondPresent", key: args[0]})
+		}
+		return condResult{}
+	case "fn:Contains":
+		if len(args) == 2 && strings.HasPrefix(args[0], "@") && plainValue(args[1]) {
+			if k := args[0][1:]; plainKey(k) || indexKey(k) {
+				return treeCond(condExpr{op: "CondContains", key: k, value: args[1]})
+			}
 		}
 		return condResult{}
 	case "fn:Eval":
@@ -928,37 +948,74 @@ func splitComparison(expr string) (c condExpr, ok bool) {
 				return condExpr{}, false // bare '=' or '!'
 			}
 			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+width:])
-			if !plainValue(rhs) {
-				return condExpr{}, false
-			}
-			key, mod, lhsOK := splitModOperand(lhs)
+			c, lhsOK := splitModOperand(lhs)
 			if !lhsOK {
 				return condExpr{}, false
 			}
-			if mod != 0 && op != "CondEq" && op != "CondNe" {
+			c.op = op
+			switch {
+			case plainValue(rhs):
+				c.value = rhs
+			case c.mod != 0:
+				return condExpr{}, false // modulo compares against a literal only
+			default:
+				rk, rfn, rhsOK := parseOperand(trimOuterParens(rhs))
+				if !rhsOK {
+					return condExpr{}, false
+				}
+				c.rhsKey, c.rhsFn = rk, rfn
+			}
+			if c.mod != 0 && op != "CondEq" && op != "CondNe" {
 				return condExpr{}, false // modulo only pins equality; anything else fails closed
 			}
-			return condExpr{op: op, key: key, value: rhs, mod: mod}, true
+			return c, true
 		}
 	}
 	return condExpr{}, false
 }
 
-// splitModOperand parses a comparison's left side: a bare "@Key", or the modulo form
-// "(@Key mod N)" with a positive integer divisor (mod 0 when absent).
-func splitModOperand(lhs string) (key string, mod int, ok bool) {
+// splitModOperand parses a comparison's left side: an operand, or the modulo form
+// "(<operand> mod N)" with a positive integer divisor (mod 0 when absent).
+func splitModOperand(lhs string) (c condExpr, ok bool) {
 	lhs = trimOuterParens(lhs)
 	if before, after, found := strings.Cut(lhs, " mod "); found {
 		n, err := strconv.Atoi(strings.TrimSpace(after))
 		if err != nil || n <= 0 {
-			return "", 0, false
+			return condExpr{}, false
 		}
-		lhs, mod = strings.TrimSpace(before), n
+		lhs, c.mod = strings.TrimSpace(before), n
 	}
-	if strings.HasPrefix(lhs, "@") && (plainKey(lhs[1:]) || indexKey(lhs[1:])) {
-		return lhs[1:], mod, true
+	c.key, c.fn, ok = parseOperand(lhs)
+	return c, ok
+}
+
+// parseOperand recognizes a comparison operand: "@Key", or a derived quantity
+// "fn:ArrayLength(Key)" / "fn:StringLength(Key)" (the argument may carry an @ prefix).
+// fn is the Go Fn* identifier, empty for a plain value operand.
+func parseOperand(s string) (key, fn string, ok bool) {
+	if strings.HasPrefix(s, "@") {
+		if k := s[1:]; plainKey(k) || indexKey(k) {
+			return k, "", true
+		}
+		return "", "", false
 	}
-	return "", 0, false
+	name, args, wrapped := splitPredicate(s)
+	if !wrapped || len(args) != 1 {
+		return "", "", false
+	}
+	switch name {
+	case "fn:ArrayLength":
+		fn = "FnArrayLength"
+	case "fn:StringLength":
+		fn = "FnStringLength"
+	default:
+		return "", "", false
+	}
+	k := strings.TrimPrefix(args[0], "@")
+	if plainKey(k) || indexKey(k) {
+		return k, fn, true
+	}
+	return "", "", false
 }
 
 // plainKey reports whether s is a bare sibling key name (no path, no operators). All-digit
@@ -1013,8 +1070,11 @@ func condOperandsResolvable(tree *condExpr, rowName string) bool {
 	operands := 0
 	var walk func(c condExpr) bool
 	walk = func(c condExpr) bool {
-		if c.key != "" {
-			if !want(c.key) {
+		for _, k := range []string{c.key, c.rhsKey} {
+			if k == "" {
+				continue
+			}
+			if !want(k) {
 				return false
 			}
 			operands++

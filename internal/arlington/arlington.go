@@ -141,6 +141,18 @@ const (
 	// (an fn:Extension gate). It always evaluates as unresolvable, so a decisive sibling
 	// operand can still settle the enclosing And/Or; otherwise the dependent check is skipped.
 	CondUnknown
+	// CondContains is true when Key's value equals Value or is an array with an element equal
+	// to Value (fn:Contains(@Filter,JPXDecode) -- /Filter may be a name or a name array).
+	CondContains
+)
+
+// CondFn transforms a comparison operand: the key's value itself, or a derived quantity.
+type CondFn int
+
+const (
+	FnValue        CondFn = iota // the operand is the key's value
+	FnArrayLength                // fn:ArrayLength(Key): element count of an array value
+	FnStringLength               // fn:StringLength(Key): byte length of a string value
 )
 
 // Cond is a compiled fn: condition over the owning container's own entries -- sibling keys of
@@ -152,8 +164,15 @@ type Cond struct {
 	Op    CondOp
 	Key   string
 	Value string
-	// Mod, when nonzero, compares Key's integer value modulo Mod against Value
-	// ("(@Rotate mod 90)==0"); only generated with CondEq/CondNe.
+	// Fn derives the left operand from Key's value (array/string length instead of the value
+	// itself); comparisons with a derived operand are always numeric.
+	Fn CondFn
+	// RHSKey, when set, makes the right operand another entry's value (with RHSFn) instead of
+	// the Value literal ("@0<=@1", "@TI<fn:ArrayLength(Opt)").
+	RHSKey string
+	RHSFn  CondFn
+	// Mod, when nonzero, compares the (integer) left operand modulo Mod against Value
+	// ("(@Rotate mod 90)==0"); only generated with CondEq/CondNe and a literal right side.
 	Mod  int
 	Kids []Cond
 }

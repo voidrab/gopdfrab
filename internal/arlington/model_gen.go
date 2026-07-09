@@ -7528,9 +7528,9 @@ var Types = map[string]ObjectType{
 			{
 				Name:         "TI",
 				Types:        []ValueType{Integer},
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGe, Key: "TI", Value: "0"}, {Op: CondLt, Key: "TI", RHSKey: "Opt", RHSFn: FnArrayLength}}},
 				SinceVersion: "1.2",
 				Inheritable:  true,
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "I",
@@ -11583,29 +11583,29 @@ var Types = map[string]ObjectType{
 				Name:         "0",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "0", RHSKey: "1"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "1",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "1", RHSKey: "0"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "2",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondLe, Key: "2", RHSKey: "3"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 			{
 				Name:         "3",
 				Types:        []ValueType{Number},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondGe, Key: "3", RHSKey: "2"},
 				SinceVersion: "1.1",
-				Predicated:   Predication{Values: true},
 			},
 		},
 	},
@@ -11652,8 +11652,9 @@ var Types = map[string]ObjectType{
 				Name:         "E",
 				Types:        []ValueType{Integer},
 				Required:     true,
+				ValueCond:    &Cond{Op: CondAnd, Kids: []Cond{{Op: CondGt, Key: "E", Value: "0"}, {Op: CondLe, Key: "E", RHSKey: "L"}}},
 				SinceVersion: "1.2",
-				Predicated:   Predication{Values: true, Indirect: true},
+				Predicated:   Predication{Indirect: true},
 			},
 			{
 				Name:         "N",
@@ -17181,6 +17182,7 @@ var Types = map[string]ObjectType{
 			{
 				Name:           "ColorSpace",
 				Types:          []ValueType{Array, Name},
+				RequiredWhen:   &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondContains, Key: "Filter", Value: "JPXDecode"}, {Op: CondEq, Key: "ImageMask", Value: "true"}}}}},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"DeviceCMYK", "DeviceRGB", "DeviceGray"},
 				LinkGroups: []LinkGroup{
@@ -17191,14 +17193,14 @@ var Types = map[string]ObjectType{
 						ByValue:       map[string]string{"CalGray": "CalGrayColorSpace", "CalRGB": "CalRGBColorSpace", "DeviceCMYK": "DeviceCMYKColorSpace", "DeviceGray": "DeviceGrayColorSpace", "DeviceN": "DeviceNColorSpace", "DeviceRGB": "DeviceRGBColorSpace", "ICCBased": "ICCBasedColorSpace", "Indexed": "IndexedColorSpace", "Lab": "LabColorSpace", "Pattern": "PatternColorSpace", "Separation": "SeparationColorSpace"},
 					},
 				},
-				Predicated: Predication{Required: true},
 			},
 			{
 				Name:           "BitsPerComponent",
 				Types:          []ValueType{Integer},
+				RequiredWhen:   &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondContains, Key: "Filter", Value: "JPXDecode"}, {Op: CondEq, Key: "ImageMask", Value: "true"}}}}},
 				SinceVersion:   "1.0",
 				PossibleValues: []string{"2", "4"},
-				Predicated:     Predication{Required: true, Values: true},
+				Predicated:     Predication{Values: true},
 			},
 			{
 				Name:         "Intent",
@@ -17613,9 +17615,10 @@ var Types = map[string]ObjectType{
 			{
 				Name:           "BitsPerComponent",
 				Types:          []ValueType{Integer},
+				RequiredWhen:   &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{{Op: CondContains, Key: "Filter", Value: "JPXDecode"}, {Op: CondEq, Key: "ImageMask", Value: "true"}}}}},
 				SinceVersion:   "1.4",
 				PossibleValues: []string{"2", "4"},
-				Predicated:     Predication{Required: true, Values: true},
+				Predicated:     Predication{Values: true},
 			},
 			{
 				Name:         "Intent",

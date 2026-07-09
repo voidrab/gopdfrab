@@ -770,6 +770,109 @@ func TestEvalCondModAndUnknown(t *testing.T) {
 	}
 }
 
+func TestEvalCondOperandsAndContains(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["TI"] = pdf.PDFInteger(2)
+	d.Entries["Opt"] = pdf.PDFArray{pdf.PDFName{Value: "a"}, pdf.PDFName{Value: "b"}, pdf.PDFName{Value: "c"}}
+	d.Entries["S"] = pdf.PDFString{Value: "12345678"}
+	d.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "JPXDecode"}}
+	d.Entries["One"] = pdf.PDFName{Value: "DCTDecode"}
+	d.Entries["Mask"] = pdf.PDFBoolean(true)
+	d.Entries["Unmask"] = pdf.PDFBoolean(false)
+	d.Entries["Mixed"] = pdf.PDFArray{pdf.NewPDFDict()}
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		val, ok bool
+	}{
+		{"lt array length", arlington.Cond{Op: arlington.CondLt, Key: "TI", RHSKey: "Opt", RHSFn: arlington.FnArrayLength}, true, true},
+		{"ge array length", arlington.Cond{Op: arlington.CondGe, Key: "TI", Value: "3", RHSKey: "Opt", RHSFn: arlington.FnArrayLength}, false, true},
+		{"array length eq", arlington.Cond{Op: arlington.CondEq, Key: "Opt", Fn: arlington.FnArrayLength, Value: "3"}, true, true},
+		{"string length eq", arlington.Cond{Op: arlington.CondEq, Key: "S", Fn: arlington.FnStringLength, Value: "8"}, true, true},
+		{"length of non-array fails closed", arlington.Cond{Op: arlington.CondEq, Key: "S", Fn: arlington.FnArrayLength, Value: "8"}, false, false},
+		{"length of absent fails closed", arlington.Cond{Op: arlington.CondEq, Key: "X", Fn: arlington.FnArrayLength, Value: "0"}, false, false},
+		{"length mod", arlington.Cond{Op: arlington.CondEq, Key: "Opt", Fn: arlington.FnArrayLength, Value: "1", Mod: 2}, true, true},
+		{"contains in array", arlington.Cond{Op: arlington.CondContains, Key: "Filter", Value: "JPXDecode"}, true, true},
+		{"contains scalar", arlington.Cond{Op: arlington.CondContains, Key: "One", Value: "DCTDecode"}, true, true},
+		{"contains no match", arlington.Cond{Op: arlington.CondContains, Key: "Filter", Value: "DCTDecode"}, false, true},
+		{"contains absent is definite", arlington.Cond{Op: arlington.CondContains, Key: "X", Value: "JPXDecode"}, false, true},
+		{"contains unresolvable element fails closed", arlington.Cond{Op: arlington.CondContains, Key: "Mixed", Value: "JPXDecode"}, false, false},
+		{"boolean eq", arlington.Cond{Op: arlington.CondEq, Key: "Mask", Value: "true"}, true, true},
+		{"boolean false eq", arlington.Cond{Op: arlington.CondEq, Key: "Unmask", Value: "false"}, true, true},
+		{"contains skips null elements", arlington.Cond{Op: arlington.CondContains, Key: "Sparse", Value: "X"}, true, true},
+		{"string length of non-string fails closed", arlington.Cond{Op: arlington.CondEq, Key: "Opt", Fn: arlington.FnStringLength, Value: "8"}, false, false},
+		{"non-numeric bound fails closed", arlington.Cond{Op: arlington.CondLt, Key: "TI", Value: "abc"}, false, false},
+		{"malformed not fails closed", arlington.Cond{Op: arlington.CondNot}, false, false},
+		{"unrecognized op fails closed", arlington.Cond{Op: arlington.CondOp(99)}, false, false},
+	}
+	d.Entries["Sparse"] = pdf.PDFArray{nil, pdf.PDFName{Value: "X"}}
+	for _, tc := range cases {
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+
+	// A multi-candidate LinkGroup can only discriminate dicts and arrays; any other kind
+	// fails closed to untyped.
+	got := resolveLinkGroups([]arlington.LinkGroup{{
+		Candidates:    []string{"A", "B"},
+		Discriminator: "0",
+		ByValue:       map[string]string{"X": "A"},
+	}}, []arlington.ValueType{arlington.String}, pdf.PDFString{Value: "X"})
+	if got != "" {
+		t.Errorf("resolveLinkGroups on a scalar: want \"\", got %q", got)
+	}
+}
+
+func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
+	// A plain (non-JPX, non-mask) image stream must carry ColorSpace and BitsPerComponent.
+	img := pdf.NewPDFDict()
+	img.HasStream = true
+	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
+	img.Entries["Width"] = pdf.PDFInteger(1)
+	img.Entries["Height"] = pdf.PDFInteger(1)
+	ctx := &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Error("expected MissingRequiredKey for an image without ColorSpace/BitsPerComponent")
+	}
+
+	// An image mask needs neither.
+	img.Entries["ImageMask"] = pdf.PDFBoolean(true)
+	ctx = &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Errorf("an image mask must not require ColorSpace/BitsPerComponent, got %v", ctx.errs)
+	}
+
+	// A JPX-encoded image self-describes both.
+	delete(img.Entries, "ImageMask")
+	img.Entries["Filter"] = pdf.PDFName{Value: "JPXDecode"}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(img, "XObjectImage", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
+		t.Errorf("a JPX image must not require ColorSpace/BitsPerComponent, got %v", ctx.errs)
+	}
+}
+
+func TestValidateArrayAgainstSchema_ElementComparison(t *testing.T) {
+	// LabRangeArray requires amin <= amax and bmin <= bmax.
+	owner := pdf.NewPDFDict()
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(5), pdf.PDFInteger(-5), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for amin > amax")
+	}
+
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(-100), pdf.PDFInteger(100), pdf.PDFInteger(-100), pdf.PDFInteger(100)}, "LabRangeArray", owner, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for an ordered Lab range: %v", ctx.errs)
+	}
+}
+
 func TestValidateAgainstSchema_RotateMod90(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries["Type"] = pdf.PDFName{Value: "Page"}

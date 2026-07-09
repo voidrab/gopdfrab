@@ -269,16 +269,24 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		sib, present := src.lookup(c.Key)
 		return present && sib != nil, true
 	case arlington.CondEq, arlington.CondNe:
-		sib, present := src.lookup(c.Key)
 		if c.Mod != 0 {
-			iv, isInt := sib.(pdf.PDFInteger)
+			lhs, lok := operandInt(src, c.Key, c.Fn)
 			rhs, err := strconv.ParseInt(c.Value, 10, 64)
-			if !present || !isInt || err != nil {
+			if !lok || err != nil {
 				return false, false
 			}
-			eq := int64(iv)%int64(c.Mod) == rhs
+			eq := lhs%int64(c.Mod) == rhs
 			return eq == (c.Op == arlington.CondEq), true
 		}
+		if c.Fn != arlington.FnValue || c.RHSKey != "" {
+			lhs, rhs, ok := comparisonOperands(src, c)
+			if !ok {
+				return false, false
+			}
+			eq := lhs == rhs
+			return eq == (c.Op == arlington.CondEq), true
+		}
+		sib, present := src.lookup(c.Key)
 		eq := false
 		if present && sib != nil {
 			s, scalar := scalarEnumString(sib)
@@ -289,13 +297,8 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		}
 		return eq == (c.Op == arlington.CondEq), true
 	case arlington.CondLt, arlington.CondLe, arlington.CondGt, arlington.CondGe:
-		sib, present := src.lookup(c.Key)
-		if !present || sib == nil {
-			return false, false
-		}
-		n, numeric := numericValue(sib)
-		bound, err := strconv.ParseFloat(c.Value, 64)
-		if !numeric || err != nil {
+		n, bound, ok := comparisonOperands(src, c)
+		if !ok {
 			return false, false
 		}
 		// Values within 1e-5 of the bound compare equal, matching the tolerance the
@@ -311,6 +314,30 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		default:
 			return n >= bound-eps, true
 		}
+	case arlington.CondContains:
+		sib, present := src.lookup(c.Key)
+		if !present || sib == nil {
+			return false, true // a definite state, like CondEq on an absent sibling
+		}
+		arr, isArr := sib.(pdf.PDFArray)
+		if !isArr {
+			arr = pdf.PDFArray{sib}
+		}
+		unresolvable := false
+		for _, item := range arr {
+			if item == nil {
+				continue
+			}
+			s, scalar := scalarEnumString(item)
+			if !scalar {
+				unresolvable = true
+				continue
+			}
+			if s == c.Value {
+				return true, true
+			}
+		}
+		return false, !unresolvable
 	case arlington.CondUnknown:
 		// An extension gate: unresolvable by design, so only a decisive sibling operand
 		// can settle the enclosing And/Or.
@@ -339,6 +366,65 @@ func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 		return !decisive, true
 	}
 	return false, false
+}
+
+// operandNumber resolves one comparison operand to a number: the entry's numeric value, or
+// its array/string length per fn. ok is false when the entry is absent, null, or the wrong
+// shape for fn -- the enclosing condition is then unknown.
+func operandNumber[S condOperands](src S, key string, fn arlington.CondFn) (float64, bool) {
+	val, present := src.lookup(key)
+	if !present || val == nil {
+		return 0, false
+	}
+	switch fn {
+	case arlington.FnArrayLength:
+		arr, ok := val.(pdf.PDFArray)
+		if !ok {
+			return 0, false
+		}
+		return float64(len(arr)), true
+	case arlington.FnStringLength:
+		s, ok := val.(pdf.PDFString)
+		if !ok {
+			return 0, false
+		}
+		return float64(len(s.Value)), true
+	default:
+		return numericValue(val)
+	}
+}
+
+// operandInt is operandNumber for modulo comparisons, which are integer-only: a plain value
+// operand must be a PDF integer (a real never satisfies "mod N"), lengths are integral.
+func operandInt[S condOperands](src S, key string, fn arlington.CondFn) (int64, bool) {
+	if fn == arlington.FnValue {
+		val, present := src.lookup(key)
+		iv, isInt := val.(pdf.PDFInteger)
+		if !present || !isInt {
+			return 0, false
+		}
+		return int64(iv), true
+	}
+	n, ok := operandNumber(src, key, fn)
+	return int64(n), ok
+}
+
+// comparisonOperands resolves both sides of a compiled comparison: the left operand, and a
+// literal or second-entry right operand.
+func comparisonOperands[S condOperands](src S, c *arlington.Cond) (lhs, rhs float64, ok bool) {
+	lhs, lok := operandNumber(src, c.Key, c.Fn)
+	if !lok {
+		return 0, 0, false
+	}
+	if c.RHSKey != "" {
+		rhs, rok := operandNumber(src, c.RHSKey, c.RHSFn)
+		return lhs, rhs, rok
+	}
+	rhs, err := strconv.ParseFloat(c.Value, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return lhs, rhs, true
 }
 
 // selfIdentifiedType re-anchors an untyped dict by its own /Type (+/Subtype) names via the
@@ -380,14 +466,19 @@ func isIndirect(val pdf.PDFValue) bool {
 }
 
 // scalarEnumString returns val's string form for PossibleValues membership testing, for the
-// name and integer types only: string/real matching against Arlington's enum column is
-// format-fragile (quoting, precision) and covers very few keys, so it is left unenforced.
+// name, integer, and boolean types only: string/real matching against Arlington's enum column
+// is format-fragile (quoting, precision) and covers very few keys, so it is left unenforced.
 func scalarEnumString(val pdf.PDFValue) (string, bool) {
 	switch v := val.(type) {
 	case pdf.PDFName:
 		return v.Value, true
 	case pdf.PDFInteger:
 		return strconv.Itoa(int(v)), true
+	case pdf.PDFBoolean:
+		if v {
+			return "true", true
+		}
+		return "false", true
 	default:
 		return "", false
 	}

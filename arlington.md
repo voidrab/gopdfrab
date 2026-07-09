@@ -472,3 +472,27 @@ Six more rows compile (94.6% → 94.9%, floor 0.93 → 0.94): `/Rotate mod 90 ==
   so classification stats stay meaningful.
 
 All gates green on the first corpus run; coverage arlington 100%, verify 93.6%.
+
+### Stage D3 — operand functions, key-vs-key comparisons, fn:Contains ✅ 2026-07-09
+
+Comparisons are no longer limited to "key's value vs literal" (95.2% simple, floor 0.945):
+
+- **`Cond.Fn`/`Cond.RHSKey`/`Cond.RHSFn`**: either side of a comparison can now be a derived
+  operand — `fn:ArrayLength(Key)` / `fn:StringLength(Key)` (`CondFn`) — and the right side
+  can be another entry's value instead of a literal. `parseOperand`/`splitModOperand` in
+  `gen.go` recognize the forms (including `(fn:ArrayLength(K) mod N)`, groundwork stage E
+  consumes); `comparisonOperands`/`operandNumber` in `checks_objectmodel.go` resolve them,
+  numeric-only and fail-closed. Newly live: `FieldChoice.TI < fn:ArrayLength(Opt)`,
+  `LabRangeArray` `@0<=@1`/`@2<=@3` (the D1 leftovers), and a bonus catch —
+  `LinearizationParameterDict.E` compiled `(@E>0) && (@E<=@L)` too.
+- **`CondContains`**: `fn:Contains(@Filter,JPXDecode)` — true when the entry equals the
+  literal or is an array containing it; an absent entry is a definite false (like `CondEq`),
+  an unresolvable element makes a non-match unknown. With `scalarEnumString` learning
+  booleans (`@ImageMask==true`), the three image Required conditions now enforce:
+  `XObjectImage.ColorSpace`/`BitsPerComponent` and `XObjectImageSoftMask.BitsPerComponent`
+  are required exactly when the image is neither JPX-encoded nor an image mask.
+- Booleans in `scalarEnumString` also make boolean PossibleValues enums enforceable; the
+  `DisallowedValue` limitation note now reads name/integer/boolean.
+
+All gates green on the first corpus run; `checks_objectmodel.go` back at 100% per-function
+statement coverage (verify 93.8%), arlington 100%.

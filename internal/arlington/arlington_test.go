@@ -387,10 +387,9 @@ func TestCompiledConditions(t *testing.T) {
 		t.Errorf("IndexedColorSpace.2: want ValueCond %+v, got %+v", wantHival, hival)
 	}
 
-	// Element-vs-element comparisons (@0<=@1), multi-group columns, and offset-wildcard rows
-	// stay predicated -- fail closed.
+	// Multi-group columns and offset-wildcard rows stay predicated -- fail closed.
 	for _, tc := range []struct{ typ, key string }{
-		{"LabRangeArray", "0"}, {"Dest0Array", "0"}, {"ArrayOfAttributeRevisions", "1*"},
+		{"Dest0Array", "0"}, {"ArrayOfAttributeRevisions", "1*"},
 	} {
 		kd := findKey(Types[tc.typ], tc.key)
 		if kd == nil || !kd.Predicated.Values || kd.ValueCond != nil {
@@ -423,13 +422,40 @@ func TestCompiledConditions(t *testing.T) {
 	if prev == nil || !prev.Predicated.Values || prev.ValueCond != nil {
 		t.Errorf("FileTrailer.Prev: want Values predicated (fn:FileSize operand), got %+v", prev)
 	}
+
+	// fn:IsRequired(fn:Not(fn:Contains(@Filter,JPXDecode) || (@ImageMask==true))).
+	cs := findKey(Types["XObjectImage"], "ColorSpace")
+	wantCS := &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{
+		{Op: CondContains, Key: "Filter", Value: "JPXDecode"},
+		{Op: CondEq, Key: "ImageMask", Value: "true"},
+	}}}}
+	if cs == nil || cs.Predicated.Required || !reflect.DeepEqual(cs.RequiredWhen, wantCS) {
+		t.Errorf("XObjectImage.ColorSpace: want RequiredWhen %+v, got %+v", wantCS, cs)
+	}
+
+	// fn:Eval((@TI>=0) && (@TI<fn:ArrayLength(Opt))) -- a derived right operand.
+	ti := findKey(Types["FieldChoice"], "TI")
+	wantTI := &Cond{Op: CondAnd, Kids: []Cond{
+		{Op: CondGe, Key: "TI", Value: "0"},
+		{Op: CondLt, Key: "TI", RHSKey: "Opt", RHSFn: FnArrayLength},
+	}}
+	if ti == nil || ti.Predicated.Values || !reflect.DeepEqual(ti.ValueCond, wantTI) {
+		t.Errorf("FieldChoice.TI: want ValueCond %+v, got %+v", wantTI, ti)
+	}
+
+	// Element-vs-element comparisons now compile on fixed-index rows: LabRangeArray @0<=@1.
+	lab := findKey(Types["LabRangeArray"], "0")
+	wantLab := &Cond{Op: CondLe, Key: "0", RHSKey: "1"}
+	if lab == nil || lab.Predicated.Values || !reflect.DeepEqual(lab.ValueCond, wantLab) {
+		t.Errorf("LabRangeArray.0: want ValueCond %+v, got %+v", wantLab, lab)
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.94 // observed ~94.9% after mod/extension conditions; headroom for TSV churn
+	const floor = 0.945 // observed ~95.2% after operand functions; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {
