@@ -1008,6 +1008,16 @@ func TestConstraintHelperEdges(t *testing.T) {
 	if _, ok := lengthCoupledSibling(&arlington.Cond{Op: arlington.CondPresent, Key: "X"}, "X"); ok {
 		t.Error("a non-comparison leaf must not match")
 	}
+	// Affine couplings must not match: resizing Functions to len(Bounds) would be off by one.
+	for _, affine := range []arlington.Cond{
+		{Op: arlington.CondEq, Key: "Functions", Fn: arlington.FnArrayLength, RHSKey: "Bounds", RHSFn: arlington.FnArrayLength, RHSAdd: 1},
+		{Op: arlington.CondEq, Key: "Range", Fn: arlington.FnArrayLength, RHSKey: "N", RHSFn: arlington.FnArrayLength, RHSMul: 2},
+		{Op: arlington.CondEq, Key: "Widths", Fn: arlington.FnArrayLength, RHSKey: "LastChar", RHSFn: arlington.FnArrayLength, RHSKey2: "FirstChar"},
+	} {
+		if _, ok := lengthCoupledSibling(&affine, affine.Key); ok {
+			t.Errorf("an affine coupling %+v must not resize", affine)
+		}
+	}
 
 	d := pdf.NewPDFDict()
 	d.Entries["DecodeParms"] = pdf.PDFName{Value: "NotAnArray"}

@@ -9844,6 +9844,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Widths", Fn: FnArrayLength, RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"},
 			},
 			{
 				Name:              "FontDescriptor",
@@ -9960,6 +9961,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Widths", Fn: FnArrayLength, RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"},
 			},
 			{
 				Name:              "FontDescriptor",
@@ -10040,6 +10042,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfIntegersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Domain", Fn: FnArrayLength, RHSKey: "Size", RHSFn: FnArrayLength, RHSMul: 2},
 			},
 			{
 				Name:           "BitsPerSample",
@@ -10063,6 +10066,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Encode", Fn: FnArrayLength, RHSKey: "Size", RHSFn: FnArrayLength, RHSMul: 2},
 			},
 			{
 				Name:         "Decode",
@@ -10259,6 +10263,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfFunctions"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Functions", Fn: FnArrayLength, RHSKey: "Bounds", RHSFn: FnArrayLength, RHSAdd: 1},
 			},
 			{
 				Name:         "Bounds",
@@ -10270,6 +10275,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Bounds", Fn: FnArrayLength, RHSKey: "Functions", RHSFn: FnArrayLength, RHSAdd: -1},
 			},
 			{
 				Name:         "Encode",
@@ -11407,6 +11413,7 @@ var Types = map[string]ObjectType{
 						Candidates: []string{"ArrayOfNumbersGeneral"},
 					},
 				},
+				SpecialCase: &Cond{Op: CondEq, Key: "Range", Fn: FnArrayLength, RHSKey: "N", RHSMul: 2},
 			},
 			{
 				Name:              "Metadata",

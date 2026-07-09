@@ -826,6 +826,86 @@ func TestEvalCondOperandsAndContains(t *testing.T) {
 	}
 }
 
+func TestEvalCondAffineRHS(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries["FirstChar"] = pdf.PDFInteger(32)
+	d.Entries["LastChar"] = pdf.PDFInteger(35)
+	d.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
+	d.Entries["N"] = pdf.PDFInteger(3)
+	d.Entries["Range"] = pdf.PDFArray{nil, nil, nil, nil, nil, nil}
+	d.Entries["Bounds"] = pdf.PDFArray{pdf.PDFInteger(1)}
+	d.Entries["Functions"] = pdf.PDFArray{nil, nil}
+	d.Entries["Name"] = pdf.PDFName{Value: "x"}
+
+	widths := arlington.Cond{Op: arlington.CondEq, Key: "Widths", Fn: arlington.FnArrayLength,
+		RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"}
+	scaled := arlington.Cond{Op: arlington.CondEq, Key: "Range", Fn: arlington.FnArrayLength,
+		RHSKey: "N", RHSMul: 2}
+	offset := arlington.Cond{Op: arlington.CondEq, Key: "Functions", Fn: arlington.FnArrayLength,
+		RHSKey: "Bounds", RHSFn: arlington.FnArrayLength, RHSAdd: 1}
+	badKey2 := widths
+	badKey2.RHSKey2 = "Name"
+	absentKey2 := widths
+	absentKey2.RHSKey2 = "Absent"
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		mutate  func()
+		val, ok bool
+	}{
+		{"widths coupling holds", widths, nil, true, true},
+		{"widths coupling violated", widths, func() { d.Entries["LastChar"] = pdf.PDFInteger(40) }, false, true},
+		{"non-numeric subtrahend fails closed", badKey2, nil, false, false},
+		{"absent subtrahend fails closed", absentKey2, nil, false, false},
+		{"scaled sibling holds", scaled, nil, true, true},
+		{"scaled sibling violated", scaled, func() { d.Entries["N"] = pdf.PDFInteger(4) }, false, true},
+		{"offset sibling length holds", offset, nil, true, true},
+		{"offset non-array fails closed", offset, func() { d.Entries["Bounds"] = pdf.PDFInteger(1) }, false, false},
+	}
+	for _, tc := range cases {
+		if tc.mutate != nil {
+			tc.mutate()
+		}
+		val, ok := evalCond(&tc.cond, d)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCond = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+NotStandard"}
+	font.Entries["FirstChar"] = pdf.PDFInteger(32)
+	font.Entries["LastChar"] = pdf.PDFInteger(34)
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)} // needs 3 entries
+	ctx := &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Error("expected ConstraintViolated for a Widths/FirstChar/LastChar count mismatch")
+	}
+
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("a matching Widths count must not be flagged, got %v", ctx.errs)
+	}
+
+	// An absent FirstChar leaves the coupling unknown: no flag (its own absence is
+	// MissingRequiredKey's business).
+	delete(font.Entries, "FirstChar")
+	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
+	ctx = &ValidationContext{}
+	validateAgainstSchema(font, "FontType1", ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
+		t.Errorf("an absent FirstChar must leave the coupling unknown, got %v", ctx.errs)
+	}
+}
+
 func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	// A plain (non-JPX, non-mask) image stream must carry ColorSpace and BitsPerComponent.
 	img := pdf.NewPDFDict()

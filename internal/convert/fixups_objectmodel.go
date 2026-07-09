@@ -294,7 +294,10 @@ func lengthCoupledSibling(c *arlington.Cond, key string) (string, bool) {
 	switch c.Op {
 	case arlington.CondEq:
 		if c.Key == key && c.Fn == arlington.FnArrayLength &&
-			c.RHSKey != "" && c.RHSFn == arlington.FnArrayLength && c.Mod == 0 {
+			c.RHSKey != "" && c.RHSFn == arlington.FnArrayLength && c.Mod == 0 &&
+			c.RHSAdd == 0 && c.RHSMul <= 1 && c.RHSKey2 == "" {
+			// The affine couplings (ArrayLength(Functions)==ArrayLength(Bounds)+1) must not
+			// match: resizing to the sibling's plain length would be off by the offset.
 			return c.RHSKey, true
 		}
 	case arlington.CondAnd:

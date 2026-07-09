@@ -772,3 +772,31 @@ object-model checks now have a registered fixer**:
 
 All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
 convert corpus 510/510); convert 92.3%, `fixups_objectmodel.go` still 100% in its entirety.
+
+### Stage G1 — affine right sides in comparisons ✅ 2026-07-09
+
+The arithmetic-RHS class E1 deferred turns out to be **7 rows**, not 2 — all SpecialCase
+constraints on named dict rows, now compiled and enforced as `ConstraintViolated`
+(221 → 228 compiled constraints, test floor 210 → 225):
+
+- `FontType1/FontType3.Widths` == `1+(@LastChar - @FirstChar)`;
+  `FunctionType0.Size`/`Encode` couple `Domain`/`Encode` lengths to `2*ArrayLength(Size)`;
+  `FunctionType3.Functions`/`Bounds` == `ArrayLength(sibling)±1`;
+  `ICCProfileStream.Range` == `2*@N`.
+- **`Cond` gains an affine second-entry right side** — `RHSAdd`/`RHSMul`/`RHSKey2`, meaning
+  `RHSAdd + RHSMul*op(RHSKey,RHSFn) − value(RHSKey2)` — compiled by `parseAffineRHS`
+  (`gen.go`): one top-level `+`/`-`/`*` combining an integer literal with an operand, where
+  the operand may itself be the difference of two plain entries. Division,
+  literal-minus-operand, scaled differences, and deeper nesting fail closed as before;
+  `condOperandsResolvable` validates `RHSKey2` like every operand. At runtime
+  `comparisonOperands` resolves the affine form with the usual tri-state semantics (an
+  absent or non-numeric subtrahend makes the condition unknown).
+- **Convert-side guard, the correctness-critical bit**: `lengthCoupledSibling` now rejects
+  conds with `RHSAdd`/`RHSMul`/`RHSKey2` set — otherwise `constraintFixer` would resize
+  `Functions` to `len(Bounds)` (off by one) or `DecodeParms`-style-resize a scaled
+  coupling. No repair is added for the affine couplings: resizing `Widths` or a stitching
+  function's arrays is never conformance-neutral, so violations stay honest residuals.
+
+All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
+convert corpus 510/510) — no real-world corpus file violates the seven couplings; coverage
+arlington 100%, `comparisonOperands`/`lengthCoupledSibling` 100%.

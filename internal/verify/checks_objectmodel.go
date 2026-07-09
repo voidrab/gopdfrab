@@ -488,15 +488,30 @@ func operandInt[S condOperands](src S, key string, fn arlington.CondFn) (int64, 
 }
 
 // comparisonOperands resolves both sides of a compiled comparison: the left operand, and a
-// literal or second-entry right operand.
+// literal or (possibly affine) second-entry right operand.
 func comparisonOperands[S condOperands](src S, c *arlington.Cond) (lhs, rhs float64, ok bool) {
 	lhs, lok := operandNumber(src, c.Key, c.Fn)
 	if !lok {
 		return 0, 0, false
 	}
 	if c.RHSKey != "" {
-		rhs, rok := operandNumber(src, c.RHSKey, c.RHSFn)
-		return lhs, rhs, rok
+		r1, rok := operandNumber(src, c.RHSKey, c.RHSFn)
+		if !rok {
+			return 0, 0, false
+		}
+		mul := c.RHSMul
+		if mul == 0 {
+			mul = 1
+		}
+		rhs := float64(c.RHSAdd) + float64(mul)*r1
+		if c.RHSKey2 != "" {
+			r2, r2ok := operandNumber(src, c.RHSKey2, arlington.FnValue)
+			if !r2ok {
+				return 0, 0, false
+			}
+			rhs -= r2
+		}
+		return lhs, rhs, true
 	}
 	rhs, err := strconv.ParseFloat(c.Value, 64)
 	if err != nil {
