@@ -11,12 +11,28 @@ type PDFError struct {
 	page  int
 
 	objectRef *PDFRef
+	objModel  *ObjModelDetail
+}
+
+// ObjModelDetail identifies the Arlington schema location behind an
+// object-model finding: the schema type of the reported container and the key
+// (or decimal array index) whose constraint was violated.
+type ObjModelDetail struct {
+	TypeName string
+	Key      string
 }
 
 // NewError constructs a PDFError reporting a violation of c, found on page
 // (0 for document-level) and optionally tied to a specific indirect object.
 func NewError(c Check, errs []error, page int, ref *PDFRef) PDFError {
 	return PDFError{check: c, errs: errs, page: page, objectRef: ref}
+}
+
+// WithObjModelDetail returns a copy of e carrying the Arlington schema
+// location d, so object-model fixers can target the offending key directly.
+func (e PDFError) WithObjModelDetail(d ObjModelDetail) PDFError {
+	e.objModel = &d
+	return e
 }
 
 func (e PDFError) String() string {
@@ -94,4 +110,14 @@ func (e PDFError) Messages() []string {
 // Check returns the registered Check this violation corresponds to.
 func (e PDFError) Check() Check {
 	return e.check
+}
+
+// ObjModelDetail returns the Arlington schema location this object-model
+// violation was found at, and whether one was recorded. Only findings from the
+// objmodel clause carry a detail.
+func (e PDFError) ObjModelDetail() (d ObjModelDetail, ok bool) {
+	if e.objModel == nil {
+		return ObjModelDetail{}, false
+	}
+	return *e.objModel, true
 }

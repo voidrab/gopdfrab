@@ -40,18 +40,18 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			required = ok && req
 		}
 		if required && !kd.Predicated.Required && !kd.Inheritable && !present {
-			ctx.Report(
+			ctx.ReportObjModel(
 				pdf.Checks.ObjectModel.MissingRequiredKey,
-				v,
+				v, typeName, kd.Name,
 				fmt.Sprintf("%s is missing required key %q", typeName, kd.Name),
 			)
 			continue
 		}
 
 		if present && !kd.Predicated.Types && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
-			ctx.Report(
+			ctx.ReportObjModel(
 				pdf.Checks.ObjectModel.WrongValueType,
-				v,
+				v, typeName, kd.Name,
 				fmt.Sprintf("%s key %q has an unexpected value type", typeName, kd.Name),
 			)
 			continue
@@ -59,9 +59,9 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 
 		if present && !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 			if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.DisallowedValue,
-					v,
+					v, typeName, kd.Name,
 					fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, kd.Name),
 				)
 			}
@@ -69,9 +69,9 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 
 		if present && val != nil && kd.ValueCond != nil {
 			if legal, ok := evalCond(kd.ValueCond, v); ok && !legal {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.DisallowedValue,
-					v,
+					v, typeName, kd.Name,
 					fmt.Sprintf("%s key %q has a value outside its legal range", typeName, kd.Name),
 				)
 			}
@@ -85,9 +85,9 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 					continue
 				}
 				if s, sok := scalarEnumString(val); sok && s != pin.Value {
-					ctx.Report(
+					ctx.ReportObjModel(
 						pdf.Checks.ObjectModel.DisallowedValue,
-						v,
+						v, typeName, kd.Name,
 						fmt.Sprintf("%s key %q must be %s under its current sibling entries", typeName, kd.Name, pin.Value),
 					)
 				}
@@ -96,18 +96,18 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 
 		if present && val != nil && kd.SpecialCase != nil {
 			if holds, ok := evalCond(kd.SpecialCase, v); ok && !holds {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.ConstraintViolated,
-					v,
+					v, typeName, kd.Name,
 					fmt.Sprintf("%s key %q violates an object-model consistency constraint", typeName, kd.Name),
 				)
 			}
 		}
 
 		if present && !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
-			ctx.Report(
+			ctx.ReportObjModel(
 				pdf.Checks.ObjectModel.IndirectRequired,
-				v,
+				v, typeName, kd.Name,
 				fmt.Sprintf("%s key %q must be an indirect reference", typeName, kd.Name),
 			)
 		}
@@ -123,26 +123,26 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			}
 			val := v.Entries[k]
 			if !wc.Predicated.Types && len(wc.Types) > 0 && !matchesValueType(val, wc.Types) {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.WrongValueType,
-					v,
+					v, typeName, k,
 					fmt.Sprintf("%s key %q has an unexpected value type", typeName, k),
 				)
 				continue
 			}
 			if !wc.Predicated.Values && len(wc.PossibleValues) > 0 {
 				if s, ok := scalarEnumString(val); ok && !stringInList(s, wc.PossibleValues) {
-					ctx.Report(
+					ctx.ReportObjModel(
 						pdf.Checks.ObjectModel.DisallowedValue,
-						v,
+						v, typeName, k,
 						fmt.Sprintf("%s key %q has a value not in its enumerated legal values", typeName, k),
 					)
 				}
 			}
 			if !wc.Predicated.Indirect && wc.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.IndirectRequired,
-					v,
+					v, typeName, k,
 					fmt.Sprintf("%s key %q must be an indirect reference", typeName, k),
 				)
 			}
@@ -155,9 +155,9 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	if ot.Wildcard == nil {
 		for k := range v.Entries {
 			if k != "_ref" && stringInList(k, ot.Post14Keys) {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
-					v,
+					v, typeName, k,
 					fmt.Sprintf("%s key %q was introduced after PDF 1.4", typeName, k),
 				)
 			}
@@ -192,9 +192,9 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 		fixed[idx] = true
 		if idx >= len(v) {
 			if kd.Required && !kd.Predicated.Required {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.MissingRequiredKey,
-					owner,
+					owner, typeName, strconv.Itoa(idx),
 					fmt.Sprintf("%s is missing required element %d", typeName, idx),
 				)
 			}
@@ -203,18 +203,18 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 		validateArrayElement(v[idx], kd, idx, typeName, owner, ctx)
 		if v[idx] != nil && kd.ValueCond != nil {
 			if legal, ok := evalCondArray(kd.ValueCond, v); ok && !legal {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.DisallowedValue,
-					owner,
+					owner, typeName, strconv.Itoa(idx),
 					fmt.Sprintf("%s element %d has a value outside its legal range", typeName, idx),
 				)
 			}
 		}
 		if v[idx] != nil && kd.SpecialCase != nil {
 			if holds, ok := evalCondArray(kd.SpecialCase, v); ok && !holds {
-				ctx.Report(
+				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.ConstraintViolated,
-					owner,
+					owner, typeName, strconv.Itoa(idx),
 					fmt.Sprintf("%s element %d violates an object-model consistency constraint", typeName, idx),
 				)
 			}
@@ -234,26 +234,26 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 // typeName-typed array, mirroring validateAgainstSchema's per-key logic.
 func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
 	if !kd.Predicated.Types && len(kd.Types) > 0 && !matchesValueType(val, kd.Types) {
-		ctx.Report(
+		ctx.ReportObjModel(
 			pdf.Checks.ObjectModel.WrongValueType,
-			owner,
+			owner, typeName, strconv.Itoa(idx),
 			fmt.Sprintf("%s element %d has an unexpected value type", typeName, idx),
 		)
 		return
 	}
 	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 		if s, ok := scalarEnumString(val); ok && !stringInList(s, kd.PossibleValues) {
-			ctx.Report(
+			ctx.ReportObjModel(
 				pdf.Checks.ObjectModel.DisallowedValue,
-				owner,
+				owner, typeName, strconv.Itoa(idx),
 				fmt.Sprintf("%s element %d has a value not in its enumerated legal values", typeName, idx),
 			)
 		}
 	}
 	if !kd.Predicated.Indirect && kd.IndirectReference == arlington.IndirectRequired && !isIndirect(val) {
-		ctx.Report(
+		ctx.ReportObjModel(
 			pdf.Checks.ObjectModel.IndirectRequired,
-			owner,
+			owner, typeName, strconv.Itoa(idx),
 			fmt.Sprintf("%s element %d must be an indirect reference", typeName, idx),
 		)
 	}

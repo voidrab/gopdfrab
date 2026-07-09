@@ -1333,3 +1333,117 @@ func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
 		t.Errorf("non-scalar discriminator resolved to %q, want \"\"", got)
 	}
 }
+
+// hasDetail reports whether ctx holds a finding of c carrying exactly the
+// Arlington schema location (typeName, key).
+func hasDetail(ctx *ValidationContext, c pdf.Check, typeName, key string) bool {
+	for _, e := range ctx.errs {
+		if e.Check() != c {
+			continue
+		}
+		if d, ok := e.ObjModelDetail(); ok && d.TypeName == typeName && d.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// TestObjModelDetailAttached asserts every objmodel emission site attaches the Arlington
+// schema location fixers target: named dict rows, wildcard rows, post-1.4 keys, and array
+// rows (fixed and wildcard, keyed by decimal element index).
+func TestObjModelDetailAttached(t *testing.T) {
+	dict := func(kv map[string]pdf.PDFValue) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		for k, v := range kv {
+			d.Entries[k] = v
+		}
+		return d
+	}
+	directPages := dict(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}})
+	directStream := pdf.NewPDFDict()
+	directStream.HasStream = true
+
+	cases := []struct {
+		name          string
+		run           func(ctx *ValidationContext)
+		check         pdf.Check
+		typeName, key string
+	}{
+		{"dict missing required", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}), "Catalog", ctx)
+		}, pdf.Checks.ObjectModel.MissingRequiredKey, "Catalog", "Pages"},
+		{"dict wrong type", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Type": pdf.PDFInteger(1)}), "Catalog", ctx)
+		}, pdf.Checks.ObjectModel.WrongValueType, "Catalog", "Type"},
+		{"dict disallowed enum", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"NonFullScreenPageMode": pdf.PDFName{Value: "Bogus"}}), "ViewerPreferences", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ViewerPreferences", "NonFullScreenPageMode"},
+		{"dict range", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"CA": pdf.PDFReal(1.5)}), "GraphicsStateParameter", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "GraphicsStateParameter", "CA"},
+		{"dict pinned value", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{
+				"Filter": pdf.PDFName{Value: "Standard"},
+				"V":      pdf.PDFInteger(2), "R": pdf.PDFInteger(2),
+				"O": pdf.PDFString{Value: "o"}, "U": pdf.PDFString{Value: "u"},
+				"P": pdf.PDFInteger(-4),
+			}), "EncryptionStandard", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "EncryptionStandard", "R"},
+		{"dict special case", func(ctx *ValidationContext) {
+			s := dict(map[string]pdf.PDFValue{
+				"Filter":      pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
+				"DecodeParms": pdf.PDFArray{pdf.NewPDFDict()},
+			})
+			s.HasStream = true
+			validateAgainstSchema(s, "Stream", ctx)
+		}, pdf.Checks.ObjectModel.ConstraintViolated, "Stream", "DecodeParms"},
+		{"dict indirect required", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{
+				"Type": pdf.PDFName{Value: "Catalog"}, "Pages": directPages,
+			}), "Catalog", ctx)
+		}, pdf.Checks.ObjectModel.IndirectRequired, "Catalog", "Pages"},
+		{"dict post-1.4 key", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"PrintScaling": pdf.PDFName{Value: "AppDefault"}}), "ViewerPreferences", ctx)
+		}, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14, "ViewerPreferences", "PrintScaling"},
+		{"wildcard wrong type", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Im1": pdf.PDFName{Value: "NotAStream"}}), "XObjectMap", ctx)
+		}, pdf.Checks.ObjectModel.WrongValueType, "XObjectMap", "Im1"},
+		{"wildcard disallowed enum", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"CS0": pdf.PDFName{Value: "BogusColorSpace"}}), "ColorSpaceMap", ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ColorSpaceMap", "CS0"},
+		{"wildcard indirect required", func(ctx *ValidationContext) {
+			validateAgainstSchema(dict(map[string]pdf.PDFValue{"Im1": directStream}), "XObjectMap", ctx)
+		}, pdf.Checks.ObjectModel.IndirectRequired, "XObjectMap", "Im1"},
+		{"array missing required element", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.MissingRequiredKey, "ArrayOf_4Numbers", "3"},
+		{"array element wrong type", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "x"}, pdf.PDFInteger(612), pdf.PDFInteger(792)}, "ArrayOf_4Numbers", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.WrongValueType, "ArrayOf_4Numbers", "1"},
+		{"array element disallowed enum", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFName{Value: "XYZ"}, nil}, "Dest1Array", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "Dest1Array", "1"},
+		{"array element range", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "WhitepointArray", "0"},
+		{"array element special case", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.5), pdf.PDFReal(0.5)}, "ArrayOf_4NumbersColorAnnotation", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.ConstraintViolated, "ArrayOf_4NumbersColorAnnotation", "1"},
+		{"array wildcard element indirect", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{directPages}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.IndirectRequired, "ArrayOfPageTreeNodeKids", "0"},
+		{"array wildcard element enum", func(ctx *ValidationContext) {
+			validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFName{Value: "BogusDecode"}}, "ArrayOfFilterNames", pdf.NewPDFDict(), ctx)
+		}, pdf.Checks.ObjectModel.DisallowedValue, "ArrayOfFilterNames", "0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			tc.run(ctx)
+			if !hasDetail(ctx, tc.check, tc.typeName, tc.key) {
+				t.Errorf("no %s finding carrying detail {%s, %s}; findings: %v", tc.check.Name(), tc.typeName, tc.key, ctx.errs)
+			}
+		})
+	}
+}

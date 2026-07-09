@@ -596,3 +596,26 @@ Two corpus lessons, both from the L34a real-world regression file:
 `fn:IsPresent` also learned element-index operands, compiling the last index-row SpecialCase
 (`ArrayOf_4NumbersColorAnnotation`: element 1 requires element 2) and exercising the array
 path end to end. All gates green; coverage arlington 100%, verify 93.8%, convert ≥91.6%.
+
+## Conversion side
+
+With the six checks complete, the branch turns to repair: Convert should fix every
+object-model violation that has a safe, conformance-neutral repair, with a public
+`ConvertObjectModel` API mirroring `VerifyObjectModel`. Agreed stances: an unrepairable
+value under an *optional* key is deleted (always objmodel-conformant; required keys are
+never deleted), and post-1.4 keys are removed when the profile enforces the check. Same
+per-stage discipline as above: one commit per stage, all gates green, 100% statement
+coverage on new code.
+
+### Stage F1 — structured findings ✅ 2026-07-09
+
+Objmodel findings previously carried the offending key and type only inside free-text
+messages, forcing every fixer to re-walk the whole graph and re-derive its targets.
+`pdf.PDFError` now optionally carries `ObjModelDetail{TypeName, Key}` (array indices as
+decimal strings, matching the TSV row convention), attached via the new
+`ctx.ReportObjModel` at all 17 emission sites — named dict rows, wildcard rows, post-1.4
+keys, and array rows (fixed and wildcard). `Report`/`ReportErrs`/`ReportObjModel` share one
+ref-and-page resolver (`newError`). Messages are unchanged; non-objmodel findings carry no
+detail. `TestObjModelDetailAttached` pins every site's detail; all gates green (full suite,
+Isartor 204/204, veraPDF 569/569, convert corpus), coverage pdf 95.0%, verify 93.9%, new
+code 100%.

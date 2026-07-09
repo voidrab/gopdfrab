@@ -175,6 +175,19 @@ func (ctx *ValidationContext) report(err pdf.PDFError) {
 
 // Report records a single violation of c against obj.
 func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) {
+	ctx.report(ctx.newError(c, obj, []error{errors.New(msg)}))
+}
+
+// ReportObjModel records a violation of c against obj carrying the Arlington
+// schema location (typeName, key) that fixers use to target the repair. key is
+// the offending dict key, or the decimal index for array-element findings.
+func (ctx *ValidationContext) ReportObjModel(c pdf.Check, obj pdf.PDFValue, typeName, key, msg string) {
+	err := ctx.newError(c, obj, []error{errors.New(msg)})
+	ctx.report(err.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: key}))
+}
+
+// newError builds a PDFError against obj, resolving the owner ref and current page.
+func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
 	var ref *pdf.PDFRef
 	if dict, ok := obj.(pdf.PDFDict); ok {
 		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
@@ -183,35 +196,15 @@ func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) 
 	}
 
 	var page int
-	if ctx == nil {
-		page = 0
-	} else {
+	if ctx != nil {
 		page = ctx.CurrentPage
 	}
 
-	err := pdf.NewError(c, []error{errors.New(msg)}, page, ref)
-
-	ctx.report(err)
+	return pdf.NewError(c, errs, page, ref)
 }
 
 // ReportErrs records a violation of c against obj carrying multiple
 // underlying error messages.
 func (ctx *ValidationContext) ReportErrs(c pdf.Check, obj pdf.PDFValue, errs []error) {
-	var ref *pdf.PDFRef
-	if dict, ok := obj.(pdf.PDFDict); ok {
-		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
-			ref = &r
-		}
-	}
-
-	var page int
-	if ctx == nil {
-		page = 0
-	} else {
-		page = ctx.CurrentPage
-	}
-
-	err := pdf.NewError(c, errs, page, ref)
-
-	ctx.report(err)
+	ctx.report(ctx.newError(c, obj, errs))
 }
