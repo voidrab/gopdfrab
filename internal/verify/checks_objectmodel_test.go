@@ -804,6 +804,54 @@ func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 	}
 }
 
+func TestEvalCondArray(t *testing.T) {
+	arr := pdf.PDFArray{pdf.PDFReal(0.9505), nil, pdf.PDFName{Value: "X"}}
+
+	cases := []struct {
+		name    string
+		cond    arlington.Cond
+		val, ok bool
+	}{
+		{"element present", arlington.Cond{Op: arlington.CondPresent, Key: "0"}, true, true},
+		{"null element is absent", arlington.Cond{Op: arlington.CondPresent, Key: "1"}, false, true},
+		{"out of range is absent", arlington.Cond{Op: arlington.CondPresent, Key: "9"}, false, true},
+		{"gt element", arlington.Cond{Op: arlington.CondGt, Key: "0", Value: "0"}, true, true},
+		{"gt out of range fails closed", arlington.Cond{Op: arlington.CondGt, Key: "9", Value: "0"}, false, false},
+		{"gt non-numeric fails closed", arlington.Cond{Op: arlington.CondGt, Key: "2", Value: "0"}, false, false},
+		{"eq name element", arlington.Cond{Op: arlington.CondEq, Key: "2", Value: "X"}, true, true},
+		{"non-numeric key is absent", arlington.Cond{Op: arlington.CondPresent, Key: "R"}, false, true},
+	}
+	for _, tc := range cases {
+		val, ok := evalCondArray(&tc.cond, arr)
+		if val != tc.val || ok != tc.ok {
+			t.Errorf("%s: evalCondArray = (%v, %v), want (%v, %v)", tc.name, val, ok, tc.val, tc.ok)
+		}
+	}
+}
+
+func TestValidateArrayAgainstSchema_ValueCondRange(t *testing.T) {
+	// WhitepointArray elements 0 and 2 must be > 0.
+	owner := pdf.NewPDFDict()
+	ctx := &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Error("expected DisallowedValue for a non-positive whitepoint X")
+	}
+
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{pdf.PDFReal(0.9505), pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unexpected violations for a conformant whitepoint: %v", ctx.errs)
+	}
+
+	// A null element matches everything: the range check must not fire on it.
+	ctx = &ValidationContext{}
+	validateArrayAgainstSchema(pdf.PDFArray{nil, pdf.PDFInteger(1), pdf.PDFReal(1.089)}, "WhitepointArray", owner, ctx)
+	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Errorf("a null element must not be range-checked, got %v", ctx.errs)
+	}
+}
+
 func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// PageObject.Parent is required when @Type!=Template.
 	page := pdf.NewPDFDict()

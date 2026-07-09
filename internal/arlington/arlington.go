@@ -139,10 +139,11 @@ const (
 	CondNot
 )
 
-// Cond is a compiled fn: condition over the owning dictionary's own entries, produced at
-// generation time from predicate forms with no cross-object paths. Leaf ops use Key (and
-// Value for comparisons); CondAnd/CondOr/CondNot use Kids. Consumers evaluate it fail-closed:
-// an unresolvable operand must skip the dependent check, never flag.
+// Cond is a compiled fn: condition over the owning container's own entries -- sibling keys of
+// a dict, or elements of an array when Key is a decimal index -- produced at generation time
+// from predicate forms with no cross-object paths. Leaf ops use Key (and Value for
+// comparisons); CondAnd/CondOr/CondNot use Kids. Consumers evaluate it fail-closed: an
+// unresolvable operand must skip the dependent check, never flag.
 type Cond struct {
 	Op    CondOp
 	Key   string
@@ -161,8 +162,10 @@ type KeyDef struct {
 	// condition holds. Mutually exclusive with Required and Predicated.Required.
 	RequiredWhen *Cond
 	// ValueCond constrains the key's present value (a compiled whole-column fn:Eval range,
-	// e.g. 0 <= CA <= 1), evaluated over the owning dict like RequiredWhen. Mutually
-	// exclusive with PossibleValues and Predicated.Values.
+	// e.g. 0 <= CA <= 1). On a named dict key its operands are sibling key names, evaluated
+	// over the owning dict like RequiredWhen; on a fixed array-index row they are element
+	// indices, evaluated over the owning array. Mutually exclusive with PossibleValues and
+	// Predicated.Values.
 	ValueCond         *Cond
 	IndirectReference IndirectRule
 	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);

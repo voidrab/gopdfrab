@@ -369,13 +369,41 @@ func TestCompiledConditions(t *testing.T) {
 	if as == nil || as.RequiredWhen != nil {
 		t.Errorf("AnnotText.AS: want no RequiredWhen (path condition), got %+v", as)
 	}
+
+	// Fixed array-index rows compile fn:Eval ranges with element-index operands:
+	// WhitepointArray.0 is fn:Eval(@0>0).
+	wp := findKey(Types["WhitepointArray"], "0")
+	wantWP := &Cond{Op: CondGt, Key: "0", Value: "0"}
+	if wp == nil || wp.Predicated.Values || !reflect.DeepEqual(wp.ValueCond, wantWP) {
+		t.Errorf("WhitepointArray.0: want ValueCond %+v, got %+v", wantWP, wp)
+	}
+
+	// IndexedColorSpace.2 (hival) is fn:Eval((@2>=0) && (@2<=255)).
+	hival := findKey(Types["IndexedColorSpace"], "2")
+	wantHival := &Cond{Op: CondAnd, Kids: []Cond{
+		{Op: CondGe, Key: "2", Value: "0"}, {Op: CondLe, Key: "2", Value: "255"},
+	}}
+	if hival == nil || !reflect.DeepEqual(hival.ValueCond, wantHival) {
+		t.Errorf("IndexedColorSpace.2: want ValueCond %+v, got %+v", wantHival, hival)
+	}
+
+	// Element-vs-element comparisons (@0<=@1), multi-group columns, and offset-wildcard rows
+	// stay predicated -- fail closed.
+	for _, tc := range []struct{ typ, key string }{
+		{"LabRangeArray", "0"}, {"Dest0Array", "0"}, {"ArrayOfAttributeRevisions", "1*"},
+	} {
+		kd := findKey(Types[tc.typ], tc.key)
+		if kd == nil || !kd.Predicated.Values || kd.ValueCond != nil {
+			t.Errorf("%s.%s: want Values predicated with no ValueCond, got %+v", tc.typ, tc.key, kd)
+		}
+	}
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
 // a visible regression guard per arlington.md's Limitations section, not a target to chase.
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.92 // observed ~93.2% after compiled value ranges; headroom for TSV churn
+	const floor = 0.93 // observed ~94.6% after array-element value ranges; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types {

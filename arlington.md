@@ -423,3 +423,28 @@ Gates: full suite green, Isartor 204/204, veraPDF 569/569 (0 false positives), c
 corpus 510/510; coverage arlington 100%, verify 93.5%, convert 91.7%. Benchstat: geomean
 +1.4% (noise); the 10k-page `large` fixture is +14% (300ms → 343ms, p=0.002) — the honest
 price of schema-validating ten thousand pages that previously went entirely unchecked.
+
+### Stage D1 — array-element value conditions ✅ 2026-07-09
+
+B3 deliberately refused to compile fixed-index `fn:Eval` constraints because `@0` references
+an array element, not a sibling key. This stage lifts exactly that restriction — 27 rows,
+e.g. `WhitepointArray` X/Z > 0, `GammaArray` ≥ 0, RGB components ∈ [0,1],
+`IndexedColorSpace` hival ∈ [0,255] — classification 93.2% → 94.6% (floor 0.92 → 0.93):
+
+- **Codegen** (`gen.go`): `splitComparison` accepts all-digit `@N` operands alongside sibling
+  names; `condOperandsResolvable` then validates the compiled tree against its row's kind —
+  a named dict row may only reference sibling keys, a fixed-index row only element indices,
+  and wildcard/offset-wildcard rows (`*`, `1*`) resolve nothing. `RequiredWhen` stays
+  dict-rows-only (the array path ignores it). Element-vs-element comparisons
+  (`LabRangeArray`'s `@0<=@1` — RHS is not a literal) and multi-group columns
+  (`Dest*Array`, `ArrayOfDuration.0`) stay predicated, fail closed.
+- **Runtime** (`checks_objectmodel.go`): `evalCond` is now a thin wrapper over a generic
+  `evalCondOn[S condOperands]` shared with the new `evalCondArray` — dict lookup by key,
+  array lookup by index (out-of-range = definite absence), one copy of the tri-state
+  semantics, no interface boxing, no allocations. The fixed-index loop in
+  `validateArrayAgainstSchema` enforces a row's `ValueCond` as `DisallowedValue` against the
+  owner dict; a null element is never range-checked (null matches everything, trap #1).
+
+All gates green on the first corpus run (full suite, Isartor 204/204, veraPDF 569/569,
+convert corpus 510/510); coverage arlington 100%, verify 93.6%, convert 91.7%;
+`BenchmarkOpenVerify` magnitudes unchanged.

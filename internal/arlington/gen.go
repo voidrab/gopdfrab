@@ -549,10 +549,12 @@ func buildKeyDef(r row) keyDef {
 	case r.required == "TRUE":
 		kd.required = true
 	case strings.Contains(r.required, "fn:"):
+		// RequiredWhen is only evaluated against dicts at runtime, so index-operand trees
+		// (and index rows generally) stay predicated here.
 		switch res := compileRequired(r.required); {
 		case res.ok && res.isConst:
 			kd.required = res.constVal
-		case res.ok:
+		case res.ok && plainKey(kd.name) && condOperandsResolvable(res.tree, kd.name):
 			kd.requiredWhen = res.tree
 		default:
 			kd.predicated.required = true
@@ -570,12 +572,13 @@ func buildKeyDef(r row) keyDef {
 
 	kd.inheritable = r.inheritable == "TRUE"
 
-	// ValueCond only compiles for named dict keys: wildcard and fixed-index rows have no
-	// owning dictionary for the runtime evaluation to resolve sibling references against.
+	// ValueCond compiles for named dict keys (operands are sibling key names) and for fixed
+	// array indices (operands are element indices, resolved against the owning array at
+	// runtime). Wildcard and offset-wildcard rows have no single position to resolve against.
 	values, unresolved := parsePossibleValues(r.possibleValues)
 	kd.possibleValues = values
 	if unresolved {
-		if tree, ok := compileValueCond(r.possibleValues); ok && plainKey(kd.name) {
+		if tree, ok := compileValueCond(r.possibleValues); ok && condOperandsResolvable(tree, kd.name) {
 			kd.valueCond = tree
 			kd.possibleValues = nil
 		} else {
@@ -910,7 +913,7 @@ func splitComparison(expr string) (key, value, op string, ok bool) {
 				return "", "", "", false // bare '=' or '!'
 			}
 			lhs, rhs := strings.TrimSpace(expr[:i]), strings.TrimSpace(expr[i+width:])
-			if strings.HasPrefix(lhs, "@") && plainKey(lhs[1:]) && plainValue(rhs) {
+			if strings.HasPrefix(lhs, "@") && (plainKey(lhs[1:]) || indexKey(lhs[1:])) && plainValue(rhs) {
 				return lhs[1:], rhs, op, true
 			}
 			return "", "", "", false
@@ -937,6 +940,48 @@ func plainKey(s string) bool {
 		}
 	}
 	return hasLetter
+}
+
+// indexKey reports whether s is a fixed array-index reference (@0, @1): all digits.
+func indexKey(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// condOperandsResolvable reports whether every leaf operand of tree can be resolved from the
+// row it belongs to: sibling key names for a named dict row, element indices for a fixed
+// array-index row. A nil tree (vacuous constraint) is resolvable for either. Wildcard and
+// offset-wildcard rows resolve nothing.
+func condOperandsResolvable(tree *condExpr, rowName string) bool {
+	var want func(string) bool
+	switch {
+	case plainKey(rowName):
+		want = plainKey
+	case indexKey(rowName):
+		want = indexKey
+	default:
+		return false
+	}
+	var walk func(c condExpr) bool
+	walk = func(c condExpr) bool {
+		if c.key != "" && !want(c.key) {
+			return false
+		}
+		for _, k := range c.kids {
+			if !walk(k) {
+				return false
+			}
+		}
+		return true
+	}
+	return tree == nil || walk(*tree)
 }
 
 // plainValue reports whether s is a bare comparison literal (name/number token).

@@ -141,8 +141,9 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 // validateArrayAgainstSchema checks array v against the Arlington object-model schema for
 // typeName: a required fixed index must exist (MissingRequiredKey), and every element --
 // fixed-index rows first, the wildcard row for the rest -- must satisfy its allowed types
-// (WrongValueType), enumerated values (DisallowedValue), and indirect-reference requirement
-// (IndirectRequired). Violations are reported against owner, the nearest enclosing dict, so
+// (WrongValueType), enumerated values or compiled value range (DisallowedValue), and
+// indirect-reference requirement (IndirectRequired). Violations are reported against owner,
+// the nearest enclosing dict, so
 // fixers can resolve them by ref. A predicated column suppresses only its own check, as in
 // validateAgainstSchema.
 func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, ctx *ValidationContext) {
@@ -173,6 +174,15 @@ func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFVa
 			continue
 		}
 		validateArrayElement(v[idx], kd, idx, typeName, owner, ctx)
+		if v[idx] != nil && kd.ValueCond != nil {
+			if legal, ok := evalCondArray(kd.ValueCond, v); ok && !legal {
+				ctx.Report(
+					pdf.Checks.ObjectModel.DisallowedValue,
+					owner,
+					fmt.Sprintf("%s element %d has a value outside its legal range", typeName, idx),
+				)
+			}
+		}
 	}
 
 	if ot.Wildcard != nil {
@@ -213,18 +223,53 @@ func validateArrayElement(val pdf.PDFValue, kd *arlington.KeyDef, idx int, typeN
 	}
 }
 
+// condOperands resolves a compiled condition's leaf operands against its owning container:
+// sibling keys of a dict, or elements of an array (Key is a decimal index there). Implemented
+// as value types over a generic evaluator so both paths share one set of semantics without
+// interface boxing.
+type condOperands interface {
+	lookup(key string) (pdf.PDFValue, bool)
+}
+
+type dictOperands struct{ v pdf.PDFDict }
+
+func (d dictOperands) lookup(key string) (pdf.PDFValue, bool) {
+	val, present := d.v.Entries[key]
+	return val, present
+}
+
+type arrayOperands struct{ v pdf.PDFArray }
+
+func (a arrayOperands) lookup(key string) (pdf.PDFValue, bool) {
+	idx, err := strconv.Atoi(key)
+	if err != nil || idx < 0 || idx >= len(a.v) {
+		return nil, false
+	}
+	return a.v[idx], true
+}
+
 // evalCond evaluates a compiled Arlington condition against v's own entries. ok is false when
 // an operand is unresolvable (a present comparison value that is not a name/integer scalar);
 // callers must then skip the dependent check, never flag. An absent or null sibling is a
 // definite state: CondPresent is false, CondEq false, CondNe true. Boolean operands
 // short-circuit on a decisive kid (true for Or, false for And) even when a sibling is not ok.
 func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
+	return evalCondOn(c, dictOperands{v})
+}
+
+// evalCondArray evaluates a fixed-index row's compiled condition against the owning array,
+// with the same tri-state semantics as evalCond; an out-of-range index is a definite absence.
+func evalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {
+	return evalCondOn(c, arrayOperands{v})
+}
+
+func evalCondOn[S condOperands](c *arlington.Cond, src S) (val, ok bool) {
 	switch c.Op {
 	case arlington.CondPresent:
-		sib, present := v.Entries[c.Key]
+		sib, present := src.lookup(c.Key)
 		return present && sib != nil, true
 	case arlington.CondEq, arlington.CondNe:
-		sib, present := v.Entries[c.Key]
+		sib, present := src.lookup(c.Key)
 		eq := false
 		if present && sib != nil {
 			s, scalar := scalarEnumString(sib)
@@ -235,7 +280,7 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 		}
 		return eq == (c.Op == arlington.CondEq), true
 	case arlington.CondLt, arlington.CondLe, arlington.CondGt, arlington.CondGe:
-		sib, present := v.Entries[c.Key]
+		sib, present := src.lookup(c.Key)
 		if !present || sib == nil {
 			return false, false
 		}
@@ -261,13 +306,13 @@ func evalCond(c *arlington.Cond, v pdf.PDFDict) (val, ok bool) {
 		if len(c.Kids) != 1 {
 			return false, false
 		}
-		kv, kok := evalCond(&c.Kids[0], v)
+		kv, kok := evalCondOn(&c.Kids[0], src)
 		return !kv, kok
 	case arlington.CondAnd, arlington.CondOr:
 		decisive := c.Op == arlington.CondOr
 		allOK := true
 		for i := range c.Kids {
-			kv, kok := evalCond(&c.Kids[i], v)
+			kv, kok := evalCondOn(&c.Kids[i], src)
 			if kok && kv == decisive {
 				return decisive, true
 			}
