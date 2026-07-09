@@ -14,58 +14,20 @@ This project is at an early stage and under active development. The API is not f
 
 ## Features
 
+- PDF structural integrity verification (Arlington model)
 - PDF/A verification
 - PDF/A conversion
 
-## Current Progress
+## Roadmap
 
-### PDF/A-1b Validation
+PDF/A-1b verification and conversion is still at an early stage, and appropriate testing infrastructure must be
+created to harden it.
 
-PDF/A-1b (ISO 19005-1:2005) verification is implemented and passes both reference test corpora in full:
+Next up are the implementation of capabilities for verification and conversion of:
 
-- [Isartor test suite](https://www.pdfa.org/resource/isartor-test-suite/) — **204/204** negative test files correctly detected by their intended clause.
-- [veraPDF test suite](https://github.com/veraPDF/veraPDF-corpus) (PDF_A-1b) — **569/569** files verified correctly.
-
-| Clause | Area | Status |
-|--------|------|--------|
-| 6.1.2 | File header | ✓ |
-| 6.1.3 | File trailer | ✓ |
-| 6.1.4 | Cross-reference table | ✓ |
-| 6.1.5 | Document information dictionary | ✓ |
-| 6.1.6 | String objects | ✓ |
-| 6.1.7 | Stream objects | ✓ |
-| 6.1.8 | Indirect objects | ✓ |
-| 6.1.10 | Filters | ✓ |
-| 6.1.11 | Embedded files | ✓ |
-| 6.1.12 | Architectural limits | ✓ |
-| 6.1.13 | Optional content | ✓ |
-| 6.2.2 | Output intent | ✓ |
-| 6.2.3 | Device colour spaces | ✓ |
-| 6.2.4 | Image dictionaries | ✓ |
-| 6.2.5–6.2.7 | XObjects | ✓ |
-| 6.2.8 | ExtGState | ✓ |
-| 6.2.9 | Rendering intent | ✓ |
-| 6.2.10 | Operators | ✓ |
-| 6.3.2 | Font programs | ✓ |
-| 6.3.3 | Composite fonts | ✓ |
-| 6.3.4 | Font embedding | ✓ |
-| 6.3.5 | Font subsets | ✓ |
-| 6.3.6 | Font metrics | ✓ |
-| 6.3.7 | Font encoding | ✓ |
-| 6.4 | Transparency | ✓ |
-| 6.5 | Annotations | ✓ |
-| 6.6 | Actions | ✓ |
-| 6.7.2 | XMP metadata structure | ✓ |
-| 6.7.3 | Info/XMP synchronisation | ✓ |
-| 6.7.5 | XMP packet header | ✓ |
-| 6.7.8 | Extension schemas | ✓ |
-| 6.7.9 | XMP well-formedness | ✓ |
-| 6.7.11 | PDF/A identifier | ✓ |
-| 6.9 | Interactive forms | ✓ |
-
-### PDF/A-1b Conversion
-
-PDF/A-1b conversion is fully implemented. See [Converting to PDF/A](#converting-to-pdfa) below.
+- PDF/A-2
+- PDF/A-3
+- PDF/A-4
 
 ## Getting Started
 
@@ -296,9 +258,9 @@ res, err := doc.Verify(p)
 
 Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `gopdfrab.CheckByClause("6.3.4", 1)` and `gopdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
 
-## Object-Model Conformance (independent of PDF/A)
+## PDF Object-Model Conformance
 
-`Checks.ObjectModel` holds five checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level. See `arlington.md` for the full design rationale.
+`Checks.ObjectModel` holds five checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level.
 
 ```go
 res, err := gopdfrab.VerifyObjectModel(path)

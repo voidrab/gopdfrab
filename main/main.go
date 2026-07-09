@@ -138,8 +138,28 @@ func runVerify(args []string) {
 		}
 	}
 
-	fmt.Printf("\n--- Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
-	if fail > 0 || errCount > 0 {
+	fmt.Printf("\n--- PDF/A Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
+
+	results, err = gopdfrab.VerifyAll(paths, gopdfrab.PDF)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "verify: %v\n", err)
 		os.Exit(1)
 	}
+
+	pass, fail, errCount = 0, 0, 0
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			fmt.Printf("[ERROR] %s: %v\n", r.Path, r.Err)
+			errCount++
+		case r.Result.Valid:
+			fmt.Printf("[PASS] %s\n", r.Path)
+			pass++
+		default:
+			fmt.Printf("[FAIL] %s: %s\n", r.Path, r.Result.Summary())
+			fail++
+		}
+	}
+
+	fmt.Printf("\n--- PDF Results: %d pass, %d fail, %d errors (total %d) ---\n", pass, fail, errCount, len(paths))
 }

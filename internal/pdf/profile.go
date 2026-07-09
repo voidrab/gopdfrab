@@ -35,6 +35,9 @@ type Profile struct {
 	SkipUnusedSimpleFonts bool
 }
 
+// PDF is the default profile for generic ISO 32000 object-model checks.
+var PDF *Profile
+
 // PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
 // interpretation of the spec. Used by Verify(A_1B).
 var PDFA_1B *Profile
@@ -45,6 +48,7 @@ var PDFA_1B *Profile
 var Legacy_1B *Profile
 
 func init() {
+	PDF = ObjectModelOnly()
 	Legacy_1B = NewFullProfile(A_1B)
 
 	// PDFA_1B adjusts the full profile for veraPDF's divergences from the

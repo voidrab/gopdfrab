@@ -17,17 +17,19 @@ type (
 	ConvertResult     = convert.ConvertResult
 )
 
-// PDF/A conformance levels.
+// PDF conformance levels.
 const (
 	A_1B      = pdf.A_1B
 	Undefined = pdf.Undefined
 	// ObjectModel is a reporting-only level for the generic ISO 32000
-	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
+	// object-model checks.
 	ObjectModel = pdf.ObjectModel
 )
 
-// PDF/A profiles.
+// PDF profiles.
 var (
+	// PDF is the default profile for generic ISO 32000 object-model checks.
+	PDF = pdf.PDF
 	// PDFA_1B is the canonical PDF/A-1b profile
 	PDFA_1B = pdf.PDFA_1B
 	// Legacy_1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
