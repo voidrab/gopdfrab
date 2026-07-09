@@ -569,8 +569,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 }
 
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
-// simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues). This is
-// a visible regression guard per arlington.md's Limitations section, not a target to chase.
+// simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues).
 func TestClassificationFloor(t *testing.T) {
 	const floor = 0.955 // observed ~96.0% after fn:NotStandard14Font; headroom for TSV churn
 
