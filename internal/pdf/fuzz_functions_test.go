@@ -66,8 +66,10 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 // colour space -- the shape that previously recursed forever. Invariant: no
 // panic and no infinite recursion.
 func FuzzResolveColor(f *testing.F) {
-	f.Add([]byte("Indexed"), byte(0))
-	f.Add([]byte("CS0"), byte(1))
+	f.Add([]byte("Indexed"), byte(0)) // self-cycle via named lookup
+	f.Add([]byte("CS0"), byte(1))     // Indexed base recursion
+	f.Add([]byte("Sep"), byte(2))     // Separation/alternate recursion
+	f.Add([]byte("Icc"), byte(3))     // ICCBased terminal
 	f.Fuzz(func(t *testing.T, name []byte, shape byte) {
 		if len(name) > 256 {
 			return

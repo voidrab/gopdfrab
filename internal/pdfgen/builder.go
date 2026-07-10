@@ -97,17 +97,15 @@ func (b *Builder) FinishStartxref(startxrefOffset int64) []byte {
 	return b.buf.Bytes()
 }
 
-// deflate zlib-compresses data. Writing to a bytes.Buffer cannot fail, so any
-// (impossible) error is treated as fatal programmer error.
+// deflate zlib-compresses data. Both Write and Close target a bytes.Buffer,
+// whose writes never fail, so the (impossible) errors are safely ignored; a
+// silent failure would surface immediately as an unparseable seed in
+// TestSeedsAreValid.
 func deflate(data []byte) []byte {
 	var out bytes.Buffer
 	w := zlib.NewWriter(&out)
-	if _, err := w.Write(data); err != nil {
-		panic("pdfgen: zlib write: " + err.Error())
-	}
-	if err := w.Close(); err != nil {
-		panic("pdfgen: zlib close: " + err.Error())
-	}
+	_, _ = w.Write(data)
+	_ = w.Close()
 	return out.Bytes()
 }
 

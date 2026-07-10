@@ -42,22 +42,100 @@ func TestCrasher_NegativeStreamLength(t *testing.T) {
 	openReproduces(t, "negative-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
 }
 
-// TestCrasher_NonDictRoot: a trailer /Root pointing at a non-dictionary object
-// panicked an unchecked type assertion in BuildPageIndex (fixed: comma-ok).
-func TestCrasher_NonDictRoot(t *testing.T) {
-	b := pdfgen.NewBuilder("%PDF-1.7\n")
-	b.Obj(1, "<616263>") // Root resolves to a hex string, not a dict
-	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
-	openReproduces(t, "non-dict-root", b.FinishClassic("<< /Size 3 /Root 1 0 R >>"))
-}
-
-// TestCrasher_CyclicPageTree: a /Kids entry referring back to its own Pages
-// node recursed BuildPageIndex into a stack overflow (fixed: visited set).
-func TestCrasher_CyclicPageTree(t *testing.T) {
+// TestCrasher_OverflowStreamLength: a /Length near math.MaxInt64 overflowed
+// streamStart+Length to a negative end (fixed: overflow guard).
+func TestCrasher_OverflowStreamLength(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
-	b.Obj(2, "<< /Type /Pages /Kids [2 0 R] /Count 1 >>") // self-referential
-	openReproduces(t, "cyclic-kids", b.FinishClassic("<< /Size 3 /Root 1 0 R >>"))
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Contents 4 0 R >>")
+	b.Obj(4, "<< /Length 9223372036854775807 >>\nstream\nq Q\nendstream")
+	openReproduces(t, "overflow-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
+}
+
+// TestCrasher_DeepDictNesting: deeply nested dictionaries recursed
+// parseDictionary (fixed: maxParseDepth, same guard as arrays).
+func TestCrasher_DeepDictNesting(t *testing.T) {
+	deep := strings.Repeat("<< /K ", 20000) + "0" + strings.Repeat(" >>", 20000)
+	b := pdfgen.NewBuilder("%PDF-1.7\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Junk "+deep+" >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>")
+	openReproduces(t, "deep-dict", b.FinishClassic("<< /Size 4 /Root 1 0 R >>"))
+}
+
+// TestCrasher_CCITTColumnsAmplification: an absurd Columns drove a huge per-row
+// allocation (fixed: Columns cap).
+func TestCrasher_CCITTColumnsAmplification(t *testing.T) {
+	p := pdf.CCITTParams{Columns: 2 << 20, Rows: 1}
+	if _, err := pdf.DecodeCCITT([]byte{0x00, 0x01}, p); err == nil {
+		t.Error("expected an error for an absurd CCITT Columns value")
+	}
+}
+
+// TestBuildPageIndexBranches exercises BuildPageIndex directly (GetPageCount
+// does not route through it) across every guard the fixes added: a non-dict
+// graph, a missing Root, a non-dict Root, a cyclic page tree, a page tree
+// deeper than the cap, and the normal Page-collecting walk.
+func TestBuildPageIndexBranches(t *testing.T) {
+	r, err := pdf.OpenBytes(pdfgen.Seeds()[0])
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer r.Close()
+
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+
+	pagesDict := func(kids pdf.PDFArray, ref int) pdf.PDFDict {
+		p := pdf.NewPDFDict()
+		p.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+		p.Entries["Kids"] = kids
+		p.Entries["_ref"] = pdf.PDFRef{ObjNum: ref}
+		return p
+	}
+	graphWith := func(pages pdf.PDFValue) pdf.PDFDict {
+		root := pdf.NewPDFDict()
+		root.Entries["Pages"] = pages
+		g := pdf.NewPDFDict()
+		g.Entries["Root"] = root
+		return g
+	}
+
+	// Non-dict graph.
+	if _, err := r.BuildPageIndex(pdf.PDFInteger(0)); err == nil {
+		t.Error("non-dict graph: want error")
+	}
+	// Missing Root.
+	if _, err := r.BuildPageIndex(pdf.NewPDFDict()); err == nil {
+		t.Error("missing Root: want error")
+	}
+	// Non-dict Root.
+	badRoot := pdf.NewPDFDict()
+	badRoot.Entries["Root"] = pdf.PDFHexString{Value: "abc"}
+	if _, err := r.BuildPageIndex(badRoot); err == nil {
+		t.Error("non-dict Root: want error")
+	}
+	// Happy path: one real Page is indexed; a non-dict Kids entry is skipped.
+	idx, err := r.BuildPageIndex(graphWith(pagesDict(pdf.PDFArray{page, pdf.PDFInteger(0)}, 2)))
+	if err != nil || idx[3] != 1 {
+		t.Errorf("happy path: idx=%v err=%v; want page 3 -> 1", idx, err)
+	}
+	// Cyclic page tree: Pages whose Kids contains itself must terminate.
+	cyc := pagesDict(nil, 2)
+	cyc.Entries["Kids"] = pdf.PDFArray{cyc}
+	if _, err := r.BuildPageIndex(graphWith(cyc)); err != nil {
+		t.Errorf("cyclic page tree: unexpected error %v", err)
+	}
+	// Over-deep page tree must be rejected, not overflow the stack.
+	deep := pdf.PDFValue(page)
+	for i := 0; i < (1<<16)+8; i++ {
+		deep = pagesDict(pdf.PDFArray{deep}, 1000+i)
+	}
+	if _, err := r.BuildPageIndex(graphWith(deep)); err == nil {
+		t.Error("over-deep page tree: want error")
+	}
 }
 
 // TestCrasher_DeepNesting: a deeply nested array in an object body recursed
@@ -153,6 +231,66 @@ func TestCrasher_ClampDomainShort(t *testing.T) {
 		t.Fatalf("ParseFunction: %v", err)
 	}
 	fn.Eval([]float64{0.1, 0.2, 0.3}) // three inputs -- must not panic
+}
+
+// TestParseFunctionRejectsMalformed exercises the shape-validation branches
+// added to newSampledFunction (Type 0) and newStitchingFunction (Type 3) so a
+// malformed function is rejected at construction rather than panicking Eval.
+func TestParseFunctionRejectsMalformed(t *testing.T) {
+	unit := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
+
+	sampled := func(entries map[string]pdf.PDFValue) pdf.PDFValue {
+		d := pdf.NewPDFDict()
+		d.HasStream = true
+		d.RawStream = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+		d.Entries["FunctionType"] = pdf.PDFInteger(0)
+		d.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)}
+		d.Entries["Range"] = unit
+		d.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFInteger(2)}
+		d.Entries["BitsPerSample"] = pdf.PDFInteger(8)
+		for k, v := range entries {
+			d.Entries[k] = v
+		}
+		return d
+	}
+	stitching := func(entries map[string]pdf.PDFValue) pdf.PDFValue {
+		sub := pdf.NewPDFDict()
+		sub.Entries["FunctionType"] = pdf.PDFInteger(2)
+		sub.Entries["Domain"] = unit
+		sub.Entries["N"] = pdf.PDFInteger(1)
+		d := pdf.NewPDFDict()
+		d.Entries["FunctionType"] = pdf.PDFInteger(3)
+		d.Entries["Domain"] = unit
+		d.Entries["Functions"] = pdf.PDFArray{sub, sub}
+		d.Entries["Bounds"] = pdf.PDFArray{pdf.PDFReal(0.5)}
+		d.Entries["Encode"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)}
+		for k, v := range entries {
+			d.Entries[k] = v
+		}
+		return d
+	}
+
+	cases := []struct {
+		name string
+		fn   pdf.PDFValue
+	}{
+		{"sampled-empty-size", sampled(map[string]pdf.PDFValue{"Size": pdf.PDFArray{}})},
+		{"sampled-zero-size", sampled(map[string]pdf.PDFValue{"Size": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(2)}})},
+		{"sampled-empty-range", sampled(map[string]pdf.PDFValue{"Range": pdf.PDFArray{}})},
+		{"sampled-short-domain", sampled(map[string]pdf.PDFValue{"Domain": unit})},
+		{"sampled-short-decode", sampled(map[string]pdf.PDFValue{"Decode": pdf.PDFArray{pdf.PDFInteger(0)}})},
+		{"stitch-empty-functions", stitching(map[string]pdf.PDFValue{"Functions": pdf.PDFArray{}})},
+		{"stitch-short-domain", stitching(map[string]pdf.PDFValue{"Domain": pdf.PDFArray{pdf.PDFInteger(0)}})},
+		{"stitch-short-bounds", stitching(map[string]pdf.PDFValue{"Bounds": pdf.PDFArray{}})},
+		{"stitch-short-encode", stitching(map[string]pdf.PDFValue{"Encode": pdf.PDFArray{}})},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := pdf.ParseFunction(c.fn); err == nil {
+				t.Errorf("ParseFunction(%s) = nil error, want rejection", c.name)
+			}
+		})
+	}
 }
 
 // TestCrasher_CyclicColorSpace: a named colour space that resolves back to

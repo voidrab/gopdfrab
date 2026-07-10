@@ -63,7 +63,14 @@ func Corruptors() []Corruptor {
 
 // --- structural corruptors -------------------------------------------------
 
-func cp(in []byte) []byte { return append([]byte(nil), in...) }
+// cp returns a copy of in. It uses make+copy (not append to a nil slice) so the
+// result is always non-nil, even for an empty input -- honouring the Corruptor
+// contract that Apply never returns nil.
+func cp(in []byte) []byte {
+	out := make([]byte, len(in))
+	copy(out, in)
+	return out
+}
 
 func truncate(in []byte, rng *rand.Rand) []byte {
 	if len(in) < 2 {
@@ -157,10 +164,13 @@ func startxrefOffBy(in []byte, rng *rand.Rand) []byte {
 // flipXRefOffsets rewrites every 10-digit offset in the classic xref table to
 // point somewhere random, so object lookups miss and force recovery.
 func flipXRefOffsets(in []byte, rng *rand.Rand) []byte {
-	xi := bytes.LastIndex(in, []byte("xref"))
+	// Match the classic-table keyword on its own line ("\nxref"), not the
+	// "xref" inside "startxref"; otherwise the scan would begin past the table.
+	xi := bytes.LastIndex(in, []byte("\nxref"))
 	if xi < 0 {
 		return bitFlips(in, rng)
 	}
+	xi++ // skip the leading newline
 	out := cp(in)
 	// Rewrite 10-digit runs immediately followed by " 00000 n".
 	pat := []byte(" 00000 n")
