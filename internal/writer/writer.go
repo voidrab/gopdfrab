@@ -273,6 +273,31 @@ type pdfWriter struct {
 	// acyclic inline graph (which visited does not catch, since each fresh
 	// composite has a distinct pointer) cannot overflow the stack.
 	depth int
+
+	// keyScratch is a shared stack of dict keys reused by every
+	// sortedEntryKeys call, so sorting a dict's keys costs no allocation
+	// per dict. Frames are stacked: each caller records the length before
+	// its call and restores it afterwards.
+	keyScratch []string
+}
+
+// sortedEntryKeys appends entries' keys (skipping the synthetic
+// "_ref"/"_dirty" bookkeeping keys) to wr.keyScratch in sorted order and
+// returns the appended segment. The caller must truncate wr.keyScratch back
+// to its prior length when done with the segment. The segment stays readable
+// even if deeper recursion grows the scratch onto a new backing array, since
+// it is never written again after the sort.
+func (wr *pdfWriter) sortedEntryKeys(entries map[string]pdf.PDFValue) []string {
+	base := len(wr.keyScratch)
+	for k := range entries {
+		if k == "_ref" || k == "_dirty" {
+			continue
+		}
+		wr.keyScratch = append(wr.keyScratch, k)
+	}
+	keys := wr.keyScratch[base:]
+	sort.Strings(keys)
+	return keys
 }
 
 // maxWriteDepth bounds writer recursion over nested inline composites.
@@ -307,17 +332,11 @@ func (wr *pdfWriter) discover(v pdf.PDFValue) {
 		// first-encounter order that assigns object numbers is deterministic;
 		// ranging over the map directly would number objects differently on
 		// every run, making conversion output non-reproducible.
-		keys := make([]string, 0, len(val.Entries))
-		for k := range val.Entries {
-			if k == "_ref" || k == "_dirty" {
-				continue
-			}
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		base := len(wr.keyScratch)
+		for _, k := range wr.sortedEntryKeys(val.Entries) {
 			wr.discover(val.Entries[k])
 		}
+		wr.keyScratch = wr.keyScratch[:base]
 
 	case pdf.PDFArray:
 		ptr := pdf.ValuePointer(val)
@@ -376,14 +395,9 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 // synthetic "_ref"/"_dirty" bookkeeping keys and visiting real keys in sorted
 // order for deterministic, diffable output.
 func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf.PDFValue) error {
-	keys := make([]string, 0, len(entries))
-	for k := range entries {
-		if k == "_ref" || k == "_dirty" {
-			continue
-		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	base := len(wr.keyScratch)
+	defer func() { wr.keyScratch = wr.keyScratch[:base] }()
+	keys := wr.sortedEntryKeys(entries)
 
 	if _, err := io.WriteString(cw, "<<"); err != nil {
 		return err

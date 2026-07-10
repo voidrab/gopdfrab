@@ -76,6 +76,33 @@ overwrites only its own files.
    veraPDF and PDFBox additionally require a separate JRE; gopdfrab nothing
    beyond the binary.
 
+## Regression workflow (before/after a performance change)
+
+Compare the micro benchmarks against a baseline with benchstat; accept only
+statistically significant deltas (benchstat reports p-values; ignore rows
+marked `~`):
+
+```sh
+BENCH='BenchmarkOpenVerify|BenchmarkConvert'
+go test -run '^$' -bench "$BENCH" -benchmem -count=10 ./benchmarks/micro > /tmp/bench-before.txt
+# ... apply the change ...
+go test -run '^$' -bench "$BENCH" -benchmem -count=10 ./benchmarks/micro > /tmp/bench-after.txt
+go run golang.org/x/perf/cmd/benchstat@latest /tmp/bench-before.txt /tmp/bench-after.txt
+```
+
+When a change reduces allocations, ratchet the ceilings in
+`micro/bench_test.go` (`maxLargeFileAllocs`, `maxConvertLargeAllocs`) in the
+same commit, and append the cause to their doc-comment changelogs.
+
+To find where the time/allocations go, profile a single case:
+
+```sh
+go test -run '^$' -bench 'BenchmarkConvert/large$' -benchtime 10x \
+  -cpuprofile cpu.prof -memprofile mem.prof -o bench.test ./benchmarks/micro
+go tool pprof -top -cum bench.test cpu.prof
+go tool pprof -sample_index=alloc_objects -top bench.test mem.prof
+```
+
 ## Layout
 
 ```

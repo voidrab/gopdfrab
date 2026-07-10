@@ -66,6 +66,7 @@ func BenchmarkOpenVerify(b *testing.B) {
 	for name, rel := range sampleFiles {
 		path := filepath.Join(root, rel)
 		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				doc, err := gopdfrab.Open(path)
 				if err != nil {
@@ -181,6 +182,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // Carrying the loop Reader's stream caches into the final serialize-verify
 // pass (AdoptStreamCaches) cut this to ~2.14M, and the lexer's parse-once
 // number tokens plus the shared parseArray scratch to ~2.11M.
+// The fuzz-hardening pass that made the writer's discover walk deterministic
+// (sorted key order) briefly added a per-dict key-slice allocation (~2.27M,
+// over this ceiling); sharing one key scratch stack across discover and
+// writeDictEntries (pdfWriter.keyScratch) brought it back to ~2.18M.
 // Lower this value if further optimization reduces it.
 const maxConvertLargeAllocs = 2_220_000
 
