@@ -308,6 +308,27 @@ Due to JVM startup overhead, startup time and cold single-file verification are 
 The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
 If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy_1B` profile.
 
+## Fuzzing & Stress Testing
+
+Because gopdfrab's whole job is to read untrusted, frequently-malformed PDFs, the
+`internal/pdfgen` package programmatically generates "crazy, broken" PDF documents
+— structurally-valid skeletons deliberately corrupted with truncation, bad
+cross-reference offsets, negative stream lengths, dangling and circular
+references, deep nesting, and more. Everything is generated in memory from a seed
+(no external document files), so any crash is reproducible from its seed alone via
+`pdfgen.Generate(seed)`.
+
+These inputs drive native Go fuzz targets across the whole pipeline —
+`FuzzOpenBytes`/`FuzzLexer` (parser), `FuzzVerifyBytes`, `FuzzConvertBytes`, and
+`FuzzConvertRoundTrip`. Their generated seed corpora replay on every `go test`
+run, and `TestGeneratedCorpusDoesNotPanic` exercises a deterministic batch through
+the public API on every build. To actively hunt for new crashes locally:
+
+```sh
+go test -run '^$' -fuzz=FuzzOpenBytes       -fuzztime=60s ./internal/pdf/
+go test -run '^$' -fuzz=FuzzConvertRoundTrip -fuzztime=60s .
+```
+
 ## Licensing
 
 This work is dual-licensed under GNU AGPL 3.0 and our commercial license.
