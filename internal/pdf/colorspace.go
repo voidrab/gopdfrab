@@ -12,6 +12,20 @@ import "math"
 // as their device equivalents, and an unrecognized or unsupported space
 // (e.g. Pattern) falls back to mid-gray rather than failing.
 func ResolveColor(cs PDFValue, comps []float64, resources PDFDict) (r, g, b float64) {
+	return resolveColor(cs, comps, resources, 0)
+}
+
+// maxColorSpaceDepth bounds colour-space resolution recursion. A named colour
+// space can be looked up through the caller-controlled resources dict, so a
+// name that (directly or transitively) resolves back to itself would otherwise
+// recurse forever; nested Indexed/Separation bases add further depth. Real
+// colour spaces nest only a couple of levels.
+const maxColorSpaceDepth = 16
+
+func resolveColor(cs PDFValue, comps []float64, resources PDFDict, depth int) (r, g, b float64) {
+	if depth > maxColorSpaceDepth {
+		return placeholderRGB(comps)
+	}
 	switch v := cs.(type) {
 	case PDFName:
 		switch v.Value {
@@ -23,7 +37,7 @@ func ResolveColor(cs PDFValue, comps []float64, resources PDFDict) (r, g, b floa
 			return CMYKToRGB(comps)
 		}
 		if named, ok := LookupNamedColorSpace(v.Value, resources); ok {
-			return ResolveColor(named, comps, resources)
+			return resolveColor(named, comps, resources, depth+1)
 		}
 		return placeholderRGB(comps)
 
@@ -51,9 +65,9 @@ func ResolveColor(cs PDFValue, comps []float64, resources PDFDict) (r, g, b floa
 		case "ICCBased":
 			return resolveICCBased(v, comps)
 		case "Indexed", "I":
-			return resolveIndexed(v, comps, resources)
+			return resolveIndexed(v, comps, resources, depth)
 		case "Separation", "DeviceN":
-			return resolveSeparation(v, comps, resources)
+			return resolveSeparation(v, comps, resources, depth)
 		}
 		return placeholderRGB(comps)
 	}
@@ -175,7 +189,7 @@ func ColorSpaceComponents(cs PDFValue) int {
 
 // resolveIndexed looks up comps[0] (a palette index) in an Indexed colour
 // space's lookup table and resolves the resulting base-space components.
-func resolveIndexed(arr PDFArray, comps []float64, resources PDFDict) (r, g, b float64) {
+func resolveIndexed(arr PDFArray, comps []float64, resources PDFDict, depth int) (r, g, b float64) {
 	if len(arr) < 4 || len(comps) < 1 {
 		return placeholderRGB(comps)
 	}
@@ -191,7 +205,7 @@ func resolveIndexed(arr PDFArray, comps []float64, resources PDFDict) (r, g, b f
 	for i := 0; i < n; i++ {
 		baseComps[i] = float64(lookup[start+i]) / 255
 	}
-	return ResolveColor(base, baseComps, resources)
+	return resolveColor(base, baseComps, resources, depth+1)
 }
 
 func indexedLookupBytes(v PDFValue) []byte {
@@ -213,7 +227,7 @@ func indexedLookupBytes(v PDFValue) []byte {
 // resolveSeparation applies a Separation/DeviceN colour space's tint
 // transform (a PDF Function) and resolves the resulting alternate-space
 // components.
-func resolveSeparation(arr PDFArray, comps []float64, resources PDFDict) (r, g, b float64) {
+func resolveSeparation(arr PDFArray, comps []float64, resources PDFDict, depth int) (r, g, b float64) {
 	if len(arr) < 4 {
 		return placeholderRGB(comps)
 	}
@@ -223,7 +237,7 @@ func resolveSeparation(arr PDFArray, comps []float64, resources PDFDict) (r, g, 
 		return placeholderRGB(comps)
 	}
 	altComps := fn.Eval(comps)
-	return ResolveColor(alt, altComps, resources)
+	return resolveColor(alt, altComps, resources, depth+1)
 }
 
 // labToRGB converts CIE L*a*b* components to sRGB via XYZ, approximating

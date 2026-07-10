@@ -254,7 +254,7 @@ func TestColorHelperShortComponentFallbacks(t *testing.T) {
 	if r, g, b := resolveICCBased(iccOdd, []float64{0.5}); r != 0.5 || g != 0.5 || b != 0.5 {
 		t.Errorf("resolveICCBased(N=2) = %v,%v,%v, want mid-gray fallback", r, g, b)
 	}
-	if r, g, b := resolveIndexed(PDFArray{PDFName{Value: "Indexed"}}, []float64{0}, PDFDict{}); r != 0 || g != 0 || b != 0 {
+	if r, g, b := resolveIndexed(PDFArray{PDFName{Value: "Indexed"}}, []float64{0}, PDFDict{}, 0); r != 0 || g != 0 || b != 0 {
 		t.Errorf("resolveIndexed(len<4) = %v,%v,%v, want (0,0,0)", r, g, b)
 	}
 	if r, g, b := labToRGB([]float64{100, 0}); r != 1 || g != 1 || b != 1 {

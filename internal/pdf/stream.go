@@ -30,10 +30,17 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		return fmt.Errorf("could not parse stream Length")
 	}
 	length := int(lengthInt)
+	if length < 0 {
+		return fmt.Errorf("stream Length is negative")
+	}
 
 	streamStart := l.pos
 
 	end := streamStart + int64(length)
+	if end < streamStart {
+		// int64 overflow from a pathologically large declared Length.
+		return fmt.Errorf("stream Length overflows file bounds")
+	}
 
 	if d.data != nil {
 		// Fast path: alias the backing slice directly (mmap or caller buffer).

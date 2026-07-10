@@ -186,9 +186,21 @@ func parseObject(l *Lexer, tok Token) (PDFValue, error) {
 	}
 }
 
+// maxParseDepth bounds array/dictionary nesting so a crafted object with
+// pathologically deep nesting (e.g. thousands of nested arrays) cannot recurse
+// parseObject/parseArray/parseDictionary into an unrecoverable stack overflow.
+// Real documents nest only a handful of levels deep.
+const maxParseDepth = 1000
+
 // parseDictionary consumes tokens to build a map.
 func parseDictionary(l *Lexer) (PDFDict, error) {
 	dict := NewPDFDict()
+
+	if l.depth >= maxParseDepth {
+		return dict, errors.New("maximum nesting depth exceeded")
+	}
+	l.depth++
+	defer func() { l.depth-- }()
 
 	for {
 		keyTok := l.NextToken()
@@ -223,6 +235,12 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 // copying out an exact-size array, so element growth never reallocates per
 // array.
 func parseArray(l *Lexer) (PDFArray, error) {
+	if l.depth >= maxParseDepth {
+		return nil, errors.New("maximum nesting depth exceeded")
+	}
+	l.depth++
+	defer func() { l.depth-- }()
+
 	base := len(l.arrScratch)
 
 	for {

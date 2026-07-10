@@ -15,6 +15,18 @@ type Function interface {
 // Stream (v must already be dereferenced, as everything in this package's
 // graph is after ResolveGraph).
 func ParseFunction(v PDFValue) (Function, error) {
+	return parseFunction(v, 0)
+}
+
+// maxFunctionDepth bounds Type-3 (stitching) sub-function nesting so a
+// function array that nests stitching functions deeply cannot recurse
+// parseFunction into a stack overflow. Real function trees are shallow.
+const maxFunctionDepth = 32
+
+func parseFunction(v PDFValue, depth int) (Function, error) {
+	if depth > maxFunctionDepth {
+		return nil, fmt.Errorf("pdffunc: function nesting too deep")
+	}
 	d, ok := v.(PDFDict)
 	if !ok {
 		return nil, fmt.Errorf("pdffunc: function value is not a dictionary")
@@ -32,7 +44,7 @@ func ParseFunction(v PDFValue) (Function, error) {
 	case 2:
 		return newExponentialFunction(d, domain)
 	case 3:
-		return newStitchingFunction(d, domain)
+		return newStitchingFunction(d, domain, depth)
 	case 4:
 		return newPostScriptFunction(d, domain)
 	default:
@@ -74,8 +86,16 @@ func PDFNumberToFloat(v PDFValue) (float64, bool) {
 func clampDomain(in, domain []float64) []float64 {
 	out := make([]float64, len(in))
 	for i, x := range in {
-		lo, hi := domain[2*i], domain[2*i+1]
-		out[i] = math.Min(math.Max(x, lo), hi)
+		// A malformed function may declare fewer Domain pairs than the caller
+		// supplies inputs (e.g. a DeviceN tint transform with too short a
+		// Domain); pass those extra inputs through unclamped rather than
+		// indexing out of range.
+		if 2*i+1 < len(domain) {
+			lo, hi := domain[2*i], domain[2*i+1]
+			out[i] = math.Min(math.Max(x, lo), hi)
+		} else {
+			out[i] = x
+		}
 	}
 	return out
 }
@@ -134,14 +154,17 @@ type stitchingFunction struct {
 	encode    []float64
 }
 
-func newStitchingFunction(d PDFDict, domain []float64) (*stitchingFunction, error) {
+func newStitchingFunction(d PDFDict, domain []float64, depth int) (*stitchingFunction, error) {
 	fnsArr, ok := d.Entries["Functions"].(PDFArray)
 	if !ok {
 		return nil, fmt.Errorf("pdffunc: Functions: expected an array")
 	}
+	if len(fnsArr) == 0 {
+		return nil, fmt.Errorf("pdffunc: Functions: empty array")
+	}
 	fns := make([]Function, len(fnsArr))
 	for i, fv := range fnsArr {
-		fn, err := ParseFunction(fv)
+		fn, err := parseFunction(fv, depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("pdffunc: Functions[%d]: %w", i, err)
 		}
@@ -154,6 +177,18 @@ func newStitchingFunction(d PDFDict, domain []float64) (*stitchingFunction, erro
 	encode, err := FloatArray(d.Entries["Encode"])
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Encode: %w", err)
+	}
+	// Eval indexes bounds[k-1]/bounds[k] and encode[2k]/encode[2k+1] for
+	// k in [0, len(fns)-1]; require the arrays the spec mandates so a short
+	// Bounds/Encode cannot panic Eval on crafted input.
+	if len(domain) < 2 {
+		return nil, fmt.Errorf("pdffunc: Domain too short")
+	}
+	if len(bounds) < len(fns)-1 {
+		return nil, fmt.Errorf("pdffunc: Bounds too short")
+	}
+	if len(encode) < 2*len(fns) {
+		return nil, fmt.Errorf("pdffunc: Encode too short")
 	}
 	return &stitchingFunction{domain: domain, functions: fns, bounds: bounds, encode: encode}, nil
 }
@@ -230,6 +265,28 @@ func newSampledFunction(d PDFDict, domain []float64) (*sampledFunction, error) {
 	samples, err := DecodeStream(d)
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: sample data: %w", err)
+	}
+
+	// Validate array shapes so Eval/multilinearSample cannot index out of
+	// range or explode combinatorially. multilinearSample blends 2^m corners
+	// (m = number of inputs), so an unbounded m is an exponential-blowup DoS.
+	const maxSampledInputs = 12
+	if len(size) == 0 || len(size) > maxSampledInputs {
+		return nil, fmt.Errorf("pdffunc: unsupported Size dimensionality %d", len(size))
+	}
+	for _, s := range size {
+		if s < 1 {
+			return nil, fmt.Errorf("pdffunc: non-positive Size entry")
+		}
+	}
+	if numOutputs == 0 {
+		return nil, fmt.Errorf("pdffunc: empty Range")
+	}
+	if len(domain) < 2*len(size) || len(encode) < 2*len(size) {
+		return nil, fmt.Errorf("pdffunc: Domain/Encode too short for Size")
+	}
+	if len(decode) < 2*numOutputs {
+		return nil, fmt.Errorf("pdffunc: Decode/Range too short")
 	}
 
 	return &sampledFunction{

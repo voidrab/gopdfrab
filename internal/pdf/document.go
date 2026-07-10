@@ -569,22 +569,45 @@ func (d *Reader) EffectiveTrailer() PDFDict {
 func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	index := make(map[int]int)
 
-	root := graph.(PDFDict).Entries["Root"]
+	graphDict, ok := graph.(PDFDict)
+	if !ok {
+		return nil, fmt.Errorf("document graph is not a dictionary")
+	}
+	root := graphDict.Entries["Root"]
 	if root == nil {
 		return nil, fmt.Errorf("dict Root is nil")
 	}
-	pages := root.(PDFDict).Entries["Pages"]
+	rootDict, ok := root.(PDFDict)
+	if !ok {
+		return nil, fmt.Errorf("Root is not a dictionary")
+	}
+	pages := rootDict.Entries["Pages"]
 	if pages == nil {
 		return nil, fmt.Errorf("dict Pages is nil")
 	}
 
 	pageNum := 0
 
-	var walk func(node PDFValue) error
-	walk = func(node PDFValue) error {
+	// A malformed page tree can be cyclic (a Kids entry referring back to an
+	// ancestor) or pathologically deep. Guard both: seen dedupes indirect
+	// nodes already visited (breaking cycles), and depth caps degenerate but
+	// acyclic nesting, so neither can drive walk into a stack overflow.
+	seen := make(map[int]bool)
+	const maxPageTreeDepth = 1 << 16
+	var walk func(node PDFValue, depth int) error
+	walk = func(node PDFValue, depth int) error {
+		if depth > maxPageTreeDepth {
+			return fmt.Errorf("page tree exceeds maximum depth")
+		}
 		dict, ok := node.(PDFDict)
 		if !ok {
 			return nil
+		}
+		if ref, ok := dict.Entries["_ref"].(PDFRef); ok {
+			if seen[ref.ObjNum] {
+				return nil
+			}
+			seen[ref.ObjNum] = true
 		}
 
 		if (dict.Entries["Type"] == PDFName{Value: "Page"}) {
@@ -597,7 +620,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 
 		if kids, ok := dict.Entries["Kids"].(PDFArray); ok {
 			for _, kid := range kids {
-				if err := walk(kid); err != nil {
+				if err := walk(kid, depth+1); err != nil {
 					return err
 				}
 			}
@@ -605,7 +628,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 		return nil
 	}
 
-	err := walk(pages)
+	err := walk(pages, 0)
 	return index, err
 }
 

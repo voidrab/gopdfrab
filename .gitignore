@@ -49,4 +49,8 @@ __pycache__/
 # Local test documents
 tests/regression/
 
+# Fuzzing crashers written by `go test -fuzz` (reproduce locally via the
+# reported seed; never commit machine-specific corpus entries)
+testdata/fuzz/
+
 TODO.md

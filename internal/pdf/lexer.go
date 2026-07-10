@@ -51,6 +51,10 @@ type Lexer struct {
 	numBuf []byte
 	// arrScratch is parseArray's shared element stack (see parser.go).
 	arrScratch []PDFValue
+	// depth is the current array/dictionary nesting depth, bounded by
+	// maxParseDepth so a pathologically nested object cannot recurse
+	// parseArray/parseDictionary into a stack overflow (see parser.go).
+	depth int
 }
 
 // NewLexerBytes creates a fast lexer that indexes data starting at startPos.

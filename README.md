@@ -308,6 +308,51 @@ Due to JVM startup overhead, startup time and cold single-file verification are 
 The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
 If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy_1B` profile.
 
+## Fuzzing & Stress Testing
+
+Because gopdfrab's whole job is to read untrusted, frequently-malformed PDFs, the
+`internal/pdfgen` package programmatically generates "crazy, broken" PDF documents
+— structurally-valid skeletons deliberately corrupted with truncation, bad
+cross-reference offsets, negative stream lengths, dangling and circular
+references, deep nesting, and more. Everything is generated in memory from a seed
+(no external document files), so any crash is reproducible from its seed alone via
+`pdfgen.Generate(seed)`.
+
+The generator also builds fresh random object graphs from a small PDF grammar
+(`pdfgen.GenerateGrammar`) to reach shapes that corrupting a fixed seed never
+produces.
+
+These inputs drive native Go fuzz targets at three levels:
+
+- **Whole pipeline** — `FuzzOpenBytes`/`FuzzLexer` (parser), `FuzzVerifyBytes`,
+  `FuzzConvertBytes`, `FuzzConvertRoundTrip`, and `FuzzGeneratedSeed` (which lets
+  the fuzzer explore the generator's own seed space under coverage guidance).
+- **Isolated subsystems** — the decoders and parsers that whole-file fuzzing only
+  reaches shallowly: `FuzzDecodeStream`, `FuzzInflateZlib`, `FuzzDecodeASCIIHex`,
+  `FuzzDecodeASCII85`, `FuzzDecodeLZW`, `FuzzDecodeCCITT`, `FuzzUndoPredictor`,
+  `FuzzTokenizeContent`, `FuzzParseFunction`, `FuzzResolveColor`, and the writer
+  targets (`FuzzWritePDF`, `FuzzWriteContentStream`, `FuzzBuildInlineImageBytes`).
+- **Semantic oracles** — beyond "does not panic": `FuzzVerifyDeterministic` and
+  `FuzzConvertDeterministic` (repeat runs must match byte-for-byte),
+  `FuzzConvertHonest` (a conversion reported valid must independently re-verify as
+  valid), and `FuzzConvertConverges`.
+
+Every target seeds its corpus in code, so the generated broken PDFs replay on
+every `go test` run; `TestGeneratedCorpusDoesNotPanic` additionally drives a
+deterministic batch through the public API on every build, and named
+`TestCrasher_*` reproducers guard each previously-fixed crash. Concurrency and
+resource bounds are covered by `TestGeneratedCorpusRace` /
+`TestConcurrentDecodeIsSafe` (run under `-race`) and `TestGeneratedCorpusTimeBounded`.
+
+To actively hunt for new crashes locally:
+
+```sh
+go test -run '^$' -fuzz=FuzzOpenBytes        -fuzztime=60s ./internal/pdf/
+go test -run '^$' -fuzz=FuzzParseFunction    -fuzztime=60s ./internal/pdf/
+go test -run '^$' -fuzz=FuzzConvertRoundTrip -fuzztime=60s .
+go test -race -run 'TestGeneratedCorpusRace|TestConcurrentDecodeIsSafe' ./... 
+```
+
 ## Licensing
 
 This work is dual-licensed under GNU AGPL 3.0 and our commercial license.
