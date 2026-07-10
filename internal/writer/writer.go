@@ -268,12 +268,26 @@ type pdfWriter struct {
 	// visited guards against infinite recursion on any composite value
 	// (dict or array) that participates in a cycle, indirect or not.
 	visited map[uintptr]bool
+
+	// depth bounds recursion in discover/writeValue so a deeply nested but
+	// acyclic inline graph (which visited does not catch, since each fresh
+	// composite has a distinct pointer) cannot overflow the stack.
+	depth int
 }
+
+// maxWriteDepth bounds writer recursion over nested inline composites.
+const maxWriteDepth = 1000
 
 // discover walks v, recording every indirect dict reachable from it (see
 // isIndirectDict) in first-encounter order, and recursing into both indirect
 // and inline composite values so nested indirect objects are found either way.
 func (wr *pdfWriter) discover(v pdf.PDFValue) {
+	if wr.depth > maxWriteDepth {
+		return
+	}
+	wr.depth++
+	defer func() { wr.depth-- }()
+
 	switch val := v.(type) {
 	case pdf.PDFDict:
 		ptr := pdf.ValuePointer(val.Entries)
@@ -289,11 +303,20 @@ func (wr *pdfWriter) discover(v pdf.PDFValue) {
 				wr.order = append(wr.order, val)
 			}
 		}
-		for k, child := range val.Entries {
+		// Recurse in sorted key order (matching writeDictEntries) so the
+		// first-encounter order that assigns object numbers is deterministic;
+		// ranging over the map directly would number objects differently on
+		// every run, making conversion output non-reproducible.
+		keys := make([]string, 0, len(val.Entries))
+		for k := range val.Entries {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
-			wr.discover(child)
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			wr.discover(val.Entries[k])
 		}
 
 	case pdf.PDFArray:
@@ -393,6 +416,12 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf
 // "#XX"/whitespace escapes, so Value holds exactly the bytes between the
 // delimiters.
 func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
+	if wr.depth > maxWriteDepth {
+		return fmt.Errorf("value nesting exceeds maximum write depth")
+	}
+	wr.depth++
+	defer func() { wr.depth-- }()
+
 	switch val := v.(type) {
 	case nil:
 		_, err := io.WriteString(cw, "null")

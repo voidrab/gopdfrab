@@ -50,6 +50,12 @@ func Corruptors() []Corruptor {
 		{"unterminated-string", replaceToken("/Type /Catalog", "/Junk (unterminated")},
 		{"bad-name-escape", replaceToken("/Catalog", "/Cat#zzalog")},
 		{"deep-nesting", deepNesting},
+		{"bad-decodeparms", insertAfter("/FlateDecode", " /DecodeParms << /Predictor 15 /Columns -1 /Colors 99 /BitsPerComponent 128 >>")},
+		{"corrupt-xref-w", replaceToken("/W [1 4 1]", "/W [9 9 9]")},
+		{"corrupt-xref-w-zero", replaceToken("/W [1 4 1]", "/W [0 0 0]")},
+		{"corrupt-xref-index", replaceToken("/Index [0 8]", "/Index [9999 9999]")},
+		{"corrupt-objstm-n", replaceToken("/N 3", "/N 999999")},
+		{"corrupt-objstm-first", replaceToken("/First", "/First 999999 /Ignored")},
 		{"nul-bytes", sprinkleNUL},
 		{"bit-flips", bitFlips},
 	}
@@ -278,8 +284,10 @@ func insertAfter(anchor, text string) func([]byte, *rand.Rand) []byte {
 }
 
 // deepNesting injects a deeply nested array to probe recursion/stack limits.
+// The depth range deliberately spans the parser's nesting cap so the corruptor
+// exercises both the accepted and the rejected side of that boundary.
 func deepNesting(in []byte, rng *rand.Rand) []byte {
-	depth := 500 + rng.Intn(2000)
+	depth := 500 + rng.Intn(6000)
 	nest := make([]byte, 0, depth*2)
 	for i := 0; i < depth; i++ {
 		nest = append(nest, '[')

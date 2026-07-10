@@ -37,6 +37,25 @@ func FuzzVerifyBytes(f *testing.F) {
 	})
 }
 
+// FuzzGeneratedSeed lets the native fuzzer explore the generator's seed space
+// under coverage guidance: it mutates the int64 seed, turns it into a broken
+// PDF via pdfgen.Generate, and runs the whole pipeline. Panics propagate so the
+// fuzzer flags them (do not recover here).
+func FuzzGeneratedSeed(f *testing.F) {
+	for i := int64(0); i < 128; i++ {
+		f.Add(i)
+	}
+	f.Fuzz(func(t *testing.T, seed int64) {
+		data := pdfgen.Generate(seed)
+		if len(data) > fuzzInputCap {
+			return
+		}
+		gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+		gopdfrab.VerifyObjectModelBytes(data)
+		gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+	})
+}
+
 // FuzzConvertBytes drives the conversion pipeline (fixups, writer, raster
 // fallback) -- the deepest code path -- asserting only that no input makes it
 // panic.

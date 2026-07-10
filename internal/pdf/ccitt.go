@@ -35,7 +35,20 @@ func DecodeCCITT(data []byte, p CCITTParams) ([]byte, error) {
 	if cols <= 0 {
 		cols = 1728
 	}
+	// Columns and Rows come straight from DecodeParms, and the tail-padding
+	// loop below appends one row buffer per missing row -- so an absurd
+	// Columns or Rows is a pure parameter-driven OOM. Cap both.
+	const (
+		maxCCITTCols  = 1 << 20
+		maxCCITTBytes = 64 << 20
+	)
+	if cols > maxCCITTCols {
+		return nil, fmt.Errorf("ccitt: Columns %d too large", cols)
+	}
 	rowBytes := (cols + 7) / 8
+	if p.Rows > 0 && int64(rowBytes)*int64(p.Rows) > maxCCITTBytes {
+		return nil, fmt.Errorf("ccitt: declared image size too large")
+	}
 	br := &ccittBitReader{data: data}
 	ref := []int{cols, cols}
 	pureG4 := p.K < 0

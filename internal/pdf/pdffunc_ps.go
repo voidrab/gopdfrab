@@ -38,7 +38,7 @@ func newPostScriptFunction(d PDFDict, domain []float64) (*postScriptFunction, er
 		return nil, fmt.Errorf("pdffunc: PostScript calculator function must start with '{'")
 	}
 	pos++
-	program, pos, err := parsePostScriptProgram(tokens, pos)
+	program, pos, err := parsePostScriptProgram(tokens, pos, 0)
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: %w", err)
 	}
@@ -62,10 +62,18 @@ func tokenizePostScriptCalculator(data []byte) []string {
 	return strings.Fields(s)
 }
 
+// maxPostScriptDepth bounds Type 4 procedure nesting so a program of the form
+// "{ { { { … } } } }" cannot recurse parsePostScriptProgram (and, in turn,
+// execPostScript) into a stack overflow.
+const maxPostScriptDepth = 100
+
 // parsePostScriptProgram parses tokens starting at pos until (and
 // consuming) the matching '}', returning the parsed items and the position
 // just past it.
-func parsePostScriptProgram(tokens []string, pos int) ([]psItem, int, error) {
+func parsePostScriptProgram(tokens []string, pos, depth int) ([]psItem, int, error) {
+	if depth > maxPostScriptDepth {
+		return nil, 0, fmt.Errorf("PostScript procedure nesting too deep")
+	}
 	var items []psItem
 	for pos < len(tokens) {
 		tok := tokens[pos]
@@ -73,7 +81,7 @@ func parsePostScriptProgram(tokens []string, pos int) ([]psItem, int, error) {
 		case "}":
 			return items, pos + 1, nil
 		case "{":
-			proc, next, err := parsePostScriptProgram(tokens, pos+1)
+			proc, next, err := parsePostScriptProgram(tokens, pos+1, depth+1)
 			if err != nil {
 				return nil, 0, err
 			}

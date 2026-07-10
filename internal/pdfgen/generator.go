@@ -27,6 +27,17 @@ func (g *Generator) Generate(seed int64) []byte {
 		return pureGarbage(rng)
 	}
 
+	// Sometimes build a fresh random object graph from the grammar and (usually)
+	// corrupt it, reaching shapes corrupting a fixed seed never produces.
+	if rng.Intn(6) == 0 {
+		out := generateGrammar(rng)
+		if rng.Intn(2) == 0 {
+			return out
+		}
+		c := g.corruptors[rng.Intn(len(g.corruptors))]
+		return c.Apply(out, rng)
+	}
+
 	base := g.seeds[rng.Intn(len(g.seeds))]
 	out := cp(base)
 	n := 1 + rng.Intn(3) // apply 1..3 corruptors in sequence
@@ -70,3 +81,10 @@ func Generate(seed int64) []byte { return defaultGenerator.Generate(seed) }
 
 // GenerateN is a package-level convenience over a shared default Generator.
 func GenerateN(seed int64, n int) [][]byte { return defaultGenerator.GenerateN(seed, n) }
+
+// GenerateGrammar builds a fresh random object graph from the PDF grammar
+// (rather than by corrupting a fixed seed), deterministically from seed. It is
+// the generative counterpart to Generate.
+func GenerateGrammar(seed int64) []byte {
+	return generateGrammar(rand.New(rand.NewSource(seed)))
+}
