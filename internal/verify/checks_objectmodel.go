@@ -768,21 +768,11 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 
 // hasNamedKey reports whether ot declares an explicit (non-wildcard) row for key.
 func hasNamedKey(ot arlington.ObjectType, key string) bool {
-	for i := range ot.Keys {
-		if ot.Keys[i].Name == key {
-			return true
-		}
-	}
-	return false
+	return ot.HasNamedKey(key)
 }
 
 // findArlingtonKey returns the KeyDef governing key within ot: an explicit named entry if
 // present, else the wildcard entry, else nil.
 func findArlingtonKey(ot arlington.ObjectType, key string) *arlington.KeyDef {
-	for i := range ot.Keys {
-		if ot.Keys[i].Name == key {
-			return &ot.Keys[i]
-		}
-	}
-	return ot.Wildcard
+	return ot.KeyDefByName(key)
 }

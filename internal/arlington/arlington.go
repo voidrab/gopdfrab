@@ -250,6 +250,58 @@ type ObjectType struct {
 	// tsv/latest set against tsv/1.4. Empty if the type itself did not exist in tsv/latest
 	// (e.g. renamed across versions), which is a safe (false-negative) default.
 	Post14Keys []string
+
+	// keyByName indexes Keys by row name (first row wins on duplicates,
+	// matching a front-to-back scan), built once over Types at init so the
+	// per-dict-entry lookups in schema validation are O(1) instead of a
+	// linear scan over the type's rows. Nil on hand-built values (tests),
+	// which fall back to the scan.
+	keyByName map[string]int
+}
+
+// HasNamedKey reports whether the type has an explicit (non-wildcard) row
+// named key.
+func (ot ObjectType) HasNamedKey(key string) bool {
+	if ot.keyByName != nil {
+		_, ok := ot.keyByName[key]
+		return ok
+	}
+	for i := range ot.Keys {
+		if ot.Keys[i].Name == key {
+			return true
+		}
+	}
+	return false
+}
+
+// KeyDefByName returns the KeyDef governing key within the type: the
+// explicit named row if present, else the wildcard row, else nil.
+func (ot ObjectType) KeyDefByName(key string) *KeyDef {
+	if ot.keyByName != nil {
+		if i, ok := ot.keyByName[key]; ok {
+			return &ot.Keys[i]
+		}
+		return ot.Wildcard
+	}
+	for i := range ot.Keys {
+		if ot.Keys[i].Name == key {
+			return &ot.Keys[i]
+		}
+	}
+	return ot.Wildcard
+}
+
+func init() {
+	for name, ot := range Types {
+		m := make(map[string]int, len(ot.Keys))
+		for i := range ot.Keys {
+			if _, dup := m[ot.Keys[i].Name]; !dup {
+				m[ot.Keys[i].Name] = i
+			}
+		}
+		ot.keyByName = m
+		Types[name] = ot
+	}
 }
 
 // standard14Fonts is the set of base font names every conforming reader must provide
