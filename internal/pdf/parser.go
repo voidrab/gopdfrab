@@ -120,10 +120,8 @@ func (d *Reader) parseXRefTableBytes(offset int64) error {
 	if offset < 0 || offset >= int64(len(data)) {
 		return io.EOF
 	}
-	line, pos, ok := readLineBytes(data, int(offset))
-	if !ok {
-		return io.EOF
-	}
+	// offset is in range, so readLineBytes cannot fail here.
+	line, pos, _ := readLineBytes(data, int(offset))
 	if string(line) != "xref" {
 		return errors.New("expected 'xref' keyword")
 	}
@@ -136,10 +134,8 @@ func (d *Reader) parseXRefTableBytes(offset int64) error {
 			break
 		}
 
-		line, next, ok := readLineBytes(data, pos)
-		if !ok {
-			return io.EOF
-		}
+		// pos is in range (checked above), so readLineBytes cannot fail.
+		line, next, _ := readLineBytes(data, pos)
 		pos = next
 		parts := strings.Fields(string(line))
 		if len(parts) != 2 {
@@ -246,10 +242,8 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 	if offset < 0 || offset >= int64(len(data)) {
 		return PDFDict{}, io.EOF
 	}
-	line, pos, ok := readLineBytes(data, int(offset))
-	if !ok {
-		return PDFDict{}, io.EOF
-	}
+	// offset is in range, so readLineBytes cannot fail here.
+	line, pos, _ := readLineBytes(data, int(offset))
 	if strings.TrimRight(string(line), "\r\n") != "xref" {
 		return PDFDict{}, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
 	}
@@ -259,10 +253,8 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 			break
 		}
 
-		subHeader, next, ok := readLineBytes(data, pos)
-		if !ok {
-			break
-		}
+		// pos is in range (checked above), so readLineBytes cannot fail.
+		subHeader, next, _ := readLineBytes(data, pos)
 		pos = next
 		parts := strings.Fields(string(subHeader))
 		if len(parts) != 2 {

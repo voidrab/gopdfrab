@@ -211,31 +211,8 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		graphClean = false
 	}
 
-	// Last-resort backstop: rasterize residual pages so a resolvable graph
-	// always converts. Only trigger when there are fixer-addressable issues;
-	// structural violations (no registered fixer) are fixed by construction by
-	// the writer and do not need rasterization.
-	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, false) {
-		if applyRasterFallback(&trailer, cr.Result.Issues) {
-			cr.Iterations++
-			graphClean = false
-			result, parts, _, err := inHeapVerify(doc, trailer, p)
-			if err != nil {
-				return ConvertResult{}, fmt.Errorf("convert: %w", err)
-			}
-			cr.Result = result
-			lastParts, graphClean = parts, true
-		}
-		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(&trailer) {
-			cr.Iterations++
-			graphClean = false
-			result, parts, _, err := inHeapVerify(doc, trailer, p)
-			if err != nil {
-				return ConvertResult{}, fmt.Errorf("convert: %w", err)
-			}
-			cr.Result = result
-			lastParts, graphClean = parts, true
-		}
+	if err := rasterBackstop(doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean); err != nil {
+		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 
 	// Final serialize + verify against the actual output bytes (structural checks
@@ -244,6 +221,38 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	return cr, nil
+}
+
+// rasterBackstop is Run's last-resort remediation: rasterize residual pages
+// so a resolvable graph always converts. Only fixer-addressable issues
+// trigger it; structural violations (no registered fixer) are fixed by
+// construction by the writer and do not need rasterization. It updates cr,
+// lastParts, and graphClean exactly as the fix loop's verifies do.
+func rasterBackstop(doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool) error {
+	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
+		return nil
+	}
+	if applyRasterFallback(trailer, cr.Result.Issues) {
+		cr.Iterations++
+		*graphClean = false
+		result, parts, _, err := inHeapVerify(doc, *trailer, p)
+		if err != nil {
+			return err
+		}
+		cr.Result = result
+		*lastParts, *graphClean = parts, true
+	}
+	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(trailer) {
+		cr.Iterations++
+		*graphClean = false
+		result, parts, _, err := inHeapVerify(doc, *trailer, p)
+		if err != nil {
+			return err
+		}
+		cr.Result = result
+		*lastParts, *graphClean = parts, true
+	}
+	return nil
 }
 
 // inHeapVerify verifies the in-memory trailer graph without serializing it,
