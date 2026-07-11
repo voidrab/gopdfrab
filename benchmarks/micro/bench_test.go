@@ -133,10 +133,13 @@ func BenchmarkConvert(b *testing.B) {
 // per stream instead of each re-lexing it, cut another ~70k: ~1.09M.
 // Parsing number tokens once in the lexer (Token.Int/Num) and collecting
 // array elements on a shared scratch stack cut it to ~1.05M.
+// The byte-path xref parser (no per-entry buffer), the ValidationContext
+// key-scratch stack for the walk's sorted key iteration, and the O(1)
+// Arlington row index cut it to ~1.01M.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_110_000
+const maxLargeFileAllocs = 1_035_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -186,8 +189,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // (sorted key order) briefly added a per-dict key-slice allocation (~2.27M,
 // over this ceiling); sharing one key scratch stack across discover and
 // writeDictEntries (pdfWriter.keyScratch) brought it back to ~2.18M.
+// The byte-path xref parser, the ValidationContext key-scratch stack, and
+// the O(1) Arlington row index cut it to ~2.01M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_220_000
+const maxConvertLargeAllocs = 2_050_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
