@@ -605,6 +605,9 @@ func TestGeneratorIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("invokes `go run`; skipped in -short mode")
 	}
+	if _, err := os.Stat(filepath.Join("testdata", "tsv")); err != nil {
+		t.Skip("Arlington TSVs not present (excluded from the module zip)")
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {
