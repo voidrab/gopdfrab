@@ -274,6 +274,12 @@ func newSampledFunction(d PDFDict, domain []float64) (*sampledFunction, error) {
 	if len(size) == 0 || len(size) > maxSampledInputs {
 		return nil, fmt.Errorf("pdffunc: unsupported Size dimensionality %d", len(size))
 	}
+	// BitsPerSample is attacker-controlled and feeds `uint64(1) << bps` in
+	// Eval; a negative value panics with "negative shift amount" and anything
+	// above 32 is out of spec (ISO 32000-1 Table 38 allows 1,2,4,8,12,16,24,32).
+	if bps < 1 || bps > 32 {
+		return nil, fmt.Errorf("pdffunc: unsupported BitsPerSample %d", bps)
+	}
 	for _, s := range size {
 		if s < 1 {
 			return nil, fmt.Errorf("pdffunc: non-positive Size entry")

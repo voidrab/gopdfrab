@@ -52,6 +52,14 @@ type Reader struct {
 
 	objCache map[int]PDFValue
 
+	// resolvingInProgress marks object numbers currently being parsed, so a
+	// reference that points (directly or transitively) back at its own object
+	// -- e.g. a stream whose /Length is an indirect reference to itself, or an
+	// object stream whose container number resolves back into the same stream
+	// -- resolves to null instead of re-entering ResolveReference unbounded
+	// and overflowing the stack (a fatal error recover() cannot catch).
+	resolvingInProgress map[int]bool
+
 	// data is the full file content as a byte slice (mmap on unix, heap on
 	// other platforms, or the caller-supplied slice for OpenBytes).
 	// nil only for NewRawReader, which drives test-only paths.
@@ -858,13 +866,30 @@ func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 
 // resolveInPlace returns obj fully resolved.
 func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
+	return d.resolveInPlaceDepth(obj, 0)
+}
+
+// maxResolveDepth bounds the native recursion of resolveInPlaceDepth. The
+// resolvedPtrs set already breaks *cyclic* graphs, but a deep yet acyclic
+// chain of indirect references (obj1 -> obj2 -> ... -> objN, N limited only by
+// file size) still drives one stack frame per link and can overflow the stack
+// -- a fatal error recover() cannot catch. The cap sits far above any
+// legitimate nesting depth (e.g. the page-tree cap of 1<<16) while staying
+// well below where the goroutine stack would overflow. It is a var (not a
+// const) only so tests can lower it; production never reassigns it.
+var maxResolveDepth = 1 << 17
+
+func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) {
+	if depth > maxResolveDepth {
+		return nil, fmt.Errorf("resolve depth limit exceeded")
+	}
 	switch v := obj.(type) {
 	case PDFRef:
 		target, err := d.ResolveReference(v)
 		if err != nil {
 			return nil, err
 		}
-		return d.resolveInPlace(target)
+		return d.resolveInPlaceDepth(target, depth+1)
 
 	case PDFDict:
 		ptr := ValuePointer(v.Entries)
@@ -879,7 +904,7 @@ func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
 			if k == "_ref" {
 				continue
 			}
-			r, err := d.resolveInPlace(val)
+			r, err := d.resolveInPlaceDepth(val, depth+1)
 			if err != nil {
 				// Unmark: this dict did not actually finish resolving (some
 				// entries past the failing key are still raw PDFRefs), so a
@@ -903,7 +928,7 @@ func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
 		}
 		d.resolvedPtrs[ptr] = true
 		for i, elem := range v {
-			r, err := d.resolveInPlace(elem)
+			r, err := d.resolveInPlaceDepth(elem, depth+1)
 			if err != nil {
 				delete(d.resolvedPtrs, ptr) // see the PDFDict case above
 				return nil, err

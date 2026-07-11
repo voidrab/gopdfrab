@@ -1,0 +1,31 @@
+# golangci-lint configuration (v2 schema).
+#
+# A deliberately small, high-signal set focused on correctness rather than
+# style: catch real bugs (suspicious constructs, dead code, ineffectual
+# assignments) without flooding the existing codebase with opinionated
+# formatting or intentional-error-ignore findings.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+  settings:
+    staticcheck:
+      # Only the SA* analyzers -- staticcheck's actual bug detectors. The ST*
+      # (style) and QF* (quickfix/refactor) suggestions are intentionally left
+      # off so the linter gates on correctness, not on house style.
+      checks:
+        - SA*
+  exclusions:
+    generated: lax
+    rules:
+      # Generated Arlington model table -- not hand-maintained.
+      - path: internal/arlington/model_gen\.go
+        linters:
+          - govet
+          - staticcheck
+          - unused

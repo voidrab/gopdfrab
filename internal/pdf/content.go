@@ -29,6 +29,11 @@ func FilterNames(filter PDFValue) []string {
 
 var zlibReaderPool = sync.Pool{}
 
+// maxInflateOutput bounds the total bytes InflateZlib will decode from a single
+// zlib stream, so a "zip bomb" cannot OOM the process. It is a var (not a
+// const) only so tests can lower it; production never reassigns it.
+var maxInflateOutput int64 = 256 << 20
+
 // inflateBufPool holds *bytes.Buffer scratch space for InflateZlib, reused
 // across calls so its backing array grows to a working size once instead of
 // reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
@@ -60,7 +65,14 @@ func InflateZlib(data []byte) ([]byte, error) {
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
-	_, err := buf.ReadFrom(zr)
+	// Cap total decoded output so a small, highly compressible stream (a
+	// "zip bomb") cannot inflate to gigabytes and OOM the process. This path
+	// runs on untrusted input during Open itself (cross-reference/object
+	// streams), before any user call, and there is no cancellation to abort
+	// it. The cap is generous relative to any legitimate PDF stream; when it
+	// is reached the truncated prefix is returned, matching the lenient
+	// recovery below for truncated/broken streams.
+	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput))
 	zlibReaderPool.Put(zr)
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)

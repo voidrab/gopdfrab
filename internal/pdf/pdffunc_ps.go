@@ -38,7 +38,7 @@ func newPostScriptFunction(d PDFDict, domain []float64) (*postScriptFunction, er
 		return nil, fmt.Errorf("pdffunc: PostScript calculator function must start with '{'")
 	}
 	pos++
-	program, pos, err := parsePostScriptProgram(tokens, pos, 0)
+	program, _, err := parsePostScriptProgram(tokens, pos, 0)
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: %w", err)
 	}

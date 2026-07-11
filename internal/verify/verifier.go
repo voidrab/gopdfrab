@@ -17,6 +17,12 @@ import (
 // ("start count" separated by a single space, no leading white space).
 var xrefHeaderRe = regexp.MustCompile(`^[0-9]+ [0-9]+$`)
 
+// maxWalkDepth caps the object-graph walk's native recursion. See the guard in
+// verifyPdfA1bParts's walk closure; it mirrors pdf.maxResolveDepth so a deep
+// acyclic structure that survives resolution is also bounded here. It is a var
+// (not a const) only so tests can lower it; production never reassigns it.
+var maxWalkDepth = 1 << 17
+
 // Verify verifies d against the checks enabled in profile p.
 func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	if p == nil {
@@ -670,10 +676,18 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	// addressable). expectedType is the Arlington type name this node should
 	// conform to (per the parent key's Link), or "" once the descent has lost
 	// track of it; see arlingtonChildType/arlingtonElementType.
-	var walk func(node any, owner pdf.PDFValue, ownerKey, expectedType string)
+	var walk func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int)
 
-	walk = func(node any, owner pdf.PDFValue, ownerKey, expectedType string) {
+	walk = func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int) {
 		if node == nil {
+			return
+		}
+		// The visited/visitedTyped sets break cyclic graphs, but a deep yet
+		// acyclic chain of nested containers still recurses one frame per level
+		// and can overflow the stack (a fatal, unrecoverable error). Cap the
+		// descent well above any legitimate nesting depth but below the stack
+		// limit, matching the resolve-side maxResolveDepth guard.
+		if depth > maxWalkDepth {
 			return
 		}
 
@@ -750,7 +764,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 					childType = arlingtonChildType(expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
-				walk(val, node, k, childType)
+				walk(val, node, k, childType, depth+1)
 			}
 			ctx.keyScratch = ctx.keyScratch[:keysBase]
 			if !first {
@@ -792,7 +806,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				if expectedType != "" {
 					elemType = arlingtonElementType(expectedType, item)
 				}
-				walk(item, owner, "", elemType)
+				walk(item, owner, "", elemType, depth+1)
 			}
 			if !first {
 				return
@@ -811,7 +825,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		}
 	}
 
-	walk(graph, nil, "", "FileTrailer")
+	walk(graph, nil, "", "FileTrailer", 0)
 }
 
 // sortedKeys appends m's keys in sorted order to ctx.keyScratch and returns

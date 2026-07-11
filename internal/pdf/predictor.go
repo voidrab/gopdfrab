@@ -70,6 +70,15 @@ func decodeStreamPredicted(dict PDFDict) ([]byte, error) {
 // type (None/Sub/Up/Average/Paeth) describing how it was encoded relative to
 // the previous row and to already-decoded bytes within the same row.
 func UndoPNGPredictor(data []byte, columns, colors, bpc int) ([]byte, error) {
+	// /Columns, /Colors and /BitsPerComponent come straight from the stream's
+	// /DecodeParms and are attacker-controlled. Bound them before sizing any
+	// per-row buffer so a value like /Columns 1000000000 on a tiny stream
+	// cannot force a multi-gigabyte allocation (mirrors the CCITT column cap).
+	const maxPredictorColumns = 1 << 20
+	if columns <= 0 || columns > maxPredictorColumns ||
+		colors <= 0 || colors > 32 || bpc <= 0 || bpc > 32 {
+		return nil, fmt.Errorf("invalid predictor parameters: columns=%d colors=%d bpc=%d", columns, colors, bpc)
+	}
 	bpp := max(1, (colors*bpc+7)/8)
 	rowBytes := (columns*colors*bpc + 7) / 8
 	if rowBytes <= 0 {
