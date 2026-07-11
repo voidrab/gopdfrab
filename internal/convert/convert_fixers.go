@@ -62,8 +62,44 @@ func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error
 	preemptiveFixups = append(preemptiveFixups, f)
 }
 
+// preemptiveVisitors holds pre-emptive fixups expressed as per-dict visitors.
+// applyPreemptiveFixups drives all of them over the graph in one shared walk
+// instead of one full walk each; a prepare returning nil opts out of the pass.
+var preemptiveVisitors []func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)
+
+func registerPreemptiveVisitor(f func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)) {
+	preemptiveVisitors = append(preemptiveVisitors, f)
+}
+
+// preemptiveAfterFixups run after the shared visitor walk, for fixups that
+// must observe the visitors' edits (e.g. dropOversizedStructure must not see
+// Kids arrays the rebalance visitor is able to split).
+var preemptiveAfterFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
+
+func registerPreemptiveAfterFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
+	preemptiveAfterFixups = append(preemptiveAfterFixups, f)
+}
+
 func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	for _, f := range preemptiveFixups {
+		if err := f(trailer, doc); err != nil {
+			return err
+		}
+	}
+	var visitors []func(pdf.PDFDict)
+	for _, prepare := range preemptiveVisitors {
+		if visit := prepare(trailer, doc); visit != nil {
+			visitors = append(visitors, visit)
+		}
+	}
+	if len(visitors) > 0 {
+		walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+			for _, visit := range visitors {
+				visit(d)
+			}
+		})
+	}
+	for _, f := range preemptiveAfterFixups {
 		if err := f(trailer, doc); err != nil {
 			return err
 		}

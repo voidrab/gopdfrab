@@ -191,8 +191,12 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // writeDictEntries (pdfWriter.keyScratch) brought it back to ~2.18M.
 // The byte-path xref parser, the ValidationContext key-scratch stack, and
 // the O(1) Arlington row index cut it to ~2.01M.
+// Reusing the last in-loop verify's graph verdicts for the final output
+// verification when the graph is clean (serializeAndVerify's merged path;
+// only the byte-level structural checks re-run against the output) plus the
+// single shared pre-emptive fixup walk cut it to ~1.78M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_050_000
+const maxConvertLargeAllocs = 1_810_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

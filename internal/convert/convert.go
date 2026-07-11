@@ -124,16 +124,25 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	var (
 		cr         ConvertResult
 		prevCounts map[pdf.Check]int
+
+		// graphClean records whether the in-heap graph is byte-for-byte the
+		// graph the most recent inHeapVerify checked -- true right after each
+		// verify, false once any fixer or flattener edits it. When the run
+		// ends clean, serializeAndVerify can reuse lastParts.Graph instead of
+		// replaying the whole graph verification against the output bytes.
+		graphClean bool
+		lastParts  verify.Parts
 	)
 
 	for iter := 1; iter <= maxConvertIterations; iter++ {
 		cr.Iterations = iter
 
-		result, objs, err := inHeapVerify(doc, trailer, p)
+		result, parts, objs, err := inHeapVerify(doc, trailer, p)
 		if err != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
 		cr.Result = result
+		lastParts, graphClean = parts, true
 
 		if cr.Result.Valid {
 			break
@@ -199,6 +208,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		if !changed {
 			break
 		}
+		graphClean = false
 	}
 
 	// Last-resort backstop: rasterize residual pages so a resolvable graph
@@ -208,25 +218,29 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		if applyRasterFallback(&trailer, cr.Result.Issues) {
 			cr.Iterations++
-			result, _, err := inHeapVerify(doc, trailer, p)
+			graphClean = false
+			result, parts, _, err := inHeapVerify(doc, trailer, p)
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
 			cr.Result = result
+			lastParts, graphClean = parts, true
 		}
 		if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(&trailer) {
 			cr.Iterations++
-			result, _, err := inHeapVerify(doc, trailer, p)
+			graphClean = false
+			result, parts, _, err := inHeapVerify(doc, trailer, p)
 			if err != nil {
 				return ConvertResult{}, fmt.Errorf("convert: %w", err)
 			}
 			cr.Result = result
+			lastParts, graphClean = parts, true
 		}
 	}
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
-	if err := serializeAndVerify(doc, trailer, &cr, p); err != nil {
+	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	return cr, nil
@@ -234,21 +248,37 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 
 // inHeapVerify verifies the in-memory trailer graph without serializing it,
 // by numbering objects and seeding the doc reader directly. It also returns
+// the split issue parts (for serializeAndVerify's merged final verify) and
 // the ObjNum -> object index so the fixer loop can target issues by ref;
 // the index is only valid until the next renumbering.
-func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, map[int]pdf.PDFValue, error) {
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, verify.Parts, map[int]pdf.PDFValue, error) {
 	objs := writer.NumberObjects(trailer)
 	doc.SeedResolvedGraph(trailer, objs)
-	res, err := verify.Verify(doc, p)
-	return res, objs, err
+	parts, err := verify.VerifyParts(doc, p)
+	if err != nil {
+		return pdf.Result{}, verify.Parts{}, nil, err
+	}
+	return verify.ResultFromIssues(p, parts.Issues()), parts, objs, nil
 }
+
+// fullFinalVerify forces serializeAndVerify's full from-scratch verify even
+// when the graph is clean -- an escape hatch, and a lever for oracle tests
+// that cross-check the merged path against the full one.
+var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 
 // serializeAndVerify serializes trailer and verifies the output bytes,
 // updating cr.Output and cr.Result. Called exactly once at the end of Run.
 // The loop Reader's stream caches carry over: the graph is the same in-heap
 // one, so unchanged streams keep their decoded/tokenized results while
 // rewritten streams miss on their fresh RawStream identity.
-func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile) error {
+//
+// When the graph is clean -- unchanged since the last inHeapVerify -- the
+// graph-side checks would be a deterministic replay of that verify (the
+// output reader is seeded with the very same graph and stream caches;
+// TestConvertSeededVerifyMatchesFreshVerify pins the equivalence), so only
+// the byte-level structural checks run against the output and lastParts
+// supplies the graph verdicts. A dirty graph gets today's full verify.
+func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool) error {
 	var buf bytes.Buffer
 	order, err := writer.WriteDocumentIndexed(&buf, trailer)
 	if err != nil {
@@ -268,6 +298,16 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 	}
 	out.AdoptStreamCaches(loopDoc)
 	out.SeedResolvedGraph(trailer, objs)
+
+	if graphClean && !fullFinalVerify {
+		parts, err := verify.VerifyStructural(out, p)
+		if err != nil {
+			return err
+		}
+		parts.Graph = lastParts.Graph
+		cr.Result = verify.ResultFromIssues(p, parts.Issues())
+		return nil
+	}
 
 	result, err := verify.Verify(out, p)
 	if err != nil {

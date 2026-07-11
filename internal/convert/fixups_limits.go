@@ -18,9 +18,16 @@ func init() {
 	registerFixer(nameTooLongFixer{})
 	registerFixer(cmapCIDClampFixer{})
 
-	registerPreemptiveFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		_, err := pagesTreeArrayFixer{}.Fix(trailer, nil)
-		return err
+	// The Kids rebalance joins the shared pre-emptive walk; the structure
+	// drop runs after that walk, so it never sees an oversized Kids array
+	// the rebalance could have split (the struct tree reaches Pages nodes
+	// via Pg references).
+	registerPreemptiveVisitor(func(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.PDFDict) {
+		return pagesKidsRebalanceVisitor(trailer, nil)
+	})
+	registerPreemptiveAfterFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
+		dropOversizedStructure(trailer)
+		return nil
 	})
 }
 
@@ -64,19 +71,8 @@ func (pagesTreeArrayFixer) Applies(c pdf.Check) bool {
 }
 
 func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	nextObjNum := nextAvailableObjNum(*trailer)
 	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Pages"}) {
-			return
-		}
-		kids, ok := d.Entries["Kids"].(pdf.PDFArray)
-		if !ok || len(kids) <= maxPDFArrayElements {
-			return
-		}
-		d.Entries["Kids"] = rebalancePagesKids(d, kids, &nextObjNum)
-		changed = true
-	})
+	walkDicts(*trailer, map[uintptr]bool{}, pagesKidsRebalanceVisitor(trailer, &changed))
 	// The logical structure tree's per-page parent arrays (positional MCID ->
 	// element maps) can exceed the array limit and cannot be split. PDF/A-1b
 	// (level B) does not require structure, so drop it rather than rasterize.
@@ -84,6 +80,30 @@ func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 		changed = true
 	}
 	return changed, nil
+}
+
+// pagesKidsRebalanceVisitor returns the per-dict rebalance of oversized
+// Pages/Kids arrays. nextAvailableObjNum -- itself a full-graph scan -- is
+// only computed once an oversized array actually turns up. changed may be
+// nil when the caller doesn't need the signal.
+func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool) func(pdf.PDFDict) {
+	nextObjNum := 0
+	return func(d pdf.PDFDict) {
+		if (d.Entries["Type"] != pdf.PDFName{Value: "Pages"}) {
+			return
+		}
+		kids, ok := d.Entries["Kids"].(pdf.PDFArray)
+		if !ok || len(kids) <= maxPDFArrayElements {
+			return
+		}
+		if nextObjNum == 0 {
+			nextObjNum = nextAvailableObjNum(*trailer)
+		}
+		d.Entries["Kids"] = rebalancePagesKids(d, kids, &nextObjNum)
+		if changed != nil {
+			*changed = true
+		}
+	}
 }
 
 // dropOversizedStructure removes the document's logical structure tree when it
