@@ -185,8 +185,9 @@ func xrefFieldWidths(dict PDFDict) ([3]int, error) {
 	var w [3]int
 	for i, v := range arr {
 		n, ok := v.(PDFInteger)
-		if !ok || n < 0 {
-			return [3]int{}, fmt.Errorf("cross-reference stream: /W[%d] is not a non-negative integer", i)
+		// Cap each width so entryLen (w0+w1+w2) cannot overflow to a bad slice.
+		if !ok || n < 0 || n > 8 {
+			return [3]int{}, fmt.Errorf("cross-reference stream: /W[%d] is not an integer in [0,8]", i)
 		}
 		w[i] = int(n)
 	}

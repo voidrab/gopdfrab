@@ -29,6 +29,10 @@ func FilterNames(filter PDFValue) []string {
 
 var zlibReaderPool = sync.Pool{}
 
+// maxInflateOutput caps decoded output so a flate bomb cannot OOM. Var, not
+// const, only so tests can lower it.
+var maxInflateOutput int64 = 256 << 20
+
 // inflateBufPool holds *bytes.Buffer scratch space for InflateZlib, reused
 // across calls so its backing array grows to a working size once instead of
 // reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
@@ -60,7 +64,7 @@ func InflateZlib(data []byte) ([]byte, error) {
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
-	_, err := buf.ReadFrom(zr)
+	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput))
 	zlibReaderPool.Put(zr)
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)

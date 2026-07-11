@@ -274,6 +274,10 @@ func newSampledFunction(d PDFDict, domain []float64) (*sampledFunction, error) {
 	if len(size) == 0 || len(size) > maxSampledInputs {
 		return nil, fmt.Errorf("pdffunc: unsupported Size dimensionality %d", len(size))
 	}
+	// bps feeds `uint64(1) << bps` in Eval; a negative value panics.
+	if bps < 1 || bps > 32 {
+		return nil, fmt.Errorf("pdffunc: unsupported BitsPerSample %d", bps)
+	}
 	for _, s := range size {
 		if s < 1 {
 			return nil, fmt.Errorf("pdffunc: non-positive Size entry")

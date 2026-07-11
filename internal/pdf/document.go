@@ -52,6 +52,10 @@ type Reader struct {
 
 	objCache map[int]PDFValue
 
+	// resolvingInProgress marks object numbers currently being parsed, to break
+	// self-referential resolution cycles. See ResolveReference.
+	resolvingInProgress map[int]bool
+
 	// data is the full file content as a byte slice (mmap on unix, heap on
 	// other platforms, or the caller-supplied slice for OpenBytes).
 	// nil only for NewRawReader, which drives test-only paths.
@@ -858,13 +862,24 @@ func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 
 // resolveInPlace returns obj fully resolved.
 func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
+	return d.resolveInPlaceDepth(obj, 0)
+}
+
+// maxResolveDepth bounds resolveInPlace recursion so a deep acyclic reference
+// chain cannot overflow the stack. Var, not const, only so tests can lower it.
+var maxResolveDepth = 1 << 17
+
+func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) {
+	if depth > maxResolveDepth {
+		return nil, fmt.Errorf("resolve depth limit exceeded")
+	}
 	switch v := obj.(type) {
 	case PDFRef:
 		target, err := d.ResolveReference(v)
 		if err != nil {
 			return nil, err
 		}
-		return d.resolveInPlace(target)
+		return d.resolveInPlaceDepth(target, depth+1)
 
 	case PDFDict:
 		ptr := ValuePointer(v.Entries)
@@ -879,7 +894,7 @@ func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
 			if k == "_ref" {
 				continue
 			}
-			r, err := d.resolveInPlace(val)
+			r, err := d.resolveInPlaceDepth(val, depth+1)
 			if err != nil {
 				// Unmark: this dict did not actually finish resolving (some
 				// entries past the failing key are still raw PDFRefs), so a
@@ -903,7 +918,7 @@ func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
 		}
 		d.resolvedPtrs[ptr] = true
 		for i, elem := range v {
-			r, err := d.resolveInPlace(elem)
+			r, err := d.resolveInPlaceDepth(elem, depth+1)
 			if err != nil {
 				delete(d.resolvedPtrs, ptr) // see the PDFDict case above
 				return nil, err

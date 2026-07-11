@@ -25,7 +25,17 @@ func (d *Reader) ResolveReference(ref PDFRef) (PDFValue, error) {
 		return cached, nil
 	}
 
+	// Re-entering an object still being parsed is a cycle (e.g. a stream whose
+	// /Length references itself); resolve it to null instead of overflowing.
+	if d.resolvingInProgress[ref.ObjNum] {
+		return nil, nil
+	}
+	if d.resolvingInProgress == nil {
+		d.resolvingInProgress = map[int]bool{}
+	}
+	d.resolvingInProgress[ref.ObjNum] = true
 	v, err := d.parseReference(ref)
+	delete(d.resolvingInProgress, ref.ObjNum)
 	if err != nil {
 		return nil, err
 	}

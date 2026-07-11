@@ -61,6 +61,11 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 	if n < 0 || first < 0 {
 		return nil, fmt.Errorf("object stream %d: missing /N or /First", streamObjNum)
 	}
+	// Bound /N (each entry needs >=2 bytes) before pre-allocating pairs.
+	const maxObjStmEntries = 1 << 20
+	if n > len(data)/2 || n > maxObjStmEntries {
+		return nil, fmt.Errorf("object stream %d: /N %d exceeds stream capacity", streamObjNum, n)
+	}
 
 	headerLex := NewLexerBytes(data, 0)
 	type pair struct{ objNum, offset int }
