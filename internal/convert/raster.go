@@ -56,8 +56,14 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		return nil, fmt.Errorf("raster: degenerate or oversized bounds")
 	}
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
-	for i := range canvas.Pix {
-		canvas.Pix[i] = 0xFF // opaque white backdrop
+	// Opaque white backdrop via doubling copies (memmove) instead of a
+	// per-byte loop -- the canvas fill was a measurable share of small
+	// flatten renders.
+	if pix := canvas.Pix; len(pix) > 0 {
+		pix[0] = 0xFF
+		for filled := 1; filled < len(pix); filled *= 2 {
+			copy(pix[filled:], pix[:filled])
+		}
 	}
 
 	scale := float64(dpi) / 72
@@ -922,16 +928,23 @@ func simpleCodeToGID(gidMap map[uint16]uint16, code int, names [256]string) int 
 	return code
 }
 
+// winAnsiCodeByName inverts verify.WinAnsiGlyphName once, mapping each glyph
+// name to the lowest WinAnsi code producing it (matching the front-to-back
+// scan it replaces).
+var winAnsiCodeByName = func() map[string]int {
+	m := make(map[string]int, len(verify.WinAnsiGlyphName))
+	for i := len(verify.WinAnsiGlyphName) - 1; i >= 0; i-- {
+		m[verify.WinAnsiGlyphName[i]] = i
+	}
+	return m
+}()
+
 // glyphNameToWinAnsiCode reverse-looks-up verify.WinAnsiGlyphName for name,
 // returning the WinAnsi code that produces it (used to recover a Unicode
 // value for a Differences-renamed glyph).
 func glyphNameToWinAnsiCode(name string) (int, bool) {
-	for i, n := range verify.WinAnsiGlyphName {
-		if n == name {
-			return i, true
-		}
-	}
-	return 0, false
+	i, ok := winAnsiCodeByName[name]
+	return i, ok
 }
 
 // resolveSimpleEncoding builds a code->glyph-name table from a simple font's

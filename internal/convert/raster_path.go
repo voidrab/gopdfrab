@@ -19,11 +19,25 @@ func FillPath(canvas *image.RGBA, contours [][]Point, rgb [3]float64, alpha floa
 		return
 	}
 
+	// Clamp the scan loop to the edges' y-extent: a scanline outside it has
+	// no crossings, so skipping it is pixel-identical. This matters because
+	// showText issues one FillPath per glyph -- without the clamp every
+	// glyph scans the full page height.
+	edgeMinY, edgeMaxY := edges[0].y0, edges[0].y1
+	for _, e := range edges[1:] {
+		edgeMinY = math.Min(edgeMinY, e.y0)
+		edgeMaxY = math.Max(edgeMaxY, e.y1)
+	}
+
 	bounds := canvas.Bounds()
-	minY, maxY := bounds.Min.Y, bounds.Max.Y
+	// A scanline samples at y+0.5 and an edge is active for y0 <= y+0.5 < y1.
+	minY := max(bounds.Min.Y, int(math.Ceil(edgeMinY-0.5)))
+	maxY := min(bounds.Max.Y, int(math.Ceil(edgeMaxY-0.5))+1)
+
+	var scratch scanScratch
 	for y := minY; y < maxY; y++ {
 		scanY := float64(y) + 0.5
-		spans := scanlineSpans(edges, scanY, evenOdd)
+		spans := scanlineSpans(edges, scanY, evenOdd, &scratch)
 		for _, sp := range spans {
 			x0 := int(math.Floor(sp[0] + 0.5))
 			x1 := int(math.Ceil(sp[1] - 0.5))
@@ -74,13 +88,22 @@ func buildEdges(contours [][]Point) []pathEdge {
 	return edges
 }
 
-// scanlineSpans returns the filled [xStart,xEnd] intervals at height y.
-func scanlineSpans(edges []pathEdge, y float64, evenOdd bool) [][2]float64 {
-	type crossing struct {
-		x   float64
-		dir int
-	}
-	var crossings []crossing
+type crossing struct {
+	x   float64
+	dir int
+}
+
+// scanScratch holds one FillPath call's reusable crossing/span buffers so
+// scanning costs no allocation per scanline.
+type scanScratch struct {
+	crossings []crossing
+	spans     [][2]float64
+}
+
+// scanlineSpans returns the filled [xStart,xEnd] intervals at height y. The
+// returned slice aliases scratch and is only valid until the next call.
+func scanlineSpans(edges []pathEdge, y float64, evenOdd bool, scratch *scanScratch) [][2]float64 {
+	crossings := scratch.crossings[:0]
 	for _, e := range edges {
 		if y < e.y0 || y >= e.y1 {
 			continue
@@ -88,12 +111,13 @@ func scanlineSpans(edges []pathEdge, y float64, evenOdd bool) [][2]float64 {
 		x := e.x0 + (y-e.y0)*e.dxdy
 		crossings = append(crossings, crossing{x: x, dir: e.dir})
 	}
+	scratch.crossings = crossings
 	if len(crossings) == 0 {
 		return nil
 	}
 	sort.Slice(crossings, func(i, j int) bool { return crossings[i].x < crossings[j].x })
 
-	var spans [][2]float64
+	spans := scratch.spans[:0]
 	winding := 0
 	var spanStart float64
 	inSpan := false
@@ -109,6 +133,7 @@ func scanlineSpans(edges []pathEdge, y float64, evenOdd bool) [][2]float64 {
 			inSpan = false
 		}
 	}
+	scratch.spans = spans
 	return spans
 }
 

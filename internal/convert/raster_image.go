@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/jpeg"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -429,11 +430,10 @@ func decodeJPEGImage(dict pdf.PDFDict) (*image.RGBA, error) {
 	}
 	bounds := img.Bounds()
 	out := image.NewRGBA(bounds)
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			out.Set(x, y, img.At(x, y))
-		}
-	}
+	// draw.Src is defined as dst.Set(src.At(...)) per pixel, so this is the
+	// former nested Set/At loop minus the per-pixel color.Color boxing (the
+	// stdlib has typed fast paths for the JPEG decoder's YCbCr/Gray images).
+	draw.Draw(out, bounds, img, bounds.Min, draw.Src)
 	return out, nil
 }
 
@@ -441,10 +441,15 @@ func decodeJPEGImage(dict pdf.PDFDict) (*image.RGBA, error) {
 // image codecs this package cannot decode.
 func placeholderImage(width, height int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			img.Set(x, y, colorRGBA64{0.5, 0.5, 0.5, 1})
-		}
+	if width <= 0 || height <= 0 {
+		return img
+	}
+	// Every pixel is the same gray: set the first, then fill the rest with
+	// doubling copies instead of a per-pixel Set.
+	img.Set(0, 0, colorRGBA64{0.5, 0.5, 0.5, 1})
+	pix := img.Pix
+	for filled := 4; filled < len(pix); filled *= 2 {
+		copy(pix[filled:], pix[:filled])
 	}
 	return img
 }
