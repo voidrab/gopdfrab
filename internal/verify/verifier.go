@@ -1,10 +1,12 @@
 package verify
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -34,6 +36,84 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}, nil
 	}
 	return pdf.Result{Type: p.Level, Valid: true}, nil
+}
+
+// Parts splits the A-1b issue list by what the checks read. PreStructural
+// and PostStructural are byte-level checks against the reader's file and
+// xref bytes, in exactly the positions verifyPdfA1b emits them (the header/
+// trailer/xref checks lead the list; object framing and the reader's parse
+// diagnostics trail it). Graph is everything in between: a function of the
+// resolved object graph and its streams only, so on a seeded reader it is a
+// deterministic replay of that same graph's previous verification.
+type Parts struct {
+	PreStructural  []pdf.PDFError
+	Graph          []pdf.PDFError
+	PostStructural []pdf.PDFError
+}
+
+// Issues reassembles the parts in verifyPdfA1b's emission order.
+func (pt Parts) Issues() []pdf.PDFError {
+	out := make([]pdf.PDFError, 0, len(pt.PreStructural)+len(pt.Graph)+len(pt.PostStructural))
+	out = append(out, pt.PreStructural...)
+	out = append(out, pt.Graph...)
+	out = append(out, pt.PostStructural...)
+	return out
+}
+
+// filter applies filterByProfile to each part.
+func (pt Parts) filter(p *pdf.Profile) Parts {
+	return Parts{
+		PreStructural:  filterByProfile(pt.PreStructural, p),
+		Graph:          filterByProfile(pt.Graph, p),
+		PostStructural: filterByProfile(pt.PostStructural, p),
+	}
+}
+
+// VerifyParts is Verify with the issue list split into Parts, each part
+// profile-filtered. Convert's fix loop uses it so its final output
+// verification can reuse the last in-loop graph verdicts (see
+// serializeAndVerify) while re-running only the byte-level checks.
+func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+	if p == nil {
+		return Parts{}, fmt.Errorf("nil profile")
+	}
+	if p.Level == pdf.Undefined {
+		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	}
+	var pt Parts
+	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
+		pt = verifyPdfA1bParts(d, p)
+	}
+	return pt.filter(p), nil
+}
+
+// VerifyStructural runs only the byte-level structural checks against d --
+// the leading and trailing families of Parts -- skipping every graph check.
+// It exists for convert's final output verification: when the serialized
+// graph is byte-for-byte the graph the last in-loop verify already checked,
+// only these byte-level checks can produce new findings against the output.
+func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+	if p == nil {
+		return Parts{}, fmt.Errorf("nil profile")
+	}
+	if p.Level == pdf.Undefined {
+		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	}
+	var pt Parts
+	if (p.Level == pdf.A_1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
+		pt.PreStructural = structuralPreIssues(d)
+		pt.PostStructural = structuralPostIssues(d)
+	}
+	return pt.filter(p), nil
+}
+
+// ResultFromIssues builds the Result Verify would return for an
+// already-filtered issue list.
+func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
+	if len(issues) > 0 {
+		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}
+	}
+	return pdf.Result{Type: p.Level, Valid: true}
 }
 
 // VerifyAll opens and verifies multiple PDF files concurrently.
@@ -132,37 +212,47 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 // PDF/A-1b (ISO 19005-1:2005)
 
 func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
+	return verifyPdfA1bParts(d, p).Issues()
+}
+
+// structuralPreIssues runs the byte-level checks that lead the A-1b issue
+// list: file header, linearized ID consistency, trailer, and xref format.
+func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
+	issues := []pdf.PDFError{}
+	issues = append(issues, verifyFileHeader(d)...)
+	issues = append(issues, checkLinearizedFileID(d)...)
+	issues = append(issues, verifyFileTrailer(d)...)
+	issues = append(issues, verifyCrossReferenceTable(d)...)
+	return issues
+}
+
+// structuralPostIssues runs the byte-level checks that trail the A-1b issue
+// list: object framing and the reader's accumulated parse diagnostics.
+func structuralPostIssues(d *pdf.Reader) []pdf.PDFError {
+	issues := verifyAllObjectFraming(d)
+	return append(issues, d.StructErrors()...)
+}
+
+func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
 	// font programs, or validates XMP.
 	schemaOnly := p.OnlyObjectModelChecks()
-	issues := []pdf.PDFError{}
+	var pt Parts
 
 	if !schemaOnly {
-		errs := verifyFileHeader(d)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
-		errs = checkLinearizedFileID(d)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
-		errs = verifyFileTrailer(d)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
-		errs = verifyCrossReferenceTable(d)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
+		pt.PreStructural = structuralPreIssues(d)
 	}
+
+	issues := []pdf.PDFError{}
 
 	// Resolve the graph once up front; all subsequent checks work on the
 	// resolved graph so no per-check lazy resolve occurs.
 	graph, err := d.ResolveGraph()
 	if err != nil {
-		return append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		return pt
 	}
 
 	if !schemaOnly {
@@ -174,7 +264,8 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 
 	pageIndex, err := d.BuildPageIndex(graph)
 	if err != nil {
-		return append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		return pt
 	}
 
 	ctx := &ValidationContext{
@@ -195,7 +286,8 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	verifyDocument(graph, ctx)
 	issues = append(issues, ctx.errs...)
 	if schemaOnly {
-		return issues
+		pt.Graph = issues
+		return pt
 	}
 	errs := verifyOptionalContent(d)
 	if errs != nil {
@@ -217,14 +309,10 @@ func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
+	pt.Graph = issues
 
-	errs = verifyAllObjectFraming(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-
-	issues = append(issues, d.StructErrors()...)
-	return issues
+	pt.PostStructural = structuralPostIssues(d)
+	return pt
 }
 
 func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
@@ -344,22 +432,17 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	// No data shall follow the last end-of-file marker except a single optional end-of-line marker.
 	size := d.Size()
 
-	found := false
-	eof := make([]byte, 0)
-	for i := range int64(10) {
-		buf := make([]byte, 1)
-		d.ReadAt(buf, size-i)
-
-		eof = append([]byte{buf[0]}, eof...)
-		if strings.HasPrefix(string(eof), "%%EOF") {
-			found = true
-			break
-		}
-	}
-	if !found {
+	// One bounded tail read replaces the former ten 1-byte ReadAts: the
+	// marker must start within the file's last 9 bytes, leaving room for
+	// up to four trailing bytes (the historical tolerance). tail[9] maps
+	// past end-of-file and stays zero, preserving the exact diagnostic
+	// bytes the old byte-by-byte prepend loop reported.
+	var tail [10]byte
+	d.ReadAt(tail[:], size-9)
+	if !bytes.Contains(tail[:9], []byte("%%EOF")) {
 		err := pdf.NewError(
 			pdf.Checks.Structure.TrailerEOF,
-			[]error{fmt.Errorf("no EOF marker found: %v", string(eof))},
+			[]error{fmt.Errorf("no EOF marker found: %v", string(tail[:]))},
 			0,
 			nil,
 		)
@@ -409,9 +492,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
 func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
-	buf := make([]byte, 8192)
-	n, _ := d.ReadAt(buf, offset+d.PDFStart())
-	cur := pdf.NewCursor(buf[:n])
+	cur := pdf.NewCursor(d.WindowAt(offset+d.PDFStart(), 8192))
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
@@ -463,8 +544,11 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 			firstHeader = false
 		}
 
-		var start, count int
-		fmt.Sscanf(line, "%d %d", &start, &count)
+		// The header already matched xrefHeaderRe, so the count is the
+		// digits after the single space; Atoi's overflow behavior (0)
+		// matches the Sscanf this replaces.
+		_, countStr, _ := strings.Cut(line, " ")
+		count, _ := strconv.Atoi(countStr)
 		for i := 0; i < count; i++ {
 			if _, ok := cur.ReadLine(); !ok {
 				break
@@ -639,7 +723,8 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				validateAgainstSchema(v, expectedType, ctx)
 			}
 
-			for _, k := range sortedKeys(v.Entries) {
+			keysBase := len(ctx.keyScratch)
+			for _, k := range ctx.sortedKeys(v.Entries) {
 				val := v.Entries[k]
 				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed 127 bytes after
@@ -667,6 +752,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, k, childType)
 			}
+			ctx.keyScratch = ctx.keyScratch[:keysBase]
 			if !first {
 				return
 			}
@@ -728,13 +814,19 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	walk(graph, nil, "", "FileTrailer")
 }
 
-// sortedKeys returns m's keys in sorted order so the walk visits entries
-// deterministically regardless of Go map iteration order.
-func sortedKeys(m map[string]pdf.PDFValue) []string {
-	keys := make([]string, 0, len(m))
+// sortedKeys appends m's keys in sorted order to ctx.keyScratch and returns
+// the appended segment, so the walk visits entries deterministically
+// regardless of Go map iteration order without allocating per dict. The
+// caller must truncate ctx.keyScratch back to its prior length when done
+// with the segment; the segment stays readable even if deeper recursion
+// grows the scratch onto a new backing array, since it is never written
+// again after the sort.
+func (ctx *ValidationContext) sortedKeys(m map[string]pdf.PDFValue) []string {
+	base := len(ctx.keyScratch)
 	for k := range m {
-		keys = append(keys, k)
+		ctx.keyScratch = append(ctx.keyScratch, k)
 	}
+	keys := ctx.keyScratch[base:]
 	slices.Sort(keys)
 	return keys
 }
@@ -1415,9 +1507,8 @@ func checkLinearizedFileID(d *pdf.Reader) []pdf.PDFError {
 	if d.Trailer().Entries["Root"] != nil {
 		return nil
 	}
-	size := d.Size()
-	raw := make([]byte, size)
-	if _, err := d.ReadAt(raw, 0); err != nil {
+	raw, err := d.FullBytes()
+	if err != nil {
 		return nil
 	}
 	matches := trailerIDRe.FindAllSubmatch(raw, -1)

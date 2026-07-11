@@ -10,7 +10,10 @@ import (
 
 func init() {
 	registerPreemptiveFixup(regenerateXMP)
-	registerPreemptiveFixup(stripEmbeddedMetadata)
+	// Joins the shared pre-emptive walk. Its prepare captures the catalog's
+	// metadata identity after regenerateXMP has installed the fresh packet,
+	// since plain fixups run before the walk.
+	registerPreemptiveVisitor(stripEmbeddedMetadataVisitor)
 }
 
 // regenerateXMP replaces the document's XMP metadata (Root/Metadata) with a
@@ -58,7 +61,16 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 // stripEmbeddedMetadata removes /Metadata from every non-catalog object.
 // PDF/A-1b requires exactly one metadata stream (Root/Metadata); non-catalog
 // /Type /Metadata streams violate 6.7.5 when they lack an xpacket wrapper.
-func stripEmbeddedMetadata(trailer *pdf.PDFDict, _ *pdf.Reader) error {
+func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+	if visit := stripEmbeddedMetadataVisitor(trailer, doc); visit != nil {
+		walkDicts(*trailer, map[uintptr]bool{}, visit)
+	}
+	return nil
+}
+
+// stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
+// for the shared pre-emptive walk; nil when there is no catalog to protect.
+func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.PDFDict) {
 	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
 	if !ok {
 		return nil
@@ -67,7 +79,7 @@ func stripEmbeddedMetadata(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
-	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+	return func(d pdf.PDFDict) {
 		meta, ok := d.Entries["Metadata"].(pdf.PDFDict)
 		if !ok {
 			return
@@ -76,8 +88,7 @@ func stripEmbeddedMetadata(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		if pdf.ValuePointer(meta.Entries) != catalogMetaPtr {
 			delete(d.Entries, "Metadata")
 		}
-	})
-	return nil
+	}
 }
 
 // normalizeInfoDict coerces the Info dictionary's standard entries (Table

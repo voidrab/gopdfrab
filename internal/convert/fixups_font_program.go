@@ -21,39 +21,45 @@ import (
 func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
-	registerPreemptiveFixup(promoteEmptyGlyphsInFonts)
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return promoteEmptyGlyphsInFont
+	})
 }
 
-// promoteEmptyGlyphsInFonts rewrites a CIDFontType2's embedded TrueType program
-// so its blank glyphs are explicit zero-contour records.
+// promoteEmptyGlyphsInFonts rewrites every CIDFontType2's embedded TrueType
+// program so its blank glyphs are explicit zero-contour records. The shared
+// pre-emptive walk drives promoteEmptyGlyphsInFont per dict; this standalone
+// form remains for direct use.
 func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
-			return
-		}
-		desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
-		if !ok {
-			return
-		}
-		ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
-		if !ok || !ff.HasStream {
-			return
-		}
-		data, err := pdf.DecodeStream(ff)
-		if err != nil {
-			return
-		}
-		repaired, changed := promoteEmptyGlyphs(data)
-		if !changed {
-			return
-		}
-		ff.Entries["Length1"] = pdf.PDFInteger(len(repaired))
-		if err := writer.SetStreamFlate(&ff, repaired); err != nil {
-			return
-		}
-		desc.Entries["FontFile2"] = ff
-	})
+	walkDicts(*trailer, map[uintptr]bool{}, promoteEmptyGlyphsInFont)
 	return nil
+}
+
+func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
+	if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
+		return
+	}
+	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	if !ok {
+		return
+	}
+	ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	repaired, changed := promoteEmptyGlyphs(data)
+	if !changed {
+		return
+	}
+	ff.Entries["Length1"] = pdf.PDFInteger(len(repaired))
+	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
+		return
+	}
+	desc.Entries["FontFile2"] = ff
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing

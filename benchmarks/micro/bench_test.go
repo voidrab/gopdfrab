@@ -66,6 +66,7 @@ func BenchmarkOpenVerify(b *testing.B) {
 	for name, rel := range sampleFiles {
 		path := filepath.Join(root, rel)
 		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				doc, err := gopdfrab.Open(path)
 				if err != nil {
@@ -132,10 +133,13 @@ func BenchmarkConvert(b *testing.B) {
 // per stream instead of each re-lexing it, cut another ~70k: ~1.09M.
 // Parsing number tokens once in the lexer (Token.Int/Num) and collecting
 // array elements on a shared scratch stack cut it to ~1.05M.
+// The byte-path xref parser (no per-entry buffer), the ValidationContext
+// key-scratch stack for the walk's sorted key iteration, and the O(1)
+// Arlington row index cut it to ~1.01M.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_110_000
+const maxLargeFileAllocs = 1_035_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -181,8 +185,18 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // Carrying the loop Reader's stream caches into the final serialize-verify
 // pass (AdoptStreamCaches) cut this to ~2.14M, and the lexer's parse-once
 // number tokens plus the shared parseArray scratch to ~2.11M.
+// The fuzz-hardening pass that made the writer's discover walk deterministic
+// (sorted key order) briefly added a per-dict key-slice allocation (~2.27M,
+// over this ceiling); sharing one key scratch stack across discover and
+// writeDictEntries (pdfWriter.keyScratch) brought it back to ~2.18M.
+// The byte-path xref parser, the ValidationContext key-scratch stack, and
+// the O(1) Arlington row index cut it to ~2.01M.
+// Reusing the last in-loop verify's graph verdicts for the final output
+// verification when the graph is clean (serializeAndVerify's merged path;
+// only the byte-level structural checks re-run against the output) plus the
+// single shared pre-emptive fixup walk cut it to ~1.78M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 2_220_000
+const maxConvertLargeAllocs = 1_810_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

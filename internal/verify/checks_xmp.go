@@ -9,9 +9,35 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// xmpReCache memoizes the per-property regexes built at call time from
+// QuoteMeta'd property names and extension-schema prefixes. The name sets are
+// small and mostly fixed, so each pattern compiles once per process instead
+// of once per document (or per schema, in loops); the size bound is a
+// defensive cap against a document minting unbounded distinct prefixes.
+var (
+	xmpReMu    sync.Mutex
+	xmpReCache = map[string]*regexp.Regexp{}
+)
+
+const maxXMPReCache = 256
+
+func cachedXMPRe(pattern string) *regexp.Regexp {
+	xmpReMu.Lock()
+	defer xmpReMu.Unlock()
+	re, ok := xmpReCache[pattern]
+	if !ok {
+		re = regexp.MustCompile(pattern)
+		if len(xmpReCache) < maxXMPReCache {
+			xmpReCache[pattern] = re
+		}
+	}
+	return re
+}
 
 const pdfaIDNamespace = "http://www.aiim.org/pdfa/ns/id/"
 
@@ -644,7 +670,7 @@ func validateExtSchema(s extSchema, xmp string) []pdf.PDFError {
 
 	// t02-d: cross-check documented property names against actual used properties.
 	if s.prefix != "" {
-		usedRe := regexp.MustCompile(`<` + regexp.QuoteMeta(s.prefix) + `:(\w[\w.-]*)`)
+		usedRe := cachedXMPRe(`<` + regexp.QuoteMeta(s.prefix) + `:(\w[\w.-]*)`)
 		for _, m := range usedRe.FindAllStringSubmatch(xmp, -1) {
 			propName := m[1]
 			// Ignore RDF/pdfaExt structural elements
@@ -857,7 +883,7 @@ func decodeXMLEntities(s string) string {
 // xmpPropValue extracts the text value of an XMP property such as "dc:title",
 // unwrapping an rdf:Alt/rdf:Seq rdf:li container if present.
 func xmpPropValue(xmp, prop string) (string, bool) {
-	re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(prop) + `[^>]*>(.*?)</` + regexp.QuoteMeta(prop) + `>`)
+	re := cachedXMPRe(`(?s)<` + regexp.QuoteMeta(prop) + `[^>]*>(.*?)</` + regexp.QuoteMeta(prop) + `>`)
 	m := re.FindStringSubmatch(xmp)
 	if m == nil {
 		return "", false
@@ -871,6 +897,9 @@ func xmpPropValue(xmp, prop string) (string, bool) {
 
 // dcDescRe matches a dc:description element and captures its inner content.
 var dcDescRe = regexp.MustCompile(`(?s)<dc:description[^>]*>(.*?)</dc:description>`)
+
+// dcCreatorRe matches a dc:creator element and captures its inner content.
+var dcCreatorRe = regexp.MustCompile(`(?s)<dc:creator[^>]*>(.*?)</dc:creator>`)
 
 // checkXMPPropertyTypes validates that standard XMP properties use their
 // required data types and that only valid properties are used (6.7.2).
@@ -904,7 +933,7 @@ func checkXMPPropertyTypes(xmp string) []pdf.PDFError {
 // an attribute (prop="value") or a simple element (<prop>value</prop>).
 func xmpScalarValueRe(prop string) *regexp.Regexp {
 	q := regexp.QuoteMeta(prop)
-	return regexp.MustCompile(`(?s)` + q + `\s*=\s*"([^"]*)"` +
+	return cachedXMPRe(`(?s)` + q + `\s*=\s*"([^"]*)"` +
 		`|<` + q + `[^>]*>\s*([^<]*?)\s*</` + q + `>`)
 }
 
@@ -950,7 +979,7 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 
 	// Author vs dc:creator: dc:creator is a Seq; Author must match the single item.
 	if author := info["Author"]; author != "" && author != "null" {
-		if m := regexp.MustCompile(`(?s)<dc:creator[^>]*>(.*?)</dc:creator>`).FindStringSubmatch(xmp); m != nil {
+		if m := dcCreatorRe.FindStringSubmatch(xmp); m != nil {
 			items := rdfLiRe.FindAllStringSubmatch(m[1], -1)
 			var msg string
 			if len(items) > 1 {

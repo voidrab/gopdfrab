@@ -546,6 +546,13 @@ func (d *Reader) findAndLoadFirstPageTrailer() {
 	}
 }
 
+// FullBytes returns the entire file as a byte slice. When the document is
+// memory-mapped or was opened from bytes this is the backing slice itself,
+// with no copy; callers must treat it as read-only.
+func (d *Reader) FullBytes() ([]byte, error) {
+	return d.fullBytes()
+}
+
 // fullBytes returns the full file as a byte slice, reusing d.data when
 // available to avoid a redundant heap allocation.
 func (d *Reader) fullBytes() ([]byte, error) {

@@ -117,7 +117,8 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// values, and indirect-reference constraints apply to each such entry (e.g. XObject
 	// resource-map values must be indirect streams). Same Length exemption as above.
 	if wc := ot.Wildcard; wc != nil {
-		for _, k := range sortedKeys(v.Entries) {
+		keysBase := len(ctx.keyScratch)
+		for _, k := range ctx.sortedKeys(v.Entries) {
 			if k == "_ref" || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
 				continue
 			}
@@ -147,6 +148,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 				)
 			}
 		}
+		ctx.keyScratch = ctx.keyScratch[:keysBase]
 	}
 
 	// A wildcard type allows arbitrary keys, so there is nothing "introduced after PDF 1.4"
@@ -766,21 +768,11 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 
 // hasNamedKey reports whether ot declares an explicit (non-wildcard) row for key.
 func hasNamedKey(ot arlington.ObjectType, key string) bool {
-	for i := range ot.Keys {
-		if ot.Keys[i].Name == key {
-			return true
-		}
-	}
-	return false
+	return ot.HasNamedKey(key)
 }
 
 // findArlingtonKey returns the KeyDef governing key within ot: an explicit named entry if
 // present, else the wildcard entry, else nil.
 func findArlingtonKey(ot arlington.ObjectType, key string) *arlington.KeyDef {
-	for i := range ot.Keys {
-		if ot.Keys[i].Name == key {
-			return &ot.Keys[i]
-		}
-	}
-	return ot.Wildcard
+	return ot.KeyDefByName(key)
 }
