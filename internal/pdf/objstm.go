@@ -61,11 +61,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 	if n < 0 || first < 0 {
 		return nil, fmt.Errorf("object stream %d: missing /N or /First", streamObjNum)
 	}
-	// /N is attacker-controlled; each header entry is two integer tokens that
-	// occupy at least two bytes of decoded data, so a valid /N cannot exceed
-	// half the stream length. Bound it (and a hard ceiling) before the
-	// capacity hint below so a tiny stream declaring /N 100000000 cannot force
-	// a multi-gigabyte pre-allocation.
+	// Bound /N (each entry needs >=2 bytes) before pre-allocating pairs.
 	const maxObjStmEntries = 1 << 20
 	if n > len(data)/2 || n > maxObjStmEntries {
 		return nil, fmt.Errorf("object stream %d: /N %d exceeds stream capacity", streamObjNum, n)

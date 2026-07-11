@@ -52,12 +52,8 @@ type Reader struct {
 
 	objCache map[int]PDFValue
 
-	// resolvingInProgress marks object numbers currently being parsed, so a
-	// reference that points (directly or transitively) back at its own object
-	// -- e.g. a stream whose /Length is an indirect reference to itself, or an
-	// object stream whose container number resolves back into the same stream
-	// -- resolves to null instead of re-entering ResolveReference unbounded
-	// and overflowing the stack (a fatal error recover() cannot catch).
+	// resolvingInProgress marks object numbers currently being parsed, to break
+	// self-referential resolution cycles. See ResolveReference.
 	resolvingInProgress map[int]bool
 
 	// data is the full file content as a byte slice (mmap on unix, heap on
@@ -869,14 +865,8 @@ func (d *Reader) resolveInPlace(obj PDFValue) (PDFValue, error) {
 	return d.resolveInPlaceDepth(obj, 0)
 }
 
-// maxResolveDepth bounds the native recursion of resolveInPlaceDepth. The
-// resolvedPtrs set already breaks *cyclic* graphs, but a deep yet acyclic
-// chain of indirect references (obj1 -> obj2 -> ... -> objN, N limited only by
-// file size) still drives one stack frame per link and can overflow the stack
-// -- a fatal error recover() cannot catch. The cap sits far above any
-// legitimate nesting depth (e.g. the page-tree cap of 1<<16) while staying
-// well below where the goroutine stack would overflow. It is a var (not a
-// const) only so tests can lower it; production never reassigns it.
+// maxResolveDepth bounds resolveInPlace recursion so a deep acyclic reference
+// chain cannot overflow the stack. Var, not const, only so tests can lower it.
 var maxResolveDepth = 1 << 17
 
 func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) {

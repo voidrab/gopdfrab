@@ -296,9 +296,8 @@ func TestParseFunctionRejectsMalformed(t *testing.T) {
 	}
 }
 
-// TestCrasher_FlateBomb: a small, highly compressible FlateDecode stream must
-// not inflate without bound (fixed: maxInflateOutput cap). The cap is lowered
-// here so the assertion is cheap and deterministic.
+// TestCrasher_FlateBomb: a highly compressible stream inflated without bound
+// (fixed: maxInflateOutput cap).
 func TestCrasher_FlateBomb(t *testing.T) {
 	restore := pdf.SetMaxInflateOutput(1024)
 	defer restore()
@@ -317,21 +316,20 @@ func TestCrasher_FlateBomb(t *testing.T) {
 		t.Fatalf("InflateZlib: %v", err)
 	}
 	if int64(len(out)) > 1024 {
-		t.Errorf("decoded %d bytes, want <= 1024 (output cap not enforced)", len(out))
+		t.Errorf("decoded %d bytes, want <= 1024", len(out))
 	}
 }
 
-// TestCrasher_PNGPredictorColumns: an absurd /Columns must be rejected before
-// the per-row buffer is sized (fixed: maxPredictorColumns).
+// TestCrasher_PNGPredictorColumns: an absurd /Columns drove a huge per-row
+// allocation (fixed: maxPredictorColumns).
 func TestCrasher_PNGPredictorColumns(t *testing.T) {
 	if _, err := pdf.UndoPNGPredictor([]byte{0x00, 0x01, 0x02}, 1<<30, 1, 8); err == nil {
 		t.Error("expected an error for an absurd predictor Columns value")
 	}
 }
 
-// TestCrasher_NegativeBitsPerSample: a Type 0 sampled function with a negative
-// /BitsPerSample panicked Eval on `1 << bps` (fixed: validate 1 <= bps <= 32 at
-// construction).
+// TestCrasher_NegativeBitsPerSample: a negative /BitsPerSample panicked Eval on
+// `1 << bps` (fixed: validate 1 <= bps <= 32).
 func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
@@ -347,8 +345,8 @@ func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	}
 }
 
-// TestCrasher_XRefFieldWidthOverflow: an out-of-range /W entry made entryLen
-// (w0+w1+w2) overflow negative and panic the entry slice (fixed: per-width cap).
+// TestCrasher_XRefFieldWidthOverflow: an out-of-range /W entry overflowed
+// entryLen into a panicking slice (fixed: per-width cap).
 func TestCrasher_XRefFieldWidthOverflow(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries["W"] = pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(9), pdf.PDFInteger(1)}
@@ -357,9 +355,8 @@ func TestCrasher_XRefFieldWidthOverflow(t *testing.T) {
 	}
 }
 
-// TestCrasher_ObjStmHugeN: an object stream declaring a /N far larger than its
-// data must be rejected before the pair slice is pre-allocated (fixed: bound N
-// against the decoded stream length).
+// TestCrasher_ObjStmHugeN: an object stream /N far larger than its data drove a
+// huge pre-allocation (fixed: bound N against the stream length).
 func TestCrasher_ObjStmHugeN(t *testing.T) {
 	r, err := pdf.OpenBytes(pdfgen.Seeds()[0])
 	if err != nil {
@@ -375,18 +372,16 @@ func TestCrasher_ObjStmHugeN(t *testing.T) {
 	objstm.Entries["First"] = pdf.PDFInteger(0)
 	r.SeedResolvedGraph(pdf.NewPDFDict(), map[int]pdf.PDFValue{6: objstm})
 
-	// Assert the /N-capacity guard specifically: without it, /N 100000000
-	// pre-allocates ~1.6 GB before the header loop fails on the truncated data
-	// with a different ("malformed header") error.
+	// Assert the /N-capacity error specifically (not the later "malformed
+	// header" one that fires after the bad allocation).
 	err = pdf.DecodeObjStmForTest(r, 6)
 	if err == nil || !strings.Contains(err.Error(), "exceeds stream capacity") {
 		t.Errorf("want an /N-capacity error, got %v", err)
 	}
 }
 
-// TestCrasher_CyclicStreamLength: a stream whose /Length is an indirect
-// reference to its own object re-entered ResolveReference until the stack
-// overflowed (fixed: resolvingInProgress guard).
+// TestCrasher_CyclicStreamLength: a stream whose /Length references its own
+// object re-entered ResolveReference forever (fixed: resolvingInProgress guard).
 func TestCrasher_CyclicStreamLength(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -396,9 +391,8 @@ func TestCrasher_CyclicStreamLength(t *testing.T) {
 	openReproduces(t, "cyclic-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
 }
 
-// TestResolveDepthLimit: a long acyclic chain of indirect references (obj4 ->
-// obj5 -> ...) must be rejected rather than overflow the stack when resolved.
-// The cap is lowered so a short chain triggers it (fixed: maxResolveDepth).
+// TestResolveDepthLimit: a long acyclic reference chain overflowed the stack
+// when resolved (fixed: maxResolveDepth).
 func TestResolveDepthLimit(t *testing.T) {
 	restore := pdf.SetMaxResolveDepth(100)
 	defer restore()

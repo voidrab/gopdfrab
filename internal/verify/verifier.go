@@ -17,10 +17,8 @@ import (
 // ("start count" separated by a single space, no leading white space).
 var xrefHeaderRe = regexp.MustCompile(`^[0-9]+ [0-9]+$`)
 
-// maxWalkDepth caps the object-graph walk's native recursion. See the guard in
-// verifyPdfA1bParts's walk closure; it mirrors pdf.maxResolveDepth so a deep
-// acyclic structure that survives resolution is also bounded here. It is a var
-// (not a const) only so tests can lower it; production never reassigns it.
+// maxWalkDepth caps the graph walk's recursion. Var, not const, only so tests
+// can lower it.
 var maxWalkDepth = 1 << 17
 
 // Verify verifies d against the checks enabled in profile p.
@@ -682,11 +680,6 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		if node == nil {
 			return
 		}
-		// The visited/visitedTyped sets break cyclic graphs, but a deep yet
-		// acyclic chain of nested containers still recurses one frame per level
-		// and can overflow the stack (a fatal, unrecoverable error). Cap the
-		// descent well above any legitimate nesting depth but below the stack
-		// limit, matching the resolve-side maxResolveDepth guard.
 		if depth > maxWalkDepth {
 			return
 		}

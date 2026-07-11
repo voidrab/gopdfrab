@@ -25,13 +25,8 @@ func (d *Reader) ResolveReference(ref PDFRef) (PDFValue, error) {
 		return cached, nil
 	}
 
-	// A reference encountered while this same object number is still being
-	// parsed is a cycle (self-referential /Length, an object stream whose
-	// container resolves back into itself, etc.). The object cache is only
-	// populated after parseReference returns, so without this guard the
-	// re-entry would recurse until the stack overflows. Treat the cyclic
-	// target as the null object (ISO 32000-1 7.3.10), consistent with how an
-	// otherwise-unresolvable reference is handled.
+	// Re-entering an object still being parsed is a cycle (e.g. a stream whose
+	// /Length references itself); resolve it to null instead of overflowing.
 	if d.resolvingInProgress[ref.ObjNum] {
 		return nil, nil
 	}

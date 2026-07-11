@@ -7,11 +7,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// buildDeepGraph returns a resolved graph whose object tree nests `depth` dicts
-// before reaching a dict carrying an over-8191-element array (which the graph
-// walk flags as ArrayTooLarge only if it descends far enough to reach it). The
-// deep chain hangs off the trailer beside a minimal but valid page tree so
-// BuildPageIndex -- which runs before the walk -- succeeds.
+// buildDeepGraph nests `depth` dicts above a dict with an over-8191-element
+// array (flagged ArrayTooLarge only if the walk reaches it), beside a valid
+// page tree so BuildPageIndex succeeds.
 func buildDeepGraph(depth int) pdf.PDFDict {
 	big := make(pdf.PDFArray, 8192)
 	for i := range big {
@@ -65,11 +63,8 @@ func resultHasCheck(res pdf.Result, c pdf.Check) bool {
 	return false
 }
 
-// TestWalkDepthLimit verifies the object-graph walk stops at maxWalkDepth rather
-// than recursing one native frame per level into a stack overflow. With the cap
-// below the buried array's depth the walk never reaches it (ArrayTooLarge
-// absent); with the cap above it, it does (present) -- proving the guard gates
-// traversal rather than being a no-op.
+// TestWalkDepthLimit: the walk stops at maxWalkDepth. Below the buried array's
+// depth it isn't reached (ArrayTooLarge absent); above it, it is.
 func TestWalkDepthLimit(t *testing.T) {
 	const depth = 120
 	graph := buildDeepGraph(depth)

@@ -185,10 +185,7 @@ func xrefFieldWidths(dict PDFDict) ([3]int, error) {
 	var w [3]int
 	for i, v := range arr {
 		n, ok := v.(PDFInteger)
-		// Each field width is a small byte count (real streams use 1-4, the
-		// spec tops out well under 8). Cap it so the sum computed by the caller
-		// (entryLen = w0+w1+w2) cannot overflow int and turn `data[pos:pos+
-		// entryLen]` into a panicking low>high slice.
+		// Cap each width so entryLen (w0+w1+w2) cannot overflow to a bad slice.
 		if !ok || n < 0 || n > 8 {
 			return [3]int{}, fmt.Errorf("cross-reference stream: /W[%d] is not an integer in [0,8]", i)
 		}
