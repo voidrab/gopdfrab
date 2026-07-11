@@ -646,7 +646,7 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 func embeddedType1GlyphNames(desc pdf.PDFDict, ctx *ValidationContext) []string {
 	if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
 		if data, err := ctx.decodeStreamCached(ff); err == nil {
-			return Type1GlyphNames(data)
+			return ctx.type1ProgramFor(data).names
 		}
 		return nil
 	}
@@ -1770,45 +1770,65 @@ func Type1CharStringsSection(fontData []byte, binStart int) []byte {
 	return plain[csIdx:]
 }
 
-// extractType1GlyphWidths decrypts the eexec binary section of a Type1 font
-// program and returns glyph name → advance width.
-// binStart is the byte offset of the first encrypted byte after the "eexec" keyword.
-func extractType1GlyphWidths(fontData []byte, binStart int) map[string]int {
+// type1Program is the result of one combined CharStrings scan of a Type1
+// font program: every defined glyph name (a glyph with an unparseable width
+// is still a real glyph that belongs in CharSet, 6.3.5), and glyph name →
+// advance width for each charstring whose width parses (6.3.6).
+type type1Program struct {
+	names  []string
+	widths map[string]int
+}
+
+// extractType1Program decrypts the eexec binary section of a Type1 font
+// program once and extracts names and widths in a single CharStrings scan.
+// binStart is the byte offset of the first encrypted byte after "eexec".
+func extractType1Program(fontData []byte, binStart int) type1Program {
 	cs := Type1CharStringsSection(fontData, binStart)
 	if cs == nil {
-		return nil
+		return type1Program{}
 	}
-	result := map[string]int{}
-	matches := Type1CharStringRe.FindAllSubmatchIndex(cs, -1)
-	for _, m := range matches {
+	var p type1Program
+	p.widths = map[string]int{}
+	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
 		name := string(cs[m[2]:m[3]])
+		p.names = append(p.names, name)
 		n, _ := strconv.Atoi(string(cs[m[4]:m[5]]))
 		if n <= 0 || m[1]+n > len(cs) {
 			continue
 		}
 		dec := DecryptType1Block(cs[m[1]:m[1]+n], 4330)
 		if w, ok := parseType1AdvanceWidth(dec); ok {
-			result[name] = w
+			p.widths[name] = w
 		}
 	}
-	return result
+	return p
+}
+
+// type1ProgramFor memoizes extractType1Program per decoded font program for
+// the lifetime of the validation, so the CharSet (6.3.5) and metrics (6.3.6)
+// checks share one eexec decrypt and CharStrings scan instead of each
+// running their own. Keyed by the decoded stream's backing array, which
+// ctx.decodeStreamCached keeps alive and stable for the context's lifetime.
+func (ctx *ValidationContext) type1ProgramFor(fontData []byte) type1Program {
+	if len(fontData) == 0 {
+		return type1Program{}
+	}
+	key := &fontData[0]
+	if p, ok := ctx.type1Cache[key]; ok {
+		return p
+	}
+	p := extractType1Program(fontData, Type1EexecBinStart(fontData))
+	if ctx.type1Cache == nil {
+		ctx.type1Cache = map[*byte]type1Program{}
+	}
+	ctx.type1Cache[key] = p
+	return p
 }
 
 // Type1GlyphNames returns the glyph names defined in a Type1 program's
-// CharStrings dict (for CharSet synthesis, 6.3.5), regardless of whether
-// each charstring's advance width can be parsed -- unlike
-// extractType1GlyphWidths, a glyph with an unparseable width is still a
-// real glyph that belongs in CharSet.
+// CharStrings dict (for CharSet synthesis, 6.3.5).
 func Type1GlyphNames(fontData []byte) []string {
-	cs := Type1CharStringsSection(fontData, Type1EexecBinStart(fontData))
-	if cs == nil {
-		return nil
-	}
-	var names []string
-	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
-		names = append(names, string(cs[m[2]:m[3]]))
-	}
-	return names
+	return extractType1Program(fontData, Type1EexecBinStart(fontData)).names
 }
 
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
@@ -1827,7 +1847,7 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		return
 	}
 
-	glyphWidths := Type1GlyphWidths(fontData)
+	glyphWidths := ctx.type1ProgramFor(fontData).widths
 	if len(glyphWidths) == 0 {
 		return
 	}
@@ -1909,7 +1929,7 @@ func Type1EexecBinStart(fontData []byte) int {
 // Type1GlyphWidths locates the eexec-encrypted section of a Type1 font
 // program and returns its glyph name -> advance width map (in 1/1000 em).
 func Type1GlyphWidths(fontData []byte) map[string]int {
-	return extractType1GlyphWidths(fontData, Type1EexecBinStart(fontData))
+	return extractType1Program(fontData, Type1EexecBinStart(fontData)).widths
 }
 
 var WmodeRe = regexp.MustCompile(`/WMode\s+(\d+)\s+def`)

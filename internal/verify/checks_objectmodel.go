@@ -117,7 +117,8 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// values, and indirect-reference constraints apply to each such entry (e.g. XObject
 	// resource-map values must be indirect streams). Same Length exemption as above.
 	if wc := ot.Wildcard; wc != nil {
-		for _, k := range sortedKeys(v.Entries) {
+		keysBase := len(ctx.keyScratch)
+		for _, k := range ctx.sortedKeys(v.Entries) {
 			if k == "_ref" || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
 				continue
 			}
@@ -147,6 +148,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 				)
 			}
 		}
+		ctx.keyScratch = ctx.keyScratch[:keysBase]
 	}
 
 	// A wildcard type allows arbitrary keys, so there is nothing "introduced after PDF 1.4"

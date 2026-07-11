@@ -1,10 +1,12 @@
 package verify
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -344,22 +346,17 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	// No data shall follow the last end-of-file marker except a single optional end-of-line marker.
 	size := d.Size()
 
-	found := false
-	eof := make([]byte, 0)
-	for i := range int64(10) {
-		buf := make([]byte, 1)
-		d.ReadAt(buf, size-i)
-
-		eof = append([]byte{buf[0]}, eof...)
-		if strings.HasPrefix(string(eof), "%%EOF") {
-			found = true
-			break
-		}
-	}
-	if !found {
+	// One bounded tail read replaces the former ten 1-byte ReadAts: the
+	// marker must start within the file's last 9 bytes, leaving room for
+	// up to four trailing bytes (the historical tolerance). tail[9] maps
+	// past end-of-file and stays zero, preserving the exact diagnostic
+	// bytes the old byte-by-byte prepend loop reported.
+	var tail [10]byte
+	d.ReadAt(tail[:], size-9)
+	if !bytes.Contains(tail[:9], []byte("%%EOF")) {
 		err := pdf.NewError(
 			pdf.Checks.Structure.TrailerEOF,
-			[]error{fmt.Errorf("no EOF marker found: %v", string(eof))},
+			[]error{fmt.Errorf("no EOF marker found: %v", string(tail[:]))},
 			0,
 			nil,
 		)
@@ -409,9 +406,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
 func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
-	buf := make([]byte, 8192)
-	n, _ := d.ReadAt(buf, offset+d.PDFStart())
-	cur := pdf.NewCursor(buf[:n])
+	cur := pdf.NewCursor(d.WindowAt(offset+d.PDFStart(), 8192))
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
@@ -463,8 +458,11 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 			firstHeader = false
 		}
 
-		var start, count int
-		fmt.Sscanf(line, "%d %d", &start, &count)
+		// The header already matched xrefHeaderRe, so the count is the
+		// digits after the single space; Atoi's overflow behavior (0)
+		// matches the Sscanf this replaces.
+		_, countStr, _ := strings.Cut(line, " ")
+		count, _ := strconv.Atoi(countStr)
 		for i := 0; i < count; i++ {
 			if _, ok := cur.ReadLine(); !ok {
 				break
@@ -639,7 +637,8 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				validateAgainstSchema(v, expectedType, ctx)
 			}
 
-			for _, k := range sortedKeys(v.Entries) {
+			keysBase := len(ctx.keyScratch)
+			for _, k := range ctx.sortedKeys(v.Entries) {
 				val := v.Entries[k]
 				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed 127 bytes after
@@ -667,6 +666,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, k, childType)
 			}
+			ctx.keyScratch = ctx.keyScratch[:keysBase]
 			if !first {
 				return
 			}
@@ -728,13 +728,19 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	walk(graph, nil, "", "FileTrailer")
 }
 
-// sortedKeys returns m's keys in sorted order so the walk visits entries
-// deterministically regardless of Go map iteration order.
-func sortedKeys(m map[string]pdf.PDFValue) []string {
-	keys := make([]string, 0, len(m))
+// sortedKeys appends m's keys in sorted order to ctx.keyScratch and returns
+// the appended segment, so the walk visits entries deterministically
+// regardless of Go map iteration order without allocating per dict. The
+// caller must truncate ctx.keyScratch back to its prior length when done
+// with the segment; the segment stays readable even if deeper recursion
+// grows the scratch onto a new backing array, since it is never written
+// again after the sort.
+func (ctx *ValidationContext) sortedKeys(m map[string]pdf.PDFValue) []string {
+	base := len(ctx.keyScratch)
 	for k := range m {
-		keys = append(keys, k)
+		ctx.keyScratch = append(ctx.keyScratch, k)
 	}
+	keys := ctx.keyScratch[base:]
 	slices.Sort(keys)
 	return keys
 }
@@ -1415,9 +1421,8 @@ func checkLinearizedFileID(d *pdf.Reader) []pdf.PDFError {
 	if d.Trailer().Entries["Root"] != nil {
 		return nil
 	}
-	size := d.Size()
-	raw := make([]byte, size)
-	if _, err := d.ReadAt(raw, 0); err != nil {
+	raw, err := d.FullBytes()
+	if err != nil {
 		return nil
 	}
 	matches := trailerIDRe.FindAllSubmatch(raw, -1)

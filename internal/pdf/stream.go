@@ -117,6 +117,12 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	}
 }
 
+// WindowAt returns up to n bytes starting at off, without copying when the
+// file is in memory. Callers must treat the returned slice as read-only.
+func (d *Reader) WindowAt(off int64, n int) []byte {
+	return d.windowAt(off, n)
+}
+
 // windowAt returns up to n bytes starting at off, from the in-memory buffer
 // when available or the underlying source otherwise.
 func (d *Reader) windowAt(off int64, n int) []byte {
