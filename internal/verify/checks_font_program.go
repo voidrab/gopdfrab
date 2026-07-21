@@ -1607,7 +1607,12 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 		return ok
 	case "FontFile3":
 		if len(data) >= 4 && data[0] == 1 { // CFF header, major version 1
-			return true
+			// A plausible header is not a valid font: parse the Top DICT, the
+			// same parse the CID coverage and metrics checks depend on. Without
+			// this a CFF with a good header but a broken DICT passed 6.3.2
+			// while those checks silently skipped it.
+			_, ok := ParseCFFTopDict(data)
+			return ok
 		}
 		_, ok := ParseSfnt(data) // OpenType-wrapped CFF
 		return ok

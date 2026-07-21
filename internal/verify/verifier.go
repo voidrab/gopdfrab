@@ -900,6 +900,16 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			visitedPtrs[ptr] = true
 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
+				// Attribute anything reported while reading this page's
+				// streams -- StreamUndecodable in particular -- to the page
+				// itself. This walk runs before verifyDocument's, which is
+				// what normally maintains CurrentPage, so without this a
+				// decode failure here would be reported as document-level.
+				// Restored afterwards so nothing outside the page inherits it.
+				prevPage := ctx.CurrentPage
+				if ref, ok := val.Entries["_ref"].(pdf.PDFRef); ok {
+					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
+				}
 				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
 				if !collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu) {
 					complete = false
@@ -907,6 +917,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				if !collectAnnotAppearanceUsage(ctx, val, reachable, fu) {
 					complete = false
 				}
+				ctx.CurrentPage = prevPage
 				return
 			}
 			for _, child := range val.Entries {

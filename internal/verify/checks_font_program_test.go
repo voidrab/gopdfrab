@@ -1299,3 +1299,28 @@ func TestUndecodableFontProgramReportsBothChecks(t *testing.T) {
 		t.Error("expected Structure.StreamUndecodable for a stream that will not decode")
 	}
 }
+
+// TestFontFile3BrokenCFFIsInvalid covers the FontFile3 arm of fontProgramValid:
+// a plausible CFF header is not a valid font. A good header with an
+// unparseable Top DICT used to pass 6.3.2 while the CID coverage and metrics
+// checks -- which need that same DICT -- silently skipped it.
+func TestFontFile3BrokenCFFIsInvalid(t *testing.T) {
+	// major=1, minor=0, hdrSize=4, offSize=1, then garbage where the Name
+	// INDEX should be.
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.RawStream = []byte{1, 0, 4, 1, 0xFF, 0xFF, 0xFF, 0xFF}
+
+	ctx := &ValidationContext{}
+	if fontProgramValid(ctx, broken, "FontFile3") {
+		t.Error("a CFF with a valid header but an unparseable Top DICT was accepted as a valid font program")
+	}
+
+	desc := pdf.NewPDFDict()
+	desc.Entries["FontFile3"] = broken
+	reportCtx := &ValidationContext{}
+	ValidateFontProgram(pdf.NewPDFDict(), desc, "Test", reportCtx)
+	if !hasCheck(reportCtx, pdf.Checks.Font.InvalidProgram) {
+		t.Error("expected Font.InvalidProgram (6.3.2) for a broken CFF")
+	}
+}

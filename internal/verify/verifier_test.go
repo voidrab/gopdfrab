@@ -1891,3 +1891,67 @@ func TestUndecodableContentDoesNotSuppressChecks(t *testing.T) {
 		t.Error("undecodable content suppressed the font embedding check -- usage was incomplete, so nothing may be skipped")
 	}
 }
+
+// TestUndecodableContentReportsItsPage covers page attribution on the usage
+// walk. That walk runs before verifyDocument's, which is what normally
+// maintains CurrentPage, so a decode failure there used to be reported as
+// document-level with no indication of which page was unreadable.
+func TestUndecodableContentReportsItsPage(t *testing.T) {
+	readable, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}},
+		{Op: "n"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := pdf.NewPDFDict()
+	good.HasStream = true
+	good.RawStream = readable
+
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.RawStream = []byte("not a zlib stream")
+
+	// Two pages, the second unreadable.
+	mkPage := func(contents pdf.PDFDict, obj int) pdf.PDFDict {
+		p := pdf.NewPDFDict()
+		p.Entries["Type"] = pdf.PDFName{Value: "Page"}
+		p.Entries["Contents"] = contents
+		p.Entries["Resources"] = pdf.NewPDFDict()
+		p.Entries["_ref"] = pdf.PDFRef{ObjNum: obj}
+		return p
+	}
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{mkPage(good, 10), mkPage(broken, 11)}
+	pages.Entries["Count"] = pdf.PDFInteger(2)
+
+	root := pdf.NewPDFDict()
+	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	root.Entries["Pages"] = pages
+	graph := pdf.NewPDFDict()
+	graph.Entries["Root"] = root
+
+	ctx := &ValidationContext{PageIndex: map[int]int{10: 1, 11: 2}}
+	ComputeContentUsage(graph, ctx)
+
+	found := false
+	for _, e := range ctx.Issues() {
+		if e.Check() != pdf.Checks.Structure.StreamUndecodable {
+			continue
+		}
+		found = true
+		if e.Page() != 2 {
+			t.Errorf("StreamUndecodable reported on page %d, want 2", e.Page())
+		}
+	}
+	if !found {
+		t.Fatal("expected a StreamUndecodable issue")
+	}
+
+	// CurrentPage must not leak past the page subtree.
+	if ctx.CurrentPage != 0 {
+		t.Errorf("CurrentPage = %d after the walk, want 0", ctx.CurrentPage)
+	}
+}
