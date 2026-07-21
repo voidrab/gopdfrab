@@ -901,9 +901,8 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
 				// Attribute anything reported while reading this page's
-				// streams -- StreamUndecodable in particular -- to the page
-				// itself. This walk runs before verifyDocument's, which is
-				// what normally maintains CurrentPage, so without this a
+				// streams to the page itself. This walk runs before verifyDocument's,
+				// which is what normally maintains CurrentPage, so without this a
 				// decode failure here would be reported as document-level.
 				// Restored afterwards so nothing outside the page inherits it.
 				prevPage := ctx.CurrentPage
@@ -1029,19 +1028,6 @@ type fontUsage struct {
 	usedCIDs  map[uintptr]map[int]bool
 }
 
-// collectUsageFromBytes scans dict's content stream exactly once, tracking
-// both Form XObject reachability (via Do) and font usage/visibility (render
-// mode, saved/restored across q/Q, and the font set by the most recent Tf) --
-// these were previously two independent scans over the same bytes
-// (collectReachableFromBytes/collectFontUsageFromBytes), each recursing into
-// the same Do-invoked Form XObjects on its own. reachable doubles as the
-// single recursion guard for both concerns. Scanning through
-// ctx.scanStreamCached (rather than a fresh ContentScanner) means an
-// unchanged stream is tokenized once across all of convert's fixer
-// iterations, not once per iteration.
-// Returns false when dict's stream could not be decoded: the usage sets it
-// would have contributed to are then incomplete, which the caller must
-// propagate (see ComputeContentUsage).
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
 	ops, err := ctx.scanStreamCached(dict)
 	if err != nil {
