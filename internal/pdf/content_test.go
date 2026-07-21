@@ -105,6 +105,108 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 }
 
+// TestDecodeStreamNewFilters covers the filters the chain gained with the
+// duplicate-decoder collapse: RunLengthDecode, LZW reachable from a stream
+// dict, /EarlyChange, and a predictor riding on LZW rather than Flate.
+func TestDecodeStreamNewFilters(t *testing.T) {
+	t.Run("RunLengthDecode", func(t *testing.T) {
+		dict := PDFDict{
+			Entries:   map[string]PDFValue{"Filter": PDFName{Value: "RunLengthDecode"}},
+			HasStream: true, RawStream: []byte{2, 'a', 'b', 'c', 255, 'z', 128},
+		}
+		if got, err := DecodeStream(dict); err != nil || string(got) != "abczz" {
+			t.Errorf("RunLengthDecode = %q, %v; want \"abczz\"", got, err)
+		}
+	})
+
+	t.Run("ASCII85 then RunLength", func(t *testing.T) {
+		rle := []byte{2, 'a', 'b', 'c', 128}
+		enc := make([]byte, ascii85.MaxEncodedLen(len(rle)))
+		m := ascii85.Encode(enc, rle)
+		dict := PDFDict{
+			Entries: map[string]PDFValue{"Filter": PDFArray{
+				PDFName{Value: "ASCII85Decode"}, PDFName{Value: "RunLengthDecode"},
+			}},
+			HasStream: true, RawStream: append(append([]byte{}, enc[:m]...), "~>"...),
+		}
+		if got, err := DecodeStream(dict); err != nil || string(got) != "abc" {
+			t.Errorf("A85+RL = %q, %v; want \"abc\"", got, err)
+		}
+	})
+
+	// /EarlyChange 0 must actually reach the decoder. Nothing in the codebase
+	// read this parameter before the chain was unified.
+	t.Run("EarlyChange reaches the decoder", func(t *testing.T) {
+		codes := make([]int, 254)
+		widths := make([]int, 254)
+		for i := range codes {
+			codes[i] = 65
+			widths[i] = 9
+		}
+		codes = append(codes, 66, lzwEOD)
+		widths = append(widths, 9, 9)
+		raw := packLZWCodesVarWidth(codes, widths)
+
+		mk := func(parms PDFValue) PDFDict {
+			e := map[string]PDFValue{"Filter": PDFName{Value: "LZWDecode"}}
+			if parms != nil {
+				e["DecodeParms"] = parms
+			}
+			return PDFDict{Entries: e, HasStream: true, RawStream: raw}
+		}
+		zero, err := DecodeStream(mk(PDFDict{Entries: map[string]PDFValue{"EarlyChange": PDFInteger(0)}}))
+		if err != nil {
+			t.Fatalf("EarlyChange 0: %v", err)
+		}
+		want := append(bytes.Repeat([]byte("A"), 254), 'B')
+		if !bytes.Equal(zero, want) {
+			t.Errorf("EarlyChange 0 = %q (len %d), want 254 'A's then 'B'", zero, len(zero))
+		}
+		if dflt, err := DecodeStream(mk(nil)); err == nil && bytes.Equal(dflt, zero) {
+			t.Error("EarlyChange 0 decoded like the default; the parameter is being ignored")
+		}
+	})
+
+	// LZW plus a predictor in one chain -- a combination no decode path could
+	// express before, since the LZW-capable copy lived in convert.
+	t.Run("LZW with a predictor", func(t *testing.T) {
+		plaintext := []byte{10, 20, 30, 40, 5, 5, 5, 5}
+		var predicted []byte
+		for row := 0; row < len(plaintext); row += 4 {
+			predicted = append(predicted, 0) // PNG filter type 0: None
+			predicted = append(predicted, plaintext[row:row+4]...)
+		}
+		dict := PDFDict{
+			Entries: map[string]PDFValue{
+				"Filter": PDFName{Value: "LZWDecode"},
+				"DecodeParms": PDFDict{Entries: map[string]PDFValue{
+					"Predictor": PDFInteger(12), "Columns": PDFInteger(4), "Colors": PDFInteger(1),
+				}},
+			},
+			HasStream: true, RawStream: lzwEncodeLiterals(predicted),
+		}
+		got, err := DecodeStream(dict)
+		if err != nil {
+			t.Fatalf("LZW with predictor: %v", err)
+		}
+		if !bytes.Equal(got, plaintext) {
+			t.Errorf("LZW with predictor = %v, want %v", got, plaintext)
+		}
+	})
+}
+
+// lzwEncodeLiterals emits data as a sequence of 9-bit literal codes with no
+// table reuse -- a valid, if maximally verbose, LZW stream.
+func lzwEncodeLiterals(data []byte) []byte {
+	codes := make([]int, 0, len(data)+2)
+	codes = append(codes, lzwClearTable)
+	for _, b := range data {
+		codes = append(codes, int(b))
+	}
+	codes = append(codes, lzwEOD)
+	return packLZWCodes(codes, 9)
+}
+
 // TestLookupFilter covers both spellings and the image/predictor flags.
 func TestLookupFilter(t *testing.T) {
 	for _, tc := range []struct {

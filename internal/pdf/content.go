@@ -127,11 +127,13 @@ func applyFilter(info FilterInfo, data []byte, parms PDFDict) ([]byte, error) {
 	case FilterFlate:
 		return InflateZlib(data)
 	case FilterLZW:
-		return DecodeLZW(data)
+		return DecodeLZWParams(data, DictInt(parms, "EarlyChange", 1))
 	case FilterASCIIHex:
 		return DecodeASCIIHex(data)
 	case FilterASCII85:
 		return DecodeASCII85(data)
+	case FilterRunLength:
+		return DecodeRunLength(data)
 	default:
 		return nil, fmt.Errorf("%w %q", ErrUnsupportedFilter, info.Name)
 	}
