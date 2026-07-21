@@ -231,9 +231,9 @@ func validateType3Metrics(v pdf.PDFDict, ctx *ValidationContext) {
 		if !ok || !proc.HasStream {
 			continue
 		}
-		data, err := pdf.DecodeStream(proc)
+		data, err := ctx.decodeStreamCached(proc)
 		if err != nil {
-			continue
+			continue // reported as StreamUndecodable by the decode chokepoint
 		}
 		procWidth := Type3GlyphWidth(data)
 		if procWidth < 0 {

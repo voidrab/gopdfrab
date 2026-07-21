@@ -51,3 +51,13 @@ func TestApplyPreemptiveFixupsPropagatesError(t *testing.T) {
 		t.Error("second fixup ran despite the first returning an error")
 	}
 }
+
+// TestStreamUndecodableHasNoFixer records that a stream which will not decode
+// currently has no remediation: convert cannot re-encode bytes it cannot
+// read, so the check lands as a residual. Explicit rather than incidental, so
+// adding a fixer later is a deliberate change to this expectation.
+func TestStreamUndecodableHasNoFixer(t *testing.T) {
+	if f, ok := fixerRegistry[pdf.Checks.Structure.StreamUndecodable]; ok {
+		t.Errorf("StreamUndecodable now has fixer %T; update this expectation if that is intended", f)
+	}
+}

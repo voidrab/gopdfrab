@@ -463,6 +463,11 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 
 	// The program's own glyph set is the coverage ground truth; CharSet is
 	// metadata that must stay consistent with it for the glyphs actually used.
+	// When the program is absent or unreadable, glyphSet falls back to CharSet
+	// and the 6.3.5-2 consistency branch below becomes unreachable -- there is
+	// nothing to compare CharSet against. An unreadable program is separately
+	// reported as StreamUndecodable by the decode chokepoint, so the fallback
+	// is a narrowed check rather than a silent pass.
 	glyphSet := charSet
 	haveProgram := false
 	if programNames := embeddedType1GlyphNames(desc, ctx); len(programNames) > 0 {
@@ -1129,6 +1134,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	td, ok := ParseCFFTopDict(data)
 	if !ok || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return
@@ -1197,6 +1203,7 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	td, ok := ParseCFFTopDict(data)
 	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return
@@ -1231,6 +1238,7 @@ func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, 
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1290,6 +1298,7 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1312,6 +1321,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1371,6 +1381,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1488,6 +1499,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1630,6 +1642,7 @@ func trueTypeCmapSubtables(ctx *ValidationContext, desc pdf.PDFDict) (int, bool)
 	if err != nil {
 		return 0, false
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return 0, false

@@ -419,3 +419,42 @@ func TestContentScannerInlineImageEdgeCases(t *testing.T) {
 		t.Errorf("false EI: InlineImageRaw.Data = %q, want %q", raw.Data, "XEIY")
 	}
 }
+
+// TestImageDecodeOptions covers the image-specific predictor defaults: an
+// image stream takes Columns from /Width and BitsPerComponent from its own,
+// rather than the spec's 1 and 8.
+func TestImageDecodeOptions(t *testing.T) {
+	dict := PDFDict{Entries: map[string]PDFValue{
+		"Width":            PDFInteger(64),
+		"BitsPerComponent": PDFInteger(4),
+	}}
+	opts := ImageDecodeOptions(dict)
+	if opts.Columns != 64 || opts.BitsPerComponent != 4 || !opts.LenientPredictor {
+		t.Errorf("ImageDecodeOptions = %+v, want Columns 64, BPC 4, lenient", opts)
+	}
+
+	// Absent entries fall back to the spec defaults.
+	bare := ImageDecodeOptions(PDFDict{Entries: map[string]PDFValue{}})
+	if bare.Columns != 1 || bare.BitsPerComponent != 8 {
+		t.Errorf("bare ImageDecodeOptions = %+v, want Columns 1, BPC 8", bare)
+	}
+
+	// LenientPredictor accepts a predictor value the strict chain rejects.
+	if _, err := UndoStreamPredictor([]byte{0, 1, 2},
+		PDFDict{Entries: map[string]PDFValue{"Predictor": PDFInteger(5)}},
+		DecodeOptions{Columns: 2, LenientPredictor: true}); err != nil {
+		t.Errorf("lenient predictor still errored: %v", err)
+	}
+}
+
+// TestDecodeStreamCryptFilter covers the Crypt filter: a known name with no
+// decoder, which must read as unsupported rather than unknown.
+func TestDecodeStreamCryptFilter(t *testing.T) {
+	dict := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "Crypt"}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if _, err := DecodeStream(dict); !errors.Is(err, ErrUnsupportedFilter) {
+		t.Errorf("Crypt filter = %v, want ErrUnsupportedFilter", err)
+	}
+}

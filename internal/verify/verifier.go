@@ -278,11 +278,25 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 		schemaOnly: schemaOnly,
 	}
 	if !schemaOnly {
-		reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
+		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
+		// Every usage-driven optimisation is a suppression: skip unreachable
+		// Form XObjects (6.2.3.3, 6.2.10), skip simple fonts never shown
+		// (6.3.4), exempt invisible-only fonts and unused CIDs (6.3.3.2,
+		// 6.3.5, 6.3.6). If a content stream failed to decode the usage sets
+		// are a subset of the truth, so any of those suppressions could hide
+		// a real violation. Discard them all and check everything.
+		if !complete {
+			reachable, invisibleOnly, usedCodes, usedCIDs = nil, nil, nil, nil
+		}
 		if p.SkipUnreachableXObjects {
 			ctx.ReachableXObjectPtrs = reachable
 		}
-		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
+		// Forced off when usage is unknown: simpleFontShown is false for every
+		// font once UsedCharCodes is nil, so leaving the flag on would suppress
+		// *all* 6.3.4 checks -- the opposite of failing safe. A nil
+		// ReachableXObjectPtrs or UsedCharCodes fails safe on its own; this
+		// one inverts.
+		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts && complete
 		ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 		computeColourCoverage(d, ctx)
 	}
@@ -309,7 +323,7 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = checkNonCatalogXMPStreams(graph)
+	errs = checkNonCatalogXMPStreams(graph, ctx)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -855,11 +869,17 @@ func isContainer(val pdf.PDFValue) bool {
 //     page content or other reachable Form XObjects.
 //   - invisibleOnly, usedCodes, usedCIDs: font usage, as computed by
 //     collectFontUsageFromBytes.
+//
+// complete is false when any content stream failed to decode, meaning the
+// sets are a subset of the truth. Since every one of them drives a check
+// *suppression*, callers must discard them all in that case.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,
 	usedCodes, usedCIDs map[uintptr]map[int]bool,
+	complete bool,
 ) {
+	complete = true
 	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
 		visible:   map[uintptr]bool{},
@@ -881,8 +901,12 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
 				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
-				collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu)
-				collectAnnotAppearanceUsage(ctx, val, reachable, fu)
+				if !collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu) {
+					complete = false
+				}
+				if !collectAnnotAppearanceUsage(ctx, val, reachable, fu) {
+					complete = false
+				}
 				return
 			}
 			for _, child := range val.Entries {
@@ -907,16 +931,17 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			invisibleOnly[ptr] = true
 		}
 	}
-	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs
+	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, complete
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
 // appearance streams so validateContentStreams will scan their colour usage.
-func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
 	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
 	if !ok {
-		return
+		return true
 	}
+	complete := true
 	for _, item := range annots {
 		annot, ok := item.(pdf.PDFDict)
 		if !ok {
@@ -926,16 +951,20 @@ func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reach
 		if !ok {
 			continue
 		}
-		collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu)
+		if !collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu) {
+			complete = false
+		}
 	}
+	return complete
 }
 
-func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) {
+func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) bool {
+	complete := true
 	switch v := n.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
 			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
-			collectContentUsage(ctx, v, apRes, reachable, fu)
+			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
 			for k, sv := range v.Entries {
 				if k == "_ref" {
@@ -943,32 +972,41 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
 					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
-					collectContentUsage(ctx, sd, apRes, reachable, fu)
+					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
+						complete = false
+					}
 				}
 			}
 		}
 	}
+	return complete
 }
 
+// collectContentUsage returns false when any stream it visited could not be
+// decoded, leaving the usage sets incomplete.
 func collectContentUsage(
 	ctx *ValidationContext,
 	contents pdf.PDFValue,
 	resources pdf.PDFDict,
 	reachable map[uintptr]bool,
 	fu *fontUsage,
-) {
+) bool {
+	complete := true
 	switch v := contents.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			collectUsageFromBytes(ctx, v, resources, reachable, fu)
+			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
 			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
-				collectUsageFromBytes(ctx, d, resources, reachable, fu)
+				if !collectUsageFromBytes(ctx, d, resources, reachable, fu) {
+					complete = false
+				}
 			}
 		}
 	}
+	return complete
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
@@ -990,11 +1028,15 @@ type fontUsage struct {
 // ctx.scanStreamCached (rather than a fresh ContentScanner) means an
 // unchanged stream is tokenized once across all of convert's fixer
 // iterations, not once per iteration.
-func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+// Returns false when dict's stream could not be decoded: the usage sets it
+// would have contributed to are then incomplete, which the caller must
+// propagate (see ComputeContentUsage).
+func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
 	ops, err := ctx.scanStreamCached(dict)
 	if err != nil {
-		return
+		return false // reported as StreamUndecodable by scanStreamCached
 	}
+	complete := true
 	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
 	renderMode := 0
@@ -1099,9 +1141,12 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			collectUsageFromBytes(ctx, xobj, subResources, reachable, fu)
+			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu) {
+				complete = false
+			}
 		}
 	})
+	return complete
 }
 
 // ShownStringBytes returns the decoded bytes of all string operands a

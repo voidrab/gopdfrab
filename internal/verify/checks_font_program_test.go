@@ -1250,3 +1250,52 @@ func TestValidateCMapWMode(t *testing.T) {
 		t.Error("unexpected CMapWModeInconsistent when dict/stream WMode agree")
 	}
 }
+
+// TestUndecodableStreamReportedOnce covers the StreamKey dedup: one broken
+// font program read by several checkers must yield a single issue, not one
+// per reader.
+func TestUndecodableStreamReportedOnce(t *testing.T) {
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	ff.RawStream = []byte("not a zlib stream")
+
+	ctx := &ValidationContext{}
+	v := pdf.NewPDFDict()
+	ValidateCIDCFFSubset(v, ff, nil, ctx)
+	validateCIDTrueTypeMetrics(v, ff, nil, ctx)
+	ValidateSimpleTrueTypeSubset(v, ff, 0, 0, nil, ctx)
+
+	n := 0
+	for _, e := range ctx.errs {
+		if e.Check() == pdf.Checks.Structure.StreamUndecodable {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("StreamUndecodable reported %d times for one stream, want 1", n)
+	}
+}
+
+// TestUndecodableFontProgramReportsBothChecks covers the deliberate overlap: a
+// broken FontFile stream is both a structural defect (6.1.7) and a damaged
+// font program (6.3.2), and the two say different things to the user.
+func TestUndecodableFontProgramReportsBothChecks(t *testing.T) {
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	ff.RawStream = []byte("not a zlib stream")
+
+	desc := pdf.NewPDFDict()
+	desc.Entries["FontFile2"] = ff
+
+	ctx := &ValidationContext{}
+	ValidateFontProgram(pdf.NewPDFDict(), desc, "Test", ctx)
+
+	if !hasCheck(ctx, pdf.Checks.Font.InvalidProgram) {
+		t.Error("expected Font.InvalidProgram for a damaged font program")
+	}
+	if !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Error("expected Structure.StreamUndecodable for a stream that will not decode")
+	}
+}

@@ -506,10 +506,20 @@ func TestConvertIsDeterministic(t *testing.T) {
 }
 
 // minConvertedFully is a regression floor on how many of both corpora's
-// "fail" fixtures Convert turns fully conformant: all 510, since brute-force
-// recovery of unparseable /Prev xref sections cleared the last hold-out.
-// A drop means something regressed.
-const minConvertedFully = 510
+// "fail" fixtures Convert turns fully conformant. A drop means something
+// regressed.
+//
+// 509, not 510. The hold-out is isartor-6-1-3-t02-fail-a.pdf, the only
+// encrypted fixture in either corpus. Convert strips its /Encrypt entry --
+// clearing the 6.1.3 violation -- but has no decryption, so the RC4-encrypted
+// stream bytes survive into the output unchanged. That output used to score
+// as fully conformant because nothing could decode those streams and the
+// decode errors were swallowed; Structure.StreamUndecodable now reports them.
+// The file is genuinely unconvertible until the standard security handler
+// lands (roadmap item 5), and re-encoding streams we cannot read would blank
+// real content to buy back the number. Raise this to 510 when decryption
+// exists, not before.
+const minConvertedFully = 509
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome.
