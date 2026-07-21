@@ -1181,10 +1181,8 @@ func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
 	if v.Entries["FDecodeParms"] != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileDecodeParams, v, "stream object contains invalid key FDecodeParms")
 	}
-	for _, f := range pdf.FilterNames(v.Entries["Filter"]) {
-		if f == "LZWDecode" || f == "LZW" {
-			ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
-		}
+	if pdf.HasFilter(v.Entries["Filter"], pdf.FilterLZW) {
+		ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 	}
 }
 

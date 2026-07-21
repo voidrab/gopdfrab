@@ -160,10 +160,10 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 	}
 }
 
-// TestLZWStreamPlaintextChainedFilters drives the ASCII85Decode branch and
+// TestLZWStreamDecodeChainedFilters drives the ASCII85Decode branch and
 // the multi-filter loop: /Filter [ASCII85Decode LZWDecode] undoes ASCII85
 // first (outermost, applied last when encoding), then LZW.
-func TestLZWStreamPlaintextChainedFilters(t *testing.T) {
+func TestLZWStreamDecodeChainedFilters(t *testing.T) {
 	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
 	lzwed := encodeLZW(t, plaintext)
 	encoded := encodeASCII85(lzwed)
@@ -174,49 +174,59 @@ func TestLZWStreamPlaintextChainedFilters(t *testing.T) {
 		},
 		HasStream: true, RawStream: encoded,
 	}
-	got, err := lzwStreamPlaintext(dict)
+	got, err := pdf.DecodeStream(dict)
 	if err != nil {
-		t.Fatalf("lzwStreamPlaintext: %v", err)
+		t.Fatalf("pdf.DecodeStream: %v", err)
 	}
 	if string(got) != string(plaintext) {
-		t.Errorf("lzwStreamPlaintext = %q, want %q", got, plaintext)
+		t.Errorf("pdf.DecodeStream = %q, want %q", got, plaintext)
 	}
 }
 
-// TestLZWStreamPlaintextASCIIHexAndPNGPredictor drives the ASCIIHexDecode
+// TestLZWStreamDecodeASCIIHexAndPNGPredictor drives the ASCIIHexDecode
 // branch and the PNG (predictor >= 10) reconstruction path, using the
-// trivial "None" (filter type 0) row so no per-row math is needed.
-func TestLZWStreamPlaintextASCIIHexAndPNGPredictor(t *testing.T) {
+// trivial "None" (filter type 0) row so no per-row math is needed. Only
+// Flate and LZW take a /Predictor (ISO 32000-1 Table 8), so the predictor
+// rides on the Flate stage and the parms array positions it there.
+func TestLZWStreamDecodeASCIIHexAndPNGPredictor(t *testing.T) {
 	plaintext := []byte{10, 20, 30, 40, 5, 5, 5, 5}
 	var predicted []byte
 	for rowStart := 0; rowStart < len(plaintext); rowStart += 4 {
 		predicted = append(predicted, 0) // filter type 0: None
 		predicted = append(predicted, plaintext[rowStart:rowStart+4]...)
 	}
-	hexed := encodeASCIIHex(predicted)
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(predicted); err != nil {
+		t.Fatalf("zlib Write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zlib Close: %v", err)
+	}
+	hexed := encodeASCIIHex(buf.Bytes())
 
 	dict := pdf.PDFDict{
 		Entries: map[string]pdf.PDFValue{
-			"Filter": pdf.PDFName{Value: "ASCIIHexDecode"},
-			"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
+			"DecodeParms": pdf.PDFArray{nil, pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 				"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
-			}},
+			}}},
 		},
 		HasStream: true, RawStream: hexed,
 	}
-	got, err := lzwStreamPlaintext(dict)
+	got, err := pdf.DecodeStream(dict)
 	if err != nil {
-		t.Fatalf("lzwStreamPlaintext: %v", err)
+		t.Fatalf("pdf.DecodeStream: %v", err)
 	}
 	if string(got) != string(plaintext) {
-		t.Errorf("lzwStreamPlaintext = %v, want %v", got, plaintext)
+		t.Errorf("pdf.DecodeStream = %v, want %v", got, plaintext)
 	}
 }
 
-// TestLZWStreamPlaintextFlateThenLZW drives the FlateDecode branch of the
+// TestLZWStreamDecodeFlateThenLZW drives the FlateDecode branch of the
 // decoder chain: /Filter [FlateDecode LZWDecode] undoes Flate first
 // (outermost), then LZW.
-func TestLZWStreamPlaintextFlateThenLZW(t *testing.T) {
+func TestLZWStreamDecodeFlateThenLZW(t *testing.T) {
 	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
 	lzwed := encodeLZW(t, plaintext)
 	var buf bytes.Buffer
@@ -234,25 +244,25 @@ func TestLZWStreamPlaintextFlateThenLZW(t *testing.T) {
 		},
 		HasStream: true, RawStream: buf.Bytes(),
 	}
-	got, err := lzwStreamPlaintext(dict)
+	got, err := pdf.DecodeStream(dict)
 	if err != nil {
-		t.Fatalf("lzwStreamPlaintext: %v", err)
+		t.Fatalf("pdf.DecodeStream: %v", err)
 	}
 	if string(got) != string(plaintext) {
-		t.Errorf("lzwStreamPlaintext = %q, want %q", got, plaintext)
+		t.Errorf("pdf.DecodeStream = %q, want %q", got, plaintext)
 	}
 }
 
-// TestLZWStreamPlaintextUnsupportedFilterOrPredictor covers the two error
+// TestLZWStreamDecodeUnsupportedFilterOrPredictor covers the two error
 // branches: a filter name outside the decoder chain's switch, and a
 // predictor value that is neither 1 (none), 2 (TIFF), nor >= 10 (PNG).
-func TestLZWStreamPlaintextUnsupportedFilterOrPredictor(t *testing.T) {
+func TestLZWStreamDecodeUnsupportedFilterOrPredictor(t *testing.T) {
 	unsupportedFilter := pdf.PDFDict{
 		Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}},
 		HasStream: true, RawStream: []byte("whatever"),
 	}
-	if _, err := lzwStreamPlaintext(unsupportedFilter); err == nil {
-		t.Error("lzwStreamPlaintext with an unsupported filter = nil error, want an error")
+	if _, err := pdf.DecodeStream(unsupportedFilter); err == nil {
+		t.Error("pdf.DecodeStream with an unsupported filter = nil error, want an error")
 	}
 
 	unsupportedPredictor := pdf.PDFDict{
@@ -262,8 +272,8 @@ func TestLZWStreamPlaintextUnsupportedFilterOrPredictor(t *testing.T) {
 		},
 		HasStream: true, RawStream: encodeLZW(t, []byte("abc")),
 	}
-	if _, err := lzwStreamPlaintext(unsupportedPredictor); err == nil {
-		t.Error("lzwStreamPlaintext with an unsupported predictor = nil error, want an error")
+	if _, err := pdf.DecodeStream(unsupportedPredictor); err == nil {
+		t.Error("pdf.DecodeStream with an unsupported predictor = nil error, want an error")
 	}
 }
 

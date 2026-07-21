@@ -2,7 +2,6 @@ package convert
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/draw"
 	"image/jpeg"
@@ -27,29 +26,24 @@ func DecodeImageRGBA(dict pdf.PDFDict, resources pdf.PDFDict) (*image.RGBA, erro
 		return nil, errInvalidImageDims
 	}
 
-	filters := pdf.FilterNames(dict.Entries["Filter"])
-	last := ""
-	if len(filters) > 0 {
-		last = filters[len(filters)-1]
-	}
-
-	switch last {
-	case "DCTDecode", "DCT":
-		return decodeJPEGImage(dict)
-	case "CCITTFaxDecode", "CCF":
-		if img, err := decodeCCITTImage(dict, resources, width, height); err == nil {
-			return img, nil
-		}
-		return placeholderImage(width, height), nil
-	case "JBIG2Decode", "JPXDecode":
-		return placeholderImage(width, height), nil
-	}
-
-	data, err := decodeImageRawSamples(dict)
+	s, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict))
 	if err != nil {
 		return nil, err
 	}
-	return unpackSamplesToRGBA(dict, resources, data, width, height)
+	if s.IsImage() {
+		switch s.Image.Kind {
+		case pdf.FilterDCT:
+			return decodeJPEGImage(s.Data)
+		case pdf.FilterCCITT:
+			if img, err := decodeCCITTImage(dict, resources, s, width, height); err == nil {
+				return img, nil
+			}
+			return placeholderImage(width, height), nil
+		default: // JBIG2, JPX
+			return placeholderImage(width, height), nil
+		}
+	}
+	return unpackSamplesToRGBA(dict, resources, s.Data, width, height)
 }
 
 type imageDecodeError string
@@ -57,43 +51,6 @@ type imageDecodeError string
 func (e imageDecodeError) Error() string { return string(e) }
 
 const errInvalidImageDims = imageDecodeError("raster_image: invalid /Width or /Height")
-
-// decodeImageRawSamples decodes an image stream's filter chain (FlateDecode,
-// LZWDecode, ASCIIHex/85Decode) and undoes any PNG/TIFF predictor, leaving
-// raw packed component samples.
-func decodeImageRawSamples(dict pdf.PDFDict) ([]byte, error) {
-	filters := pdf.FilterNames(dict.Entries["Filter"])
-	hasLZW := false
-	for _, f := range filters {
-		if f == "LZWDecode" || f == "LZW" {
-			hasLZW = true
-		}
-	}
-
-	var data []byte
-	var err error
-	if hasLZW {
-		data, err = pdf.DecodeLZW(dict.RawStream)
-	} else {
-		data, err = pdf.DecodeStream(dict)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	parms := pdf.StreamDecodeParms(dict)
-	predictor := pdf.DictInt(parms, "Predictor", 1)
-	if predictor == 1 {
-		return data, nil
-	}
-	columns := pdf.DictInt(parms, "Columns", pdf.DictInt(dict, "Width", 1))
-	colors := pdf.DictInt(parms, "Colors", 1)
-	bpc := pdf.DictInt(parms, "BitsPerComponent", pdf.DictInt(dict, "BitsPerComponent", 8))
-	if predictor == 2 {
-		return pdf.UndoTIFFPredictor(data, columns, colors, bpc)
-	}
-	return pdf.UndoPNGPredictor(data, columns, colors, bpc)
-}
 
 // unpackSamplesToRGBA reads width*height pixels of packed component samples
 // (bitsPerComponent-wide, row-padded to a byte boundary per the PDF spec)
@@ -365,15 +322,12 @@ func indexedHead(cs pdf.PDFValue) (pdf.PDFArray, bool) {
 	return arr, ok && (name.Value == "Indexed" || name.Value == "I")
 }
 
-// decodeCCITTImage decodes a CCITTFaxDecode image into RGBA, running any
-// preceding ASCII filters, decoding the fax bitstream (ccitt.go) into packed
-// 1-bpc samples and resolving them through the normal sample path.
-func decodeCCITTImage(dict pdf.PDFDict, resources pdf.PDFDict, width, height int) (*image.RGBA, error) {
-	data, err := ccittEncodedBytes(dict)
-	if err != nil {
-		return nil, err
-	}
-	parms := pdf.StreamDecodeParms(dict)
+// decodeCCITTImage decodes a CCITTFaxDecode image into RGBA. s carries the
+// bytes feeding the fax codec (preceding ASCII filters already undone by the
+// decode chain) and its decode parameters; the bitstream is decoded (ccitt.go)
+// into packed 1-bpc samples and resolved through the normal sample path.
+func decodeCCITTImage(dict pdf.PDFDict, resources pdf.PDFDict, s pdf.DecodedStream, width, height int) (*image.RGBA, error) {
+	parms := s.ImageParms
 	p := pdf.CCITTParams{
 		Columns:   pdf.DictInt(parms, "Columns", 1728),
 		Rows:      pdf.DictInt(parms, "Rows", 0),
@@ -387,44 +341,18 @@ func decodeCCITTImage(dict pdf.PDFDict, resources pdf.PDFDict, width, height int
 	if p.Rows <= 0 {
 		p.Rows = height
 	}
-	raw, err := pdf.DecodeCCITT(data, p)
+	raw, err := pdf.DecodeCCITT(s.Data, p)
 	if err != nil {
 		return nil, err
 	}
 	return unpackSamplesToRGBA(dict, resources, raw, width, height)
 }
 
-// ccittEncodedBytes returns the bytes feeding the CCITTFaxDecode filter,
-// undoing any ASCII filters applied before it in the chain.
-func ccittEncodedBytes(dict pdf.PDFDict) ([]byte, error) {
-	data := dict.RawStream
-	for _, f := range pdf.FilterNames(dict.Entries["Filter"]) {
-		switch f {
-		case "ASCIIHexDecode", "AHx":
-			out, err := pdf.DecodeASCIIHex(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCII85Decode", "A85":
-			out, err := pdf.DecodeASCII85(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "CCITTFaxDecode", "CCF":
-			return data, nil
-		default:
-			return nil, fmt.Errorf("ccitt: unexpected filter %q before CCITTFaxDecode", f)
-		}
-	}
-	return data, nil
-}
-
-// decodeJPEGImage decodes a DCTDecode image stream using the standard
-// library's JPEG decoder.
-func decodeJPEGImage(dict pdf.PDFDict) (*image.RGBA, error) {
-	img, err := jpeg.Decode(bytes.NewReader(dict.RawStream))
+// decodeJPEGImage decodes DCTDecode image data using the standard library's
+// JPEG decoder. data is the codec's input, so any ASCII filters wrapping it
+// have already been undone by the decode chain.
+func decodeJPEGImage(data []byte) (*image.RGBA, error) {
+	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
