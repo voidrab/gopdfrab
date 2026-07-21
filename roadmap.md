@@ -14,14 +14,16 @@ Genuinely solid:
   306 fail) both fully green — so false positives *are* tested, on synthetic
   files.
 - Convert pipeline: pre-emptive fixups, verify/fix loop (max 4 iterations),
-  raster last resort. Corpus floor 510/510.
+  raster last resort. Corpus floor 509/510 — see item 5 for the hold-out.
+- One stream-decode chain in `internal/pdf`, covering every filter PDF/A-1
+  permits, with a typed result separating "encoded image data" from "broken".
 - Arlington object-model checks, verify and convert, off a generated model.
 - Fuzzing at three levels, including semantic oracles (determinism, honesty,
   convergence) — better than most PDF libraries in any language.
 - Resource hardening is thorough: ~15 depth/size caps across the parser, a
-  256 MB inflate ceiling, CCITT column and byte caps, page-tree and resolve
-  depth limits.
-- Coverage: root 100%, arlington 100%, pdf 96.7%, writer 95.4%, verify 93.5%,
+  256 MB inflate ceiling, LZW and RunLength output caps, CCITT column and byte
+  caps, page-tree and resolve depth limits.
+- Coverage: root 100%, arlington 100%, pdf 96.8%, writer 95.4%, verify 93.5%,
   convert 92.6%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
@@ -31,49 +33,68 @@ The gaps below are what stands between that and a release.
 
 ## P0 — the verdict can't be trusted yet
 
-### 1. An undecodable content stream turns a violation into a pass
+### 1. An undecodable content stream turns a violation into a pass — **DONE**
 
-Reproduced. Two PDFs, byte-identical page content (`1 0 0 rg` fill, no
-OutputIntent — a 6.2.3.3 violation), differing only in how the content stream is
-encoded:
+Was: two PDFs with byte-identical page content (`1 0 0 rg` fill, no
+OutputIntent — a 6.2.3.3 violation) differing only in stream encoding, where the
+`/RunLengthDecode` one verified clean because `DecodeStream` failed and
+`collectUsageFromBytes` did `if err != nil { return }`. Not a missing feature —
+the verifier answering "yes" when it meant "I couldn't look."
 
-```
-plain.pdf   valid=false issues=1
-     PDF/A violation (6.2.3.3/2), page 1, ref &{4 0}:
-     "device colour (rgb) used in content stream without matching OutputIntent"
-rle.pdf     valid=true  issues=0
-```
+Fixed across three commits, in the order 1c → 1b → 1a. That order is forced, not
+stylistic: before 1c, `DecodeStream` errored on `DCTDecode`, so 1a's "report
+every decode error" would have fired on every JPEG in the corpus. The typed
+"encoded image data" result is what makes 1a safe to ship.
+`TestEncodedContentStreamStillReportsViolations` now builds both documents and
+asserts their issue sets are equal.
 
-`rle.pdf` uses `/RunLengthDecode`. `DecodeStream` doesn't support it, the decode
-returns an error, and `collectUsageFromBytes` (`internal/verify/verifier.go:995`)
-does `if err != nil { return }`. The violation silently disappears and the file
-is reported clean.
+**1c. One decode chain.** New `internal/pdf/filters.go` holds the filter
+registry (both spellings, image and predictor flags) and the typed
+`DecodedStream`. `DecodeStream` keeps its signature and ~52 call sites; a chain
+ending in an image codec returns `ErrEncodedImage` rather than "unsupported
+filter". DecodeParms are resolved positionally, replacing `StreamDecodeParms`'
+last-entry heuristic, and predictors are applied in-chain per filter.
 
-This is the most serious defect in the project. It is not a missing feature; it
-is the verifier answering "yes" when it means "I couldn't look."
+**1b. The remaining filters.** RunLengthDecode (new), LZW reachable from stream
+dicts with `/EarlyChange` finally honoured, predictors on content streams. Both
+new decoders have output caps and fuzz clean.
 
-Three parts, all required:
+**1a. Never swallow a decode error.** `Structure.StreamUndecodable` (6.1.7/8) is
+reported from the two decode chokepoints, deduped by `StreamKey`.
 
-**1a. Never swallow a decode error.** Audit every `if err != nil { return }` in
-`internal/verify` — roughly a dozen in `checks_font_program.go` alone, plus the
-content walk. Add a `Structure.StreamUndecodable` check so a stream that can't be
-read is a reported issue, not an absence of issues.
+Five findings from the work, none of which the plan anticipated:
 
-**1b. Support the remaining filters.** `internal/pdf/content.go` handles Flate,
-ASCIIHex, ASCII85 and nothing else. Missing: **LZWDecode** (the decoder exists in
-`internal/pdf/lzw.go` but is only reachable from convert and the rasterizer),
-**RunLengthDecode** (no decoder at all), and **predictors** on content streams
-(`decodeStreamPredicted` is unexported and used only for xref and object
-streams, so a content stream with `/Predictor 12` decodes to garbage).
+- **There were six chains, not four.** `ccittEncodedBytes` and
+  `undoInlineImagePredictor` were also copies. The former already *was* the
+  typed image result, hand-rolled for one caller.
+- **The bug had a second half.** `collectUsageFromBytes` is the sole producer of
+  four `ValidationContext` fields, and each drives a check *suppression*. A
+  swallowed decode error made those sets a subset of the truth, so an
+  undecodable content stream suppressed 6.2.3.3 and 6.3.4 findings on objects
+  unrelated to it. Usage collection now reports completeness and all four sets
+  are discarded when incomplete. `SkipUnusedSimpleFonts` inverts — leaving it on
+  with nil usage suppresses *every* 6.3.4 check — so it is explicitly ANDed.
+- **Two latent bugs fell out.** `/Filter [/A85 /LZW]` fed ASCII85 text straight
+  to the LZW decoder (a `hasLZW` flag short-circuited the chain), and
+  `/Filter [/A85 /DCTDecode]` fed raw bytes to `jpeg.Decode`.
+- **`ErrNotAStream` is exempt from the new check**, alongside `ErrEncodedImage`.
+  A dict carrying no stream is not a stream object, so 6.1.7 does not apply; the
+  callers that hit this are defensive guards against a mistyped entry, which the
+  object-model checks report against the schema.
+- **Predictors are scoped to Flate and LZW** per ISO 32000-1 Table 8. Verified
+  against all three corpora: every predictor in every file sits on FlateDecode.
 
-**1c. Collapse the duplicate decode chains.** There are four:
-`DecodeStream` (`content.go`), `decodeStreamPredicted` (`predictor.go`),
-`lzwStreamPlaintext` (`convert/fixups_stream.go`), and a partial one in
-`raster_image.go`. They have already diverged — the convert copy handles LZW and
-predictors, the verify path doesn't. That divergence *is* bug 1b. One chain in
-`internal/pdf`, with image-only filters (DCT, JPX, JBIG2, CCITT) returning a
-typed "encoded image data" result so callers can tell "not decodable to bytes"
-from "broken."
+#### Two gaps this work exposed
+
+Neither blocks release, both are small and now visible:
+
+- `fontProgramValid`'s FontFile3 arm (`checks_font_program.go`) returns true on
+  `data[0] == 1` alone, so a CFF with a valid header but an unparseable TopDict
+  passes 6.3.2 while `ValidateCIDCFFSubset` silently skips it. Its own commit,
+  against the 6.3.2 check.
+- `ComputeContentUsage` runs before `verifyDocument`, when `ctx.CurrentPage` is
+  still 0, so a content-stream decode failure reports page 0 rather than the
+  page it occurred on.
 
 ### 2. A single bad xref offset suppresses unrelated checks
 
@@ -142,16 +163,32 @@ Seed `internal/pdfgen` with these shapes. Oracle: a file with a deliberately
 broken xref must verify to the same issue set as the intact original, plus the
 recovery issue. That oracle would have caught item 2.
 
-### 5. Encrypted input can't be converted
+### 5. Encrypted input converts to a corrupt document
 
-No decryption anywhere. `Encrypt` in the trailer is correctly flagged (6.1.3) and
-that's the end of it — the streams stay encrypted, so convert produces nothing.
+Worse than first written, and now measured. No decryption anywhere. `Encrypt` in
+the trailer is correctly flagged (6.1.3) — and convert then **strips that entry**,
+clearing the violation, while having no way to decrypt the streams. The
+RC4-encrypted bytes survive into the output unchanged.
+
+Until item 1a, that output scored as **fully conformant**: nothing could decode
+those streams and the decode errors were swallowed, so no check ever objected. It
+was one of the 510. `Structure.StreamUndecodable` now reports it, which is why
+the convert floor is 509 — the one hold-out is
+`isartor-6-1-3-t02-fail-a.pdf`, the only encrypted fixture in either corpus.
+
+The floor was deliberately *not* bought back with a fixer. Re-encoding streams
+that cannot be read means blanking real content to score a pass — precisely the
+failure mode item 12 exists to catch.
 
 A large share of real-world PDFs are encrypted with an empty user password purely
 to set permission flags. Those are trivially decryptable and are a completely
 reasonable conversion input. Implement the standard security handler (RC4 40/128,
 AES-128 for R4, AES-256 for R6) for the empty-password case, plus an optional
 password on the open path, and report clearly when a real password is needed.
+Until then convert should arguably refuse encrypted input outright rather than
+emit a document it knows is broken (needs `ErrEncrypted`, item 19).
+
+Raise `minConvertedFully` back to 510 when this lands — not before.
 
 ### 6. The rasterizer silently drops content
 
@@ -178,6 +215,16 @@ inputs can't raise or lower them.
 
 Make hitting a limit an error or a reported issue, and expose the caps through
 the options in item 10.
+
+The two caps added with item 1b — `maxLZWOutput` and `maxRunLengthOutput` — do
+return an error (`ErrOutputTooLarge`), and because that error now flows through
+the decode chokepoint it surfaces as a reported `StreamUndecodable` rather than
+vanishing. That is the shape `InflateZlib` should be converted to; it is the
+last silent-truncation site. Note the fix is not merely swapping `io.LimitReader`
+for a check — `InflateZlib` is deliberately lenient about truncated and
+CRC-broken streams (it returns the inflated prefix, which is how malformed
+real-world files stay readable), so the size cap has to be distinguished from
+that leniency rather than folded into it.
 
 ### 8. Convert holds everything in memory
 
@@ -328,10 +375,16 @@ consider making `Output` lazy — see item 8.
 
 ### 19. Typed errors
 
-Everything is `fmt.Errorf`/`errors.New` strings, so callers can't tell "not a
-PDF" from "encrypted" from "truncated" from "I/O error" without matching on text.
-Define `ErrNotPDF`, `ErrEncrypted`, `ErrPasswordRequired`, `ErrDamaged`, wrapped
-for `errors.Is`. Item 3 depends on this.
+Mostly `fmt.Errorf`/`errors.New` strings, so callers can't tell "not a PDF" from
+"encrypted" from "truncated" from "I/O error" without matching on text. Define
+`ErrNotPDF`, `ErrEncrypted`, `ErrPasswordRequired`, `ErrDamaged`, wrapped for
+`errors.Is`. Items 3 and 5 depend on this.
+
+Started: the decode chain defines `ErrEncodedImage`, `ErrUnsupportedFilter`,
+`ErrUnsupportedPredictor`, `ErrNotAStream` and `ErrOutputTooLarge` in
+`internal/pdf/filters.go`, and verify already branches on `errors.Is` for the
+first and fourth. Follow the same shape for the rest; note these are `internal/`
+and need re-exporting from the root package to be usable by callers.
 
 ### 20. A real CLI
 
@@ -423,6 +476,13 @@ shared — fold what survives into this file.
   and the Type1 `FontFile` width path. They bail on FontMatrix, unusual
   charstring prefixes, and Differences, and the bails are invisible — there's no
   way to know how much 6.3.6 coverage is silently skipped across the corpus.
+  Same class as item 1a, one layer up: the `ParseSfnt`/`ParseCFFTopDict` bails
+  turned out to be covered by `ValidateFontProgram` reporting the same parse
+  failure, and are now annotated with a test pinning that; the width-path bails
+  have no such sibling.
+- Document the `DecodeOptions` cache rule at `Reader`: only the default-options,
+  non-image decode is cached, because `StreamKey` identifies raw bytes and would
+  otherwise hand back a variant decoded under different parameters.
 - Coverage to ~95%: verify 93.5%, convert 92.6%. CFF/Type1 fixtures are the bulk.
 
 ---
@@ -440,16 +500,26 @@ Recorded so nobody re-investigates:
   CI. It's `tests/regression/` that's missing (item 11).
 - **False positives are tested**: 263 pass files in the veraPDF corpus. The gap
   is real-world producers (item 10), not pass-file coverage per se.
+- **Predictors belong to Flate and LZW only** (ISO 32000-1 Table 8). Confirmed
+  by scanning all three corpora: every `/Predictor` in every file sits on
+  FlateDecode. The old chains applied the predictor after *any* filter, which is
+  why three test fixtures had predictors on filters that cannot carry them.
+- **CCITT stays an image-only filter.** Its output is packed 1-bpc samples that
+  are meaningless without `/Columns`, `/Rows` and `/BlackIs1`, it is only legal
+  as the terminal filter of an image, and no byte-consuming caller could use the
+  result. `pdf.DecodeCCITT` remains the explicit second step for the rasterizer.
 
 ---
 
 ## Order of work
 
-1. **Items 1–3.** Nothing else matters if the verdict is wrong. Item 1 is the
-   whole release blocker in one bug.
+1. ~~**Item 1.**~~ Done. **Items 2–3** remain: nothing else matters if the
+   verdict is wrong.
 2. **Items 11 and 13.** Turn the dark differential harness on and put `-race`
    plus fuzzing in CI. Do this early — it's cheap and it changes what every
-   later change is measured against.
+   later change is measured against. Now also the cheapest way to find whether
+   item 1a's new check fires on any real-world file, which no synthetic corpus
+   can answer.
 3. **Item 4.** Biggest real-world gap, and the oracle it needs would have caught
    item 2.
 4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.
