@@ -84,17 +84,17 @@ Five findings from the work, none of which the plan anticipated:
 - **Predictors are scoped to Flate and LZW** per ISO 32000-1 Table 8. Verified
   against all three corpora: every predictor in every file sits on FlateDecode.
 
-#### Two gaps this work exposed
+#### Two gaps this work exposed — both closed
 
-Neither blocks release, both are small and now visible:
-
-- `fontProgramValid`'s FontFile3 arm (`checks_font_program.go`) returns true on
-  `data[0] == 1` alone, so a CFF with a valid header but an unparseable TopDict
-  passes 6.3.2 while `ValidateCIDCFFSubset` silently skips it. Its own commit,
-  against the 6.3.2 check.
-- `ComputeContentUsage` runs before `verifyDocument`, when `ctx.CurrentPage` is
-  still 0, so a content-stream decode failure reports page 0 rather than the
-  page it occurred on.
+- `fontProgramValid`'s FontFile3 arm accepted any program whose first byte was
+  1, so a CFF with a valid header but an unparseable Top DICT passed 6.3.2 while
+  `ValidateCIDCFFSubset` silently skipped it. Now runs `ParseCFFTopDict`, so the
+  check and its dependents agree on what "valid" means. Measured rather than
+  assumed, since it is stricter: the corpora hold 74 bare-CFF FontFile3
+  programs and all 74 still pass.
+- `ComputeContentUsage` runs before `verifyDocument`'s walk, so a content-stream
+  decode failure was reported as document-level. The usage walk now maintains
+  `CurrentPage` over each page subtree and restores it afterwards.
 
 ### 2. A single bad xref offset suppresses unrelated checks
 
