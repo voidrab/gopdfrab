@@ -120,6 +120,12 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 				return nil, err
 			}
 			d.recordFraming(ref.ObjNum, l.validateEndObj())
+			if d.shouldDecrypt(ref) {
+				if err := d.decryptStream(&m, ref); err != nil {
+					return nil, err
+				}
+				d.decryptStrings(m, ref)
+			}
 			return m, nil
 		case TokenObjectEnd:
 			var errs []error
@@ -135,12 +141,18 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 			l.UnreadToken(next)
 		}
 
+		if d.shouldDecrypt(ref) {
+			d.decryptStrings(m, ref)
+		}
 		return m, nil
 
 	case TokenArrayStart:
 		arr, err := parseArray(l)
 		if err != nil {
 			return nil, err
+		}
+		if d.shouldDecrypt(ref) {
+			d.decryptStrings(arr, ref)
 		}
 		return arr, nil
 
@@ -169,9 +181,15 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 		return PDFName{Value: t.Value}, nil
 
 	case TokenString:
+		if d.shouldDecrypt(ref) {
+			return d.decryptStrings(PDFString{Value: t.Value}, ref), nil
+		}
 		return PDFString{Value: t.Value}, nil
 
 	case TokenHexString:
+		if d.shouldDecrypt(ref) {
+			return d.decryptStrings(PDFHexString{Value: t.Value}, ref), nil
+		}
 		return PDFHexString{Value: t.Value}, nil
 
 	default:

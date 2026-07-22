@@ -109,6 +109,11 @@ var (
 	ErrUnsupportedPredictor = errors.New("pdf: unsupported predictor")
 	ErrNotAStream           = errors.New("pdf: object is not a stream")
 	ErrOutputTooLarge       = errors.New("pdf: decoded output exceeds size limit")
+
+	// ErrEncrypted reports an encryption the standard security handler does not
+	// implement; ErrPasswordRequired reports a correct password is needed.
+	ErrEncrypted        = errors.New("pdf: document is encrypted")
+	ErrPasswordRequired = errors.New("pdf: correct password required to decrypt")
 )
 
 // DecodeOptions supplies context a stream dictionary alone does not carry.

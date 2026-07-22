@@ -93,6 +93,12 @@ type Reader struct {
 	// changes between iterations, e.g. OutputIntent coverage, so only the
 	// token list -- never a check's result -- is safe to cache here).
 	scanCache map[StreamKey][]ScannedOp
+
+	// password is the password supplied to open the file (nil == empty), used
+	// once to build crypt; crypt is the authenticated decryptor, non-nil only
+	// for an encrypted file whose password authenticated. See crypt.go.
+	password []byte
+	crypt    *stdSecurityHandler
 }
 
 // DecodeStreamCached decodes dict's stream, memoizing the result by content
@@ -237,8 +243,15 @@ func NewRawReader(file interface {
 	return &Reader{file: file, trailer: trailer, size: size, xrefOffset: xrefOffset}
 }
 
-// Open initializes the PDF document at path.
-func Open(path string) (*Reader, error) {
+// Open initializes the PDF document at path, decrypting with the empty
+// password when the file is encrypted.
+func Open(path string) (*Reader, error) { return OpenWithPassword(path, nil) }
+
+// OpenWithPassword is Open with an explicit password for an encrypted file.
+// nil is the empty password, which covers the common permission-only case.
+// (The functional-options form, gopdfrab.WithPassword, arrives with roadmap
+// item 15 and will call the same internal path.)
+func OpenWithPassword(path string, password []byte) (*Reader, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -256,7 +269,7 @@ func Open(path string) (*Reader, error) {
 		return nil, err
 	}
 
-	return newDocument(f, info.Size(), data, unmap)
+	return newDocument(f, info.Size(), data, unmap, password)
 }
 
 // bytesFileSource adapts a *bytes.Reader (which has no Close) to fileSource.
@@ -267,13 +280,16 @@ func (bytesFileSource) Close() error { return nil }
 // OpenBytes initializes a Reader from an in-memory PDF, parsing the same way
 // Open does but without touching disk -- used to re-verify freshly-written
 // bytes during conversion.
-func OpenBytes(data []byte) (*Reader, error) {
-	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil)
+func OpenBytes(data []byte) (*Reader, error) { return OpenBytesWithPassword(data, nil) }
+
+// OpenBytesWithPassword is OpenBytes with an explicit password.
+func OpenBytesWithPassword(data, password []byte) (*Reader, error) {
+	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil, password)
 }
 
 // newDocument parses a Reader's structure from an already-opened byte source
 // of the given size, shared by Open and OpenBytes.
-func newDocument(src fileSource, size int64, data []byte, unmap func() error) (*Reader, error) {
+func newDocument(src fileSource, size int64, data []byte, unmap func() error, password []byte) (*Reader, error) {
 	header := make([]byte, 8)
 	if _, err := src.ReadAt(header, 0); err != nil {
 		src.Close()
@@ -281,11 +297,12 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error) (*
 	}
 
 	doc := &Reader{
-		file:   src,
-		size:   size,
-		header: header,
-		data:   data,
-		unmap:  unmap,
+		file:     src,
+		size:     size,
+		header:   header,
+		data:     data,
+		unmap:    unmap,
+		password: password,
 	}
 
 	if err := doc.initializeStructure(); err != nil {
@@ -417,7 +434,7 @@ func (d *Reader) initializeStructure() error {
 		d.findAndLoadFirstPageTrailer()
 	}
 
-	return nil
+	return d.setupDecryption()
 }
 
 // followXRefPrevChain walks the /Prev chain from d.trailer, filling in

@@ -39,6 +39,14 @@ var (
 // Checks is the registry of every selectable PDF/A check, grouped by area.
 var Checks = pdf.Checks
 
+// Errors callers can match with errors.Is. ErrEncrypted reports an encryption
+// scheme gopdfrab does not implement; ErrPasswordRequired reports that a
+// correct password is needed to open the file.
+var (
+	ErrEncrypted        = pdf.ErrEncrypted
+	ErrPasswordRequired = pdf.ErrPasswordRequired
+)
+
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
@@ -109,9 +117,15 @@ type Document struct {
 	r *pdf.Reader
 }
 
-// Open initializes the PDF document at path.
-func Open(path string) (*Document, error) {
-	r, err := pdf.Open(path)
+// Open initializes the PDF document at path, decrypting an encrypted file with
+// the empty password.
+func Open(path string) (*Document, error) { return OpenWithPassword(path, nil) }
+
+// OpenWithPassword is Open with an explicit password for an encrypted file.
+// nil is the empty password. It returns an error matching ErrPasswordRequired
+// when the password is wrong or missing.
+func OpenWithPassword(path string, password []byte) (*Document, error) {
+	r, err := pdf.OpenWithPassword(path, password)
 	if err != nil {
 		return nil, err
 	}
