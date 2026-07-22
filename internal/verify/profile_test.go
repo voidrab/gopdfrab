@@ -11,18 +11,18 @@ import (
 
 func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
 	all := pdf.AllChecks()
-	if len(pdf.Legacy_1B.Checks()) != len(all) {
-		t.Errorf("Legacy_1B has %d checks, catalog has %d", len(pdf.Legacy_1B.Checks()), len(all))
+	if len(pdf.Legacy1B.Checks()) != len(all) {
+		t.Errorf("Legacy1B has %d checks, catalog has %d", len(pdf.Legacy1B.Checks()), len(all))
 	}
 	for _, c := range all {
-		if !pdf.Legacy_1B.Has(c) {
-			t.Errorf("Legacy_1B missing check %q", c.Name())
+		if !pdf.Legacy1B.Has(c) {
+			t.Errorf("Legacy1B missing check %q", c.Name())
 		}
 	}
 }
 
 func TestProfile_NewProfileIsEmpty(t *testing.T) {
-	p := pdf.NewProfile(pdf.A_1B)
+	p := pdf.NewProfile(pdf.A1B)
 	if len(p.Checks()) != 0 {
 		t.Errorf("NewProfile should have 0 checks, got %d", len(p.Checks()))
 	}
@@ -32,19 +32,19 @@ func TestProfile_NewProfileIsEmpty(t *testing.T) {
 }
 
 func TestProfile_CopyOnWrite(t *testing.T) {
-	before := len(pdf.PDFA_1B.Checks())
+	before := len(pdf.PDFA1B.Checks())
 
-	_ = pdf.PDFA_1B.Clear()
-	if len(pdf.PDFA_1B.Checks()) != before {
-		t.Errorf("Clear() modified PDFA_1B: had %d checks, now %d", before, len(pdf.PDFA_1B.Checks()))
+	_ = pdf.PDFA1B.Clear()
+	if len(pdf.PDFA1B.Checks()) != before {
+		t.Errorf("Clear() modified PDFA1B: had %d checks, now %d", before, len(pdf.PDFA1B.Checks()))
 	}
 
-	_ = pdf.PDFA_1B.RemoveCheck(pdf.Checks.Transparency.ImageWithSoftMask)
-	if !pdf.PDFA_1B.Has(pdf.Checks.Transparency.ImageWithSoftMask) {
-		t.Error("RemoveCheck() modified PDFA_1B")
+	_ = pdf.PDFA1B.RemoveCheck(pdf.Checks.Transparency.ImageWithSoftMask)
+	if !pdf.PDFA1B.Has(pdf.Checks.Transparency.ImageWithSoftMask) {
+		t.Error("RemoveCheck() modified PDFA1B")
 	}
 
-	empty := pdf.NewProfile(pdf.A_1B)
+	empty := pdf.NewProfile(pdf.A1B)
 	_ = empty.AddCheck(pdf.Checks.Structure.FileHeaderSignature)
 	if empty.Has(pdf.Checks.Structure.FileHeaderSignature) {
 		t.Error("AddCheck() modified the original empty profile")
@@ -52,17 +52,17 @@ func TestProfile_CopyOnWrite(t *testing.T) {
 }
 
 func TestProfile_Clear(t *testing.T) {
-	empty := pdf.PDFA_1B.Clear()
+	empty := pdf.PDFA1B.Clear()
 	if len(empty.Checks()) != 0 {
 		t.Errorf("Clear() left %d checks, want 0", len(empty.Checks()))
 	}
-	if empty.Level != pdf.PDFA_1B.Level {
-		t.Errorf("Clear() changed Level: got %v, want %v", empty.Level, pdf.PDFA_1B.Level)
+	if empty.Level != pdf.PDFA1B.Level {
+		t.Errorf("Clear() changed Level: got %v, want %v", empty.Level, pdf.PDFA1B.Level)
 	}
 }
 
 func TestProfile_AddCheck(t *testing.T) {
-	p := pdf.PDFA_1B.Clear().
+	p := pdf.PDFA1B.Clear().
 		AddCheck(pdf.Checks.Transparency.ImageWithSoftMask, pdf.Checks.Structure.ObjectFraming)
 	if len(p.Checks()) != 2 {
 		t.Errorf("AddCheck: got %d checks, want 2", len(p.Checks()))
@@ -79,20 +79,20 @@ func TestProfile_AddCheck(t *testing.T) {
 }
 
 func TestProfile_RemoveCheck(t *testing.T) {
-	p := pdf.PDFA_1B.RemoveCheck(pdf.Checks.Transparency.ImageWithSoftMask)
+	p := pdf.PDFA1B.RemoveCheck(pdf.Checks.Transparency.ImageWithSoftMask)
 	if p.Has(pdf.Checks.Transparency.ImageWithSoftMask) {
 		t.Error("removed check still present")
 	}
 	if !p.Has(pdf.Checks.Structure.FileHeaderSignature) {
 		t.Error("unrelated check should still be present after RemoveCheck")
 	}
-	empty := pdf.PDFA_1B.Clear()
+	empty := pdf.PDFA1B.Clear()
 	_ = empty.RemoveCheck(pdf.Checks.Transparency.ImageWithSoftMask)
 }
 
 func TestProfile_ChecksOrder(t *testing.T) {
 	all := pdf.AllChecks()
-	got := pdf.Legacy_1B.Checks()
+	got := pdf.Legacy1B.Checks()
 	if len(got) != len(all) {
 		t.Fatalf("Checks() length mismatch: %d vs %d", len(got), len(all))
 	}
@@ -104,11 +104,11 @@ func TestProfile_ChecksOrder(t *testing.T) {
 }
 
 func TestProfile_AllowsUnknownPairs(t *testing.T) {
-	empty := pdf.NewProfile(pdf.A_1B)
+	empty := pdf.NewProfile(pdf.A1B)
 	if !empty.Allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in an empty profile")
 	}
-	full := pdf.NewFullProfile(pdf.A_1B)
+	full := pdf.NewFullProfile(pdf.A1B)
 	if !full.Allows("99.99.99", 999) {
 		t.Error("unknown pair should be allowed in a full profile")
 	}
@@ -117,7 +117,7 @@ func TestProfile_AllowsUnknownPairs(t *testing.T) {
 func TestProfile_AllowsCatalogPairs(t *testing.T) {
 	chk := pdf.Checks.Transparency.ImageWithSoftMask
 
-	full := pdf.NewFullProfile(pdf.A_1B)
+	full := pdf.NewFullProfile(pdf.A1B)
 	if !full.Allows(chk.Clause(), chk.Subclause()) {
 		t.Error("enabled check pair should be allowed")
 	}
@@ -178,13 +178,13 @@ func TestVerifyProfile_FullProfileMatchesVerify(t *testing.T) {
 	}
 	defer doc.Close()
 
-	resVerify, err := Verify(doc, pdf.PDFA_1B)
+	resVerify, err := Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	resProfile, err := Verify(doc, pdf.PDFA_1B)
+	resProfile, err := Verify(doc, pdf.PDFA1B)
 	if err != nil {
-		t.Fatalf("Verify(PDFA_1B): %v", err)
+		t.Fatalf("Verify(PDFA1B): %v", err)
 	}
 
 	if resVerify.Valid != resProfile.Valid {
@@ -205,7 +205,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	defer doc.Close()
 
 	// Baseline: full profile must catch a 6.1.2 violation.
-	full, _ := Verify(doc, pdf.PDFA_1B)
+	full, _ := Verify(doc, pdf.PDFA1B)
 	if full.Valid {
 		t.Fatal("full profile: expected non-conformant file but got Valid=true")
 	}
@@ -221,7 +221,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	}
 
 	// Remove all 6.1.2 checks: none should appear.
-	p := pdf.PDFA_1B.RemoveCheck(header61checks()...)
+	p := pdf.PDFA1B.RemoveCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
 		if clauseMatches(iss.Check().Clause(), "6.1.2") {
@@ -239,7 +239,7 @@ func TestVerifyProfile_ClearThenAddOnlyFiresEnabledCheck(t *testing.T) {
 	defer doc.Close()
 
 	// Empty profile + all 6.1.2 checks: only 6.1.2 violations may appear.
-	p := pdf.PDFA_1B.Clear().AddCheck(header61checks()...)
+	p := pdf.PDFA1B.Clear().AddCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
 		if !clauseMatches(iss.Check().Clause(), "6.1.2") {
@@ -267,7 +267,7 @@ func TestVerifyProfile_EmptyProfileReturnsValid(t *testing.T) {
 	defer doc.Close()
 
 	// An empty profile enables no checks, so no violations can be reported.
-	p := pdf.NewProfile(pdf.A_1B)
+	p := pdf.NewProfile(pdf.A1B)
 	res, err := Verify(doc, p)
 	if err != nil {
 		t.Fatalf("VerifyProfile: %v", err)

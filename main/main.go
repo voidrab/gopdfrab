@@ -40,7 +40,7 @@ func usage() {
 // runConvert converts a single PDF and reports the outcome: how many
 // verify/fixup passes it took and whether the result is fully conformant.
 func runConvert(args []string) {
-	profile, label, suffix := pdf.PDFA_1B, "PDF/A-1b", ".pdfa.pdf"
+	profile, label, suffix := pdf.PDFA1B, "PDF/A-1b", ".pdfa.pdf"
 	if len(args) > 0 && args[0] == "-pdf" {
 		profile, label, suffix = gopdfrab.PDF, "PDF (object model)", ".fixed.pdf"
 		args = args[1:]
@@ -124,7 +124,7 @@ func runVerify(args []string) {
 		}
 	}
 
-	results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA_1B)
+	results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA1B)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "verify: %v\n", err)
 		os.Exit(1)

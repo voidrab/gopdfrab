@@ -187,7 +187,7 @@ func runOne(path string) fileResult {
 	if err != nil {
 		return fileResult{Path: path, Size: size, Nanos: time.Since(start).Nanoseconds(), Err: err.Error()}
 	}
-	res, err := doc.Verify(gopdfrab.PDFA_1B)
+	res, err := doc.Verify(gopdfrab.PDFA1B)
 	elapsed := time.Since(start)
 	doc.Close()
 	if err != nil {

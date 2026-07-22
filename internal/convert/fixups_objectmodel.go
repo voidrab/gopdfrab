@@ -147,7 +147,7 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 // post14KeyFixer remediates the object model's KeyIntroducedAfterPDF14 check by deleting
 // the reported key: the 1.4 model cannot require a key it does not know, so removal is
 // always conformant, and 1.4 readers must ignore unknown keys anyway. Only runs when the
-// profile enables the check (Legacy_1B / ObjectModelOnly).
+// profile enables the check (Legacy1B / ObjectModelOnly).
 type post14KeyFixer struct{}
 
 func (post14KeyFixer) Applies(c pdf.Check) bool {

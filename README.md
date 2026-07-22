@@ -59,7 +59,7 @@ if err != nil {
 ### PDF/A Validation
 
 ```go
-v, err := doc.Verify(gopdfrab.PDFA_1B)
+v, err := doc.Verify(gopdfrab.PDFA1B)
 if err != nil {
   log.Println(err)
 }
@@ -86,7 +86,7 @@ doc.Close()
 `Verify` opens, verifies, and closes a file.
 
 ```go
-result, err := gopdfrab.Verify(path, gopdfrab.PDFA_1B)
+result, err := gopdfrab.Verify(path, gopdfrab.PDFA1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -98,7 +98,7 @@ fmt.Println(result.Valid)
 `VerifyBytes` is `Verify` for an in-memory PDF.
 
 ```go
-result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 ```
 
 ### Verifying Multiple Files
@@ -106,7 +106,7 @@ result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
 `VerifyAll` opens, verifies, and closes a batch of files concurrently.
 
 ```go
-results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA_1B)
+results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -143,7 +143,7 @@ v.IssuesOnPage(1)                 // issues found on page 1 (0 = document-level)
 ### Document Helpers
 
 ```go
-ok, err := doc.IsPDFA()                      // shorthand for Verify(A_1B).Valid
+ok, err := doc.IsPDFA()                      // shorthand for Verify(A1B).Valid
 
 ok, err := doc.IsPDF()                       // shorthand for VerifyObjectModel().Valid
 
@@ -157,7 +157,7 @@ xmp, err := doc.XMPMetadata()                // raw XMP packet bytes, decoded to
 `Convert` produces a PDF/A conformant rewrite. It runs pre-emptive fixups, then a verify/fix loop, and rasterizes pages as a last resort when no in-place fixer can repair them.
 
 ```go
-cr, err := gopdfrab.Convert(path, gopdfrab.PDFA_1B)
+cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -173,7 +173,7 @@ fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
 ### Converting an Open Document
 
 ```go
-cr, err := doc.Convert(gopdfrab.PDFA_1B)
+cr, err := doc.Convert(gopdfrab.PDFA1B)
 ```
 
 ### Converting In-Memory Data
@@ -181,7 +181,7 @@ cr, err := doc.Convert(gopdfrab.PDFA_1B)
 `ConvertBytes` is `Convert` for an in-memory PDF.
 
 ```go
-cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 ```
 
 ### Converting Multiple Files
@@ -189,7 +189,7 @@ cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
 `ConvertAll` opens, converts, and closes a batch of files concurrently.
 
 ```go
-results, err := gopdfrab.ConvertAll(paths, gopdfrab.PDFA_1B)
+results, err := gopdfrab.ConvertAll(paths, gopdfrab.PDFA1B)
 if err != nil {
     log.Fatal(err)
 }
@@ -222,7 +222,7 @@ Verification can be narrowed to a specific set of rules using `Verify`.
 ### Start from the full profile and remove checks
 
 ```go
-p := gopdfrab.PDFA_1B.
+p := gopdfrab.PDFA1B.
     RemoveCheck(gopdfrab.Checks.Structure.FileHeaderSignature).
     RemoveCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
 
@@ -232,7 +232,7 @@ res, err := doc.Verify(p)
 ### Start from an empty profile and add checks
 
 ```go
-p := gopdfrab.PDFA_1B.Clear().
+p := gopdfrab.PDFA1B.Clear().
     AddCheck(
         gopdfrab.Checks.Transparency.ImageWithSoftMask,
         gopdfrab.Checks.Metadata.PDFAIdentifierMissing,
@@ -306,7 +306,7 @@ Due to JVM startup overhead, startup time and cold single-file verification are 
 ## Isartor Compatibility
 
 The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
-If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy_1B` profile.
+If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy1B` profile.
 
 ## Fuzzing & Stress Testing
 

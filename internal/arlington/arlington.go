@@ -222,7 +222,7 @@ type KeyDef struct {
 	// SinceVersion/DeprecatedIn are unread at runtime (the 1.4 TSV set is pre-filtered);
 	// kept as groundwork for the predicate evaluator's version-gate families.
 	SinceVersion   string
-	DeprecatedIn   string      // empty if never deprecated
+	DeprecatedIn   string   // empty if never deprecated
 	PossibleValues []string // enumerated legal values, when constrained; predicate-only entries are dropped
 	// PinnedValues narrows PossibleValues conditionally: whenever a pin's condition holds,
 	// the key must have exactly that pin's value.

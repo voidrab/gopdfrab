@@ -22,8 +22,8 @@ func TestConvertBytesMatchesFile(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		fromFile, ferr := Convert(path, pdf.PDFA_1B)
-		fromBytes, berr := ConvertBytes(data, pdf.PDFA_1B)
+		fromFile, ferr := Convert(path, pdf.PDFA1B)
+		fromBytes, berr := ConvertBytes(data, pdf.PDFA1B)
 		if (ferr == nil) != (berr == nil) {
 			t.Errorf("%s: error mismatch file=%v bytes=%v", path, ferr, berr)
 			continue
@@ -66,7 +66,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 		t.Skip("no readable fixtures")
 	}
 
-	results, err := ConvertAll(paths, pdf.PDFA_1B)
+	results, err := ConvertAll(paths, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("ConvertAll: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 			t.Errorf("results[%d].Path = %q, want %q", i, r.Path, path)
 		}
 
-		want, wantErr := Convert(path, pdf.PDFA_1B)
+		want, wantErr := Convert(path, pdf.PDFA1B)
 		if (r.Err == nil) != (wantErr == nil) {
 			t.Errorf("%s: ConvertAll error mismatch: got %v, want %v", path, r.Err, wantErr)
 			continue
@@ -98,7 +98,7 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 			t.Errorf("Open(%s): %v", path, err)
 			continue
 		}
-		fromDoc, err := doc.Convert(pdf.PDFA_1B)
+		fromDoc, err := doc.Convert(pdf.PDFA1B)
 		doc.Close()
 		if err != nil {
 			t.Errorf("(*Document).Convert(%s): %v", path, err)

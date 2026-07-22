@@ -34,8 +34,8 @@ func TestGeneratedCorpusDoesNotPanic(t *testing.T) {
 // expected and ignored; only panics are failures.
 func runPipeline(data []byte) (recovered any) {
 	defer func() { recovered = recover() }()
-	gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+	gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 	gopdfrab.VerifyObjectModelBytes(data)
-	gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+	gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 	return nil
 }

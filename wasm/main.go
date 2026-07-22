@@ -40,7 +40,7 @@ func jsVerify(_ js.Value, args []js.Value) any {
 			return nil, fmt.Errorf("gopdfrabVerify: expected 1 argument")
 		}
 		data := copyBytes(args[0])
-		result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+		result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 		if err != nil {
 			return nil, fmt.Errorf("verify: %w", err)
 		}
@@ -84,7 +84,7 @@ func jsConvert(_ js.Value, args []js.Value) any {
 			return nil, fmt.Errorf("gopdfrabConvert: expected 1 argument")
 		}
 		data := copyBytes(args[0])
-		cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		if err != nil {
 			return nil, fmt.Errorf("convert: %w", err)
 		}

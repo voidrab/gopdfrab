@@ -956,7 +956,7 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 // checkInfoXMPSync verifies that document information dictionary entries are
 // reflected in the XMP metadata (6.7.3).
 func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
-	info, err := d.GetMetadata()
+	info, err := d.Metadata()
 	if err != nil {
 		return nil
 	}

@@ -20,8 +20,8 @@ func FuzzVerifyDeterministic(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		a, ea := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
-		b, eb := gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+		a, ea := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+		b, eb := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 		if (ea == nil) != (eb == nil) || a.Valid != b.Valid || a.Count() != b.Count() {
 			t.Fatalf("VerifyBytes nondeterministic: (%v,%d,err=%v) vs (%v,%d,err=%v)",
 				a.Valid, a.Count(), ea, b.Valid, b.Count(), eb)
@@ -37,8 +37,8 @@ func FuzzConvertDeterministic(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		a, ea := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
-		b, eb := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		a, ea := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		b, eb := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		if (ea == nil) != (eb == nil) {
 			t.Fatalf("ConvertBytes error nondeterminism: %v vs %v", ea, eb)
 		}
@@ -57,11 +57,11 @@ func FuzzConvertHonest(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		if err != nil || !res.Result.Valid || len(res.Output) == 0 {
 			return
 		}
-		v, err := gopdfrab.VerifyBytes(res.Output, gopdfrab.PDFA_1B)
+		v, err := gopdfrab.VerifyBytes(res.Output, gopdfrab.PDFA1B)
 		if err != nil || !v.Valid {
 			t.Fatalf("Convert reported Valid but independent verify disagreed: err=%v valid=%v", err, v.Valid)
 		}
@@ -76,11 +76,11 @@ func FuzzConvertConverges(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		if err != nil || !r1.Result.Valid || len(r1.Output) == 0 {
 			return
 		}
-		r2, err := gopdfrab.ConvertBytes(r1.Output, gopdfrab.PDFA_1B)
+		r2, err := gopdfrab.ConvertBytes(r1.Output, gopdfrab.PDFA1B)
 		if err != nil || !r2.Result.Valid {
 			t.Fatalf("re-converting already-valid output regressed: err=%v valid=%v", err, r2.Result.Valid)
 		}

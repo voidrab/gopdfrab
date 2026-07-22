@@ -18,7 +18,7 @@ import (
 // -- Top-level entry points
 
 func TestVerifyFile(t *testing.T) {
-	res, err := VerifyFile(sampleVeraPassFile, pdf.PDFA_1B)
+	res, err := VerifyFile(sampleVeraPassFile, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyFile: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestVerifyFile(t *testing.T) {
 		t.Errorf("VerifyFile(%s) = invalid, want valid: %v", sampleVeraPassFile, res.Issues)
 	}
 
-	if _, err := VerifyFile("/nonexistent/path.pdf", pdf.PDFA_1B); err == nil {
+	if _, err := VerifyFile("/nonexistent/path.pdf", pdf.PDFA1B); err == nil {
 		t.Error("VerifyFile should error for a nonexistent path")
 	}
 }
@@ -36,7 +36,7 @@ func TestVerifyBytes(t *testing.T) {
 	if err != nil {
 		t.Skip("corpus not available")
 	}
-	res, err := VerifyBytes(data, pdf.PDFA_1B)
+	res, err := VerifyBytes(data, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -44,14 +44,14 @@ func TestVerifyBytes(t *testing.T) {
 		t.Errorf("VerifyBytes(pass file) = invalid, want valid: %v", res.Issues)
 	}
 
-	if _, err := VerifyBytes([]byte("not a pdf"), pdf.PDFA_1B); err == nil {
+	if _, err := VerifyBytes([]byte("not a pdf"), pdf.PDFA1B); err == nil {
 		t.Error("VerifyBytes should error for malformed data")
 	}
 }
 
 func TestVerifyAll(t *testing.T) {
 	paths := []string{sampleVeraPassFile, "/nonexistent/path.pdf"}
-	results, err := VerifyAll(paths, pdf.PDFA_1B)
+	results, err := VerifyAll(paths, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyAll: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestVerifyAll(t *testing.T) {
 		t.Error("VerifyAll[1] should carry an error for the nonexistent path")
 	}
 
-	if results, err := VerifyAll(nil, pdf.PDFA_1B); err != nil || len(results) != 0 {
+	if results, err := VerifyAll(nil, pdf.PDFA1B); err != nil || len(results) != 0 {
 		t.Errorf("VerifyAll(nil) = %v, %v, want empty slice, nil error", results, err)
 	}
 }
@@ -86,7 +86,7 @@ const plainPDF = "%PDF-1.4\n" +
 
 // TestVerifyObjectModelBytes covers the widened Verify gate: a plain PDF with
 // no PDF/A structure but a conformant base object model must come back
-// Valid, tagged with the ObjectModel level rather than A_1B.
+// Valid, tagged with the ObjectModel level rather than A1B.
 func TestVerifyObjectModelBytes(t *testing.T) {
 	res, err := VerifyObjectModelBytes([]byte(plainPDF))
 	if err != nil {
@@ -1635,7 +1635,7 @@ func TestVerifyObjectModelMatchesFilteredFullRun(t *testing.T) {
 
 	for _, path := range files {
 		fast, fastErr := VerifyObjectModelFile(path)
-		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A_1B))
+		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A1B))
 		if (fastErr != nil) != (fullErr != nil) {
 			t.Errorf("%s: fast err %v vs full err %v", path, fastErr, fullErr)
 			continue
@@ -1967,7 +1967,7 @@ func TestVerifyEncryptedEmptyPassword(t *testing.T) {
 	if err != nil {
 		t.Skipf("fixture absent: %v", err)
 	}
-	res, err := VerifyBytes(data, pdf.PDFA_1B)
+	res, err := VerifyBytes(data, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -1995,7 +1995,7 @@ func TestVerifyEncryptedPasswordRequired(t *testing.T) {
 	if err != nil {
 		t.Skipf("fixture absent: %v", err)
 	}
-	if _, err := VerifyBytes(data, pdf.PDFA_1B); !errors.Is(err, pdf.ErrPasswordRequired) {
+	if _, err := VerifyBytes(data, pdf.PDFA1B); !errors.Is(err, pdf.ErrPasswordRequired) {
 		t.Fatalf("err=%v, want ErrPasswordRequired", err)
 	}
 }

@@ -31,7 +31,7 @@ func openReproduces(t *testing.T, name string, data []byte) {
 		}
 		defer r.Close()
 		r.ResolveGraph()
-		r.GetPageCount()
+		r.PageCount()
 	})
 }
 
@@ -77,7 +77,7 @@ func TestCrasher_CCITTColumnsAmplification(t *testing.T) {
 	}
 }
 
-// TestBuildPageIndexBranches exercises BuildPageIndex directly (GetPageCount
+// TestBuildPageIndexBranches exercises BuildPageIndex directly (PageCount
 // does not route through it) across every guard the fixes added: a non-dict
 // graph, a missing Root, a non-dict Root, a cyclic page tree, a page tree
 // deeper than the cap, and the normal Page-collecting walk.

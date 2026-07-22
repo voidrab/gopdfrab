@@ -81,7 +81,7 @@ func TestPDFErrorMarshalJSONDocumentLevel(t *testing.T) {
 
 func TestResultMarshalJSON(t *testing.T) {
 	// Valid result: issues serializes as [], not null.
-	valid, _ := json.Marshal(Result{Type: A_1B, Valid: true})
+	valid, _ := json.Marshal(Result{Type: A1B, Valid: true})
 	var vg map[string]any
 	json.Unmarshal(valid, &vg)
 	if vg["type"] != "A-1b" || !vg["valid"].(bool) {
@@ -95,7 +95,7 @@ func TestResultMarshalJSON(t *testing.T) {
 	}
 
 	// Invalid result: each issue is a populated object, not {}.
-	r := Result{Type: A_1B, Valid: false, Issues: []PDFError{
+	r := Result{Type: A1B, Valid: false, Issues: []PDFError{
 		NewError(Checks.Structure.TrailerEncrypt, []error{errString("e")}, 0, nil),
 	}}
 	b, _ := json.Marshal(r)

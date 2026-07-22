@@ -340,7 +340,7 @@ func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict)
 // so the inline case is folded in here rather than given its own. It
 // deliberately does not touch FormPostScript, FormPSEntry, FormSubtype2PS,
 // or PostScriptXObject (PostScript-related checks already disabled in the
-// default PDFA_1B profile; see profile.go).
+// default PDFA1B profile; see profile.go).
 type imageMetadataFixer struct{}
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {

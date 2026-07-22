@@ -19,7 +19,7 @@ type (
 
 // PDF conformance levels.
 const (
-	A_1B      = pdf.A_1B
+	A1B       = pdf.A1B
 	Undefined = pdf.Undefined
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks.
@@ -30,10 +30,10 @@ const (
 var (
 	// PDF is the default profile for generic ISO 32000 object-model checks.
 	PDF = pdf.PDF
-	// PDFA_1B is the canonical PDF/A-1b profile
-	PDFA_1B = pdf.PDFA_1B
-	// Legacy_1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
-	Legacy_1B = pdf.Legacy_1B
+	// PDFA1B is the canonical PDF/A-1b profile
+	PDFA1B = pdf.PDFA1B
+	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
+	Legacy1B = pdf.Legacy1B
 )
 
 // Checks is the registry of every selectable PDF/A check, grouped by area.
@@ -146,9 +146,9 @@ func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r
 func (d *Document) VerifyObjectModel() (Result, error) { return d.Verify(PDF) }
 
 // IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
-// calling Verify(PDFA_1B) and checking the result's Valid field.
+// calling Verify(PDFA1B) and checking the result's Valid field.
 func (d *Document) IsPDFA() (bool, error) {
-	res, err := d.Verify(PDFA_1B)
+	res, err := d.Verify(PDFA1B)
 	if err != nil {
 		return false, err
 	}
@@ -188,11 +188,11 @@ func (d *Document) ClaimedConformance() (part, conformance string, err error) {
 	return d.r.ClaimedConformance()
 }
 
-// GetPageCount retrieves the page count.
-func (d *Document) GetPageCount() (int, error) { return d.r.GetPageCount() }
+// PageCount retrieves the page count.
+func (d *Document) PageCount() (int, error) { return d.r.PageCount() }
 
-// GetVersion extracts the PDF version from the document header.
-func (d *Document) GetVersion() (string, error) { return d.r.GetVersion() }
+// Version extracts the PDF version from the document header.
+func (d *Document) Version() (string, error) { return d.r.Version() }
 
-// GetMetadata extracts info from the Info dictionary.
-func (d *Document) GetMetadata() (map[string]string, error) { return d.r.GetMetadata() }
+// Metadata extracts info from the Info dictionary.
+func (d *Document) Metadata() (map[string]string, error) { return d.r.Metadata() }

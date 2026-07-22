@@ -46,12 +46,12 @@ func TestConvertMergedFinalVerifyOracle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			cr, err := ConvertBytes(data, PDFA_1B)
+			cr, err := ConvertBytes(data, PDFA1B)
 			if err != nil || len(cr.Output) == 0 {
 				t.Skipf("no convertible output (err=%v)", err)
 			}
 
-			fresh, err := VerifyBytes(cr.Output, PDFA_1B)
+			fresh, err := VerifyBytes(cr.Output, PDFA1B)
 			if err != nil {
 				t.Fatalf("fresh VerifyBytes of output: %v", err)
 			}

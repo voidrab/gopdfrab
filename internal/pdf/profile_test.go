@@ -6,7 +6,7 @@ import (
 )
 
 func TestProfileString(t *testing.T) {
-	p := NewProfile(A_1B)
+	p := NewProfile(A1B)
 	s := p.String()
 	if !strings.Contains(s, "Profile{") || !strings.Contains(s, "enabled:") {
 		t.Errorf("Profile.String() = %q", s)
@@ -18,7 +18,7 @@ func TestProfileString(t *testing.T) {
 func TestProfileClearAddCheckHas(t *testing.T) {
 	c := Checks.Structure.ObjectFraming
 
-	full := NewFullProfile(A_1B)
+	full := NewFullProfile(A1B)
 	full.SkipUnreachableXObjects = true
 	if !full.Has(c) {
 		t.Fatal("full profile should have every check enabled")
@@ -46,7 +46,7 @@ func TestProfileClearAddCheckHas(t *testing.T) {
 
 // TestProfileChecksNonEmpty covers Checks()'s enabled-check append branch.
 func TestProfileChecksNonEmpty(t *testing.T) {
-	full := NewFullProfile(A_1B)
+	full := NewFullProfile(A1B)
 	if len(full.Checks()) == 0 {
 		t.Error("expected a full profile's Checks() to be non-empty")
 	}
@@ -55,7 +55,7 @@ func TestProfileChecksNonEmpty(t *testing.T) {
 // TestProfileAllows covers both branches: a clause absent from the catalog
 // is always allowed, and a cataloged clause follows the profile's enabled state.
 func TestProfileAllows(t *testing.T) {
-	full := NewFullProfile(A_1B)
+	full := NewFullProfile(A1B)
 	if !full.Allows("not.a.real.clause", 0) {
 		t.Error("Allows() for an unknown clause should default to true")
 	}
@@ -66,7 +66,7 @@ func TestProfileAllows(t *testing.T) {
 
 // TestObjectModelOnly covers the standalone object-model profile: it must be
 // tagged with the ObjectModel level, enable exactly the five objmodel checks
-// (including KeyIntroducedAfterPDF14, unlike PDFA_1B), and nothing else.
+// (including KeyIntroducedAfterPDF14, unlike PDFA1B), and nothing else.
 func TestObjectModelOnly(t *testing.T) {
 	p := ObjectModelOnly()
 	if p.Level != ObjectModel {
@@ -93,16 +93,16 @@ func TestObjectModelOnly(t *testing.T) {
 }
 
 // TestPDFA1BDisablesKeyIntroducedAfterPDF14 documents the veraPDF divergence:
-// PDFA_1B drops this check (structural/informational post-1.4 keys like
+// PDFA1B drops this check (structural/informational post-1.4 keys like
 // FileTrailer.XRefStm are ignorable by a 1.4 reader and veraPDF does not flag
-// them), while Legacy_1B keeps the full, spec-literal catalog.
+// them), while Legacy1B keeps the full, spec-literal catalog.
 func TestPDFA1BDisablesKeyIntroducedAfterPDF14(t *testing.T) {
 	c := Checks.ObjectModel.KeyIntroducedAfterPDF14
-	if PDFA_1B.Has(c) {
-		t.Error("PDFA_1B should not enforce KeyIntroducedAfterPDF14")
+	if PDFA1B.Has(c) {
+		t.Error("PDFA1B should not enforce KeyIntroducedAfterPDF14")
 	}
-	if !Legacy_1B.Has(c) {
-		t.Error("Legacy_1B should enforce KeyIntroducedAfterPDF14")
+	if !Legacy1B.Has(c) {
+		t.Error("Legacy1B should enforce KeyIntroducedAfterPDF14")
 	}
 }
 
@@ -110,8 +110,8 @@ func TestOnlyObjectModelChecks(t *testing.T) {
 	if !ObjectModelOnly().OnlyObjectModelChecks() {
 		t.Error("ObjectModelOnly must report OnlyObjectModelChecks")
 	}
-	if PDFA_1B.OnlyObjectModelChecks() {
-		t.Error("PDFA_1B enables PDF/A checks, must not report OnlyObjectModelChecks")
+	if PDFA1B.OnlyObjectModelChecks() {
+		t.Error("PDFA1B enables PDF/A checks, must not report OnlyObjectModelChecks")
 	}
 	if !NewProfile(ObjectModel).OnlyObjectModelChecks() {
 		t.Error("an empty profile enables nothing outside objmodel")

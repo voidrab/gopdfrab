@@ -26,7 +26,7 @@ func targetedFixture(t *testing.T, path string, c pdf.Check) (*fixPass, []pdf.PD
 	}
 	objs := writer.NumberObjects(*trailerHolder)
 	doc.SeedResolvedGraph(*trailerHolder, objs)
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		doc.Close()
 		closeDoc()

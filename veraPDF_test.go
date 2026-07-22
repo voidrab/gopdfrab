@@ -78,7 +78,7 @@ func TestVeraPDFSuite(t *testing.T) {
 				}
 				defer doc.Close()
 
-				res, verr := doc.Verify(PDFA_1B)
+				res, verr := doc.Verify(PDFA1B)
 				if verr != nil {
 					passFalsePos++
 					t.Errorf("Verify returned error on conformant file: %v", verr)
@@ -104,7 +104,7 @@ func TestVeraPDFSuite(t *testing.T) {
 			}
 			defer doc.Close()
 
-			res, verr := doc.Verify(PDFA_1B)
+			res, verr := doc.Verify(PDFA1B)
 			if verr != nil {
 				failCaught++
 				t.Logf("Verify returned error (treated as caught): %v", verr)

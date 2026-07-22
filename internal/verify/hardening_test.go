@@ -47,7 +47,7 @@ func verifyDeepGraph(t *testing.T, graph pdf.PDFDict) pdf.Result {
 	}
 	t.Cleanup(func() { r.Close() })
 	r.SeedResolvedGraph(graph, map[int]pdf.PDFValue{})
-	res, err := Verify(r, pdf.PDFA_1B)
+	res, err := Verify(r, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

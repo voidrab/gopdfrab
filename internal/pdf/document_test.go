@@ -49,25 +49,25 @@ func TestDocument_OpenAndRead(t *testing.T) {
 		t.Error("Reader size reported as 0")
 	}
 
-	meta, err := doc.GetMetadata()
+	meta, err := doc.Metadata()
 	if err != nil {
-		t.Errorf("GetMetadata error: %v", err)
+		t.Errorf("Metadata error: %v", err)
 	}
 	if meta["Title"] != "Test PDF" {
 		t.Errorf("Expected Title 'Test PDF', got %v", meta["Title"])
 	}
 
-	count, err := doc.GetPageCount()
+	count, err := doc.PageCount()
 	if err != nil {
-		t.Errorf("GetPageCount error: %v", err)
+		t.Errorf("PageCount error: %v", err)
 	}
 	if count != 5 {
 		t.Errorf("Expected 5 pages, got %d", count)
 	}
 
-	version, err := doc.GetVersion()
+	version, err := doc.Version()
 	if err != nil {
-		t.Errorf("GetVersion error: %v", err)
+		t.Errorf("Version error: %v", err)
 	}
 	if version != "1.7" {
 		t.Errorf("Expected PDF version 1.7, got %v", version)
@@ -87,9 +87,9 @@ func TestDocument_GetPageCount(t *testing.T) {
 	}
 	defer doc.Close()
 
-	count, err := doc.GetPageCount()
+	count, err := doc.PageCount()
 	if err != nil {
-		t.Errorf("GetPageCount error: %v", err)
+		t.Errorf("PageCount error: %v", err)
 	}
 	if count != 5 {
 		t.Errorf("Expected 5 pages, got %d", count)
@@ -109,9 +109,9 @@ func TestDocument_GetVersion(t *testing.T) {
 	}
 	defer doc.Close()
 
-	version, err := doc.GetVersion()
+	version, err := doc.Version()
 	if err != nil {
-		t.Errorf("GetVersion error: %v", err)
+		t.Errorf("Version error: %v", err)
 	}
 	if version != "1.7" {
 		t.Errorf("Expected PDF version 1.7, got %v", version)
@@ -166,7 +166,7 @@ func TestOpenEmptyFile(t *testing.T) {
 	}
 }
 
-// TestGetVersionBranches covers every branch of GetVersion via a bare Reader.
+// TestGetVersionBranches covers every branch of Version via a bare Reader.
 func TestGetVersionBranches(t *testing.T) {
 	cases := []struct {
 		header  string
@@ -179,9 +179,9 @@ func TestGetVersionBranches(t *testing.T) {
 		{"%PDF-\n", "", true},      // missing version
 	}
 	for _, c := range cases {
-		got, err := (&Reader{header: []byte(c.header)}).GetVersion()
+		got, err := (&Reader{header: []byte(c.header)}).Version()
 		if (err != nil) != c.wantErr || got != c.want {
-			t.Errorf("GetVersion(%q) = %q, %v; want %q, err=%v", c.header, got, err, c.want, c.wantErr)
+			t.Errorf("Version(%q) = %q, %v; want %q, err=%v", c.header, got, err, c.want, c.wantErr)
 		}
 	}
 }
@@ -290,15 +290,15 @@ func TestInitializeStructureMalformedTrailerBranches(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenBytes with rootless trailer: %v", err)
 		}
-		if _, err := doc.GetPageCount(); err == nil {
-			t.Error("expected GetPageCount to fail: no /Root was ever found")
+		if _, err := doc.PageCount(); err == nil {
+			t.Error("expected PageCount to fail: no /Root was ever found")
 		}
 	})
 }
 
-// TestAccessorsMissingMetadata covers the error paths of GetMetadata,
+// TestAccessorsMissingMetadata covers the error paths of Metadata,
 // XMPMetadata, and ClaimedConformance on a document that has neither an Info
-// dictionary nor an XMP metadata stream, and confirms GetPageCount still works.
+// dictionary nor an XMP metadata stream, and confirms PageCount still works.
 func TestAccessorsMissingMetadata(t *testing.T) {
 	path := writeMinimalPDF(t,
 		[]string{
@@ -313,8 +313,8 @@ func TestAccessorsMissingMetadata(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if _, err := doc.GetMetadata(); err == nil {
-		t.Error("GetMetadata should error when there is no Info dict")
+	if _, err := doc.Metadata(); err == nil {
+		t.Error("Metadata should error when there is no Info dict")
 	}
 	if _, err := doc.XMPMetadata(); err == nil {
 		t.Error("XMPMetadata should error when there is no metadata stream")
@@ -322,8 +322,8 @@ func TestAccessorsMissingMetadata(t *testing.T) {
 	if _, _, err := doc.ClaimedConformance(); err == nil {
 		t.Error("ClaimedConformance should error when there is no XMP")
 	}
-	if n, err := doc.GetPageCount(); err != nil || n != 3 {
-		t.Errorf("GetPageCount = %d, %v; want 3", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 3 {
+		t.Errorf("PageCount = %d, %v; want 3", n, err)
 	}
 }
 
@@ -348,8 +348,8 @@ func TestBruteForceXRefRecovery(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 7 {
-		t.Errorf("recovered GetPageCount = %d, %v; want 7", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 7 {
+		t.Errorf("recovered PageCount = %d, %v; want 7", n, err)
 	}
 }
 
@@ -461,16 +461,16 @@ func TestNewRawReaderAndSeedResolvedGraph(t *testing.T) {
 // PDFHexString entry decode branch.
 func TestGetMetadataBranches(t *testing.T) {
 	notDict := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{"Info": PDFInteger(7)}}}
-	if _, err := notDict.GetMetadata(); err == nil {
+	if _, err := notDict.Metadata(); err == nil {
 		t.Error("expected error when Info is not a dictionary")
 	}
 
 	hexInfo := &Reader{trailer: PDFDict{Entries: map[string]PDFValue{
 		"Info": PDFDict{Entries: map[string]PDFValue{"Title": PDFHexString{Value: "48656C6C6F"}}},
 	}}}
-	meta, err := hexInfo.GetMetadata()
+	meta, err := hexInfo.Metadata()
 	if err != nil || meta["Title"] != "Hello" {
-		t.Errorf("GetMetadata(hex title) = %v, %v; want Hello", meta, err)
+		t.Errorf("Metadata(hex title) = %v, %v; want Hello", meta, err)
 	}
 }
 
@@ -519,9 +519,9 @@ func TestGetPageCountNonInteger(t *testing.T) {
 			"Pages": PDFDict{Entries: map[string]PDFValue{"Count": PDFName{Value: "notanumber"}}},
 		}},
 	}}}
-	n, err := d.GetPageCount()
+	n, err := d.PageCount()
 	if err != nil || n != 0 {
-		t.Errorf("GetPageCount(non-integer Count) = %d, %v; want 0, nil", n, err)
+		t.Errorf("PageCount(non-integer Count) = %d, %v; want 0, nil", n, err)
 	}
 }
 

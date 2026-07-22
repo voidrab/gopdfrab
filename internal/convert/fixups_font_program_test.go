@@ -140,7 +140,7 @@ func assertCheckClearedByWrite(t *testing.T, trailer pdf.PDFDict, c pdf.Check) {
 		t.Fatalf("pdf.Open(written output): %v", err)
 	}
 	defer doc.Close()
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
-	res, err := verify.VerifyFile(path, pdf.PDFA_1B)
+	res, err := verify.VerifyFile(path, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

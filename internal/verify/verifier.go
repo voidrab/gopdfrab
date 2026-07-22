@@ -31,7 +31,7 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	}
 
 	var issues []pdf.PDFError
-	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
+	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
 		issues = verifyPdfA1b(d, p)
 	}
 	issues = filterByProfile(issues, p)
@@ -85,7 +85,7 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
 	}
 	var pt Parts
-	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
+	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
 		pt = verifyPdfA1bParts(d, p)
 	}
 	return pt.filter(p), nil
@@ -104,7 +104,7 @@ func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
 	}
 	var pt Parts
-	if (p.Level == pdf.A_1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
+	if (p.Level == pdf.A1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
 		pt.PreStructural = structuralPreIssues(d)
 		pt.PostStructural = structuralPostIssues(d)
 	}

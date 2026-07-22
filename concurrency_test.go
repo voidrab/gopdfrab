@@ -26,8 +26,8 @@ func TestGeneratedCorpusRace(t *testing.T) {
 			defer wg.Done()
 			defer func() { _ = recover() }()
 			data := pdfgen.Generate(seed)
-			gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
-			gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+			gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+			gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 		}(s)
 	}
 	wg.Wait()

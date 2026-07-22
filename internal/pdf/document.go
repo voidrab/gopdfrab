@@ -715,8 +715,8 @@ func (d *Reader) Trailer() PDFDict {
 	return d.trailer
 }
 
-// GetVersion extracts the PDF version from the Reader header
-func (d *Reader) GetVersion() (string, error) {
+// Version extracts the PDF version from the Reader header
+func (d *Reader) Version() (string, error) {
 	if !bytes.HasPrefix(d.header, []byte("%PDF-")) {
 		return "", errors.New("invalid file format: missing PDF header")
 	}
@@ -741,8 +741,8 @@ func (d *Reader) GetVersion() (string, error) {
 	return version, nil
 }
 
-// GetMetadata extracts info from the Info dictionary.
-func (d *Reader) GetMetadata() (map[string]string, error) {
+// Metadata extracts info from the Info dictionary.
+func (d *Reader) Metadata() (map[string]string, error) {
 	value, err := d.ResolveGraphByPath([]string{"Info"})
 	if err != nil {
 		return nil, fmt.Errorf("no information dictionary found: %v", err)
@@ -796,8 +796,8 @@ func (d *Reader) ClaimedConformance() (part, conformance string, err error) {
 	return part, conformance, nil
 }
 
-// GetPageCount retrieves the page count.
-func (d *Reader) GetPageCount() (int, error) {
+// PageCount retrieves the page count.
+func (d *Reader) PageCount() (int, error) {
 	value, err := d.ResolveGraphByPath([]string{"Root", "Pages", "Count"})
 	if err != nil {
 		return 0, err

@@ -32,7 +32,7 @@ func FuzzVerifyBytes(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+		gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 		gopdfrab.VerifyObjectModelBytes(data)
 	})
 }
@@ -50,9 +50,9 @@ func FuzzGeneratedSeed(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.VerifyBytes(data, gopdfrab.PDFA_1B)
+		gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
 		gopdfrab.VerifyObjectModelBytes(data)
-		gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 	})
 }
 
@@ -65,7 +65,7 @@ func FuzzConvertBytes(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 	})
 }
 
@@ -79,7 +79,7 @@ func FuzzConvertRoundTrip(f *testing.F) {
 		if len(data) > fuzzInputCap {
 			return
 		}
-		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		if err != nil || len(res.Output) == 0 {
 			return
 		}
@@ -89,6 +89,6 @@ func FuzzConvertRoundTrip(f *testing.F) {
 		}
 		defer r.Close()
 		r.ResolveGraph()
-		r.GetPageCount()
+		r.PageCount()
 	})
 }

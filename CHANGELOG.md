@@ -48,6 +48,10 @@ notable work:
   converted PDF to any sink alongside the existing `Save(path)`.
 
 ### Changed
+- **Breaking:** renamed for Go convention (no underscores, no `Get` prefix).
+  Constant `A_1B` → `A1B`; profile variables `PDFA_1B` → `PDFA1B`, `Legacy_1B` →
+  `Legacy1B`; `Document`/`Reader` accessors `GetPageCount`/`GetVersion`/
+  `GetMetadata` → `PageCount`/`Version`/`Metadata`. No aliases (pre-1.0).
 - Convert refuses a file that genuinely requires a password with
   `ErrPasswordRequired` instead of emitting a document with undecryptable
   streams.

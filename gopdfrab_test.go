@@ -11,7 +11,7 @@ import (
 // TestRegistryPassthroughs exercises the check-registry facade functions,
 // which need no PDF fixture.
 func TestRegistryPassthroughs(t *testing.T) {
-	if p := NewProfile(A_1B); p == nil {
+	if p := NewProfile(A1B); p == nil {
 		t.Fatal("NewProfile returned nil")
 	}
 
@@ -40,7 +40,7 @@ func TestVerifyWrappers(t *testing.T) {
 	}
 	path := paths[0]
 
-	if _, err := Verify(path, PDFA_1B); err != nil {
+	if _, err := Verify(path, PDFA1B); err != nil {
 		t.Errorf("Verify: %v", err)
 	}
 
@@ -48,11 +48,11 @@ func TestVerifyWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if _, err := VerifyBytes(data, PDFA_1B); err != nil {
+	if _, err := VerifyBytes(data, PDFA1B); err != nil {
 		t.Errorf("VerifyBytes: %v", err)
 	}
 
-	results, err := VerifyAll([]string{path}, PDFA_1B)
+	results, err := VerifyAll([]string{path}, PDFA1B)
 	if err != nil {
 		t.Errorf("VerifyAll: %v", err)
 	}
@@ -155,26 +155,26 @@ func TestDocumentAccessors(t *testing.T) {
 	} else if part != "1" {
 		t.Errorf("ClaimedConformance part = %q, want \"1\"", part)
 	}
-	if n, err := doc.GetPageCount(); err != nil {
-		t.Errorf("GetPageCount: %v", err)
+	if n, err := doc.PageCount(); err != nil {
+		t.Errorf("PageCount: %v", err)
 	} else if n < 1 {
-		t.Errorf("GetPageCount = %d, want >= 1", n)
+		t.Errorf("PageCount = %d, want >= 1", n)
 	}
-	if v, err := doc.GetVersion(); err != nil {
-		t.Errorf("GetVersion: %v", err)
+	if v, err := doc.Version(); err != nil {
+		t.Errorf("Version: %v", err)
 	} else if v == "" {
-		t.Error("GetVersion returned empty string")
+		t.Error("Version returned empty string")
 	}
 	// Info is optional in PDF/A, so a missing dictionary is not a failure;
 	// exercise the facade either way.
-	doc.GetMetadata()
+	doc.Metadata()
 
 	// The IsPDFA/IsPDF error paths only fire when the underlying verify
 	// fails, which for a fixed profile means an undefined conformance level.
 	// Swap the profile variables to drive those branches, then restore them.
-	savedPDFA := PDFA_1B
+	savedPDFA := PDFA1B
 	savedPDF := PDF
-	PDFA_1B = NewProfile(Undefined)
+	PDFA1B = NewProfile(Undefined)
 	PDF = NewProfile(Undefined)
 	if ok, err := doc.IsPDFA(); err == nil || ok {
 		t.Errorf("IsPDFA with undefined profile = (%v, %v), want (false, error)", ok, err)
@@ -182,7 +182,7 @@ func TestDocumentAccessors(t *testing.T) {
 	if ok, err := doc.IsPDF(); err == nil || ok {
 		t.Errorf("IsPDF with undefined profile = (%v, %v), want (false, error)", ok, err)
 	}
-	PDFA_1B = savedPDFA
+	PDFA1B = savedPDFA
 	PDF = savedPDF
 
 	if _, err := Open("testdata/does-not-exist.pdf"); err == nil {
@@ -198,7 +198,7 @@ func TestResultMarshalsToJSON(t *testing.T) {
 	if err != nil {
 		t.Skipf("fixture absent: %v", err)
 	}
-	res, err := VerifyBytes(data, PDFA_1B)
+	res, err := VerifyBytes(data, PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}

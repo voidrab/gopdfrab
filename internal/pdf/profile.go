@@ -9,7 +9,7 @@ type LevelType string
 
 const (
 	Undefined LevelType = "undefined"
-	A_1B      LevelType = "A-1b"
+	A1B       LevelType = "A-1b"
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
 	ObjectModel LevelType = "ObjectModel"
@@ -24,34 +24,34 @@ type Profile struct {
 
 	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
 	// never invoked via Do from a reachable content stream. ISO 19005-1
-	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy_1B keeps this
-	// false; PDFA_1B sets it true to match veraPDF's lenient interpretation.
+	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy1B keeps this
+	// false; PDFA1B sets it true to match veraPDF's lenient interpretation.
 	SkipUnreachableXObjects bool
 
 	// SkipUnusedSimpleFonts, when true, only reports 6.3.4 (SimpleNotEmbedded)
 	// for simple fonts actually shown in content. Fonts in AcroForm /DR that
 	// are never drawn are silently ignored, matching veraPDF's interpretation.
-	// Legacy_1B keeps this false so every referenced non-embedded font is flagged.
+	// Legacy1B keeps this false so every referenced non-embedded font is flagged.
 	SkipUnusedSimpleFonts bool
 }
 
 // PDF is the default profile for generic ISO 32000 object-model checks.
 var PDF *Profile
 
-// PDFA_1B is the default PDF/A-1b profile, tuned to match veraPDF's
-// interpretation of the spec. Used by Verify(A_1B).
-var PDFA_1B *Profile
+// PDFA1B is the default PDF/A-1b profile, tuned to match veraPDF's
+// interpretation of the spec. Used by Verify(A1B).
+var PDFA1B *Profile
 
-// Legacy_1B is the strict, fully spec-literal PDF/A-1b profile: every check
+// Legacy1B is the strict, fully spec-literal PDF/A-1b profile: every check
 // enabled, every Form XObject checked regardless of reachability. Matches the
 // Isartor suite's interpretation, which is stricter than veraPDF's in places.
-var Legacy_1B *Profile
+var Legacy1B *Profile
 
 func init() {
 	PDF = ObjectModelOnly()
-	Legacy_1B = NewFullProfile(A_1B)
+	Legacy1B = NewFullProfile(A1B)
 
-	// PDFA_1B adjusts the full profile for veraPDF's divergences from the
+	// PDFA1B adjusts the full profile for veraPDF's divergences from the
 	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
 	// out-of-scope (6.2.3.3, 6.2.10); 6.2.7 PostScript XObject checks are
 	// disabled (veraPDF's own corpus intentionally includes one in a pass
@@ -62,11 +62,11 @@ func init() {
 	// hybrid-reference XRefStm, Catalog's Extensions) and are ignorable by a
 	// PDF 1.4 reader, but Arlington has no data distinguishing those from
 	// keys that actually change required interpretation -- veraPDF does not
-	// flag them, so this stays Legacy_1B-only (spec-literal) for now.
-	PDFA_1B = NewFullProfile(A_1B)
-	PDFA_1B.SkipUnreachableXObjects = true
-	PDFA_1B.SkipUnusedSimpleFonts = true
-	PDFA_1B = PDFA_1B.RemoveCheck(
+	// flag them, so this stays Legacy1B-only (spec-literal) for now.
+	PDFA1B = NewFullProfile(A1B)
+	PDFA1B.SkipUnreachableXObjects = true
+	PDFA1B.SkipUnusedSimpleFonts = true
+	PDFA1B = PDFA1B.RemoveCheck(
 		Checks.Image.FormPostScript,
 		Checks.Image.PostScriptXObject,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,

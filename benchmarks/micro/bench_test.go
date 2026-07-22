@@ -59,7 +59,7 @@ var sampleFiles = map[string]string{
 		"veraPDF test suite 6-1-12-t08-fail-a.pdf"),
 }
 
-// BenchmarkOpenVerify measures Open+Verify(A_1B) for each representative
+// BenchmarkOpenVerify measures Open+Verify(A1B) for each representative
 // file size. Run with: go test -bench=. -benchmem ./benchmarks/micro/...
 func BenchmarkOpenVerify(b *testing.B) {
 	root := repoRoot()
@@ -72,7 +72,7 @@ func BenchmarkOpenVerify(b *testing.B) {
 				if err != nil {
 					b.Fatalf("Open(%s): %v", path, err)
 				}
-				if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
+				if _, err := doc.Verify(gopdfrab.PDFA1B); err != nil {
 					doc.Close()
 					b.Fatalf("Verify(%s): %v", path, err)
 				}
@@ -97,7 +97,7 @@ func BenchmarkConvert(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
+				if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
 					b.Fatalf("ConvertBytes(%s): %v", name, err)
 				}
 			}
@@ -106,7 +106,7 @@ func BenchmarkConvert(b *testing.B) {
 }
 
 // maxLargeFileAllocs is a regression ceiling on allocations for one
-// Open+Verify(A_1B) pass over the "large" sample (the 6.1.12 torture test
+// Open+Verify(A1B) pass over the "large" sample (the 6.1.12 torture test
 // with 40,015 indirect objects). It guards against reintroducing the
 // per-object re-parsing and re-decoding blowup this count used to track:
 // ~4.64M allocs/op before resolveReference/decodeStream results were
@@ -156,7 +156,7 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 		defer doc.Close()
-		if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
+		if _, err := doc.Verify(gopdfrab.PDFA1B); err != nil {
 			t.Fatalf("Verify(%s): %v", path, err)
 		}
 	})
@@ -209,7 +209,7 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(3, func() {
-		if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
+		if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
 			t.Fatalf("ConvertBytes(large): %v", err)
 		}
 	})
@@ -235,13 +235,13 @@ func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+			cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 			if err != nil {
 				t.Fatalf("ConvertBytes: %v", err)
 			}
 
 			// Independent fresh verify of the same output bytes.
-			fresh, err := gopdfrab.VerifyBytes(cr.Output, gopdfrab.PDFA_1B)
+			fresh, err := gopdfrab.VerifyBytes(cr.Output, gopdfrab.PDFA1B)
 			if err != nil {
 				t.Fatalf("VerifyBytes: %v", err)
 			}

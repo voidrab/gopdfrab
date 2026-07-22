@@ -59,7 +59,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			res, err := Verify(path, PDFA_1B)
+			res, err := Verify(path, PDFA1B)
 			if err != nil {
 				t.Fatalf("Verify failed: %v", err)
 			}
@@ -91,7 +91,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 			}
 
 			// Causes agree: convert and require a clean PDF/A-1b result.
-			cr, err := Convert(path, PDFA_1B)
+			cr, err := Convert(path, PDFA1B)
 			if err != nil {
 				t.Fatalf("Convert failed: %v", err)
 			}

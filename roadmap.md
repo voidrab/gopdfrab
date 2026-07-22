@@ -363,7 +363,7 @@ DPI, cap iterations (hardcoded `maxConvertIterations = 4`), adjust the resource
 limits from item 7, or supply a password.
 
 ```go
-gopdfrab.Convert(path, gopdfrab.PDFA_1B,
+gopdfrab.Convert(path, gopdfrab.PDFA1B,
     gopdfrab.WithRasterDPI(200),
     gopdfrab.WithMaxIterations(8),
     gopdfrab.WithPassword(pw))
@@ -425,12 +425,20 @@ external users cannot do. Ship `cmd/gopdfrab` with verify/convert subcommands,
 input. It's how most people will first try the library and what makes the
 benchmark numbers reproducible by anyone else.
 
-### 21. Naming consistency
+### 21. Naming consistency — **DONE**
 
-`PDFA_1B` / `A_1B` / `Legacy_1B` / `PDF` / `ObjectModel` mix conventions across
-level constants and profile variables. `Document.GetPageCount`/`GetVersion`/
-`GetMetadata` carry `Get` prefixes nothing else uses. Fix both while breaking
-changes are still free.
+The level constants and profile variables mixed snake_case with MixedCaps.
+Dropped the underscores per Go convention (staticcheck ST1003): the `LevelType`
+constant `A_1B` is now `A1B` (`Undefined`/`ObjectModel` unchanged), and the
+profile variables `PDFA1B`/`Legacy1B` are now `PDFA1B`/`Legacy1B` (`PDF`
+unchanged). Initialisms stay all-caps (`PDFA1B`, not `PdfA1b`). The profile's
+`PDF` prefix over the level's bare name is intentional — they are different types
+in different roles (`Verify(path, PDFA1B)` vs `res.Type == A1B`).
+
+Per Effective Go's getter rule, the `Get` prefix is gone from the `Document` and
+`Reader` accessors: `GetPageCount`/`GetVersion`/`GetMetadata` are now
+`PageCount`/`Version`/`Metadata`. A hard rename with no deprecated aliases, since
+the API is still pre-1.0. README updated to match.
 
 ---
 
@@ -531,7 +539,7 @@ Recorded so nobody re-investigates:
   ~15 depth and size limits across the parser. Only the silent-truncation
   behaviour is a problem (item 7).
 - **Profile immutability**: `AddCheck`/`RemoveCheck`/`Clear` all clone. The
-  `PDFA_1B.RemoveCheck(...)` pattern in the README cannot mutate the global.
+  `PDFA1B.RemoveCheck(...)` pattern in the README cannot mutate the global.
 - **Corpus is committed**: 777 files tracked. Conformance genuinely does run in
   CI. It's `tests/regression/` that's missing (item 11).
 - **False positives are tested**: 263 pass files in the veraPDF corpus. The gap

@@ -61,7 +61,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := false
 
-	if err := rasterBackstop(doc, &trailer, cr, pdf.PDFA_1B, fixers, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -118,7 +118,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(nil, &trailer, cr, pdf.PDFA_1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {
@@ -160,7 +160,7 @@ func TestRunWrapsSerializeError(t *testing.T) {
 	root := trailer.Entries["Root"].(pdf.PDFDict)
 	root.Entries["Bogus"] = struct{ X int }{1}
 
-	_, err = Run(doc, pdf.PDFA_1B)
+	_, err = Run(doc, pdf.PDFA1B)
 	if err == nil || !strings.Contains(err.Error(), "unsupported value type") {
 		t.Errorf("Run over an unserializable graph err = %v, want an unsupported-value-type error", err)
 	}
