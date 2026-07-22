@@ -8,26 +8,28 @@ PDF/A processing for go!
 
 Verify and convert PDF documents with a small, predictable open source library.
 
-## Disclaimer
+## Status
 
-This project is at an early stage and under active development. The API is not final and will change heavily until the first proper release.
+PDF/A-1b verification and conversion are implemented and tested against the full
+Isartor and veraPDF conformance suites (see [Performance](#performance) and
+[Fuzzing & Stress Testing](#fuzzing--stress-testing)). The project is **pre-1.0**:
+the API is still being refined and may change until the first tagged release —
+[CHANGELOG.md](CHANGELOG.md) states the versioning and stability policy. To report
+a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Features
 
 - PDF structural integrity verification (Arlington model)
-- PDF/A verification
-- PDF/A conversion
+- PDF/A-1b verification
+- PDF/A-1b conversion
+- Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256), with the empty or
+  a supplied user/owner password
 
 ## Roadmap
 
-PDF/A-1b verification and conversion is still at an early stage, and appropriate testing infrastructure must be
-created to harden it.
-
-Next up are the implementation of capabilities for verification and conversion of:
-
-- PDF/A-2
-- PDF/A-3
-- PDF/A-4
+PDF/A-1b is the current focus and the target for the 1.0 release. The detailed,
+up-to-date roadmap — including what remains before the API is frozen — lives in
+[roadmap.md](roadmap.md). PDF/A-2, -3 and -4 come after 1.0.
 
 ## Getting Started
 
@@ -55,6 +57,23 @@ if err != nil {
   log.Fatal(err)
 }
 ```
+
+### Encrypted PDFs
+
+Encrypted documents are decrypted transparently on open when they use the empty
+user password — the common permission-only case. Supply a user or owner password
+explicitly with `OpenWithPassword`:
+
+```go
+doc, err := gopdfrab.OpenWithPassword(path, []byte("secret"))
+if errors.Is(err, gopdfrab.ErrPasswordRequired) {
+  log.Fatal("a correct password is required to open this file")
+}
+```
+
+`Verify` and `Convert` decrypt the same way. A file that genuinely needs a
+password they don't have is reported with `ErrPasswordRequired` rather than
+producing a broken result.
 
 ### PDF/A Validation
 
@@ -119,6 +138,18 @@ for _, r := range results {
 }
 ```
 
+### Typed Errors
+
+Open, verify and convert failures can be matched with `errors.Is` instead of
+inspecting message text:
+
+| Error | Meaning |
+|---|---|
+| `gopdfrab.ErrNotPDF` | the input is not a PDF (no `%PDF-` header) |
+| `gopdfrab.ErrDamaged` | a PDF whose cross-reference or trailer structure could not be parsed |
+| `gopdfrab.ErrEncrypted` | an encryption scheme gopdfrab does not implement |
+| `gopdfrab.ErrPasswordRequired` | a correct password is required to open the file |
+
 ### Inspecting Issues
 
 Each `PDFError` in `v.Issues` exposes the `Check` that flagged it, along with its page and underlying messages.
@@ -140,14 +171,27 @@ v.IssuesByCheck()                 // map[Check][]PDFError
 v.IssuesOnPage(1)                 // issues found on page 1 (0 = document-level)
 ```
 
+`Result`, `PDFError` and `Check` marshal to a stable JSON shape, for CLI, service, or CI integration:
+
+```go
+b, _ := json.Marshal(v)
+// {"type":"A-1b","valid":false,"issueCount":2,"issues":[{"check":{"name":"...","clause":"6.1.3",...},"page":0,"documentLevel":true,"messages":["..."],"text":"..."}]}
+```
+
 ### Document Helpers
 
 ```go
-ok, err := doc.IsPDFA()                      // shorthand for Verify(A1B).Valid
+ok, err := doc.IsPDFA()                      // shorthand for Verify(PDFA1B).Valid
 
 ok, err := doc.IsPDF()                       // shorthand for VerifyObjectModel().Valid
 
 part, level, err := doc.ClaimedConformance() // e.g. "1", "B" — what the file claims, not whether it's valid
+
+n, err := doc.PageCount()                    // number of pages
+
+version, err := doc.Version()                // PDF version from the header, e.g. "1.7"
+
+info, err := doc.Metadata()                  // Info dictionary entries (Title, Author, ...)
 
 xmp, err := doc.XMPMetadata()                // raw XMP packet bytes, decoded to UTF-8
 ```
@@ -168,6 +212,12 @@ if err := cr.Save("out.pdf"); err != nil {
 
 fmt.Println(cr.Iterations)      // how many verify/fixup passes it took
 fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
+```
+
+`cr.Save(path)` writes the output to a file; `cr.WriteTo(w)` streams it to any `io.Writer` (it implements `io.WriterTo`). Both error when there is no output.
+
+```go
+_, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer
 ```
 
 ### Converting an Open Document
@@ -352,6 +402,12 @@ go test -run '^$' -fuzz=FuzzParseFunction    -fuzztime=60s ./internal/pdf/
 go test -run '^$' -fuzz=FuzzConvertRoundTrip -fuzztime=60s .
 go test -race -run 'TestGeneratedCorpusRace|TestConcurrentDecodeIsSafe' ./... 
 ```
+
+## Security
+
+gopdfrab parses untrusted, frequently-hostile input by design. To report a
+suspected vulnerability, follow [SECURITY.md](SECURITY.md) — please do not open a
+public issue for one.
 
 ## Licensing
 
