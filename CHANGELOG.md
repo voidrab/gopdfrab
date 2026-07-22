@@ -40,6 +40,9 @@ notable work:
   password.
 - Typed, `errors.Is`-matchable sentinels `ErrEncrypted` and `ErrPasswordRequired`
   on the root package.
+- Stable JSON encoding of results: `Check`, `PDFError` and `Result` now implement
+  `MarshalJSON`, so `json.Marshal` of a verify/convert result produces a
+  documented shape instead of empty objects.
 
 ### Changed
 - Convert refuses a file that genuinely requires a password with

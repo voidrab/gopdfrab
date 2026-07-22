@@ -1,6 +1,8 @@
 package gopdfrab
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -185,5 +187,51 @@ func TestDocumentAccessors(t *testing.T) {
 
 	if _, err := Open("testdata/does-not-exist.pdf"); err == nil {
 		t.Error("Open of a missing file returned nil error")
+	}
+}
+
+// TestResultMarshalsToJSON confirms the public Result/PDFError/Check aliases
+// serialize to a populated, stable JSON shape rather than the empty objects
+// their unexported fields used to produce (roadmap item 17).
+func TestResultMarshalsToJSON(t *testing.T) {
+	data, err := os.ReadFile("internal/pdf/testdata/crypt/enc_aesv3.pdf")
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	res, err := VerifyBytes(data, PDFA_1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || len(res.Issues) == 0 {
+		t.Fatalf("expected an invalid result with issues (6.1.3 Encrypt), got valid=%v issues=%d", res.Valid, len(res.Issues))
+	}
+
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("json.Marshal(Result): %v", err)
+	}
+	if bytes.Contains(b, []byte("{}")) {
+		t.Fatalf("result JSON still contains empty objects: %s", b)
+	}
+
+	var decoded struct {
+		Valid      bool `json:"valid"`
+		IssueCount int  `json:"issueCount"`
+		Issues     []struct {
+			Check struct {
+				Name   string `json:"name"`
+				Clause string `json:"clause"`
+			} `json:"check"`
+			Text string `json:"text"`
+		} `json:"issues"`
+	}
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.IssueCount != len(res.Issues) || len(decoded.Issues) == 0 {
+		t.Fatalf("issueCount/issues mismatch: %s", b)
+	}
+	if decoded.Issues[0].Check.Clause == "" || decoded.Issues[0].Text == "" {
+		t.Errorf("issue check/text not populated: %s", b)
 	}
 }

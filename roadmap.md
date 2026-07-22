@@ -377,11 +377,17 @@ Nothing is cancellable. Add `VerifyContext`/`ConvertContext` and check
 cancellation at loop boundaries: per fixer pass, per page walk, per file in a
 batch. Anyone putting this behind an HTTP handler needs it.
 
-### 17. Results don't serialize
+### 17. Results don't serialize — **DONE**
 
-Every `PDFError` field is unexported, so `json.Marshal(result)` yields
-`[{},{},{}]`. Any CLI, service, or CI integration needs JSON. Add `MarshalJSON`
-on `PDFError`, `Check`, and `Result` with a documented, stable shape.
+Every `PDFError` field is unexported, so `json.Marshal(result)` yielded
+`[{},{},{}]`. `internal/pdf/json.go` now defines `MarshalJSON` on `Check`,
+`PDFError` and `Result` with a documented, stable, output-only shape (the root
+aliases inherit it): `Check` → `{name, clause, subclause, description}` (internal
+id omitted); `PDFError` → `{check, page, documentLevel, object?, objModel?,
+messages, text}`; `Result` → `{type, valid, issueCount, issues}` with `issues`
+always an array. Shape is pinned by tests in both `internal/pdf` and the root
+package. No `UnmarshalJSON`: a `Check`'s identity is its registry entry, not free
+text.
 
 ### 18. Streaming output
 
