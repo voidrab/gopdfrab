@@ -61,7 +61,7 @@ if err != nil {
 ### Encrypted PDFs
 
 Encrypted documents are decrypted transparently on open when they use the empty
-user password — the common permission-only case. Supply a user or owner password
+user password. Supply a user or owner password
 explicitly with `OpenWithPassword`:
 
 ```go
@@ -71,8 +71,8 @@ if errors.Is(err, gopdfrab.ErrPasswordRequired) {
 }
 ```
 
-`Verify` and `Convert` decrypt the same way. A file that genuinely needs a
-password they don't have is reported with `ErrPasswordRequired` rather than
+`Verify` and `Convert` decrypt the same way. A file that needs a
+password is reported with `ErrPasswordRequired` rather than
 producing a broken result.
 
 ### PDF/A Validation
