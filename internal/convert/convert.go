@@ -7,6 +7,7 @@ package convert
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"sort"
@@ -16,6 +17,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
+
+// ConvertResult implements io.WriterTo.
+var _ io.WriterTo = ConvertResult{}
 
 const maxConvertIterations = 4
 
@@ -29,6 +33,17 @@ type ConvertResult struct {
 // to fix automatically.
 func (r ConvertResult) Residual() []pdf.PDFError {
 	return r.Result.Issues
+}
+
+// WriteTo writes the converted PDF to w, implementing io.WriterTo, and returns
+// the number of bytes written. It errors if there is no output (see item 3:
+// Convert can produce a Result with no rewrite when the graph is unresolvable).
+func (r ConvertResult) WriteTo(w io.Writer) (int64, error) {
+	if len(r.Output) == 0 {
+		return 0, fmt.Errorf("convert: no output to write")
+	}
+	n, err := w.Write(r.Output)
+	return int64(n), err
 }
 
 // Save writes the converted PDF to the given path. It returns an error if

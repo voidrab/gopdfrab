@@ -389,10 +389,14 @@ always an array. Shape is pinned by tests in both `internal/pdf` and the root
 package. No `UnmarshalJSON`: a `Check`'s identity is its registry entry, not free
 text.
 
-### 18. Streaming output
+### 18. Streaming output — partly done
 
-`ConvertResult.Output []byte` plus `Save(path)`. Add `WriteTo(io.Writer)` and
-consider making `Output` lazy — see item 8.
+`ConvertResult` now has `WriteTo(io.Writer) (int64, error)` (implements
+`io.WriterTo`; `Save` unchanged), so callers can stream the rewrite to any sink
+without copying `Output` again. Both error when there is no output.
+
+Still open: making `Output` itself lazy so the whole PDF need not stay resident —
+that is the memory-footprint work in item 8, not a standalone API change.
 
 ### 19. Typed errors
 

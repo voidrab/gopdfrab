@@ -564,6 +564,26 @@ func TestConvertResultSave(t *testing.T) {
 	}
 }
 
+func TestConvertResultWriteTo(t *testing.T) {
+	out := []byte("%PDF-1.7\nbody")
+	var buf bytes.Buffer
+	n, err := (ConvertResult{Output: out}).WriteTo(&buf)
+	if err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if n != int64(len(out)) || !bytes.Equal(buf.Bytes(), out) {
+		t.Errorf("WriteTo wrote n=%d %q, want %d %q", n, buf.Bytes(), len(out), out)
+	}
+
+	n, err = (ConvertResult{}).WriteTo(&bytes.Buffer{})
+	if err == nil {
+		t.Error("WriteTo with empty Output should error")
+	}
+	if n != 0 {
+		t.Errorf("WriteTo with empty Output wrote n=%d, want 0", n)
+	}
+}
+
 // TestConvertBytesOpenError covers the pdf.OpenBytes error path: data too
 // short to even hold a header must surface as an error, not a panic or a
 // silently empty ConvertResult.

@@ -43,6 +43,8 @@ notable work:
 - Stable JSON encoding of results: `Check`, `PDFError` and `Result` now implement
   `MarshalJSON`, so `json.Marshal` of a verify/convert result produces a
   documented shape instead of empty objects.
+- `ConvertResult.WriteTo(io.Writer)` (implements `io.WriterTo`) to stream the
+  converted PDF to any sink alongside the existing `Save(path)`.
 
 ### Changed
 - Convert refuses a file that genuinely requires a password with
