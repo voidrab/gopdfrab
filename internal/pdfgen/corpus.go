@@ -27,6 +27,7 @@ func Seeds() [][]byte {
 		xrefStreamOnly(),
 		xrefStreamWithObjStm(),
 		incrementalUpdate(),
+		encryptedClassicRC4(),
 	}
 }
 

@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -509,17 +510,11 @@ func TestConvertIsDeterministic(t *testing.T) {
 // "fail" fixtures Convert turns fully conformant. A drop means something
 // regressed.
 //
-// 509, not 510. The hold-out is isartor-6-1-3-t02-fail-a.pdf, the only
-// encrypted fixture in either corpus. Convert strips its /Encrypt entry --
-// clearing the 6.1.3 violation -- but has no decryption, so the RC4-encrypted
-// stream bytes survive into the output unchanged. That output used to score
-// as fully conformant because nothing could decode those streams and the
-// decode errors were swallowed; Structure.StreamUndecodable now reports them.
-// The file is genuinely unconvertible until the standard security handler
-// lands (roadmap item 5), and re-encoding streams we cannot read would blank
-// real content to buy back the number. Raise this to 510 when decryption
-// exists, not before.
-const minConvertedFully = 509
+// 510: every "fail" fixture converts fully. The former hold-out,
+// isartor-6-1-3-t02-fail-a.pdf (the only encrypted fixture in either corpus),
+// now decrypts through the Standard security handler (empty user password),
+// so its RC4 streams re-encode as real content and the output is conformant.
+const minConvertedFully = 510
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome.
@@ -681,5 +676,43 @@ func TestSameMultiset(t *testing.T) {
 	diffCount := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 3, pdf.Checks.Colour.OutputIntentNotDict: 1}
 	if sameMultiset(a, diffCount) {
 		t.Error("sameMultiset(a, diffCount) = true, want false (differing count)")
+	}
+}
+
+const cryptDir = "../pdf/testdata/crypt"
+
+// TestConvertDecryptsEmptyPasswordFile confirms an empty-password encrypted
+// document is decrypted and converted to conformant output -- the case that
+// raised the corpus floor to 510.
+func TestConvertDecryptsEmptyPasswordFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptDir, "enc_aesv3.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	cr, err := ConvertBytes(data, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if len(cr.Output) == 0 {
+		t.Fatal("no output produced")
+	}
+	if !cr.Result.Valid {
+		t.Errorf("converted output not conformant: %v", cr.Result.Issues)
+	}
+}
+
+// TestConvertRefusesPasswordProtectedFile confirms Convert fails fast with
+// ErrPasswordRequired rather than emitting a document with encrypted streams.
+func TestConvertRefusesPasswordProtectedFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptDir, "enc_aesv2_pw.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	cr, err := ConvertBytes(data, pdf.PDFA_1B)
+	if !errors.Is(err, pdf.ErrPasswordRequired) {
+		t.Fatalf("err=%v, want ErrPasswordRequired", err)
+	}
+	if len(cr.Output) != 0 {
+		t.Error("no output should be produced for a password-protected file")
 	}
 }

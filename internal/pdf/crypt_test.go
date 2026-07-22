@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // The crypt/*.pdf fixtures are real qpdf output, each encrypting base.pdf whose
@@ -268,6 +270,39 @@ func TestIsXRefStream(t *testing.T) {
 	}
 	if isXRefStream(PDFDict{Entries: map[string]PDFValue{"Type": PDFName{Value: "ObjStm"}}}) {
 		t.Error("ObjStm wrongly recognised as XRef")
+	}
+}
+
+func TestDecryptPdfgenSeed(t *testing.T) {
+	// The encrypted fuzz seed must open and decrypt cleanly, so the whole-file
+	// fuzz targets replay a real decrypt path rather than an undecodable blob.
+	var seed []byte
+	for _, s := range pdfgen.Seeds() {
+		if bytes.Contains(s, []byte("/Encrypt")) {
+			seed = s
+			break
+		}
+	}
+	if seed == nil {
+		t.Fatal("no encrypted seed in pdfgen.Seeds()")
+	}
+	r, err := OpenBytes(seed)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if r.crypt == nil {
+		t.Fatal("seed not recognised as encrypted")
+	}
+	v, err := r.ResolveReference(PDFRef{ObjNum: 4})
+	if err != nil {
+		t.Fatalf("resolve content: %v", err)
+	}
+	dec, err := DecodeStream(v.(PDFDict))
+	if err != nil {
+		t.Fatalf("decode after decrypt: %v", err)
+	}
+	if !bytes.Contains(dec, []byte("q")) {
+		t.Errorf("content stream decrypted to %q, want the q/Q operators", dec)
 	}
 }
 

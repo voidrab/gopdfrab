@@ -14,7 +14,8 @@ Genuinely solid:
   306 fail) both fully green — so false positives *are* tested, on synthetic
   files.
 - Convert pipeline: pre-emptive fixups, verify/fix loop (max 4 iterations),
-  raster last resort. Corpus floor 509/510 — see item 5 for the hold-out.
+  raster last resort. Corpus floor 510/510 — the former encrypted hold-out now
+  decrypts (item 5).
 - One stream-decode chain in `internal/pdf`, covering every filter PDF/A-1
   permits, with a typed result separating "encoded image data" from "broken".
 - Arlington object-model checks, verify and convert, off a generated model.
@@ -163,32 +164,47 @@ Seed `internal/pdfgen` with these shapes. Oracle: a file with a deliberately
 broken xref must verify to the same issue set as the intact original, plus the
 recovery issue. That oracle would have caught item 2.
 
-### 5. Encrypted input converts to a corrupt document
+### 5. Encrypted input converts to a corrupt document — **DONE**
 
-Worse than first written, and now measured. No decryption anywhere. `Encrypt` in
-the trailer is correctly flagged (6.1.3) — and convert then **strips that entry**,
-clearing the violation, while having no way to decrypt the streams. The
-RC4-encrypted bytes survive into the output unchanged.
+Was: no decryption anywhere. `/Encrypt` was correctly flagged (6.1.3), convert
+**stripped that entry** to clear the violation, and the RC4-encrypted bytes
+survived into the output unchanged — a document convert knew was broken. The one
+encrypted fixture, `isartor-6-1-3-t02-fail-a.pdf`, was the sole hold-out keeping
+the convert floor at 509.
 
-Until item 1a, that output scored as **fully conformant**: nothing could decode
-those streams and the decode errors were swallowed, so no check ever objected. It
-was one of the 510. `Structure.StreamUndecodable` now reports it, which is why
-the convert floor is 509 — the one hold-out is
-`isartor-6-1-3-t02-fail-a.pdf`, the only encrypted fixture in either corpus.
+Implemented the Standard security handler in `internal/pdf/crypt.go`: RC4 40/128
+(V1/R2, V2/R3), AES-128 for R4 (AESV2 + Identity crypt filters), AES-256 for R6
+(ISO 32000-2 Algorithm 2.A/2.B), covering user, owner and empty passwords.
+Empty-password files decrypt automatically through `Open`/`OpenBytes` with no API
+change; `OpenWithPassword`/`OpenBytesWithPassword` take an explicit password. The
+handler is built once in `initializeStructure` (Encrypt dict and trailer `/ID`
+read before it goes live), and applied per object at the single
+`parseClassicReference` choke point — stream bytes into a fresh slice (never
+mutating the mmap alias), strings via a recursive walk — with cross-reference
+streams, the Encrypt object, and object-stream contents exempt by construction.
+New sentinel errors `ErrEncrypted`/`ErrPasswordRequired`, re-exported from root.
 
-The floor was deliberately *not* bought back with a fixer. Re-encoding streams
-that cannot be read means blanking real content to score a pass — precisely the
-failure mode item 12 exists to catch.
+Findings from the work:
 
-A large share of real-world PDFs are encrypted with an empty user password purely
-to set permission flags. Those are trivially decryptable and are a completely
-reasonable conversion input. Implement the standard security handler (RC4 40/128,
-AES-128 for R4, AES-256 for R6) for the empty-password case, plus an optional
-password on the open path, and report clearly when a real password is needed.
-Until then convert should arguably refuse encrypted input outright rather than
-emit a document it knows is broken (needs `ErrEncrypted`, item 19).
+- **The orphaned Encrypt object had to be dropped, not just its trailer entry.**
+  The writer already omitted `/Encrypt` from the rebuilt trailer, but the in-heap
+  verify still saw the resolved Encrypt dictionary, and the object-model checks
+  reject an AESV3 dict (V5/R6) under PDF/A-1b's model. A pre-emptive fixup now
+  deletes the trailer `/Encrypt` reference (the graph is already plaintext), which
+  orphans the dict so verify and the writer agree.
+- **Hex vs. literal string bytes.** `PDFHexString.Value` holds hex *text*, not
+  decoded bytes, so `/O`, `/U`, `/ID` and every encrypted hex string had to be
+  hex-decoded before use; the decrypted plaintext is raw bytes, so both spellings
+  collapse to a decoded literal string.
 
-Raise `minConvertedFully` back to 510 when this lands — not before.
+Validated against real qpdf output for every revision (RC4-40/128, AESV2, AESV3,
+plus cleartext-metadata, object-stream, and user/owner-password variants) and the
+committed isartor fixture. Convert refuses a genuinely password-required file with
+`ErrPasswordRequired` (surfaces at `pdf.Open`) rather than emitting broken output.
+`minConvertedFully` raised to 510.
+
+The optional `WithPassword` functional option on `Verify`/`Convert` is deferred to
+item 15, which will call the same internal path.
 
 ### 6. The rasterizer silently drops content
 

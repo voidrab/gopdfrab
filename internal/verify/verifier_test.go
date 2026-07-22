@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -1953,5 +1954,48 @@ func TestUndecodableContentReportsItsPage(t *testing.T) {
 	// CurrentPage must not leak past the page subtree.
 	if ctx.CurrentPage != 0 {
 		t.Errorf("CurrentPage = %d after the walk, want 0", ctx.CurrentPage)
+	}
+}
+
+const cryptFixtureDir = "../pdf/testdata/crypt"
+
+// TestVerifyEncryptedEmptyPassword confirms that an empty-password encrypted
+// file still flags the forbidden /Encrypt trailer entry (6.1.3), but -- now
+// that its streams decrypt -- no longer spuriously reports StreamUndecodable.
+func TestVerifyEncryptedEmptyPassword(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptFixtureDir, "enc_aesv3.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	res, err := VerifyBytes(data, pdf.PDFA_1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	var sawEncrypt, sawUndecodable bool
+	for _, iss := range res.Issues {
+		switch iss.Check() {
+		case pdf.Checks.Structure.TrailerEncrypt:
+			sawEncrypt = true
+		case pdf.Checks.Structure.StreamUndecodable:
+			sawUndecodable = true
+		}
+	}
+	if !sawEncrypt {
+		t.Error("expected 6.1.3 TrailerEncrypt to be reported")
+	}
+	if sawUndecodable {
+		t.Error("StreamUndecodable reported although streams decrypt cleanly")
+	}
+}
+
+// TestVerifyEncryptedPasswordRequired confirms verification surfaces
+// ErrPasswordRequired for a file that needs a real password.
+func TestVerifyEncryptedPasswordRequired(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptFixtureDir, "enc_aesv2_pw.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	if _, err := VerifyBytes(data, pdf.PDFA_1B); !errors.Is(err, pdf.ErrPasswordRequired) {
+		t.Fatalf("err=%v, want ErrPasswordRequired", err)
 	}
 }
