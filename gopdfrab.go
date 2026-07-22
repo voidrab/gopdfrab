@@ -39,10 +39,13 @@ var (
 // Checks is the registry of every selectable PDF/A check, grouped by area.
 var Checks = pdf.Checks
 
-// Errors callers can match with errors.Is. ErrEncrypted reports an encryption
-// scheme gopdfrab does not implement; ErrPasswordRequired reports that a
-// correct password is needed to open the file.
+// Errors callers can match with errors.Is on the result of Open/Verify/Convert.
+// ErrNotPDF: the input is not a PDF. ErrDamaged: a PDF whose cross-reference or
+// trailer structure could not be parsed. ErrEncrypted: an encryption scheme
+// gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
 var (
+	ErrNotPDF           = pdf.ErrNotPDF
+	ErrDamaged          = pdf.ErrDamaged
 	ErrEncrypted        = pdf.ErrEncrypted
 	ErrPasswordRequired = pdf.ErrPasswordRequired
 )

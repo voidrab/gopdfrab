@@ -398,18 +398,24 @@ without copying `Output` again. Both error when there is no output.
 Still open: making `Output` itself lazy so the whole PDF need not stay resident —
 that is the memory-footprint work in item 8, not a standalone API change.
 
-### 19. Typed errors
+### 19. Typed errors — **DONE**
 
-Mostly `fmt.Errorf`/`errors.New` strings, so callers can't tell "not a PDF" from
-"encrypted" from "truncated" from "I/O error" without matching on text. Define
-`ErrNotPDF`, `ErrEncrypted`, `ErrPasswordRequired`, `ErrDamaged`, wrapped for
-`errors.Is`. Items 3 and 5 depend on this.
+Callers can now tell the open-failure categories apart with `errors.Is` instead
+of matching message text. `ErrNotPDF`, `ErrDamaged`, `ErrEncrypted` and
+`ErrPasswordRequired` are defined in `internal/pdf/filters.go` and re-exported
+from the root package. The open path wraps them: `newDocument` and
+`initializeStructure` return `ErrNotPDF` when there is no `%PDF-` header (a
+tolerated garbage prefix is not misclassified) and `ErrDamaged` for every
+unparseable startxref/xref/trailer failure; decryption returns
+`ErrEncrypted`/`ErrPasswordRequired`. All wrap the specific cause, so the message
+is unchanged and the chain survives the `failed to parse structure: %w` wrapper.
+`TestOpenBytesErrorClassification` pins the mapping.
 
-Started: the decode chain defines `ErrEncodedImage`, `ErrUnsupportedFilter`,
-`ErrUnsupportedPredictor`, `ErrNotAStream` and `ErrOutputTooLarge` in
-`internal/pdf/filters.go`, and verify already branches on `errors.Is` for the
-first and fourth. Follow the same shape for the rest; note these are `internal/`
-and need re-exporting from the root package to be usable by callers.
+The decode chain's `ErrEncodedImage`, `ErrUnsupportedFilter`,
+`ErrUnsupportedPredictor`, `ErrNotAStream` and `ErrOutputTooLarge` remain as
+before. A distinct `ErrIO` was considered and skipped: a genuine mid-read I/O
+error is rare and already surfaces wrapped; splitting it from `ErrNotPDF` would
+add a category with almost no reachable call site.
 
 ### 20. A real CLI
 

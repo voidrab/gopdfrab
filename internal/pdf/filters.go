@@ -114,6 +114,12 @@ var (
 	// implement; ErrPasswordRequired reports a correct password is needed.
 	ErrEncrypted        = errors.New("pdf: document is encrypted")
 	ErrPasswordRequired = errors.New("pdf: correct password required to decrypt")
+
+	// ErrNotPDF reports that the input is not a PDF (no %PDF- header); ErrDamaged
+	// reports a PDF whose cross-reference or trailer structure could not be
+	// parsed. Both wrap the specific cause and are matchable with errors.Is.
+	ErrNotPDF  = errors.New("pdf: not a PDF document")
+	ErrDamaged = errors.New("pdf: damaged document structure")
 )
 
 // DecodeOptions supplies context a stream dictionary alone does not carry.

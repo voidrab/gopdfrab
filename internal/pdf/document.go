@@ -293,7 +293,8 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 	header := make([]byte, 8)
 	if _, err := src.ReadAt(header, 0); err != nil {
 		src.Close()
-		return nil, fmt.Errorf("failed to read header: %w", err)
+		// Too short to even hold a header: not a PDF.
+		return nil, fmt.Errorf("%w: could not read header: %v", ErrNotPDF, err)
 	}
 
 	doc := &Reader{
@@ -320,7 +321,13 @@ func (d *Reader) initializeStructure() error {
 	scanSize := min(d.size, 1024)
 	scanBuf := make([]byte, scanSize)
 	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
-		if idx := bytes.Index(scanBuf, []byte("%PDF-")); idx > 0 {
+		idx := bytes.Index(scanBuf, []byte("%PDF-"))
+		if idx < 0 {
+			// No header anywhere in the leading bytes: not a PDF, not merely
+			// damaged. (A garbage prefix before %PDF- is tolerated -- see below.)
+			return fmt.Errorf("%w: no %%PDF- header", ErrNotPDF)
+		}
+		if idx > 0 {
 			d.pdfStart = int64(idx)
 		}
 	}
@@ -335,19 +342,19 @@ func (d *Reader) initializeStructure() error {
 
 	startXrefIdx := bytes.LastIndex(tail, []byte("startxref"))
 	if startXrefIdx == -1 {
-		return errors.New("startxref not found")
+		return fmt.Errorf("%w: startxref not found", ErrDamaged)
 	}
 
 	contentAfterStartXref := string(tail[startXrefIdx+9:])
 
 	tokens := strings.Fields(contentAfterStartXref)
 	if len(tokens) == 0 {
-		return errors.New("startxref offset missing")
+		return fmt.Errorf("%w: startxref offset missing", ErrDamaged)
 	}
 
 	xrefOffset, err := strconv.ParseInt(tokens[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("could not parse startxref offset: %v", err)
+		return fmt.Errorf("%w: could not parse startxref offset: %v", ErrDamaged, err)
 	}
 
 	d.xrefOffset = xrefOffset
@@ -386,7 +393,7 @@ func (d *Reader) initializeStructure() error {
 			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
 				[]error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)}, 1, nil))
 			if err := d.recoverXRefByBruteForceScan(false); err != nil {
-				return fmt.Errorf("failed to parse xref table: %w", xrefErr)
+				return fmt.Errorf("%w: could not parse xref table: %v", ErrDamaged, xrefErr)
 			}
 		}
 	}
@@ -398,14 +405,14 @@ func (d *Reader) initializeStructure() error {
 		trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
 		if trailerIdx == -1 {
 			if xrefErr == nil {
-				return errors.New("trailer keyword not found")
+				return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
 			}
 			// No literal "trailer" keyword and no parseable cross-reference
 			// stream either: fall back to locating a brute-force-scanned
 			// "/Type /XRef" object to recover /Root.
 			trailer, err := d.recoverTrailerFromXRefStream()
 			if err != nil {
-				return errors.New("trailer keyword not found")
+				return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
 			}
 			d.trailer = trailer
 		} else {
@@ -413,12 +420,12 @@ func (d *Reader) initializeStructure() error {
 			defer l.Release()
 
 			if tok := l.NextToken(); tok.Value != "trailer" {
-				return errors.New("expected 'trailer' keyword")
+				return fmt.Errorf("%w: expected 'trailer' keyword", ErrDamaged)
 			}
 
 			trailer, err := parseDictionary(l)
 			if err != nil {
-				return fmt.Errorf("failed to parse trailer dictionary: %w", err)
+				return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, err)
 			}
 			d.trailer = trailer
 		}

@@ -38,8 +38,9 @@ notable work:
   (R6). Empty-password files decrypt automatically through `Open`/`OpenBytes`;
   `OpenWithPassword` / `OpenBytesWithPassword` take an explicit user or owner
   password.
-- Typed, `errors.Is`-matchable sentinels `ErrEncrypted` and `ErrPasswordRequired`
-  on the root package.
+- Typed, `errors.Is`-matchable sentinels on the root package: `ErrNotPDF`,
+  `ErrDamaged`, `ErrEncrypted` and `ErrPasswordRequired`. `Open`/`Verify`/
+  `Convert` classify open failures with these instead of message text.
 - Stable JSON encoding of results: `Check`, `PDFError` and `Result` now implement
   `MarshalJSON`, so `json.Marshal` of a verify/convert result produces a
   documented shape instead of empty objects.
