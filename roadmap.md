@@ -442,18 +442,23 @@ recovery on a large damaged file doesn't become a denial-of-service vector.
 
 ## P5 — release engineering
 
-### 25. Stability policy
+### 25. Stability policy — **DONE**
 
-No `CHANGELOG.md`, no stated semver policy, no deprecation process. For a library
-whose headline promise is a frozen API, say explicitly what 1.0 covers: the root
-package only, `internal/*` exempt, what a breaking change means, how long
-deprecated symbols live.
+`CHANGELOG.md` added (Keep a Changelog format) with a "Versioning and stability"
+section stating it explicitly: pre-1.0 nothing is stable; from 1.0 the guarantee
+covers the root package only, `internal/*` is exempt, a breaking change is one
+that stops a root-package consumer compiling or alters documented behavior (major
+only), a more-correct verifier/converter verdict is a fix not a break, and
+deprecated symbols carry a `// Deprecated:` comment for at least one minor release
+before removal in a later major. The `[Unreleased]` section is seeded with recent
+work.
 
-### 26. Security policy
+### 26. Security policy — **DONE**
 
-No `SECURITY.md`. This library parses untrusted, hostile input by design — that
-is its whole job. It needs a disclosure address and a stated response
-expectation before 1.0, not after the first report arrives.
+`SECURITY.md` added: private disclosure via GitHub security advisory or
+`contact@voidrab.com`, what counts as a vulnerability (crash/DoS/limit-bypass, a
+false pass, silent content loss on convert) versus an ordinary bug, best-effort
+response targets (3 / 10 business days), and pre-1.0 supported-version scope.
 
 ### 27. Documentation
 
