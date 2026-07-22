@@ -458,3 +458,50 @@ func TestDecodeStreamCryptFilter(t *testing.T) {
 		t.Errorf("Crypt filter = %v, want ErrUnsupportedFilter", err)
 	}
 }
+
+func deflateBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	zw := zlib.NewWriter(&b)
+	if _, err := zw.Write(data); err != nil {
+		t.Fatalf("zlib write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zlib close: %v", err)
+	}
+	return b.Bytes()
+}
+
+// TestInflateZlibSizeCap pins the size-cap boundary: output at the cap succeeds,
+// one byte over is a hard ErrOutputTooLarge with no partial data (rather than a
+// silently truncated prefix downstream checks would trust as complete).
+func TestInflateZlibSizeCap(t *testing.T) {
+	old := maxInflateOutput
+	maxInflateOutput = 1024
+	defer func() { maxInflateOutput = old }()
+
+	if out, err := InflateZlib(deflateBytes(t, make([]byte, 1024))); err != nil || len(out) != 1024 {
+		t.Fatalf("at cap: len=%d err=%v, want 1024/nil", len(out), err)
+	}
+	out, err := InflateZlib(deflateBytes(t, make([]byte, 1025)))
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("over cap: err=%v, want ErrOutputTooLarge", err)
+	}
+	if out != nil {
+		t.Errorf("over cap: got %d bytes, want none", len(out))
+	}
+}
+
+// TestInflateZlibTruncatedKeepsPrefix guards the leniency the size cap must stay
+// distinct from: a checksum-broken stream still returns its inflated prefix.
+func TestInflateZlibTruncatedKeepsPrefix(t *testing.T) {
+	msg := []byte("hello world, lenient prefix recovery")
+	full := deflateBytes(t, msg)
+	out, err := InflateZlib(full[:len(full)-3]) // drop part of the adler32 trailer
+	if err != nil {
+		t.Fatalf("truncated stream should still inflate a prefix, got err=%v", err)
+	}
+	if !bytes.Equal(out, msg) {
+		t.Errorf("prefix = %q, want %q", out, msg)
+	}
+}

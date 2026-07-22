@@ -222,25 +222,24 @@ loud residual beats a quiet blank page.
 
 ### 7. Limits are hardcoded and fail silently
 
-The caps are good (see "already fine" below) but two things are wrong with how
-they behave. `InflateZlib` uses `io.LimitReader(zr, maxInflateOutput)`, which
-**truncates without error** — a legitimate stream over 256 MB silently decodes to
-a prefix, and every check downstream then runs against partial data. Same class
-of bug as item 1. And none of the caps are settable, so a caller who knows their
-inputs can't raise or lower them.
+The caps are good (see "already fine" below). The silent-truncation half is now
+fixed; the settability half remains.
 
-Make hitting a limit an error or a reported issue, and expose the caps through
-the options in item 10.
+**Silent truncation — DONE.** `InflateZlib` used `io.LimitReader(zr,
+maxInflateOutput)`, which **truncated without error** — a stream over 256 MB
+silently decoded to a prefix every downstream check then ran against as if it
+were whole (same class as item 1). It now reads one byte past the cap and returns
+`ErrOutputTooLarge` when exceeded, matching `maxLZWOutput`/`maxRunLengthOutput`;
+because that error flows through the decode chokepoint it surfaces as a reported
+`StreamUndecodable` rather than vanishing. The size cap is kept distinct from
+`InflateZlib`'s deliberate leniency toward truncated/CRC-broken streams (which
+still return their inflated prefix) — `TestInflateZlibSizeCap` and
+`TestInflateZlibTruncatedKeepsPrefix` pin both. That was the last
+silent-truncation site.
 
-The two caps added with item 1b — `maxLZWOutput` and `maxRunLengthOutput` — do
-return an error (`ErrOutputTooLarge`), and because that error now flows through
-the decode chokepoint it surfaces as a reported `StreamUndecodable` rather than
-vanishing. That is the shape `InflateZlib` should be converted to; it is the
-last silent-truncation site. Note the fix is not merely swapping `io.LimitReader`
-for a check — `InflateZlib` is deliberately lenient about truncated and
-CRC-broken streams (it returns the inflated prefix, which is how malformed
-real-world files stay readable), so the size cap has to be distinguished from
-that leniency rather than folded into it.
+**Settability — still open.** None of the caps are settable from outside the
+package (only the test-only `SetMaxInflateOutput`), so a caller who knows their
+inputs can't raise or lower them. Expose the caps through the options in item 15.
 
 ### 8. Convert holds everything in memory
 

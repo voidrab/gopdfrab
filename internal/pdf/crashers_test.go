@@ -3,6 +3,7 @@ package pdf_test
 import (
 	"bytes"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -312,11 +313,11 @@ func TestCrasher_FlateBomb(t *testing.T) {
 	}
 
 	out, err := pdf.InflateZlib(compressed.Bytes())
-	if err != nil {
-		t.Fatalf("InflateZlib: %v", err)
+	if !errors.Is(err, pdf.ErrOutputTooLarge) {
+		t.Fatalf("InflateZlib over cap = %v, want ErrOutputTooLarge", err)
 	}
-	if int64(len(out)) > 1024 {
-		t.Errorf("decoded %d bytes, want <= 1024", len(out))
+	if out != nil {
+		t.Errorf("expected no output past the cap, got %d bytes", len(out))
 	}
 }
 

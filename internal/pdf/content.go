@@ -64,8 +64,19 @@ func InflateZlib(data []byte) ([]byte, error) {
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
-	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput))
+	// Read one byte past the cap so a stream that would exceed it is detected
+	// as too-large rather than silently truncated to a prefix that every
+	// downstream check then runs against as if it were the whole stream.
+	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput+1))
 	zlibReaderPool.Put(zr)
+
+	// Over the size cap is a hard error (matching DecodeLZW/DecodeRunLength),
+	// kept distinct from the leniency below: it flows through the decode
+	// chokepoint as a reported StreamUndecodable instead of vanishing.
+	if int64(buf.Len()) > maxInflateOutput {
+		inflateBufPool.Put(buf)
+		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, maxInflateOutput)
+	}
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)
 	// still yields a usable prefix; return what inflated rather than
