@@ -420,30 +420,32 @@ func (d *Reader) initializeStructure() error {
 		return err
 	}
 
+	// Locate startxref and its offset. A missing keyword, a missing offset
+	// token, or a non-numeric offset all leave the cross-reference section
+	// unlocatable -- recoverable by a full-file object scan (6.1.4) rather than
+	// a hard failure, since a damaged xref is exactly what a PDF/A converter is
+	// reached for.
 	startXrefIdx := bytes.LastIndex(tail, []byte("startxref"))
-	if startXrefIdx == -1 {
-		return fmt.Errorf("%w: startxref not found", ErrDamaged)
+	xrefOffset, haveOffset := int64(0), false
+	if startXrefIdx != -1 {
+		if tokens := strings.Fields(string(tail[startXrefIdx+9:])); len(tokens) > 0 {
+			if off, perr := strconv.ParseInt(tokens[0], 10, 64); perr == nil {
+				xrefOffset, haveOffset = off, true
+			}
+		}
 	}
 
-	contentAfterStartXref := string(tail[startXrefIdx+9:])
-
-	tokens := strings.Fields(contentAfterStartXref)
-	if len(tokens) == 0 {
-		return fmt.Errorf("%w: startxref offset missing", ErrDamaged)
-	}
-
-	xrefOffset, err := strconv.ParseInt(tokens[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("%w: could not parse startxref offset: %v", ErrDamaged, err)
-	}
-
-	d.xrefOffset = xrefOffset
-
-	xrefErr := d.parseXRefTable(xrefOffset + d.pdfStart)
-	if xrefErr != nil && d.pdfStart != 0 {
-		// Some malformed (6.1.2) files record xref offsets relative to true
-		// byte 0 instead of the "%PDF-" marker; retry unadjusted.
-		xrefErr = d.parseXRefTable(xrefOffset)
+	var xrefErr error
+	if haveOffset {
+		d.xrefOffset = xrefOffset
+		xrefErr = d.parseXRefTable(xrefOffset + d.pdfStart)
+		if xrefErr != nil && d.pdfStart != 0 {
+			// Some malformed (6.1.2) files record xref offsets relative to true
+			// byte 0 instead of the "%PDF-" marker; retry unadjusted.
+			xrefErr = d.parseXRefTable(xrefOffset)
+		}
+	} else {
+		xrefErr = errors.New("startxref keyword or offset missing")
 	}
 
 	// usedXRefStream is set when the classic parser failed but the object at
@@ -454,26 +456,29 @@ func (d *Reader) initializeStructure() error {
 	usedXRefStream := false
 
 	if xrefErr != nil {
-		// 6.1.4: the classic xref table is unparseable. Recover the object
-		// table as accurately as possible so an otherwise-valid modern PDF can
-		// still be read, and record the appropriate violation.
+		// 6.1.4: the classic xref table is unparseable or unlocatable. Recover
+		// the object table as accurately as possible so an otherwise-valid
+		// modern PDF can still be read, and record the appropriate violation.
 		d.xrefTable = make(map[int]int64)
-		trailer, xsErr := d.tryParseXRefStream(xrefOffset+d.pdfStart, false)
-		if xsErr != nil && d.pdfStart != 0 {
-			trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
+		if haveOffset {
+			trailer, xsErr := d.tryParseXRefStream(xrefOffset+d.pdfStart, false)
+			if xsErr != nil && d.pdfStart != 0 {
+				trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
+			}
+			if xsErr == nil {
+				// It's actually a cross-reference stream, which PDF/A-1b
+				// prohibits (6.1.4-3); its dictionary doubles as the trailer.
+				xrefStreamTrailer, usedXRefStream = trailer, true
+				d.parseDiagnostics = append(d.parseDiagnostics,
+					NewError(Checks.Structure.XRefStream,
+						[]error{errors.New("cross-reference streams are not permitted")}, 1, nil))
+			}
 		}
-		if xsErr == nil {
-			// It's actually a cross-reference stream, which PDF/A-1b prohibits
-			// (6.1.4-3); its dictionary doubles as the trailer.
-			xrefStreamTrailer, usedXRefStream = trailer, true
-			d.parseDiagnostics = append(d.parseDiagnostics,
-				NewError(Checks.Structure.XRefStream,
-					[]error{errors.New("cross-reference streams are not permitted")}, 1, nil))
-		} else {
+		if !usedXRefStream {
 			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
-				[]error{fmt.Errorf("cross-reference table could not be parsed: %v", xrefErr)}, 1, nil))
+				[]error{fmt.Errorf("cross-reference table could not be parsed, rebuilt by scanning for objects: %v", xrefErr)}, 1, nil))
 			if err := d.recoverXRefByBruteForceScan(false); err != nil {
-				return fmt.Errorf("%w: could not parse xref table: %v", ErrDamaged, xrefErr)
+				return fmt.Errorf("%w: could not recover object table: %v", ErrDamaged, xrefErr)
 			}
 		}
 	}
@@ -481,31 +486,44 @@ func (d *Reader) initializeStructure() error {
 	if usedXRefStream {
 		d.trailer = xrefStreamTrailer
 	} else {
-		searchBlock := tail[:startXrefIdx]
+		// A missing startxref leaves no boundary before the trailer keyword;
+		// search the whole tail in that case.
+		searchEnd := len(tail)
+		if startXrefIdx != -1 {
+			searchEnd = startXrefIdx
+		}
+		searchBlock := tail[:searchEnd]
 		trailerIdx := bytes.LastIndex(searchBlock, []byte("trailer"))
-		if trailerIdx == -1 {
-			if xrefErr == nil {
-				return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
-			}
-			// No literal "trailer" keyword and no parseable cross-reference
-			// stream either: fall back to locating a brute-force-scanned
-			// "/Type /XRef" object to recover /Root.
-			trailer, err := d.recoverTrailerFromXRefStream()
-			if err != nil {
-				return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
-			}
-			d.trailer = trailer
-		} else {
-			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
-			defer l.Release()
 
-			if tok := l.NextToken(); tok.Value != "trailer" {
+		var literalTrailer PDFDict
+		haveLiteral := false
+		if trailerIdx != -1 {
+			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+			if tok := l.NextToken(); tok.Value == "trailer" {
+				if t, terr := parseDictionary(l); terr == nil {
+					literalTrailer, haveLiteral = t, true
+				} else if xrefErr == nil {
+					l.Release()
+					return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, terr)
+				}
+			} else if xrefErr == nil {
+				l.Release()
 				return fmt.Errorf("%w: expected 'trailer' keyword", ErrDamaged)
 			}
+			l.Release()
+		} else if xrefErr == nil {
+			return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
+		}
 
-			trailer, err := parseDictionary(l)
+		if haveLiteral {
+			d.trailer = literalTrailer
+		} else {
+			// No usable literal trailer, but the xref was already in recovery:
+			// synthesize a trailer from a scanned cross-reference stream or the
+			// document catalog.
+			trailer, err := d.recoverTrailer()
 			if err != nil {
-				return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, err)
+				return fmt.Errorf("%w: trailer could not be recovered: %v", ErrDamaged, err)
 			}
 			d.trailer = trailer
 		}
@@ -616,7 +634,8 @@ func (d *Reader) recoverXRefByBruteForceScan(fillIn bool) error {
 // recoverTrailerFromXRefStream finds a brute-force-scanned object declaring
 // "/Type /XRef" and returns its dict, recovering /Root, /Info, and /ID.
 func (d *Reader) recoverTrailerFromXRefStream() (PDFDict, error) {
-	for objNum := range d.xrefTable {
+	best, bestOff, found := PDFDict{}, int64(-1), false
+	for objNum, off := range d.xrefTable {
 		v, err := d.ResolveReference(PDFRef{ObjNum: objNum})
 		if err != nil {
 			continue
@@ -625,11 +644,48 @@ func (d *Reader) recoverTrailerFromXRefStream() (PDFDict, error) {
 		if !ok {
 			continue
 		}
-		if dict.Entries["Type"] == (PDFName{Value: "XRef"}) {
-			return dict, nil
+		// Later occurrence (higher offset) wins, matching /Prev-chain order and
+		// keeping recovery deterministic across map-iteration order.
+		if dict.Entries["Type"] == (PDFName{Value: "XRef"}) && off > bestOff {
+			best, bestOff, found = dict, off, true
 		}
 	}
-	return PDFDict{}, errors.New("no cross-reference stream object found")
+	if !found {
+		return PDFDict{}, errors.New("no cross-reference stream object found")
+	}
+	return best, nil
+}
+
+// recoverTrailer synthesizes a trailer for a file whose real trailer cannot be
+// found, from objects already brute-force-scanned into d.xrefTable. It prefers
+// a cross-reference stream dict (/Type /XRef, which carries /Root, /Info and
+// /ID); failing that it locates the document catalog (/Type /Catalog) and
+// returns "<< /Root <catalogRef> >>". The synthesized trailer has no /ID, so
+// the recovered file is reported non-conformant (6.1.3) as it should be.
+func (d *Reader) recoverTrailer() (PDFDict, error) {
+	if t, err := d.recoverTrailerFromXRefStream(); err == nil {
+		return t, nil
+	}
+	catalogNum, catalogOff, found := 0, int64(-1), false
+	for objNum, off := range d.xrefTable {
+		v, err := d.ResolveReference(PDFRef{ObjNum: objNum})
+		if err != nil {
+			continue
+		}
+		dict, ok := v.(PDFDict)
+		if !ok {
+			continue
+		}
+		if dict.Entries["Type"] == (PDFName{Value: "Catalog"}) && off > catalogOff {
+			catalogNum, catalogOff, found = objNum, off, true
+		}
+	}
+	if !found {
+		return PDFDict{}, errors.New("no catalog or cross-reference stream object found")
+	}
+	t := NewPDFDict()
+	t.Entries["Root"] = PDFRef{ObjNum: catalogNum}
+	return t, nil
 }
 
 // findAndLoadFirstPageTrailer scans every xref section in a linearized PDF,

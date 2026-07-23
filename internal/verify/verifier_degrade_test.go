@@ -68,6 +68,51 @@ func TestBrokenXrefOffsetOracle(t *testing.T) {
 	}
 }
 
+// TestBrokenStartxrefOracle is the roadmap item-4 oracle for whole-table
+// damage: a file whose startxref offset is destroyed (so the entire
+// cross-reference table must be rebuilt by scanning for objects) must verify to
+// exactly the same issue set as the intact original, plus one 6.1.4 recovery
+// issue.
+func TestBrokenStartxrefOracle(t *testing.T) {
+	intact := pdfgen.PlainThreeIssue()
+	intactRes, err := VerifyBytes(intact, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes(intact): %v", err)
+	}
+	if len(intactRes.Issues) == 0 {
+		t.Fatal("intact seed reports no issues; the oracle needs a non-conformant baseline")
+	}
+
+	broken := pdfgen.BreakStartxref(intact)
+	if bytes.Equal(broken, intact) {
+		t.Fatal("BreakStartxref changed nothing")
+	}
+	brokenRes, err := VerifyBytes(broken, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes(broken): %v", err)
+	}
+
+	// The intact file has no 6.1.4 issues; the rebuilt one reports the broken
+	// cross-reference section under 6.1.4 (both the verify-time format check and
+	// the parse-time recovery diagnostic). Every other finding must survive
+	// unchanged -- that is the oracle.
+	var rest, recovery []pdf.PDFError
+	for _, e := range brokenRes.Issues {
+		if e.Check() == pdf.Checks.Structure.XRefKeyword {
+			recovery = append(recovery, e)
+		} else {
+			rest = append(rest, e)
+		}
+	}
+	if len(recovery) == 0 {
+		t.Error("no 6.1.4 issue reported for the rebuilt cross-reference table")
+	}
+	if !slices.Equal(issueStrings(rest), issueStrings(intactRes.Issues)) {
+		t.Errorf("issue sets differ:\nintact: %v\nbroken minus 6.1.4: %v",
+			issueStrings(intactRes.Issues), issueStrings(rest))
+	}
+}
+
 // TestDegradedObjectKeepsUnrelatedChecks: when the broken object cannot be
 // recovered, findings inside it are gone -- but every unrelated check must
 // still run, and the loss must be reported.

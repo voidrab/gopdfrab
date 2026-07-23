@@ -34,6 +34,11 @@ This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
 ### Added
+- Whole-table cross-reference **recovery**: a missing, non-numeric, or
+  unlocatable `startxref` no longer fails the open. The object table is rebuilt
+  by a full-file `N G obj` scan and the trailer is synthesized from a
+  cross-reference stream or the document catalog, reported as a 6.1.4 issue. The
+  scan is linear-time (`BenchmarkXRefRecovery`).
 - Standard security handler **decryption**: RC4 40/128, AES-128 (R4) and AES-256
   (R6). Empty-password files decrypt automatically through `Open`/`OpenBytes`;
   `OpenWithPassword` / `OpenBytesWithPassword` take an explicit user or owner

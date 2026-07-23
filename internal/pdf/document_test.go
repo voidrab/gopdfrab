@@ -212,6 +212,17 @@ func writeMinimalPDF(t *testing.T, objs []string, trailerBody string) string {
 	return path
 }
 
+// hasXRefRecoveryDiagnostic reports whether doc recorded the 6.1.4 diagnostic
+// that a brute-force object scan rebuilt the cross-reference table.
+func hasXRefRecoveryDiagnostic(doc *Reader) bool {
+	for _, e := range doc.StructErrors() {
+		if e.Check() == Checks.Structure.XRefKeyword {
+			return true
+		}
+	}
+	return false
+}
+
 // buildClassicXRefBody returns a header + objects + valid classic xref table
 // (no trailer section), plus the xref's byte offset, so callers can append
 // custom or deliberately malformed trailer/startxref text.
@@ -240,19 +251,29 @@ func TestInitializeStructureMalformedTrailerBranches(t *testing.T) {
 		"<< /Type /Pages /Count 0 /Kids [] >>",
 	}
 
-	t.Run("startxref offset missing", func(t *testing.T) {
+	t.Run("startxref offset missing recovers", func(t *testing.T) {
 		body, _ := buildClassicXRefBody(objs)
 		body += "startxref\n"
-		if _, err := OpenBytes([]byte(body)); err == nil {
-			t.Error("expected error for a missing startxref offset")
+		doc, err := OpenBytes([]byte(body))
+		if err != nil {
+			t.Fatalf("expected brute-force recovery for a missing startxref offset, got %v", err)
+		}
+		defer doc.Close()
+		if !hasXRefRecoveryDiagnostic(doc) {
+			t.Error("recovery not reported as a 6.1.4 diagnostic")
 		}
 	})
 
-	t.Run("startxref offset unparseable", func(t *testing.T) {
+	t.Run("startxref offset unparseable recovers", func(t *testing.T) {
 		body, _ := buildClassicXRefBody(objs)
 		body += "startxref\nXYZ\n%%EOF"
-		if _, err := OpenBytes([]byte(body)); err == nil {
-			t.Error("expected error for an unparseable startxref offset")
+		doc, err := OpenBytes([]byte(body))
+		if err != nil {
+			t.Fatalf("expected brute-force recovery for an unparseable startxref offset, got %v", err)
+		}
+		defer doc.Close()
+		if !hasXRefRecoveryDiagnostic(doc) {
+			t.Error("recovery not reported as a 6.1.4 diagnostic")
 		}
 	})
 

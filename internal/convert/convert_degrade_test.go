@@ -53,6 +53,35 @@ func TestConvertRecoversBrokenOffset(t *testing.T) {
 	}
 }
 
+// TestConvertRecoversBrokenStartxref: a file whose entire cross-reference
+// section is unlocatable (destroyed startxref offset) is rebuilt by scanning
+// for objects and converts to a clean rewrite -- the rebuilt xref is a genuine
+// fix, so the output re-verifies without a 6.1.4 residual.
+func TestConvertRecoversBrokenStartxref(t *testing.T) {
+	intact := pdfgen.PlainThreeIssue()
+	broken := pdfgen.BreakStartxref(intact)
+	if bytes.Equal(broken, intact) {
+		t.Fatal("BreakStartxref changed nothing")
+	}
+
+	cr, err := ConvertBytes(broken, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if len(cr.Output) == 0 {
+		t.Fatal("Output is empty, want a full rewrite of the recovered document")
+	}
+	res, err := verify.VerifyBytes(cr.Output, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("re-verify output: %v", err)
+	}
+	for _, e := range res.Issues {
+		if e.Check() == pdf.Checks.Structure.XRefKeyword {
+			t.Errorf("output re-verifies with a 6.1.4 issue %v; the rewrite emits a fresh xref", e)
+		}
+	}
+}
+
 // TestConvertDegradedObjectReportsResidual: an unrecoverable object converts
 // to a best-effort rewrite, but the content loss is a residual and the result
 // never claims validity -- output and honesty together (roadmap items 2+3).

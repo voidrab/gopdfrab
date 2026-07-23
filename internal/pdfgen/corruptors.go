@@ -81,6 +81,35 @@ func BreakXrefOffset(in []byte, objNum int, newOffset int64) []byte {
 	return out
 }
 
+// BreakStartxref returns a copy of a document with its startxref offset
+// replaced by an unusable value, so the cross-reference section can no longer
+// be located and must be rebuilt by a full-file object scan. It targets the
+// digits after the last "startxref" keyword. Deterministic, for whole-table
+// xref-recovery tests.
+func BreakStartxref(in []byte) []byte {
+	out := cp(in)
+	i := bytes.LastIndex(out, []byte("startxref"))
+	if i < 0 {
+		return out
+	}
+	j := i + len("startxref")
+	for j < len(out) && (out[j] == '\r' || out[j] == '\n' || out[j] == ' ') {
+		j++
+	}
+	k := j
+	for k < len(out) && out[k] >= '0' && out[k] <= '9' {
+		k++
+	}
+	if k == j {
+		return out
+	}
+	repl := []byte("999999999")
+	for d := 0; d < k-j; d++ {
+		out[j+d] = repl[d%len(repl)]
+	}
+	return out
+}
+
 // --- structural corruptors -------------------------------------------------
 
 // cp returns a copy of in. It uses make+copy (not append to a nil slice) so the

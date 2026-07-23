@@ -18,8 +18,11 @@ func TestOpenBytesErrorClassification(t *testing.T) {
 	}{
 		{"no header anywhere", []byte("just some bytes with no marker anywhere in here at all"), pdf.ErrNotPDF},
 		{"too short for a header", []byte("PDF"), pdf.ErrNotPDF},
-		{"header but no startxref", []byte("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"), pdf.ErrDamaged},
-		{"header but unparseable startxref", []byte("%PDF-1.7\nstuff\nstartxref\nNOTANUMBER\n%%EOF\n"), pdf.ErrDamaged},
+		// No startxref and no recoverable "N G obj" objects: recovery finds
+		// nothing, so it still reports ErrDamaged. (A file that does carry
+		// objects recovers instead; see the xref-recovery tests.)
+		{"header but no startxref or objects", []byte("%PDF-1.7\nnot a real pdf body at all\n"), pdf.ErrDamaged},
+		{"header but unparseable startxref, no objects", []byte("%PDF-1.7\nstuff\nstartxref\nNOTANUMBER\n%%EOF\n"), pdf.ErrDamaged},
 	}
 	for _, c := range cases {
 		if _, err := pdf.OpenBytes(c.data); !errors.Is(err, c.want) {

@@ -158,6 +158,11 @@ exists; either way the damage is reported as an issue and every other check
 still runs. A conversion that had to null an unrecoverable object keeps that
 loss in `Residual()` and never reports the result as valid.
 
+The same applies to whole-table damage: a missing or unusable `startxref`
+triggers a full-file object scan that rebuilds the cross-reference table and
+recovers the trailer from the document catalog, reported as a 6.1.4 issue rather
+than a hard error, so a badly damaged file still verifies and converts.
+
 ### Inspecting Issues
 
 Each `PDFError` in `v.Issues` exposes the `Check` that flagged it, along with its page and underlying messages.

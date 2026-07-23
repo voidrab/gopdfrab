@@ -256,3 +256,61 @@ func TestResolveDegradesUndecryptableStream(t *testing.T) {
 		t.Errorf("ResolveGraph: %v", err)
 	}
 }
+
+// TestRecoverTrailerFromCatalog: a document whose whole tail (trailer keyword
+// and startxref) is gone is reopened by scanning for objects and synthesizing
+// a trailer from the /Type /Catalog object, with the recovery reported as a
+// 6.1.4 diagnostic.
+func TestRecoverTrailerFromCatalog(t *testing.T) {
+	base := buildFourObjectDoc()
+	trimmed := base[:bytes.Index(base, []byte("trailer"))]
+
+	d, err := OpenBytes(trimmed)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+
+	root, ok := d.EffectiveTrailer().Entries["Root"].(PDFRef)
+	if !ok || root.ObjNum != 1 {
+		t.Fatalf("recovered Root = %v, want ref to object 1", d.EffectiveTrailer().Entries["Root"])
+	}
+	v, err := d.ResolveReference(PDFRef{ObjNum: 4})
+	if err != nil || v != (PDFString{Value: "hello"}) {
+		t.Fatalf("resolve object 4 = %v, %v; want (hello)", v, err)
+	}
+	var got6014 bool
+	for _, e := range d.StructErrors() {
+		if e.Check() == Checks.Structure.XRefKeyword {
+			got6014 = true
+		}
+	}
+	if !got6014 {
+		t.Error("trailer/xref recovery not reported as a 6.1.4 diagnostic")
+	}
+}
+
+// TestRecoverTrailerPicksLatestCatalog: with two /Type /Catalog objects
+// (an incremental-update shape), trailer recovery must deterministically
+// choose the one appearing later in the file.
+func TestRecoverTrailerPicksLatestCatalog(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
+	b.Obj(5, "<< /Type /Catalog /Pages 2 0 R >>") // later revision's catalog
+	data := b.FinishClassic("<< /Size 6 /Root 5 0 R >>")
+	trimmed := data[:bytes.Index(data, []byte("trailer"))]
+
+	for range 3 {
+		d, err := OpenBytes(trimmed)
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+		root, ok := d.EffectiveTrailer().Entries["Root"].(PDFRef)
+		if !ok || root.ObjNum != 5 {
+			t.Fatalf("recovered Root = %v, want object 5 (latest catalog)", d.EffectiveTrailer().Entries["Root"])
+		}
+		d.Close()
+	}
+}

@@ -163,34 +163,46 @@ genuinely fixes them.
 
 ## P1 — resilience and unusual files
 
-### 4. No xref recovery
+### 4. No xref recovery — **DONE**
 
-Reproduced: corrupting `startxref` gives
+Was: corrupting `startxref` gave `could not parse startxref offset`; truncating
+gave `startxref not found`. Both were hard `ErrDamaged` failures — no
+verification, no conversion, nothing. Files with damaged cross-reference data
+are exactly the files people reach for a PDF/A converter to fix.
 
-```
-verify: failed to parse structure: could not parse startxref offset
-```
+`initializeStructure` now treats a missing `startxref` keyword, a missing offset
+token, and a non-numeric offset the same way it already treated an unparseable
+xref *table*: a full-file `N G obj` scan (`recoverXRefByBruteForceScan`, last
+definition wins) rebuilds the object table, and a new `recoverTrailer`
+synthesizes the trailer — preferring a literal `trailer` dict if the tail still
+has one, then a scanned cross-reference stream (`/Type /XRef`, which carries
+`/Root`/`/Info`/`/ID`), then the document catalog (`/Type /Catalog`), returning
+`<< /Root <ref> >>`. Catalog and xref-stream selection pick the latest by file
+offset, so recovery is deterministic across map-iteration order. The rebuild is
+reported as a 6.1.4 diagnostic and everything keeps going; a synthesized trailer
+has no `/ID`, so the file is correctly reported non-conformant (6.1.3).
 
-with zero issues and no result. Truncating the file gives `startxref not found`.
-Both are hard errors — no verification, no conversion, nothing.
+Findings:
 
-Files with damaged cross-reference data are exactly the files people reach for a
-PDF/A converter to fix. veraPDF and PDFBox both scan for `N G obj` and rebuild.
+- **The per-object half was already done in item 2** (recovery scan for a wrong
+  offset, `TestBrokenXrefOffsetOracle`). This item is the whole-table case.
+- **Trailer recovery with a *valid* xref stays a hard error.** When the xref
+  parses but the trailer keyword/dict is missing or malformed, Open still fails
+  rather than silently synthesizing — recovering there without the 6.1.4
+  umbrella would risk the item-1 honesty gap (a rebuilt file verifying clean).
+  Recovery is scoped to the case where the xref itself is unlocatable/unparseable.
+- **Two 6.1.4 issues fire on a rebuilt file**, not one: the parse-time recovery
+  diagnostic plus the pre-existing verify-time `checkXRefSectionFormat`. Both
+  are legitimately about the broken xref; deduping across the parse/verify layer
+  boundary was judged not worth the coupling.
+- **The full-file scan is linear** (`BenchmarkXRefRecovery`, item 24): 100→5000
+  objects scales ~linearly, a 5000-object damaged file recovering in ~30 ms, so
+  recovery is not a DoS vector.
 
-- Full-file object scan when `startxref` is missing, unparseable, or doesn't
-  point at an xref.
-- Rebuild from the scan, last definition of each object number wins, recover the
-  trailer by finding `/Type /Catalog`.
-- Report the recovery as an issue — the file is not conformant — but keep going.
-- ~~Same fallback per-object when the table parses but an offset is wrong
-  (item 2).~~ Done with item 2: recovery scan, last-definition-wins, recovery
-  reported as an issue. What remains here is the whole-table case.
-
-Seed `internal/pdfgen` with these shapes. Oracle: a file with a deliberately
-broken xref must verify to the same issue set as the intact original, plus the
-recovery issue. The per-object variant of that oracle exists since item 2
-(`TestBrokenXrefOffsetOracle`, with `pdfgen.PlainThreeIssue` and
-`pdfgen.BreakXrefOffset`); this item extends it to whole-table damage.
+Oracle: `pdfgen.BreakStartxref` destroys the offset; `TestBrokenStartxrefOracle`
+asserts the rebuilt file verifies to the intact issue set plus the 6.1.4
+recovery issue, and `TestConvertRecoversBrokenStartxref` asserts the rewrite
+emits a fresh xref with no 6.1.4 residual.
 
 ### 5. Encrypted input converts to a corrupt document — **DONE**
 
@@ -515,10 +527,13 @@ Wall-clock on a dev machine is ±15% noisy, so the `allocs/op` assertions in
 `benchmarks/micro/bench_test.go` are the only stable gate, and they cover a
 fraction of the samples. Extend to `Convert/fonts` and the other cost paths.
 
-### 24. Benchmark the recovery path
+### 24. Benchmark the recovery path — **DONE**
 
-Once item 4 lands, a full-file object scan is a new worst case. Benchmark it so
-recovery on a large damaged file doesn't become a denial-of-service vector.
+`BenchmarkXRefRecovery` (internal/pdf) opens the same document intact and with
+its startxref destroyed at 100/1000/5000 objects. The full-file scan scales
+linearly (10× objects → ~11× time; a 5000-object damaged file recovers in
+~30 ms), so item 4's recovery is not a denial-of-service vector. Still local-only
+until the benchstat history lands (item 22); no allocation guard yet.
 
 ---
 
@@ -622,8 +637,9 @@ Recorded so nobody re-investigates:
    `-race`, per-target fuzzing, an OS matrix and the wasm build are all wired.
    Remaining CI gaps are the real-world corpus (item 10) and the Windows read
    path (item 9).
-3. **Item 4.** Biggest real-world gap, and the oracle it needs would have caught
-   item 2.
+3. ~~**Item 4.**~~ Done. Whole-table xref recovery: full-file object scan,
+   catalog/xref-stream trailer synthesis, reported as 6.1.4, linear-time
+   (item 24 benchmark confirms it is not a DoS vector).
 4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.
 5. **Items 10 and 12.** Real corpus and fidelity gate. Slower, and they need
    items 2 and 4 done first to be meaningful.
