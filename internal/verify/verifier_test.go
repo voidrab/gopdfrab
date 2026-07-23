@@ -1,10 +1,12 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -16,7 +18,7 @@ import (
 // -- Top-level entry points
 
 func TestVerifyFile(t *testing.T) {
-	res, err := VerifyFile(sampleVeraPassFile, pdf.PDFA_1B)
+	res, err := VerifyFile(sampleVeraPassFile, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyFile: %v", err)
 	}
@@ -24,7 +26,7 @@ func TestVerifyFile(t *testing.T) {
 		t.Errorf("VerifyFile(%s) = invalid, want valid: %v", sampleVeraPassFile, res.Issues)
 	}
 
-	if _, err := VerifyFile("/nonexistent/path.pdf", pdf.PDFA_1B); err == nil {
+	if _, err := VerifyFile("/nonexistent/path.pdf", pdf.PDFA1B, nil); err == nil {
 		t.Error("VerifyFile should error for a nonexistent path")
 	}
 }
@@ -34,7 +36,7 @@ func TestVerifyBytes(t *testing.T) {
 	if err != nil {
 		t.Skip("corpus not available")
 	}
-	res, err := VerifyBytes(data, pdf.PDFA_1B)
+	res, err := VerifyBytes(data, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -42,14 +44,14 @@ func TestVerifyBytes(t *testing.T) {
 		t.Errorf("VerifyBytes(pass file) = invalid, want valid: %v", res.Issues)
 	}
 
-	if _, err := VerifyBytes([]byte("not a pdf"), pdf.PDFA_1B); err == nil {
+	if _, err := VerifyBytes([]byte("not a pdf"), pdf.PDFA1B, nil); err == nil {
 		t.Error("VerifyBytes should error for malformed data")
 	}
 }
 
 func TestVerifyAll(t *testing.T) {
 	paths := []string{sampleVeraPassFile, "/nonexistent/path.pdf"}
-	results, err := VerifyAll(paths, pdf.PDFA_1B)
+	results, err := VerifyAll(paths, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyAll: %v", err)
 	}
@@ -63,7 +65,7 @@ func TestVerifyAll(t *testing.T) {
 		t.Error("VerifyAll[1] should carry an error for the nonexistent path")
 	}
 
-	if results, err := VerifyAll(nil, pdf.PDFA_1B); err != nil || len(results) != 0 {
+	if results, err := VerifyAll(nil, pdf.PDFA1B, nil); err != nil || len(results) != 0 {
 		t.Errorf("VerifyAll(nil) = %v, %v, want empty slice, nil error", results, err)
 	}
 }
@@ -84,7 +86,7 @@ const plainPDF = "%PDF-1.4\n" +
 
 // TestVerifyObjectModelBytes covers the widened Verify gate: a plain PDF with
 // no PDF/A structure but a conformant base object model must come back
-// Valid, tagged with the ObjectModel level rather than A_1B.
+// Valid, tagged with the ObjectModel level rather than A1B.
 func TestVerifyObjectModelBytes(t *testing.T) {
 	res, err := VerifyObjectModelBytes([]byte(plainPDF))
 	if err != nil {
@@ -1458,7 +1460,7 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	page.Entries["Contents"] = pdf.PDFDict{HasStream: true, RawStream: content, Entries: pdf.NewPDFDict().Entries}
 
 	ctx := &ValidationContext{}
-	reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(page, ctx)
+	reachable, invisibleOnly, usedCodes, usedCIDs, _ := ComputeContentUsage(page, ctx)
 
 	xobjPtr := pdf.ValuePointer(xobj.Entries)
 	if !reachable[xobjPtr] {
@@ -1633,7 +1635,7 @@ func TestVerifyObjectModelMatchesFilteredFullRun(t *testing.T) {
 
 	for _, path := range files {
 		fast, fastErr := VerifyObjectModelFile(path)
-		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A_1B))
+		full, fullErr := VerifyFile(path, pdf.NewFullProfile(pdf.A1B), nil)
 		if (fastErr != nil) != (fullErr != nil) {
 			t.Errorf("%s: fast err %v vs full err %v", path, fastErr, fullErr)
 			continue
@@ -1662,4 +1664,338 @@ func objModelSummaries(issues []pdf.PDFError) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// runLengthEncode emits data as a single literal run followed by EOD.
+func runLengthEncode(data []byte) []byte {
+	var out []byte
+	for i := 0; i < len(data); i += 128 {
+		chunk := data[i:min(i+128, len(data))]
+		out = append(out, byte(len(chunk)-1))
+		out = append(out, chunk...)
+	}
+	return append(out, 128)
+}
+
+// pageGraphWithContents wraps a content stream dict in a minimal one-page
+// document graph.
+func pageGraphWithContents(contents pdf.PDFDict) pdf.PDFDict {
+	page := pdf.NewPDFDict()
+	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries["Contents"] = contents
+	page.Entries["Resources"] = pdf.NewPDFDict()
+
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{page}
+	pages.Entries["Count"] = pdf.PDFInteger(1)
+
+	root := pdf.NewPDFDict()
+	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	root.Entries["Pages"] = pages
+
+	graph := pdf.NewPDFDict()
+	graph.Entries["Root"] = root
+	return graph
+}
+
+// TestEncodedContentStreamStillReportsViolations is the roadmap's opening
+// reproduction: two documents with byte-identical page content and no
+// OutputIntent, differing only in how the content stream is encoded. The
+// RunLength-encoded one used to verify clean, because the decode failed and
+// the error was swallowed -- the verifier answering "yes" when it meant "I
+// couldn't look".
+func TestEncodedContentStreamStillReportsViolations(t *testing.T) {
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)}},
+		{Op: "f"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plainStream := pdf.NewPDFDict()
+	plainStream.HasStream = true
+	plainStream.RawStream = content
+
+	rleStream := pdf.NewPDFDict()
+	rleStream.HasStream = true
+	rleStream.RawStream = runLengthEncode(content)
+	rleStream.Entries["Filter"] = pdf.PDFName{Value: "RunLengthDecode"}
+
+	plain := verifyDeepGraph(t, pageGraphWithContents(plainStream))
+	rle := verifyDeepGraph(t, pageGraphWithContents(rleStream))
+
+	want := pdf.Checks.Colour.DeviceColourContentStream
+	if !resultHasCheck(plain, want) {
+		t.Fatal("plain content stream: expected the device-colour violation (test fixture is wrong)")
+	}
+	if !resultHasCheck(rle, want) {
+		t.Error("RunLength-encoded content stream: device-colour violation went missing -- encoding must not change the verdict")
+	}
+
+	clauses := func(res pdf.Result) map[string]int {
+		m := map[string]int{}
+		for _, iss := range res.Issues {
+			m[iss.Check().Clause()]++
+		}
+		return m
+	}
+	if got, wantC := clauses(rle), clauses(plain); !reflect.DeepEqual(got, wantC) {
+		t.Errorf("issue clauses differ by encoding: RunLength %v, plain %v", got, wantC)
+	}
+}
+
+// TestUndecodableStreamIsReported covers Structure.StreamUndecodable
+// end to end: a content stream whose filter chain is broken must produce an
+// issue rather than an absence of issues.
+func TestUndecodableStreamIsReported(t *testing.T) {
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.RawStream = []byte("this is not a zlib stream")
+
+	res := verifyDeepGraph(t, pageGraphWithContents(broken))
+	if !resultHasCheck(res, pdf.Checks.Structure.StreamUndecodable) {
+		t.Errorf("expected StreamUndecodable for a broken filter chain, got %v", res.Issues)
+	}
+}
+
+// TestImageStreamIsNotUndecodable guards the distinction commit 1 exists to
+// draw: an image codec's payload is not decodable to bytes, but the stream is
+// well-formed. Reporting it would flag every JPEG in every document.
+func TestImageStreamIsNotUndecodable(t *testing.T) {
+	img := pdf.NewPDFDict()
+	img.HasStream = true
+	img.Entries["Type"] = pdf.PDFName{Value: "XObject"}
+	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
+	img.Entries["Filter"] = pdf.PDFName{Value: "DCTDecode"}
+	img.Entries["Width"] = pdf.PDFInteger(1)
+	img.Entries["Height"] = pdf.PDFInteger(1)
+	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
+	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceGray"}
+	img.RawStream = []byte("\xff\xd8\xff\xe0 not really a jpeg")
+
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = content
+
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries["Im0"] = img
+	resources := pdf.NewPDFDict()
+	resources.Entries["XObject"] = xobjects
+
+	graph := pageGraphWithContents(stream)
+	root := graph.Entries["Root"].(pdf.PDFDict)
+	pages := root.Entries["Pages"].(pdf.PDFDict)
+	page := pages.Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
+	page.Entries["Resources"] = resources
+
+	res := verifyDeepGraph(t, graph)
+	if resultHasCheck(res, pdf.Checks.Structure.StreamUndecodable) {
+		t.Errorf("an image-filtered stream must not be reported undecodable, got %v", res.Issues)
+	}
+}
+
+// buildSuppressionGraph returns a one-page graph whose resources hold a Form
+// XObject that violates 6.2.3.3 and a non-embedded simple font, neither of
+// which the given page content references. Both violations are therefore
+// suppressed by the usage-driven optimisations -- unless usage collection was
+// incomplete.
+func buildSuppressionGraph(t *testing.T, contents pdf.PDFDict) pdf.PDFDict {
+	t.Helper()
+	formContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(5), pdf.PDFInteger(5)}},
+		{Op: "f"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := pdf.NewPDFDict()
+	form.HasStream = true
+	form.RawStream = formContent
+	form.Entries["Type"] = pdf.PDFName{Value: "XObject"}
+	form.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	form.Entries["Resources"] = pdf.NewPDFDict()
+
+	font := pdf.NewPDFDict()
+	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	font.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
+	font.Entries["BaseFont"] = pdf.PDFName{Value: "Arial"}
+	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
+
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries["Fm0"] = form
+	fonts := pdf.NewPDFDict()
+	fonts.Entries["F0"] = font
+	resources := pdf.NewPDFDict()
+	resources.Entries["XObject"] = xobjects
+	resources.Entries["Font"] = fonts
+
+	graph := pageGraphWithContents(contents)
+	root := graph.Entries["Root"].(pdf.PDFDict)
+	pages := root.Entries["Pages"].(pdf.PDFDict)
+	page := pages.Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
+	page.Entries["Resources"] = resources
+	return graph
+}
+
+// TestUndecodableContentDoesNotSuppressChecks pins the fail-safe half of the
+// swallowed-decode bug, in both directions.
+//
+// Content usage drives four suppressions (unreachable Form XObjects, unshown
+// simple fonts, invisible-only fonts, unused CIDs). When a content stream
+// cannot be decoded those usage sets are a subset of the truth, so every
+// suppression could hide a real violation. An undecodable page must therefore
+// widen what gets checked, never narrow it.
+func TestUndecodableContentDoesNotSuppressChecks(t *testing.T) {
+	readable, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}},
+		{Op: "n"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := pdf.NewPDFDict()
+	good.HasStream = true
+	good.RawStream = readable
+
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.RawStream = []byte("not a zlib stream at all")
+
+	suppressed := verifyDeepGraph(t, buildSuppressionGraph(t, good))
+	widened := verifyDeepGraph(t, buildSuppressionGraph(t, broken))
+
+	// Direction 1: with usage known, the unreferenced resources are skipped.
+	if resultHasCheck(suppressed, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("decodable content: an unreferenced Form XObject should stay suppressed (fixture no longer isolates the behaviour)")
+	}
+	if resultHasCheck(suppressed, pdf.Checks.Font.SimpleNotEmbedded) {
+		t.Error("decodable content: an unshown simple font should stay suppressed (fixture no longer isolates the behaviour)")
+	}
+
+	// Direction 2: with usage unknown, neither may be suppressed.
+	if !resultHasCheck(widened, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("undecodable content suppressed the Form XObject colour check -- usage was incomplete, so nothing may be skipped")
+	}
+	if !resultHasCheck(widened, pdf.Checks.Font.SimpleNotEmbedded) {
+		t.Error("undecodable content suppressed the font embedding check -- usage was incomplete, so nothing may be skipped")
+	}
+}
+
+// TestUndecodableContentReportsItsPage covers page attribution on the usage
+// walk. That walk runs before verifyDocument's, which is what normally
+// maintains CurrentPage, so a decode failure there used to be reported as
+// document-level with no indication of which page was unreadable.
+func TestUndecodableContentReportsItsPage(t *testing.T) {
+	readable, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}},
+		{Op: "n"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := pdf.NewPDFDict()
+	good.HasStream = true
+	good.RawStream = readable
+
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.RawStream = []byte("not a zlib stream")
+
+	// Two pages, the second unreadable.
+	mkPage := func(contents pdf.PDFDict, obj int) pdf.PDFDict {
+		p := pdf.NewPDFDict()
+		p.Entries["Type"] = pdf.PDFName{Value: "Page"}
+		p.Entries["Contents"] = contents
+		p.Entries["Resources"] = pdf.NewPDFDict()
+		p.Entries["_ref"] = pdf.PDFRef{ObjNum: obj}
+		return p
+	}
+	pages := pdf.NewPDFDict()
+	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	pages.Entries["Kids"] = pdf.PDFArray{mkPage(good, 10), mkPage(broken, 11)}
+	pages.Entries["Count"] = pdf.PDFInteger(2)
+
+	root := pdf.NewPDFDict()
+	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	root.Entries["Pages"] = pages
+	graph := pdf.NewPDFDict()
+	graph.Entries["Root"] = root
+
+	ctx := &ValidationContext{PageIndex: map[int]int{10: 1, 11: 2}}
+	ComputeContentUsage(graph, ctx)
+
+	found := false
+	for _, e := range ctx.Issues() {
+		if e.Check() != pdf.Checks.Structure.StreamUndecodable {
+			continue
+		}
+		found = true
+		if e.Page() != 2 {
+			t.Errorf("StreamUndecodable reported on page %d, want 2", e.Page())
+		}
+	}
+	if !found {
+		t.Fatal("expected a StreamUndecodable issue")
+	}
+
+	// CurrentPage must not leak past the page subtree.
+	if ctx.CurrentPage != 0 {
+		t.Errorf("CurrentPage = %d after the walk, want 0", ctx.CurrentPage)
+	}
+}
+
+const cryptFixtureDir = "../pdf/testdata/crypt"
+
+// TestVerifyEncryptedEmptyPassword confirms that an empty-password encrypted
+// file still flags the forbidden /Encrypt trailer entry (6.1.3), but -- now
+// that its streams decrypt -- no longer spuriously reports StreamUndecodable.
+func TestVerifyEncryptedEmptyPassword(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptFixtureDir, "enc_aesv3.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	res, err := VerifyBytes(data, pdf.PDFA1B, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	var sawEncrypt, sawUndecodable bool
+	for _, iss := range res.Issues {
+		switch iss.Check() {
+		case pdf.Checks.Structure.TrailerEncrypt:
+			sawEncrypt = true
+		case pdf.Checks.Structure.StreamUndecodable:
+			sawUndecodable = true
+		}
+	}
+	if !sawEncrypt {
+		t.Error("expected 6.1.3 TrailerEncrypt to be reported")
+	}
+	if sawUndecodable {
+		t.Error("StreamUndecodable reported although streams decrypt cleanly")
+	}
+}
+
+// TestVerifyEncryptedPasswordRequired confirms verification surfaces
+// ErrPasswordRequired for a file that needs a real password.
+func TestVerifyEncryptedPasswordRequired(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptFixtureDir, "enc_aesv2_pw.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	if _, err := VerifyBytes(data, pdf.PDFA1B, nil); !errors.Is(err, pdf.ErrPasswordRequired) {
+		t.Fatalf("err=%v, want ErrPasswordRequired", err)
+	}
 }

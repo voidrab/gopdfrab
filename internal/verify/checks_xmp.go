@@ -737,7 +737,7 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 // checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
 // that lack an xpacket wrapper (6.7.5), resolving violations the converter
 // strips via stripEmbeddedMetadata.
-func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
+func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {
 		return nil
@@ -764,8 +764,11 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
 			visited[ptr] = true
 			if val.HasStream && val.Entries["Type"] == (pdf.PDFName{Value: "Metadata"}) &&
 				ptr != catalogMetaPtr {
-				data, err := pdf.DecodeStream(val)
-				if err != nil || !xpacketRe.Match(data) {
+				// A stream that will not decode is a structural defect, not a
+				// missing xpacket wrapper; the chokepoint reports it as
+				// StreamUndecodable rather than conflating the two.
+				data, err := ctx.decodeStreamCached(val)
+				if err == nil && !xpacketRe.Match(data) {
 					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
 				}
@@ -953,7 +956,7 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 // checkInfoXMPSync verifies that document information dictionary entries are
 // reflected in the XMP metadata (6.7.3).
 func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
-	info, err := d.GetMetadata()
+	info, err := d.Metadata()
 	if err != nil {
 		return nil
 	}

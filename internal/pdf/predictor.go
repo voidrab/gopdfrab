@@ -2,28 +2,55 @@ package pdf
 
 import "fmt"
 
-// streamDecodeParms returns the /DecodeParms (or abbreviated /DP) dictionary
-// associated with dict's stream, or a zero-value dict if none is present.
-// Handles both the common single-dict form and the per-filter array form,
-// preferring the last array entry (the parameters for the last-applied
-// filter), which covers the single-filter case used by cross-reference and
-// object streams.
-func StreamDecodeParms(dict PDFDict) PDFDict {
+// FilterDecodeParms returns the decode parameters for filter i of an n-filter
+// chain. /DecodeParms (or the abbreviated /DP) may be:
+//
+//   - absent, giving an empty dict for every filter;
+//   - an array, giving element i positionally (a null element is legal and
+//     means "no parameters for this filter");
+//   - a single dict, which strictly belongs to filter 0. Real-world writers
+//     emit /Filter [/ASCII85Decode /FlateDecode] with a bare
+//     /DecodeParms <</Predictor 12>>, so for n > 1 a lone dict is attached to
+//     the chain's only predictor-taking filter when there is exactly one, and
+//     to filter 0 otherwise.
+//
+// Reads dict.Entries directly with no reference resolution, so it stays safe
+// on the xref/objstm bootstrap path where the resolver is not yet live.
+func FilterDecodeParms(dict PDFDict, i, n int) PDFDict {
 	parms := dict.Entries["DecodeParms"]
 	if parms == nil {
 		parms = dict.Entries["DP"]
 	}
 	switch p := parms.(type) {
 	case PDFDict:
-		return p
+		if n <= 1 || i == loneParmsFilter(dict, n) {
+			return p
+		}
 	case PDFArray:
-		for i := len(p) - 1; i >= 0; i-- {
+		if i < len(p) {
 			if d, ok := p[i].(PDFDict); ok {
 				return d
 			}
 		}
 	}
 	return PDFDict{}
+}
+
+// loneParmsFilter returns the index a lone DecodeParms dict belongs to in an
+// n-filter chain: the sole predictor-taking filter if there is exactly one,
+// otherwise filter 0.
+func loneParmsFilter(dict PDFDict, n int) int {
+	names := FilterNames(dict.Entries["Filter"])
+	idx, count := 0, 0
+	for i, name := range names {
+		if info, ok := LookupFilter(name); ok && info.Predictor {
+			idx, count = i, count+1
+		}
+	}
+	if count == 1 {
+		return idx
+	}
+	return 0
 }
 
 // dictInt reads an integer-valued entry from dict, returning def if absent or
@@ -35,34 +62,38 @@ func DictInt(dict PDFDict, key string, def int) int {
 	return def
 }
 
-// decodeStreamPredicted decodes dict's stream like decodeStream, then undoes
-// any PNG (Predictor >= 10) or TIFF (Predictor == 2) predictor recorded in its
-// DecodeParms. Cross-reference and object streams commonly apply the PNG "Up"
-// predictor to improve compression of their tabular data.
-func decodeStreamPredicted(dict PDFDict) ([]byte, error) {
-	data, err := DecodeStream(dict)
-	if err != nil {
-		return nil, err
-	}
-
-	parms := StreamDecodeParms(dict)
+// UndoStreamPredictor reverses the PNG (Predictor >= 10) or TIFF
+// (Predictor == 2) predictor described by parms, returning data unchanged when
+// no predictor applies. Cross-reference and object streams commonly apply the
+// PNG "Up" predictor to compress their tabular data; image streams may apply
+// either. opts supplies the fallback Columns/Colors/BitsPerComponent for
+// callers whose context implies different defaults from the spec's 1/1/8.
+func UndoStreamPredictor(data []byte, parms PDFDict, opts DecodeOptions) ([]byte, error) {
 	predictor := DictInt(parms, "Predictor", 1)
 	if predictor == 1 {
 		return data, nil
 	}
 
-	columns := DictInt(parms, "Columns", 1)
-	colors := DictInt(parms, "Colors", 1)
-	bpc := DictInt(parms, "BitsPerComponent", 8)
+	columns := DictInt(parms, "Columns", orDefault(opts.Columns, 1))
+	colors := DictInt(parms, "Colors", orDefault(opts.Colors, 1))
+	bpc := DictInt(parms, "BitsPerComponent", orDefault(opts.BitsPerComponent, 8))
 
 	switch {
 	case predictor == 2:
 		return UndoTIFFPredictor(data, columns, colors, bpc)
-	case predictor >= 10:
+	case predictor >= 10 || opts.LenientPredictor:
 		return UndoPNGPredictor(data, columns, colors, bpc)
 	default:
-		return nil, fmt.Errorf("unsupported predictor %d", predictor)
+		return nil, fmt.Errorf("%w %d", ErrUnsupportedPredictor, predictor)
 	}
+}
+
+// orDefault returns v when it is set (non-zero), else def.
+func orDefault(v, def int) int {
+	if v != 0 {
+		return v
+	}
+	return def
 }
 
 // undoPNGPredictor reverses the PNG-style per-row predictor (ISO 32000-1

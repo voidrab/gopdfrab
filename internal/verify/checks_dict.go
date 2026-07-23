@@ -231,8 +231,8 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 	case "Form":
-		// Lenient profiles (PDFA_1B) skip unreachable Form XObjects; strict
-		// profiles (Legacy_1B) treat every Form XObject as reachable.
+		// Lenient profiles (PDFA1B) skip unreachable Form XObjects; strict
+		// profiles (Legacy1B) treat every Form XObject as reachable.
 		if !ctx.isReachableXObject(v) {
 			return
 		}
@@ -252,6 +252,11 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 			ctx.Report(pdf.Checks.Image.FormSubtype2PS, v, "form XObject shall not have Subtype2=PS")
 		}
 	case "PS":
+		// Reachability-gated like Form XObjects: veraPDF passes an
+		// unreferenced PostScript XObject and fails a referenced one.
+		if !ctx.isReachableXObject(v) {
+			return
+		}
 		ctx.Report(pdf.Checks.Image.PostScriptXObject, v, "PostScript XObject not allowed")
 	}
 }

@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"bytes"
+	"compress/zlib"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -323,5 +325,49 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 		if iss.Check() == pdf.Checks.Colour.DeviceColourContentStream {
 			t.Errorf("page-content Form XObject should be excused by page DefaultRGB: %v", iss.Error())
 		}
+	}
+}
+
+// TestScanContentDictPredictorEncoded covers a content stream carrying a
+// PNG predictor. Predictors were only ever undone for xref and object
+// streams, so such a page decoded to garbage and its violations vanished --
+// the content-stream half of the missing-filter gap.
+func TestScanContentDictPredictorEncoded(t *testing.T) {
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrap each row in a PNG "None" filter tag, then Flate it, exactly as a
+	// producer emitting /Predictor 12 would.
+	const columns = 8
+	var predicted []byte
+	for i := 0; i < len(content); i += columns {
+		predicted = append(predicted, 0)
+		predicted = append(predicted, content[i:min(i+columns, len(content))]...)
+	}
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(predicted); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = buf.Bytes()
+	stream.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	stream.Entries["DecodeParms"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(columns), "Colors": pdf.PDFInteger(1),
+	}}
+
+	ctx := &ValidationContext{}
+	scanContentDict(stream, pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("predictor-encoded content stream: expected the rg device-colour violation to be reported")
 	}
 }

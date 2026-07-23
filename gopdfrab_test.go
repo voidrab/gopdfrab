@@ -1,15 +1,42 @@
 package gopdfrab
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// TestSentinelReExports pins each root sentinel to its internal identity so
+// errors.Is matches across the package boundary.
+func TestSentinelReExports(t *testing.T) {
+	pairs := []struct {
+		name           string
+		root, internal error
+	}{
+		{"ErrNotPDF", ErrNotPDF, pdf.ErrNotPDF},
+		{"ErrDamaged", ErrDamaged, pdf.ErrDamaged},
+		{"ErrEncrypted", ErrEncrypted, pdf.ErrEncrypted},
+		{"ErrPasswordRequired", ErrPasswordRequired, pdf.ErrPasswordRequired},
+		{"ErrUnresolvableGraph", ErrUnresolvableGraph, pdf.ErrUnresolvableGraph},
+	}
+	for _, p := range pairs {
+		if p.root == nil || !errors.Is(p.internal, p.root) {
+			t.Errorf("%s does not match its internal sentinel", p.name)
+		}
+	}
+}
 
 // TestRegistryPassthroughs exercises the check-registry facade functions,
 // which need no PDF fixture.
 func TestRegistryPassthroughs(t *testing.T) {
-	if p := NewProfile(A_1B); p == nil {
+	if p := NewProfile(A1B); p == nil {
 		t.Fatal("NewProfile returned nil")
 	}
 
@@ -38,7 +65,7 @@ func TestVerifyWrappers(t *testing.T) {
 	}
 	path := paths[0]
 
-	if _, err := Verify(path, PDFA_1B); err != nil {
+	if _, err := Verify(path, PDFA1B); err != nil {
 		t.Errorf("Verify: %v", err)
 	}
 
@@ -46,11 +73,11 @@ func TestVerifyWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if _, err := VerifyBytes(data, PDFA_1B); err != nil {
+	if _, err := VerifyBytes(data, PDFA1B); err != nil {
 		t.Errorf("VerifyBytes: %v", err)
 	}
 
-	results, err := VerifyAll([]string{path}, PDFA_1B)
+	results, err := VerifyAll([]string{path}, PDFA1B)
 	if err != nil {
 		t.Errorf("VerifyAll: %v", err)
 	}
@@ -153,26 +180,26 @@ func TestDocumentAccessors(t *testing.T) {
 	} else if part != "1" {
 		t.Errorf("ClaimedConformance part = %q, want \"1\"", part)
 	}
-	if n, err := doc.GetPageCount(); err != nil {
-		t.Errorf("GetPageCount: %v", err)
+	if n, err := doc.PageCount(); err != nil {
+		t.Errorf("PageCount: %v", err)
 	} else if n < 1 {
-		t.Errorf("GetPageCount = %d, want >= 1", n)
+		t.Errorf("PageCount = %d, want >= 1", n)
 	}
-	if v, err := doc.GetVersion(); err != nil {
-		t.Errorf("GetVersion: %v", err)
+	if v, err := doc.Version(); err != nil {
+		t.Errorf("Version: %v", err)
 	} else if v == "" {
-		t.Error("GetVersion returned empty string")
+		t.Error("Version returned empty string")
 	}
 	// Info is optional in PDF/A, so a missing dictionary is not a failure;
 	// exercise the facade either way.
-	doc.GetMetadata()
+	doc.Metadata()
 
 	// The IsPDFA/IsPDF error paths only fire when the underlying verify
 	// fails, which for a fixed profile means an undefined conformance level.
 	// Swap the profile variables to drive those branches, then restore them.
-	savedPDFA := PDFA_1B
+	savedPDFA := PDFA1B
 	savedPDF := PDF
-	PDFA_1B = NewProfile(Undefined)
+	PDFA1B = NewProfile(Undefined)
 	PDF = NewProfile(Undefined)
 	if ok, err := doc.IsPDFA(); err == nil || ok {
 		t.Errorf("IsPDFA with undefined profile = (%v, %v), want (false, error)", ok, err)
@@ -180,10 +207,108 @@ func TestDocumentAccessors(t *testing.T) {
 	if ok, err := doc.IsPDF(); err == nil || ok {
 		t.Errorf("IsPDF with undefined profile = (%v, %v), want (false, error)", ok, err)
 	}
-	PDFA_1B = savedPDFA
+	PDFA1B = savedPDFA
 	PDF = savedPDF
 
 	if _, err := Open("testdata/does-not-exist.pdf"); err == nil {
 		t.Error("Open of a missing file returned nil error")
 	}
+}
+
+// TestResultMarshalsToJSON confirms the public Result/PDFError/Check aliases
+// serialize to a populated, stable JSON shape rather than the empty objects
+// their unexported fields used to produce (roadmap item 17).
+func TestResultMarshalsToJSON(t *testing.T) {
+	data, err := os.ReadFile("internal/pdf/testdata/crypt/enc_aesv3.pdf")
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	res, err := VerifyBytes(data, PDFA1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || len(res.Issues) == 0 {
+		t.Fatalf("expected an invalid result with issues (6.1.3 Encrypt), got valid=%v issues=%d", res.Valid, len(res.Issues))
+	}
+
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("json.Marshal(Result): %v", err)
+	}
+	if bytes.Contains(b, []byte("{}")) {
+		t.Fatalf("result JSON still contains empty objects: %s", b)
+	}
+
+	var decoded struct {
+		Valid      bool `json:"valid"`
+		IssueCount int  `json:"issueCount"`
+		Issues     []struct {
+			Check struct {
+				Name   string `json:"name"`
+				Clause string `json:"clause"`
+			} `json:"check"`
+			Text string `json:"text"`
+		} `json:"issues"`
+	}
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if decoded.IssueCount != len(res.Issues) || len(decoded.Issues) == 0 {
+		t.Fatalf("issueCount/issues mismatch: %s", b)
+	}
+	if decoded.Issues[0].Check.Clause == "" || decoded.Issues[0].Text == "" {
+		t.Errorf("issue check/text not populated: %s", b)
+	}
+}
+
+// passFixtures returns every "pass" fixture path in the veraPDF corpus, or
+// nil if the corpus isn't present.
+func passFixtures(t *testing.T) []string {
+	t.Helper()
+	if _, err := os.Stat(veraDir); err != nil {
+		return nil
+	}
+	var found []string
+	filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && strings.Contains(strings.ToLower(d.Name()), "-pass-") {
+			found = append(found, path)
+		}
+		return nil
+	})
+	return found
+}
+
+// failFixturesByExpectedClause walks both corpora and returns every "fail"
+// fixture's path paired with the clause its filename targets (see
+// veraClauseAndKind / expectedClauseFromName).
+func failFixturesByExpectedClause(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+
+	if _, err := os.Stat(veraDir); err == nil {
+		filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
+				return nil
+			}
+			if clause, wantFail := veraClauseAndKind(d.Name()); wantFail && clause != "" {
+				out[path] = clause
+			}
+			return nil
+		})
+	}
+	if _, err := os.Stat(isartorDir); err == nil {
+		filepath.WalkDir(isartorDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
+				return nil
+			}
+			if clause := expectedClauseFromName(d.Name()); clause != "" {
+				out[path] = clause
+			}
+			return nil
+		})
+	}
+	return out
 }

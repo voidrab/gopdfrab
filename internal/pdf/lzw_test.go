@@ -1,6 +1,10 @@
 package pdf
 
-import "testing"
+import (
+	"bytes"
+	"errors"
+	"testing"
+)
 
 // packLZWCodes packs codes MSB-first into bytes, matching lzwBitReader.read,
 // so tests can hand-craft LZW bitstreams without a real encoder.
@@ -119,6 +123,63 @@ func TestDecodeLZWWidthGrowsAt511(t *testing.T) {
 	want = append(want, 'B')
 	if string(got) != string(want) {
 		t.Errorf("DecodeLZW() = %q (len %d), want %d 'A's followed by 'B' (len %d)", got, len(got), 254, len(want))
+	}
+}
+
+// TestDecodeLZWEarlyChange covers /EarlyChange: the same code stream is read
+// with different widths depending on whether the width grows one code before
+// the table boundary (1, the default) or at it (0).
+func TestDecodeLZWEarlyChange(t *testing.T) {
+	// Same shape as TestDecodeLZWWidthGrowsAt511, but the trailing codes stay
+	// 9 bits wide -- which is what EarlyChange 0 expects, since the bump to 10
+	// is deferred until nextCode reaches 512.
+	codes := make([]int, 254)
+	widths := make([]int, 254)
+	for i := range codes {
+		codes[i] = 65
+		widths[i] = 9
+	}
+	codes = append(codes, 66, lzwEOD)
+	widths = append(widths, 9, 9)
+	data := packLZWCodesVarWidth(codes, widths)
+
+	got, err := DecodeLZWParams(data, 0)
+	if err != nil {
+		t.Fatalf("DecodeLZWParams(earlyChange=0): %v", err)
+	}
+	want := append(bytes.Repeat([]byte("A"), 254), 'B')
+	if !bytes.Equal(got, want) {
+		t.Errorf("earlyChange=0 = %q (len %d), want 254 'A's then 'B'", got, len(got))
+	}
+
+	// The default reads the same bytes differently, so the two must disagree.
+	early, err := DecodeLZWParams(data, 1)
+	if err == nil && bytes.Equal(early, got) {
+		t.Error("earlyChange 0 and 1 decoded identically; the width bump is not being honoured")
+	}
+
+	// Any value other than 0 is the default.
+	a, errA := DecodeLZWParams(data, 1)
+	b, errB := DecodeLZWParams(data, 7)
+	if (errA == nil) != (errB == nil) || !bytes.Equal(a, b) {
+		t.Error("earlyChange=7 did not behave like the default of 1")
+	}
+}
+
+// TestDecodeLZWOutputCap covers the size ceiling that keeps a crafted stream
+// from exhausting memory.
+func TestDecodeLZWOutputCap(t *testing.T) {
+	restore := maxLZWOutput
+	maxLZWOutput = 8
+	defer func() { maxLZWOutput = restore }()
+
+	codes := make([]int, 64)
+	for i := range codes {
+		codes[i] = 65
+	}
+	codes = append(codes, lzwEOD)
+	if _, err := DecodeLZW(packLZWCodes(codes, 9)); !errors.Is(err, ErrOutputTooLarge) {
+		t.Errorf("DecodeLZW over cap = %v, want ErrOutputTooLarge", err)
 	}
 }
 

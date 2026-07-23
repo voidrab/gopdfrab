@@ -100,7 +100,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		trailer.Entries["Info"] = info
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		t.Fatalf("fixture must fail with a document-level DisallowedValue, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}

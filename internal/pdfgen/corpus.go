@@ -27,7 +27,23 @@ func Seeds() [][]byte {
 		xrefStreamOnly(),
 		xrefStreamWithObjStm(),
 		incrementalUpdate(),
+		encryptedClassicRC4(),
+		PlainThreeIssue(),
 	}
+}
+
+// PlainThreeIssue builds the roadmap item-2 repro shape: a structurally valid
+// PDF whose PDF/A-1b verification yields three unrelated document-level
+// findings (no trailer /ID, an RGB fill without a matching OutputIntent, no
+// catalog Metadata). The content stream is object 4, so offset-recovery
+// oracles can break its xref entry and assert the other findings survive.
+func PlainThreeIssue() []byte {
+	b := NewBuilder("%PDF-1.4\n" + binaryMarker)
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte("1 0 0 rg\n0 0 100 100 re f\n"))
+	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
 // minimalClassic is the smallest structurally valid one-page PDF using a

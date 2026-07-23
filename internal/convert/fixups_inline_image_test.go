@@ -34,7 +34,7 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr, err := Convert(tt.path, pdf.PDFA_1B)
+			cr, err := Convert(tt.path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -149,14 +149,15 @@ func TestInlineImageDecodeParms(t *testing.T) {
 	}
 }
 
-// TestUndoInlineImagePredictorNoPredictorAndPNG covers the predictor==1
-// (unchanged data) and predictor>=10 (PNG) branches; TIFF (predictor==2) is
-// already exercised by TestFixInlineImageLZWUndoesPredictor.
-func TestUndoInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
+// TestInlineImagePredictorNoPredictorAndPNG covers the predictor==1
+// (unchanged data) and predictor>=10 (PNG) branches of the shared predictor
+// helper as the inline-image path drives it; TIFF (predictor==2) is already
+// exercised by TestFixInlineImageLZWUndoesPredictor.
+func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 	data := []byte{1, 2, 3, 4}
-	got, err := undoInlineImagePredictor(data, nil)
+	got, err := pdf.UndoStreamPredictor(data, inlineImageDecodeParms(nil), pdf.DecodeOptions{})
 	if err != nil || string(got) != string(data) {
-		t.Errorf("undoInlineImagePredictor(no params) = (%v, %v), want (%v, nil)", got, err, data)
+		t.Errorf("UndoStreamPredictor(no params) = (%v, %v), want (%v, nil)", got, err, data)
 	}
 
 	plaintext := []byte{10, 20, 30, 40}
@@ -165,22 +166,22 @@ func TestUndoInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 		"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
 	}}
 	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
-	got, err = undoInlineImagePredictor(predicted, params)
+	got, err = pdf.UndoStreamPredictor(predicted, inlineImageDecodeParms(params), pdf.DecodeOptions{})
 	if err != nil {
-		t.Fatalf("undoInlineImagePredictor (PNG): %v", err)
+		t.Fatalf("UndoStreamPredictor (PNG): %v", err)
 	}
 	if string(got) != string(plaintext) {
-		t.Errorf("undoInlineImagePredictor (PNG) = %v, want %v", got, plaintext)
+		t.Errorf("UndoStreamPredictor (PNG) = %v, want %v", got, plaintext)
 	}
 }
 
-// TestUndoInlineImagePredictorUnsupported covers the default (neither 1, 2,
-// nor >= 10) error branch.
-func TestUndoInlineImagePredictorUnsupported(t *testing.T) {
+// TestInlineImagePredictorUnsupported covers the default (neither 1, 2, nor
+// >= 10) error branch.
+func TestInlineImagePredictorUnsupported(t *testing.T) {
 	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)}}
 	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
-	if _, err := undoInlineImagePredictor([]byte{1, 2, 3, 4}, params); err == nil {
-		t.Error("undoInlineImagePredictor with predictor=3 = nil error, want an error")
+	if _, err := pdf.UndoStreamPredictor([]byte{1, 2, 3, 4}, inlineImageDecodeParms(params), pdf.DecodeOptions{}); err == nil {
+		t.Error("UndoStreamPredictor with predictor=3 = nil error, want an error")
 	}
 }
 

@@ -929,7 +929,7 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	}
 
 	usageCtx := verify.NewContext(f.doc)
-	_, _, usedCodes, usedCIDs := verify.ComputeContentUsage(*trailer, usageCtx)
+	_, _, usedCodes, usedCIDs, _ := verify.ComputeContentUsage(*trailer, usageCtx)
 	sharedDescs := map[uintptr]bool{}
 	for ptr, n := range descCounts {
 		if n > 1 {
@@ -983,7 +983,7 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	usage := func() map[uintptr]map[int]bool {
 		if !usageComputed {
 			usageComputed = true
-			_, _, usedCodes, _ = verify.ComputeContentUsage(*trailer, verify.NewContext(f.doc))
+			_, _, usedCodes, _, _ = verify.ComputeContentUsage(*trailer, verify.NewContext(f.doc))
 		}
 		return usedCodes
 	}

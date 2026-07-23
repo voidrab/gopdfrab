@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
@@ -18,10 +19,10 @@ import (
 // (gs ExtGState ca/CA), Form/Image XObjects (Do, recursing into Forms and
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
-func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, error) {
+func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, []string, error) {
 	content, err := pageContentBytes(page)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return renderContent(content, resources, mediaBox, dpi)
 }
@@ -32,28 +33,28 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 // paints once flattened, since only its content is being replaced, not its
 // identity or placement. Returns the rendered buffer and the BBox it was
 // rendered against (needed to place the replacement image back into it).
-func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (*image.RGBA, [4]float64, error) {
+func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (*image.RGBA, [4]float64, []string, error) {
 	bbox, err := pdf.FloatArray(form.Entries["BBox"])
 	if err != nil || len(bbox) != 4 {
-		return nil, [4]float64{}, fmt.Errorf("raster: missing or invalid Form /BBox")
+		return nil, [4]float64{}, nil, fmt.Errorf("raster: missing or invalid Form /BBox")
 	}
 	box := [4]float64{bbox[0], bbox[1], bbox[2], bbox[3]}
 	content, err := pdf.DecodeStream(form)
 	if err != nil {
-		return nil, [4]float64{}, err
+		return nil, [4]float64{}, nil, err
 	}
-	canvas, err := renderContent(content, resources, box, dpi)
-	return canvas, box, err
+	canvas, drops, err := renderContent(content, resources, box, dpi)
+	return canvas, box, drops, err
 }
 
 // renderContent is the shared core behind RenderPage and renderFormContent:
 // it rasterizes content into a fresh opaque-white canvas sized from bounds
 // (a user-space rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int) (*image.RGBA, error) {
+func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int) (*image.RGBA, []string, error) {
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
 	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
-		return nil, fmt.Errorf("raster: degenerate or oversized bounds")
+		return nil, nil, fmt.Errorf("raster: degenerate or oversized bounds")
 	}
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	// Opaque white backdrop via doubling copies (memmove) instead of a
@@ -75,7 +76,20 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 	}
 	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}}
 	r.execContent(content, resources, gs)
-	return canvas, nil
+	return canvas, sortedDrops(r.dropped), nil
+}
+
+// sortedDrops returns the recorded drop feature names in a stable order.
+func sortedDrops(set map[string]bool) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // pageContentBytes concatenates a page's /Contents stream(s) (a single
@@ -116,13 +130,15 @@ type renderState struct {
 	lineWidth              float64
 	clip                   [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
 
-	font      pdf.PDFDict
-	fontSize  float64
-	charSpace float64
-	wordSpace float64
-	hScale    float64
-	leading   float64
-	tm, tlm   Matrix
+	font       pdf.PDFDict
+	fontSize   float64
+	charSpace  float64
+	wordSpace  float64
+	hScale     float64
+	leading    float64
+	rise       float64 // Ts: baseline offset in unscaled text space
+	renderMode int     // Tr: 3 and 7 are invisible (no marks)
+	tm, tlm    Matrix
 }
 
 // renderer carries the mutable bits shared across a RenderPage call: the
@@ -132,6 +148,24 @@ type renderer struct {
 	canvas    *image.RGBA
 	fontCache map[uintptr]*fontInfo
 	depth     int
+	// dropped records content features the rasterizer cannot draw (and so
+	// silently omits from the flattened image), keyed by a human name.
+	dropped map[string]bool
+}
+
+// raster-drop feature names, reported so a rasterized conversion does not
+// silently lose them.
+const (
+	dropShading     = "shading"
+	dropInlineImage = "inline image"
+	dropType3       = "Type 3 font"
+)
+
+func (r *renderer) drop(feature string) {
+	if r.dropped == nil {
+		r.dropped = map[string]bool{}
+	}
+	r.dropped[feature] = true
 }
 
 // pathBuilder accumulates the current path's subpaths in user space, kept
@@ -373,6 +407,14 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			r.showText(verify.ShownStringBytes(op, operands), &gs)
 		case "TJ":
 			r.showTextArray(operands, &gs)
+		case "Ts":
+			gs.rise = nums(1)[0]
+		case "Tr":
+			gs.renderMode = int(nums(1)[0])
+		case "sh":
+			r.drop(dropShading)
+		case "INLINEIMAGE":
+			r.drop(dropInlineImage)
 		}
 	})
 }
@@ -664,6 +706,15 @@ func (r *renderer) showText(raw []byte, gs *renderState) {
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
 	}
+	// Type 3 glyphs are content-stream procedures, not outlines the rasterizer
+	// can fill; record the loss (glyphs then simply do not draw below).
+	if st, _ := gs.font.Entries["Subtype"].(pdf.PDFName); st.Value == "Type3" {
+		r.drop(dropType3)
+	}
+	// Render modes 3 (invisible) and 7 (clip-only) paint no marks -- most often
+	// the invisible OCR text layer over a scanned image, which must stay
+	// invisible.
+	invisible := gs.renderMode == 3 || gs.renderMode == 7
 	fi := r.fontInfoFor(gs.font)
 	if fi == nil {
 		return
@@ -687,9 +738,10 @@ func (r *renderer) showText(raw []byte, gs *renderState) {
 			width = w
 		}
 
-		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 {
-			// Glyph space (1000-unit em) -> text space (font-size units) -> user space (tm) -> device (ctm).
-			glyphToText := Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000}
+		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
+			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
+			// rise) -> user space (tm) -> device (ctm).
+			glyphToText := Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
 			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.ctm)
 			contours := make([][]Point, len(gp.Contours))
 			for ci, c := range gp.Contours {

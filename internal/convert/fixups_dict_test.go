@@ -216,6 +216,34 @@ func TestPostScriptXObjectFixer(t *testing.T) {
 	}
 }
 
+// TestPostScriptXObjectFixerNeutersPSSubtype: a Subtype /PS XObject becomes an
+// empty Form XObject (viewers never render PS passthrough, so nothing visual
+// is lost) with the stream filter metadata cleared.
+func TestPostScriptXObjectFixerNeutersPSSubtype(t *testing.T) {
+	xobj := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "PS"},
+		"Filter":  pdf.PDFName{Value: "FlateDecode"},
+		"Level1":  pdf.PDFRef{ObjNum: 9},
+	}, HasStream: true, RawStream: []byte("compressed ps")}
+	trailer := trailerWith("XObj", xobj)
+	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("postScriptXObjectFixer.Fix = %v, %v", changed, err)
+	}
+	if xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) {
+		t.Errorf("Subtype = %v, want Form", xobj.Entries["Subtype"])
+	}
+	if _, ok := xobj.Entries["BBox"].(pdf.PDFArray); !ok {
+		t.Error("BBox not synthesized")
+	}
+	for _, k := range []string{"Filter", "DecodeParms", "DP", "Level1"} {
+		if _, ok := xobj.Entries[k]; ok {
+			t.Errorf("%s not removed", k)
+		}
+	}
+}
+
 func TestOptionalContentFixer(t *testing.T) {
 	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Type":         pdf.PDFName{Value: "Catalog"},

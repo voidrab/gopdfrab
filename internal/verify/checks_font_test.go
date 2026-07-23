@@ -53,7 +53,7 @@ func TestSimpleNotEmbedded_DrawnFontFlagged(t *testing.T) {
 
 // TestSimpleNotEmbedded_UndrawnFontSkipped verifies that a non-embedded
 // simple font absent from UsedCharCodes is not flagged when
-// SkipUnusedSimpleFonts is true (veraPDF / PDFA_1B behaviour).
+// SkipUnusedSimpleFonts is true (veraPDF / PDFA1B behaviour).
 func TestSimpleNotEmbedded_UndrawnFontSkipped(t *testing.T) {
 	font, _ := buildUnembeddedTrueTypeFont("ArialMT")
 
@@ -585,7 +585,7 @@ func TestCheckCMapCIDLimitsCIDChar(t *testing.T) {
 }
 
 // TestSimpleNotEmbedded_LegacyStrictness verifies that with
-// SkipUnusedSimpleFonts=false (Legacy_1B) a non-embedded font is always flagged.
+// SkipUnusedSimpleFonts=false (Legacy1B) a non-embedded font is always flagged.
 func TestSimpleNotEmbedded_LegacyStrictness(t *testing.T) {
 	font, _ := buildUnembeddedTrueTypeFont("ArialMT")
 

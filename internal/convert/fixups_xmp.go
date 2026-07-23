@@ -118,7 +118,7 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 	}
 	// checkInfoXMPSync compares Author against the XMP dc:creator value with
 	// the latter trimmed but not the former (checks_xmp.go); trimming here,
-	// the single source both GetMetadata and the regenerated XMP read from,
+	// the single source both Metadata and the regenerated XMP read from,
 	// keeps the two sides in sync instead of requiring matching surgery there.
 	if s, ok := info.Entries["Author"].(pdf.PDFString); ok {
 		info.Entries["Author"] = pdf.PDFString{Value: strings.TrimSpace(s.Value)}
@@ -202,7 +202,7 @@ func normalizePDFDate(s string) (string, bool) {
 
 // infoString reads and decodes a text value from the Info dictionary, using
 // DecodeInfoTextString (literal escapes + PDFDocEncoding / UTF-16BE), so the
-// result matches what GetMetadata returns and checkInfoXMPSync compares against.
+// result matches what Metadata returns and checkInfoXMPSync compares against.
 func infoString(info pdf.PDFDict, key string) string {
 	s := pdf.DecodeInfoTextString(info.Entries[key])
 	if trimmed := strings.TrimSpace(s); trimmed == "" || trimmed == "null" {

@@ -500,7 +500,7 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	errs := checkNonCatalogXMPStreams(trailer)
+	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -514,12 +514,12 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	root2.Entries["Other"] = wrapped
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries["Root"] = root2
-	if errs := checkNonCatalogXMPStreams(trailer2); len(errs) != 0 {
+	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -651,5 +651,48 @@ func TestXmpIsIntegerAndContainerOK(t *testing.T) {
 	}
 	if xmpContainerOK(xmpContainerKind(99), xmpKindScalar) {
 		t.Error("xmpContainerOK should be false for an unknown expected kind")
+	}
+}
+
+// TestNonCatalogXMPUndecodableIsNotMisattributed covers the re-attribution: a
+// metadata stream that will not decode is a structural defect, not evidence
+// that the xpacket wrapper is missing. Conflating the two told the user to fix
+// the wrong thing.
+func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.RawStream = []byte("not a zlib stream")
+
+	root := pdf.NewPDFDict()
+	root.Entries["Other"] = broken
+	trailer := pdf.NewPDFDict()
+	trailer.Entries["Root"] = root
+
+	ctx := &ValidationContext{}
+	errs := checkNonCatalogXMPStreams(trailer, ctx)
+	for _, e := range errs {
+		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
+			t.Error("an undecodable metadata stream was reported as a missing xpacket wrapper")
+		}
+	}
+	if !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Error("expected StreamUndecodable for a metadata stream that will not decode")
+	}
+
+	// A stream that decodes but genuinely lacks the wrapper still reports.
+	plain := pdf.NewPDFDict()
+	plain.HasStream = true
+	plain.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	plain.RawStream = []byte("<x:xmpmeta/>")
+
+	root2 := pdf.NewPDFDict()
+	root2.Entries["Other"] = plain
+	trailer2 := pdf.NewPDFDict()
+	trailer2.Entries["Root"] = root2
+	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{})
+	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
+		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
 	}
 }

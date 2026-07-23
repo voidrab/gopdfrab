@@ -64,8 +64,19 @@ func InflateZlib(data []byte) ([]byte, error) {
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
-	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput))
+	// Read one byte past the cap so a stream that would exceed it is detected
+	// as too-large rather than silently truncated to a prefix that every
+	// downstream check then runs against as if it were the whole stream.
+	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput+1))
 	zlibReaderPool.Put(zr)
+
+	// Over the size cap is a hard error (matching DecodeLZW/DecodeRunLength),
+	// kept distinct from the leniency below: it flows through the decode
+	// chokepoint as a reported StreamUndecodable instead of vanishing.
+	if int64(buf.Len()) > maxInflateOutput {
+		inflateBufPool.Put(buf)
+		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, maxInflateOutput)
+	}
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)
 	// still yields a usable prefix; return what inflated rather than
@@ -82,38 +93,76 @@ func InflateZlib(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// decodeStream returns the decoded bytes of a stream dictionary, applying
-// FlateDecode, ASCIIHexDecode, and ASCII85Decode filters as needed.
-func DecodeStream(dict PDFDict) ([]byte, error) {
+// DecodeStreamFull runs dict's complete filter chain: each filter in order,
+// with its positionally-matched DecodeParms, and each predictor undone
+// immediately after the filter that produced the predicted bytes -- rather
+// than once at the end, which was only ever correct for single-filter
+// streams. A terminal image codec stops the chain and is reported through
+// DecodedStream.Image, not as an error.
+func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
 	if !dict.HasStream {
-		return nil, fmt.Errorf("object is not a stream")
+		return DecodedStream{}, ErrNotAStream
 	}
+	names := FilterNames(dict.Entries["Filter"])
 	data := dict.RawStream
-	for _, f := range FilterNames(dict.Entries["Filter"]) {
-		switch f {
-		case "FlateDecode", "Fl":
-			out, err := InflateZlib(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCIIHexDecode", "AHx":
-			out, err := DecodeASCIIHex(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCII85Decode", "A85":
-			out, err := DecodeASCII85(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		default:
-			return nil, fmt.Errorf("unsupported filter %q", f)
+	for i, name := range names {
+		info, ok := LookupFilter(name)
+		if !ok {
+			return DecodedStream{}, fmt.Errorf("%w %q", ErrUnsupportedFilter, name)
 		}
+		parms := FilterDecodeParms(dict, i, len(names))
+		if info.Image {
+			// An image codec consumes the stream: nothing may follow it.
+			if i != len(names)-1 {
+				return DecodedStream{}, fmt.Errorf("%w: %s must be the last filter", ErrUnsupportedFilter, info.Name)
+			}
+			return DecodedStream{Data: data, Image: &info, ImageParms: parms}, nil
+		}
+		out, err := applyFilter(info, data, parms)
+		if err != nil {
+			return DecodedStream{}, err
+		}
+		if info.Predictor {
+			if out, err = UndoStreamPredictor(out, parms, opts); err != nil {
+				return DecodedStream{}, err
+			}
+		}
+		data = out
 	}
-	return data, nil
+	return DecodedStream{Data: data}, nil
+}
+
+// applyFilter decodes one non-image filter.
+func applyFilter(info FilterInfo, data []byte, parms PDFDict) ([]byte, error) {
+	switch info.Kind {
+	case FilterFlate:
+		return InflateZlib(data)
+	case FilterLZW:
+		return DecodeLZWParams(data, DictInt(parms, "EarlyChange", 1))
+	case FilterASCIIHex:
+		return DecodeASCIIHex(data)
+	case FilterASCII85:
+		return DecodeASCII85(data)
+	case FilterRunLength:
+		return DecodeRunLength(data)
+	default:
+		return nil, fmt.Errorf("%w %q", ErrUnsupportedFilter, info.Name)
+	}
+}
+
+// DecodeStream returns a stream dictionary's fully decoded bytes. A chain
+// ending in an image codec yields ErrEncodedImage: the stream is well-formed
+// but has no byte representation, which callers can tell apart from damage
+// with errors.Is.
+func DecodeStream(dict PDFDict) ([]byte, error) {
+	s, err := DecodeStreamFull(dict, DecodeOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if s.IsImage() {
+		return nil, fmt.Errorf("%w: %s", ErrEncodedImage, s.Image.Name)
+	}
+	return s.Data, nil
 }
 
 // StreamKey identifies a stream's raw (undecoded) bytes by content identity:

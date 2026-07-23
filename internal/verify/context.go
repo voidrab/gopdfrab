@@ -2,6 +2,7 @@ package verify
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -75,6 +76,12 @@ type ValidationContext struct {
 	// that do not define their own Default*.
 	pageResources pdf.PDFDict
 
+	// undecodable is the set of streams already reported as
+	// Structure.StreamUndecodable, so a stream several checks read is flagged
+	// once per verify pass rather than once per read. Lives here rather than
+	// on the Reader because throwaway contexts have no reader at all.
+	undecodable map[pdf.StreamKey]bool
+
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
 	// cache, so unchanged content streams stay decoded at most once across
 	// convert's fixer iterations (which reuse the same Reader). Nil for
@@ -90,12 +97,46 @@ func NewContext(d *pdf.Reader) *ValidationContext {
 }
 
 // decodeStreamCached decodes dict's stream, caching the result via ctx.reader
-// (see pdf.Reader.DecodeStreamCached) when available.
+// (see pdf.Reader.DecodeStreamCached) when available, and reporting
+// Structure.StreamUndecodable when the filter chain is broken. A check that
+// cannot read its input must never look like a check that passed.
 func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, error) {
+	var data []byte
+	var err error
 	if ctx.reader == nil {
-		return pdf.DecodeStream(dict)
+		data, err = pdf.DecodeStream(dict)
+	} else {
+		data, err = ctx.reader.DecodeStreamCached(dict)
 	}
-	return ctx.reader.DecodeStreamCached(dict)
+	if err != nil {
+		ctx.reportUndecodable(dict, err)
+	}
+	return data, err
+}
+
+// reportUndecodable records a broken stream, once per ValidationContext.
+//
+// Two outcomes are deliberately not reported. A chain ending in an image codec
+// is well-formed rather than broken -- it just has no byte representation --
+// and without that exemption every DCT-encoded image would be flagged. A dict
+// that carries no stream at all is not a stream object, so 6.1.7 does not
+// apply; the callers that hit this are defensive guards against a mistyped
+// entry, which the object-model checks report against the schema instead.
+func (ctx *ValidationContext) reportUndecodable(dict pdf.PDFDict, err error) {
+	if errors.Is(err, pdf.ErrEncodedImage) || errors.Is(err, pdf.ErrNotAStream) {
+		return
+	}
+	if key, ok := pdf.StreamKeyOf(dict); ok {
+		if ctx.undecodable[key] {
+			return
+		}
+		if ctx.undecodable == nil {
+			ctx.undecodable = map[pdf.StreamKey]bool{}
+		}
+		ctx.undecodable[key] = true
+	}
+	ctx.Report(pdf.Checks.Structure.StreamUndecodable, dict,
+		fmt.Sprintf("stream could not be decoded: %v", err))
 }
 
 // scanStreamCached tokenizes dict's content stream, caching the token list via
@@ -106,11 +147,16 @@ func (ctx *ValidationContext) scanStreamCached(dict pdf.PDFDict) ([]pdf.ScannedO
 	if ctx.reader == nil {
 		data, err := pdf.DecodeStream(dict)
 		if err != nil {
+			ctx.reportUndecodable(dict, err)
 			return nil, err
 		}
 		return pdf.TokenizeContent(data), nil
 	}
-	return ctx.reader.ScanStreamCached(dict)
+	ops, err := ctx.reader.ScanStreamCached(dict)
+	if err != nil {
+		ctx.reportUndecodable(dict, err)
+	}
+	return ops, err
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page

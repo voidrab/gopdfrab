@@ -9,8 +9,21 @@ const (
 	lzwMaxCode    = 4096
 )
 
-// decodeLZW decodes a PDF LZWDecode stream into its uncompressed bytes.
-func DecodeLZW(data []byte) ([]byte, error) {
+// maxLZWOutput caps decoded output so a crafted stream cannot OOM. Var, not
+// const, only so tests can lower it.
+var maxLZWOutput = 256 << 20
+
+// DecodeLZW decodes a PDF LZWDecode stream into its uncompressed bytes, using
+// the default /EarlyChange of 1.
+func DecodeLZW(data []byte) ([]byte, error) { return DecodeLZWParams(data, 1) }
+
+// DecodeLZWParams decodes a PDF LZWDecode stream. earlyChange selects when the
+// code width grows: 1 (the /EarlyChange default) bumps one code before the
+// table boundary, 0 bumps at the boundary. Any other value is treated as 1.
+func DecodeLZWParams(data []byte, earlyChange int) ([]byte, error) {
+	if earlyChange != 0 {
+		earlyChange = 1
+	}
 	br := lzwBitReader{data: data}
 	table := make([][]byte, lzwMaxCode)
 	for i := range 256 {
@@ -42,19 +55,22 @@ func DecodeLZW(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("lzw: invalid code %d", code)
 		}
 		out = append(out, entry...)
+		if len(out) > maxLZWOutput {
+			return nil, ErrOutputTooLarge
+		}
 
 		if prev != nil && nextCode < lzwMaxCode {
 			table[nextCode] = append(append([]byte{}, prev...), entry[0])
 			nextCode++
-			// the code width grows as soon as the just-added entry's
-			// number reaches the boundary, one code sooner than the table
-			// size alone would require.
-			switch nextCode {
-			case 511:
+			// The code width grows once the just-added entry's number reaches
+			// the boundary; with EarlyChange 1 (the default) that happens one
+			// code sooner than the table size alone would require.
+			switch nextCode + earlyChange {
+			case 512:
 				codeWidth = 10
-			case 1023:
+			case 1024:
 				codeWidth = 11
-			case 2047:
+			case 2048:
 				codeWidth = 12
 			}
 		}

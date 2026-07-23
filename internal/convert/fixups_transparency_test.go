@@ -39,7 +39,9 @@ func TestCanDropGroupSafely(t *testing.T) {
 		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(content)}
 	}
 
-	if canDropGroupSafely(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}, HasStream: true, RawStream: []byte{0xFF}}) {
+	// Flate with bytes that are not a zlib stream at all: a genuine decode
+	// failure, so the guard must refuse to judge the content.
+	if canDropGroupSafely(pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}, HasStream: true, RawStream: []byte("not zlib")}) {
 		t.Error("canDropGroupSafely on an undecodable stream = true, want false")
 	}
 	if !canDropGroupSafely(streamOf("1 0 0 rg 0 0 10 10 re f")) {

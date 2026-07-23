@@ -584,10 +584,10 @@ var specialCaseOverrides = map[[2]string]bool{
 	// fn:Eval(fn:IsPresent(LastModified)): the SpecialCase mirror of the
 	// required-if-PieceInfo rule requiredOverrides already neutralizes on PageObject --
 	// LastModified is universally omitted in real files carrying PieceInfo.
-	{"PageObject", "PieceInfo"}:            false,
-	{"XObjectFormType1", "PieceInfo"}:      false,
+	{"PageObject", "PieceInfo"}:             false,
+	{"XObjectFormType1", "PieceInfo"}:       false,
 	{"XObjectFormPrinterMark", "PieceInfo"}: false,
-	{"XObjectFormTrapNet", "PieceInfo"}:    false,
+	{"XObjectFormTrapNet", "PieceInfo"}:     false,
 }
 
 // buildKeyDef converts one TSV row into its Go source representation, marking each column
@@ -856,7 +856,7 @@ type condExpr struct {
 	rhsMul     int    // 0 means 1
 	rhsKey2    string // subtracted second entry (plain value only)
 	mod        int    // nonzero for "(<operand> mod N) == value" comparisons
-	bitLo      int // 1-based inclusive bit range for the CondBits* ops
+	bitLo      int    // 1-based inclusive bit range for the CondBits* ops
 	bitHi      int
 	kids       []condExpr
 }

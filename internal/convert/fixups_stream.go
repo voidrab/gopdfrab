@@ -1,8 +1,6 @@
 package convert
 
 import (
-	"fmt"
-
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -20,10 +18,10 @@ func (lzwStreamFixer) Applies(c pdf.Check) bool {
 func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if !d.HasStream || !hasLZWFilter(d.Entries["Filter"]) {
+		if !d.HasStream || !pdf.HasFilter(d.Entries["Filter"], pdf.FilterLZW) {
 			return d, false
 		}
-		plaintext, err := lzwStreamPlaintext(d)
+		plaintext, err := pdf.DecodeStream(d)
 		if err != nil {
 			return d, false
 		}
@@ -34,71 +32,6 @@ func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 		return d, true
 	})
 	return changed, nil
-}
-
-// hasLZWFilter reports whether filter (a stream's /Filter entry, name or
-// array) includes the forbidden LZWDecode filter.
-func hasLZWFilter(filter pdf.PDFValue) bool {
-	for _, f := range pdf.FilterNames(filter) {
-		if f == "LZWDecode" || f == "LZW" {
-			return true
-		}
-	}
-	return false
-}
-
-// lzwStreamPlaintext decodes a stream using LZWDecode, running all filters and predictors
-// to return the uncompressed plaintext. It duplicates the standard decoder chain logic so that
-// verification paths remain unaffected by this fixer-specific decoder.
-func lzwStreamPlaintext(dict pdf.PDFDict) ([]byte, error) {
-	data := dict.RawStream
-	for _, f := range pdf.FilterNames(dict.Entries["Filter"]) {
-		switch f {
-		case "FlateDecode", "Fl":
-			out, err := pdf.InflateZlib(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCIIHexDecode", "AHx":
-			out, err := pdf.DecodeASCIIHex(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCII85Decode", "A85":
-			out, err := pdf.DecodeASCII85(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "LZWDecode", "LZW":
-			out, err := pdf.DecodeLZW(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		default:
-			return nil, fmt.Errorf("unsupported filter %q", f)
-		}
-	}
-
-	parms := pdf.StreamDecodeParms(dict)
-	predictor := pdf.DictInt(parms, "Predictor", 1)
-	if predictor == 1 {
-		return data, nil
-	}
-	columns := pdf.DictInt(parms, "Columns", 1)
-	colors := pdf.DictInt(parms, "Colors", 1)
-	bpc := pdf.DictInt(parms, "BitsPerComponent", 8)
-	switch {
-	case predictor == 2:
-		return pdf.UndoTIFFPredictor(data, columns, colors, bpc)
-	case predictor >= 10:
-		return pdf.UndoPNGPredictor(data, columns, colors, bpc)
-	default:
-		return nil, fmt.Errorf("unsupported predictor %d", predictor)
-	}
 }
 
 // walkStreamDicts calls fix for every pdf.PDFDict found within v's dictionary entries or array elements,

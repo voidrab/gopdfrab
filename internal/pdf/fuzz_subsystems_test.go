@@ -111,6 +111,29 @@ func FuzzUndoPredictor(f *testing.F) {
 	})
 }
 
+func FuzzDecodeRunLength(f *testing.F) {
+	f.Add([]byte{2, 'a', 'b', 'c', 128})
+	f.Add([]byte{255, 'z'})
+	f.Add([]byte{129, 'q', 128})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 1<<20 {
+			return
+		}
+		pdf.DecodeRunLength(data)
+	})
+}
+
+func FuzzDecodeLZWParams(f *testing.F) {
+	f.Add([]byte{0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01}, 1)
+	f.Add([]byte{0xff, 0xff, 0xff}, 0)
+	f.Fuzz(func(t *testing.T, data []byte, earlyChange int) {
+		if len(data) > 1<<20 {
+			return
+		}
+		pdf.DecodeLZWParams(data, clampInt(earlyChange, 0, 1))
+	})
+}
+
 func FuzzReadBits(f *testing.F) {
 	f.Add([]byte{0xff, 0x00, 0xaa, 0x55}, 3, 12)
 	f.Fuzz(func(t *testing.T, data []byte, bitOffset, n int) {

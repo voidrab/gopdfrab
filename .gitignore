@@ -54,3 +54,6 @@ tests/regression/
 testdata/fuzz/
 
 TODO.md
+
+# CLI binary if built without -o from the repo root
+/gopdfrab

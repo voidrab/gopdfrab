@@ -136,7 +136,7 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 		delete(page.Entries, "_ref")
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 		t.Fatalf("fixture must fail with IndirectRequired, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 		page.Entries["Resources"] = resources
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 		t.Fatalf("fixture must fail with DisallowedValue, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 		page.Entries["UserUnit"] = pdf.PDFReal(2)
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 		t.Fatalf("fixture must fail with KeyIntroducedAfterPDF14, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 		delete(catalog.Entries, "Type")
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -619,7 +619,7 @@ func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 		t.Fatalf("fixture must fail with MissingRequiredKey, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 		page.Entries["Rotate"] = pdf.PDFString{Value: "90"}
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -777,7 +777,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 		t.Fatalf("fixture must fail with WrongValueType, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -1168,7 +1168,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 		contents.Entries["DecodeParms"] = pdf.PDFArray{nil, nil}
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -1176,7 +1176,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 		t.Fatalf("fixture must fail with ConstraintViolated, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}

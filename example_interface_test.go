@@ -25,7 +25,7 @@ const plainPDF = "%PDF-1.4\n" +
 func Example() {
 	src := []byte(plainPDF)
 
-	before, _ := gopdfrab.VerifyBytes(src, gopdfrab.PDFA_1B)
+	before, _ := gopdfrab.VerifyBytes(src, gopdfrab.PDFA1B)
 	fmt.Println("PDF/A-1b before convert:", before.Valid)
 
 	checks := []string{}
@@ -35,7 +35,7 @@ func Example() {
 
 	fmt.Println("Failed checks:", checks)
 
-	res, _ := gopdfrab.ConvertBytes(src, gopdfrab.PDFA_1B)
+	res, _ := gopdfrab.ConvertBytes(src, gopdfrab.PDFA1B)
 	fmt.Println("PDF/A-1b after convert: ", res.Result.Valid)
 
 	// res.Save("converted.pdf") // optionally write the converted PDF to disk

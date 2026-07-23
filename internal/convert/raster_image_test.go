@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"compress/zlib"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -194,7 +195,7 @@ func renderImageXObject(t *testing.T, img pdf.PDFDict) {
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg q 20 0 0 20 0 0 cm /Im1 Do Q")},
 	}}
-	if _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
@@ -373,66 +374,105 @@ func TestColorRGBA64Clamps(t *testing.T) {
 	}
 }
 
-// TestCcittEncodedBytes covers ccittEncodedBytes' pre-filter branches
-// (ASCIIHexDecode and ASCII85Decode before the CCITT filter) and the
-// unexpected-filter error path.
-func TestCcittEncodedBytes(t *testing.T) {
+// TestCCITTEncodedBytes covers the decode chain's handling of ASCII filters
+// preceding CCITTFaxDecode: the chain stops at the image codec and hands back
+// its input with the wrappers already undone.
+func TestCCITTEncodedBytes(t *testing.T) {
 	payload := []byte{0x98, 0x01}
 
-	t.Run("ASCIIHexDecode prefilter", func(t *testing.T) {
-		dict := pdf.PDFDict{
-			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
-			RawStream: encodeASCIIHex(payload),
-		}
-		got, err := ccittEncodedBytes(dict)
-		if err != nil {
-			t.Fatalf("ccittEncodedBytes: %v", err)
-		}
-		if !bytes.Equal(got, payload) {
-			t.Errorf("got %x, want %x", got, payload)
-		}
-	})
+	for _, tc := range []struct {
+		name    string
+		filter  string
+		encoded []byte
+	}{
+		{"ASCIIHexDecode prefilter", "ASCIIHexDecode", encodeASCIIHex(payload)},
+		{"ASCII85Decode prefilter", "ASCII85Decode", encodeASCII85(payload)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dict := pdf.PDFDict{
+				Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: tc.filter}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
+				HasStream: true,
+				RawStream: tc.encoded,
+			}
+			s, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict))
+			if err != nil {
+				t.Fatalf("DecodeStreamFull: %v", err)
+			}
+			if !s.IsImage() || s.Image.Kind != pdf.FilterCCITT {
+				t.Fatalf("image = %+v, want CCITTFaxDecode", s.Image)
+			}
+			if !bytes.Equal(s.Data, payload) {
+				t.Errorf("got %x, want %x", s.Data, payload)
+			}
+		})
+	}
 
-	t.Run("ASCII85Decode prefilter", func(t *testing.T) {
-		dict := pdf.PDFDict{
-			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
-			RawStream: encodeASCII85(payload),
-		}
-		got, err := ccittEncodedBytes(dict)
-		if err != nil {
-			t.Fatalf("ccittEncodedBytes: %v", err)
-		}
-		if !bytes.Equal(got, payload) {
-			t.Errorf("got %x, want %x", got, payload)
-		}
-	})
-
-	t.Run("unexpected filter before CCITT", func(t *testing.T) {
+	t.Run("broken filter before CCITT", func(t *testing.T) {
 		dict := pdf.PDFDict{
 			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}},
-			RawStream: payload,
+			HasStream: true,
+			RawStream: payload, // not valid zlib
 		}
-		if _, err := ccittEncodedBytes(dict); err == nil {
-			t.Error("ccittEncodedBytes: want error for unexpected pre-filter, got nil")
+		if _, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict)); err == nil {
+			t.Error("want error for an undecodable pre-filter, got nil")
 		}
 	})
 }
 
-// TestDecodeImageRawSamplesLZWAndPredictors covers the LZW-filter branch and
-// the TIFF (predictor 2) / PNG (predictor >=10) predictor-undo paths, none
-// of which the colour-space-focused DecodeImageRGBA tests exercise.
-func TestDecodeImageRawSamplesLZWAndPredictors(t *testing.T) {
+// TestImageDecodeChainLZWAndPredictors covers the LZW-filter branch and the
+// TIFF (predictor 2) / PNG (predictor >=10) predictor-undo paths, none of
+// which the colour-space-focused DecodeImageRGBA tests exercise. Image
+// streams take their predictor Columns/BitsPerComponent defaults from the
+// image dict, which is what ImageDecodeOptions supplies.
+func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
+	decode := func(t *testing.T, dict pdf.PDFDict) []byte {
+		t.Helper()
+		s, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict))
+		if err != nil {
+			t.Fatalf("DecodeStreamFull: %v", err)
+		}
+		return s.Data
+	}
+	// Only Flate and LZW take a /Predictor (ISO 32000-1 Table 8), so the
+	// predictor cases ride on a real Flate stage rather than bare bytes.
+	flated := func(t *testing.T, raw []byte) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		zw := zlib.NewWriter(&buf)
+		if _, err := zw.Write(raw); err != nil {
+			t.Fatalf("zlib Write: %v", err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatalf("zlib Close: %v", err)
+		}
+		return buf.Bytes()
+	}
+
 	t.Run("LZWDecode filter", func(t *testing.T) {
 		want := []byte{1, 2, 3, 4, 5, 6}
 		dict := pdf.PDFDict{
 			Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}},
+			HasStream: true,
 			RawStream: encodeLZW(t, want),
 		}
-		got, err := decodeImageRawSamples(dict)
-		if err != nil {
-			t.Fatalf("decodeImageRawSamples: %v", err)
+		if got := decode(t, dict); !bytes.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
 		}
-		if !bytes.Equal(got, want) {
+	})
+
+	// Regression: the old image path had a hasLZW flag that short-circuited
+	// the whole chain, feeding still-ASCII85-encoded text straight to the LZW
+	// decoder. The unified chain applies filters in order.
+	t.Run("ASCII85 then LZW", func(t *testing.T) {
+		want := []byte{1, 2, 3, 4, 5, 6}
+		dict := pdf.PDFDict{
+			Entries: map[string]pdf.PDFValue{"Filter": pdf.PDFArray{
+				pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"},
+			}},
+			HasStream: true,
+			RawStream: encodeASCII85(encodeLZW(t, want)),
+		}
+		if got := decode(t, dict); !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
@@ -442,20 +482,16 @@ func TestDecodeImageRawSamplesLZWAndPredictors(t *testing.T) {
 		// itself (each sample is a delta from the previous, first is raw).
 		dict := pdf.PDFDict{
 			Entries: map[string]pdf.PDFValue{
-				"Width": pdf.PDFInteger(2),
+				"Width":  pdf.PDFInteger(2),
+				"Filter": pdf.PDFName{Value: "FlateDecode"},
 				"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 					"Predictor": pdf.PDFInteger(2), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
 				}},
 			},
 			HasStream: true,
-			RawStream: []byte{10, 5},
+			RawStream: flated(t, []byte{10, 5}),
 		}
-		got, err := decodeImageRawSamples(dict)
-		if err != nil {
-			t.Fatalf("decodeImageRawSamples: %v", err)
-		}
-		want := []byte{10, 15}
-		if !bytes.Equal(got, want) {
+		if got, want := decode(t, dict), []byte{10, 15}; !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
@@ -465,20 +501,16 @@ func TestDecodeImageRawSamplesLZWAndPredictors(t *testing.T) {
 		// followed by the raw row, decodes to the row unchanged.
 		dict := pdf.PDFDict{
 			Entries: map[string]pdf.PDFValue{
-				"Width": pdf.PDFInteger(2),
+				"Width":  pdf.PDFInteger(2),
+				"Filter": pdf.PDFName{Value: "FlateDecode"},
 				"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 					"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
 				}},
 			},
 			HasStream: true,
-			RawStream: []byte{0x00, 7, 9},
+			RawStream: flated(t, []byte{0x00, 7, 9}),
 		}
-		got, err := decodeImageRawSamples(dict)
-		if err != nil {
-			t.Fatalf("decodeImageRawSamples: %v", err)
-		}
-		want := []byte{7, 9}
-		if !bytes.Equal(got, want) {
+		if got, want := decode(t, dict), []byte{7, 9}; !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})

@@ -20,7 +20,7 @@ func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
 		t.Skip("corpus fixture not present")
 	}
 
-	cr, err := Convert(path, pdf.PDFA_1B)
+	cr, err := Convert(path, pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}

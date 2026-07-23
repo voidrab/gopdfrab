@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/ascii85"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -92,11 +93,234 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 
 	bad := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "Frobnicate"}},
 		HasStream: true, RawStream: []byte("x"),
 	}
-	if _, err := DecodeStream(bad); err == nil {
-		t.Error("expected error for an unsupported filter")
+	if _, err := DecodeStream(bad); !errors.Is(err, ErrUnsupportedFilter) {
+		t.Errorf("unknown filter err = %v, want ErrUnsupportedFilter", err)
+	}
+
+	if _, err := DecodeStream(PDFDict{}); !errors.Is(err, ErrNotAStream) {
+		t.Error("expected ErrNotAStream for a non-stream dict")
+	}
+}
+
+// TestDecodeStreamNewFilters covers the filters the chain gained with the
+// duplicate-decoder collapse: RunLengthDecode, LZW reachable from a stream
+// dict, /EarlyChange, and a predictor riding on LZW rather than Flate.
+func TestDecodeStreamNewFilters(t *testing.T) {
+	t.Run("RunLengthDecode", func(t *testing.T) {
+		dict := PDFDict{
+			Entries:   map[string]PDFValue{"Filter": PDFName{Value: "RunLengthDecode"}},
+			HasStream: true, RawStream: []byte{2, 'a', 'b', 'c', 255, 'z', 128},
+		}
+		if got, err := DecodeStream(dict); err != nil || string(got) != "abczz" {
+			t.Errorf("RunLengthDecode = %q, %v; want \"abczz\"", got, err)
+		}
+	})
+
+	t.Run("ASCII85 then RunLength", func(t *testing.T) {
+		rle := []byte{2, 'a', 'b', 'c', 128}
+		enc := make([]byte, ascii85.MaxEncodedLen(len(rle)))
+		m := ascii85.Encode(enc, rle)
+		dict := PDFDict{
+			Entries: map[string]PDFValue{"Filter": PDFArray{
+				PDFName{Value: "ASCII85Decode"}, PDFName{Value: "RunLengthDecode"},
+			}},
+			HasStream: true, RawStream: append(append([]byte{}, enc[:m]...), "~>"...),
+		}
+		if got, err := DecodeStream(dict); err != nil || string(got) != "abc" {
+			t.Errorf("A85+RL = %q, %v; want \"abc\"", got, err)
+		}
+	})
+
+	// /EarlyChange 0 must actually reach the decoder. Nothing in the codebase
+	// read this parameter before the chain was unified.
+	t.Run("EarlyChange reaches the decoder", func(t *testing.T) {
+		codes := make([]int, 254)
+		widths := make([]int, 254)
+		for i := range codes {
+			codes[i] = 65
+			widths[i] = 9
+		}
+		codes = append(codes, 66, lzwEOD)
+		widths = append(widths, 9, 9)
+		raw := packLZWCodesVarWidth(codes, widths)
+
+		mk := func(parms PDFValue) PDFDict {
+			e := map[string]PDFValue{"Filter": PDFName{Value: "LZWDecode"}}
+			if parms != nil {
+				e["DecodeParms"] = parms
+			}
+			return PDFDict{Entries: e, HasStream: true, RawStream: raw}
+		}
+		zero, err := DecodeStream(mk(PDFDict{Entries: map[string]PDFValue{"EarlyChange": PDFInteger(0)}}))
+		if err != nil {
+			t.Fatalf("EarlyChange 0: %v", err)
+		}
+		want := append(bytes.Repeat([]byte("A"), 254), 'B')
+		if !bytes.Equal(zero, want) {
+			t.Errorf("EarlyChange 0 = %q (len %d), want 254 'A's then 'B'", zero, len(zero))
+		}
+		if dflt, err := DecodeStream(mk(nil)); err == nil && bytes.Equal(dflt, zero) {
+			t.Error("EarlyChange 0 decoded like the default; the parameter is being ignored")
+		}
+	})
+
+	// LZW plus a predictor in one chain -- a combination no decode path could
+	// express before, since the LZW-capable copy lived in convert.
+	t.Run("LZW with a predictor", func(t *testing.T) {
+		plaintext := []byte{10, 20, 30, 40, 5, 5, 5, 5}
+		var predicted []byte
+		for row := 0; row < len(plaintext); row += 4 {
+			predicted = append(predicted, 0) // PNG filter type 0: None
+			predicted = append(predicted, plaintext[row:row+4]...)
+		}
+		dict := PDFDict{
+			Entries: map[string]PDFValue{
+				"Filter": PDFName{Value: "LZWDecode"},
+				"DecodeParms": PDFDict{Entries: map[string]PDFValue{
+					"Predictor": PDFInteger(12), "Columns": PDFInteger(4), "Colors": PDFInteger(1),
+				}},
+			},
+			HasStream: true, RawStream: lzwEncodeLiterals(predicted),
+		}
+		got, err := DecodeStream(dict)
+		if err != nil {
+			t.Fatalf("LZW with predictor: %v", err)
+		}
+		if !bytes.Equal(got, plaintext) {
+			t.Errorf("LZW with predictor = %v, want %v", got, plaintext)
+		}
+	})
+}
+
+// lzwEncodeLiterals emits data as a sequence of 9-bit literal codes with no
+// table reuse -- a valid, if maximally verbose, LZW stream.
+func lzwEncodeLiterals(data []byte) []byte {
+	codes := make([]int, 0, len(data)+2)
+	codes = append(codes, lzwClearTable)
+	for _, b := range data {
+		codes = append(codes, int(b))
+	}
+	codes = append(codes, lzwEOD)
+	return packLZWCodes(codes, 9)
+}
+
+// TestLookupFilter covers both spellings and the image/predictor flags.
+func TestLookupFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		kind      FilterKind
+		image     bool
+		predictor bool
+	}{
+		{"FlateDecode", FilterFlate, false, true},
+		{"Fl", FilterFlate, false, true},
+		{"LZWDecode", FilterLZW, false, true},
+		{"LZW", FilterLZW, false, true},
+		{"ASCIIHexDecode", FilterASCIIHex, false, false},
+		{"AHx", FilterASCIIHex, false, false},
+		{"ASCII85Decode", FilterASCII85, false, false},
+		{"A85", FilterASCII85, false, false},
+		{"RunLengthDecode", FilterRunLength, false, false},
+		{"RL", FilterRunLength, false, false},
+		{"CCITTFaxDecode", FilterCCITT, true, false},
+		{"CCF", FilterCCITT, true, false},
+		{"DCTDecode", FilterDCT, true, false},
+		{"DCT", FilterDCT, true, false},
+		{"JBIG2Decode", FilterJBIG2, true, false},
+		{"JPXDecode", FilterJPX, true, false},
+	} {
+		info, ok := LookupFilter(tc.name)
+		if !ok {
+			t.Errorf("LookupFilter(%q) not found", tc.name)
+			continue
+		}
+		if info.Kind != tc.kind || info.Image != tc.image || info.Predictor != tc.predictor {
+			t.Errorf("LookupFilter(%q) = %+v; want kind %v image %v predictor %v",
+				tc.name, info, tc.kind, tc.image, tc.predictor)
+		}
+	}
+	if _, ok := LookupFilter("NotAFilter"); ok {
+		t.Error("LookupFilter accepted an unknown name")
+	}
+}
+
+// TestHasFilter covers the name, array and both-spelling forms.
+func TestHasFilter(t *testing.T) {
+	if !HasFilter(PDFName{Value: "LZWDecode"}, FilterLZW) {
+		t.Error("HasFilter missed a bare LZWDecode name")
+	}
+	if !HasFilter(PDFName{Value: "LZW"}, FilterLZW) {
+		t.Error("HasFilter missed the LZW abbreviation")
+	}
+	arr := PDFArray{PDFName{Value: "ASCII85Decode"}, PDFName{Value: "LZW"}}
+	if !HasFilter(arr, FilterLZW) {
+		t.Error("HasFilter missed LZW inside a filter array")
+	}
+	if HasFilter(arr, FilterFlate) {
+		t.Error("HasFilter reported Flate for an array without it")
+	}
+	if HasFilter(nil, FilterLZW) {
+		t.Error("HasFilter reported a filter for an absent /Filter")
+	}
+}
+
+// TestDecodeStreamImageFilters covers the typed image result: a chain ending
+// in an image codec is well-formed but has no byte representation, which must
+// be distinguishable from a damaged stream.
+func TestDecodeStreamImageFilters(t *testing.T) {
+	jpeg := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "DCTDecode"}},
+		HasStream: true, RawStream: []byte("jpegbytes"),
+	}
+
+	_, err := DecodeStream(jpeg)
+	if !errors.Is(err, ErrEncodedImage) {
+		t.Errorf("DecodeStream on DCTDecode = %v, want ErrEncodedImage", err)
+	}
+	if errors.Is(err, ErrUnsupportedFilter) {
+		t.Error("an image filter must not read as unsupported -- callers rely on the distinction")
+	}
+
+	s, err := DecodeStreamFull(jpeg, DecodeOptions{})
+	if err != nil {
+		t.Fatalf("DecodeStreamFull: %v", err)
+	}
+	if !s.IsImage() || s.Image.Kind != FilterDCT {
+		t.Fatalf("DecodeStreamFull image = %+v, want DCTDecode", s.Image)
+	}
+	if string(s.Data) != "jpegbytes" {
+		t.Errorf("image payload = %q, want the raw stream", s.Data)
+	}
+
+	// Preceding filters are undone before the codec sees the bytes.
+	enc := make([]byte, ascii85.MaxEncodedLen(len("jpegbytes")))
+	m := ascii85.Encode(enc, []byte("jpegbytes"))
+	wrapped := PDFDict{
+		Entries: map[string]PDFValue{"Filter": PDFArray{
+			PDFName{Value: "ASCII85Decode"}, PDFName{Value: "DCTDecode"},
+		}},
+		HasStream: true, RawStream: append(append([]byte{}, enc[:m]...), "~>"...),
+	}
+	s, err = DecodeStreamFull(wrapped, DecodeOptions{})
+	if err != nil {
+		t.Fatalf("DecodeStreamFull on wrapped image: %v", err)
+	}
+	if !s.IsImage() || string(s.Data) != "jpegbytes" {
+		t.Errorf("wrapped image payload = %q, want the ASCII85-decoded bytes", s.Data)
+	}
+
+	// An image codec consumes the stream, so nothing may follow it.
+	notLast := PDFDict{
+		Entries: map[string]PDFValue{"Filter": PDFArray{
+			PDFName{Value: "DCTDecode"}, PDFName{Value: "FlateDecode"},
+		}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if _, err := DecodeStreamFull(notLast, DecodeOptions{}); !errors.Is(err, ErrUnsupportedFilter) {
+		t.Errorf("image filter not last = %v, want ErrUnsupportedFilter", err)
 	}
 }
 
@@ -193,5 +417,91 @@ func TestContentScannerInlineImageEdgeCases(t *testing.T) {
 	raw = ops[0].Operands[len(ops[0].Operands)-1].(InlineImageRaw)
 	if string(raw.Data) != "XEIY" {
 		t.Errorf("false EI: InlineImageRaw.Data = %q, want %q", raw.Data, "XEIY")
+	}
+}
+
+// TestImageDecodeOptions covers the image-specific predictor defaults: an
+// image stream takes Columns from /Width and BitsPerComponent from its own,
+// rather than the spec's 1 and 8.
+func TestImageDecodeOptions(t *testing.T) {
+	dict := PDFDict{Entries: map[string]PDFValue{
+		"Width":            PDFInteger(64),
+		"BitsPerComponent": PDFInteger(4),
+	}}
+	opts := ImageDecodeOptions(dict)
+	if opts.Columns != 64 || opts.BitsPerComponent != 4 || !opts.LenientPredictor {
+		t.Errorf("ImageDecodeOptions = %+v, want Columns 64, BPC 4, lenient", opts)
+	}
+
+	// Absent entries fall back to the spec defaults.
+	bare := ImageDecodeOptions(PDFDict{Entries: map[string]PDFValue{}})
+	if bare.Columns != 1 || bare.BitsPerComponent != 8 {
+		t.Errorf("bare ImageDecodeOptions = %+v, want Columns 1, BPC 8", bare)
+	}
+
+	// LenientPredictor accepts a predictor value the strict chain rejects.
+	if _, err := UndoStreamPredictor([]byte{0, 1, 2},
+		PDFDict{Entries: map[string]PDFValue{"Predictor": PDFInteger(5)}},
+		DecodeOptions{Columns: 2, LenientPredictor: true}); err != nil {
+		t.Errorf("lenient predictor still errored: %v", err)
+	}
+}
+
+// TestDecodeStreamCryptFilter covers the Crypt filter: a known name with no
+// decoder, which must read as unsupported rather than unknown.
+func TestDecodeStreamCryptFilter(t *testing.T) {
+	dict := PDFDict{
+		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "Crypt"}},
+		HasStream: true, RawStream: []byte("x"),
+	}
+	if _, err := DecodeStream(dict); !errors.Is(err, ErrUnsupportedFilter) {
+		t.Errorf("Crypt filter = %v, want ErrUnsupportedFilter", err)
+	}
+}
+
+func deflateBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	zw := zlib.NewWriter(&b)
+	if _, err := zw.Write(data); err != nil {
+		t.Fatalf("zlib write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zlib close: %v", err)
+	}
+	return b.Bytes()
+}
+
+// TestInflateZlibSizeCap pins the size-cap boundary: output at the cap succeeds,
+// one byte over is a hard ErrOutputTooLarge with no partial data (rather than a
+// silently truncated prefix downstream checks would trust as complete).
+func TestInflateZlibSizeCap(t *testing.T) {
+	old := maxInflateOutput
+	maxInflateOutput = 1024
+	defer func() { maxInflateOutput = old }()
+
+	if out, err := InflateZlib(deflateBytes(t, make([]byte, 1024))); err != nil || len(out) != 1024 {
+		t.Fatalf("at cap: len=%d err=%v, want 1024/nil", len(out), err)
+	}
+	out, err := InflateZlib(deflateBytes(t, make([]byte, 1025)))
+	if !errors.Is(err, ErrOutputTooLarge) {
+		t.Fatalf("over cap: err=%v, want ErrOutputTooLarge", err)
+	}
+	if out != nil {
+		t.Errorf("over cap: got %d bytes, want none", len(out))
+	}
+}
+
+// TestInflateZlibTruncatedKeepsPrefix guards the leniency the size cap must stay
+// distinct from: a checksum-broken stream still returns its inflated prefix.
+func TestInflateZlibTruncatedKeepsPrefix(t *testing.T) {
+	msg := []byte("hello world, lenient prefix recovery")
+	full := deflateBytes(t, msg)
+	out, err := InflateZlib(full[:len(full)-3]) // drop part of the adler32 trailer
+	if err != nil {
+		t.Fatalf("truncated stream should still inflate a prefix, got err=%v", err)
+	}
+	if !bytes.Equal(out, msg) {
+		t.Errorf("prefix = %q, want %q", out, msg)
 	}
 }

@@ -35,7 +35,7 @@ func TestResultAccessors(t *testing.T) {
 	c2 := Checks.Structure.ObjectFraming       // clause 6.1.8
 
 	r := Result{
-		Type:  A_1B,
+		Type:  A1B,
 		Valid: false,
 		Issues: []PDFError{
 			NewError(c2, []error{}, 1, nil),
@@ -77,7 +77,7 @@ func TestResultAccessors(t *testing.T) {
 		t.Errorf("Summary() = %q, missing clause lines", summary)
 	}
 
-	valid := Result{Type: A_1B, Valid: true}
+	valid := Result{Type: A1B, Valid: true}
 	if got := valid.Summary(); !strings.Contains(got, "valid (no issues)") {
 		t.Errorf("Summary() for valid result = %q", got)
 	}

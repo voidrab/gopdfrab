@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -23,6 +24,17 @@ var maxWalkDepth = 1 << 17
 
 // Verify verifies d against the checks enabled in profile p.
 func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+	return VerifyContext(context.Background(), d, p)
+}
+
+// VerifyContext is Verify honouring ctx cancellation. Verification is bounded
+// by the parser's resource caps, so ctx is checked at entry; callers needing
+// finer cancellation should prefer the batch or convert entry points, which
+// check per file and per fix/raster pass.
+func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return pdf.Result{}, err
+	}
 	if p == nil {
 		return pdf.Result{}, fmt.Errorf("nil profile")
 	}
@@ -31,7 +43,7 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	}
 
 	var issues []pdf.PDFError
-	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
+	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
 		issues = verifyPdfA1b(d, p)
 	}
 	issues = filterByProfile(issues, p)
@@ -85,7 +97,7 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
 	}
 	var pt Parts
-	if p.Level == pdf.A_1B || p.Level == pdf.ObjectModel {
+	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
 		pt = verifyPdfA1bParts(d, p)
 	}
 	return pt.filter(p), nil
@@ -104,7 +116,7 @@ func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
 	}
 	var pt Parts
-	if (p.Level == pdf.A_1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
+	if (p.Level == pdf.A1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
 		pt.PreStructural = structuralPreIssues(d)
 		pt.PostStructural = structuralPostIssues(d)
 	}
@@ -121,7 +133,13 @@ func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 }
 
 // VerifyAll opens and verifies multiple PDF files concurrently.
-func VerifyAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[pdf.Result], error) {
+func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
+	return VerifyAllContext(context.Background(), paths, p, password)
+}
+
+// VerifyAllContext is VerifyAll honouring ctx cancellation: a cancelled ctx
+// stops dispatching further files and records ctx.Err() for those not started.
+func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
 	results := make([]pdf.FileResult[pdf.Result], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
@@ -136,11 +154,16 @@ func VerifyAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[pdf.Result], er
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = verifyFile(paths[i], p)
+				res, err := VerifyFileContext(ctx, paths[i], p, password)
+				results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
 			}
 		}()
 	}
 	for i := range paths {
+		if err := ctx.Err(); err != nil {
+			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: err}
+			continue
+		}
 		jobs <- i
 	}
 	close(jobs)
@@ -149,24 +172,35 @@ func VerifyAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[pdf.Result], er
 	return results, nil
 }
 
-// VerifyFile opens, verifies, and closes a single file.
-func VerifyFile(path string, p *pdf.Profile) (pdf.Result, error) {
-	doc, err := pdf.Open(path)
+// VerifyFile opens, verifies, and closes a single file. password is the empty
+// password when nil.
+func VerifyFile(path string, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	return VerifyFileContext(context.Background(), path, p, password)
+}
+
+// VerifyFileContext is VerifyFile honouring ctx cancellation.
+func VerifyFileContext(ctx context.Context, path string, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenWithPassword(path, password)
 	if err != nil {
 		return pdf.Result{}, err
 	}
 	defer doc.Close()
-	return Verify(doc, p)
+	return VerifyContext(ctx, doc, p)
 }
 
 // VerifyBytes verifies an in-memory PDF.
-func VerifyBytes(data []byte, p *pdf.Profile) (pdf.Result, error) {
-	doc, err := pdf.OpenBytes(data)
+func VerifyBytes(data []byte, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	return VerifyBytesContext(context.Background(), data, p, password)
+}
+
+// VerifyBytesContext is VerifyBytes honouring ctx cancellation.
+func VerifyBytesContext(ctx context.Context, data []byte, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenBytesWithPassword(data, password)
 	if err != nil {
 		return pdf.Result{}, fmt.Errorf("verify: %w", err)
 	}
 	defer doc.Close()
-	return Verify(doc, p)
+	return VerifyContext(ctx, doc, p)
 }
 
 // VerifyObjectModel checks d against the generic ISO 32000 object-model
@@ -194,11 +228,6 @@ func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
 	}
 	defer doc.Close()
 	return VerifyObjectModel(doc)
-}
-
-func verifyFile(path string, p *pdf.Profile) pdf.FileResult[pdf.Result] {
-	res, err := VerifyFile(path, p)
-	return pdf.FileResult[pdf.Result]{Path: path, Result: res, Err: err}
 }
 
 // filterByProfile removes from issues any PDFError whose (clause, subclause)
@@ -256,6 +285,11 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	graph, err := d.ResolveGraph()
 	if err != nil {
 		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		// A document-level bail must still surface the per-object parse
+		// diagnostics accumulated so far (framing, degraded objects).
+		if !schemaOnly {
+			pt.PostStructural = structuralPostIssues(d)
+		}
 		return pt
 	}
 
@@ -269,6 +303,9 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	pageIndex, err := d.BuildPageIndex(graph)
 	if err != nil {
 		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		if !schemaOnly {
+			pt.PostStructural = structuralPostIssues(d)
+		}
 		return pt
 	}
 
@@ -278,11 +315,28 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 		schemaOnly: schemaOnly,
 	}
 	if !schemaOnly {
-		reachable, invisibleOnly, usedCodes, usedCIDs := ComputeContentUsage(graph, ctx)
+		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
+		// An object degraded to null makes the usage sets a subset of the
+		// truth the same way an undecodable content stream does.
+		complete = complete && !d.HasDegradedObjects()
+		// Every usage-driven optimisation is a suppression: skip unreachable
+		// Form XObjects (6.2.3.3, 6.2.10), skip simple fonts never shown
+		// (6.3.4), exempt invisible-only fonts and unused CIDs (6.3.3.2,
+		// 6.3.5, 6.3.6). If a content stream failed to decode the usage sets
+		// are a subset of the truth, so any of those suppressions could hide
+		// a real violation. Discard them all and check everything.
+		if !complete {
+			reachable, invisibleOnly, usedCodes, usedCIDs = nil, nil, nil, nil
+		}
 		if p.SkipUnreachableXObjects {
 			ctx.ReachableXObjectPtrs = reachable
 		}
-		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts
+		// Forced off when usage is unknown: simpleFontShown is false for every
+		// font once UsedCharCodes is nil, so leaving the flag on would suppress
+		// *all* 6.3.4 checks -- the opposite of failing safe. A nil
+		// ReachableXObjectPtrs or UsedCharCodes fails safe on its own; this
+		// one inverts.
+		ctx.SkipUnusedSimpleFonts = p.SkipUnusedSimpleFonts && complete
 		ctx.InvisibleOnlyFontPtrs, ctx.UsedCharCodes, ctx.UsedCIDs = invisibleOnly, usedCodes, usedCIDs
 		computeColourCoverage(d, ctx)
 	}
@@ -309,7 +363,7 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = checkNonCatalogXMPStreams(graph)
+	errs = checkNonCatalogXMPStreams(graph, ctx)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -855,17 +909,24 @@ func isContainer(val pdf.PDFValue) bool {
 //     page content or other reachable Form XObjects.
 //   - invisibleOnly, usedCodes, usedCIDs: font usage, as computed by
 //     collectFontUsageFromBytes.
+//
+// complete is false when any content stream failed to decode, meaning the
+// sets are a subset of the truth. Since every one of them drives a check
+// *suppression*, callers must discard them all in that case.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,
 	usedCodes, usedCIDs map[uintptr]map[int]bool,
+	complete bool,
 ) {
+	complete = true
 	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
-		visible:   map[uintptr]bool{},
-		invisible: map[uintptr]bool{},
-		usedCodes: map[uintptr]map[int]bool{},
-		usedCIDs:  map[uintptr]map[int]bool{},
+		visible:         map[uintptr]bool{},
+		invisible:       map[uintptr]bool{},
+		usedCodes:       map[uintptr]map[int]bool{},
+		usedCIDs:        map[uintptr]map[int]bool{},
+		scannedPatterns: map[uintptr]bool{},
 	}
 	visitedPtrs := map[uintptr]bool{}
 
@@ -880,9 +941,23 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			visitedPtrs[ptr] = true
 
 			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
+				// Attribute anything reported while reading this page's
+				// streams to the page itself. This walk runs before verifyDocument's,
+				// which is what normally maintains CurrentPage, so without this a
+				// decode failure here would be reported as document-level.
+				// Restored afterwards so nothing outside the page inherits it.
+				prevPage := ctx.CurrentPage
+				if ref, ok := val.Entries["_ref"].(pdf.PDFRef); ok {
+					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
+				}
 				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
-				collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu)
-				collectAnnotAppearanceUsage(ctx, val, reachable, fu)
+				if !collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu) {
+					complete = false
+				}
+				if !collectAnnotAppearanceUsage(ctx, val, reachable, fu) {
+					complete = false
+				}
+				ctx.CurrentPage = prevPage
 				return
 			}
 			for _, child := range val.Entries {
@@ -907,16 +982,17 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			invisibleOnly[ptr] = true
 		}
 	}
-	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs
+	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, complete
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
 // appearance streams so validateContentStreams will scan their colour usage.
-func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
 	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
 	if !ok {
-		return
+		return true
 	}
+	complete := true
 	for _, item := range annots {
 		annot, ok := item.(pdf.PDFDict)
 		if !ok {
@@ -926,16 +1002,20 @@ func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reach
 		if !ok {
 			continue
 		}
-		collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu)
+		if !collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu) {
+			complete = false
+		}
 	}
+	return complete
 }
 
-func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) {
+func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) bool {
+	complete := true
 	switch v := n.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
 			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
-			collectContentUsage(ctx, v, apRes, reachable, fu)
+			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
 			for k, sv := range v.Entries {
 				if k == "_ref" {
@@ -943,58 +1023,60 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
 					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
-					collectContentUsage(ctx, sd, apRes, reachable, fu)
+					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
+						complete = false
+					}
 				}
 			}
 		}
 	}
+	return complete
 }
 
+// collectContentUsage returns false when any stream it visited could not be
+// decoded, leaving the usage sets incomplete.
 func collectContentUsage(
 	ctx *ValidationContext,
 	contents pdf.PDFValue,
 	resources pdf.PDFDict,
 	reachable map[uintptr]bool,
 	fu *fontUsage,
-) {
+) bool {
+	complete := true
 	switch v := contents.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			collectUsageFromBytes(ctx, v, resources, reachable, fu)
+			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
 			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
-				collectUsageFromBytes(ctx, d, resources, reachable, fu)
+				if !collectUsageFromBytes(ctx, d, resources, reachable, fu) {
+					complete = false
+				}
 			}
 		}
 	}
+	return complete
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
+// scannedPatterns dedupes tiling-pattern content streams across the walk.
 type fontUsage struct {
-	visible   map[uintptr]bool
-	invisible map[uintptr]bool
-	usedCodes map[uintptr]map[int]bool
-	usedCIDs  map[uintptr]map[int]bool
+	visible         map[uintptr]bool
+	invisible       map[uintptr]bool
+	usedCodes       map[uintptr]map[int]bool
+	usedCIDs        map[uintptr]map[int]bool
+	scannedPatterns map[uintptr]bool
 }
 
-// collectUsageFromBytes scans dict's content stream exactly once, tracking
-// both Form XObject reachability (via Do) and font usage/visibility (render
-// mode, saved/restored across q/Q, and the font set by the most recent Tf) --
-// these were previously two independent scans over the same bytes
-// (collectReachableFromBytes/collectFontUsageFromBytes), each recursing into
-// the same Do-invoked Form XObjects on its own. reachable doubles as the
-// single recursion guard for both concerns. Scanning through
-// ctx.scanStreamCached (rather than a fresh ContentScanner) means an
-// unchanged stream is tokenized once across all of convert's fixer
-// iterations, not once per iteration.
-func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) {
+func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
 	ops, err := ctx.scanStreamCached(dict)
 	if err != nil {
-		return
+		return false // reported as StreamUndecodable by scanStreamCached
 	}
+	complete := true
 	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
 	renderMode := 0
@@ -1077,6 +1159,37 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set[int(shown[i])<<8|int(shown[i+1])] = true
 				}
 			}
+		case "scn", "SCN":
+			// A tiling pattern set as fill/stroke colour runs its own content
+			// stream, so fonts and XObjects inside it are used (veraPDF flags
+			// a non-embedded font used only by a pattern).
+			if len(operands) == 0 {
+				return
+			}
+			name, ok := operands[len(operands)-1].(pdf.PDFName)
+			if !ok {
+				return
+			}
+			patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
+			if patterns.Entries == nil {
+				return
+			}
+			pat, ok := patterns.Entries[name.Value].(pdf.PDFDict)
+			if !ok || !pat.HasStream {
+				return // shading patterns (PatternType 2) carry no content
+			}
+			ptr := pdf.ValuePointer(pat.Entries)
+			if fu.scannedPatterns[ptr] {
+				return
+			}
+			fu.scannedPatterns[ptr] = true
+			subResources, _ := pat.Entries["Resources"].(pdf.PDFDict)
+			if subResources.Entries == nil {
+				subResources = resources
+			}
+			if !collectUsageFromBytes(ctx, pat, subResources, reachable, fu) {
+				complete = false
+			}
 		case "Do":
 			if len(operands) == 0 || xobjects.Entries == nil {
 				return
@@ -1099,9 +1212,12 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			collectUsageFromBytes(ctx, xobj, subResources, reachable, fu)
+			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu) {
+				complete = false
+			}
 		}
 	})
+	return complete
 }
 
 // ShownStringBytes returns the decoded bytes of all string operands a
@@ -1181,10 +1297,8 @@ func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
 	if v.Entries["FDecodeParms"] != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileDecodeParams, v, "stream object contains invalid key FDecodeParms")
 	}
-	for _, f := range pdf.FilterNames(v.Entries["Filter"]) {
-		if f == "LZWDecode" || f == "LZW" {
-			ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
-		}
+	if pdf.HasFilter(v.Entries["Filter"], pdf.FilterLZW) {
+		ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 	}
 }
 

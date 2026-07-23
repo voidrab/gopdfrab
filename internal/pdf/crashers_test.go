@@ -3,6 +3,7 @@ package pdf_test
 import (
 	"bytes"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func openReproduces(t *testing.T, name string, data []byte) {
 		}
 		defer r.Close()
 		r.ResolveGraph()
-		r.GetPageCount()
+		r.PageCount()
 	})
 }
 
@@ -76,7 +77,7 @@ func TestCrasher_CCITTColumnsAmplification(t *testing.T) {
 	}
 }
 
-// TestBuildPageIndexBranches exercises BuildPageIndex directly (GetPageCount
+// TestBuildPageIndexBranches exercises BuildPageIndex directly (PageCount
 // does not route through it) across every guard the fixes added: a non-dict
 // graph, a missing Root, a non-dict Root, a cyclic page tree, a page tree
 // deeper than the cap, and the normal Page-collecting walk.
@@ -312,11 +313,11 @@ func TestCrasher_FlateBomb(t *testing.T) {
 	}
 
 	out, err := pdf.InflateZlib(compressed.Bytes())
-	if err != nil {
-		t.Fatalf("InflateZlib: %v", err)
+	if !errors.Is(err, pdf.ErrOutputTooLarge) {
+		t.Fatalf("InflateZlib over cap = %v, want ErrOutputTooLarge", err)
 	}
-	if int64(len(out)) > 1024 {
-		t.Errorf("decoded %d bytes, want <= 1024", len(out))
+	if out != nil {
+		t.Errorf("expected no output past the cap, got %d bytes", len(out))
 	}
 }
 

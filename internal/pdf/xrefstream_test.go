@@ -208,7 +208,7 @@ func buildXRefStreamWithObjStmPDF(t *testing.T) []byte {
 // TestXRefStreamOnly verifies a PDF/1.5+ file using only a cross-reference
 // stream (no classic "xref" table, no literal "trailer" keyword) is fully
 // readable: page count, page resolution and content all resolve correctly.
-// As an additional end-to-end smoke test, Verify(A_1B) must run to
+// As an additional end-to-end smoke test, Verify(A1B) must run to
 // completion and correctly flag the file non-conformant (PDF/A-1b is based
 // on PDF 1.4 and does not permit cross-reference streams), without losing
 // the ability to resolve the rest of the graph.
@@ -221,8 +221,8 @@ func TestXRefStreamOnly(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Fatalf("GetPageCount() = %d, %v; want 1, nil", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
 	}
 
 	graph, err := doc.ResolveGraph()
@@ -232,7 +232,7 @@ func TestXRefStreamOnly(t *testing.T) {
 	page := assertOnePageGraph(t, graph)
 	assertContentStream(t, doc, page, "q\nQ\n")
 
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -263,8 +263,8 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Fatalf("GetPageCount() = %d, %v; want 1, nil", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
 	}
 
 	graph, err := doc.ResolveGraph()
@@ -281,7 +281,7 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -387,11 +387,11 @@ func TestOpenXRefStreamPDF(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Errorf("GetPageCount = %d, %v; want 1", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Errorf("PageCount = %d, %v; want 1", n, err)
 	}
-	if v, err := doc.GetVersion(); err != nil || v != "1.5" {
-		t.Errorf("GetVersion = %q, %v; want 1.5", v, err)
+	if v, err := doc.Version(); err != nil || v != "1.5" {
+		t.Errorf("Version = %q, %v; want 1.5", v, err)
 	}
 }
 
@@ -452,7 +452,7 @@ func TestOpenObjStmPDF(t *testing.T) {
 		t.Fatalf("OpenBytes(objstm PDF): %v", err)
 	}
 	defer doc.Close()
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Errorf("GetPageCount = %d, %v; want 1 (resolved from an object stream)", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Errorf("PageCount = %d, %v; want 1 (resolved from an object stream)", n, err)
 	}
 }

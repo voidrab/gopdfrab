@@ -19,7 +19,7 @@ func TestRenderPageRectangleFill(t *testing.T) {
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 5 5 10 10 re f")},
 	}}
-	canvas, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestRenderPageImageXObject(t *testing.T) {
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
 	}}
 
-	canvas, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
 	}}
 
-	canvas, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -189,7 +189,7 @@ ET
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
 	}}
 
-	canvas, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 		"Contents": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true,
 			RawStream: []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")},
 	}}
-	if _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
@@ -266,7 +266,7 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 		"Contents": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true,
 			RawStream: []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")},
 	}}
-	if _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }

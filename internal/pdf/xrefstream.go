@@ -105,7 +105,7 @@ func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) 
 		return PDFDict{}, fmt.Errorf("object at offset %d is not a cross-reference stream", offset)
 	}
 
-	data, err := decodeStreamPredicted(dict)
+	data, err := DecodeStream(dict)
 	if err != nil {
 		return PDFDict{}, fmt.Errorf("cross-reference stream: %w", err)
 	}

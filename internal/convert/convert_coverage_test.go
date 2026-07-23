@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -61,7 +62,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := false
 
-	if err := rasterBackstop(doc, &trailer, cr, pdf.PDFA_1B, fixers, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -97,7 +98,7 @@ func TestRasterBackstopVerifyErrors(t *testing.T) {
 			}}
 			var lastParts verify.Parts
 			graphClean := true
-			err := rasterBackstop(doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean)
+			err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI)
 			if err == nil {
 				t.Fatal("rasterBackstop with an undefined-level profile did not propagate the verify error")
 			}
@@ -118,7 +119,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(nil, &trailer, cr, pdf.PDFA_1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {
@@ -141,7 +142,7 @@ func TestSerializeAndVerifyRejectsBadProfile(t *testing.T) {
 // TestRunRejectsUndefinedProfile covers the in-heap verify error path in Run.
 func TestRunRejectsUndefinedProfile(t *testing.T) {
 	doc := openTrailer(t, onePageTrailer())
-	_, err := Run(doc, &pdf.Profile{Level: pdf.Undefined})
+	_, err := Run(doc, &pdf.Profile{Level: pdf.Undefined}, Options{})
 	if err == nil || !strings.Contains(err.Error(), "convert:") {
 		t.Errorf("Run(Undefined profile) err = %v, want a wrapped convert error", err)
 	}
@@ -160,7 +161,7 @@ func TestRunWrapsSerializeError(t *testing.T) {
 	root := trailer.Entries["Root"].(pdf.PDFDict)
 	root.Entries["Bogus"] = struct{ X int }{1}
 
-	_, err = Run(doc, pdf.PDFA_1B)
+	_, err = Run(doc, pdf.PDFA1B, Options{})
 	if err == nil || !strings.Contains(err.Error(), "unsupported value type") {
 		t.Errorf("Run over an unserializable graph err = %v, want an unsupported-value-type error", err)
 	}

@@ -131,8 +131,8 @@ func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Fatalf("GetPageCount() = %d, %v; want 1, nil", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
 	}
 
 	graph, err := doc.ResolveGraph()
@@ -247,16 +247,16 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 			}
 			defer orig.Close()
 
-			origRes, err := verify.Verify(orig, pdf.PDFA_1B)
+			origRes, err := verify.Verify(orig, pdf.PDFA1B)
 			if err != nil {
 				t.Fatalf("Verify(original): %v", err)
 			}
 			if !origRes.Valid {
 				t.Fatalf("fixture is not actually conformant (issues: %v)", issueClauses(origRes.Issues))
 			}
-			origPages, err := orig.GetPageCount()
+			origPages, err := orig.PageCount()
 			if err != nil {
-				t.Fatalf("GetPageCount(original): %v", err)
+				t.Fatalf("PageCount(original): %v", err)
 			}
 
 			var buf bytes.Buffer
@@ -270,11 +270,11 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 			}
 			defer rewritten.Close()
 
-			if n, err := rewritten.GetPageCount(); err != nil || n != origPages {
-				t.Errorf("GetPageCount(rewritten) = %d, %v; want %d, nil", n, err, origPages)
+			if n, err := rewritten.PageCount(); err != nil || n != origPages {
+				t.Errorf("PageCount(rewritten) = %d, %v; want %d, nil", n, err, origPages)
 			}
 
-			res, err := verify.Verify(rewritten, pdf.PDFA_1B)
+			res, err := verify.Verify(rewritten, pdf.PDFA1B)
 			if err != nil {
 				t.Fatalf("Verify(rewritten): %v", err)
 			}

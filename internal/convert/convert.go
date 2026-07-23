@@ -6,7 +6,10 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"image"
+	"io"
 	"os"
 	"runtime"
 	"sort"
@@ -17,18 +20,82 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-const maxConvertIterations = 4
+// ConvertResult implements io.WriterTo.
+var _ io.WriterTo = ConvertResult{}
+
+const (
+	defaultMaxIterations = 4
+	defaultRasterDPI     = 150
+)
+
+// Options tunes the conversion pipeline. The zero value selects the defaults,
+// so the root package's functional options fill in only the fields the caller
+// set.
+type Options struct {
+	// Password is the user or owner password for an encrypted input (nil is the
+	// empty password). Ignored by Run, whose document is already open.
+	Password []byte
+	// MaxIterations bounds the verify/fix loop (default 4).
+	MaxIterations int
+	// RasterDPI is the resolution used when a page or form is rasterized as a
+	// last resort or to flatten transparency (default 150).
+	RasterDPI int
+	// CheckFidelity renders the input and the converted output and populates
+	// ConvertResult.Fidelity with a per-page comparison. Off by default because
+	// it roughly doubles the work; use it to detect a conversion that destroyed
+	// visible content while still verifying clean.
+	CheckFidelity bool
+}
+
+func (o Options) iterations() int {
+	if o.MaxIterations > 0 {
+		return o.MaxIterations
+	}
+	return defaultMaxIterations
+}
+
+func (o Options) dpi() int {
+	if o.RasterDPI > 0 {
+		return o.RasterDPI
+	}
+	return defaultRasterDPI
+}
 
 type ConvertResult struct {
 	Output     []byte
 	Result     pdf.Result
 	Iterations int
+	// Fidelity is the per-page input-vs-output rendering comparison, populated
+	// only when Options.CheckFidelity was set. See PageFidelity.
+	Fidelity []PageFidelity
+	// RasterDrops records content the raster fallback could not render when it
+	// flattened a page (shadings, inline images, Type 3 fonts), so a rasterized
+	// conversion does not silently lose it. Empty when no page was rasterized or
+	// nothing was dropped.
+	RasterDrops []RasterDrop
+}
+
+// RasterDrop lists the content features the raster fallback dropped on one page.
+type RasterDrop struct {
+	Page     int
+	Features []string
 }
 
 // Residual returns the issues remaining in r.Output that Convert was unable
 // to fix automatically.
 func (r ConvertResult) Residual() []pdf.PDFError {
 	return r.Result.Issues
+}
+
+// WriteTo writes the converted PDF to w, implementing io.WriterTo, and returns
+// the number of bytes written. It errors if there is no output, which only
+// happens on a ConvertResult whose Convert call itself returned an error.
+func (r ConvertResult) WriteTo(w io.Writer) (int64, error) {
+	if len(r.Output) == 0 {
+		return 0, fmt.Errorf("convert: no output to write")
+	}
+	n, err := w.Write(r.Output)
+	return int64(n), err
 }
 
 // Save writes the converted PDF to the given path. It returns an error if
@@ -42,28 +109,44 @@ func (r ConvertResult) Save(path string) error {
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite. It always returns the best attempt it produced,
-// even if some violations remain.
-func Convert(path string, p *pdf.Profile) (ConvertResult, error) {
-	doc, err := pdf.Open(path)
+// even if some violations remain. password is the empty password when nil.
+func Convert(path string, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return ConvertContext(context.Background(), path, p, o)
+}
+
+// ConvertContext is Convert honouring ctx cancellation.
+func ConvertContext(ctx context.Context, path string, p *pdf.Profile, o Options) (ConvertResult, error) {
+	doc, err := pdf.OpenWithPassword(path, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc, p)
+	return RunContext(ctx, doc, p, o)
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte, p *pdf.Profile) (ConvertResult, error) {
-	doc, err := pdf.OpenBytes(data)
+func ConvertBytes(data []byte, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return ConvertBytesContext(context.Background(), data, p, o)
+}
+
+// ConvertBytesContext is ConvertBytes honouring ctx cancellation.
+func ConvertBytesContext(ctx context.Context, data []byte, p *pdf.Profile, o Options) (ConvertResult, error) {
+	doc, err := pdf.OpenBytesWithPassword(data, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc, p)
+	return RunContext(ctx, doc, p, o)
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
-func ConvertAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[ConvertResult], error) {
+func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
+	return ConvertAllContext(context.Background(), paths, p, o)
+}
+
+// ConvertAllContext is ConvertAll honouring ctx cancellation: a cancelled ctx
+// stops dispatching further files and records ctx.Err() for those not started.
+func ConvertAllContext(ctx context.Context, paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
 	results := make([]pdf.FileResult[ConvertResult], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
@@ -78,11 +161,15 @@ func ConvertAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[ConvertResult]
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = convertFile(paths[i], p)
+				results[i] = convertFile(ctx, paths[i], p, o)
 			}
 		}()
 	}
 	for i := range paths {
+		if err := ctx.Err(); err != nil {
+			results[i] = pdf.FileResult[ConvertResult]{Path: paths[i], Err: err}
+			continue
+		}
 		jobs <- i
 	}
 	close(jobs)
@@ -91,25 +178,43 @@ func ConvertAll(paths []string, p *pdf.Profile) ([]pdf.FileResult[ConvertResult]
 	return results, nil
 }
 
-func convertFile(path string, p *pdf.Profile) pdf.FileResult[ConvertResult] {
-	cr, err := Convert(path, p)
+func convertFile(ctx context.Context, path string, p *pdf.Profile, o Options) pdf.FileResult[ConvertResult] {
+	cr, err := ConvertContext(ctx, path, p, o)
 	return pdf.FileResult[ConvertResult]{Path: path, Result: cr, Err: err}
 }
 
 // Run converts an already-open document, the shared implementation behind
 // Convert/ConvertBytes and the facade's (*Document).Convert.
-func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
+func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return RunContext(context.Background(), doc, p, o)
+}
+
+// RunContext is Run honouring ctx cancellation, checked before each verify/fix
+// iteration and each raster pass.
+func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
+		// Per-object degradation makes this rare (pathological cases like the
+		// resolve-depth cap). A best-effort verify Result still rides along,
+		// but a Convert that produced no document must say so with an error,
+		// never a silent empty Output.
+		werr := fmt.Errorf("convert: %w: %v", pdf.ErrUnresolvableGraph, err)
 		res, verr := verify.Verify(doc, p)
 		if verr != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
+			return ConvertResult{}, werr
 		}
-		return ConvertResult{Result: res}, nil
+		return ConvertResult{Result: res}, werr
 	}
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {
 		return ConvertResult{}, fmt.Errorf("convert: resolved graph is not a dictionary")
+	}
+
+	// Capture the input's appearance before any fixup mutates the graph, so
+	// the final fidelity comparison sees the original.
+	var inputRenders []*image.RGBA
+	if o.CheckFidelity {
+		inputRenders = renderTrailerPages(trailer, fidelityDPI)
 	}
 
 	if err := applyPreemptiveFixups(&trailer, doc); err != nil {
@@ -119,7 +224,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	// Per-run deviceColourFixer wired to the Reader's concurrent decode cache,
 	// shared with the pre-loop detectColourModelUsage scan.
 	dcFixer := deviceColourFixer{decode: decoderFor(doc)}
-	localFixers := buildLocalFixers(dcFixer, doc)
+	localFixers := buildLocalFixers(dcFixer, doc, o.dpi())
 
 	var (
 		cr         ConvertResult
@@ -134,7 +239,10 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		lastParts  verify.Parts
 	)
 
-	for iter := 1; iter <= maxConvertIterations; iter++ {
+	for iter := 1; iter <= o.iterations(); iter++ {
+		if err := ctx.Err(); err != nil {
+			return ConvertResult{}, fmt.Errorf("convert: %w", err)
+		}
 		cr.Iterations = iter
 
 		result, parts, objs, err := inHeapVerify(doc, trailer, p)
@@ -211,7 +319,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 		graphClean = false
 	}
 
-	if err := rasterBackstop(doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi()); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 
@@ -220,7 +328,43 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
+
+	// Objects the reader degraded to null were serialized as null: their
+	// content is lost, so the conversion must not claim success. The final
+	// verify ran on the output bytes, where the loss is invisible, so the
+	// degradation issues are carried over explicitly. (Recovered objects are
+	// not carried: the rewrite emits a correct xref, genuinely fixing them.)
+	for _, e := range doc.DegradedObjects() {
+		c := e.Check()
+		if p.Allows(c.Clause(), c.Subclause()) {
+			cr.Result.Issues = append(cr.Result.Issues, e)
+			cr.Result.Valid = false
+		}
+	}
+
+	// Compare the converted output's appearance to the input captured above.
+	if o.CheckFidelity && len(cr.Output) > 0 {
+		if out, err := pdf.OpenBytes(cr.Output); err == nil {
+			cr.Fidelity = comparePageRenders(inputRenders, renderTrailerPagesOf(out))
+			out.Close()
+		}
+	}
 	return cr, nil
+}
+
+// renderTrailerPagesOf resolves out's graph and renders its pages at the
+// fidelity DPI, returning nil on any resolve failure (the comparison then has
+// no output baseline and reports the pages as lost).
+func renderTrailerPagesOf(out *pdf.Reader) []*image.RGBA {
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		return nil
+	}
+	trailer, ok := graph.(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	return renderTrailerPages(trailer, fidelityDPI)
 }
 
 // rasterBackstop is Run's last-resort remediation: rasterize residual pages
@@ -228,11 +372,15 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 // trigger it; structural violations (no registered fixer) are fixed by
 // construction by the writer and do not need rasterization. It updates cr,
 // lastParts, and graphClean exactly as the fix loop's verifies do.
-func rasterBackstop(doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool) error {
+func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi int) error {
 	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		return nil
 	}
-	if applyRasterFallback(trailer, cr.Result.Issues) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if drops, changed := applyRasterFallback(trailer, cr.Result.Issues, dpi); changed {
+		cr.RasterDrops = append(cr.RasterDrops, drops...)
 		cr.Iterations++
 		*graphClean = false
 		result, parts, _, err := inHeapVerify(doc, *trailer, p)
@@ -242,15 +390,18 @@ func rasterBackstop(doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p 
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
-	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(trailer) {
-		cr.Iterations++
-		*graphClean = false
-		result, parts, _, err := inHeapVerify(doc, *trailer, p)
-		if err != nil {
-			return err
+	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) {
+		if drops, changed := flattenAllPages(trailer, dpi); changed {
+			cr.RasterDrops = append(cr.RasterDrops, drops...)
+			cr.Iterations++
+			*graphClean = false
+			result, parts, _, err := inHeapVerify(doc, *trailer, p)
+			if err != nil {
+				return err
+			}
+			cr.Result = result
+			*lastParts, *graphClean = parts, true
 		}
-		cr.Result = result
-		*lastParts, *graphClean = parts, true
 	}
 	return nil
 }
@@ -330,7 +481,7 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 // substituted for the registry singletons: the per-run dcFixer, a
 // fontSubstitutionFixer carrying the run's Reader for cached usage scans,
 // and an appearanceFixer carrying the run's appearance font.
-func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]Fixer {
+func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int) map[pdf.Check]Fixer {
 	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
@@ -343,6 +494,8 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]
 			local[c] = trueTypeEncodingFixer{doc: doc}
 		case appearanceFixer:
 			local[c] = appearanceFixer{fontSrc: fontSrc}
+		case transparencyFlattener:
+			local[c] = transparencyFlattener{dpi: dpi}
 		default:
 			local[c] = f
 		}
@@ -354,7 +507,7 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader) map[pdf.Check]
 // raster image (flattenPageToImage), the last-resort remediation for content
 // no targeted fixer could repair. Page numbers in issues align with the
 // graph's page order, since both come from the same Root/Pages/Kids walk.
-func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError) bool {
+func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) ([]RasterDrop, bool) {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
 	for _, iss := range issues {
@@ -363,6 +516,7 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError) bool {
 		}
 	}
 	var flagged []pageTarget
+	var pageNums []int
 	nums := make([]int, 0, len(flag))
 	for pageNum := range flag {
 		nums = append(nums, pageNum)
@@ -371,37 +525,47 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError) bool {
 	for _, pageNum := range nums {
 		if i := pageNum - 1; i >= 0 && i < len(pages) {
 			flagged = append(flagged, pages[i])
+			pageNums = append(pageNums, pageNum)
 		}
 	}
-	return flattenPagesParallel(flagged)
+	return flattenPagesParallel(flagged, pageNums, dpi)
 }
 
 // flattenAllPages rasterizes every page, the final backstop for residuals that
 // applyRasterFallback can't target -- document-level violations with no page
 // number, or anything its page-by-page pass left behind.
-func flattenAllPages(trailer *pdf.PDFDict) bool {
-	return flattenPagesParallel(orderedPages(*trailer))
+func flattenAllPages(trailer *pdf.PDFDict, dpi int) ([]RasterDrop, bool) {
+	pages := orderedPages(*trailer)
+	pageNums := make([]int, len(pages))
+	for i := range pages {
+		pageNums[i] = i + 1
+	}
+	return flattenPagesParallel(pages, pageNums, dpi)
 }
 
 // flattenPagesParallel rasterizes distinct pages on a bounded worker pool;
 // each render mutates only its own page dict while reading the shared graph,
-// the same access pattern transparencyFlattener's workers rely on.
-func flattenPagesParallel(pages []pageTarget) bool {
+// the same access pattern transparencyFlattener's workers rely on. pageNums
+// aligns with pages (the 1-based page number of each) for the drop report.
+func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]RasterDrop, bool) {
 	seen := map[uintptr]bool{}
 	var unique []pageTarget
-	for _, p := range pages {
+	var uniqueNums []int
+	for i, p := range pages {
 		ptr := pdf.ValuePointer(p.dict.Entries)
 		if seen[ptr] {
 			continue
 		}
 		seen[ptr] = true
 		unique = append(unique, p)
+		uniqueNums = append(uniqueNums, pageNums[i])
 	}
 	if len(unique) == 0 {
-		return false
+		return nil, false
 	}
 
-	results := make([]bool, len(unique))
+	changedFlags := make([]bool, len(unique))
+	dropLists := make([][]string, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
@@ -411,7 +575,7 @@ func flattenPagesParallel(pages []pageTarget) bool {
 			defer wg.Done()
 			for i := range jobs {
 				p := unique[i]
-				results[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox)
+				dropLists[i], changedFlags[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox, dpi)
 			}
 		}()
 	}
@@ -422,10 +586,14 @@ func flattenPagesParallel(pages []pageTarget) bool {
 	wg.Wait()
 
 	changed := false
-	for _, r := range results {
-		changed = changed || r
+	var drops []RasterDrop
+	for i, c := range changedFlags {
+		changed = changed || c
+		if c && len(dropLists[i]) > 0 {
+			drops = append(drops, RasterDrop{Page: uniqueNums[i], Features: dropLists[i]})
+		}
 	}
-	return changed
+	return drops, changed
 }
 
 // sortedChecks returns counts' keys ordered by clause, subclause, and name,
