@@ -46,6 +46,13 @@ notable work:
   documented shape instead of empty objects.
 - `ConvertResult.WriteTo(io.Writer)` (implements `io.WriterTo`) to stream the
   converted PDF to any sink alongside the existing `Save(path)`.
+- Per-object recovery of broken cross-reference offsets: an object that fails to
+  parse at its recorded offset is re-located by scanning for its real
+  `N G obj` header, or resolved to null when no intact copy exists. Both
+  outcomes are reported as issues while every unrelated check keeps running.
+- `ErrUnresolvableGraph` sentinel: `Convert` returns it (with the best-effort
+  verify `Result` attached) when no object graph — and therefore no output —
+  could be produced.
 
 ### Changed
 - **Breaking:** renamed for Go convention (no underscores, no `Get` prefix).
@@ -59,6 +66,15 @@ notable work:
 ### Fixed
 - Undecodable content streams are now reported (`StreamUndecodable`) rather than
   silently turning a violation into a pass.
+- A single bad cross-reference offset no longer suppresses unrelated checks:
+  verification degrades per object instead of abandoning whole check families,
+  so a file with one broken offset reports the same issues as the intact file
+  plus the recovery issue. Content-usage suppressions are discarded when any
+  object degraded, and a verifier bail-out no longer drops the per-object parse
+  diagnostics gathered before it.
+- `Convert` can no longer return an empty output with a nil error: an
+  unresolvable graph is `ErrUnresolvableGraph`, and a conversion that nulled an
+  unrecoverable object reports the loss in `Residual()` with `Valid=false`.
 - `InflateZlib` returns `ErrOutputTooLarge` when a stream would inflate past the
   256 MB cap, instead of silently truncating to a prefix that downstream checks
   then trusted as complete. The deliberate leniency toward truncated/CRC-broken

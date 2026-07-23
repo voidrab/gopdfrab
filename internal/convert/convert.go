@@ -36,8 +36,8 @@ func (r ConvertResult) Residual() []pdf.PDFError {
 }
 
 // WriteTo writes the converted PDF to w, implementing io.WriterTo, and returns
-// the number of bytes written. It errors if there is no output (see item 3:
-// Convert can produce a Result with no rewrite when the graph is unresolvable).
+// the number of bytes written. It errors if there is no output, which only
+// happens on a ConvertResult whose Convert call itself returned an error.
 func (r ConvertResult) WriteTo(w io.Writer) (int64, error) {
 	if len(r.Output) == 0 {
 		return 0, fmt.Errorf("convert: no output to write")
@@ -116,11 +116,16 @@ func convertFile(path string, p *pdf.Profile) pdf.FileResult[ConvertResult] {
 func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
+		// Per-object degradation makes this rare (pathological cases like the
+		// resolve-depth cap). A best-effort verify Result still rides along,
+		// but a Convert that produced no document must say so with an error,
+		// never a silent empty Output.
+		werr := fmt.Errorf("convert: %w: %v", pdf.ErrUnresolvableGraph, err)
 		res, verr := verify.Verify(doc, p)
 		if verr != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
+			return ConvertResult{}, werr
 		}
-		return ConvertResult{Result: res}, nil
+		return ConvertResult{Result: res}, werr
 	}
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {

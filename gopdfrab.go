@@ -43,11 +43,15 @@ var Checks = pdf.Checks
 // ErrNotPDF: the input is not a PDF. ErrDamaged: a PDF whose cross-reference or
 // trailer structure could not be parsed. ErrEncrypted: an encryption scheme
 // gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
+// ErrUnresolvableGraph: Convert could not resolve the object graph even with
+// per-object degradation, so no output could be produced (the ConvertResult
+// still carries the best-effort verify Result).
 var (
-	ErrNotPDF           = pdf.ErrNotPDF
-	ErrDamaged          = pdf.ErrDamaged
-	ErrEncrypted        = pdf.ErrEncrypted
-	ErrPasswordRequired = pdf.ErrPasswordRequired
+	ErrNotPDF            = pdf.ErrNotPDF
+	ErrDamaged           = pdf.ErrDamaged
+	ErrEncrypted         = pdf.ErrEncrypted
+	ErrPasswordRequired  = pdf.ErrPasswordRequired
+	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
 )
 
 // NewProfile returns an empty profile for the given conformance level.

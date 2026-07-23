@@ -149,6 +149,14 @@ inspecting message text:
 | `gopdfrab.ErrDamaged` | a PDF whose cross-reference or trailer structure could not be parsed |
 | `gopdfrab.ErrEncrypted` | an encryption scheme gopdfrab does not implement |
 | `gopdfrab.ErrPasswordRequired` | a correct password is required to open the file |
+| `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced |
+
+An individual object that fails to parse — a wrong cross-reference offset, a
+corrupt body — does not fail the whole document. The object is re-located by
+scanning for its real `N G obj` header, or resolved to null when no intact copy
+exists; either way the damage is reported as an issue and every other check
+still runs. A conversion that had to null an unrecoverable object keeps that
+loss in `Residual()` and never reports the result as valid.
 
 ### Inspecting Issues
 

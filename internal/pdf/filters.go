@@ -120,6 +120,10 @@ var (
 	// parsed. Both wrap the specific cause and are matchable with errors.Is.
 	ErrNotPDF  = errors.New("pdf: not a PDF document")
 	ErrDamaged = errors.New("pdf: damaged document structure")
+
+	// ErrUnresolvableGraph reports that the object graph could not be resolved
+	// even with per-object degradation, so no converted output can be produced.
+	ErrUnresolvableGraph = errors.New("pdf: object graph could not be resolved")
 )
 
 // DecodeOptions supplies context a stream dictionary alone does not carry.

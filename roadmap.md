@@ -97,42 +97,67 @@ Five findings from the work, none of which the plan anticipated:
   decode failure was reported as document-level. The usage walk now maintains
   `CurrentPage` over each page subtree and restores it afterwards.
 
-### 2. A single bad xref offset suppresses unrelated checks
+### 2. A single bad xref offset suppresses unrelated checks — **DONE**
 
-Reproduced. Same file, one xref entry pointed at a bogus offset:
+Was: one bogus xref offset failed `ResolveGraph` wholesale, and
+`verifyPdfA1bParts` bailed with a single document-level 6.1.6 — dropping the
+6.7.2 catalog-Metadata finding (and every other graph-level check family) along
+with the colour violation the damage legitimately hid. The issue list was wrong,
+and a user fixing reported issues one at a time would never converge.
 
-```
-plain.pdf   valid=false issues=3
-     6.1.3/1  trailer does not contain the required ID keyword
-     6.2.3.3/2 device colour (rgb) ... without matching OutputIntent
-     6.7.2/1  document catalog lacks a Metadata entry
-badoff.pdf  valid=false issues=2
-     6.1.3/1  trailer does not contain the required ID keyword
-     6.1.6    unexpected token 1 in object 4
-```
+Fixed at the resolution boundary, not in the walk: a classic object that fails
+to parse at its offset is retried once at its real `N G obj` header (whole-file
+scan, last occurrence wins, memoized across objects) and degraded to a cached
+null only when no intact copy exists. Both outcomes are recorded as per-object
+6.1.6 diagnostics on the existing `parseDiagnostics`/`StructErrors` channel.
+This pulled the per-object half of item 4's recovery forward, as this item's
+cross-reference always implied, and item 4's oracle now holds:
+`TestBrokenXrefOffsetOracle` verifies a broken-offset file to the same issue
+set as the intact original plus exactly one recovery issue.
 
-The colour violation vanishes, as expected. But so does the **6.7.2 catalog
-Metadata** violation, which has nothing to do with the damaged object. One bad
-offset takes down document-level checks elsewhere in the graph. The file is still
-reported invalid, so this is not as dangerous as item 1 — but the issue list is
-wrong, and a user fixing reported issues one at a time will never converge.
+Findings from the work:
 
-Fix alongside item 3: the graph walk must degrade per-object, not abandon whole
-check families.
+- **The wrong-value case was silent.** `validateObjectStart` parsed the
+  header's object number and threw it away, so an offset landing on another
+  object's well-formed header returned the wrong object with no diagnostic at
+  all. It now returns the header number and a mismatch enters recovery. (The
+  residual case — a garbage header whose body happens to parse as a scalar —
+  still yields a 6.1.8 framing diagnostic only; full repair is item 4.)
+- **Failed attempts had to be rolled back.** A parse attempt at a bad offset
+  records 6.1.7/6.1.8 framing diagnostics before it knows it will fail; those
+  are discarded per-object on failure (nested resolutions' records survive) so
+  recovery leaves no noise and the oracle's issue-set equality holds.
+- **Item 1's completeness lesson applies here too.** A nulled object makes the
+  content-usage sets a subset of the truth exactly like an undecodable stream,
+  so usage completeness is ANDed with `!HasDegradedObjects()` and every
+  usage-driven suppression is discarded when anything degraded.
+- **Both verifier bails dropped diagnostics.** The early returns for an
+  unresolvable graph and an unbuildable page index skipped
+  `structuralPostIssues`, so a degraded *catalog* would have swallowed its own
+  diagnostic. Both bails now emit PostStructural.
+- **Decryption failures degrade too** — the handler was authenticated at
+  `Open`, so a mid-graph decrypt error is object-level corruption. Degradation
+  is gated off during `initializeStructure` so `Open`'s error classification
+  (`ErrDamaged`, `ErrEncrypted`, ...) is unchanged.
 
-### 3. Convert can return no output and no error
+### 3. Convert can return no output and no error — **DONE**
 
-Same run:
+Was: `convert.Run` fell back to verify-only when `ResolveGraph` failed and
+returned `ConvertResult{Result: res}, nil` — success with nothing in it, which
+`cr.Save(path)` turned into a different error much later.
 
-```
-badoff.pdf  convert: outlen=0 valid=false err=<nil>
-```
+With item 2, resolution failure is reduced to pathological cases (the resolve
+depth cap); those now return the new `ErrUnresolvableGraph` sentinel (wrapped
+per the item-19 pattern, re-exported from root) with the best-effort verify
+`Result` still attached. The empty-output-with-nil-error path is gone.
 
-`convert.Run` (`internal/convert/convert.go:97`) falls back to verify-only when
-`ResolveGraph` fails and returns `ConvertResult{Result: res}, nil` — success,
-with nothing in it. The caller has to know to check `len(cr.Output)`;
-`cr.Save(path)` then fails with a different error much later. A function that
-promises a converted document must return one or return an error saying why not.
+One finding: degradation made convert's other half of the bug visible. The
+final verify runs on the freshly-written output bytes, where a nulled object is
+indistinguishable from an intentional null — so a conversion that lost content
+would have verified *clean*. `Run` now carries the reader's degraded-object
+diagnostics into the final `Result` and forces `Valid=false`; recovered objects
+are deliberately not carried, since the rewrite emits a correct xref and
+genuinely fixes them.
 
 ---
 
@@ -157,12 +182,15 @@ PDF/A converter to fix. veraPDF and PDFBox both scan for `N G obj` and rebuild.
 - Rebuild from the scan, last definition of each object number wins, recover the
   trailer by finding `/Type /Catalog`.
 - Report the recovery as an issue — the file is not conformant — but keep going.
-- Same fallback per-object when the table parses but an offset is wrong
-  (item 2).
+- ~~Same fallback per-object when the table parses but an offset is wrong
+  (item 2).~~ Done with item 2: recovery scan, last-definition-wins, recovery
+  reported as an issue. What remains here is the whole-table case.
 
 Seed `internal/pdfgen` with these shapes. Oracle: a file with a deliberately
 broken xref must verify to the same issue set as the intact original, plus the
-recovery issue. That oracle would have caught item 2.
+recovery issue. The per-object variant of that oracle exists since item 2
+(`TestBrokenXrefOffsetOracle`, with `pdfgen.PlainThreeIssue` and
+`pdfgen.BreakXrefOffset`); this item extends it to whole-table damage.
 
 ### 5. Encrypted input converts to a corrupt document — **DONE**
 
@@ -557,8 +585,8 @@ Recorded so nobody re-investigates:
 
 ## Order of work
 
-1. ~~**Item 1.**~~ Done. **Items 2–3** remain: nothing else matters if the
-   verdict is wrong.
+1. ~~**Items 1–3.**~~ Done. P0 is clear: the verdict degrades per-object and
+   convert never returns empty output without an error.
 2. **Items 11 and 13.** Turn the dark differential harness on and put `-race`
    plus fuzzing in CI. Do this early — it's cheap and it changes what every
    later change is measured against. Now also the cheapest way to find whether

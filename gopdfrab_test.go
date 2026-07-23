@@ -3,10 +3,33 @@ package gopdfrab
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// TestSentinelReExports pins each root sentinel to its internal identity so
+// errors.Is matches across the package boundary.
+func TestSentinelReExports(t *testing.T) {
+	pairs := []struct {
+		name           string
+		root, internal error
+	}{
+		{"ErrNotPDF", ErrNotPDF, pdf.ErrNotPDF},
+		{"ErrDamaged", ErrDamaged, pdf.ErrDamaged},
+		{"ErrEncrypted", ErrEncrypted, pdf.ErrEncrypted},
+		{"ErrPasswordRequired", ErrPasswordRequired, pdf.ErrPasswordRequired},
+		{"ErrUnresolvableGraph", ErrUnresolvableGraph, pdf.ErrUnresolvableGraph},
+	}
+	for _, p := range pairs {
+		if p.root == nil || !errors.Is(p.internal, p.root) {
+			t.Errorf("%s does not match its internal sentinel", p.name)
+		}
+	}
+}
 
 // TestRegistryPassthroughs exercises the check-registry facade functions,
 // which need no PDF fixture.
