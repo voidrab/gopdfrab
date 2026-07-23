@@ -31,9 +31,24 @@ PDF/A-1b is the current focus and the target for the 1.0 release. The detailed,
 up-to-date roadmap — including what remains before the API is frozen — lives in
 [roadmap.md](roadmap.md). PDF/A-2, -3 and -4 come after 1.0.
 
-## Getting Started
+## Command-line tool
 
-A full example can be found under `main/main.go`
+A CLI ships under `cmd/gopdfrab`:
+
+```bash
+go install github.com/voidrab/gopdfrab/cmd/gopdfrab@latest
+
+gopdfrab verify docs/                     # verify every PDF under a directory
+gopdfrab verify --json report.pdf         # machine-readable output
+gopdfrab convert in.pdf out.pdf           # rewrite towards PDF/A-1b
+gopdfrab convert --dpi 300 in.pdf         # tune the raster fallback
+```
+
+Exit codes are `0` conformant, `1` non-conformant, `2` error, so it drops into
+scripts and CI directly. `verify` walks directories recursively; both
+subcommands accept `--profile`, `--password`, and `--json`.
+
+## Getting Started
 
 ### Add gopdfrab
 

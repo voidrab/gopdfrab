@@ -514,13 +514,19 @@ before. A distinct `ErrIO` was considered and skipped: a genuine mid-read I/O
 error is rare and already surfaces wrapped; splitting it from `ErrNotPDF` would
 add a category with almost no reachable call site.
 
-### 20. A real CLI
+### 20. A real CLI — **DONE**
 
-`cmd/` is empty. `main/main.go` is an example that imports `internal/pdf`, which
-external users cannot do. Ship `cmd/gopdfrab` with verify/convert subcommands,
-`--json`, meaningful exit codes (0 valid, 1 invalid, 2 error), and recursive
-input. It's how most people will first try the library and what makes the
-benchmark numbers reproducible by anyone else.
+Was: `cmd/` empty and `main/main.go` an example importing `internal/pdf` (which
+external users cannot). Shipped `cmd/gopdfrab` built on the public API only,
+with `verify` and `convert` subcommands, `--json`, meaningful exit codes
+(0 conformant, 1 non-conformant, 2 error), recursive directory input on
+`verify`, and `--profile`/`--password`/`--dpi`/`--max-iterations` flags. It uses
+the item-15/16 `Options` and `ConvertContext`/`VerifyAllContext` entry points,
+so a SIGINT cancels an in-flight run through the same context path. The
+`run(ctx, args, stdout, stderr) int` core is table-tested without spawning a
+process (exit codes, JSON shape, pass/fail/error, cancellation), and the
+obsolete `main/` example was removed. `go install
+github.com/voidrab/gopdfrab/cmd/gopdfrab@latest`.
 
 ### 21. Naming consistency — **DONE**
 

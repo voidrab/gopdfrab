@@ -33,6 +33,12 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Command-line tool** `cmd/gopdfrab` (built on the public API only): `verify`
+  and `convert` subcommands, `--json` output, recursive directory input, exit
+  codes 0/1/2 (conformant / non-conformant / error), `--profile`/`--password`/
+  `--dpi`/`--max-iterations` flags, and SIGINT cancellation. Install with
+  `go install github.com/voidrab/gopdfrab/cmd/gopdfrab@latest`. The old
+  `internal`-importing `main/` example was removed.
 - **Context-aware entry points with an `Options` struct.** Each `Verify`/
   `Convert` (and `Bytes`/`All`) function has a `…Context` counterpart taking a
   `context.Context` and an `Options{Password, RasterDPI, MaxIterations}` value
