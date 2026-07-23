@@ -117,7 +117,7 @@ func TestFontSubstitutionSymbolicPreservesDingbats(t *testing.T) {
 // conformant while the checkmark's meaning survives in vector text.
 func TestConvertPreservesDingbatCheckmark(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.4 Embedded font programs/isartor-6-3-4-t01-fail-f.pdf"
-	cr, err := Convert(path, pdf.PDFA1B)
+	cr, err := Convert(path, pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}

@@ -450,7 +450,7 @@ func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
 	trailer, closeDoc := fixtureTrailer(t, path)
 	defer closeDoc()
 
-	res, err := verify.VerifyFile(path, pdf.PDFA1B)
+	res, err := verify.VerifyFile(path, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

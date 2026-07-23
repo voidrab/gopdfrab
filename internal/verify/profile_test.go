@@ -333,7 +333,7 @@ func buildPSXObjectDoc(drawn bool) []byte {
 // Legacy1B flags both.
 func TestPostScriptXObjectReachabilityGate(t *testing.T) {
 	hasPS := func(data []byte, p *pdf.Profile) bool {
-		res, err := VerifyBytes(data, p)
+		res, err := VerifyBytes(data, p, nil)
 		if err != nil {
 			t.Fatalf("VerifyBytes: %v", err)
 		}
@@ -381,7 +381,7 @@ func buildPatternFontDoc(used bool) []byte {
 // pattern the content never sets keeps the suppression.
 func TestPatternFontUsageCollected(t *testing.T) {
 	hasNotEmbedded := func(data []byte) bool {
-		res, err := VerifyBytes(data, pdf.PDFA1B)
+		res, err := VerifyBytes(data, pdf.PDFA1B, nil)
 		if err != nil {
 			t.Fatalf("VerifyBytes: %v", err)
 		}

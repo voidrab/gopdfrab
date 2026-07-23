@@ -121,18 +121,8 @@ func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 }
 
 // VerifyAll opens and verifies multiple PDF files concurrently.
-// optPassword resolves the trailing variadic password (0 or 1) to a single
-// value, so existing two-argument callers keep the empty password.
-func optPassword(password [][]byte) []byte {
-	if len(password) > 0 {
-		return password[0]
-	}
-	return nil
-}
-
-func VerifyAll(paths []string, p *pdf.Profile, password ...[]byte) ([]pdf.FileResult[pdf.Result], error) {
+func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
 	results := make([]pdf.FileResult[pdf.Result], len(paths))
-	pw := optPassword(password)
 
 	workers := min(runtime.NumCPU(), len(paths))
 	if workers < 1 {
@@ -146,7 +136,7 @@ func VerifyAll(paths []string, p *pdf.Profile, password ...[]byte) ([]pdf.FileRe
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = verifyFile(paths[i], p, pw)
+				results[i] = verifyFile(paths[i], p, password)
 			}
 		}()
 	}
@@ -159,10 +149,10 @@ func VerifyAll(paths []string, p *pdf.Profile, password ...[]byte) ([]pdf.FileRe
 	return results, nil
 }
 
-// VerifyFile opens, verifies, and closes a single file. The optional trailing
-// password is the empty password when omitted.
-func VerifyFile(path string, p *pdf.Profile, password ...[]byte) (pdf.Result, error) {
-	doc, err := pdf.OpenWithPassword(path, optPassword(password))
+// VerifyFile opens, verifies, and closes a single file. password is the empty
+// password when nil.
+func VerifyFile(path string, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenWithPassword(path, password)
 	if err != nil {
 		return pdf.Result{}, err
 	}
@@ -171,8 +161,8 @@ func VerifyFile(path string, p *pdf.Profile, password ...[]byte) (pdf.Result, er
 }
 
 // VerifyBytes verifies an in-memory PDF.
-func VerifyBytes(data []byte, p *pdf.Profile, password ...[]byte) (pdf.Result, error) {
-	doc, err := pdf.OpenBytesWithPassword(data, optPassword(password))
+func VerifyBytes(data []byte, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	doc, err := pdf.OpenBytesWithPassword(data, password)
 	if err != nil {
 		return pdf.Result{}, fmt.Errorf("verify: %w", err)
 	}

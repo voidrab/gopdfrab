@@ -26,9 +26,9 @@ const (
 	defaultRasterDPI     = 150
 )
 
-// Options tunes the conversion pipeline. A zero value selects the defaults, so
-// callers set only the fields they care about. It is passed as a trailing
-// variadic argument so the two-argument call form keeps the defaults.
+// Options tunes the conversion pipeline. The zero value selects the defaults,
+// so the root package's functional options fill in only the fields the caller
+// set.
 type Options struct {
 	// Password is the user or owner password for an encrypted input (nil is the
 	// empty password). Ignored by Run, whose document is already open.
@@ -38,13 +38,6 @@ type Options struct {
 	// RasterDPI is the resolution used when a page or form is rasterized as a
 	// last resort or to flatten transparency (default 150).
 	RasterDPI int
-}
-
-func optConfig(opts []Options) Options {
-	if len(opts) > 0 {
-		return opts[0]
-	}
-	return Options{}
 }
 
 func (o Options) iterations() int {
@@ -96,8 +89,7 @@ func (r ConvertResult) Save(path string) error {
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite. It always returns the best attempt it produced,
 // even if some violations remain. password is the empty password when nil.
-func Convert(path string, p *pdf.Profile, opts ...Options) (ConvertResult, error) {
-	o := optConfig(opts)
+func Convert(path string, p *pdf.Profile, o Options) (ConvertResult, error) {
 	doc, err := pdf.OpenWithPassword(path, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
@@ -107,8 +99,7 @@ func Convert(path string, p *pdf.Profile, opts ...Options) (ConvertResult, error
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte, p *pdf.Profile, opts ...Options) (ConvertResult, error) {
-	o := optConfig(opts)
+func ConvertBytes(data []byte, p *pdf.Profile, o Options) (ConvertResult, error) {
 	doc, err := pdf.OpenBytesWithPassword(data, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
@@ -118,9 +109,8 @@ func ConvertBytes(data []byte, p *pdf.Profile, opts ...Options) (ConvertResult, 
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
-func ConvertAll(paths []string, p *pdf.Profile, opts ...Options) ([]pdf.FileResult[ConvertResult], error) {
+func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
 	results := make([]pdf.FileResult[ConvertResult], len(paths))
-	o := optConfig(opts)
 
 	workers := min(runtime.NumCPU(), len(paths))
 	if workers < 1 {
@@ -154,8 +144,7 @@ func convertFile(path string, p *pdf.Profile, o Options) pdf.FileResult[ConvertR
 
 // Run converts an already-open document, the shared implementation behind
 // Convert/ConvertBytes and the facade's (*Document).Convert.
-func Run(doc *pdf.Reader, p *pdf.Profile, opts ...Options) (ConvertResult, error) {
-	o := optConfig(opts)
+func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
 		// Per-object degradation makes this rare (pathological cases like the

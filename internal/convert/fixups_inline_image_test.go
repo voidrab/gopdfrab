@@ -34,7 +34,7 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cr, err := Convert(tt.path, pdf.PDFA1B)
+			cr, err := Convert(tt.path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}

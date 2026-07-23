@@ -36,7 +36,7 @@ func splitGraphResolution(issues []pdf.PDFError) (rest, graphRes []pdf.PDFError)
 // the bad offset suppressed the colour and Metadata findings entirely.
 func TestBrokenXrefOffsetOracle(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
-	intactRes, err := VerifyBytes(intact, pdf.PDFA1B)
+	intactRes, err := VerifyBytes(intact, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes(intact): %v", err)
 	}
@@ -49,7 +49,7 @@ func TestBrokenXrefOffsetOracle(t *testing.T) {
 	if bytes.Equal(broken, intact) {
 		t.Fatal("BreakXrefOffset changed nothing")
 	}
-	brokenRes, err := VerifyBytes(broken, pdf.PDFA1B)
+	brokenRes, err := VerifyBytes(broken, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes(broken): %v", err)
 	}
@@ -75,7 +75,7 @@ func TestBrokenXrefOffsetOracle(t *testing.T) {
 // issue.
 func TestBrokenStartxrefOracle(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
-	intactRes, err := VerifyBytes(intact, pdf.PDFA1B)
+	intactRes, err := VerifyBytes(intact, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes(intact): %v", err)
 	}
@@ -87,7 +87,7 @@ func TestBrokenStartxrefOracle(t *testing.T) {
 	if bytes.Equal(broken, intact) {
 		t.Fatal("BreakStartxref changed nothing")
 	}
-	brokenRes, err := VerifyBytes(broken, pdf.PDFA1B)
+	brokenRes, err := VerifyBytes(broken, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes(broken): %v", err)
 	}
@@ -123,7 +123,7 @@ func TestDegradedObjectKeepsUnrelatedChecks(t *testing.T) {
 		t.Fatal("seed no longer matches; test input needs updating")
 	}
 
-	res, err := VerifyBytes(broken, pdf.PDFA1B)
+	res, err := VerifyBytes(broken, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestDegradedObjectDiscardsUsageSuppressions(t *testing.T) {
 	}
 
 	hasSimpleNotEmbedded := func(data []byte) bool {
-		res, err := VerifyBytes(data, pdf.PDFA1B)
+		res, err := VerifyBytes(data, pdf.PDFA1B, nil)
 		if err != nil {
 			t.Fatalf("VerifyBytes: %v", err)
 		}
@@ -198,7 +198,7 @@ func TestDegradedCatalogSurfacesPostStructural(t *testing.T) {
 		t.Fatal("seed no longer matches; test input needs updating")
 	}
 
-	res, err := VerifyBytes(broken, pdf.PDFA1B)
+	res, err := VerifyBytes(broken, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
