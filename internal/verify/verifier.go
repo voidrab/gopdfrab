@@ -256,6 +256,11 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	graph, err := d.ResolveGraph()
 	if err != nil {
 		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		// A document-level bail must still surface the per-object parse
+		// diagnostics accumulated so far (framing, degraded objects).
+		if !schemaOnly {
+			pt.PostStructural = structuralPostIssues(d)
+		}
 		return pt
 	}
 
@@ -269,6 +274,9 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	pageIndex, err := d.BuildPageIndex(graph)
 	if err != nil {
 		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		if !schemaOnly {
+			pt.PostStructural = structuralPostIssues(d)
+		}
 		return pt
 	}
 
@@ -279,6 +287,9 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	}
 	if !schemaOnly {
 		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
+		// An object degraded to null makes the usage sets a subset of the
+		// truth the same way an undecodable content stream does.
+		complete = complete && !d.HasDegradedObjects()
 		// Every usage-driven optimisation is a suppression: skip unreachable
 		// Form XObjects (6.2.3.3, 6.2.10), skip simple fonts never shown
 		// (6.3.4), exempt invisible-only fonts and unused CIDs (6.3.3.2,
