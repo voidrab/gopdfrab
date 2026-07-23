@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"runtime"
@@ -39,6 +40,11 @@ type Options struct {
 	// RasterDPI is the resolution used when a page or form is rasterized as a
 	// last resort or to flatten transparency (default 150).
 	RasterDPI int
+	// CheckFidelity renders the input and the converted output and populates
+	// ConvertResult.Fidelity with a per-page comparison. Off by default because
+	// it roughly doubles the work; use it to detect a conversion that destroyed
+	// visible content while still verifying clean.
+	CheckFidelity bool
 }
 
 func (o Options) iterations() int {
@@ -59,6 +65,9 @@ type ConvertResult struct {
 	Output     []byte
 	Result     pdf.Result
 	Iterations int
+	// Fidelity is the per-page input-vs-output rendering comparison, populated
+	// only when Options.CheckFidelity was set. See PageFidelity.
+	Fidelity []PageFidelity
 }
 
 // Residual returns the issues remaining in r.Output that Convert was unable
@@ -190,6 +199,13 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		return ConvertResult{}, fmt.Errorf("convert: resolved graph is not a dictionary")
 	}
 
+	// Capture the input's appearance before any fixup mutates the graph, so
+	// the final fidelity comparison sees the original.
+	var inputRenders []*image.RGBA
+	if o.CheckFidelity {
+		inputRenders = renderTrailerPages(trailer, fidelityDPI)
+	}
+
 	if err := applyPreemptiveFixups(&trailer, doc); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
@@ -314,7 +330,30 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 			cr.Result.Valid = false
 		}
 	}
+
+	// Compare the converted output's appearance to the input captured above.
+	if o.CheckFidelity && len(cr.Output) > 0 {
+		if out, err := pdf.OpenBytes(cr.Output); err == nil {
+			cr.Fidelity = comparePageRenders(inputRenders, renderTrailerPagesOf(out))
+			out.Close()
+		}
+	}
 	return cr, nil
+}
+
+// renderTrailerPagesOf resolves out's graph and renders its pages at the
+// fidelity DPI, returning nil on any resolve failure (the comparison then has
+// no output baseline and reports the pages as lost).
+func renderTrailerPagesOf(out *pdf.Reader) []*image.RGBA {
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		return nil
+	}
+	trailer, ok := graph.(pdf.PDFDict)
+	if !ok {
+		return nil
+	}
+	return renderTrailerPages(trailer, fidelityDPI)
 }
 
 // rasterBackstop is Run's last-resort remediation: rasterize residual pages

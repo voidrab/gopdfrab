@@ -309,6 +309,26 @@ for _, iss := range residual {
 }
 ```
 
+### Fidelity
+
+Conforming to PDF/A is not the same as *looking* like the input — a page blanked
+during conversion still verifies clean. `Options.CheckFidelity` renders the input
+and the output and reports a per-page comparison so you can catch that:
+
+```go
+cr, _ := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B,
+    gopdfrab.Options{CheckFidelity: true})
+for _, pf := range cr.Fidelity {
+    if pf.Blanked() {
+        log.Printf("page %d lost its content during conversion", pf.Page)
+    }
+}
+```
+
+Both sides are drawn by the same rasterizer, so its limitations cancel and the
+comparison isolates what the conversion changed. `Blanked()` flags unambiguous
+content loss without tripping on benign changes like font substitution.
+
 ## Selective Check Profiles
 
 Verification can be narrowed to a specific set of rules using `Verify`.

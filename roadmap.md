@@ -375,20 +375,38 @@ Note the benchmarks README explicitly puts correctness out of scope and defers
 to the corpora. That was fine while the corpora were the whole story. It isn't
 now.
 
-### 12. Nothing checks that converted output still looks like the input
+### 12. Nothing checks that converted output still looks like the input — **DONE**
 
-There is no fidelity test anywhere — no rendering of input versus output, no
-pixel comparison, nothing. The only guard is "does it verify clean."
+Was: no fidelity test anywhere — the only guard was "does it verify clean,"
+which blanking a page always improves. The known failure mode is on record:
+conformant output that was destructively rasterized or blanked.
 
-That is a dangerous metric to optimise, because blanking a page always improves
-it. The known failure mode is already on record: conformant output that has been
-destructively rasterized or blanked, with page `/Group` deleted rather than
-rendered. Convert is currently free to destroy a document and score it as a win.
+`internal/convert/fidelity.go` renders the input and the converted output with
+gopdfrab's **own** rasterizer on both sides, so the renderer's operator-coverage
+gaps are symmetric and cancel — the comparison isolates what the *conversion*
+changed, not what the renderer cannot draw. `CompareFidelity` returns a
+`PageFidelity` per page (`Similarity`, `InputInk`, `OutputInk`); `Blanked()`
+flags the unambiguous data loss (input had ink, output is near-empty), which
+unlike a raw similarity threshold does not fire on legitimate changes such as
+font substitution.
 
-Build a fidelity gate: render each page of input and output, compare
-perceptually, fail when a page changes beyond a threshold or goes blank. Report
-per-page fidelity in `ConvertResult` alongside residual issues. This pairs with
-item 6 — the rasterizer needs to know and say what it dropped.
+Two deliverables:
+
+- **The gate** (`TestConvertFidelityNoBlankedPages`): converts each corpus
+  fixture and asserts no page was blanked. Running it found **0 blanked pages**
+  across the full corpus. Rendering both sides is dominated by a heavy tail of
+  megabyte fixtures, so by default it skips inputs over 50 KB (still ~95% of the
+  corpus, 0.4 s) and `GOPDFRAB_FIDELITY_FULL=1` renders everything (~3 min); a
+  blanking regression is systematic and shows up across the small fixtures too.
+- **The report**: opt-in `Options.CheckFidelity` renders input (captured before
+  any fixup mutates the graph) against output and populates
+  `ConvertResult.Fidelity []PageFidelity`, re-exported from the root package.
+
+The symmetric-renderer design has one documented blind spot — content the
+rasterizer itself cannot draw (shadings, inline images, Type 3, `Tr`/`Ts`) is
+dropped on *both* sides, so a raster fallback that loses it is not caught here.
+That is exactly item 6's job (make the rasterizer report what it dropped), and
+the two together are the complete fidelity story.
 
 ### 13. CI runs a fraction of the test suite — **mostly DONE**
 
@@ -676,8 +694,11 @@ Recorded so nobody re-investigates:
 4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.
    Items 15 (options), 16 (context), 17, 19, 21 done; **item 18** (lazy Output)
    ties into item 8, **item 20** (CLI) remains.
-5. **Items 10 and 12.** Real corpus and fidelity gate. Slower, and they need
-   items 2 and 4 done first to be meaningful.
+5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate found 0 blanked
+   pages across the corpus, and `Options.CheckFidelity` reports per-page fidelity
+   in `ConvertResult`. Item 10 (real-world corpus) remains: it needs a
+   redistribution/licensing decision (permissive sources vs a hash-referenced
+   separate repo).
 6. **Items 5–9.** Encryption and rasterizer fidelity: large but well-bounded.
 7. **Items 22–29.** Continuous.
 

@@ -17,6 +17,9 @@ type (
 	Check             = pdf.Check
 	PDFError          = pdf.PDFError
 	ConvertResult     = convert.ConvertResult
+	// PageFidelity is one page's input-vs-output rendering comparison,
+	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
+	PageFidelity = convert.PageFidelity
 )
 
 // PDF conformance levels.
@@ -73,10 +76,19 @@ type Options struct {
 	RasterDPI int
 	// MaxIterations bounds Convert's verify/fix loop. 0 selects the default (4).
 	MaxIterations int
+	// CheckFidelity makes Convert render the input and its output and populate
+	// ConvertResult.Fidelity with a per-page comparison. Off by default (it
+	// roughly doubles the work). Verify ignores it.
+	CheckFidelity bool
 }
 
 func (o Options) convert() convert.Options {
-	return convert.Options{Password: o.Password, RasterDPI: o.RasterDPI, MaxIterations: o.MaxIterations}
+	return convert.Options{
+		Password:      o.Password,
+		RasterDPI:     o.RasterDPI,
+		MaxIterations: o.MaxIterations,
+		CheckFidelity: o.CheckFidelity,
+	}
 }
 
 // NewProfile returns an empty profile for the given conformance level.

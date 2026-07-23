@@ -33,6 +33,11 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Fidelity checking** for conversions. `Options.CheckFidelity` renders the
+  input and the converted output with gopdfrab's own rasterizer and populates
+  `ConvertResult.Fidelity` with a per-page `PageFidelity` (similarity, input/
+  output ink coverage, and a `Blanked()` helper that flags destroyed content).
+  A corpus gate asserts no conversion blanks a page.
 - **Command-line tool** `cmd/gopdfrab` (built on the public API only): `verify`
   and `convert` subcommands, `--json` output, recursive directory input, exit
   codes 0/1/2 (conformant / non-conformant / error), `--profile`/`--password`/
