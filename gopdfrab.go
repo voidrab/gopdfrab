@@ -2,6 +2,8 @@
 package gopdfrab
 
 import (
+	"context"
+
 	"github.com/voidrab/gopdfrab/internal/convert"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -54,47 +56,27 @@ var (
 	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
 )
 
-// Option customizes a Verify or Convert call. Pass any number of the With*
-// options as the trailing arguments; the two-argument form (path/data +
-// profile) keeps the defaults.
-type Option func(*options)
-
-type options struct {
-	password      []byte
-	rasterDPI     int
-	maxIterations int
+// Options configures a Verify or Convert call. The zero value is the default
+// behavior, so callers set only the fields they need. The *Context entry points
+// take an Options; the two-argument forms use the zero value.
+//
+// Fields not relevant to an operation are ignored: Verify uses only Password;
+// RasterDPI and MaxIterations apply to Convert. Password applies at the open
+// step, so it has no effect on the *Document methods, whose file is already
+// open (use OpenWithPassword for those).
+type Options struct {
+	// Password is the user or owner password for an encrypted input. nil is the
+	// empty password.
+	Password []byte
+	// RasterDPI is the resolution at which Convert rasterizes a page or form as
+	// a last resort or to flatten transparency. 0 selects the default (150).
+	RasterDPI int
+	// MaxIterations bounds Convert's verify/fix loop. 0 selects the default (4).
+	MaxIterations int
 }
 
-func applyOptions(opts []Option) options {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
-	return o
-}
-
-func (o options) convertOptions() convert.Options {
-	return convert.Options{Password: o.password, MaxIterations: o.maxIterations, RasterDPI: o.rasterDPI}
-}
-
-// WithPassword supplies the user or owner password for an encrypted file. It
-// applies to the Open step, so it has no effect on the *Document methods, whose
-// file is already open. nil is the empty password.
-func WithPassword(password []byte) Option {
-	return func(o *options) { o.password = password }
-}
-
-// WithRasterDPI sets the resolution (dots per inch) at which Convert rasterizes
-// a page or form as a last resort or to flatten transparency. The default is
-// 150. Verify ignores it.
-func WithRasterDPI(dpi int) Option {
-	return func(o *options) { o.rasterDPI = dpi }
-}
-
-// WithMaxIterations bounds Convert's verify/fix loop. The default is 4. Verify
-// ignores it.
-func WithMaxIterations(n int) Option {
-	return func(o *options) { o.maxIterations = n }
+func (o Options) convert() convert.Options {
+	return convert.Options{Password: o.Password, RasterDPI: o.RasterDPI, MaxIterations: o.MaxIterations}
 }
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -119,64 +101,93 @@ func CheckByClause(clause string, subclause int) (Check, bool) {
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
 
 // Verify opens, verifies, and closes a single file.
-func Verify(path string, p *Profile, opts ...Option) (Result, error) {
-	return verify.VerifyFile(path, p, applyOptions(opts).password)
+func Verify(path string, p *Profile) (Result, error) {
+	return verify.VerifyFile(path, p, nil)
+}
+
+// VerifyContext is Verify honouring ctx cancellation, with o (Options.Password
+// is the only field Verify uses).
+func VerifyContext(ctx context.Context, path string, p *Profile, o Options) (Result, error) {
+	return verify.VerifyFileContext(ctx, path, p, o.Password)
 }
 
 // VerifyBytes is Verify for an in-memory PDF.
-func VerifyBytes(data []byte, p *Profile, opts ...Option) (Result, error) {
-	return verify.VerifyBytes(data, p, applyOptions(opts).password)
+func VerifyBytes(data []byte, p *Profile) (Result, error) {
+	return verify.VerifyBytes(data, p, nil)
+}
+
+// VerifyBytesContext is VerifyBytes honouring ctx cancellation, with o.
+func VerifyBytesContext(ctx context.Context, data []byte, p *Profile, o Options) (Result, error) {
+	return verify.VerifyBytesContext(ctx, data, p, o.Password)
 }
 
 // VerifyAll opens, verifies, and closes a batch of files concurrently.
-func VerifyAll(paths []string, p *Profile, opts ...Option) ([]FileResult[Result], error) {
-	return verify.VerifyAll(paths, p, applyOptions(opts).password)
+func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
+	return verify.VerifyAll(paths, p, nil)
+}
+
+// VerifyAllContext is VerifyAll honouring ctx cancellation; a cancelled ctx
+// records ctx.Err() for files not yet started.
+func VerifyAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[Result], error) {
+	return verify.VerifyAllContext(ctx, paths, p, o.Password)
 }
 
 // VerifyObjectModel opens, checks, and closes a single file against the
 // generic ISO 32000 object-model checks only, independent of any PDF/A
 // conformance level.
-func VerifyObjectModel(path string, opts ...Option) (Result, error) {
-	return verify.VerifyFile(path, PDF, applyOptions(opts).password)
+func VerifyObjectModel(path string) (Result, error) {
+	return verify.VerifyFile(path, PDF, nil)
 }
 
 // VerifyObjectModelBytes is VerifyObjectModel for an in-memory PDF.
-func VerifyObjectModelBytes(data []byte, opts ...Option) (Result, error) {
-	return verify.VerifyBytes(data, PDF, applyOptions(opts).password)
+func VerifyObjectModelBytes(data []byte) (Result, error) {
+	return verify.VerifyBytes(data, PDF, nil)
 }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite.
-func Convert(path string, p *Profile, opts ...Option) (ConvertResult, error) {
-	o := applyOptions(opts)
-	return convert.Convert(path, p, o.convertOptions())
+func Convert(path string, p *Profile) (ConvertResult, error) {
+	return convert.Convert(path, p, convert.Options{})
+}
+
+// ConvertContext is Convert honouring ctx cancellation (checked before each
+// verify/fix iteration and each raster pass) and o.
+func ConvertContext(ctx context.Context, path string, p *Profile, o Options) (ConvertResult, error) {
+	return convert.ConvertContext(ctx, path, p, o.convert())
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte, p *Profile, opts ...Option) (ConvertResult, error) {
-	o := applyOptions(opts)
-	return convert.ConvertBytes(data, p, o.convertOptions())
+func ConvertBytes(data []byte, p *Profile) (ConvertResult, error) {
+	return convert.ConvertBytes(data, p, convert.Options{})
+}
+
+// ConvertBytesContext is ConvertBytes honouring ctx cancellation and o.
+func ConvertBytesContext(ctx context.Context, data []byte, p *Profile, o Options) (ConvertResult, error) {
+	return convert.ConvertBytesContext(ctx, data, p, o.convert())
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
-func ConvertAll(paths []string, p *Profile, opts ...Option) ([]FileResult[ConvertResult], error) {
-	o := applyOptions(opts)
-	return convert.ConvertAll(paths, p, o.convertOptions())
+func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error) {
+	return convert.ConvertAll(paths, p, convert.Options{})
+}
+
+// ConvertAllContext is ConvertAll honouring ctx cancellation (a cancelled ctx
+// records ctx.Err() for files not yet started) and o.
+func ConvertAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[ConvertResult], error) {
+	return convert.ConvertAllContext(ctx, paths, p, o.convert())
 }
 
 // ConvertObjectModel reads the PDF at path and attempts to produce a rewrite
 // conformant with the generic ISO 32000 object-model checks only, independent
 // of any PDF/A conformance level -- the conversion counterpart to
 // VerifyObjectModel.
-func ConvertObjectModel(path string, opts ...Option) (ConvertResult, error) {
-	o := applyOptions(opts)
-	return convert.Convert(path, PDF, o.convertOptions())
+func ConvertObjectModel(path string) (ConvertResult, error) {
+	return convert.Convert(path, PDF, convert.Options{})
 }
 
 // ConvertObjectModelBytes is ConvertObjectModel for an in-memory PDF.
-func ConvertObjectModelBytes(data []byte, opts ...Option) (ConvertResult, error) {
-	o := applyOptions(opts)
-	return convert.ConvertBytes(data, PDF, o.convertOptions())
+func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
+	return convert.ConvertBytes(data, PDF, convert.Options{})
 }
 
 // Document represents an open PDF file.
@@ -205,6 +216,11 @@ func (d *Document) Close() error { return d.r.Close() }
 // Verify verifies d against the checks enabled in profile p.
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }
 
+// VerifyContext is Verify honouring ctx cancellation.
+func (d *Document) VerifyContext(ctx context.Context, p *Profile) (Result, error) {
+	return verify.VerifyContext(ctx, d.r, p)
+}
+
 // VerifyObjectModel checks d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
 func (d *Document) VerifyObjectModel() (Result, error) { return d.Verify(PDF) }
@@ -232,16 +248,22 @@ func (d *Document) IsPDF() (bool, error) {
 }
 
 // Convert converts d, an already-open document, attempting to produce a
-// PDF/A-1b conformant rewrite. WithPassword is ignored (the file is already
-// open); WithRasterDPI and WithMaxIterations apply.
-func (d *Document) Convert(p *Profile, opts ...Option) (ConvertResult, error) {
-	return convert.Run(d.r, p, applyOptions(opts).convertOptions())
+// PDF/A-1b conformant rewrite.
+func (d *Document) Convert(p *Profile) (ConvertResult, error) {
+	return convert.Run(d.r, p, convert.Options{})
+}
+
+// ConvertContext is Convert honouring ctx cancellation (checked before each
+// verify/fix iteration and each raster pass) and o. Options.Password is ignored
+// (the file is already open); RasterDPI and MaxIterations apply.
+func (d *Document) ConvertContext(ctx context.Context, p *Profile, o Options) (ConvertResult, error) {
+	return convert.RunContext(ctx, d.r, p, o.convert())
 }
 
 // ConvertObjectModel converts d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
-func (d *Document) ConvertObjectModel(opts ...Option) (ConvertResult, error) {
-	return convert.Run(d.r, PDF, applyOptions(opts).convertOptions())
+func (d *Document) ConvertObjectModel() (ConvertResult, error) {
+	return convert.Run(d.r, PDF, convert.Options{})
 }
 
 // XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),

@@ -233,19 +233,21 @@ fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
 _, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer
 ```
 
-### Options
+### Options and cancellation
 
-`Verify` and `Convert` (and their `Bytes`/`All`/`ObjectModel` variants) accept trailing functional options. The two-argument form keeps the defaults.
+The two-argument forms (`Convert(path, profile)`, `Verify(path, profile)`, and their `Bytes`/`All` variants) cover the common case. Each has a `…Context` counterpart that adds a `context.Context` for cancellation and an `Options` struct for tuning. The zero `Options` value is the default behavior.
 
 ```go
-cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B,
-    gopdfrab.WithPassword([]byte("secret")), // decrypt an encrypted input
-    gopdfrab.WithRasterDPI(300),             // raster last-resort resolution (default 150)
-    gopdfrab.WithMaxIterations(8),           // verify/fix loop bound (default 4)
-)
+cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
+    Password:      []byte("secret"), // decrypt an encrypted input
+    RasterDPI:     300,              // raster last-resort resolution (default 150)
+    MaxIterations: 8,                // verify/fix loop bound (default 4)
+})
 ```
 
-`WithPassword` applies to the open step, so it works on `Verify`/`Convert` but not the `*Document` methods (whose file is already open — use `OpenWithPassword`). `WithRasterDPI` and `WithMaxIterations` are convert-only; `Verify` ignores them.
+To set options without a deadline, pass `context.Background()`. `Options.Password` applies at the open step (so it works on `ConvertContext`/`VerifyContext` but not the `*Document` methods, whose file is already open — use `OpenWithPassword`). `RasterDPI` and `MaxIterations` are convert-only; `Verify` reads only `Password`.
+
+`ConvertContext` checks the context before each verify/fix iteration and each raster pass; `ConvertAllContext`/`VerifyAllContext` stop dispatching new files once it is cancelled and record `ctx.Err()` for the rest.
 
 ### Converting an Open Document
 

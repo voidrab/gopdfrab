@@ -243,8 +243,9 @@ committed isartor fixture. Convert refuses a genuinely password-required file wi
 `ErrPasswordRequired` (surfaces at `pdf.Open`) rather than emitting broken output.
 `minConvertedFully` raised to 510.
 
-The optional `WithPassword` functional option on `Verify`/`Convert` is deferred to
-item 15, which will call the same internal path.
+Passing a password to `Verify`/`Convert` (rather than pre-opening with
+`OpenWithPassword`) landed with item 15 as `Options.Password` on the `…Context`
+entry points, reaching the same internal path.
 
 ### 6. The rasterizer silently drops content
 
@@ -426,37 +427,52 @@ test that enforces it.
 The disclaimer says the API will change heavily before release. This is the list.
 Do it in one pass.
 
-### 15. Options — **mostly DONE**
+### 15. Options — **mostly DONE** (merged with item 16)
 
-Was: every entry point took `(path, profile)` and nothing else. Now `Verify`,
-`Convert`, and their `Bytes`/`All`/`ObjectModel` variants take trailing
-functional options; the two-argument form is unchanged.
+Was: every entry point took `(path, profile)` and nothing else. Now the
+two-argument forms cover the common case and each has a `…Context` counterpart
+that adds a `context.Context` and an explicit `Options` struct:
 
 ```go
-gopdfrab.Convert(path, gopdfrab.PDFA1B,
-    gopdfrab.WithRasterDPI(300),
-    gopdfrab.WithMaxIterations(8),
-    gopdfrab.WithPassword(pw))
+cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
+    Password:      pw,
+    RasterDPI:     300, // replaces the former flattenDPI const
+    MaxIterations: 8,   // replaces the former maxConvertIterations const
+})
 ```
 
-`WithPassword` threads to the open step (so it works on `Verify`/`Convert` but
-not the `*Document` methods, whose file is already open); `WithRasterDPI` and
-`WithMaxIterations` are convert-only and replace the former hardcoded
-`maxConvertIterations`/`flattenDPI` constants. Internally the root functional
-options resolve to a `convert.Options` struct and a `verify` variadic password,
-passed to the internal packages so existing internal call sites (and the
-two-argument public form) compile unchanged.
+A plain struct value, not functional options: an early functional-options pass
+(`WithRasterDPI(…)`) was rejected as too much machinery for a frozen API, and a
+variadic config struct as too loose. `Options.Password` threads to the open
+step (so it applies to `Verify`/`Convert` but not the `*Document` methods, whose
+file is already open); `RasterDPI`/`MaxIterations` are convert-only. To set
+options without a deadline, pass `context.Background()`. Internally
+`convert.Options` and a `verify` password parameter are plain explicit params
+(no variadic); the two-argument public forms pass the zero value.
 
-Still open: the **resource-limit** caps from item 7 are not yet exposed as
-options — they remain package-level `var`s in `internal/pdf` (settable only via
-the test-only setters). Wiring them through `Options` is the remaining half of
-item 7.
+Still open: the **resource-limit** caps from item 7 are not yet exposed on
+`Options` — they remain package-level `var`s in `internal/pdf` (settable only
+via the test-only setters). Adding them as `Options` fields (applying to both
+verify and convert, since decode caps affect verification too) is the remaining
+half of item 7.
 
-### 16. No `context.Context` anywhere
+### 16. No `context.Context` anywhere — **DONE**
 
-Nothing is cancellable. Add `VerifyContext`/`ConvertContext` and check
-cancellation at loop boundaries: per fixer pass, per page walk, per file in a
-batch. Anyone putting this behind an HTTP handler needs it.
+Was: nothing was cancellable. Added `VerifyContext`/`VerifyBytesContext`/
+`VerifyAllContext` and `ConvertContext`/`ConvertBytesContext`/
+`ConvertAllContext` (plus `(*Document).VerifyContext`/`ConvertContext`), each
+also carrying the `Options` from item 15 — one `…Context` variant per operation
+rather than separate context and options overloads.
+
+Cancellation is checked at the loop boundaries the roadmap named: **per file in
+a batch** (`ConvertAllContext`/`VerifyAllContext` stop dispatching and record
+`ctx.Err()` for files not started), **per verify/fix iteration**, and **per
+raster pass** (`RunContext` checks before each). A single `Verify` is bounded by
+the parser's resource caps, so `VerifyContext` checks once at entry rather than
+threading ctx through the internal graph walk — a deliberately coarser
+granularity documented at the function. The non-context forms delegate with
+`context.Background()`, so no internal call site or the two-argument public form
+changed.
 
 ### 17. Results don't serialize — **DONE**
 
@@ -652,6 +668,8 @@ Recorded so nobody re-investigates:
    catalog/xref-stream trailer synthesis, reported as 6.1.4, linear-time
    (item 24 benchmark confirms it is not a DoS vector).
 4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.
+   Items 15 (options), 16 (context), 17, 19, 21 done; **item 18** (lazy Output)
+   ties into item 8, **item 20** (CLI) remains.
 5. **Items 10 and 12.** Real corpus and fidelity gate. Slower, and they need
    items 2 and 4 done first to be meaningful.
 6. **Items 5–9.** Encryption and rasterizer fidelity: large but well-bounded.

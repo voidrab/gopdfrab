@@ -328,8 +328,8 @@ func Open(path string) (*Reader, error) { return OpenWithPassword(path, nil) }
 
 // OpenWithPassword is Open with an explicit password for an encrypted file.
 // nil is the empty password, which covers the common permission-only case.
-// (The functional-options form, gopdfrab.WithPassword, arrives with roadmap
-// item 15 and will call the same internal path.)
+// (The root package reaches this path via gopdfrab.Options.Password on the
+// *Context entry points.)
 func OpenWithPassword(path string, password []byte) (*Reader, error) {
 	f, err := os.Open(path)
 	if err != nil {

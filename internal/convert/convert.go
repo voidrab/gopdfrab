@@ -6,6 +6,7 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -90,26 +91,42 @@ func (r ConvertResult) Save(path string) error {
 // conformant rewrite. It always returns the best attempt it produced,
 // even if some violations remain. password is the empty password when nil.
 func Convert(path string, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return ConvertContext(context.Background(), path, p, o)
+}
+
+// ConvertContext is Convert honouring ctx cancellation.
+func ConvertContext(ctx context.Context, path string, p *pdf.Profile, o Options) (ConvertResult, error) {
 	doc, err := pdf.OpenWithPassword(path, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc, p, o)
+	return RunContext(ctx, doc, p, o)
 }
 
 // ConvertBytes is Convert for an in-memory PDF.
 func ConvertBytes(data []byte, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return ConvertBytesContext(context.Background(), data, p, o)
+}
+
+// ConvertBytesContext is ConvertBytes honouring ctx cancellation.
+func ConvertBytesContext(ctx context.Context, data []byte, p *pdf.Profile, o Options) (ConvertResult, error) {
 	doc, err := pdf.OpenBytesWithPassword(data, o.Password)
 	if err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	defer doc.Close()
-	return Run(doc, p, o)
+	return RunContext(ctx, doc, p, o)
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
 func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
+	return ConvertAllContext(context.Background(), paths, p, o)
+}
+
+// ConvertAllContext is ConvertAll honouring ctx cancellation: a cancelled ctx
+// stops dispatching further files and records ctx.Err() for those not started.
+func ConvertAllContext(ctx context.Context, paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
 	results := make([]pdf.FileResult[ConvertResult], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
@@ -124,11 +141,15 @@ func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[Con
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = convertFile(paths[i], p, o)
+				results[i] = convertFile(ctx, paths[i], p, o)
 			}
 		}()
 	}
 	for i := range paths {
+		if err := ctx.Err(); err != nil {
+			results[i] = pdf.FileResult[ConvertResult]{Path: paths[i], Err: err}
+			continue
+		}
 		jobs <- i
 	}
 	close(jobs)
@@ -137,14 +158,20 @@ func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[Con
 	return results, nil
 }
 
-func convertFile(path string, p *pdf.Profile, o Options) pdf.FileResult[ConvertResult] {
-	cr, err := Convert(path, p, o)
+func convertFile(ctx context.Context, path string, p *pdf.Profile, o Options) pdf.FileResult[ConvertResult] {
+	cr, err := ConvertContext(ctx, path, p, o)
 	return pdf.FileResult[ConvertResult]{Path: path, Result: cr, Err: err}
 }
 
 // Run converts an already-open document, the shared implementation behind
 // Convert/ConvertBytes and the facade's (*Document).Convert.
 func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return RunContext(context.Background(), doc, p, o)
+}
+
+// RunContext is Run honouring ctx cancellation, checked before each verify/fix
+// iteration and each raster pass.
+func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 	graph, err := doc.ResolveGraph()
 	if err != nil {
 		// Per-object degradation makes this rare (pathological cases like the
@@ -186,6 +213,9 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 	)
 
 	for iter := 1; iter <= o.iterations(); iter++ {
+		if err := ctx.Err(); err != nil {
+			return ConvertResult{}, fmt.Errorf("convert: %w", err)
+		}
 		cr.Iterations = iter
 
 		result, parts, objs, err := inHeapVerify(doc, trailer, p)
@@ -262,7 +292,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 		graphClean = false
 	}
 
-	if err := rasterBackstop(doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi()); err != nil {
+	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi()); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 
@@ -292,9 +322,12 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 // trigger it; structural violations (no registered fixer) are fixed by
 // construction by the writer and do not need rasterization. It updates cr,
 // lastParts, and graphClean exactly as the fix loop's verifies do.
-func rasterBackstop(doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi int) error {
+func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi int) error {
 	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if applyRasterFallback(trailer, cr.Result.Issues, dpi) {
 		cr.Iterations++

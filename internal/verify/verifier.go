@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -23,6 +24,17 @@ var maxWalkDepth = 1 << 17
 
 // Verify verifies d against the checks enabled in profile p.
 func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+	return VerifyContext(context.Background(), d, p)
+}
+
+// VerifyContext is Verify honouring ctx cancellation. Verification is bounded
+// by the parser's resource caps, so ctx is checked at entry; callers needing
+// finer cancellation should prefer the batch or convert entry points, which
+// check per file and per fix/raster pass.
+func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return pdf.Result{}, err
+	}
 	if p == nil {
 		return pdf.Result{}, fmt.Errorf("nil profile")
 	}
@@ -122,6 +134,12 @@ func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 
 // VerifyAll opens and verifies multiple PDF files concurrently.
 func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
+	return VerifyAllContext(context.Background(), paths, p, password)
+}
+
+// VerifyAllContext is VerifyAll honouring ctx cancellation: a cancelled ctx
+// stops dispatching further files and records ctx.Err() for those not started.
+func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
 	results := make([]pdf.FileResult[pdf.Result], len(paths))
 
 	workers := min(runtime.NumCPU(), len(paths))
@@ -136,11 +154,16 @@ func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResul
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				results[i] = verifyFile(paths[i], p, password)
+				res, err := VerifyFileContext(ctx, paths[i], p, password)
+				results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
 			}
 		}()
 	}
 	for i := range paths {
+		if err := ctx.Err(); err != nil {
+			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: err}
+			continue
+		}
 		jobs <- i
 	}
 	close(jobs)
@@ -152,22 +175,32 @@ func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResul
 // VerifyFile opens, verifies, and closes a single file. password is the empty
 // password when nil.
 func VerifyFile(path string, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	return VerifyFileContext(context.Background(), path, p, password)
+}
+
+// VerifyFileContext is VerifyFile honouring ctx cancellation.
+func VerifyFileContext(ctx context.Context, path string, p *pdf.Profile, password []byte) (pdf.Result, error) {
 	doc, err := pdf.OpenWithPassword(path, password)
 	if err != nil {
 		return pdf.Result{}, err
 	}
 	defer doc.Close()
-	return Verify(doc, p)
+	return VerifyContext(ctx, doc, p)
 }
 
 // VerifyBytes verifies an in-memory PDF.
 func VerifyBytes(data []byte, p *pdf.Profile, password []byte) (pdf.Result, error) {
+	return VerifyBytesContext(context.Background(), data, p, password)
+}
+
+// VerifyBytesContext is VerifyBytes honouring ctx cancellation.
+func VerifyBytesContext(ctx context.Context, data []byte, p *pdf.Profile, password []byte) (pdf.Result, error) {
 	doc, err := pdf.OpenBytesWithPassword(data, password)
 	if err != nil {
 		return pdf.Result{}, fmt.Errorf("verify: %w", err)
 	}
 	defer doc.Close()
-	return Verify(doc, p)
+	return VerifyContext(ctx, doc, p)
 }
 
 // VerifyObjectModel checks d against the generic ISO 32000 object-model
@@ -195,11 +228,6 @@ func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
 	}
 	defer doc.Close()
 	return VerifyObjectModel(doc)
-}
-
-func verifyFile(path string, p *pdf.Profile, password []byte) pdf.FileResult[pdf.Result] {
-	res, err := VerifyFile(path, p, password)
-	return pdf.FileResult[pdf.Result]{Path: path, Result: res, Err: err}
 }
 
 // filterByProfile removes from issues any PDFError whose (clause, subclause)
