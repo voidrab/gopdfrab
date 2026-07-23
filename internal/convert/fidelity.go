@@ -99,7 +99,7 @@ func renderTrailerPages(trailer pdf.PDFDict, dpi int) []*image.RGBA {
 	pages := orderedPages(trailer)
 	imgs := make([]*image.RGBA, len(pages))
 	for i, p := range pages {
-		if img, err := RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
+		if img, _, err := RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
 			imgs[i] = img
 		}
 	}

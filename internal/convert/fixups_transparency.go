@@ -425,7 +425,7 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 // before -- it now just paints a flat image instead of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
 func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.PDFDict, bool) {
-	canvas, bbox, err := renderFormContent(form, resources, dpi)
+	canvas, bbox, _, err := renderFormContent(form, resources, dpi)
 	if err != nil {
 		return form, false
 	}
@@ -477,10 +477,10 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.P
 // XObject to target instead. A render failure (e.g. an unresolvable graph or
 // an unsupported image codec) leaves page untouched, reporting no change
 // rather than erroring the whole Convert.
-func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) bool {
-	canvas, err := RenderPage(page, resources, mediaBox, dpi)
+func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) ([]string, bool) {
+	canvas, drops, err := RenderPage(page, resources, mediaBox, dpi)
 	if err != nil {
-		return false
+		return nil, false
 	}
 
 	img := pdf.NewPDFDict()
@@ -491,7 +491,7 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
 	if err := setStreamRGBFlate(&img, canvas); err != nil {
-		return false
+		return nil, false
 	}
 
 	xobjects := pdf.NewPDFDict()
@@ -514,18 +514,18 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	}
 	data, err := writer.WriteContentStream(ops)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	contents := pdf.NewPDFDict()
 	if err := writer.SetStreamFlate(&contents, data); err != nil {
-		return false
+		return nil, false
 	}
 
 	delete(page.Entries, "Group")
 	delete(page.Entries, "Rotate")
 	page.Entries["Resources"] = pageResources
 	page.Entries["Contents"] = contents
-	return true
+	return drops, true
 }
 
 // setStreamRGBFlate stores canvas as a FlateDecode DeviceRGB stream, packing

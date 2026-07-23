@@ -329,6 +329,11 @@ Both sides are drawn by the same rasterizer, so its limitations cancel and the
 comparison isolates what the conversion changed. `Blanked()` flags unambiguous
 content loss without tripping on benign changes like font substitution.
 
+When conversion has to rasterize a page as a last resort, anything the rasterizer
+can't draw — shadings, inline images, Type 3 fonts — is reported per page in
+`cr.RasterDrops` rather than silently omitted, so that loss is loud even though
+the pixel comparison (which drops it symmetrically) cannot see it.
+
 ## Selective Check Profiles
 
 Verification can be narrowed to a specific set of rules using `Verify`.

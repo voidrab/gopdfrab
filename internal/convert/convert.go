@@ -68,6 +68,17 @@ type ConvertResult struct {
 	// Fidelity is the per-page input-vs-output rendering comparison, populated
 	// only when Options.CheckFidelity was set. See PageFidelity.
 	Fidelity []PageFidelity
+	// RasterDrops records content the raster fallback could not render when it
+	// flattened a page (shadings, inline images, Type 3 fonts), so a rasterized
+	// conversion does not silently lose it. Empty when no page was rasterized or
+	// nothing was dropped.
+	RasterDrops []RasterDrop
+}
+
+// RasterDrop lists the content features the raster fallback dropped on one page.
+type RasterDrop struct {
+	Page     int
+	Features []string
 }
 
 // Residual returns the issues remaining in r.Output that Convert was unable
@@ -368,7 +379,8 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if applyRasterFallback(trailer, cr.Result.Issues, dpi) {
+	if drops, changed := applyRasterFallback(trailer, cr.Result.Issues, dpi); changed {
+		cr.RasterDrops = append(cr.RasterDrops, drops...)
 		cr.Iterations++
 		*graphClean = false
 		result, parts, _, err := inHeapVerify(doc, *trailer, p)
@@ -378,15 +390,18 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
-	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) && flattenAllPages(trailer, dpi) {
-		cr.Iterations++
-		*graphClean = false
-		result, parts, _, err := inHeapVerify(doc, *trailer, p)
-		if err != nil {
-			return err
+	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) {
+		if drops, changed := flattenAllPages(trailer, dpi); changed {
+			cr.RasterDrops = append(cr.RasterDrops, drops...)
+			cr.Iterations++
+			*graphClean = false
+			result, parts, _, err := inHeapVerify(doc, *trailer, p)
+			if err != nil {
+				return err
+			}
+			cr.Result = result
+			*lastParts, *graphClean = parts, true
 		}
-		cr.Result = result
-		*lastParts, *graphClean = parts, true
 	}
 	return nil
 }
@@ -492,7 +507,7 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int) map[p
 // raster image (flattenPageToImage), the last-resort remediation for content
 // no targeted fixer could repair. Page numbers in issues align with the
 // graph's page order, since both come from the same Root/Pages/Kids walk.
-func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) bool {
+func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) ([]RasterDrop, bool) {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
 	for _, iss := range issues {
@@ -501,6 +516,7 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) b
 		}
 	}
 	var flagged []pageTarget
+	var pageNums []int
 	nums := make([]int, 0, len(flag))
 	for pageNum := range flag {
 		nums = append(nums, pageNum)
@@ -509,37 +525,47 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) b
 	for _, pageNum := range nums {
 		if i := pageNum - 1; i >= 0 && i < len(pages) {
 			flagged = append(flagged, pages[i])
+			pageNums = append(pageNums, pageNum)
 		}
 	}
-	return flattenPagesParallel(flagged, dpi)
+	return flattenPagesParallel(flagged, pageNums, dpi)
 }
 
 // flattenAllPages rasterizes every page, the final backstop for residuals that
 // applyRasterFallback can't target -- document-level violations with no page
 // number, or anything its page-by-page pass left behind.
-func flattenAllPages(trailer *pdf.PDFDict, dpi int) bool {
-	return flattenPagesParallel(orderedPages(*trailer), dpi)
+func flattenAllPages(trailer *pdf.PDFDict, dpi int) ([]RasterDrop, bool) {
+	pages := orderedPages(*trailer)
+	pageNums := make([]int, len(pages))
+	for i := range pages {
+		pageNums[i] = i + 1
+	}
+	return flattenPagesParallel(pages, pageNums, dpi)
 }
 
 // flattenPagesParallel rasterizes distinct pages on a bounded worker pool;
 // each render mutates only its own page dict while reading the shared graph,
-// the same access pattern transparencyFlattener's workers rely on.
-func flattenPagesParallel(pages []pageTarget, dpi int) bool {
+// the same access pattern transparencyFlattener's workers rely on. pageNums
+// aligns with pages (the 1-based page number of each) for the drop report.
+func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]RasterDrop, bool) {
 	seen := map[uintptr]bool{}
 	var unique []pageTarget
-	for _, p := range pages {
+	var uniqueNums []int
+	for i, p := range pages {
 		ptr := pdf.ValuePointer(p.dict.Entries)
 		if seen[ptr] {
 			continue
 		}
 		seen[ptr] = true
 		unique = append(unique, p)
+		uniqueNums = append(uniqueNums, pageNums[i])
 	}
 	if len(unique) == 0 {
-		return false
+		return nil, false
 	}
 
-	results := make([]bool, len(unique))
+	changedFlags := make([]bool, len(unique))
+	dropLists := make([][]string, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
@@ -549,7 +575,7 @@ func flattenPagesParallel(pages []pageTarget, dpi int) bool {
 			defer wg.Done()
 			for i := range jobs {
 				p := unique[i]
-				results[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox, dpi)
+				dropLists[i], changedFlags[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox, dpi)
 			}
 		}()
 	}
@@ -560,10 +586,14 @@ func flattenPagesParallel(pages []pageTarget, dpi int) bool {
 	wg.Wait()
 
 	changed := false
-	for _, r := range results {
-		changed = changed || r
+	var drops []RasterDrop
+	for i, c := range changedFlags {
+		changed = changed || c
+		if c && len(dropLists[i]) > 0 {
+			drops = append(drops, RasterDrop{Page: uniqueNums[i], Features: dropLists[i]})
+		}
 	}
-	return changed
+	return drops, changed
 }
 
 // sortedChecks returns counts' keys ordered by clause, subclause, and name,

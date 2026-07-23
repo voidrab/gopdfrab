@@ -195,7 +195,7 @@ func renderImageXObject(t *testing.T, img pdf.PDFDict) {
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg q 20 0 0 20 0 0 cm /Im1 Do Q")},
 	}}
-	if _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }

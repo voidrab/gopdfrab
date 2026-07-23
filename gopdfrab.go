@@ -20,6 +20,9 @@ type (
 	// PageFidelity is one page's input-vs-output rendering comparison,
 	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
 	PageFidelity = convert.PageFidelity
+	// RasterDrop lists content the raster fallback could not render on a page
+	// (see ConvertResult.RasterDrops).
+	RasterDrop = convert.RasterDrop
 )
 
 // PDF conformance levels.

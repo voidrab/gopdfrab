@@ -247,19 +247,33 @@ Passing a password to `Verify`/`Convert` (rather than pre-opening with
 `OpenWithPassword`) landed with item 15 as `Options.Password` on the `…Context`
 entry points, reaching the same internal path.
 
-### 6. The rasterizer silently drops content
+### 6. The rasterizer silently drops content — **mostly DONE**
 
-`internal/convert/raster.go` handles a decent operator set but ignores:
+Was: `internal/convert/raster.go` handled a decent operator set but silently
+ignored `sh`/shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts, and — worse
+than dropping — `Tr`/`Ts`, so an invisible OCR text layer rendered *visible*
+over the scanned image.
 
-- `sh` and shading patterns — gradient areas render blank.
-- `BI`/`ID`/`EI` inline images.
-- Type 3 fonts.
-- `Tr` (text render mode) and `Ts` (rise) — invisible OCR text renders visible.
+Two halves, per the roadmap's "a loud residual beats a quiet blank page":
 
-Raster is the fallback that *guarantees* conformance, so anything it drops is
-data loss the user is never told about. Fill the gaps, and make the rasterizer
-report what it couldn't render so `ConvertResult` carries a fidelity warning. A
-loud residual beats a quiet blank page.
+- **The `Tr`/`Ts` correctness bug is fixed.** `showText` now honours the text
+  rise (`Ts`) and paints no marks under render modes 3 and 7 (invisible/clip),
+  so rasterizing an OCR PDF no longer prints its hidden text layer.
+  `TestRasterInvisibleTextRenderMode` pins it (mode 3 → ~0 ink, mode 0 → ink).
+- **The remaining drops are now reported, not silent.** The renderer records
+  every feature it could not draw — `sh`, inline images (`INLINEIMAGE`),
+  Type 3 fonts — accumulated across Form recursion (`r.execContent` shares the
+  renderer). `RenderPage`/`renderContent` return the drop list; the page raster
+  fallback carries it into `ConvertResult.RasterDrops []RasterDrop{Page,
+  Features}` (re-exported from root). This closes item 12's documented blind
+  spot: content the rasterizer drops symmetrically — invisible to the fidelity
+  gate — is now a loud per-page residual.
+
+Still open: actually *rendering* shadings, inline images, and Type 3 glyphs
+(rather than reporting their loss) is deferred — a large rendering effort, and
+the loud report already prevents silent data loss. Drops during the
+transparency-flattener path (`flattenFormToImage`, a Fixer with no `ConvertResult`
+handle) are not yet carried; only the page-level raster fallback reports.
 
 ### 7. Limits are hardcoded and fail silently
 
@@ -402,11 +416,12 @@ Two deliverables:
   any fixup mutates the graph) against output and populates
   `ConvertResult.Fidelity []PageFidelity`, re-exported from the root package.
 
-The symmetric-renderer design has one documented blind spot — content the
-rasterizer itself cannot draw (shadings, inline images, Type 3, `Tr`/`Ts`) is
-dropped on *both* sides, so a raster fallback that loses it is not caught here.
-That is exactly item 6's job (make the rasterizer report what it dropped), and
-the two together are the complete fidelity story.
+The symmetric-renderer design has one blind spot — content the rasterizer
+itself cannot draw (shadings, inline images, Type 3) is dropped on *both* sides,
+so a raster fallback that loses it is not caught here. **Item 6 closes it**: the
+rasterizer now reports those drops in `ConvertResult.RasterDrops`, so the loss
+is loud even though the pixel comparison can't see it. The two together are the
+complete fidelity story.
 
 ### 13. CI runs a fraction of the test suite — **mostly DONE**
 
@@ -699,7 +714,10 @@ Recorded so nobody re-investigates:
    in `ConvertResult`. Item 10 (real-world corpus) remains: it needs a
    redistribution/licensing decision (permissive sources vs a hash-referenced
    separate repo).
-6. **Items 5–9.** Encryption and rasterizer fidelity: large but well-bounded.
+6. **Items 5–9.** Item 5 (encryption) and item 6 (rasterizer `Tr`/`Ts` fix +
+   drop reporting) done. Remaining: 7 (settable limits), 8 (streaming/memory),
+   9 (Windows/macOS). Rendering the dropped features (shadings, Type 3) is the
+   large deferred half of item 6.
 7. **Items 22–29.** Continuous.
 
 ## Not in 1.0

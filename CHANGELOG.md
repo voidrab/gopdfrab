@@ -33,6 +33,11 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Rasterizer honesty.** The raster fallback now reports content it cannot draw
+  (`sh` shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts) in
+  `ConvertResult.RasterDrops` per page, instead of silently omitting it. It also
+  honours text render mode (`Tr`) and rise (`Ts`), so rasterizing a scanned PDF
+  no longer paints its invisible OCR text layer visibly.
 - **Fidelity checking** for conversions. `Options.CheckFidelity` renders the
   input and the converted output with gopdfrab's own rasterizer and populates
   `ConvertResult.Fidelity` with a per-page `PageFidelity` (similarity, input/
