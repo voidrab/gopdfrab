@@ -72,11 +72,11 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // TestConvertDegradesGracefullyOnUnresolvableGraph checks that Convert
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
-// resolved, instead of failing outright: no rewrite is possible, but a
-// Result should still come back. The input is a fixture whose object 2 body
-// is mangled into an unparseable dictionary; a reference to a missing object
-// resolves to null (ISO 32000-1 7.3.10), but a present-yet-unparseable one
-// still fails resolution.
+// resolved: the unparseable object degrades to null, the rewrite proceeds, and
+// the content loss is carried as a residual issue so the conversion never
+// claims success. The input is a fixture whose object 2 body is mangled into
+// an unparseable dictionary with no intact copy elsewhere in the file, so
+// offset recovery cannot repair it.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
@@ -96,13 +96,19 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
 	if cr.Result.Valid {
-		t.Fatalf("expected a non-conformant Result for an unresolvable graph, got Valid=true")
+		t.Fatalf("expected a non-conformant Result when an object degraded to null, got Valid=true")
 	}
-	if len(cr.Output) != 0 {
-		t.Errorf("Output = %d bytes, want empty (no rewrite is possible without a resolved graph)", len(cr.Output))
+	if len(cr.Output) == 0 {
+		t.Errorf("Output is empty, want a best-effort rewrite with the degraded object as null")
 	}
-	if len(cr.Residual()) == 0 {
-		t.Errorf("Residual() is empty, want at least a GraphResolutionFailure-derived issue")
+	found := false
+	for _, e := range cr.Residual() {
+		if e.Check() == pdf.Checks.Structure.GraphResolutionFailure {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Residual() = %v, want a GraphResolutionFailure issue for the degraded object", cr.Residual())
 	}
 }
 

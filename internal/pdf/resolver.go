@@ -1,8 +1,10 @@
 package pdf
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
 )
 
 func (d *Reader) ResolveObject(obj PDFValue) (PDFValue, error) {
@@ -54,10 +56,19 @@ func (d *Reader) ResolveReference(ref PDFRef) (PDFValue, error) {
 // PDF 1.5+; see objstm.go).
 func (d *Reader) parseReference(ref PDFRef) (PDFValue, error) {
 	if offset, ok := d.xrefTable[ref.ObjNum]; ok {
-		return d.parseClassicReference(ref, offset)
+		v, err := d.parseClassicReference(ref, offset)
+		if err != nil && d.degradeUnresolvable {
+			return d.recoverOrDegradeClassic(ref, offset, err)
+		}
+		return v, err
 	}
 	if entry, ok := d.compressedXref[ref.ObjNum]; ok {
-		return d.resolveCompressedObject(ref, entry)
+		v, err := d.resolveCompressedObject(ref, entry)
+		if err != nil && d.degradeUnresolvable {
+			d.recordDegraded(ref.ObjNum, err)
+			return nil, nil
+		}
+		return v, err
 	}
 	// Absent from every xref section: scan once for physically present but
 	// unlisted objects, then treat a still-missing target as the null object
@@ -71,9 +82,67 @@ func (d *Reader) parseReference(ref PDFRef) (PDFValue, error) {
 	return nil, nil
 }
 
+// errWrongObjectHeader flags a classic xref offset landing on a well-formed
+// header that declares a different object number.
+var errWrongObjectHeader = errors.New("object header does not match xref entry")
+
+// recoverOrDegradeClassic handles a classic object that failed to parse at its
+// xref offset: retry once at the object's real "N G obj" header found by
+// scanning the file, else resolve to null. Either way the failure is recorded
+// as a diagnostic and resolution continues, so one bad offset cannot suppress
+// checks on unrelated objects.
+func (d *Reader) recoverOrDegradeClassic(ref PDFRef, badOffset int64, cause error) (PDFValue, error) {
+	if off, ok := d.scanForObjectHeader(ref.ObjNum, badOffset); ok {
+		if v, err := d.parseClassicReference(ref, off); err == nil {
+			d.xrefTable[ref.ObjNum] = off
+			d.recordRecovered(ref.ObjNum, badOffset, off, cause)
+			return v, nil
+		}
+	}
+	d.recordDegraded(ref.ObjNum, cause)
+	return nil, nil
+}
+
+// scanForObjectHeader returns the last "objNum G obj" header offset in the
+// file other than exclude. The whole-file scan runs once and is shared across
+// lookups.
+func (d *Reader) scanForObjectHeader(objNum int, exclude int64) (int64, bool) {
+	if d.headerScan == nil {
+		d.headerScan = map[int][]int64{}
+		if raw, err := d.fullBytes(); err == nil {
+			for _, loc := range bruteForceObjRe.FindAllSubmatchIndex(raw, -1) {
+				n, err := strconv.Atoi(string(raw[loc[2]:loc[3]]))
+				if err != nil {
+					continue
+				}
+				d.headerScan[n] = append(d.headerScan[n], int64(loc[2]))
+			}
+		}
+	}
+	offs := d.headerScan[objNum]
+	for i := len(offs) - 1; i >= 0; i-- {
+		if offs[i] != exclude {
+			return offs[i], true
+		}
+	}
+	return 0, false
+}
+
 // parseClassicReference performs the actual disk read and parse for an
-// indirect object stored at a classic byte offset.
+// indirect object stored at a classic byte offset. On failure, framing
+// diagnostics recorded during the attempt are discarded so a parse at a bad
+// offset leaves no trace once the object is recovered elsewhere or nulled.
 func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, error) {
+	mark := len(d.parseDiagnostics)
+	v, err := d.parseClassicAt(ref, offset)
+	if err != nil {
+		d.discardObjDiagnostics(mark, ref.ObjNum)
+		return nil, err
+	}
+	return v, nil
+}
+
+func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 	var l *Lexer
 	if d.data != nil {
 		l = NewLexerBytes(d.data, offset)
@@ -85,7 +154,11 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 		defer l.Release()
 	}
 
-	d.recordFraming(ref.ObjNum, l.validateObjectStart())
+	headerNum, headerErrs := l.validateObjectStart()
+	d.recordFraming(ref.ObjNum, headerErrs)
+	if headerNum >= 0 && headerNum != ref.ObjNum {
+		return nil, fmt.Errorf("%w: found object %d", errWrongObjectHeader, headerNum)
+	}
 
 	t := l.NextToken()
 

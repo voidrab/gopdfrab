@@ -235,6 +235,19 @@ func Run(doc *pdf.Reader, p *pdf.Profile) (ConvertResult, error) {
 	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
+
+	// Objects the reader degraded to null were serialized as null: their
+	// content is lost, so the conversion must not claim success. The final
+	// verify ran on the output bytes, where the loss is invisible, so the
+	// degradation issues are carried over explicitly. (Recovered objects are
+	// not carried: the rewrite emits a correct xref, genuinely fixing them.)
+	for _, e := range doc.DegradedObjects() {
+		c := e.Check()
+		if p.Allows(c.Clause(), c.Subclause()) {
+			cr.Result.Issues = append(cr.Result.Issues, e)
+			cr.Result.Valid = false
+		}
+	}
 	return cr, nil
 }
 

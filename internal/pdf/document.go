@@ -78,6 +78,23 @@ type Reader struct {
 	// before resolving a reference with no xref entry to null.
 	danglingScanRan bool
 
+	// degradeUnresolvable makes resolution turn unparseable objects into
+	// recorded nulls (after a recovery attempt) instead of hard errors. Off
+	// during initializeStructure so Open's error classification (ErrDamaged,
+	// ErrEncrypted, ...) is preserved.
+	degradeUnresolvable bool
+
+	// degradedObjs / recoveredObjs dedupe per-object resolution-failure
+	// diagnostics; degradedDiags keeps the null-degraded subset so convert can
+	// carry the content loss into its final result.
+	degradedObjs  map[int]bool
+	recoveredObjs map[int]bool
+	degradedDiags []PDFError
+
+	// headerScan memoizes one whole-file "N G obj" scan for offset recovery,
+	// mapping object number to header offsets in file order.
+	headerScan map[int][]int64
+
 	// decodedCache memoizes DecodeStream's output keyed by StreamKeyOf, so
 	// repeated verify passes over the same Reader -- e.g. convert's fixer
 	// iterations, which reseed the same Reader via SeedResolvedGraph -- decode
@@ -229,6 +246,68 @@ func (d *Reader) recordFraming(objNum int, errs []error) {
 	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.ObjectFraming, errs, objNum, nil))
 }
 
+// recordDegraded records that objNum could not be parsed or recovered and was
+// resolved to null, at most once per object. Degraded objects taint
+// content-usage completeness (see HasDegradedObjects) so check suppressions
+// never hide violations behind them.
+func (d *Reader) recordDegraded(objNum int, cause error) {
+	if d.degradedObjs[objNum] {
+		return
+	}
+	if d.degradedObjs == nil {
+		d.degradedObjs = map[int]bool{}
+	}
+	d.degradedObjs[objNum] = true
+	e := NewError(Checks.Structure.GraphResolutionFailure,
+		[]error{fmt.Errorf("object %d unresolvable, treated as null: %v", objNum, cause)},
+		0, &PDFRef{ObjNum: objNum})
+	d.degradedDiags = append(d.degradedDiags, e)
+	d.parseDiagnostics = append(d.parseDiagnostics, e)
+}
+
+// recordRecovered records that objNum's xref offset was invalid but the object
+// was recovered at its real header, at most once per object.
+func (d *Reader) recordRecovered(objNum int, badOffset, newOffset int64, cause error) {
+	if d.recoveredObjs[objNum] {
+		return
+	}
+	if d.recoveredObjs == nil {
+		d.recoveredObjs = map[int]bool{}
+	}
+	d.recoveredObjs[objNum] = true
+	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.GraphResolutionFailure,
+		[]error{fmt.Errorf("object %d: invalid xref offset %d (%v), recovered at offset %d",
+			objNum, badOffset, cause, newOffset)},
+		0, &PDFRef{ObjNum: objNum}))
+}
+
+// DegradedObjects returns the diagnostics for objects resolved to null because
+// they could not be parsed or recovered.
+func (d *Reader) DegradedObjects() []PDFError { return d.degradedDiags }
+
+// HasDegradedObjects reports whether any object degraded to null during
+// resolution, making state derived from the graph (e.g. content usage)
+// potentially incomplete.
+func (d *Reader) HasDegradedObjects() bool { return len(d.degradedObjs) > 0 }
+
+// discardObjDiagnostics drops diagnostics recorded for objNum since mark,
+// un-marking their dedup keys so a later successful parse can record its own.
+func (d *Reader) discardObjDiagnostics(mark, objNum int) {
+	kept := d.parseDiagnostics[:mark]
+	for _, e := range d.parseDiagnostics[mark:] {
+		if e.page != objNum {
+			kept = append(kept, e)
+			continue
+		}
+		if e.check == Checks.Structure.ObjectFraming {
+			delete(d.framingChecked, objNum)
+		} else {
+			delete(d.streamChecked, fmt.Sprintf("%d:%s", objNum, e.check.Name()))
+		}
+	}
+	d.parseDiagnostics = kept
+}
+
 // NewRawReader builds a Reader directly from already-known structural state,
 // bypassing Open/newReader's normal parse pipeline. It exists for white-box
 // tests in other internal packages (verify) that drive Reader-derived
@@ -240,7 +319,7 @@ func NewRawReader(file interface {
 	io.Seeker
 	io.Closer
 }, trailer PDFDict, size int64, xrefOffset int64) *Reader {
-	return &Reader{file: file, trailer: trailer, size: size, xrefOffset: xrefOffset}
+	return &Reader{file: file, trailer: trailer, size: size, xrefOffset: xrefOffset, degradeUnresolvable: true}
 }
 
 // Open initializes the PDF document at path, decrypting with the empty
@@ -311,6 +390,7 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 		return nil, fmt.Errorf("failed to parse structure: %w", err)
 	}
 
+	doc.degradeUnresolvable = true
 	return doc, nil
 }
 
