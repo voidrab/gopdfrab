@@ -61,7 +61,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := false
 
-	if err := rasterBackstop(doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -97,7 +97,7 @@ func TestRasterBackstopVerifyErrors(t *testing.T) {
 			}}
 			var lastParts verify.Parts
 			graphClean := true
-			err := rasterBackstop(doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean)
+			err := rasterBackstop(doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI)
 			if err == nil {
 				t.Fatal("rasterBackstop with an undefined-level profile did not propagate the verify error")
 			}
@@ -118,7 +118,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean); err != nil {
+	if err := rasterBackstop(nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {

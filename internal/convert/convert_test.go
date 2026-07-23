@@ -662,7 +662,7 @@ func TestFlattenAllPages(t *testing.T) {
 	}}
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
 
-	if !flattenAllPages(&trailer) {
+	if !flattenAllPages(&trailer, defaultRasterDPI) {
 		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
 	}
 
@@ -680,7 +680,7 @@ func TestFlattenAllPages(t *testing.T) {
 // TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
 func TestFlattenAllPagesNoPages(t *testing.T) {
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
-	if flattenAllPages(&trailer) {
+	if flattenAllPages(&trailer, defaultRasterDPI) {
 		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
 	}
 }

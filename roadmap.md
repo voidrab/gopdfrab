@@ -426,20 +426,31 @@ test that enforces it.
 The disclaimer says the API will change heavily before release. This is the list.
 Do it in one pass.
 
-### 15. Options
+### 15. Options — **mostly DONE**
 
-Every entry point takes `(path, profile)` and nothing else. No way to set raster
-DPI, cap iterations (hardcoded `maxConvertIterations = 4`), adjust the resource
-limits from item 7, or supply a password.
+Was: every entry point took `(path, profile)` and nothing else. Now `Verify`,
+`Convert`, and their `Bytes`/`All`/`ObjectModel` variants take trailing
+functional options; the two-argument form is unchanged.
 
 ```go
 gopdfrab.Convert(path, gopdfrab.PDFA1B,
-    gopdfrab.WithRasterDPI(200),
+    gopdfrab.WithRasterDPI(300),
     gopdfrab.WithMaxIterations(8),
     gopdfrab.WithPassword(pw))
 ```
 
-Keep the two-argument form working — it's the common case.
+`WithPassword` threads to the open step (so it works on `Verify`/`Convert` but
+not the `*Document` methods, whose file is already open); `WithRasterDPI` and
+`WithMaxIterations` are convert-only and replace the former hardcoded
+`maxConvertIterations`/`flattenDPI` constants. Internally the root functional
+options resolve to a `convert.Options` struct and a `verify` variadic password,
+passed to the internal packages so existing internal call sites (and the
+two-argument public form) compile unchanged.
+
+Still open: the **resource-limit** caps from item 7 are not yet exposed as
+options — they remain package-level `var`s in `internal/pdf` (settable only via
+the test-only setters). Wiring them through `Options` is the remaining half of
+item 7.
 
 ### 16. No `context.Context` anywhere
 

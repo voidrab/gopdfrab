@@ -14,7 +14,10 @@ import (
 // self-contained object carrying the violation -- a Form XObject's own
 // content for a transparency group, or a single Image XObject's samples for
 // a soft mask -- never the whole page.
-type transparencyFlattener struct{}
+// transparencyFlattener carries the raster resolution (dpi) its flattening
+// renders at; buildLocalFixers stamps the per-run value from Options.RasterDPI.
+// A zero dpi (the registry prototype) falls back to defaultRasterDPI.
+type transparencyFlattener struct{ dpi int }
 
 func init() {
 	registerFixer(transparencyFlattener{})
@@ -28,16 +31,18 @@ func (transparencyFlattener) Applies(c pdf.Check) bool {
 	return false
 }
 
-// flattenDPI is the resolution a flattened Form/page is rasterized at --
-// high enough to stay legible, low enough to keep the replacement image's
-// byte size reasonable.
-const flattenDPI = 150
+func (f transparencyFlattener) renderDPI() int {
+	if f.dpi > 0 {
+		return f.dpi
+	}
+	return defaultRasterDPI
+}
 
 // defaultMediaBox is the PDF spec's fallback page size (US Letter) for a
 // page that inherits no /MediaBox anywhere up its Pages-tree ancestry.
 var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
-func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	targets := collectTransparencyTargets(*trailer)
 
 	unique := uniqueByDict(targets)
@@ -72,7 +77,7 @@ func (transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 						continue
 					}
-					fixed, ok := flattenFormToImage(t.dict, t.resources)
+					fixed, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI())
 					results[i] = result{fixed: fixed, ok: ok}
 				case "page":
 					_, had := t.dict.Entries["Group"]
@@ -419,8 +424,8 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 // to it are untouched, so it keeps composing into the page exactly as
 // before -- it now just paints a flat image instead of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
-func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool) {
-	canvas, bbox, err := renderFormContent(form, resources, flattenDPI)
+func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.PDFDict, bool) {
+	canvas, bbox, err := renderFormContent(form, resources, dpi)
 	if err != nil {
 		return form, false
 	}
@@ -472,8 +477,8 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, b
 // XObject to target instead. A render failure (e.g. an unresolvable graph or
 // an unsupported image codec) leaves page untouched, reporting no change
 // rather than erroring the whole Convert.
-func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64) bool {
-	canvas, err := RenderPage(page, resources, mediaBox, flattenDPI)
+func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) bool {
+	canvas, err := RenderPage(page, resources, mediaBox, dpi)
 	if err != nil {
 		return false
 	}

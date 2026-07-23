@@ -54,6 +54,49 @@ var (
 	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
 )
 
+// Option customizes a Verify or Convert call. Pass any number of the With*
+// options as the trailing arguments; the two-argument form (path/data +
+// profile) keeps the defaults.
+type Option func(*options)
+
+type options struct {
+	password      []byte
+	rasterDPI     int
+	maxIterations int
+}
+
+func applyOptions(opts []Option) options {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+func (o options) convertOptions() convert.Options {
+	return convert.Options{Password: o.password, MaxIterations: o.maxIterations, RasterDPI: o.rasterDPI}
+}
+
+// WithPassword supplies the user or owner password for an encrypted file. It
+// applies to the Open step, so it has no effect on the *Document methods, whose
+// file is already open. nil is the empty password.
+func WithPassword(password []byte) Option {
+	return func(o *options) { o.password = password }
+}
+
+// WithRasterDPI sets the resolution (dots per inch) at which Convert rasterizes
+// a page or form as a last resort or to flatten transparency. The default is
+// 150. Verify ignores it.
+func WithRasterDPI(dpi int) Option {
+	return func(o *options) { o.rasterDPI = dpi }
+}
+
+// WithMaxIterations bounds Convert's verify/fix loop. The default is 4. Verify
+// ignores it.
+func WithMaxIterations(n int) Option {
+	return func(o *options) { o.maxIterations = n }
+}
+
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
@@ -76,47 +119,64 @@ func CheckByClause(clause string, subclause int) (Check, bool) {
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
 
 // Verify opens, verifies, and closes a single file.
-func Verify(path string, p *Profile) (Result, error) { return verify.VerifyFile(path, p) }
+func Verify(path string, p *Profile, opts ...Option) (Result, error) {
+	return verify.VerifyFile(path, p, applyOptions(opts).password)
+}
 
 // VerifyBytes is Verify for an in-memory PDF.
-func VerifyBytes(data []byte, p *Profile) (Result, error) { return verify.VerifyBytes(data, p) }
+func VerifyBytes(data []byte, p *Profile, opts ...Option) (Result, error) {
+	return verify.VerifyBytes(data, p, applyOptions(opts).password)
+}
 
 // VerifyAll opens, verifies, and closes a batch of files concurrently.
-func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
-	return verify.VerifyAll(paths, p)
+func VerifyAll(paths []string, p *Profile, opts ...Option) ([]FileResult[Result], error) {
+	return verify.VerifyAll(paths, p, applyOptions(opts).password)
 }
 
 // VerifyObjectModel opens, checks, and closes a single file against the
 // generic ISO 32000 object-model checks only, independent of any PDF/A
 // conformance level.
-func VerifyObjectModel(path string) (Result, error) { return verify.VerifyFile(path, PDF) }
+func VerifyObjectModel(path string, opts ...Option) (Result, error) {
+	return verify.VerifyFile(path, PDF, applyOptions(opts).password)
+}
 
 // VerifyObjectModelBytes is VerifyObjectModel for an in-memory PDF.
-func VerifyObjectModelBytes(data []byte) (Result, error) { return verify.VerifyBytes(data, PDF) }
+func VerifyObjectModelBytes(data []byte, opts ...Option) (Result, error) {
+	return verify.VerifyBytes(data, PDF, applyOptions(opts).password)
+}
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite.
-func Convert(path string, p *Profile) (ConvertResult, error) { return convert.Convert(path, p) }
+func Convert(path string, p *Profile, opts ...Option) (ConvertResult, error) {
+	o := applyOptions(opts)
+	return convert.Convert(path, p, o.convertOptions())
+}
 
 // ConvertBytes is Convert for an in-memory PDF.
-func ConvertBytes(data []byte, p *Profile) (ConvertResult, error) {
-	return convert.ConvertBytes(data, p)
+func ConvertBytes(data []byte, p *Profile, opts ...Option) (ConvertResult, error) {
+	o := applyOptions(opts)
+	return convert.ConvertBytes(data, p, o.convertOptions())
 }
 
 // ConvertAll opens, converts, and closes a batch of files concurrently.
-func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error) {
-	return convert.ConvertAll(paths, p)
+func ConvertAll(paths []string, p *Profile, opts ...Option) ([]FileResult[ConvertResult], error) {
+	o := applyOptions(opts)
+	return convert.ConvertAll(paths, p, o.convertOptions())
 }
 
 // ConvertObjectModel reads the PDF at path and attempts to produce a rewrite
 // conformant with the generic ISO 32000 object-model checks only, independent
 // of any PDF/A conformance level -- the conversion counterpart to
 // VerifyObjectModel.
-func ConvertObjectModel(path string) (ConvertResult, error) { return convert.Convert(path, PDF) }
+func ConvertObjectModel(path string, opts ...Option) (ConvertResult, error) {
+	o := applyOptions(opts)
+	return convert.Convert(path, PDF, o.convertOptions())
+}
 
 // ConvertObjectModelBytes is ConvertObjectModel for an in-memory PDF.
-func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
-	return convert.ConvertBytes(data, PDF)
+func ConvertObjectModelBytes(data []byte, opts ...Option) (ConvertResult, error) {
+	o := applyOptions(opts)
+	return convert.ConvertBytes(data, PDF, o.convertOptions())
 }
 
 // Document represents an open PDF file.
@@ -172,12 +232,17 @@ func (d *Document) IsPDF() (bool, error) {
 }
 
 // Convert converts d, an already-open document, attempting to produce a
-// PDF/A-1b conformant rewrite.
-func (d *Document) Convert(p *Profile) (ConvertResult, error) { return convert.Run(d.r, p) }
+// PDF/A-1b conformant rewrite. WithPassword is ignored (the file is already
+// open); WithRasterDPI and WithMaxIterations apply.
+func (d *Document) Convert(p *Profile, opts ...Option) (ConvertResult, error) {
+	return convert.Run(d.r, p, applyOptions(opts).convertOptions())
+}
 
 // ConvertObjectModel converts d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
-func (d *Document) ConvertObjectModel() (ConvertResult, error) { return convert.Run(d.r, PDF) }
+func (d *Document) ConvertObjectModel(opts ...Option) (ConvertResult, error) {
+	return convert.Run(d.r, PDF, applyOptions(opts).convertOptions())
+}
 
 // XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
 // decoded and normalised to UTF-8. It returns an error if the document has no

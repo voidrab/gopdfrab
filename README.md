@@ -233,6 +233,20 @@ fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
 _, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer
 ```
 
+### Options
+
+`Verify` and `Convert` (and their `Bytes`/`All`/`ObjectModel` variants) accept trailing functional options. The two-argument form keeps the defaults.
+
+```go
+cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B,
+    gopdfrab.WithPassword([]byte("secret")), // decrypt an encrypted input
+    gopdfrab.WithRasterDPI(300),             // raster last-resort resolution (default 150)
+    gopdfrab.WithMaxIterations(8),           // verify/fix loop bound (default 4)
+)
+```
+
+`WithPassword` applies to the open step, so it works on `Verify`/`Convert` but not the `*Document` methods (whose file is already open — use `OpenWithPassword`). `WithRasterDPI` and `WithMaxIterations` are convert-only; `Verify` ignores them.
+
 ### Converting an Open Document
 
 ```go

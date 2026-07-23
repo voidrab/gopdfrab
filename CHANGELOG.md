@@ -34,6 +34,11 @@ This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
 ### Added
+- **Functional options** on `Verify`/`Convert` and their `Bytes`/`All`/
+  `ObjectModel` variants: `WithPassword` (decrypt an encrypted input),
+  `WithRasterDPI` (raster last-resort resolution, default 150), and
+  `WithMaxIterations` (verify/fix loop bound, default 4). The two-argument call
+  form is unchanged.
 - Whole-table cross-reference **recovery**: a missing, non-numeric, or
   unlocatable `startxref` no longer fails the open. The object table is rebuilt
   by a full-file `N G obj` scan and the trailer is synthesized from a
