@@ -52,23 +52,24 @@ func init() {
 	Legacy1B = NewFullProfile(A1B)
 
 	// PDFA1B adjusts the full profile for veraPDF's divergences from the
-	// stricter legacy/Isartor interpretation: unreachable Form XObjects are
-	// out-of-scope (6.2.3.3, 6.2.10); 6.2.7 PostScript XObject checks are
-	// disabled (veraPDF's own corpus intentionally includes one in a pass
-	// file); 6.3.4 simple-font embedding is only required for fonts actually
-	// shown in content (SkipUnusedSimpleFonts), not for fonts in AcroForm /DR.
-	// KeyIntroducedAfterPDF14 is disabled: real-world files carry post-1.4
-	// keys that are purely structural/informational (e.g. FileTrailer's
-	// hybrid-reference XRefStm, Catalog's Extensions) and are ignorable by a
-	// PDF 1.4 reader, but Arlington has no data distinguishing those from
-	// keys that actually change required interpretation -- veraPDF does not
-	// flag them, so this stays Legacy1B-only (spec-literal) for now.
+	// stricter legacy/Isartor interpretation: unreachable XObjects are
+	// out-of-scope (6.2.3.3, 6.2.7, 6.2.10 -- veraPDF's own corpus includes an
+	// unreferenced PostScript XObject in a pass file, but its binary flags a
+	// referenced one, so the check is reachability-gated rather than disabled);
+	// the form /PS passthrough key is reported under 6.2.5 (FormPSEntry), not
+	// 6.2.7/1 (FormPostScript); 6.3.4 simple-font embedding is only required
+	// for fonts actually shown in content (SkipUnusedSimpleFonts), not for
+	// fonts in AcroForm /DR. KeyIntroducedAfterPDF14 is disabled: real-world
+	// files carry post-1.4 keys that are purely structural/informational (e.g.
+	// FileTrailer's hybrid-reference XRefStm, Catalog's Extensions) and are
+	// ignorable by a PDF 1.4 reader, but Arlington has no data distinguishing
+	// those from keys that actually change required interpretation -- veraPDF
+	// does not flag them, so this stays Legacy1B-only (spec-literal) for now.
 	PDFA1B = NewFullProfile(A1B)
 	PDFA1B.SkipUnreachableXObjects = true
 	PDFA1B.SkipUnusedSimpleFonts = true
 	PDFA1B = PDFA1B.RemoveCheck(
 		Checks.Image.FormPostScript,
-		Checks.Image.PostScriptXObject,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
 }

@@ -64,6 +64,13 @@ notable work:
   streams.
 
 ### Fixed
+- Two verifier false-negatives found by cross-checking against the veraPDF
+  binary over both conformance corpora: a referenced PostScript XObject (6.2.7)
+  is now flagged under PDFA1B (reachability-gated like Form XObjects, rather
+  than the whole check being disabled), and a non-embedded font shown only
+  inside a tiling pattern (6.3.4) is no longer suppressed by
+  `SkipUnusedSimpleFonts` — pattern content streams are now walked for usage.
+  Convert neuters a referenced PostScript XObject into an empty Form XObject.
 - Undecodable content streams are now reported (`StreamUndecodable`) rather than
   silently turning a violation into a pass.
 - A single bad cross-reference offset no longer suppresses unrelated checks:

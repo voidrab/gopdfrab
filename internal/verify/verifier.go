@@ -893,10 +893,11 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	complete = true
 	reachable = map[uintptr]bool{}
 	fu := &fontUsage{
-		visible:   map[uintptr]bool{},
-		invisible: map[uintptr]bool{},
-		usedCodes: map[uintptr]map[int]bool{},
-		usedCIDs:  map[uintptr]map[int]bool{},
+		visible:         map[uintptr]bool{},
+		invisible:       map[uintptr]bool{},
+		usedCodes:       map[uintptr]map[int]bool{},
+		usedCIDs:        map[uintptr]map[int]bool{},
+		scannedPatterns: map[uintptr]bool{},
 	}
 	visitedPtrs := map[uintptr]bool{}
 
@@ -1032,11 +1033,13 @@ func collectContentUsage(
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
+// scannedPatterns dedupes tiling-pattern content streams across the walk.
 type fontUsage struct {
-	visible   map[uintptr]bool
-	invisible map[uintptr]bool
-	usedCodes map[uintptr]map[int]bool
-	usedCIDs  map[uintptr]map[int]bool
+	visible         map[uintptr]bool
+	invisible       map[uintptr]bool
+	usedCodes       map[uintptr]map[int]bool
+	usedCIDs        map[uintptr]map[int]bool
+	scannedPatterns map[uintptr]bool
 }
 
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
@@ -1126,6 +1129,37 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				for i := 0; i+1 < len(shown); i += 2 {
 					set[int(shown[i])<<8|int(shown[i+1])] = true
 				}
+			}
+		case "scn", "SCN":
+			// A tiling pattern set as fill/stroke colour runs its own content
+			// stream, so fonts and XObjects inside it are used (veraPDF flags
+			// a non-embedded font used only by a pattern).
+			if len(operands) == 0 {
+				return
+			}
+			name, ok := operands[len(operands)-1].(pdf.PDFName)
+			if !ok {
+				return
+			}
+			patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
+			if patterns.Entries == nil {
+				return
+			}
+			pat, ok := patterns.Entries[name.Value].(pdf.PDFDict)
+			if !ok || !pat.HasStream {
+				return // shading patterns (PatternType 2) carry no content
+			}
+			ptr := pdf.ValuePointer(pat.Entries)
+			if fu.scannedPatterns[ptr] {
+				return
+			}
+			fu.scannedPatterns[ptr] = true
+			subResources, _ := pat.Entries["Resources"].(pdf.PDFDict)
+			if subResources.Entries == nil {
+				subResources = resources
+			}
+			if !collectUsageFromBytes(ctx, pat, subResources, reachable, fu) {
+				complete = false
 			}
 		case "Do":
 			if len(operands) == 0 || xobjects.Entries == nil {

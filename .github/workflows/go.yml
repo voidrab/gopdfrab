@@ -8,11 +8,18 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    # Nightly, 03:17 UTC -- drives the extended fuzz job.
+    - cron: '17 3 * * *'
 
 jobs:
 
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
 
@@ -24,15 +31,92 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Test
+    # Coverage is gathered once, from the Linux job. Every OS still runs the
+    # race build below, which is where an OS-specific data race would surface.
+    - name: Test (coverage, Linux only)
+      if: matrix.os == 'ubuntu-latest'
       run: |
         PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
-        go test -v -short -covermode=atomic \
+        go test -short -covermode=atomic \
           -coverpkg="$(echo "$PKGS" | paste -sd,)" \
           -coverprofile=coverage.txt \
           $PKGS
 
+    - name: Test (race)
+      run: |
+        PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
+        go test -short -race $PKGS
+
     - name: Upload coverage reports to Codecov
+      if: matrix.os == 'ubuntu-latest'
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+    # -o /dev/null: without an explicit output the binary name collides with
+    # the ./wasm/ directory and the build fails (roadmap item 28).
+    - name: Build wasm
+      run: GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/
+
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Install veraPDF
+      run: ./scripts/install-verapdf.sh
+    # Cross-checks gopdfrab's verdict against the veraPDF binary over both
+    # committed conformance corpora (TestDifferentialVeraPDFCorpora) and the
+    # convert-then-reverify regression check. Not run under -short, so this
+    # invokes them directly rather than via the -short build.
+    - name: Differential cross-check
+      run: go test -run 'TestDifferentialVeraPDFCorpora|TestConvertNoResidualIssues' -v .
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+    # A short smoke-fuzz of every target on each push: replay the committed
+    # seed corpus and explore briefly. A crash fails the job with a reproducer
+    # written under the owning package's testdata/fuzz. Deeper campaigns run
+    # in the nightly job.
+    - name: Fuzz smoke
+      run: ./scripts/fuzz.sh 20s
+
+  nightly-fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+    - name: Fuzz (extended)
+      run: ./scripts/fuzz.sh 5m
+    - name: Upload crashers
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-crashers
+        path: '**/testdata/fuzz/**'

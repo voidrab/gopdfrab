@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
@@ -305,5 +306,96 @@ func TestVerifyProfile_UndefinedLevelReturnsError(t *testing.T) {
 	_, err = Verify(doc, pdf.NewProfile(pdf.Undefined))
 	if err == nil {
 		t.Error("Verify(Undefined level) should return an error")
+	}
+}
+
+// buildPSXObjectDoc builds a one-page document carrying a PostScript XObject
+// in the page's XObject resources; drawn controls whether the content stream
+// invokes it.
+func buildPSXObjectDoc(drawn bool) []byte {
+	content := "q\nQ\n"
+	if drawn {
+		content = "q\n/X0 Do\nQ\n"
+	}
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /X0 4 0 R >> >> /Contents 5 0 R >>")
+	b.StreamObj(4, "<< /Type /XObject /Subtype /PS /FormType 1 /BBox [0 0 10 10]", []byte("%!PS"))
+	b.StreamObj(5, "<<", []byte(content))
+	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
+}
+
+// TestPostScriptXObjectReachabilityGate pins the veraPDF-differential finding
+// on isartor-6-2-7-t01-fail-a: a PostScript XObject invoked via Do must be
+// flagged under PDFA1B, while an unreferenced one is out of scope (the
+// veraPDF corpus passes 6-2-5-t03-pass-a, which carries one unreferenced).
+// Legacy1B flags both.
+func TestPostScriptXObjectReachabilityGate(t *testing.T) {
+	hasPS := func(data []byte, p *pdf.Profile) bool {
+		res, err := VerifyBytes(data, p)
+		if err != nil {
+			t.Fatalf("VerifyBytes: %v", err)
+		}
+		for _, e := range res.Issues {
+			if e.Check() == pdf.Checks.Image.PostScriptXObject {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasPS(buildPSXObjectDoc(true), pdf.PDFA1B) {
+		t.Error("drawn PostScript XObject not flagged under PDFA1B")
+	}
+	if hasPS(buildPSXObjectDoc(false), pdf.PDFA1B) {
+		t.Error("unreferenced PostScript XObject flagged under PDFA1B")
+	}
+	if !hasPS(buildPSXObjectDoc(false), pdf.Legacy1B) {
+		t.Error("unreferenced PostScript XObject not flagged under Legacy1B")
+	}
+}
+
+// buildPatternFontDoc builds a one-page document whose only font use is
+// inside a tiling pattern's content stream; used controls whether the page
+// content sets the pattern at all.
+func buildPatternFontDoc(used bool) []byte {
+	content := "q\nQ\n"
+	if used {
+		content = "/Pattern cs /P0 scn\n0 0 50 50 re f\n"
+	}
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Pattern << /P0 5 0 R >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte(content))
+	b.StreamObj(5, "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << /Font << /F0 6 0 R >> >>",
+		[]byte("BT\n/F0 12 Tf\n(A) Tj\nET\n"))
+	b.Obj(6, "<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT /FontDescriptor 7 0 R >>")
+	b.Obj(7, "<< /Type /FontDescriptor /FontName /ArialMT /Flags 32 >>")
+	return b.FinishClassic("<< /Size 8 /Root 1 0 R >>")
+}
+
+// TestPatternFontUsageCollected pins the veraPDF-differential finding on
+// isartor-6-3-4-t01-fail-h: a non-embedded font shown only inside a tiling
+// pattern is used, so SkipUnusedSimpleFonts must not suppress 6.3.4. A
+// pattern the content never sets keeps the suppression.
+func TestPatternFontUsageCollected(t *testing.T) {
+	hasNotEmbedded := func(data []byte) bool {
+		res, err := VerifyBytes(data, pdf.PDFA1B)
+		if err != nil {
+			t.Fatalf("VerifyBytes: %v", err)
+		}
+		for _, e := range res.Issues {
+			if e.Check() == pdf.Checks.Font.SimpleNotEmbedded {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasNotEmbedded(buildPatternFontDoc(true)) {
+		t.Error("font used only inside a set tiling pattern not flagged as unembedded")
+	}
+	if hasNotEmbedded(buildPatternFontDoc(false)) {
+		t.Error("font inside a never-set pattern flagged despite SkipUnusedSimpleFonts")
 	}
 }

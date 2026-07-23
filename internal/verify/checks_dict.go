@@ -252,6 +252,11 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 			ctx.Report(pdf.Checks.Image.FormSubtype2PS, v, "form XObject shall not have Subtype2=PS")
 		}
 	case "PS":
+		// Reachability-gated like Form XObjects: veraPDF passes an
+		// unreferenced PostScript XObject and fails a referenced one.
+		if !ctx.isReachableXObject(v) {
+			return
+		}
 		ctx.Report(pdf.Checks.Image.PostScriptXObject, v, "PostScript XObject not allowed")
 	}
 }

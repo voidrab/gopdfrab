@@ -365,18 +365,46 @@ const veraPDFBin = "benchmarks/tools/verapdf/verapdf"
 type veraReport struct {
 	XMLName xml.Name `xml:"report"`
 	Jobs    struct {
-		Job []struct {
-			Report struct {
-				IsCompliant bool `xml:"isCompliant,attr"`
-				Details     struct {
-					Rules []struct {
-						Clause string `xml:"clause,attr"`
-						Status string `xml:"status,attr"`
-					} `xml:"rule"`
-				} `xml:"details"`
-			} `xml:"validationReport"`
-		} `xml:"job"`
+		Job []veraJob `xml:"job"`
 	} `xml:"jobs"`
+}
+
+type veraJob struct {
+	Item struct {
+		Name string `xml:"name"`
+	} `xml:"item"`
+	// Report is nil when veraPDF produced no verdict for the job (e.g. a file
+	// it could not parse).
+	Report *veraValidationReport `xml:"validationReport"`
+}
+
+type veraValidationReport struct {
+	IsCompliant bool `xml:"isCompliant,attr"`
+	Details     struct {
+		Rules []struct {
+			Clause string `xml:"clause,attr"`
+			Status string `xml:"status,attr"`
+		} `xml:"rule"`
+	} `xml:"details"`
+}
+
+// runVeraPDF invokes the bundled veraPDF binary and returns the parsed MRR
+// report. veraPDF exits non-zero for non-compliant files, so only an empty
+// output is treated as a failed run.
+func runVeraPDF(args ...string) (veraReport, error) {
+	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", "1b"}, args...)...)
+	out, err := cmd.Output()
+	if len(out) == 0 {
+		if err != nil {
+			return veraReport{}, err
+		}
+		return veraReport{}, exec.ErrNotFound
+	}
+	var rep veraReport
+	if err := xml.Unmarshal(out, &rep); err != nil {
+		return veraReport{}, err
+	}
+	return rep, nil
 }
 
 // TestConvertNoResidualIssues cross-checks gopdfrab's verifier against the
@@ -475,23 +503,16 @@ func TestConvertNoResidualIssues(t *testing.T) {
 // veraPDFClauses runs the reference veraPDF verifier and returns the set of
 // clauses it reports as failed for path, and whether it deems the file compliant.
 func veraPDFClauses(path string) (clauses map[string]bool, compliant bool, err error) {
-	cmd := exec.Command(veraPDFBin, "--format", "mrr", "--flavour", "1b", path)
-	out, err := cmd.Output()
-	// veraPDF exits non-zero for non-compliant files
-	if len(out) == 0 {
-		if err != nil {
-			return nil, false, err
-		}
-		return nil, false, exec.ErrNotFound
-	}
-
-	var rep veraReport
-	if err := xml.Unmarshal(out, &rep); err != nil {
+	rep, err := runVeraPDF(path)
+	if err != nil {
 		return nil, false, err
 	}
 
 	clauses = map[string]bool{}
 	for _, job := range rep.Jobs.Job {
+		if job.Report == nil {
+			continue
+		}
 		compliant = job.Report.IsCompliant
 		for _, r := range job.Report.Details.Rules {
 			if r.Status == "failed" {

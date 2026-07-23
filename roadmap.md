@@ -320,24 +320,47 @@ publications, Wikimedia), or keep the corpus in a separate repository referenced
 by hash. Pick one and commit to it; the current situation is that no real
 document is tested at all.
 
-### 11. The differential harness exists but never runs
+### 11. The differential harness exists but never runs — **DONE**
 
-`convert_regression_test.go` already cross-checks gopdfrab against the bundled
-veraPDF binary — genuinely the right idea. It is dark in three ways at once:
+Was: `convert_regression_test.go` cross-checked gopdfrab against the bundled
+veraPDF binary — the right idea, dark in three ways: it skipped under `-short`
+(what CI ran), skipped when the binary was absent (as in CI), and its corpus
+`tests/regression/` was gitignored, so the documents that caught bugs lived on
+one machine.
 
-- it skips under `-short`, which is what CI runs;
-- it skips when the veraPDF binary is absent, which it is in CI;
-- its corpus is `tests/regression/`, which is **gitignored**, so the 16 documents
-  that caught real bugs exist only on one machine.
+Turned on and expanded. `TestDifferentialVeraPDFCorpora` (conformance_test.go)
+runs the veraPDF binary in one batch per corpus over both **committed** suites
+(777 files) and diffs its verdict against gopdfrab's file-by-file — this
+compares against veraPDF the implementation, not the filename expectations the
+suite tests already assert. A verdict disagreement fails unless listed in
+`differentialDeviations` with a justification (empty today). Clause-set
+differences are logged, not failed, since check granularity legitimately
+differs. A new CI `differential` job installs veraPDF via
+`scripts/install-verapdf.sh` and runs this plus the regression cross-check, so
+the harness is no longer dark. The `tests/regression/` real-world corpus stays
+item 10 (licensing); `TestConvertNoResidualIssues` still covers it when present.
 
-So the single highest-value correctness tool in the repo has never run in CI and
-its inputs aren't shared. Fix all three, then expand it: run both verifiers over
-the real-world corpus from item 10 and diff at clause level. Every disagreement is
-either a gopdfrab bug or a documented, justified deviation. That list *is* the
-conformance argument for 1.0, and it's far stronger than "both suites pass."
+Running it immediately paid for itself — **two real verifier bugs**, both
+false-negatives veraPDF caught and no synthetic test did:
 
-Note the benchmarks README explicitly puts correctness out of scope and defers to
-the corpora. That was fine while the corpora were the whole story. It isn't now.
+- **6.2.7 PostScript XObject was profile-disabled, not reachability-gated.**
+  PDFA1B dropped the `PostScriptXObject` check entirely because veraPDF's
+  corpus passes a file with an *unreferenced* PS XObject — but veraPDF *fails*
+  a referenced one (isartor-6-2-7-t01-fail-a). Now the check is gated on
+  `isReachableXObject` exactly like Form XObjects, matching veraPDF on both. A
+  new convert fixer neuters a referenced PS XObject into an empty Form XObject
+  (PS passthrough renders nothing in a viewer), verified conformant by the
+  veraPDF binary on the converted output.
+- **Content usage never entered tiling-pattern streams.** A non-embedded font
+  shown only inside a tiling pattern's content (isartor-6-3-4-t01-fail-h) was
+  invisible to `ComputeContentUsage`, so `SkipUnusedSimpleFonts` wrongly
+  suppressed the 6.3.4 finding. `scn`/`SCN` now scan the selected pattern's
+  stream (deduped) for font and XObject usage, gated on the pattern actually
+  being set.
+
+Note the benchmarks README explicitly puts correctness out of scope and defers
+to the corpora. That was fine while the corpora were the whole story. It isn't
+now.
 
 ### 12. Nothing checks that converted output still looks like the input
 
@@ -354,19 +377,26 @@ perceptually, fail when a page changes beyond a threshold or goes blank. Report
 per-page fidelity in `ConvertResult` alongside residual issues. This pairs with
 item 6 — the rasterizer needs to know and say what it dropped.
 
-### 13. CI runs a fraction of the test suite
+### 13. CI runs a fraction of the test suite — **mostly DONE**
 
-`.github/workflows/go.yml` runs `go test -short` on ubuntu, and that's all.
-Consequences:
+Was: `.github/workflows/go.yml` ran `go test -short` on ubuntu only. Now the
+workflow has:
 
-- **No `-race`.** `TestGeneratedCorpusRace` and `TestConcurrentDecodeIsSafe` exist
-  specifically to be run under `-race` and never are. The Reader has caches with
-  one mutex covering one path; this is exactly where a race would live.
-- **No fuzzing.** Every target seeds its corpus in code so seeds replay, but no
-  new inputs are ever explored. A nightly `-fuzz` job per target, or OSS-Fuzz,
-  turns a large existing investment into something that keeps paying.
-- **`-short` skips** the regression cross-check and the time-bound scan.
-- **One OS** (item 9).
+- **`-race`.** Every matrix OS runs `go test -short -race` over all packages,
+  exercising `TestGeneratedCorpusRace`/`TestConcurrentDecodeIsSafe` (green,
+  including on the shared-Reader convert path).
+- **Fuzzing.** `scripts/fuzz.sh` runs every one of the 26 `Fuzz*` targets; a
+  `fuzz` job smoke-fuzzes each for 20 s on every push, and a `nightly-fuzz`
+  cron job runs 5 min per target and uploads any crasher. Seeds replay from the
+  committed corpus as before.
+- **OS matrix** (item 9): ubuntu + windows + macos build and race-test.
+- **wasm** (item 28): a `wasm` job builds `GOOS=js` with `-o /dev/null`.
+- **Differential** (item 11): a `differential` job installs veraPDF and runs
+  the cross-check.
+
+Still open: the differential and regression jobs cover the committed corpora
+but not a real-world one (item 10), and Windows still takes the untested
+seek-based read path (item 9's implementation half).
 
 ### 14. Thread-safety is undocumented
 
@@ -587,11 +617,11 @@ Recorded so nobody re-investigates:
 
 1. ~~**Items 1–3.**~~ Done. P0 is clear: the verdict degrades per-object and
    convert never returns empty output without an error.
-2. **Items 11 and 13.** Turn the dark differential harness on and put `-race`
-   plus fuzzing in CI. Do this early — it's cheap and it changes what every
-   later change is measured against. Now also the cheapest way to find whether
-   item 1a's new check fires on any real-world file, which no synthetic corpus
-   can answer.
+2. ~~**Items 11 and 13.**~~ Done. Differential harness runs in CI against both
+   committed corpora (found two real verifier false-negatives immediately);
+   `-race`, per-target fuzzing, an OS matrix and the wasm build are all wired.
+   Remaining CI gaps are the real-world corpus (item 10) and the Windows read
+   path (item 9).
 3. **Item 4.** Biggest real-world gap, and the oracle it needs would have caught
    item 2.
 4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.

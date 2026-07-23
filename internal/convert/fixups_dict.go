@@ -337,10 +337,9 @@ func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict)
 // checks_dict.go, plus the inline-image flavour of ImageInterpolate
 // (checkInlineImageOther, checks_content.go) via fixInlineImageInterpolate
 // (fixups_inline_image.go) -- a Check can only have one registered Fixer,
-// so the inline case is folded in here rather than given its own. It
-// deliberately does not touch FormPostScript, FormPSEntry, FormSubtype2PS,
-// or PostScriptXObject (PostScript-related checks already disabled in the
-// default PDFA1B profile; see profile.go).
+// so the inline case is folded in here rather than given its own. The
+// PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
+// PostScriptXObject) belong to postScriptXObjectFixer below.
 type imageMetadataFixer struct{}
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {
@@ -395,38 +394,64 @@ func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 	return changed, nil
 }
 
-// --- 6.2.5 / 6.2.7 PostScript form XObjects ---
+// --- 6.2.5 / 6.2.7 PostScript XObjects ---
 
-// postScriptXObjectFixer remediates the Form-XObject PostScript checks,
-// mirroring the Form case of validateXObjectDict in checks_dict.go.
+// postScriptXObjectFixer remediates the PostScript XObject checks, mirroring
+// the Form and PS cases of validateXObjectDict in checks_dict.go. A PostScript
+// XObject (Subtype /PS) is neutered into an empty Form XObject: PDF viewers
+// never render PS passthrough content, so the visual output is unchanged.
 type postScriptXObjectFixer struct{}
 
 func (postScriptXObjectFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Image.FormPSEntry, pdf.Checks.Image.FormPostScript, pdf.Checks.Image.FormSubtype2PS:
+	case pdf.Checks.Image.FormPSEntry, pdf.Checks.Image.FormPostScript,
+		pdf.Checks.Image.FormSubtype2PS, pdf.Checks.Image.PostScriptXObject:
 		return true
 	}
 	return false
 }
 
-func (f postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
-}
-
-func (postScriptXObjectFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-	return func(d pdf.PDFDict) {
-		if (d.Entries["Subtype"] != pdf.PDFName{Value: "Form"}) {
-			return
+func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	changed := false
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+		switch d.Entries["Subtype"] {
+		case pdf.PDFName{Value: "Form"}:
+			hit := false
+			if _, ok := d.Entries["PS"]; ok {
+				delete(d.Entries, "PS")
+				hit = true
+			}
+			if (d.Entries["Subtype2"] == pdf.PDFName{Value: "PS"}) {
+				delete(d.Entries, "Subtype2")
+				hit = true
+			}
+			if hit {
+				changed = true
+			}
+			return d, hit
+		case pdf.PDFName{Value: "PS"}:
+			// PS passthrough renders nothing in a PDF viewer, so replace the
+			// object with an empty Form XObject rather than trying to preserve
+			// its (encoded) PostScript body. Writing empty uncompressed content
+			// keeps stream framing and /Filter consistent.
+			d.Entries["Type"] = pdf.PDFName{Value: "XObject"}
+			d.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+			d.Entries["FormType"] = pdf.PDFInteger(1)
+			if _, ok := d.Entries["BBox"].(pdf.PDFArray); !ok {
+				d.Entries["BBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)}
+			}
+			delete(d.Entries, "Filter")
+			delete(d.Entries, "DecodeParms")
+			delete(d.Entries, "DP")
+			delete(d.Entries, "Level1")
+			d.HasStream = true
+			d.RawStream = []byte("\n")
+			changed = true
+			return d, true
 		}
-		if _, ok := d.Entries["PS"]; ok {
-			delete(d.Entries, "PS")
-			*changed = true
-		}
-		if (d.Entries["Subtype2"] == pdf.PDFName{Value: "PS"}) {
-			delete(d.Entries, "Subtype2")
-			*changed = true
-		}
-	}, true
+		return d, false
+	})
+	return changed, nil
 }
 
 // --- 6.1.13 Optional content ---

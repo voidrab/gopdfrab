@@ -236,3 +236,84 @@ func TestVeraPDFSuite(t *testing.T) {
 		total, passClean, passFalsePos, openErrPass,
 		failCaught, failCorrect, failFalseNeg, failWrongClause, openErrFail)
 }
+
+// differentialDeviations lists files where gopdfrab's verdict deliberately
+// differs from the veraPDF binary's, keyed by corpus-relative path with the
+// justification as the value. Every entry must explain why gopdfrab is right
+// (or at least defensible); an undocumented disagreement fails the test.
+var differentialDeviations = map[string]string{}
+
+// TestDifferentialVeraPDFCorpora runs the bundled veraPDF binary over both
+// committed conformance corpora in one batch each and diffs its verdict
+// against gopdfrab's, file by file. This compares against veraPDF the
+// implementation, not the suite's filename expectations (which
+// TestVeraPDFSuite/TestIsartorSuite already assert): a verdict disagreement is
+// a gopdfrab bug or a documented deviation in differentialDeviations. Clause
+// sets are diffed as diagnostics only, since check granularity legitimately
+// differs between implementations.
+func TestDifferentialVeraPDFCorpora(t *testing.T) {
+	if testing.Short() {
+		t.Skip("differential cross-check skipped in short mode")
+	}
+	if _, err := os.Stat(veraPDFBin); err != nil {
+		t.Skipf("veraPDF reference verifier not available: %v", err)
+	}
+
+	for _, dir := range []string{veraDir, isartorDir} {
+		if _, err := os.Stat(dir); err != nil {
+			continue
+		}
+		rep, err := runVeraPDF("--recurse", dir)
+		if err != nil {
+			t.Fatalf("veraPDF batch over %s: %v", dir, err)
+		}
+		if len(rep.Jobs.Job) == 0 {
+			t.Fatalf("veraPDF batch over %s returned no jobs", dir)
+		}
+
+		for _, job := range rep.Jobs.Job {
+			rel, err := filepath.Rel(dir, job.Item.Name)
+			if err != nil {
+				abs, _ := filepath.Abs(dir)
+				rel, _ = filepath.Rel(abs, job.Item.Name)
+			}
+			t.Run(rel, func(t *testing.T) {
+				if job.Report == nil {
+					t.Logf("veraPDF produced no verdict; skipping")
+					return
+				}
+				res, verr := Verify(filepath.Join(dir, rel), PDFA1B)
+				if verr != nil {
+					t.Fatalf("gopdfrab Verify: %v (veraPDF compliant=%v)", verr, job.Report.IsCompliant)
+				}
+
+				veraClauses := map[string]bool{}
+				for _, r := range job.Report.Details.Rules {
+					if r.Status == "failed" {
+						veraClauses[r.Clause] = true
+					}
+				}
+
+				if res.Valid != job.Report.IsCompliant {
+					if why, ok := differentialDeviations[rel]; ok {
+						t.Logf("documented deviation (gopdfrab valid=%v, veraPDF compliant=%v): %s",
+							res.Valid, job.Report.IsCompliant, why)
+						return
+					}
+					t.Errorf("verdict disagrees with veraPDF: gopdfrab valid=%v (clauses %v), veraPDF compliant=%v (clauses %v)",
+						res.Valid, issueClauses(res.Issues), job.Report.IsCompliant, sortedClauses(veraClauses))
+					return
+				}
+
+				gopClauses := map[string]bool{}
+				for _, iss := range res.Issues {
+					gopClauses[iss.Check().Clause()] = true
+				}
+				if match, onlyGop, onlyVera := clauseSetMatches(gopClauses, veraClauses); !match {
+					t.Logf("clause sets differ (verdict agrees): only gopdfrab=%v, only veraPDF=%v",
+						onlyGop, onlyVera)
+				}
+			})
+		}
+	}
+}
