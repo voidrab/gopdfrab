@@ -1,6 +1,8 @@
 package gopdfrab_test
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"errors"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"testing"
 
 	gopdfrab "github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // TestOptionsPassword confirms Options.Password flows to the Open step: an
@@ -73,6 +76,88 @@ func TestOptionsRasterDPI(t *testing.T) {
 		t.Errorf("300-DPI output (%d bytes) not larger than 72-DPI output (%d bytes); DPI option had no effect",
 			len(high.Output), len(low.Output))
 	}
+}
+
+// TestSetLimitsRoundTrip confirms the Limits accessors: DefaultLimits and a
+// freshly-reset CurrentLimits report the default, SetLimits reflects a raised
+// value, and a zero field resets to the default.
+func TestSetLimitsRoundTrip(t *testing.T) {
+	defer gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+
+	def := gopdfrab.DefaultLimits().MaxDecodedStreamBytes
+	if def <= 0 {
+		t.Fatalf("DefaultLimits.MaxDecodedStreamBytes = %d, want positive", def)
+	}
+	gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+	if got := gopdfrab.CurrentLimits().MaxDecodedStreamBytes; got != def {
+		t.Errorf("CurrentLimits after default = %d, want %d", got, def)
+	}
+
+	gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: def * 2})
+	if got := gopdfrab.CurrentLimits().MaxDecodedStreamBytes; got != def*2 {
+		t.Errorf("CurrentLimits after raise = %d, want %d", got, def*2)
+	}
+
+	gopdfrab.SetLimits(gopdfrab.Limits{}) // zero field resets to the default
+	if got := gopdfrab.CurrentLimits().MaxDecodedStreamBytes; got != def {
+		t.Errorf("CurrentLimits after zero = %d, want default %d", got, def)
+	}
+}
+
+// TestSetLimitsAffectsDecoding confirms the public knob reaches the decode
+// chokepoint: a tiny cap makes a FlateDecode content stream report a
+// StreamUndecodable (6.1.7) issue that is absent at the default cap.
+func TestSetLimitsAffectsDecoding(t *testing.T) {
+	defer gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+	data := flateContentPDF(t)
+
+	gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+	base, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes at default cap: %v", err)
+	}
+	if issuesHaveCheck(base, "StreamUndecodable") {
+		t.Fatal("default cap already reports StreamUndecodable")
+	}
+
+	gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: 16})
+	low, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+	if err != nil {
+		t.Fatalf("VerifyBytes at tiny cap: %v", err)
+	}
+	if !issuesHaveCheck(low, "StreamUndecodable") {
+		t.Error("tiny cap did not report StreamUndecodable")
+	}
+}
+
+// flateContentPDF builds a minimal one-page PDF whose page content is a
+// FlateDecode stream that decodes to several hundred bytes.
+func flateContentPDF(t *testing.T) []byte {
+	t.Helper()
+	content := bytes.Repeat([]byte("0 0 0 rg 0 0 10 10 re f\n"), 40)
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	if _, err := zw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<</Type/Catalog/Pages 2 0 R>>")
+	b.Obj(2, "<</Type/Pages/Kids[3 0 R]/Count 1>>")
+	b.Obj(3, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R>>")
+	b.StreamObj(4, "<< /Filter /FlateDecode", zbuf.Bytes())
+	return b.FinishClassic("<</Size 5/Root 1 0 R>>")
+}
+
+func issuesHaveCheck(res gopdfrab.Result, name string) bool {
+	for _, iss := range res.Issues {
+		if iss.Check().Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TestOptionsTwoArgForm confirms the two-argument call form still compiles and
