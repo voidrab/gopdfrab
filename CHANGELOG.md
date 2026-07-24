@@ -33,6 +33,11 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Streaming batch conversion.** `ConvertEach`/`ConvertEachContext` convert a
+  batch and invoke a callback on each result as it completes, instead of
+  retaining every output like `ConvertAll` — so a large batch need not hold every
+  converted PDF in memory at once. A new `Options.Workers` field bounds the
+  concurrency of both forms (0 = `runtime.NumCPU`).
 - **Settable resource limits.** The decoded-output cap that guards against
   decompression bombs is now configurable through the new root-package `Limits`
   type and `SetLimits`/`CurrentLimits`/`DefaultLimits` functions, and through a

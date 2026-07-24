@@ -307,6 +307,20 @@ for _, r := range results {
 }
 ```
 
+For a batch too large to hold every output in memory at once, `ConvertEach` streams instead: it calls a callback on each result as it completes (serialized, in completion order), so you can write each output and let it be collected. `Options.Workers` bounds the concurrency of both forms (0 = `runtime.NumCPU`).
+
+```go
+err := gopdfrab.ConvertEach(paths, gopdfrab.PDFA1B, gopdfrab.Options{Workers: 4},
+    func(r gopdfrab.FileResult[gopdfrab.ConvertResult]) error {
+        if r.Err != nil {
+            return nil // skip this file, keep going
+        }
+        return r.Result.Save(filepath.Join(outDir, filepath.Base(r.Path)))
+    })
+```
+
+Returning a non-nil error from the callback stops the batch and is returned from `ConvertEach`.
+
 ### Inspecting Residuals
 
 Even though `Convert` always returns its best attempt, the result may still carry residual issues if no automatic remediation — including the raster last resort — fully resolved them.

@@ -304,17 +304,23 @@ defaults, i.e. holes when lowering for safety) and, backed by `atomic.Int64`, is
 race-clean. Resolve depth and the structural depth consts stay internal. The
 default is unchanged, so no corpus behavior moved.
 
-### 8. Convert holds everything in memory
+### 8. Convert holds everything in memory — **partly done**
 
-`ConvertAll` (`internal/convert/convert.go:66`) keeps a full `ConvertResult` per
-input, each with the complete output PDF as `[]byte`. 500 files means 500 output
-documents resident at once.
+Was: `ConvertAll` kept a full `ConvertResult` per input, each with the complete
+output PDF as `[]byte`, so 500 files meant 500 output documents resident at once,
+and the worker count was hardcoded to `NumCPU`.
 
-Separately, `Run` resolves the entire object graph into Go structures. The read
-path went to real trouble to mmap rather than heap-load the file; conversion
-undoes that. Worth measuring peak RSS for a large convert before deciding how far
-to take it, but at minimum `ConvertAll` needs a streaming/callback form and a
-worker-count knob.
+**The batch half is done.** `ConvertEach`/`ConvertEachContext` (re-exported from
+root) invoke a callback on each result as it completes rather than retaining
+them, so a caller can write each output and drop it — peak memory is bounded by
+the worker count, not the batch size. Both batch forms share one worker engine
+and honour a new `Options.Workers` knob (0 = `NumCPU`). The callback is
+serialized, delivered in completion order, and a non-nil return aborts the batch.
+
+Still open: `Run` resolves the entire object graph into Go structures, so a
+single large conversion still heap-loads what the read path went to trouble to
+mmap. Worth measuring peak RSS before deciding how far to take it; making
+`Output` itself lazy (item 18's remaining half) ties in here.
 
 ### 9. Windows and macOS are untested
 
@@ -724,8 +730,10 @@ Recorded so nobody re-investigates:
    separate repo).
 6. **Items 5–9.** Item 5 (encryption), item 6 (rasterizer `Tr`/`Ts` fix + drop
    reporting) and item 7 (settable limits, via a process-global `SetLimits`)
-   done. Remaining: 8 (streaming/memory), 9 (Windows/macOS). Rendering the
-   dropped features (shadings, Type 3) is the large deferred half of item 6.
+   done; item 8's batch half done (`ConvertEach` streaming form + `Options.Workers`
+   knob). Remaining: item 8's per-conversion graph footprint (ties into item 18's
+   lazy `Output`), 9 (Windows/macOS). Rendering the dropped features (shadings,
+   Type 3) is the large deferred half of item 6.
 7. **Items 22–29.** Continuous.
 
 ## Not in 1.0
