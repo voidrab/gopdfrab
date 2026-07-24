@@ -7,6 +7,9 @@ package gopdfrab
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
@@ -647,12 +650,71 @@ func realWorldPDFs(t *testing.T, dir string) []string {
 	return paths
 }
 
-// checkShouldPass verifies every PDF under dir against PDF/A-1b and returns the
-// count checked and the files gopdfrab wrongly rejected. These are real files a
-// tool and veraPDF both call PDF/A-1b, so any rejection is a false positive.
-func checkShouldPass(t *testing.T, dir string) (checked int, failures []string) {
-	for _, p := range realWorldPDFs(t, dir) {
-		checked++
+// manifestEntry is one row of tests/realworld/manifest.json: the committed
+// inventory of the corpus. The .pdf bytes are gitignored; this records each
+// file's hash, licence, provenance, and an optional source URL.
+type manifestEntry struct {
+	Path     string `json:"path"`
+	URL      string `json:"url"`
+	SHA256   string `json:"sha256"`
+	License  string `json:"license"`
+	Producer string `json:"producer"`
+	Note     string `json:"note"`
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// manifestProblems checks each present corpus file against manifest.json under
+// realworldDir, returning a problem per file that is unlisted, hash-mismatched,
+// or missing a licence. err is non-nil only when the manifest cannot be read or
+// parsed. Manifest entries with no present file are ignored, so a clean checkout
+// (committed manifest, gitignored PDFs) reports nothing.
+func manifestProblems(realworldDir string, present []string) (problems []string, err error) {
+	data, err := os.ReadFile(filepath.Join(realworldDir, "manifest.json"))
+	if err != nil {
+		return nil, err
+	}
+	var entries []manifestEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	byPath := make(map[string]manifestEntry, len(entries))
+	for _, e := range entries {
+		byPath[e.Path] = e
+	}
+	for _, f := range present {
+		rel, err := filepath.Rel(realworldDir, f)
+		if err != nil {
+			return nil, err
+		}
+		rel = filepath.ToSlash(rel)
+		e, ok := byPath[rel]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s: present but not in manifest.json (run scripts/gen-realworld-manifest.sh)", rel))
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return nil, err
+		}
+		if got := sha256Hex(b); got != e.SHA256 {
+			problems = append(problems, fmt.Sprintf("%s: sha256 %s != manifest %s (regenerate the manifest)", rel, got, e.SHA256))
+		}
+		if e.License == "" || e.License == "TODO" {
+			problems = append(problems, fmt.Sprintf("%s: no licence recorded in manifest.json", rel))
+		}
+	}
+	return problems, nil
+}
+
+// checkShouldPass verifies each file against PDF/A-1b and returns the paths
+// gopdfrab wrongly rejected. These are real files a tool and veraPDF both call
+// PDF/A-1b, so any rejection is a false positive.
+func checkShouldPass(t *testing.T, files []string) (failures []string) {
+	for _, p := range files {
 		res, err := Verify(p, PDFA1B)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: open/parse error: %v", p, err))
@@ -662,15 +724,14 @@ func checkShouldPass(t *testing.T, dir string) (checked int, failures []string) 
 			failures = append(failures, fmt.Sprintf("%s: %d issues", p, len(res.Issues)))
 		}
 	}
-	return checked, failures
+	return failures
 }
 
-// checkShouldConvert converts every PDF under dir and returns how many were
-// checked, how many reached PDF/A-1b conformance, and how many did so only with
-// dropped raster content (a lossy fallback).
-func checkShouldConvert(t *testing.T, dir string) (checked, conformant, lossyRaster int) {
-	for _, p := range realWorldPDFs(t, dir) {
-		checked++
+// checkShouldConvert converts each file and returns how many reached PDF/A-1b
+// conformance and how many did so only with dropped raster content (a lossy
+// fallback).
+func checkShouldConvert(t *testing.T, files []string) (conformant, lossyRaster int) {
+	for _, p := range files {
 		cr, err := Convert(p, PDFA1B)
 		if err != nil {
 			t.Errorf("%s: convert error: %v", p, err)
@@ -683,33 +744,45 @@ func checkShouldConvert(t *testing.T, dir string) (checked, conformant, lossyRas
 			lossyRaster++
 		}
 	}
-	return checked, conformant, lossyRaster
+	return conformant, lossyRaster
 }
 
-// TestRealWorldCorpus runs the two real-world metrics over tests/realworld/: every
-// should-pass file must verify clean (a rejection is a false positive), and the
-// should-convert conformance fraction is reported. It skips when the corpus is
-// absent, as in a clean checkout.
+// TestRealWorldCorpus runs the two real-world metrics over tests/realworld/:
+// every should-pass file must verify clean (a rejection is a false positive),
+// the should-convert conformance fraction is reported, and every present file
+// must be recorded in manifest.json with a matching hash and a licence. It skips
+// when the corpus is absent, as in a clean checkout.
 func TestRealWorldCorpus(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
 
-	passChecked, failures := checkShouldPass(t, filepath.Join("tests", "realworld", "should-pass"))
-	convChecked, conformant, lossy := checkShouldConvert(t, filepath.Join("tests", "realworld", "should-convert"))
-
-	if passChecked == 0 && convChecked == 0 {
+	base := filepath.Join("tests", "realworld")
+	passFiles := realWorldPDFs(t, filepath.Join(base, "should-pass"))
+	convFiles := realWorldPDFs(t, filepath.Join(base, "should-convert"))
+	if len(passFiles)+len(convFiles) == 0 {
 		t.Skip("no real-world corpus present (see tests/realworld/README.md)")
 	}
 
-	if passChecked > 0 {
-		t.Logf("should-pass: %d files, %d rejected", passChecked, len(failures))
+	present := append(append([]string{}, passFiles...), convFiles...)
+	if problems, err := manifestProblems(base, present); err != nil {
+		t.Errorf("manifest.json: %v (run scripts/gen-realworld-manifest.sh)", err)
+	} else {
+		for _, p := range problems {
+			t.Errorf("manifest: %s", p)
+		}
+	}
+
+	if len(passFiles) > 0 {
+		failures := checkShouldPass(t, passFiles)
+		t.Logf("should-pass: %d files, %d rejected", len(passFiles), len(failures))
 		for _, f := range failures {
 			t.Errorf("should-pass false positive: %s", f)
 		}
 	}
-	if convChecked > 0 {
-		t.Logf("should-convert: %d files, %d conformant, %d via lossy raster", convChecked, conformant, lossy)
+	if len(convFiles) > 0 {
+		conformant, lossy := checkShouldConvert(t, convFiles)
+		t.Logf("should-convert: %d files, %d conformant, %d via lossy raster", len(convFiles), conformant, lossy)
 	}
 }
 
@@ -727,20 +800,82 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(passDir, "conformant.pdf"), cr.Output, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if checked, failures := checkShouldPass(t, passDir); checked != 1 || len(failures) != 0 {
-		t.Errorf("should-pass self-check: checked=%d failures=%v, want 1/none", checked, failures)
+	pass := realWorldPDFs(t, passDir)
+	if failures := checkShouldPass(t, pass); len(pass) != 1 || len(failures) != 0 {
+		t.Errorf("should-pass self-check: files=%d failures=%v, want 1/none", len(pass), failures)
 	}
 
 	convDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(convDir, "plain.pdf"), []byte(plainPDF), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if checked, conformant, _ := checkShouldConvert(t, convDir); checked != 1 || conformant != 1 {
-		t.Errorf("should-convert self-check: checked=%d conformant=%d, want 1/1", checked, conformant)
+	conv := realWorldPDFs(t, convDir)
+	if conformant, _ := checkShouldConvert(t, conv); len(conv) != 1 || conformant != 1 {
+		t.Errorf("should-convert self-check: files=%d conformant=%d, want 1/1", len(conv), conformant)
 	}
 
 	// A missing directory yields no files (the skip path).
 	if got := realWorldPDFs(t, filepath.Join(t.TempDir(), "absent")); len(got) != 0 {
 		t.Errorf("absent dir returned %d files, want 0", len(got))
+	}
+}
+
+// TestRealWorldManifestCheck covers manifestProblems: a correct entry is clean,
+// while an unlisted file, a hash mismatch, a TODO/empty licence, and an
+// unreadable manifest are each reported.
+func TestRealWorldManifestCheck(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "should-pass"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pdfPath := filepath.Join(base, "should-pass", "x.pdf")
+	content := []byte("%PDF-1.4 stub\n")
+	if err := os.WriteFile(pdfPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256Hex(content)
+
+	writeManifest := func(entries []manifestEntry) {
+		data, err := json.Marshal(entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, "manifest.json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeManifest([]manifestEntry{{Path: "should-pass/x.pdf", SHA256: sum, License: "CC-BY-4.0"}})
+	if problems, err := manifestProblems(base, []string{pdfPath}); err != nil || len(problems) != 0 {
+		t.Errorf("correct manifest: problems=%v err=%v, want none", problems, err)
+	}
+
+	writeManifest([]manifestEntry{{Path: "should-pass/x.pdf", SHA256: sum, License: "TODO"}})
+	if problems, _ := manifestProblems(base, []string{pdfPath}); len(problems) != 1 {
+		t.Errorf("TODO licence: problems=%v, want 1", problems)
+	}
+
+	writeManifest([]manifestEntry{{Path: "should-pass/x.pdf", SHA256: "deadbeef", License: "CC-BY-4.0"}})
+	if problems, _ := manifestProblems(base, []string{pdfPath}); len(problems) != 1 {
+		t.Errorf("hash mismatch: problems=%v, want 1", problems)
+	}
+
+	writeManifest(nil)
+	if problems, _ := manifestProblems(base, []string{pdfPath}); len(problems) != 1 {
+		t.Errorf("unlisted file: problems=%v, want 1", problems)
+	}
+
+	if err := os.WriteFile(filepath.Join(base, "manifest.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifestProblems(base, []string{pdfPath}); err == nil {
+		t.Error("invalid manifest.json: want error, got nil")
+	}
+
+	if err := os.Remove(filepath.Join(base, "manifest.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifestProblems(base, []string{pdfPath}); err == nil {
+		t.Error("missing manifest.json: want error, got nil")
 	}
 }

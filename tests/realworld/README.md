@@ -14,18 +14,34 @@ producers. It answers two questions the synthetic suites cannot:
   conformant output, and how many only get there by rasterizing (a lossy
   fallback). This is reported, not gated, since the fraction is a moving target.
 
-## The corpus is not committed
+## The PDFs are not committed; the manifest is
 
 Most real PDFs cannot be redistributed, and committing them would bloat the
-module zip, so the `.pdf` files here are gitignored. A clean checkout has empty
-`should-pass/`/`should-convert/` dirs and `TestRealWorldCorpus` skips.
+module zip, so the `.pdf` files here are gitignored. What *is* committed is
+`manifest.json`: the inventory of the corpus — each file's hash, licence,
+provenance, and an optional source URL, never its bytes. A clean checkout has an
+empty inventory, empty corpus dirs, and `TestRealWorldCorpus` skips.
 
-Populate the corpus reproducibly from hashes, without redistributing the files:
+### Adding files
 
-1. Copy `manifest.example.json` to `manifest.json` and list each document with
-   its source URL, expected sha256, license, and producer.
-2. Run `scripts/fetch-realworld-corpus.sh`, which downloads each file to its
-   `path` under this directory and verifies its sha256.
+1. Drop PDFs into `should-pass/` (real PDF/A-1b — confirm with
+   `verapdf --flavour 1b file.pdf` first) or `should-convert/` (ordinary PDFs).
+2. Run `scripts/gen-realworld-manifest.sh`. It hashes each file and merges it
+   into `manifest.json`, preserving fields you have already filled in and
+   stubbing new entries with `"license": "TODO"`.
+3. Edit each new entry's `license` (and `url`, if the file is publicly hosted).
+4. Commit `manifest.json`.
+
+`TestRealWorldCorpus` then checks every present file against the inventory: an
+unlisted file, a hash mismatch, or a `TODO` licence fails the test, so the
+committed inventory stays honest.
+
+### Getting the corpus onto another machine
+
+For entries with a `url` (publicly hosted), `scripts/fetch-realworld-corpus.sh`
+re-downloads them and verifies the recorded hash. Entries with no `url` (e.g.
+self-generated PDF/A) are local-only — they live only where they were created,
+and the manifest records their hash and provenance for reference.
 
 ## Sourcing
 

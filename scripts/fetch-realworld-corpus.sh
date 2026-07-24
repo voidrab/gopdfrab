@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Populate tests/realworld/ from a manifest of externally-hosted PDFs.
-#
-# The real-world corpus is not committed (licensing + size); this script
-# downloads each file listed in a manifest and verifies its sha256, so a
-# populated corpus is reproducible from hashes without redistributing the PDFs.
+# Fetch the publicly-hosted PDFs listed in tests/realworld/manifest.json and
+# verify their sha256, so those entries are reproducible from hashes without
+# redistributing the bytes. Entries with an empty "url" are local-only (e.g.
+# self-generated PDF/A) and are skipped -- those files must already be present.
 #
 # Usage: scripts/fetch-realworld-corpus.sh [manifest.json]
 # Manifest schema: see tests/realworld/manifest.example.json.
@@ -16,7 +15,6 @@ root="tests/realworld"
 
 if [ ! -f "$manifest" ]; then
   echo "manifest not found: $manifest" >&2
-  echo "copy tests/realworld/manifest.example.json to tests/realworld/manifest.json and fill it in" >&2
   exit 1
 fi
 
@@ -26,6 +24,13 @@ for i in $(seq 0 $((count - 1))); do
   url=$(jq -r ".[$i].url" "$manifest")
   want=$(jq -r ".[$i].sha256" "$manifest")
   dest="$root/$path"
+
+  if [ -z "$url" ] || [ "$url" = "null" ]; then
+    if [ ! -f "$dest" ]; then
+      echo "warning: $path has no url and is not present locally; skipping" >&2
+    fi
+    continue
+  fi
 
   mkdir -p "$(dirname "$dest")"
   if [ ! -f "$dest" ]; then
@@ -40,4 +45,4 @@ for i in $(seq 0 $((count - 1))); do
   fi
 done
 
-echo "corpus ready under $root ($count files)"
+echo "fetch complete for $manifest"

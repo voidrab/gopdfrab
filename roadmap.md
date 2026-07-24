@@ -355,16 +355,20 @@ Two corpora, answering different questions, are now wired as `TestRealWorldCorpu
   raster content (`ConvertResult.RasterDrops`). A precise "without raster" metric
   would want a convert-time rasterized signal — a possible follow-up.
 
-The **licensing decision landed on hash-referenced external files**, mirroring
-`tests/regression/`: the `.pdf` files are gitignored and populated out of band by
-`scripts/fetch-realworld-corpus.sh` from a manifest of URL + sha256 + license
-(schema in `tests/realworld/manifest.example.json`), so nothing non-redistributable
-is committed and the corpus is reproducible from hashes. `TestRealWorldCorpus`
-skips when the corpus is absent (a clean checkout); `TestRealWorldHarnessSelfCheck`
-exercises the metric logic against generated fixtures so the harness is covered
-regardless. **Still pending: sourcing and populating the manifest** with real,
-permissively-licensed documents (arXiv CC-BY, US-gov public domain, Wikimedia,
-and self-generated producer output) — the remaining work is curation, not code.
+The **PDF bytes are gitignored; the inventory is committed.** `manifest.json`
+records each file's hash, licence, provenance and an optional source URL — never
+the bytes. You drop PDFs into the corpus dirs and run
+`scripts/gen-realworld-manifest.sh`, which hashes them and merges them into the
+manifest (preserving annotations, stubbing new licences as `TODO`); this handles
+self-generated PDF/A files, which have no URL. Entries that do carry a URL stay
+reproducible via `scripts/fetch-realworld-corpus.sh`. `TestRealWorldCorpus`
+checks every present file against the inventory (an unlisted file, hash mismatch,
+or `TODO` licence fails), and skips when the corpus is absent;
+`TestRealWorldHarnessSelfCheck`/`TestRealWorldManifestCheck` cover the metric and
+inventory logic against generated fixtures so the harness is green regardless.
+**Still pending: sourcing and populating** with real, permissively-licensed
+documents (arXiv CC-BY, US-gov public domain, Wikimedia, and self-generated
+producer output) — the remaining work is curation, not code.
 
 ### 11. The differential harness exists but never runs — **DONE**
 
