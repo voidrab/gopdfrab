@@ -221,6 +221,62 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 	}
 }
 
+// allocCase is one guarded cost path: VerifyBytes or ConvertBytes over a
+// representative sample, with a regression ceiling on allocs/op.
+type allocCase struct {
+	sample  string
+	convert bool // false = VerifyBytes, true = ConvertBytes
+	ceiling float64
+}
+
+// costPathAllocCeilings extends the "large" torture-test guards above to the
+// other distinct cost paths, so a regression in embedded font-program parsing,
+// Separation/DeviceN colour handling, or the raster fallback is caught too. Each
+// ceiling is a regression ceiling set with headroom over the measured value, not
+// a tight target; allocs/op is deterministic and environment-independent, so the
+// checks are not flaky. Lower a ceiling if optimization reduces it.
+var costPathAllocCeilings = []allocCase{
+	{sample: "fonts", convert: false, ceiling: 1_800},       // measured ~1629
+	{sample: "fonts", convert: true, ceiling: 3_500},        // measured ~3175
+	{sample: "large_color", convert: false, ceiling: 1_300}, // measured ~1170
+	{sample: "raster", convert: true, ceiling: 3_500},       // measured ~3168
+}
+
+// TestCostPathAllocationsBounded guards the font, colour, and raster cost paths
+// against reintroducing per-object re-parsing/re-decoding. See
+// costPathAllocCeilings.
+func TestCostPathAllocationsBounded(t *testing.T) {
+	root := repoRoot()
+	for _, c := range costPathAllocCeilings {
+		name := "verify/" + c.sample
+		if c.convert {
+			name = "convert/" + c.sample
+		}
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, sampleFiles[c.sample]))
+			if err != nil {
+				t.Skipf("%s sample not present", c.sample)
+			}
+			allocs := testing.AllocsPerRun(3, func() {
+				if c.convert {
+					if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
+						t.Fatalf("ConvertBytes(%s): %v", c.sample, err)
+					}
+				} else {
+					if _, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B); err != nil {
+						t.Fatalf("VerifyBytes(%s): %v", c.sample, err)
+					}
+				}
+			})
+			t.Logf("%s: %.0f allocs/run (ceiling %.0f)", name, allocs, c.ceiling)
+			if allocs > c.ceiling {
+				t.Errorf("%s allocated %.0f times per run, want <= %.0f; "+
+					"likely reintroduced per-object re-parsing or re-decoding", name, allocs, c.ceiling)
+			}
+		})
+	}
+}
+
 // TestConvertSeededVerifyMatchesFreshVerify proves that the seeded verify path
 // (Reader.SeedResolvedGraph, used by the convert loop) produces the same
 // Valid flag and issue set as an independent from-scratch VerifyBytes of the

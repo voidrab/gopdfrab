@@ -601,11 +601,18 @@ Numbers are strong; the work is keeping them.
 `benchmarks/results/` is gitignored, so every round is local-only and regressions
 across releases are invisible. Commit a per-release benchstat summary.
 
-### 23. Extend the allocation guards
+### 23. Extend the allocation guards — **DONE**
 
-Wall-clock on a dev machine is ±15% noisy, so the `allocs/op` assertions in
-`benchmarks/micro/bench_test.go` are the only stable gate, and they cover a
-fraction of the samples. Extend to `Convert/fonts` and the other cost paths.
+Was: wall-clock on a dev machine is ±15% noisy, so the `allocs/op` assertions in
+`benchmarks/micro/bench_test.go` are the only stable gate, and they covered only
+the "large" torture-test sample (Open+Verify and Convert). Added
+`TestCostPathAllocationsBounded`, a table-driven guard extending the ceilings to
+the other distinct cost paths: `verify`/`convert` of the embedded-font sample
+(`Convert/fonts` and its verify), Separation/DeviceN colour verification
+(`large_color`), and the raster-fallback conversion (`raster`). Each ceiling is a
+regression ceiling set ~10% over the measured, deterministic `allocs/op`, so a
+reintroduced per-object re-parse (which multiplies allocations) trips it without
+false positives.
 
 ### 24. Benchmark the recovery path — **DONE**
 
