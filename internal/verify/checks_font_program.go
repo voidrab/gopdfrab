@@ -506,7 +506,15 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	// sometimes given width 0 as a placeholder, hiding the violation);
 	// fall back to non-zero-width codes if usage info is unavailable.
 	if usedCodes, knownUsage := ctx.usedCodesFor(v); knownUsage {
+		// Iterate in code order: checkCode reports the first offending glyph and
+		// stops, so a stable order makes the reported glyph deterministic rather
+		// than dependent on map iteration.
+		codes := make([]int, 0, len(usedCodes))
 		for cc := range usedCodes {
+			codes = append(codes, cc)
+		}
+		sort.Ints(codes)
+		for _, cc := range codes {
 			if !checkCode(cc) {
 				return
 			}

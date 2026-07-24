@@ -366,6 +366,17 @@ func OpenBytesWithPassword(data, password []byte) (*Reader, error) {
 	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil, password)
 }
 
+// OpenBytesSeek parses in-memory data like OpenBytes but withholds the byte
+// slice from the Reader, so parsing drives the file-source ReadAt/Seek path
+// (NewLexerAt, an incremental read) instead of indexing the slice directly. That
+// is the exact read path Open takes on a platform without file mapping (Windows,
+// where mmapFile returns nil), which the byte-slice path otherwise never
+// exercises. It exists so that path can be tested on any OS; on unix, Open uses
+// mmap and there is no reason to prefer it.
+func OpenBytesSeek(data []byte) (*Reader, error) {
+	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), nil, nil, nil)
+}
+
 // newDocument parses a Reader's structure from an already-opened byte source
 // of the given size, shared by Open and OpenBytes.
 func newDocument(src fileSource, size int64, data []byte, unmap func() error, password []byte) (*Reader, error) {

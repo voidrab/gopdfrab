@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -354,11 +355,17 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		if !hasN {
 			ctx.Report(pdf.Checks.Annotation.AppearanceMissingN, v, "appearance dictionary has no N entry")
 		}
+		var extras []string
 		for k := range ap.Entries {
 			if k != "N" && k != "_ref" {
-				ctx.Report(pdf.Checks.Annotation.AppearanceExtraEntries, v, fmt.Sprintf("appearance dictionary has entry other than N: %s", k))
-				break
+				extras = append(extras, k)
 			}
+		}
+		if len(extras) > 0 {
+			// Report the lexicographically first extra entry so the message does
+			// not depend on map iteration order.
+			sort.Strings(extras)
+			ctx.Report(pdf.Checks.Annotation.AppearanceExtraEntries, v, fmt.Sprintf("appearance dictionary has entry other than N: %s", extras[0]))
 		}
 		if hasN {
 			isBtn := resolveInheritedFT(v) == (pdf.PDFName{Value: "Btn"})
