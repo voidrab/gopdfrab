@@ -33,6 +33,12 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Settable resource limits.** The decoded-output cap that guards against
+  decompression bombs is now configurable through the new root-package `Limits`
+  type and `SetLimits`/`CurrentLimits`/`DefaultLimits` functions, and through a
+  `--max-decoded-mb` flag on the `verify` and `convert` CLI commands. It replaces
+  the three internal 256 MB caps (Flate/LZW/RunLength) with one value enforced
+  uniformly across every decode path. The default is unchanged.
 - **Rasterizer honesty.** The raster fallback now reports content it cannot draw
   (`sh` shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts) in
   `ConvertResult.RasterDrops` per page, instead of silently omitting it. It also

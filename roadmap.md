@@ -275,10 +275,10 @@ the loud report already prevents silent data loss. Drops during the
 transparency-flattener path (`flattenFormToImage`, a Fixer with no `ConvertResult`
 handle) are not yet carried; only the page-level raster fallback reports.
 
-### 7. Limits are hardcoded and fail silently
+### 7. Limits are hardcoded and fail silently — **DONE**
 
-The caps are good (see "already fine" below). The silent-truncation half is now
-fixed; the settability half remains.
+The caps are good (see "already fine" below). The silent-truncation half was
+fixed earlier; the settability half is now done too.
 
 **Silent truncation — DONE.** `InflateZlib` used `io.LimitReader(zr,
 maxInflateOutput)`, which **truncated without error** — a stream over 256 MB
@@ -292,9 +292,17 @@ still return their inflated prefix) — `TestInflateZlibSizeCap` and
 `TestInflateZlibTruncatedKeepsPrefix` pin both. That was the last
 silent-truncation site.
 
-**Settability — still open.** None of the caps are settable from outside the
-package (only the test-only `SetMaxInflateOutput`), so a caller who knows their
-inputs can't raise or lower them. Expose the caps through the options in item 15.
+**Settability — DONE.** The three per-stream output caps (Flate/LZW/RunLength,
+all 256 MB) were consolidated into one configurable value and exposed as the
+root-package `Limits` type with `SetLimits`/`CurrentLimits`/`DefaultLimits`, plus
+a `--max-decoded-mb` CLI flag. Deliberately a **process-global** setter, not an
+`Options` field: the caps are read by leaf decoders reached from ~50
+free-function `DecodeStream` call sites that hold no `Reader`, so one global read
+by every decoder enforces the cap uniformly (correct for both raising and
+lowering — a per-call `Options` value would leave the Reader-less sites at
+defaults, i.e. holes when lowering for safety) and, backed by `atomic.Int64`, is
+race-clean. Resolve depth and the structural depth consts stay internal. The
+default is unchanged, so no corpus behavior moved.
 
 ### 8. Convert holds everything in memory
 
@@ -483,11 +491,11 @@ options without a deadline, pass `context.Background()`. Internally
 `convert.Options` and a `verify` password parameter are plain explicit params
 (no variadic); the two-argument public forms pass the zero value.
 
-Still open: the **resource-limit** caps from item 7 are not yet exposed on
-`Options` — they remain package-level `var`s in `internal/pdf` (settable only
-via the test-only setters). Adding them as `Options` fields (applying to both
-verify and convert, since decode caps affect verification too) is the remaining
-half of item 7.
+The **resource-limit** caps from item 7 landed as a process-global
+`SetLimits`/`Limits` surface rather than `Options` fields (item 7 explains why:
+the caps are enforced at decode chokepoints reached from callers with no
+document handle, so one global enforces them uniformly across verify and
+convert). That closes the remaining half of both item 7 and this item.
 
 ### 16. No `context.Context` anywhere — **DONE**
 
@@ -714,10 +722,10 @@ Recorded so nobody re-investigates:
    in `ConvertResult`. Item 10 (real-world corpus) remains: it needs a
    redistribution/licensing decision (permissive sources vs a hash-referenced
    separate repo).
-6. **Items 5–9.** Item 5 (encryption) and item 6 (rasterizer `Tr`/`Ts` fix +
-   drop reporting) done. Remaining: 7 (settable limits), 8 (streaming/memory),
-   9 (Windows/macOS). Rendering the dropped features (shadings, Type 3) is the
-   large deferred half of item 6.
+6. **Items 5–9.** Item 5 (encryption), item 6 (rasterizer `Tr`/`Ts` fix + drop
+   reporting) and item 7 (settable limits, via a process-global `SetLimits`)
+   done. Remaining: 8 (streaming/memory), 9 (Windows/macOS). Rendering the
+   dropped features (shadings, Type 3) is the large deferred half of item 6.
 7. **Items 22–29.** Continuous.
 
 ## Not in 1.0

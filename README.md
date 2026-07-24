@@ -42,11 +42,12 @@ gopdfrab verify docs/                     # verify every PDF under a directory
 gopdfrab verify --json report.pdf         # machine-readable output
 gopdfrab convert in.pdf out.pdf           # rewrite towards PDF/A-1b
 gopdfrab convert --dpi 300 in.pdf         # tune the raster fallback
+gopdfrab verify --max-decoded-mb 64 x.pdf # cap decoded stream output at 64 MB
 ```
 
 Exit codes are `0` conformant, `1` non-conformant, `2` error, so it drops into
 scripts and CI directly. `verify` walks directories recursively; both
-subcommands accept `--profile`, `--password`, and `--json`.
+subcommands accept `--profile`, `--password`, `--max-decoded-mb`, and `--json`.
 
 ## Getting Started
 
@@ -263,6 +264,16 @@ cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
 To set options without a deadline, pass `context.Background()`. `Options.Password` applies at the open step (so it works on `ConvertContext`/`VerifyContext` but not the `*Document` methods, whose file is already open — use `OpenWithPassword`). `RasterDPI` and `MaxIterations` are convert-only; `Verify` reads only `Password`.
 
 `ConvertContext` checks the context before each verify/fix iteration and each raster pass; `ConvertAllContext`/`VerifyAllContext` stop dispatching new files once it is cancelled and record `ctx.Err()` for the rest.
+
+### Resource limits
+
+By default a single stream may decode to at most 256 MB, a guard against decompression bombs. Raise it for legitimately large PDFs or lower it to harden against hostile input with `SetLimits`:
+
+```go
+gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: 512 << 20}) // 512 MB
+```
+
+The caps are process-wide rather than per-call — they are enforced deep in the decode path, reached from many callers that hold no document handle, so one value applies uniformly. Set them once at startup, before concurrent verify/convert. A zero or negative field resets that cap to its default; `CurrentLimits` and `DefaultLimits` report the effective and built-in values.
 
 ### Converting an Open Document
 
