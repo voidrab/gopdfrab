@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"runtime"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -90,7 +91,12 @@ func (s *spillWriter) finish() (*outputBacking, error) {
 		os.Remove(s.path)
 		return nil, err
 	}
-	return &outputBacking{path: s.path, size: s.n}, nil
+	b := &outputBacking{path: s.path, size: s.n}
+	// Backstop a forgotten Close: if the backing becomes unreachable with the
+	// temp file still present, the finalizer removes it (Close clears it). This
+	// mirrors os.File and keeps a dropped result from leaking a temp file.
+	runtime.SetFinalizer(b, (*outputBacking).close)
+	return b, nil
 }
 
 // outputBacking is what a ConvertResult holds instead of a resident []byte: the
@@ -166,6 +172,7 @@ func (b *outputBacking) close() error {
 	var err error
 	b.once.Do(func() {
 		if b.path != "" {
+			runtime.SetFinalizer(b, nil)
 			err = os.Remove(b.path)
 			b.path = ""
 		}

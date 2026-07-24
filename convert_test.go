@@ -548,6 +548,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Convert failed: %v", err)
 			}
+			defer cr.Close()
 
 			tmpDir := t.TempDir()
 			outPath := filepath.Join(tmpDir, "converted.pdf")
@@ -748,6 +749,7 @@ func checkShouldConvert(t *testing.T, files []string) (conformant, lossyRaster i
 		if len(cr.RasterDrops) > 0 {
 			lossyRaster++
 		}
+		cr.Close()
 	}
 	return conformant, lossyRaster
 }

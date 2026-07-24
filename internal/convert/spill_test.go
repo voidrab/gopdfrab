@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
@@ -182,6 +184,37 @@ func TestSpillWriterOpenMmapsFile(t *testing.T) {
 	if _, err := r.ResolveGraph(); err != nil {
 		t.Errorf("ResolveGraph on reopened spill file: %v", err)
 	}
+}
+
+// TestSpillFinalizerRemovesTempFile confirms the backstop: a spilled backing
+// dropped without Close has its temp file removed by the finalizer once GC
+// collects it.
+func TestSpillFinalizerRemovesTempFile(t *testing.T) {
+	setSpillThreshold(t, 0)
+	path := func() string {
+		var sw spillWriter
+		if _, err := sw.Write(pdfgen.PlainThreeIssue()); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		b, err := sw.finish()
+		if err != nil {
+			t.Fatalf("finish: %v", err)
+		}
+		if b.path == "" {
+			t.Fatal("threshold 0 did not spill")
+		}
+		return b.path // b goes out of scope and becomes unreachable here
+	}()
+
+	for range 100 {
+		runtime.GC()
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return // finalizer ran and removed the file
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	os.Remove(path)
+	t.Errorf("finalizer did not remove temp file %q", path)
 }
 
 // filepathJoinNonexistent returns a path guaranteed not to exist, under the
