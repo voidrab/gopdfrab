@@ -3,9 +3,9 @@ package pdf
 // Test-only seams for the hardening crasher tests.
 
 func SetMaxInflateOutput(n int64) (restore func()) {
-	old := maxInflateOutput
-	maxInflateOutput = n
-	return func() { maxInflateOutput = old }
+	old := decodedStreamCap.Load()
+	decodedStreamCap.Store(n)
+	return func() { decodedStreamCap.Store(old) }
 }
 
 func SetMaxResolveDepth(n int) (restore func()) {

@@ -29,10 +29,6 @@ func FilterNames(filter PDFValue) []string {
 
 var zlibReaderPool = sync.Pool{}
 
-// maxInflateOutput caps decoded output so a flate bomb cannot OOM. Var, not
-// const, only so tests can lower it.
-var maxInflateOutput int64 = 256 << 20
-
 // inflateBufPool holds *bytes.Buffer scratch space for InflateZlib, reused
 // across calls so its backing array grows to a working size once instead of
 // reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
@@ -67,15 +63,16 @@ func InflateZlib(data []byte) ([]byte, error) {
 	// Read one byte past the cap so a stream that would exceed it is detected
 	// as too-large rather than silently truncated to a prefix that every
 	// downstream check then runs against as if it were the whole stream.
-	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput+1))
+	capBytes := effectiveDecodedCap()
+	_, err := buf.ReadFrom(io.LimitReader(zr, capBytes+1))
 	zlibReaderPool.Put(zr)
 
 	// Over the size cap is a hard error (matching DecodeLZW/DecodeRunLength),
 	// kept distinct from the leniency below: it flows through the decode
 	// chokepoint as a reported StreamUndecodable instead of vanishing.
-	if int64(buf.Len()) > maxInflateOutput {
+	if int64(buf.Len()) > capBytes {
 		inflateBufPool.Put(buf)
-		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, maxInflateOutput)
+		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, capBytes)
 	}
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)

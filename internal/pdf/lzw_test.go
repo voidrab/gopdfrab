@@ -169,9 +169,9 @@ func TestDecodeLZWEarlyChange(t *testing.T) {
 // TestDecodeLZWOutputCap covers the size ceiling that keeps a crafted stream
 // from exhausting memory.
 func TestDecodeLZWOutputCap(t *testing.T) {
-	restore := maxLZWOutput
-	maxLZWOutput = 8
-	defer func() { maxLZWOutput = restore }()
+	restore := decodedStreamCap.Load()
+	SetMaxDecodedStreamBytes(8)
+	defer decodedStreamCap.Store(restore)
 
 	codes := make([]int, 64)
 	for i := range codes {

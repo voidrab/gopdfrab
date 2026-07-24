@@ -1,9 +1,5 @@
 package pdf
 
-// maxRunLengthOutput caps decoded output so a crafted run cannot OOM. Var,
-// not const, only so tests can lower it.
-var maxRunLengthOutput = 256 << 20
-
 // DecodeRunLength decodes a RunLengthDecode stream (ISO 32000-1 7.4.5): a
 // length byte L is followed by L+1 literal bytes when L < 128, or by a single
 // byte repeated 257-L times when L > 128. L == 128 is the EOD marker.
@@ -33,7 +29,7 @@ func DecodeRunLength(data []byte) ([]byte, error) {
 			}
 			i++
 		}
-		if len(out) > maxRunLengthOutput {
+		if int64(len(out)) > effectiveDecodedCap() {
 			return nil, ErrOutputTooLarge
 		}
 	}

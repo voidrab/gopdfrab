@@ -50,9 +50,9 @@ func TestDecodeRunLength(t *testing.T) {
 // TestDecodeRunLengthOutputCap covers the size ceiling that keeps a crafted
 // run of repeats from exhausting memory.
 func TestDecodeRunLengthOutputCap(t *testing.T) {
-	restore := maxRunLengthOutput
-	maxRunLengthOutput = 64
-	defer func() { maxRunLengthOutput = restore }()
+	restore := decodedStreamCap.Load()
+	SetMaxDecodedStreamBytes(64)
+	defer decodedStreamCap.Store(restore)
 
 	// Each repeat run emits 128 bytes, so the second trips the 64-byte cap.
 	in := []byte{129, 'a', 129, 'b', 128}

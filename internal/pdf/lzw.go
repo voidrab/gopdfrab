@@ -9,10 +9,6 @@ const (
 	lzwMaxCode    = 4096
 )
 
-// maxLZWOutput caps decoded output so a crafted stream cannot OOM. Var, not
-// const, only so tests can lower it.
-var maxLZWOutput = 256 << 20
-
 // DecodeLZW decodes a PDF LZWDecode stream into its uncompressed bytes, using
 // the default /EarlyChange of 1.
 func DecodeLZW(data []byte) ([]byte, error) { return DecodeLZWParams(data, 1) }
@@ -55,7 +51,7 @@ func DecodeLZWParams(data []byte, earlyChange int) ([]byte, error) {
 			return nil, fmt.Errorf("lzw: invalid code %d", code)
 		}
 		out = append(out, entry...)
-		if len(out) > maxLZWOutput {
+		if int64(len(out)) > effectiveDecodedCap() {
 			return nil, ErrOutputTooLarge
 		}
 

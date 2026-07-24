@@ -476,9 +476,9 @@ func deflateBytes(t *testing.T, data []byte) []byte {
 // one byte over is a hard ErrOutputTooLarge with no partial data (rather than a
 // silently truncated prefix downstream checks would trust as complete).
 func TestInflateZlibSizeCap(t *testing.T) {
-	old := maxInflateOutput
-	maxInflateOutput = 1024
-	defer func() { maxInflateOutput = old }()
+	old := decodedStreamCap.Load()
+	SetMaxDecodedStreamBytes(1024)
+	defer decodedStreamCap.Store(old)
 
 	if out, err := InflateZlib(deflateBytes(t, make([]byte, 1024))); err != nil || len(out) != 1024 {
 		t.Fatalf("at cap: len=%d err=%v, want 1024/nil", len(out), err)
@@ -489,6 +489,29 @@ func TestInflateZlibSizeCap(t *testing.T) {
 	}
 	if out != nil {
 		t.Errorf("over cap: got %d bytes, want none", len(out))
+	}
+}
+
+// TestMaxDecodedStreamBytesConfig pins the configurable-cap accessors: the
+// getter reports the default when unset, reflects a set value, and a
+// non-positive value resets to the default.
+func TestMaxDecodedStreamBytesConfig(t *testing.T) {
+	old := decodedStreamCap.Load()
+	defer decodedStreamCap.Store(old)
+
+	SetMaxDecodedStreamBytes(0)
+	if got := MaxDecodedStreamBytes(); got != DefaultMaxDecodedStreamBytes {
+		t.Errorf("unset cap = %d, want default %d", got, DefaultMaxDecodedStreamBytes)
+	}
+
+	SetMaxDecodedStreamBytes(4096)
+	if got := MaxDecodedStreamBytes(); got != 4096 {
+		t.Errorf("set cap = %d, want 4096", got)
+	}
+
+	SetMaxDecodedStreamBytes(-1)
+	if got := MaxDecodedStreamBytes(); got != DefaultMaxDecodedStreamBytes {
+		t.Errorf("negative cap = %d, want default %d", got, DefaultMaxDecodedStreamBytes)
 	}
 }
 
