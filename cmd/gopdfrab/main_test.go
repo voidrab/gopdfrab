@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // runCLI invokes run with a background context and captures stdout/stderr.
@@ -131,6 +135,71 @@ func TestConvertDefaultOutputName(t *testing.T) {
 	if got := defaultOutput("/a/b/doc.pdf", "pdf"); got != "/a/b/doc.fixed.pdf" {
 		t.Errorf("defaultOutput pdf = %q", got)
 	}
+}
+
+// TestMaxDecodedMBFlag confirms --max-decoded-mb reaches the decoder: capping a
+// PDF whose FlateDecode content decodes to over 1 MB at 1 MB reports a decode
+// (StreamUndecodable) issue absent at the default cap.
+func TestMaxDecodedMBFlag(t *testing.T) {
+	defer gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+
+	content := bytes.Repeat([]byte(" "), 2<<20) // 2 MB of padding, no operators
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	if _, err := zw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<</Type/Catalog/Pages 2 0 R>>")
+	b.Obj(2, "<</Type/Pages/Kids[3 0 R]/Count 1>>")
+	b.Obj(3, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R>>")
+	b.StreamObj(4, "<< /Filter /FlateDecode", zbuf.Bytes())
+	data := b.FinishClassic("<</Size 5/Root 1 0 R>>")
+
+	path := filepath.Join(t.TempDir(), "big.pdf")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+	if verifyHasCheck(t, "StreamUndecodable", path) {
+		t.Fatal("default cap already reports StreamUndecodable")
+	}
+	if !verifyHasCheck(t, "StreamUndecodable", path, "--max-decoded-mb", "1") {
+		t.Error("--max-decoded-mb 1 did not report StreamUndecodable")
+	}
+}
+
+// verifyHasCheck runs `verify --json` on path with extra flags and reports
+// whether any issue names the given check.
+func verifyHasCheck(t *testing.T, name, path string, flags ...string) bool {
+	t.Helper()
+	args := append([]string{"verify", "--json"}, flags...)
+	_, out, _ := runCLI(append(args, path)...)
+	var rows []struct {
+		Result *struct {
+			Issues []struct {
+				Check struct {
+					Name string `json:"name"`
+				} `json:"check"`
+			} `json:"issues"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("verify --json output not valid JSON: %v\n%s", err, out)
+	}
+	if len(rows) != 1 || rows[0].Result == nil {
+		t.Fatalf("verify --json rows = %+v, want one result", rows)
+	}
+	for _, iss := range rows[0].Result.Issues {
+		if iss.Check.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestContextCancelledConvert(t *testing.T) {

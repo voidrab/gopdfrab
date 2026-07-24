@@ -95,6 +95,14 @@ func profileByName(name string) *gopdfrab.Profile {
 	return nil
 }
 
+// applyMaxDecodedMB sets the process-wide decoded-output cap from a
+// --max-decoded-mb flag value; 0 leaves the built-in default in place.
+func applyMaxDecodedMB(mb int) {
+	if mb > 0 {
+		gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: int64(mb) << 20})
+	}
+}
+
 // passwordBytes returns nil for the empty string (the empty-password default)
 // and the raw bytes otherwise.
 func passwordBytes(s string) []byte {
