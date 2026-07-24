@@ -49,6 +49,11 @@ __pycache__/
 # Local test documents
 tests/regression/
 
+# Real-world corpus PDFs: populated out of band from a manifest of hashes
+# (see tests/realworld/README.md); the README, manifest example, and .gitkeep
+# stay tracked.
+tests/realworld/**/*.pdf
+
 # Fuzzing crashers written by `go test -fuzz` (reproduce locally via the
 # reported seed; never commit machine-specific corpus entries)
 testdata/fuzz/

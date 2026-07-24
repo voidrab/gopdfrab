@@ -338,28 +338,33 @@ more than anything except P0. Everything currently green is green against
 *synthetic conformance-suite files*. Both suites are hand-built to exercise one
 clause each. Real PDFs are not like that.
 
-### 10. There is no real-world corpus
+### 10. There is no real-world corpus — **harness done; population pending**
 
 Isartor and veraPDF are 777 files averaging 3.6 KB, each deliberately
 constructed. Nothing in the test suite is a 200-page scanned report from a
 real scanner, a LaTeX paper, an InDesign export, a Word document, or a
 Ghostscript-converted invoice.
 
-Two corpora needed, and they answer different questions:
+Two corpora, answering different questions, are now wired as `TestRealWorldCorpus`
+(`convert_test.go`) over `tests/realworld/{should-pass,should-convert}/`:
 
-- **Should-pass**: real PDF/A output from Acrobat, Ghostscript, LibreOffice,
-  Word, and the common PDF/A converters. Any file these tools claim is PDF/A and
-  veraPDF agrees is PDF/A must verify clean. A verifier that flags real Acrobat
-  output is unusable regardless of what the test suites say.
-- **Should-convert**: ordinary non-PDF/A documents across producers, page counts,
-  and font technologies. The metric is what fraction convert to conformant output
-  *without* falling back to raster.
+- **Should-pass**: real files a tool and veraPDF both call PDF/A-1b. gopdfrab must
+  verify every one clean; a rejection is a false positive and fails the test.
+- **Should-convert**: ordinary non-PDF/A documents across producers. The test
+  reports the fraction reaching conformance and how many did so only with dropped
+  raster content (`ConvertResult.RasterDrops`). A precise "without raster" metric
+  would want a convert-time rasterized signal — a possible follow-up.
 
-Licensing makes this awkward — most real PDFs can't be redistributed. Options:
-generate a corpus from permissively-licensed sources (arXiv, government
-publications, Wikimedia), or keep the corpus in a separate repository referenced
-by hash. Pick one and commit to it; the current situation is that no real
-document is tested at all.
+The **licensing decision landed on hash-referenced external files**, mirroring
+`tests/regression/`: the `.pdf` files are gitignored and populated out of band by
+`scripts/fetch-realworld-corpus.sh` from a manifest of URL + sha256 + license
+(schema in `tests/realworld/manifest.example.json`), so nothing non-redistributable
+is committed and the corpus is reproducible from hashes. `TestRealWorldCorpus`
+skips when the corpus is absent (a clean checkout); `TestRealWorldHarnessSelfCheck`
+exercises the metric logic against generated fixtures so the harness is covered
+regardless. **Still pending: sourcing and populating the manifest** with real,
+permissively-licensed documents (arXiv CC-BY, US-gov public domain, Wikimedia,
+and self-generated producer output) — the remaining work is curation, not code.
 
 ### 11. The differential harness exists but never runs — **DONE**
 
@@ -733,9 +738,9 @@ Recorded so nobody re-investigates:
    ties into item 8, **item 20** (CLI) remains.
 5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate found 0 blanked
    pages across the corpus, and `Options.CheckFidelity` reports per-page fidelity
-   in `ConvertResult`. Item 10 (real-world corpus) remains: it needs a
-   redistribution/licensing decision (permissive sources vs a hash-referenced
-   separate repo).
+   in `ConvertResult`. Item 10's harness is done (hash-referenced external corpus,
+   `TestRealWorldCorpus` + fetch script + manifest schema); populating it with
+   real permissively-licensed files is the remaining curation work.
 6. **Items 5–9.** Item 5 (encryption), item 6 (rasterizer `Tr`/`Ts` fix + drop
    reporting) and item 7 (settable limits, via a process-global `SetLimits`)
    done; item 8's batch half done (`ConvertEach` streaming form + `Options.Workers`

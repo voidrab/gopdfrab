@@ -628,3 +628,119 @@ func sortedClauses(set map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// realWorldPDFs returns the .pdf files under dir, or nil if the directory is
+// absent or empty. The real-world corpus is gitignored and populated out of band
+// (see tests/realworld/README.md), so the corpus tests skip in a clean checkout.
+func realWorldPDFs(t *testing.T, dir string) []string {
+	t.Helper()
+	var paths []string
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // absent directory: no files
+		}
+		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths
+}
+
+// checkShouldPass verifies every PDF under dir against PDF/A-1b and returns the
+// count checked and the files gopdfrab wrongly rejected. These are real files a
+// tool and veraPDF both call PDF/A-1b, so any rejection is a false positive.
+func checkShouldPass(t *testing.T, dir string) (checked int, failures []string) {
+	for _, p := range realWorldPDFs(t, dir) {
+		checked++
+		res, err := Verify(p, PDFA1B)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: open/parse error: %v", p, err))
+			continue
+		}
+		if !res.Valid {
+			failures = append(failures, fmt.Sprintf("%s: %d issues", p, len(res.Issues)))
+		}
+	}
+	return checked, failures
+}
+
+// checkShouldConvert converts every PDF under dir and returns how many were
+// checked, how many reached PDF/A-1b conformance, and how many did so only with
+// dropped raster content (a lossy fallback).
+func checkShouldConvert(t *testing.T, dir string) (checked, conformant, lossyRaster int) {
+	for _, p := range realWorldPDFs(t, dir) {
+		checked++
+		cr, err := Convert(p, PDFA1B)
+		if err != nil {
+			t.Errorf("%s: convert error: %v", p, err)
+			continue
+		}
+		if cr.Result.Valid {
+			conformant++
+		}
+		if len(cr.RasterDrops) > 0 {
+			lossyRaster++
+		}
+	}
+	return checked, conformant, lossyRaster
+}
+
+// TestRealWorldCorpus runs the two real-world metrics over tests/realworld/: every
+// should-pass file must verify clean (a rejection is a false positive), and the
+// should-convert conformance fraction is reported. It skips when the corpus is
+// absent, as in a clean checkout.
+func TestRealWorldCorpus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
+	passChecked, failures := checkShouldPass(t, filepath.Join("tests", "realworld", "should-pass"))
+	convChecked, conformant, lossy := checkShouldConvert(t, filepath.Join("tests", "realworld", "should-convert"))
+
+	if passChecked == 0 && convChecked == 0 {
+		t.Skip("no real-world corpus present (see tests/realworld/README.md)")
+	}
+
+	if passChecked > 0 {
+		t.Logf("should-pass: %d files, %d rejected", passChecked, len(failures))
+		for _, f := range failures {
+			t.Errorf("should-pass false positive: %s", f)
+		}
+	}
+	if convChecked > 0 {
+		t.Logf("should-convert: %d files, %d conformant, %d via lossy raster", convChecked, conformant, lossy)
+	}
+}
+
+// TestRealWorldHarnessSelfCheck exercises the corpus harness against generated
+// fixtures so it is covered even when no real corpus is present: a converted
+// plainPDF is genuine PDF/A-1b (should-pass accepts it), and a plain PDF converts
+// to conformance (should-convert counts it).
+func TestRealWorldHarnessSelfCheck(t *testing.T) {
+	cr, err := ConvertBytes([]byte(plainPDF), PDFA1B)
+	if err != nil || !cr.Result.Valid {
+		t.Fatalf("setup: ConvertBytes not conformant: err=%v valid=%v", err, cr.Result.Valid)
+	}
+
+	passDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(passDir, "conformant.pdf"), cr.Output, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if checked, failures := checkShouldPass(t, passDir); checked != 1 || len(failures) != 0 {
+		t.Errorf("should-pass self-check: checked=%d failures=%v, want 1/none", checked, failures)
+	}
+
+	convDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(convDir, "plain.pdf"), []byte(plainPDF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if checked, conformant, _ := checkShouldConvert(t, convDir); checked != 1 || conformant != 1 {
+		t.Errorf("should-convert self-check: checked=%d conformant=%d, want 1/1", checked, conformant)
+	}
+
+	// A missing directory yields no files (the skip path).
+	if got := realWorldPDFs(t, filepath.Join(t.TempDir(), "absent")); len(got) != 0 {
+		t.Errorf("absent dir returned %d files, want 0", len(got))
+	}
+}

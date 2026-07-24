@@ -1,0 +1,18 @@
+[
+  {
+    "path": "should-pass/acrobat-pdfa1b-sample.pdf",
+    "url": "https://example.org/path/to/a-real-pdfa1b-file.pdf",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "license": "CC-BY-4.0",
+    "producer": "Adobe Acrobat",
+    "note": "veraPDF confirms PDF/A-1b; gopdfrab must verify it clean"
+  },
+  {
+    "path": "should-convert/libreoffice-plain.pdf",
+    "url": "https://example.org/path/to/an-ordinary-pdf.pdf",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "license": "public-domain",
+    "producer": "LibreOffice",
+    "note": "ordinary PDF; measure conversion to PDF/A-1b"
+  }
+]
