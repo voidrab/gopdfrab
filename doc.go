@@ -56,4 +56,13 @@
 // A [Document] holds parser caches and is not safe for concurrent use; open one
 // per goroutine. The batch helpers VerifyAll, ConvertAll and ConvertEach are
 // internally concurrent and meant to be called once from a single goroutine.
+//
+// # Platform support
+//
+// On unix (Linux, macOS, the BSDs) Open memory-maps the file, so verification
+// and conversion stay bounded in resident memory and handle files larger than
+// RAM. Windows has no memory mapping here and falls back to an incremental
+// seek/ReadAt read path: it produces byte-for-byte identical results (verified
+// against the mmap path over both conformance corpora), but does not offer the
+// larger-than-RAM guarantee. On js/wasm only the *Bytes entry points apply.
 package gopdfrab

@@ -333,12 +333,32 @@ to mmap — the ~4 MB graph above. Reducing it means partial/streaming resolutio
 which the whole verify/convert model (a fully-resolved in-heap trailer) is built
 against, so it is the larger rearchitecture, now backed by the numbers above.
 
-### 9. Windows and macOS are untested
+### 9. Windows and macOS are untested — **DONE** (fallback tested + documented)
 
-CI is ubuntu-only. `mmap_other.go` returns nil on non-unix, so Windows takes an
-entirely different, never-exercised seek-based read path — and loses the
-large-file guarantee. Add a CI matrix, and either implement Windows file mapping
-or document the limitation honestly.
+Was: CI ubuntu-only, and `mmap_other.go` returns nil on non-unix so Windows takes
+an entirely different, never-exercised seek-based read path — and loses the
+large-file guarantee.
+
+Two corrections and a resolution:
+
+- **macOS is not a separate path.** The `//go:build unix` tag covers darwin and
+  the BSDs, so macOS uses `mmap_unix.go` exactly like Linux; the CI `macos` job
+  (item 13) runs the same code. Only **Windows** hits `mmap_other.go`.
+- **The Windows seek path is now exercised on Linux.** `pdf.OpenBytesSeek` parses
+  in-memory data through the same `d.data == nil` → `NewLexerAt` (ReadAt/seek)
+  path Windows takes without mmap. `TestSeekPathParsesLikeBytes` (internal/pdf)
+  and `TestSeekPathVerifyMatchesBytes` (internal/verify, both committed corpora)
+  assert it produces byte-for-byte the same parse and issue-for-issue the same
+  verify result as the byte-slice path. That parity run immediately caught two
+  latent map-iteration message nondeterminisms (6.3.5 CharSet glyph, 6.5.3
+  appearance entry), now fixed — the fuzz determinism oracle missed them because
+  it compares only `Valid` and `Count`.
+- **The limitation is documented, not implemented away.** Windows still gets no
+  mmap: parsing streams via `ReadAt` (bounded), but the whole-file recovery scans
+  (`fullBytes`) heap-load on a damaged file, so the "larger than RAM" guarantee is
+  unix-only. Implementing `CreateFileMapping`/`MapViewOfFile` was declined for now
+  — it can only be tested on the Windows CI runner, not locally — and the seek
+  fallback is proven correct instead. See `doc.go` and `mmap_other.go`.
 
 ---
 
@@ -475,8 +495,8 @@ workflow has:
   the cross-check.
 
 Still open: the differential and regression jobs cover the committed corpora
-but not a real-world one (item 10), and Windows still takes the untested
-seek-based read path (item 9's implementation half).
+but not a real-world one (item 10). Windows's seek-based read path is now
+exercised on Linux via `pdf.OpenBytesSeek` parity tests (item 9).
 
 ### 14. Thread-safety is undocumented
 
@@ -751,8 +771,8 @@ Recorded so nobody re-investigates:
 2. ~~**Items 11 and 13.**~~ Done. Differential harness runs in CI against both
    committed corpora (found two real verifier false-negatives immediately);
    `-race`, per-target fuzzing, an OS matrix and the wasm build are all wired.
-   Remaining CI gaps are the real-world corpus (item 10) and the Windows read
-   path (item 9).
+   The remaining CI gap is the real-world corpus (item 10); the Windows read
+   path is now covered by the item-9 parity tests.
 3. ~~**Item 4.**~~ Done. Whole-table xref recovery: full-file object scan,
    catalog/xref-stream trailer synthesis, reported as 6.1.4, linear-time
    (item 24 benchmark confirms it is not a DoS vector).
@@ -768,9 +788,10 @@ Recorded so nobody re-investigates:
    reporting) and item 7 (settable limits, via a process-global `SetLimits`)
    done; item 8's batch half and its per-conversion output footprint done
    (`ConvertEach` + `Options.Workers`; lazy `Output` spilling to a temp file,
-   item 18). Remaining: item 8's resolved-graph footprint (the larger
-   rearchitecture, now backed by measurement), 9 (Windows/macOS). Rendering the
-   dropped features (shadings, Type 3) is the large deferred half of item 6.
+   item 18); item 9 done (Windows seek path exercised on Linux via
+   `OpenBytesSeek` parity + documented). Remaining: item 8's resolved-graph
+   footprint (the larger rearchitecture, now backed by measurement). Rendering
+   the dropped features (shadings, Type 3) is the large deferred half of item 6.
 7. **Items 22–29.** Continuous.
 
 ## Not in 1.0

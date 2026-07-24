@@ -33,6 +33,15 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Windows read-path coverage and two determinism fixes.** The seek/ReadAt read
+  path Windows uses (no memory mapping) is now exercised on any OS via the new
+  internal `OpenBytesSeek` and asserted, over both conformance corpora, to parse
+  and verify identically to the mmap/byte-slice path. That surfaced and fixed two
+  cases where a verifier message named an arbitrary map element (the 6.3.5 CharSet
+  missing-glyph and 6.5.3 extra-appearance-entry messages), which now report a
+  stable, sorted choice. Platform behavior is documented in `doc.go`: unix
+  memory-maps (bounded, larger-than-RAM); Windows uses the seek path (identical
+  results, no larger-than-RAM guarantee).
 - **Lazy conversion output (breaking).** `ConvertResult.Output` is now a method,
   `Output() ([]byte, error)`, rather than a `[]byte` field: a large conversion's
   output spills to a temp file and is streamed on demand instead of staying
