@@ -234,6 +234,7 @@ cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B)
 if err != nil {
     log.Fatal(err)
 }
+defer cr.Close() // releases the output (a large one spills to a temp file)
 
 if err := cr.Save("out.pdf"); err != nil {
     log.Fatal(err)
@@ -243,7 +244,7 @@ fmt.Println(cr.Iterations)      // how many verify/fixup passes it took
 fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
 ```
 
-`cr.Save(path)` writes the output to a file; `cr.WriteTo(w)` streams it to any `io.Writer` (it implements `io.WriterTo`). Both error when there is no output.
+`cr.Save(path)` writes the output to a file and `cr.WriteTo(w)` streams it to any `io.Writer` (it implements `io.WriterTo`) — both without holding a second copy; `cr.Output()` returns the bytes when you need them in memory. All three error when there is no output. A large output spills to a temp file rather than staying resident, so call `cr.Close()` when done (`ConvertEach` closes each result for you).
 
 ```go
 _, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer

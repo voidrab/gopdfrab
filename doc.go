@@ -26,9 +26,15 @@
 // Convert produces a best-effort PDF/A-1b rewrite: it applies pre-emptive
 // fixups, then loops verify-and-fix, and rasterizes a page only as a last
 // resort. It always returns its best attempt, even if some violations remain, as
-// a [ConvertResult] carrying the output bytes, the final verify [Result], and any
+// a [ConvertResult] carrying the output, the final verify [Result], and any
 // residual issues. ConvertEach streams a large batch through a callback so every
 // output need not stay resident at once.
+//
+// A large output spills to a temp file rather than staying resident in the heap,
+// so read it with [ConvertResult.Output], stream it with WriteTo or Save, and
+// call [ConvertResult.Close] when done to release the backing. Close is your
+// responsibility for results from Convert and ConvertAll; ConvertEach closes each
+// result after its callback returns.
 //
 // # Profiles
 //

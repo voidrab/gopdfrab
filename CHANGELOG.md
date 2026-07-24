@@ -33,6 +33,15 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Lazy conversion output (breaking).** `ConvertResult.Output` is now a method,
+  `Output() ([]byte, error)`, rather than a `[]byte` field: a large conversion's
+  output spills to a temp file and is streamed on demand instead of staying
+  resident in the Go heap, and the final verify mmaps it. `WriteTo` and `Save`
+  stream from the backing without a second copy, and a new `Close()` releases it
+  (removing any temp file). Callers own `Close` on results from `Convert` and
+  `ConvertAll`; `ConvertEach` closes each result after its callback returns.
+  Output stays in memory below an 8 MB threshold and on js/wasm (no filesystem),
+  so most callers create no temp files.
 - **Package documentation.** Added a `doc.go` package overview (verify/convert
   model, profiles, options/limits/cancellation, concurrency) and runnable
   examples for the main entry points, which double as tests.

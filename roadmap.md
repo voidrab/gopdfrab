@@ -304,7 +304,7 @@ defaults, i.e. holes when lowering for safety) and, backed by `atomic.Int64`, is
 race-clean. Resolve depth and the structural depth consts stay internal. The
 default is unchanged, so no corpus behavior moved.
 
-### 8. Convert holds everything in memory — **partly done**
+### 8. Convert holds everything in memory — **output half done; graph deferred**
 
 Was: `ConvertAll` kept a full `ConvertResult` per input, each with the complete
 output PDF as `[]byte`, so 500 files meant 500 output documents resident at once,
@@ -317,10 +317,21 @@ the worker count, not the batch size. Both batch forms share one worker engine
 and honour a new `Options.Workers` knob (0 = `NumCPU`). The callback is
 serialized, delivered in completion order, and a non-nil return aborts the batch.
 
-Still open: `Run` resolves the entire object graph into Go structures, so a
-single large conversion still heap-loads what the read path went to trouble to
-mmap. Worth measuring peak RSS before deciding how far to take it; making
-`Output` itself lazy (item 18's remaining half) ties in here.
+**The per-conversion output footprint is done too (with item 18).** Measurement
+first, as this item asked: on the corpus-maximum sample (~3.9 MB) the returned
+`ConvertResult` retained ~8.2 MB, of which the output buffer was ~4.4 MB — the
+resolved graph, not the output, is the larger cost, but the output is the
+tractable slice. So a conversion's output now spills to a temp file above an 8 MB
+threshold and the final verify mmaps it, rather than holding the whole PDF in the
+heap and re-opening it with `OpenBytes`; `ConvertResult.Output()` reads it back on
+demand and `Close()` releases it (see item 18). `BenchmarkConvertMemory` and
+`heapRetainedBy` guard it.
+
+Still open (deferred): `Run` resolves the entire object graph into Go structures,
+so a single large conversion still heap-loads what the read path went to trouble
+to mmap — the ~4 MB graph above. Reducing it means partial/streaming resolution,
+which the whole verify/convert model (a fully-resolved in-heap trailer) is built
+against, so it is the larger rearchitecture, now backed by the numbers above.
 
 ### 9. Windows and macOS are untested
 
@@ -542,14 +553,22 @@ always an array. Shape is pinned by tests in both `internal/pdf` and the root
 package. No `UnmarshalJSON`: a `Check`'s identity is its registry entry, not free
 text.
 
-### 18. Streaming output — partly done
+### 18. Streaming output — **DONE**
 
-`ConvertResult` now has `WriteTo(io.Writer) (int64, error)` (implements
-`io.WriterTo`; `Save` unchanged), so callers can stream the rewrite to any sink
-without copying `Output` again. Both error when there is no output.
-
-Still open: making `Output` itself lazy so the whole PDF need not stay resident —
-that is the memory-footprint work in item 8, not a standalone API change.
+`ConvertResult` has `WriteTo(io.Writer) (int64, error)` (implements
+`io.WriterTo`), so callers can stream the rewrite to any sink without copying it
+again. `Output` is now lazy: it changed from a `[]byte` field to a method
+`Output() ([]byte, error)`, and a conversion's output spills to a temp file above
+an 8 MB threshold (`spillWriter`) instead of staying resident, so the whole PDF
+need not stay in the heap. `WriteTo`/`Save` stream straight from the backing
+(in-memory bytes or the temp file); the final verify mmaps the temp file via
+`pdf.Open` rather than heap-holding it via `OpenBytes`. A new `Close()` releases
+the backing (removing the temp file); the backing is shared by pointer so value
+copies of a `ConvertResult` Close idempotently. `ConvertEach` closes each result
+after its callback; `Convert`/`ConvertAll` leave `Close` to the caller. On
+js/wasm (no filesystem) output stays in memory unchanged. This is the memory
+work item 8 named; the resolved-graph footprint there is the remaining, deferred
+half.
 
 ### 19. Typed errors — **DONE**
 
@@ -737,9 +756,9 @@ Recorded so nobody re-investigates:
 3. ~~**Item 4.**~~ Done. Whole-table xref recovery: full-file object scan,
    catalog/xref-stream trailer synthesis, reported as 6.1.4, linear-time
    (item 24 benchmark confirms it is not a DoS vector).
-4. **Items 15–21.** The API break, in one pass, while the disclaimer covers it.
-   Items 15 (options), 16 (context), 17, 19, 21 done; **item 18** (lazy Output)
-   ties into item 8, **item 20** (CLI) remains.
+4. ~~**Items 15–21.**~~ Done. The API break, in one pass, while the disclaimer
+   covers it: items 15 (options), 16 (context), 17, 18 (lazy `Output`), 19,
+   20 (CLI), 21.
 5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate found 0 blanked
    pages across the corpus, and `Options.CheckFidelity` reports per-page fidelity
    in `ConvertResult`. Item 10's harness is done (hash-referenced external corpus,
@@ -747,10 +766,11 @@ Recorded so nobody re-investigates:
    real permissively-licensed files is the remaining curation work.
 6. **Items 5–9.** Item 5 (encryption), item 6 (rasterizer `Tr`/`Ts` fix + drop
    reporting) and item 7 (settable limits, via a process-global `SetLimits`)
-   done; item 8's batch half done (`ConvertEach` streaming form + `Options.Workers`
-   knob). Remaining: item 8's per-conversion graph footprint (ties into item 18's
-   lazy `Output`), 9 (Windows/macOS). Rendering the dropped features (shadings,
-   Type 3) is the large deferred half of item 6.
+   done; item 8's batch half and its per-conversion output footprint done
+   (`ConvertEach` + `Options.Workers`; lazy `Output` spilling to a temp file,
+   item 18). Remaining: item 8's resolved-graph footprint (the larger
+   rearchitecture, now backed by measurement), 9 (Windows/macOS). Rendering the
+   dropped features (shadings, Type 3) is the large deferred half of item 6.
 7. **Items 22–29.** Continuous.
 
 ## Not in 1.0
