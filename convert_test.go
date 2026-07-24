@@ -61,11 +61,16 @@ func TestConvertMergedFinalVerifyOracle(t *testing.T) {
 				t.Fatalf("read: %v", err)
 			}
 			cr, err := ConvertBytes(data, PDFA1B)
-			if err != nil || len(cr.Output) == 0 {
+			if err != nil {
+				t.Skipf("no convertible output (err=%v)", err)
+			}
+			defer cr.Close()
+			out, err := cr.Output()
+			if err != nil || len(out) == 0 {
 				t.Skipf("no convertible output (err=%v)", err)
 			}
 
-			fresh, err := VerifyBytes(cr.Output, PDFA1B)
+			fresh, err := VerifyBytes(out, PDFA1B)
 			if err != nil {
 				t.Fatalf("fresh VerifyBytes of output: %v", err)
 			}
@@ -396,7 +401,7 @@ func TestConvertObjectModelAPI(t *testing.T) {
 		t.Fatalf("ConvertObjectModelBytes: Valid=%v, residual %v", cr.Result.Valid, cr.Residual())
 	}
 
-	out, err := VerifyObjectModelBytes(cr.Output)
+	out, err := VerifyObjectModelBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("VerifyObjectModelBytes(output): %v", err)
 	}
@@ -797,7 +802,7 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	}
 
 	passDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(passDir, "conformant.pdf"), cr.Output, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(passDir, "conformant.pdf"), mustOutput(t, cr), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	pass := realWorldPDFs(t, passDir)

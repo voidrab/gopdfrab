@@ -38,13 +38,13 @@ func TestConvertRecoversBrokenOffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if len(cr.Output) == 0 {
+	if len(mustOutput(t, cr)) == 0 {
 		t.Fatal("Output is empty, want a full rewrite of the recovered document")
 	}
 	if got := graphResolutionIssues(cr.Residual()); len(got) != 0 {
 		t.Errorf("Residual() carries recovery issues %v; the rewrite fixed the xref", got)
 	}
-	res, err := verify.VerifyBytes(cr.Output, pdf.PDFA1B, nil)
+	res, err := verify.VerifyBytes(mustOutput(t, cr), pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("re-verify output: %v", err)
 	}
@@ -68,10 +68,10 @@ func TestConvertRecoversBrokenStartxref(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if len(cr.Output) == 0 {
+	if len(mustOutput(t, cr)) == 0 {
 		t.Fatal("Output is empty, want a full rewrite of the recovered document")
 	}
-	res, err := verify.VerifyBytes(cr.Output, pdf.PDFA1B, nil)
+	res, err := verify.VerifyBytes(mustOutput(t, cr), pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("re-verify output: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestConvertDegradedObjectReportsResidual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if len(cr.Output) == 0 {
+	if len(mustOutput(t, cr)) == 0 {
 		t.Fatal("Output is empty, want a best-effort rewrite")
 	}
 	if cr.Result.Valid {
@@ -128,8 +128,8 @@ func TestConvertUnresolvableGraphReturnsError(t *testing.T) {
 	if !errors.Is(err, pdf.ErrUnresolvableGraph) {
 		t.Fatalf("err = %v, want ErrUnresolvableGraph", err)
 	}
-	if len(cr.Output) != 0 {
-		t.Errorf("Output = %d bytes, want empty alongside the error", len(cr.Output))
+	if b, _ := cr.Output(); len(b) != 0 {
+		t.Errorf("Output = %d bytes, want empty alongside the error", len(b))
 	}
 	if cr.Result.Valid || len(cr.Result.Issues) == 0 {
 		t.Errorf("Result = %+v, want an invalid best-effort verify result", cr.Result)

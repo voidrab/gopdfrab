@@ -107,9 +107,14 @@ func jsConvert(_ js.Value, args []js.Value) any {
 			})
 		}
 
-		// Copy output bytes into a JS Uint8Array.
-		jsOut := js.Global().Get("Uint8Array").New(len(cr.Output))
-		js.CopyBytesToJS(jsOut, cr.Output)
+		// Copy output bytes into a JS Uint8Array. On wasm the output always
+		// stays in memory (no filesystem to spill to), so Output never errors.
+		outBytes, err := cr.Output()
+		if err != nil {
+			return nil, err
+		}
+		jsOut := js.Global().Get("Uint8Array").New(len(outBytes))
+		js.CopyBytesToJS(jsOut, outBytes)
 
 		return map[string]any{
 			"valid":      cr.Result.Valid,

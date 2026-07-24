@@ -66,7 +66,7 @@ func TestConvertMemoryReport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ConvertBytes: %v", err)
 		}
-		outputLen = len(cr.Output)
+		outputLen = len(mustOutput(t, cr))
 		return cr
 	})
 	if outputLen == 0 {
@@ -90,7 +90,12 @@ func BenchmarkConvertMemory(b *testing.B) {
 		if err != nil {
 			b.Fatalf("ConvertBytes: %v", err)
 		}
-		outputLen = len(cr.Output)
+		out, err := cr.Output()
+		if err != nil {
+			b.Fatalf("Output(): %v", err)
+		}
+		outputLen = len(out)
+		cr.Close()
 	}
 	b.ReportMetric(float64(outputLen)/(1<<20), "output_MB")
 }

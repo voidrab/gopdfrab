@@ -182,7 +182,12 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 		return false
 	}
 	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
-	if err != nil || len(cr.Output) == 0 {
+	if err != nil {
+		return false
+	}
+	defer cr.Close()
+	outBytes, err := cr.Output()
+	if err != nil || len(outBytes) == 0 {
 		return false
 	}
 	input, err := pdf.OpenBytes(data)
@@ -190,7 +195,7 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 		return false
 	}
 	defer input.Close()
-	output, err := pdf.OpenBytes(cr.Output)
+	output, err := pdf.OpenBytes(outBytes)
 	if err != nil {
 		return false
 	}

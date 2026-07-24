@@ -125,7 +125,7 @@ func TestConvertPreservesDingbatCheckmark(t *testing.T) {
 		t.Fatalf("converted fixture is not conformant: %v", cr.Residual())
 	}
 
-	out, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("reopening output: %v", err)
 	}

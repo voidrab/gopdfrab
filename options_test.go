@@ -43,7 +43,8 @@ func TestOptionsPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytesContext with owner password: %v", err)
 	}
-	if len(cr.Output) == 0 {
+	defer cr.Close()
+	if b, _ := cr.Output(); len(b) == 0 {
 		t.Error("ConvertBytesContext with password produced no output")
 	}
 }
@@ -69,12 +70,15 @@ func TestOptionsRasterDPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Convert at 300 DPI: %v", err)
 	}
+	defer low.Close()
+	defer high.Close()
 	if !low.Result.Valid || !high.Result.Valid {
 		t.Fatalf("fixture did not rasterize to conformance (low=%v high=%v)", low.Result.Valid, high.Result.Valid)
 	}
-	if len(high.Output) <= len(low.Output) {
+	lowOut, highOut := len(mustOutputExt(t, low)), len(mustOutputExt(t, high))
+	if highOut <= lowOut {
 		t.Errorf("300-DPI output (%d bytes) not larger than 72-DPI output (%d bytes); DPI option had no effect",
-			len(high.Output), len(low.Output))
+			highOut, lowOut)
 	}
 }
 
@@ -170,4 +174,15 @@ func TestOptionsTwoArgForm(t *testing.T) {
 	if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
 		t.Errorf("two-arg ConvertBytes: %v", err)
 	}
+}
+
+// mustOutputExt returns cr's converted bytes, failing the test on error (the
+// external gopdfrab_test package's counterpart to the internal mustOutput).
+func mustOutputExt(t *testing.T, cr gopdfrab.ConvertResult) []byte {
+	t.Helper()
+	b, err := cr.Output()
+	if err != nil {
+		t.Fatalf("Output(): %v", err)
+	}
+	return b
 }

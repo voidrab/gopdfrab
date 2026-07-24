@@ -116,7 +116,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
 
-	out, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("OpenBytes(output): %v", err)
 	}

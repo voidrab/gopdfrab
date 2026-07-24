@@ -38,7 +38,8 @@ func TestConvertContextBackgroundStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytesContext(Background): %v", err)
 	}
-	if len(cr.Output) == 0 {
+	defer cr.Close()
+	if b, _ := cr.Output(); len(b) == 0 {
 		t.Error("no output from a live-context convert")
 	}
 }

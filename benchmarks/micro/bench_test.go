@@ -295,9 +295,14 @@ func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ConvertBytes: %v", err)
 			}
+			defer cr.Close()
+			out, err := cr.Output()
+			if err != nil {
+				t.Fatalf("Output: %v", err)
+			}
 
 			// Independent fresh verify of the same output bytes.
-			fresh, err := gopdfrab.VerifyBytes(cr.Output, gopdfrab.PDFA1B)
+			fresh, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
 			if err != nil {
 				t.Fatalf("VerifyBytes: %v", err)
 			}

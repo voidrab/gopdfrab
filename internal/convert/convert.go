@@ -5,7 +5,6 @@
 package convert
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -73,7 +72,11 @@ func (o Options) workers() int {
 }
 
 type ConvertResult struct {
-	Output     []byte
+	// backing holds the converted PDF -- in memory when small, in a temp file
+	// when large (see spillWriter). It is a pointer so value copies of a
+	// ConvertResult (as FileResult stores) share one backing and a single
+	// idempotent Close. Read it via Output/WriteTo/Save.
+	backing    *outputBacking
 	Result     pdf.Result
 	Iterations int
 	// Fidelity is the per-page input-vs-output rendering comparison, populated
@@ -92,30 +95,51 @@ type RasterDrop struct {
 	Features []string
 }
 
-// Residual returns the issues remaining in r.Output that Convert was unable
+// Residual returns the issues remaining in the output that Convert was unable
 // to fix automatically.
 func (r ConvertResult) Residual() []pdf.PDFError {
 	return r.Result.Issues
 }
 
-// WriteTo writes the converted PDF to w, implementing io.WriterTo, and returns
+// Output returns the converted PDF bytes. A large output spilled to a temp file
+// is read back here, so prefer WriteTo or Save, which stream without
+// materializing a second copy. It errors if there is no output -- only on a
+// ConvertResult whose Convert call itself returned an error -- or if a spill
+// file cannot be read.
+func (r ConvertResult) Output() ([]byte, error) {
+	return r.backing.bytes()
+}
+
+// WriteTo streams the converted PDF to w, implementing io.WriterTo, and returns
 // the number of bytes written. It errors if there is no output, which only
 // happens on a ConvertResult whose Convert call itself returned an error.
 func (r ConvertResult) WriteTo(w io.Writer) (int64, error) {
-	if len(r.Output) == 0 {
-		return 0, fmt.Errorf("convert: no output to write")
-	}
-	n, err := w.Write(r.Output)
-	return int64(n), err
+	return r.backing.writeTo(w)
 }
 
-// Save writes the converted PDF to the given path. It returns an error if
+// Save streams the converted PDF to the given path. It returns an error if
 // there is no output to save or the file cannot be written.
 func (r ConvertResult) Save(path string) error {
-	if len(r.Output) == 0 {
-		return fmt.Errorf("convert: no output to save")
+	if r.backing.len() == 0 {
+		return errNoOutput
 	}
-	return os.WriteFile(path, r.Output, 0o644)
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if _, err := r.backing.writeTo(f); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// Close releases the converted output, removing the spill temp file if one was
+// created and dropping any in-memory bytes. It is safe on the zero value and on
+// repeated calls. Callers own Close for results from Convert and ConvertAll;
+// ConvertEach closes each result after its callback returns.
+func (r ConvertResult) Close() error {
+	return r.backing.close()
 }
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
@@ -157,8 +181,9 @@ func ConvertAll(paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[Con
 
 // ConvertAllContext is ConvertAll honouring ctx cancellation: a cancelled ctx
 // stops dispatching further files and records ctx.Err() for those not started.
-// It holds every result (each with its full output) resident; ConvertEach
-// streams instead when the batch is too large to keep in memory at once.
+// It holds every result resident and does not close them; the caller owns
+// Close on each (large outputs spill to a temp file). ConvertEach streams and
+// auto-closes instead when the batch is too large to keep in memory at once.
 func ConvertAllContext(ctx context.Context, paths []string, p *pdf.Profile, o Options) ([]pdf.FileResult[ConvertResult], error) {
 	results := make([]pdf.FileResult[ConvertResult], len(paths))
 	convertEach(ctx, paths, p, o, func(i int, fr pdf.FileResult[ConvertResult]) error {
@@ -170,7 +195,8 @@ func ConvertAllContext(ctx context.Context, paths []string, p *pdf.Profile, o Op
 
 // ConvertEach opens, converts, and closes a batch of files concurrently,
 // invoking fn on each result as it completes rather than retaining them all, so
-// a large batch need not hold every output in memory at once.
+// a large batch need not hold every output in memory at once. Each result is
+// closed after its fn returns, so fn must not retain it (copy out what it needs).
 func ConvertEach(paths []string, p *pdf.Profile, o Options, fn func(pdf.FileResult[ConvertResult]) error) error {
 	return ConvertEachContext(context.Background(), paths, p, o, fn)
 }
@@ -182,6 +208,9 @@ func ConvertEach(paths []string, p *pdf.Profile, o Options, fn func(pdf.FileResu
 // is returned. A cancelled ctx delivers ctx.Err() for files not yet started.
 func ConvertEachContext(ctx context.Context, paths []string, p *pdf.Profile, o Options, fn func(pdf.FileResult[ConvertResult]) error) error {
 	return convertEach(ctx, paths, p, o, func(_ int, fr pdf.FileResult[ConvertResult]) error {
+		// The result is not retained past fn, so release its output (dropping a
+		// spill temp file) as soon as fn returns.
+		defer fr.Result.Close()
 		return fn(fr)
 	})
 }
@@ -403,8 +432,8 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	}
 
 	// Compare the converted output's appearance to the input captured above.
-	if o.CheckFidelity && len(cr.Output) > 0 {
-		if out, err := pdf.OpenBytes(cr.Output); err == nil {
+	if o.CheckFidelity && cr.backing.len() > 0 {
+		if out, err := cr.backing.open(); err == nil {
 			cr.Fidelity = comparePageRenders(inputRenders, renderTrailerPagesOf(out))
 			out.Close()
 		}
@@ -499,14 +528,20 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // the byte-level structural checks run against the output and lastParts
 // supplies the graph verdicts. A dirty graph gets today's full verify.
 func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool) error {
-	var buf bytes.Buffer
-	order, err := writer.WriteDocumentIndexed(&buf, trailer)
+	var sw spillWriter
+	order, err := writer.WriteDocumentIndexed(&sw, trailer)
 	if err != nil {
 		return err
 	}
-	cr.Output = buf.Bytes()
+	backing, err := sw.finish()
+	if err != nil {
+		return err
+	}
+	cr.backing = backing
 
-	out, err := pdf.OpenBytes(cr.Output)
+	// Open the freshly written output for the byte-level verify: mmap'd when it
+	// spilled to a temp file, wrapped in place when it stayed in memory.
+	out, err := backing.open()
 	if err != nil {
 		return err
 	}

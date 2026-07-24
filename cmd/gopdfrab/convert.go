@@ -60,6 +60,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "gopdfrab: convert %s: %v\n", input, err)
 		return exitError
 	}
+	defer cr.Close()
 	if err := cr.Save(output); err != nil {
 		fmt.Fprintf(stderr, "gopdfrab: write %s: %v\n", output, err)
 		return exitError

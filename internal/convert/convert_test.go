@@ -61,7 +61,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// The output itself must independently verify as conformant, not just
 	// cr.Result (which is already derived from verifying cr.Output, but
 	// re-checking via a fresh Open guards against a bug in that wiring).
-	finalRes, err := verify.VerifyBytes(cr.Output, pdf.PDFA1B, nil)
+	finalRes, err := verify.VerifyBytes(mustOutput(t, cr), pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("verify.VerifyBytes(cr.Output): %v", err)
 	}
@@ -99,7 +99,7 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	if cr.Result.Valid {
 		t.Fatalf("expected a non-conformant Result when an object degraded to null, got Valid=true")
 	}
-	if len(cr.Output) == 0 {
+	if len(mustOutput(t, cr)) == 0 {
 		t.Errorf("Output is empty, want a best-effort rewrite with the degraded object as null")
 	}
 	found := false
@@ -560,7 +560,7 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 
 func TestConvertResultSave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.pdf")
-	if err := (ConvertResult{Output: []byte("%PDF-1.7\n")}).Save(path); err != nil {
+	if err := inMemoryResult([]byte("%PDF-1.7\n")).Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "%PDF-1.7\n" {
@@ -574,7 +574,7 @@ func TestConvertResultSave(t *testing.T) {
 func TestConvertResultWriteTo(t *testing.T) {
 	out := []byte("%PDF-1.7\nbody")
 	var buf bytes.Buffer
-	n, err := (ConvertResult{Output: out}).WriteTo(&buf)
+	n, err := inMemoryResult(out).WriteTo(&buf)
 	if err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
@@ -807,7 +807,7 @@ func TestConvertDecryptsEmptyPasswordFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if len(cr.Output) == 0 {
+	if len(mustOutput(t, cr)) == 0 {
 		t.Fatal("no output produced")
 	}
 	if !cr.Result.Valid {
@@ -826,7 +826,7 @@ func TestConvertRefusesPasswordProtectedFile(t *testing.T) {
 	if !errors.Is(err, pdf.ErrPasswordRequired) {
 		t.Fatalf("err=%v, want ErrPasswordRequired", err)
 	}
-	if len(cr.Output) != 0 {
+	if b, _ := cr.Output(); len(b) != 0 {
 		t.Error("no output should be produced for a password-protected file")
 	}
 }

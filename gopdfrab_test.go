@@ -13,6 +13,16 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
+// mustOutput returns cr's converted bytes, failing the test on error.
+func mustOutput(t *testing.T, cr ConvertResult) []byte {
+	t.Helper()
+	b, err := cr.Output()
+	if err != nil {
+		t.Fatalf("Output(): %v", err)
+	}
+	return b
+}
+
 // TestSentinelReExports pins each root sentinel to its internal identity so
 // errors.Is matches across the package boundary.
 func TestSentinelReExports(t *testing.T) {

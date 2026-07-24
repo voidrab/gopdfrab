@@ -79,6 +79,23 @@ func passFixtures(t *testing.T) []string {
 	return found
 }
 
+// mustOutput returns cr's converted bytes, failing the test on error. Use it
+// where a conversion is expected to have produced output.
+func mustOutput(t *testing.T, cr ConvertResult) []byte {
+	t.Helper()
+	b, err := cr.Output()
+	if err != nil {
+		t.Fatalf("Output(): %v", err)
+	}
+	return b
+}
+
+// inMemoryResult builds a ConvertResult holding data in memory, for tests that
+// construct a result directly rather than via a conversion.
+func inMemoryResult(data []byte) ConvertResult {
+	return ConvertResult{backing: &outputBacking{mem: data}}
+}
+
 // writeTempPDF writes data to a temp file named name and returns its path.
 func writeTempPDF(t *testing.T, name string, data []byte) string {
 	t.Helper()

@@ -81,10 +81,15 @@ func FuzzConvertRoundTrip(f *testing.F) {
 			return
 		}
 		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		if err != nil || len(res.Output) == 0 {
+		if err != nil {
 			return
 		}
-		r, err := pdf.OpenBytes(res.Output)
+		defer res.Close()
+		out, err := res.Output()
+		if err != nil || len(out) == 0 {
+			return
+		}
+		r, err := pdf.OpenBytes(out)
 		if err != nil {
 			return
 		}
@@ -126,11 +131,21 @@ func FuzzConvertDeterministic(f *testing.F) {
 		}
 		a, ea := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 		b, eb := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		defer a.Close()
+		defer b.Close()
 		if (ea == nil) != (eb == nil) {
 			t.Fatalf("ConvertBytes error nondeterminism: %v vs %v", ea, eb)
 		}
-		if ea == nil && !bytes.Equal(a.Output, b.Output) {
-			t.Fatalf("ConvertBytes output nondeterministic (%d vs %d bytes)", len(a.Output), len(b.Output))
+		if ea != nil {
+			return
+		}
+		ao, aerr := a.Output()
+		bo, berr := b.Output()
+		if aerr != nil || berr != nil {
+			t.Fatalf("Output() failed: %v / %v", aerr, berr)
+		}
+		if !bytes.Equal(ao, bo) {
+			t.Fatalf("ConvertBytes output nondeterministic (%d vs %d bytes)", len(ao), len(bo))
 		}
 	})
 }
@@ -145,10 +160,15 @@ func FuzzConvertHonest(f *testing.F) {
 			return
 		}
 		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		if err != nil || !res.Result.Valid || len(res.Output) == 0 {
+		if err != nil || !res.Result.Valid {
 			return
 		}
-		v, err := gopdfrab.VerifyBytes(res.Output, gopdfrab.PDFA1B)
+		defer res.Close()
+		out, err := res.Output()
+		if err != nil || len(out) == 0 {
+			return
+		}
+		v, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
 		if err != nil || !v.Valid {
 			t.Fatalf("Convert reported Valid but independent verify disagreed: err=%v valid=%v", err, v.Valid)
 		}
@@ -164,10 +184,18 @@ func FuzzConvertConverges(f *testing.F) {
 			return
 		}
 		r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		if err != nil || !r1.Result.Valid || len(r1.Output) == 0 {
+		if err != nil || !r1.Result.Valid {
 			return
 		}
-		r2, err := gopdfrab.ConvertBytes(r1.Output, gopdfrab.PDFA1B)
+		defer r1.Close()
+		out1, err := r1.Output()
+		if err != nil || len(out1) == 0 {
+			return
+		}
+		r2, err := gopdfrab.ConvertBytes(out1, gopdfrab.PDFA1B)
+		if err == nil {
+			defer r2.Close()
+		}
 		if err != nil || !r2.Result.Valid {
 			t.Fatalf("re-converting already-valid output regressed: err=%v valid=%v", err, r2.Result.Valid)
 		}
