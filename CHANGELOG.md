@@ -33,6 +33,9 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **Package documentation.** Added a `doc.go` package overview (verify/convert
+  model, profiles, options/limits/cancellation, concurrency) and runnable
+  examples for the main entry points, which double as tests.
 - **Streaming batch conversion.** `ConvertEach`/`ConvertEachContext` convert a
   batch and invoke a callback on each result as it completes, instead of
   retaining every output like `ConvertAll` — so a large batch need not hold every

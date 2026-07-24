@@ -637,16 +637,17 @@ work.
 false pass, silent content loss on convert) versus an ordinary bug, best-effort
 response targets (3 / 10 business days), and pre-1.0 supported-version scope.
 
-### 27. Documentation
+### 27. Documentation — **DONE**
 
-One `Example()` in the entire repo, no `doc.go`, no package-level overview on
-pkg.go.dev beyond a one-line comment. Add runnable examples for each main entry
-point (they double as tests) and a package overview explaining the verify/convert
-model and the profile system.
+Was: one `Example()` in the entire repo, no `doc.go`, no package-level overview
+on pkg.go.dev beyond a one-line comment. Added `doc.go` with a package overview
+covering the verify/convert model, profiles, options/limits/cancellation and the
+concurrency contract, plus runnable examples for the main entry points (`Verify`,
+`VerifyBytes`, `ConvertBytes`, `ConvertEach`, `SetLimits`, `Profile.RemoveCheck`)
+that double as tests via their `// Output:` blocks.
 
-The README also needs a pass: its Roadmap section still says PDF/A-1b is "at an
-early stage" and that testing infrastructure "must be created," which undersells
-where things actually are.
+The README Roadmap/Status pass this item also called for was already done in an
+earlier refresh — the "early stage"/"must be created" wording is gone.
 
 ### 28. Repo hygiene
 

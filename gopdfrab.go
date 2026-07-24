@@ -1,4 +1,3 @@
-// Convert and verify PDF files for PDF/A conformance.
 package gopdfrab
 
 import (
