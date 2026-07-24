@@ -67,7 +67,8 @@ var (
 // take an Options; the two-argument forms use the zero value.
 //
 // Fields not relevant to an operation are ignored: Verify uses only Password;
-// RasterDPI and MaxIterations apply to Convert. Password applies at the open
+// RasterDPI and MaxIterations apply to Convert; Workers applies to the batch
+// convert entry points (ConvertAll, ConvertEach). Password applies at the open
 // step, so it has no effect on the *Document methods, whose file is already
 // open (use OpenWithPassword for those).
 type Options struct {
@@ -83,6 +84,9 @@ type Options struct {
 	// ConvertResult.Fidelity with a per-page comparison. Off by default (it
 	// roughly doubles the work). Verify ignores it.
 	CheckFidelity bool
+	// Workers bounds the concurrency of the batch convert entry points ConvertAll
+	// and ConvertEach. 0 selects the default (runtime.NumCPU).
+	Workers int
 }
 
 func (o Options) convert() convert.Options {
@@ -91,6 +95,7 @@ func (o Options) convert() convert.Options {
 		RasterDPI:     o.RasterDPI,
 		MaxIterations: o.MaxIterations,
 		CheckFidelity: o.CheckFidelity,
+		Workers:       o.Workers,
 	}
 }
 
@@ -190,6 +195,21 @@ func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error)
 // records ctx.Err() for files not yet started) and o.
 func ConvertAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[ConvertResult], error) {
 	return convert.ConvertAllContext(ctx, paths, p, o.convert())
+}
+
+// ConvertEach converts a batch of files concurrently, invoking fn on each
+// result as it completes rather than retaining them all, so a large batch need
+// not hold every output PDF in memory at once. fn is called once per file,
+// serialized but in completion order (the FileResult's Path identifies it); if
+// fn returns an error the batch stops and that error is returned.
+func ConvertEach(paths []string, p *Profile, o Options, fn func(FileResult[ConvertResult]) error) error {
+	return convert.ConvertEach(paths, p, o.convert(), fn)
+}
+
+// ConvertEachContext is ConvertEach honouring ctx cancellation (a cancelled ctx
+// delivers ctx.Err() for files not yet started).
+func ConvertEachContext(ctx context.Context, paths []string, p *Profile, o Options, fn func(FileResult[ConvertResult]) error) error {
+	return convert.ConvertEachContext(ctx, paths, p, o.convert(), fn)
 }
 
 // ConvertObjectModel reads the PDF at path and attempts to produce a rewrite

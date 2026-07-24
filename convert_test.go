@@ -6,6 +6,7 @@ package gopdfrab
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
@@ -196,6 +197,73 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 			t.Errorf("%s: (*Document).Convert diverged from Convert: got{valid=%v iters=%d} want{valid=%v iters=%d}",
 				path, fromDoc.Result.Valid, fromDoc.Iterations, want.Result.Valid, want.Iterations)
 		}
+	}
+}
+
+// TestConvertEachMatchesConvertAll checks the streaming ConvertEach delivers the
+// same per-file outcome as ConvertAll, honouring Options.Workers.
+func TestConvertEachMatchesConvertAll(t *testing.T) {
+	fixtures := failFixturesByExpectedClause(t)
+	if len(fixtures) == 0 {
+		t.Skip("no corpora present")
+	}
+	var paths []string
+	for path := range fixtures {
+		paths = append(paths, path)
+		if len(paths) >= 5 {
+			break
+		}
+	}
+	if len(paths) == 0 {
+		t.Skip("no readable fixtures")
+	}
+
+	all, err := ConvertAll(paths, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("ConvertAll: %v", err)
+	}
+	want := map[string]bool{}
+	for _, r := range all {
+		want[r.Path] = r.Result.Result.Valid
+	}
+
+	// The engine serializes fn, so plain map access is race-free.
+	got := map[string]bool{}
+	err = ConvertEachContext(context.Background(), paths, pdf.PDFA1B, Options{Workers: 2},
+		func(fr FileResult[ConvertResult]) error {
+			got[fr.Path] = fr.Result.Result.Valid
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("ConvertEachContext: %v", err)
+	}
+	if len(got) != len(paths) {
+		t.Fatalf("ConvertEach delivered %d results, want %d", len(got), len(paths))
+	}
+	for path, valid := range want {
+		if got[path] != valid {
+			t.Errorf("%s: ConvertEach valid=%v, want %v", path, got[path], valid)
+		}
+	}
+}
+
+// TestConvertEachNonContext covers the non-context ConvertEach wrapper: every
+// path is delivered even when the files do not exist.
+func TestConvertEachNonContext(t *testing.T) {
+	paths := []string{
+		filepath.Join(t.TempDir(), "a.pdf"),
+		filepath.Join(t.TempDir(), "b.pdf"),
+	}
+	n := 0
+	err := ConvertEach(paths, pdf.PDFA1B, Options{}, func(fr FileResult[ConvertResult]) error {
+		n++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConvertEach: %v", err)
+	}
+	if n != len(paths) {
+		t.Errorf("ConvertEach delivered %d results, want %d", n, len(paths))
 	}
 }
 

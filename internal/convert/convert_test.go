@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -635,11 +636,98 @@ func TestConvertAll(t *testing.T) {
 	}
 }
 
-// TestConvertAllEmpty checks the workers<1 short-circuit for an empty batch.
+// TestConvertAllEmpty checks the empty-batch short-circuit.
 func TestConvertAllEmpty(t *testing.T) {
 	results, err := ConvertAll(nil, pdf.PDFA1B, Options{})
 	if err != nil || len(results) != 0 {
 		t.Errorf("ConvertAll(nil) = (%v, %v), want (empty, nil)", results, err)
+	}
+}
+
+// TestConvertEach streams a batch through a callback and checks it delivers the
+// same per-file outcomes as ConvertAll, exactly once per file.
+func TestConvertEach(t *testing.T) {
+	paths := passFixtures(t)
+	if len(paths) == 0 {
+		t.Skip("veraPDF suite not present")
+	}
+	batch := paths[:min(3, len(paths))]
+
+	want, err := ConvertAll(batch, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertAll: %v", err)
+	}
+	wantValid := map[string]bool{}
+	for _, r := range want {
+		wantValid[r.Path] = r.Result.Result.Valid
+	}
+
+	// The engine serializes fn, so plain map access here is race-free.
+	got := map[string]bool{}
+	err = ConvertEach(batch, pdf.PDFA1B, Options{}, func(fr pdf.FileResult[ConvertResult]) error {
+		if _, dup := got[fr.Path]; dup {
+			t.Errorf("path %s delivered twice", fr.Path)
+		}
+		got[fr.Path] = fr.Result.Result.Valid
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConvertEach: %v", err)
+	}
+	if len(got) != len(batch) {
+		t.Fatalf("ConvertEach delivered %d results, want %d", len(got), len(batch))
+	}
+	for path, valid := range wantValid {
+		if got[path] != valid {
+			t.Errorf("%s: ConvertEach valid=%v, ConvertAll valid=%v", path, got[path], valid)
+		}
+	}
+}
+
+// TestConvertEachAbort checks fn's error stops the batch and is returned, with
+// no further deliveries (deterministic at Workers=1).
+func TestConvertEachAbort(t *testing.T) {
+	paths := []string{
+		filepath.Join(t.TempDir(), "a.pdf"),
+		filepath.Join(t.TempDir(), "b.pdf"),
+		filepath.Join(t.TempDir(), "c.pdf"),
+	}
+	sentinel := errors.New("stop")
+	calls := 0
+	err := ConvertEach(paths, pdf.PDFA1B, Options{Workers: 1}, func(fr pdf.FileResult[ConvertResult]) error {
+		calls++
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ConvertEach err = %v, want sentinel", err)
+	}
+	if calls != 1 {
+		t.Errorf("fn called %d times after abort, want 1 (Workers=1)", calls)
+	}
+}
+
+// TestConvertEachCancelled checks a cancelled ctx delivers ctx.Err() for every
+// file and returns nil.
+func TestConvertEachCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	paths := []string{
+		filepath.Join(t.TempDir(), "a.pdf"),
+		filepath.Join(t.TempDir(), "b.pdf"),
+	}
+	delivered := 0
+	err := ConvertEachContext(ctx, paths, pdf.PDFA1B, Options{}, func(fr pdf.FileResult[ConvertResult]) error {
+		delivered++
+		if fr.Err == nil {
+			t.Errorf("cancelled batch delivered %s with nil Err", fr.Path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("ConvertEachContext err = %v, want nil", err)
+	}
+	if delivered != len(paths) {
+		t.Errorf("delivered %d results, want %d", delivered, len(paths))
 	}
 }
 
