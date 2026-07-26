@@ -17,7 +17,13 @@ import (
 // transparencyFlattener carries the raster resolution (dpi) its flattening
 // renders at; buildLocalFixers stamps the per-run value from Options.RasterDPI.
 // A zero dpi (the registry prototype) falls back to defaultRasterDPI.
-type transparencyFlattener struct{ dpi int }
+// drops, when non-nil, collects the features flattening could not render, so
+// they reach ConvertResult.RasterDrops like the page-level fallback's do. The
+// registry prototype leaves it nil.
+type transparencyFlattener struct {
+	dpi   int
+	drops *[]RasterDrop
+}
 
 func init() {
 	registerFixer(transparencyFlattener{})
@@ -50,6 +56,7 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 		fixed     pdf.PDFDict
 		ok        bool
 		dropGroup bool
+		drops     []string
 	}
 	results := make([]result, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
@@ -77,8 +84,8 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 						continue
 					}
-					fixed, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI())
-					results[i] = result{fixed: fixed, ok: ok}
+					fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI())
+					results[i] = result{fixed: fixed, ok: ok, drops: drops}
 				case "page":
 					_, had := t.dict.Entries["Group"]
 					delete(t.dict.Entries, "Group")
@@ -92,6 +99,16 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 	}
 	close(jobs)
 	wg.Wait()
+
+	// Each worker wrote only its own slot, so collecting the drops here --
+	// serially, in target order -- needs no synchronization.
+	if f.drops != nil {
+		for i, t := range unique {
+			if results[i].ok && len(results[i].drops) > 0 {
+				*f.drops = append(*f.drops, RasterDrop{Page: t.page, Features: results[i].drops})
+			}
+		}
+	}
 
 	byDict := make(map[uintptr]result, len(unique))
 	for i, t := range unique {
@@ -143,6 +160,7 @@ type flaggedTarget struct {
 	xobjects  pdf.PDFDict
 	name      string
 	mediaBox  [4]float64
+	page      int // 1-based, for the drop report
 }
 
 // collectTransparencyTargets walks the page tree top-down from
@@ -163,6 +181,9 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
+	// Pages are numbered by this same top-down walk, so the counter matches a
+	// PDFError's 1-based Page() and the page-level raster fallback's numbering.
+	pageNum := 0
 	var walk func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64)
 	walk = func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64) {
 		if r, ok := node.Entries["Resources"].(pdf.PDFDict); ok {
@@ -172,11 +193,12 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
 		}
 		if (node.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
+			pageNum++
 			if hasTransparencyGroup(node) {
-				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox})
+				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
 				return
 			}
-			collectXObjectTargets(resources, visited, &out)
+			collectXObjectTargets(resources, visited, pageNum, &out)
 			return
 		}
 		if kids, ok := node.Entries["Kids"].(pdf.PDFArray); ok {
@@ -244,7 +266,7 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 // fallback doXObject uses (raster.go). A flagged Form is not descended into
 // further: it's about to be wholly replaced, so anything inside it is moot.
 // visited guards against cyclic/shared XObject subdictionaries.
-func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, out *[]flaggedTarget) {
+func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page int, out *[]flaggedTarget) {
 	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
 	if !ok {
 		return
@@ -264,17 +286,17 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, out 
 		switch subtype.Value {
 		case "Form":
 			if hasTransparencyGroup(xobj) {
-				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: resources, xobjects: xobjects, name: name})
+				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
 				continue
 			}
 			formRes, _ := xobj.Entries["Resources"].(pdf.PDFDict)
 			if formRes.Entries == nil {
 				formRes = resources
 			}
-			collectXObjectTargets(formRes, visited, out)
+			collectXObjectTargets(formRes, visited, page, out)
 		case "Image":
 			if hasSoftMask(xobj) {
-				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name})
+				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
 			}
 		}
 	}
@@ -424,10 +446,10 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 // to it are untouched, so it keeps composing into the page exactly as
 // before -- it now just paints a flat image instead of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
-func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.PDFDict, bool) {
-	canvas, bbox, _, err := renderFormContent(form, resources, dpi)
+func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.PDFDict, []string, bool) {
+	canvas, bbox, drops, err := renderFormContent(form, resources, dpi)
 	if err != nil {
-		return form, false
+		return form, nil, false
 	}
 
 	img := pdf.NewPDFDict()
@@ -438,7 +460,7 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.P
 	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
 	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
 	if err := setStreamRGBFlate(&img, canvas); err != nil {
-		return form, false
+		return form, nil, false
 	}
 
 	xobjects := pdf.NewPDFDict()
@@ -458,15 +480,15 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.P
 	}
 	data, err := writer.WriteContentStream(ops)
 	if err != nil {
-		return form, false
+		return form, nil, false
 	}
 
 	delete(form.Entries, "Group")
 	form.Entries["Resources"] = formResources
 	if err := writer.SetStreamFlate(&form, data); err != nil {
-		return form, false
+		return form, nil, false
 	}
-	return form, true
+	return form, drops, true
 }
 
 // flattenPageToImage rasterizes page (RenderPage) and rebuilds it in place

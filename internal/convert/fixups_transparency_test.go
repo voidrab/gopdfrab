@@ -104,3 +104,87 @@ func TestPackRGBSamples(t *testing.T) {
 		t.Errorf("first pixel = %v, want [10 20 30]", out[:3])
 	}
 }
+
+// TestFlattenFormReportsDrops: a Form XObject the flattener rasterizes carries
+// its undrawable content out through the fixer's drop sink, tagged with the
+// page it sits on -- the page-level fallback's report never sees these.
+func TestFlattenFormReportsDrops(t *testing.T) {
+	// An unresolvable shading is content the rasterizer must report losing.
+	form := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Type":    pdf.PDFName{Value: "XObject"},
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"S": pdf.PDFName{Value: "Transparency"},
+			}},
+		},
+		HasStream: true,
+		// The gs keeps canDropGroupSafely from skipping the rasterization.
+		RawStream: []byte("q /GS0 gs /Sh1 sh Q 0 0 0 rg 2 2 5 5 re f"),
+	}
+	xobjects := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm0": form}}
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"XObject": xobjects}}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+
+	var drops []RasterDrop
+	changed, err := (transparencyFlattener{drops: &drops}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true (the Form carried a /Group)")
+	}
+	if len(drops) != 1 {
+		t.Fatalf("drops = %v, want exactly one entry", drops)
+	}
+	if drops[0].Page != 1 {
+		t.Errorf("drop page = %d, want 1", drops[0].Page)
+	}
+	if !hasDrop(drops[0].Features, dropShading) {
+		t.Errorf("drop features = %v, want %q", drops[0].Features, dropShading)
+	}
+}
+
+// TestFlattenFormWithoutSinkIsSafe: the registry prototype carries no sink,
+// so flattening must not depend on one being present.
+func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
+	form := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Type":    pdf.PDFName{Value: "XObject"},
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"S": pdf.PDFName{Value: "Transparency"},
+			}},
+		},
+		HasStream: true,
+		RawStream: []byte("q /GS0 gs /Sh1 sh Q"),
+	}
+	xobjects := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm0": form}}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"XObject": xobjects,
+		}},
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+
+	if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix without a drop sink: %v", err)
+	}
+}

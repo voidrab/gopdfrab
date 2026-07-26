@@ -750,7 +750,7 @@ func TestFlattenAllPages(t *testing.T) {
 	}}
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
 
-	if _, changed := flattenAllPages(&trailer, defaultRasterDPI); !changed {
+	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); !changed {
 		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
 	}
 
@@ -768,7 +768,7 @@ func TestFlattenAllPages(t *testing.T) {
 // TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
 func TestFlattenAllPagesNoPages(t *testing.T) {
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
-	if _, changed := flattenAllPages(&trailer, defaultRasterDPI); changed {
+	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); changed {
 		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
 	}
 }
@@ -828,5 +828,82 @@ func TestConvertRefusesPasswordProtectedFile(t *testing.T) {
 	}
 	if b, _ := cr.Output(); len(b) != 0 {
 		t.Error("no output should be produced for a password-protected file")
+	}
+}
+
+// TestAddRasterizedPages: pages merge sorted and deduped, since the page-level
+// fallback and the whole-document one can both rebuild the same page.
+func TestAddRasterizedPages(t *testing.T) {
+	tests := []struct {
+		name  string
+		start []int
+		add   []int
+		want  []int
+	}{
+		{"into empty", nil, []int{3, 1}, []int{1, 3}},
+		{"merges and sorts", []int{4, 1}, []int{2}, []int{1, 2, 4}},
+		{"dedupes across calls", []int{1, 2}, []int{2, 3}, []int{1, 2, 3}},
+		{"dedupes within one call", nil, []int{5, 5, 2}, []int{2, 5}},
+		{"nothing to add", []int{2}, nil, []int{2}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := ConvertResult{RasterizedPages: tc.start}
+			cr.addRasterizedPages(tc.add)
+			if !slices.Equal(cr.RasterizedPages, tc.want) {
+				t.Errorf("RasterizedPages = %v, want %v", cr.RasterizedPages, tc.want)
+			}
+		})
+	}
+}
+
+// TestConvertReportsRasterizedPages: a conversion needing no raster fallback
+// reports none, so the signal distinguishes "was rasterized" from "lost
+// content the rasterizer could not draw" -- which RasterDrops alone cannot.
+func TestConvertReportsRasterizedPages(t *testing.T) {
+	cr, err := ConvertBytes(onePageDoc(filledPage), pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("setup: conversion not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("RasterizedPages = %v, want none for a vector page", cr.RasterizedPages)
+	}
+	if len(cr.RasterDrops) != 0 {
+		t.Errorf("RasterDrops = %v, want none", cr.RasterDrops)
+	}
+}
+
+// TestRasterFallbackRecordsRasterizedPages: flattening records every page it
+// rebuilt, whether or not anything was dropped doing it.
+func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
+	page := func() pdf.PDFDict {
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Type":     pdf.PDFName{Value: "Page"},
+			"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 2 2 5 5 re f")},
+		}}
+	}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page(), page()},
+	}}
+	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+
+	drops, rasterized, changed := flattenAllPages(&trailer, defaultRasterDPI)
+	if !changed {
+		t.Fatal("flattenAllPages returned false, want true")
+	}
+	if !slices.Equal(rasterized, []int{1, 2}) {
+		t.Errorf("rasterized = %v, want [1 2]", rasterized)
+	}
+	// Nothing on these pages is undrawable, so the loss report stays empty --
+	// which is exactly why RasterDrops cannot stand in for this signal.
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
 	}
 }

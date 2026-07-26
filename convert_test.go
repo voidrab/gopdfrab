@@ -734,9 +734,13 @@ func checkShouldPass(t *testing.T, files []string) (failures []string) {
 }
 
 // checkShouldConvert converts each file and returns how many reached PDF/A-1b
-// conformance and how many did so only with dropped raster content (a lossy
-// fallback).
-func checkShouldConvert(t *testing.T, files []string) (conformant, lossyRaster int) {
+// conformance, how many needed a page rasterized to get there, and how many
+// lost content the rasterizer could not draw.
+//
+// rasterized is the honest "lossy" metric: RasterDrops counts only content the
+// rasterizer could not render, so a page flattened losslessly -- still a
+// conversion from text and vectors to pixels -- would not appear there.
+func checkShouldConvert(t *testing.T, files []string) (conformant, rasterized, dropped int) {
 	for _, p := range files {
 		cr, err := Convert(p, PDFA1B)
 		if err != nil {
@@ -746,12 +750,15 @@ func checkShouldConvert(t *testing.T, files []string) (conformant, lossyRaster i
 		if cr.Result.Valid {
 			conformant++
 		}
+		if len(cr.RasterizedPages) > 0 {
+			rasterized++
+		}
 		if len(cr.RasterDrops) > 0 {
-			lossyRaster++
+			dropped++
 		}
 		cr.Close()
 	}
-	return conformant, lossyRaster
+	return conformant, rasterized, dropped
 }
 
 // TestRealWorldCorpus runs the two real-world metrics over tests/realworld/:
@@ -788,8 +795,9 @@ func TestRealWorldCorpus(t *testing.T) {
 		}
 	}
 	if len(convFiles) > 0 {
-		conformant, lossy := checkShouldConvert(t, convFiles)
-		t.Logf("should-convert: %d files, %d conformant, %d via lossy raster", len(convFiles), conformant, lossy)
+		conformant, rasterized, dropped := checkShouldConvert(t, convFiles)
+		t.Logf("should-convert: %d files, %d conformant, %d needed a rasterized page, %d lost undrawable content",
+			len(convFiles), conformant, rasterized, dropped)
 	}
 }
 
@@ -817,8 +825,14 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	conv := realWorldPDFs(t, convDir)
-	if conformant, _ := checkShouldConvert(t, conv); len(conv) != 1 || conformant != 1 {
+	conformant, rasterized, dropped := checkShouldConvert(t, conv)
+	if len(conv) != 1 || conformant != 1 {
 		t.Errorf("should-convert self-check: files=%d conformant=%d, want 1/1", len(conv), conformant)
+	}
+	// A plain vector page converts without any raster fallback, so both loss
+	// metrics must stay at zero -- otherwise they are measuring nothing.
+	if rasterized != 0 || dropped != 0 {
+		t.Errorf("should-convert self-check: rasterized=%d dropped=%d, want 0/0", rasterized, dropped)
 	}
 
 	// A missing directory yields no files (the skip path).

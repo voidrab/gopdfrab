@@ -83,10 +83,33 @@ type ConvertResult struct {
 	// only when Options.CheckFidelity was set. See PageFidelity.
 	Fidelity []PageFidelity
 	// RasterDrops records content the raster fallback could not render when it
-	// flattened a page (shadings, inline images, Type 3 fonts), so a rasterized
-	// conversion does not silently lose it. Empty when no page was rasterized or
-	// nothing was dropped.
+	// flattened a page or a transparency group (an unusable shading, an
+	// undecodable inline image, a missing Type 3 glyph, a tiling pattern), so a
+	// rasterized conversion does not silently lose it. Empty when nothing was
+	// dropped -- including when a page was rasterized losslessly, which
+	// RasterizedPages reports instead.
 	RasterDrops []RasterDrop
+	// RasterizedPages lists, in ascending order, the 1-based pages the raster
+	// fallback rebuilt as a flat image. A page here converted only by being
+	// rasterized, whether or not anything was dropped doing it, so it stopped
+	// being text and vector content.
+	RasterizedPages []int
+}
+
+// addRasterizedPages merges pages into RasterizedPages, kept sorted and
+// deduped since the page-level fallback and the whole-document one can both
+// rebuild the same page.
+func (r *ConvertResult) addRasterizedPages(pages []int) {
+	seen := make(map[int]bool, len(r.RasterizedPages)+len(pages))
+	merged := make([]int, 0, len(r.RasterizedPages)+len(pages))
+	for _, p := range append(append([]int(nil), r.RasterizedPages...), pages...) {
+		if !seen[p] {
+			seen[p] = true
+			merged = append(merged, p)
+		}
+	}
+	sort.Ints(merged)
+	r.RasterizedPages = merged
 }
 
 // RasterDrop lists the content features the raster fallback dropped on one page.
@@ -317,7 +340,10 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// Per-run deviceColourFixer wired to the Reader's concurrent decode cache,
 	// shared with the pre-loop detectColourModelUsage scan.
 	dcFixer := deviceColourFixer{decode: decoderFor(doc)}
-	localFixers := buildLocalFixers(dcFixer, doc, o.dpi())
+	// The transparency flattener is a Fixer, with no handle on the result, so
+	// the drops it cannot render are collected here and folded in below.
+	var formDrops []RasterDrop
+	localFixers := buildLocalFixers(dcFixer, doc, o.dpi(), &formDrops)
 
 	var (
 		cr         ConvertResult
@@ -415,6 +441,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi()); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
+	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
@@ -472,8 +499,9 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if drops, changed := applyRasterFallback(trailer, cr.Result.Issues, dpi); changed {
+	if drops, rasterized, changed := applyRasterFallback(trailer, cr.Result.Issues, dpi); changed {
 		cr.RasterDrops = append(cr.RasterDrops, drops...)
+		cr.addRasterizedPages(rasterized)
 		cr.Iterations++
 		*graphClean = false
 		result, parts, _, err := inHeapVerify(doc, *trailer, p)
@@ -484,8 +512,9 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 		*lastParts, *graphClean = parts, true
 	}
 	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) {
-		if drops, changed := flattenAllPages(trailer, dpi); changed {
+		if drops, rasterized, changed := flattenAllPages(trailer, dpi); changed {
 			cr.RasterDrops = append(cr.RasterDrops, drops...)
+			cr.addRasterizedPages(rasterized)
 			cr.Iterations++
 			*graphClean = false
 			result, parts, _, err := inHeapVerify(doc, *trailer, p)
@@ -580,7 +609,7 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 // substituted for the registry singletons: the per-run dcFixer, a
 // fontSubstitutionFixer carrying the run's Reader for cached usage scans,
 // and an appearanceFixer carrying the run's appearance font.
-func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int) map[pdf.Check]Fixer {
+func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop) map[pdf.Check]Fixer {
 	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
@@ -594,7 +623,7 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int) map[p
 		case appearanceFixer:
 			local[c] = appearanceFixer{fontSrc: fontSrc}
 		case transparencyFlattener:
-			local[c] = transparencyFlattener{dpi: dpi}
+			local[c] = transparencyFlattener{dpi: dpi, drops: formDrops}
 		default:
 			local[c] = f
 		}
@@ -606,7 +635,7 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int) map[p
 // raster image (flattenPageToImage), the last-resort remediation for content
 // no targeted fixer could repair. Page numbers in issues align with the
 // graph's page order, since both come from the same Root/Pages/Kids walk.
-func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) ([]RasterDrop, bool) {
+func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
 	flag := map[int]bool{}
 	for _, iss := range issues {
@@ -633,7 +662,7 @@ func applyRasterFallback(trailer *pdf.PDFDict, issues []pdf.PDFError, dpi int) (
 // flattenAllPages rasterizes every page, the final backstop for residuals that
 // applyRasterFallback can't target -- document-level violations with no page
 // number, or anything its page-by-page pass left behind.
-func flattenAllPages(trailer *pdf.PDFDict, dpi int) ([]RasterDrop, bool) {
+func flattenAllPages(trailer *pdf.PDFDict, dpi int) ([]RasterDrop, []int, bool) {
 	pages := orderedPages(*trailer)
 	pageNums := make([]int, len(pages))
 	for i := range pages {
@@ -646,7 +675,7 @@ func flattenAllPages(trailer *pdf.PDFDict, dpi int) ([]RasterDrop, bool) {
 // each render mutates only its own page dict while reading the shared graph,
 // the same access pattern transparencyFlattener's workers rely on. pageNums
 // aligns with pages (the 1-based page number of each) for the drop report.
-func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]RasterDrop, bool) {
+func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]RasterDrop, []int, bool) {
 	seen := map[uintptr]bool{}
 	var unique []pageTarget
 	var uniqueNums []int
@@ -660,7 +689,7 @@ func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]Raster
 		uniqueNums = append(uniqueNums, pageNums[i])
 	}
 	if len(unique) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 
 	changedFlags := make([]bool, len(unique))
@@ -686,13 +715,18 @@ func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]Raster
 
 	changed := false
 	var drops []RasterDrop
+	var rasterized []int
 	for i, c := range changedFlags {
-		changed = changed || c
-		if c && len(dropLists[i]) > 0 {
+		if !c {
+			continue
+		}
+		changed = true
+		rasterized = append(rasterized, uniqueNums[i])
+		if len(dropLists[i]) > 0 {
 			drops = append(drops, RasterDrop{Page: uniqueNums[i], Features: dropLists[i]})
 		}
 	}
-	return drops, changed
+	return drops, rasterized, changed
 }
 
 // sortedChecks returns counts' keys ordered by clause, subclause, and name,
