@@ -41,6 +41,9 @@ benchmarks/tools/pdfbox/*.jar
 benchmarks/tools/pdfbox/*.class
 benchmarks/results/*
 !benchmarks/results/report.md
+# Per-round benchstat history is committed on purpose (roadmap item 22), so
+# regressions across releases stay visible. Written by record-history.sh.
+!benchmarks/results/history/
 
 # Python cache (benchmarks/scripts/report.py)
 __pycache__/
@@ -57,8 +60,6 @@ tests/realworld/**/*.pdf
 # Fuzzing crashers written by `go test -fuzz` (reproduce locally via the
 # reported seed; never commit machine-specific corpus entries)
 testdata/fuzz/
-
-TODO.md
 
 # CLI binary if built without -o from the repo root
 /gopdfrab

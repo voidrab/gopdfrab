@@ -682,10 +682,25 @@ the API is still pre-1.0. README updated to match.
 
 Numbers are strong; the work is keeping them.
 
-### 22. Commit performance history
+### 22. Commit performance history — **DONE**
 
-`benchmarks/results/` is gitignored, so every round is local-only and regressions
-across releases are invisible. Commit a per-release benchstat summary.
+Was: `benchmarks/results/` is gitignored, so every round was local-only and
+regressions across releases invisible.
+
+`benchmarks/results/history/` is now un-ignored and holds one committed file per
+round — the raw `go test -bench` output, which is what benchstat reads, named
+`YYYY-MM-DD-<short-sha>.txt`. `benchmarks/scripts/record-history.sh` records a
+round and prints a benchstat comparison against the previous one; it refuses to
+name a dirty tree anything but `-dirty`, so a committed round always ties to a
+commit. The first baseline is committed.
+
+Two things the directory's README makes explicit, because the numbers are easy
+to over-read: `allocs/op` is deterministic (every sample in the baseline round
+reports ± 0%) and is the signal to trust, backed by the enforced ceilings in
+`TestCostPathAllocationsBounded` (item 23); wall-clock is ±15% thermally noisy
+on a dev machine, so a time difference under that is unproven. Rounds are not
+comparable across machines, which is why `goos`/`goarch`/`cpu` stay in each
+file's header.
 
 ### 23. Extend the allocation guards — **DONE**
 
@@ -742,17 +757,38 @@ that double as tests via their `// Output:` blocks.
 The README Roadmap/Status pass this item also called for was already done in an
 earlier refresh — the "early stage"/"must be created" wording is gone.
 
-### 28. Repo hygiene
+### 28. Repo hygiene — **DONE**
 
-`tests/regression/` is gitignored (item 11). Three stale multi-megabyte `.test`
-binaries and two coverage files sit in the working tree — ignored, but they
-suggest the working directory is doing double duty as a scratch space.
-`GOOS=js GOARCH=wasm go build ./wasm/` fails without `-o` because the output
-name collides with the directory; fix that and put the wasm build in CI so it
-can't rot. `TODO.md` is gitignored, so items 20–22 of the old list live nowhere
-shared — fold what survives into this file.
+All four residuals closed:
+
+- **`TODO.md` is folded in and deleted**, along with its `.gitignore` line. Every
+  note it carried is now either done or recorded in item 29 — including the two
+  it held that turned out not to be what they claimed (the Type1 `/Differences`
+  asymmetry, real but costing nothing measurable; the supposedly-dead
+  null-string comparisons in `checks_xmp.go`, which still catch a literal
+  `(null)` Info value).
+- **The wasm `-o` nit is fixed and in CI** — `.github/workflows/go.yml`'s `wasm`
+  job builds `GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/`, so the
+  directory-name collision cannot come back (item 13).
+- **The stale `.test` binaries and coverage files are gone** from the working
+  tree; `git status --ignored` shows only benchmark outputs, the gitignored
+  corpora, and `.env`.
+- **`tests/regression/` stays gitignored** on purpose (item 11): it is real-world
+  documents whose licensing is item 10's problem, and the committed-inventory
+  approach there is the answer, not committing the bytes.
 
 ### 29. Carry-over from TODO.md
+
+`TODO.md` is gone — everything it held is either done below or recorded here.
+The one open item it carried that is not yet closed:
+
+- **The Type1 width path models fewer encodings than the Type1C one.**
+  `Type1EncodingTable` handles StandardEncoding and WinAnsiEncoding and bails on
+  anything else, including `/Differences`, while the Type1C path resolves
+  Differences via `SimpleFontGlyphNameTable`. Asymmetric 6.3.6 coverage — but
+  now measured, and no file in either corpus hits the bail (see the
+  instrumentation item below), so closing it is speculative work until a
+  real-world file (item 10) shows otherwise.
 
 - ~~Document the `pdf.StreamKey` invariant at the type.~~ **DONE.** Stated at
   `StreamKey`: a key is meaningful only while something pins the bytes it was
@@ -807,7 +843,10 @@ shared — fold what survives into this file.
   because `StreamKey` identifies raw bytes and nothing else, so a cache shared
   across `DecodeOptions` would answer one caller with another's parameters.
   Anything needing options goes through `DecodeStreamFull` uncached.
-- Coverage to ~95%: verify 93.5%, convert 92.6%. CFF/Type1 fixtures are the bulk.
+- Coverage to ~95%: verify 93.5%, convert 92.6% (package-local figures; CI's
+  cross-package `-coverpkg` run reads a little higher). CFF/Type1 fixtures are
+  the bulk, and the width-skip work above added some without moving the total —
+  the remainder is defensive parser guards, which are deliberately not chased.
 
 ---
 
@@ -863,7 +902,28 @@ Recorded so nobody re-investigates:
    `OpenBytesSeek` parity + documented). Remaining: item 8's resolved-graph
    footprint (the larger rearchitecture, now backed by measurement). Rendering
    the dropped features (shadings, Type 3) is the large deferred half of item 6.
-7. **Items 22–29.** Continuous.
+7. ~~**Items 14, 22–29.**~~ Done. Item 14 (concurrency contract stated at each
+   type, six `-race` tests); items 23, 24, 25, 26, 27 as noted in their sections;
+   item 22 (committed benchstat history) and item 28 (`TODO.md` folded in and
+   deleted, wasm `-o` in CI, tree clean); item 29's carry-overs — width-skip
+   instrumentation, the shared scalar dispatch, and the three invariant docs.
+
+**What is left.** Three things, all deliberately scoped out rather than
+outstanding:
+
+- **Item 10's curation** — populating the real-world corpus with permissively
+  licensed documents. The harness, manifest and fetch script are done; this is
+  sourcing work, not code, and it gates the last CI gap (item 13).
+- **Item 8's resolved-graph footprint** — partial/streaming resolution, against a
+  verify/convert model built on a fully-resolved in-heap trailer. The larger
+  rearchitecture, now backed by measurement.
+- **Item 6's rendering half** — actually drawing shadings, inline images and
+  Type 3 glyphs rather than reporting their loss. A large rendering effort, and
+  the loud per-page residual already prevents silent data loss.
+
+Item 29 also keeps one small open note: the Type1 width path models fewer
+encodings than the Type1C one — now measured, and costing nothing on either
+corpus.
 
 ## Not in 1.0
 
