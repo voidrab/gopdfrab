@@ -12,8 +12,9 @@ func hasDrop(drops []string, want string) bool {
 	return slices.Contains(drops, want)
 }
 
-// TestRasterReportsShading: a page using the sh operator reports a shading drop
-// (the rasterizer cannot draw gradients).
+// TestRasterReportsShading: an sh operator naming a shading that isn't in the
+// resources reports a drop rather than silently painting nothing. (A shading
+// the rasterizer can draw is covered in raster_shading_test.go.)
 func TestRasterReportsShading(t *testing.T) {
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q")},
@@ -103,8 +104,9 @@ func TestRasterInvisibleTextRenderMode(t *testing.T) {
 	}
 }
 
-// TestFlattenPageReportsDrops: flattening a page that uses a shading records
-// the dropped feature, which rasterBackstop surfaces as ConvertResult.RasterDrops.
+// TestFlattenPageReportsDrops: flattening a page whose shading cannot be drawn
+// records the dropped feature, which rasterBackstop surfaces as
+// ConvertResult.RasterDrops.
 func TestFlattenPageReportsDrops(t *testing.T) {
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q\n0 0 0 rg 2 2 5 5 re f")},

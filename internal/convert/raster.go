@@ -412,7 +412,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "Tr":
 			gs.renderMode = int(nums(1)[0])
 		case "sh":
-			r.drop(dropShading)
+			r.paintShadingOp(operands, resources, &gs)
 		case "INLINEIMAGE":
 			r.paintInlineImage(operands, resources, &gs)
 		}
