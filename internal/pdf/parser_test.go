@@ -201,3 +201,67 @@ func TestParseDictionaryValueError(t *testing.T) {
 		t.Error("expected error propagated from a malformed nested array value")
 	}
 }
+
+// TestScalarDispatchAgreesAcrossParsers is the regression gate for the shared
+// parseScalarToken: the two token dispatchers -- parseObject, for a value inside
+// a containing object, and parseClassicAt, for an indirect object's body -- must
+// agree on every scalar. They were separate copies once and silently diverged on
+// scalars and null.
+func TestScalarDispatchAgreesAcrossParsers(t *testing.T) {
+	cases := []struct {
+		name    string
+		literal string
+	}{
+		{"null", "null"},
+		{"true", "true"},
+		{"false", "false"},
+		{"name", "/Foo"},
+		{"literal string", "(hi there)"},
+		{"hex string", "<48656C6C6F>"},
+		{"real", "3.5"},
+		{"negative real", "-0.25"},
+		{"integer", "42"},
+		{"bare keyword", "wibble"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(c.literal), 0)
+			want, wantErr := parseObject(l, l.NextToken())
+
+			d := &Reader{data: []byte("1 0 obj " + c.literal + " endobj")}
+			got, gotErr := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
+
+			if (wantErr == nil) != (gotErr == nil) {
+				t.Fatalf("errors differ: parseObject=%v, object body=%v", wantErr, gotErr)
+			}
+			if !EqualPDFValue(got, want) {
+				t.Errorf("object body = %#v, parseObject = %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestObjectBodyIntegerIsNotAReference pins the one legitimate difference
+// between the two dispatchers: "1 0 R" inside a containing object is a
+// reference, but as an object's whole body it is just the integer 1 -- an
+// object body is a value, not a reference chain.
+func TestObjectBodyIntegerIsNotAReference(t *testing.T) {
+	l := NewLexerBytes([]byte("1 0 R"), 0)
+	inside, err := parseObject(l, l.NextToken())
+	if err != nil {
+		t.Fatalf("parseObject: %v", err)
+	}
+	if ref, ok := inside.(PDFRef); !ok || ref.ObjNum != 1 {
+		t.Fatalf("inside an object, 1 0 R = %#v, want PDFRef{1,0}", inside)
+	}
+
+	d := &Reader{data: []byte("1 0 obj 1 0 R endobj")}
+	body, err := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
+	if err != nil {
+		t.Fatalf("parseClassicAt: %v", err)
+	}
+	if body != PDFInteger(1) {
+		t.Errorf("as an object body, 1 0 R = %#v, want PDFInteger(1)", body)
+	}
+}

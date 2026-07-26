@@ -127,6 +127,13 @@ type Reader struct {
 // DecodeStreamCached decodes dict's stream, memoizing the result by content
 // identity (StreamKeyOf) on the Reader so callers sharing one Reader across
 // multiple verify passes never re-inflate an unchanged stream.
+//
+// Only the default-options, non-image decode is cached, here and in
+// ScanStreamCached. A StreamKey identifies raw bytes and nothing else, so a
+// cache shared across DecodeOptions would hand back a result decoded under
+// someone else's parameters -- an image decoded with its /Columns and /BPC, say,
+// answering a caller that asked for the plain bytes. Anything needing options
+// goes through DecodeStreamFull uncached.
 func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
 	key, ok := StreamKeyOf(dict)
 	if !ok {

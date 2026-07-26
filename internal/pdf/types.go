@@ -1,5 +1,15 @@
 package pdf
 
+// PDFValue is any PDF object. The null object (ISO 32000-1 7.3.10) is a nil
+// PDFValue -- there is no PDFNull type. Three sites depend on it: a reference
+// with no target resolves to nil, the 'null' keyword parses to nil, and the
+// writer emits nil as "null".
+//
+// The trap this creates: a dictionary entry that is present but null is
+// Entries[k] == nil, indistinguishable from an absent entry. That is correct
+// PDF semantics -- the spec says the two are equivalent -- but it means
+// `if _, ok := Entries[k]; ok` does not mean "has a value". Test the value, not
+// the key's presence.
 type PDFValue any
 
 type PDFHexString struct{ Value string }

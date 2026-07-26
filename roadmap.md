@@ -754,15 +754,32 @@ shared — fold what survives into this file.
 
 ### 29. Carry-over from TODO.md
 
-- Document the `pdf.StreamKey` invariant at the type: it keys caches by
-  `uintptr(&RawStream[0])`, valid only while the graph pins the slices, and
-  `AdoptStreamCaches` extends that across two Readers.
-- Document the null ≡ Go `nil` invariant. A present-but-null dict entry is
-  indistinguishable from an absent one — correct PDF semantics, very easy to
-  break with `if _, ok := Entries[k]; ok`.
-- Deduplicate `parseClassicReference` against `parseObject`. It's a copy that has
-  already silently diverged on scalars and null once; the only legitimate
-  difference is the `N G R` lookahead.
+- ~~Document the `pdf.StreamKey` invariant at the type.~~ **DONE.** Stated at
+  `StreamKey`: a key is meaningful only while something pins the bytes it was
+  taken from (a key outliving its slice can be matched by an unrelated
+  allocation at the same address), the resolved graph is that pin, and that is
+  exactly why `AdoptStreamCaches` is sound between two Readers seeded with the
+  same graph.
+- ~~Document the null ≡ Go `nil` invariant.~~ **DONE.** Stated at `PDFValue`,
+  with the three sites that depend on it and the trap it creates: a
+  present-but-null entry is `Entries[k] == nil`, indistinguishable from absent,
+  so `if _, ok := Entries[k]; ok` does not mean "has a value".
+- ~~Deduplicate `parseClassicReference` against `parseObject`.~~ **DONE.** The
+  scalar cases now live in one `parseScalarToken`, which both dispatchers call
+  first; each keeps only what genuinely differs. `TestScalarDispatchAgreesAcrossParsers`
+  compares the two over every scalar literal, and
+  `TestObjectBodyIntegerIsNotAReference` pins the one legitimate divergence
+  (`1 0 R` is a reference inside a containing object, but just the integer 1 as
+  an object's whole body — a body is a value, not a reference chain).
+
+  The gate was checked against the historical bug, not just written: making the
+  object-body path return a `PDFName` for `null` again fails the test on the
+  `null` case specifically.
+
+  One sub-item **kept, not removed**: the old note called `checks_xmp.go`'s
+  `val == "null"` comparisons dead now that null is nil. They are not — a
+  producer can legitimately write the literal *string* `(null)` into an Info
+  entry, which is what those comparisons still catch. Left in place.
 - ~~Instrument the conservative skips in `CFFAdvanceWidths`/`CFFCIDAdvanceWidths`
   and the Type1 `FontFile` width path.~~ **DONE.** They bail on FontMatrix,
   unusual charstring prefixes, and Differences, and the bails were invisible —
@@ -785,9 +802,11 @@ shared — fold what survives into this file.
   Type1C path handles `/Differences` — but no corpus file hits that bail, so the
   gap the old TODO flagged is real in principle and empty in practice. Worth
   knowing before spending effort closing it.
-- Document the `DecodeOptions` cache rule at `Reader`: only the default-options,
-  non-image decode is cached, because `StreamKey` identifies raw bytes and would
-  otherwise hand back a variant decoded under different parameters.
+- ~~Document the `DecodeOptions` cache rule at `Reader`.~~ **DONE.** Stated at
+  `DecodeStreamCached`: only the default-options, non-image decode is cached,
+  because `StreamKey` identifies raw bytes and nothing else, so a cache shared
+  across `DecodeOptions` would answer one caller with another's parameters.
+  Anything needing options goes through `DecodeStreamFull` uncached.
 - Coverage to ~95%: verify 93.5%, convert 92.6%. CFF/Type1 fixtures are the bulk.
 
 ---

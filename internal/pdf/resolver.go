@@ -162,6 +162,18 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 
 	t := l.NextToken()
 
+	// Scalars dispatch exactly as they do inside a containing object (see
+	// parseScalarToken); an object body only adds decryption on top.
+	if v, ok, err := parseScalarToken(t); ok {
+		if err != nil {
+			return nil, err
+		}
+		if d.shouldDecrypt(ref) {
+			v = d.decryptStrings(v, ref)
+		}
+		return v, nil
+	}
+
 	switch t.Type {
 	case TokenDictStart:
 		m, err := parseDictionary(l)
@@ -229,41 +241,10 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 		}
 		return arr, nil
 
+	// An object body is a value, not a reference chain, so a leading integer is
+	// just an integer -- no "N G R" lookahead, unlike parseObject.
 	case TokenInteger:
 		return PDFInteger(t.IntValue()), nil
-
-	case TokenReal:
-		f, err := t.RealValue()
-		if err != nil {
-			return nil, err
-		}
-		return PDFReal(f), nil
-
-	case TokenBoolean:
-		return PDFBoolean(t.Value == "true"), nil
-
-	case TokenName:
-		return PDFName{Value: t.Value}, nil
-
-	case TokenKeyword:
-		// The only bare keyword valid as an object body is 'null', which is the
-		// null object (ISO 32000-1 7.3.10), represented as a nil PDFValue.
-		if t.Value == "null" {
-			return nil, nil
-		}
-		return PDFName{Value: t.Value}, nil
-
-	case TokenString:
-		if d.shouldDecrypt(ref) {
-			return d.decryptStrings(PDFString{Value: t.Value}, ref), nil
-		}
-		return PDFString{Value: t.Value}, nil
-
-	case TokenHexString:
-		if d.shouldDecrypt(ref) {
-			return d.decryptStrings(PDFHexString{Value: t.Value}, ref), nil
-		}
-		return PDFHexString{Value: t.Value}, nil
 
 	default:
 		return nil, fmt.Errorf("unexpected token %v in object %d", t.Type, ref.ObjNum)

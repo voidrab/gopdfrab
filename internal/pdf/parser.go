@@ -294,19 +294,55 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 	return parseDictionary(l)
 }
 
-func parseObject(l *Lexer, tok Token) (PDFValue, error) {
+// parseScalarToken converts a token that stands for a complete value on its own
+// into that value. ok is false for tokens whose meaning depends on what follows
+// or on where they appear -- integers, arrays, dictionaries -- which each caller
+// handles itself.
+//
+// Both dispatchers share this: parseObject below and resolver.go's
+// parseClassicAt, which reads an indirect object's body. They were separate
+// copies once and silently diverged on scalars and null, so the scalar cases
+// live here and the callers keep only what genuinely differs.
+func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 	switch tok.Type {
-
 	case TokenKeyword:
 		// 'null' is the null object (ISO 32000-1 7.3.10), a nil PDFValue.
 		if tok.Value == "null" {
-			return nil, nil
+			return nil, true, nil
 		}
-		return PDFName{Value: tok.Value}, nil
+		return PDFName{Value: tok.Value}, true, nil
 
 	case TokenBoolean:
-		return PDFBoolean(tok.Value == "true"), nil
+		return PDFBoolean(tok.Value == "true"), true, nil
 
+	case TokenReal:
+		f, err := tok.RealValue()
+		if err != nil {
+			return nil, true, err
+		}
+		return PDFReal(f), true, nil
+
+	case TokenString:
+		return PDFString{Value: tok.Value}, true, nil
+
+	case TokenHexString:
+		return PDFHexString{Value: tok.Value}, true, nil
+
+	case TokenName:
+		return PDFName{Value: tok.Value}, true, nil
+	}
+	return nil, false, nil
+}
+
+func parseObject(l *Lexer, tok Token) (PDFValue, error) {
+	if v, ok, err := parseScalarToken(tok); ok {
+		return v, err
+	}
+
+	switch tok.Type {
+	// An integer inside a containing object may open an "N G R" reference; the
+	// object-body dispatcher has no such case, which is the one difference
+	// between the two.
 	case TokenInteger:
 		tok2 := l.NextToken()
 		tok3 := l.NextToken()
@@ -318,22 +354,6 @@ func parseObject(l *Lexer, tok Token) (PDFValue, error) {
 			l.UnreadToken(tok2)
 			return PDFInteger(tok.IntValue()), nil
 		}
-
-	case TokenReal:
-		f, err := tok.RealValue()
-		if err != nil {
-			return nil, err
-		}
-		return PDFReal(f), nil
-
-	case TokenString:
-		return PDFString{Value: tok.Value}, nil
-
-	case TokenHexString:
-		return PDFHexString{Value: tok.Value}, nil
-
-	case TokenName:
-		return PDFName{Value: tok.Value}, nil
 
 	case TokenArrayStart:
 		return parseArray(l)

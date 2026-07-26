@@ -167,6 +167,13 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 // stream always assigns a fresh RawStream slice (SetStreamFlate et al.), so
 // keying a decode cache on StreamKey makes invalidation automatic -- an
 // unchanged stream keeps hitting, a rewritten one always misses.
+//
+// The invariant a cache consumer must respect: a key is meaningful only while
+// something pins the bytes it was taken from. A key outliving its slice can be
+// matched by an unrelated allocation at the same address. In practice the
+// resolved graph is that pin, which is why the caches live on the Reader that
+// owns the graph -- and why AdoptStreamCaches (which shares a cache between two
+// Readers) is sound only because both are seeded with the same graph.
 type StreamKey struct {
 	ptr uintptr
 	len int
