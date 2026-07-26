@@ -414,7 +414,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "sh":
 			r.drop(dropShading)
 		case "INLINEIMAGE":
-			r.drop(dropInlineImage)
+			r.paintInlineImage(operands, resources, &gs)
 		}
 	})
 }
@@ -587,26 +587,41 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 	}
 }
 
-// paintImage maps an Image XObject's unit square through the CTM, sampling
-// the decoded RGBA (and, if present, its /SMask's luminosity as a per-pixel
-// alpha multiplier) into the canvas with nearest-neighbour resampling.
+// paintImage decodes an Image XObject (and its /SMask, if present) and
+// composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
 	img, err := DecodeImageRGBA(xobj, resources)
 	if err != nil {
 		return
 	}
+	var smask *image.RGBA
+	if sm, ok := xobj.Entries["SMask"].(pdf.PDFDict); ok {
+		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
+			smask = decoded
+		}
+	}
+	r.compositeImage(img, smask, isImageMask(xobj), gs)
+}
+
+// isImageMask reports whether an image dict is a stencil mask, whose samples
+// select where to paint the current fill colour rather than carrying colour.
+func isImageMask(dict pdf.PDFDict) bool {
+	return dict.Entries["ImageMask"] == pdf.PDFBoolean(true)
+}
+
+// compositeImage maps an image's unit square through the CTM, sampling the
+// decoded RGBA (and, if present, a soft mask's luminosity as a per-pixel alpha
+// multiplier) into the canvas with nearest-neighbour resampling. A stencil
+// mask paints gs.fillRGB through its alpha, since its samples carry only
+// coverage (DecodeImageRGBA renders those as opaque black).
+func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *renderState) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	if w == 0 || h == 0 {
 		return
 	}
-
-	var smask *image.RGBA
 	var smW, smH int
-	if sm, ok := xobj.Entries["SMask"].(pdf.PDFDict); ok {
-		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
-			smask = decoded
-			smW, smH = decoded.Bounds().Dx(), decoded.Bounds().Dy()
-		}
+	if smask != nil {
+		smW, smH = smask.Bounds().Dx(), smask.Bounds().Dy()
 	}
 
 	ctm := gs.ctm
@@ -648,6 +663,9 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 				continue
 			}
 			rgb := [3]float64{float64(img.Pix[po]) / 255, float64(img.Pix[po+1]) / 255, float64(img.Pix[po+2]) / 255}
+			if stencil {
+				rgb = gs.fillRGB
+			}
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
 	}

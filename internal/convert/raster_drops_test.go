@@ -27,19 +27,24 @@ func TestRasterReportsShading(t *testing.T) {
 	}
 }
 
-// TestRasterReportsInlineImage: a page with a BI/ID/EI inline image reports an
-// inline-image drop.
-func TestRasterReportsInlineImage(t *testing.T) {
-	content := "q BI /W 2 /H 1 /BPC 8 /CS /G ID \xff\x00 EI Q"
+// TestRasterDrawsInlineImage: a BI/ID/EI inline image is drawn, not dropped.
+func TestRasterDrawsInlineImage(t *testing.T) {
+	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff EI Q"
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
 	}}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
-	if !hasDrop(drops, dropInlineImage) {
-		t.Errorf("drops = %v, want %q", drops, dropInlineImage)
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 5, 10); got.R != 0 {
+		t.Errorf("left half = %v, want the black sample", got)
+	}
+	if got := nrgbaAt(t, img, 15, 10); got.R != 255 {
+		t.Errorf("right half = %v, want the white sample", got)
 	}
 }
 
