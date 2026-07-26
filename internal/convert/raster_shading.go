@@ -35,11 +35,23 @@ type shading struct {
 	dom4    [4]float64 // type 1: x and y domain
 	inverse Matrix     // type 1: inverse of /Matrix
 
+	// types 4-7: the vertex/patch stream's packing.
+	bitsPerCoord int
+	bitsPerComp  int
+	bitsPerFlag  int
+	vertsPerRow  int
+	meshDecode   []float64
+	ncomp        int // colour components stored per vertex
+
 	bbox    [4]float64 // shading-space clip
 	hasBBox bool
 
 	dict pdf.PDFDict
 }
+
+// isMesh reports whether the shading is one of the geometry-based types,
+// which are drawn as primitives rather than sampled per pixel.
+func (sh *shading) isMesh() bool { return sh.kind >= 4 && sh.kind <= 7 }
 
 // shadingFunc wraps a /Function entry, which is either one function with n
 // outputs or an array of n single-output functions (ISO 32000-1 8.7.4.5.2).
@@ -104,6 +116,8 @@ func parseShading(v pdf.PDFValue, resources pdf.PDFDict) (*shading, bool) {
 		return sh, sh.initFunctionBased(dict)
 	case 2, 3:
 		return sh, sh.initAxialRadial(dict)
+	case 4, 5, 6, 7:
+		return sh, sh.initMesh(dict)
 	}
 	return nil, false
 }
@@ -297,8 +311,13 @@ func (sh *shading) clampExtend(s float64) (float64, bool) {
 }
 
 // paintShading fills area by mapping each device pixel back through
-// shadingToDevice and sampling the shading there.
+// shadingToDevice and sampling the shading there. Mesh shadings define no
+// such field and are drawn as geometry instead.
 func (r *renderer) paintShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
+	if sh.isMesh() {
+		r.paintMeshShading(sh, shadingToDevice, alpha, area)
+		return
+	}
 	inv, ok := shadingToDevice.Invert()
 	if !ok || area.Empty() || alpha <= 0 {
 		return
