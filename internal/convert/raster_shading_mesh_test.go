@@ -1,7 +1,9 @@
 package convert
 
 import (
+	"fmt"
 	"image"
+	"math"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -214,5 +216,110 @@ func TestDecodeValue(t *testing.T) {
 			t.Errorf("decodeValue(%d, %d, %v, %v) = %v, want %v",
 				tc.raw, tc.bits, tc.lo, tc.hi, got, tc.want)
 		}
+	}
+}
+
+// TestSharedEdgeIndices pins the points and colours a flag-1/2/3 patch
+// inherits from its predecessor (ISO 32000-1 Table 85). The mapping is pure
+// index arithmetic derived from the spec, so a transcription slip would
+// silently distort every multi-patch mesh.
+func TestSharedEdgeIndices(t *testing.T) {
+	pts := make([]Point, 12)
+	for i := range pts {
+		pts[i] = Point{X: float64(i), Y: float64(i)}
+	}
+	var cols [4][3]float64
+	for i := range cols {
+		cols[i] = [3]float64{float64(i), 0, 0}
+	}
+
+	tests := []struct {
+		flag     int
+		wantPts  []int // indices into pts
+		wantCols [2]int
+	}{
+		{1, []int{3, 4, 5, 6}, [2]int{1, 2}},
+		{2, []int{6, 7, 8, 9}, [2]int{2, 3}},
+		{3, []int{9, 10, 11, 0}, [2]int{3, 0}},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("flag%d", tc.flag), func(t *testing.T) {
+			edge, c0, c1 := sharedEdge(tc.flag, pts, cols)
+			if len(edge) != 4 {
+				t.Fatalf("edge has %d points, want 4", len(edge))
+			}
+			for i, want := range tc.wantPts {
+				if edge[i] != pts[want] {
+					t.Errorf("edge[%d] = %v, want pts[%d] = %v", i, edge[i], want, pts[want])
+				}
+			}
+			if c0 != cols[tc.wantCols[0]] {
+				t.Errorf("first colour = %v, want cols[%d]", c0, tc.wantCols[0])
+			}
+			if c1 != cols[tc.wantCols[1]] {
+				t.Errorf("second colour = %v, want cols[%d]", c1, tc.wantCols[1])
+			}
+		})
+	}
+}
+
+// coord maps a 0..20 user coordinate to its 8-bit mesh sample.
+func coord(v float64) byte { return byte(math.Round(v * 255 / 20)) }
+
+// TestRenderPatchMeshSharedEdge: a second patch joined by an edge flag reuses
+// the first's edge and two of its colours, producing one continuous surface
+// rather than a detached or misplaced second patch.
+func TestRenderPatchMeshSharedEdge(t *testing.T) {
+	// Patch 1 covers the bottom half (user y 0..10), all red. Corners run
+	// p1=(0,0) p4=(0,10) p7=(20,10) p10=(20,0), counterclockwise from p1.
+	patch1 := [][2]float64{
+		{0, 0}, {0, 3.3}, {0, 6.7},
+		{0, 10}, {6.7, 10}, {13.3, 10},
+		{20, 10}, {20, 6.7}, {20, 3.3},
+		{20, 0}, {13.3, 0}, {6.7, 0},
+	}
+	data := []byte{0}
+	for _, p := range patch1 {
+		data = append(data, coord(p[0]), coord(p[1]))
+	}
+	for range 4 {
+		data = append(data, 255, 0, 0) // red
+	}
+
+	// Patch 2, flag 1: inherits patch 1's p4..p7 edge (the y=10 line) as its
+	// own p1..p4, then supplies the eight points closing the top half.
+	patch2 := [][2]float64{
+		{20, 13.3}, {20, 16.7},
+		{20, 20}, {13.3, 20}, {6.7, 20},
+		{0, 20}, {0, 16.7}, {0, 13.3},
+	}
+	data = append(data, 1)
+	for _, p := range patch2 {
+		data = append(data, coord(p[0]), coord(p[1]))
+	}
+	for range 2 {
+		data = append(data, 0, 255, 0) // green
+	}
+
+	img, drops := renderShading(t, meshShading(6, data, nil))
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	// Device y is flipped, so user y 0..10 is the lower half of the canvas.
+	if got := nrgbaAt(t, img, 10, 15); got.R <= got.G {
+		t.Errorf("first patch at (10,15) = %v, want red-dominant", got)
+	}
+	if got := nrgbaAt(t, img, 10, 1); got.G <= got.R {
+		t.Errorf("second patch at (10,1) = %v, want green-dominant", got)
+	}
+	// The join itself must be covered by one patch or the other, not a gap.
+	assertPainted(t, img, 10, 10, "the shared edge")
+}
+
+// assertPainted checks a pixel is no longer the canvas's opaque white.
+func assertPainted(t *testing.T, img *image.RGBA, x, y int, where string) {
+	t.Helper()
+	if got := nrgbaAt(t, img, x, y); got.R == 255 && got.G == 255 && got.B == 255 {
+		t.Errorf("%s at (%d,%d) is unpainted white", where, x, y)
 	}
 }
