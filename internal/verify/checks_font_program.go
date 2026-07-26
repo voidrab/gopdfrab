@@ -1864,13 +1864,9 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		return
 	}
 
-	enc, ok := Type1EncodingTable(fontData, pdfEncoding)
-	if !ok {
-		return
-	}
-
 	glyphWidths := ctx.type1ProgramFor(fontData).widths
-	if len(glyphWidths) == 0 {
+	enc, stats := Type1WidthTable(fontData, pdfEncoding, glyphWidths)
+	if stats.Skip != WidthSkipNone {
 		return
 	}
 
@@ -1905,6 +1901,25 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 			return
 		}
 	}
+}
+
+// Type1WidthTable is the Type1 (FontFile) counterpart to
+// CFFAdvanceWidthsStats: it resolves the code->glyph-name table the 6.3.6 width
+// comparison needs and reports why it gave up when it did. widths is the
+// program's glyph-name -> advance width map (Type1GlyphWidths).
+//
+// The encoding bail is the asymmetry worth watching: this path models only the
+// two name encodings, while the Type1C path handles /Differences via
+// SimpleFontGlyphNameTable.
+func Type1WidthTable(fontData []byte, pdfEncoding string, widths map[string]int) ([256]string, WidthStats) {
+	enc, ok := Type1EncodingTable(fontData, pdfEncoding)
+	if !ok {
+		return enc, WidthStats{Skip: WidthSkipEncoding}
+	}
+	if len(widths) == 0 {
+		return enc, WidthStats{Skip: WidthSkipNoWidths}
+	}
+	return enc, WidthStats{GlyphsTotal: len(widths)}
 }
 
 // Type1EncodingTable resolves the code->glyph-name table for a Type1 program,

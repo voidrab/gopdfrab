@@ -315,61 +315,129 @@ func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nomin
 	return int(defaultWidthX + 0.5)
 }
 
+// WidthSkip names why an advance-width extraction gave up. The width paths bail
+// conservatively on anything they cannot follow exactly, which silently gives up
+// 6.3.6 coverage; naming the reason lets a test measure how much (see
+// TestWidthSkipCorpusBudget) instead of guessing.
+type WidthSkip string
+
+const (
+	WidthSkipNone        WidthSkip = ""              // widths were extracted
+	WidthSkipTopDict     WidthSkip = "top-dict"      // the CFF Top DICT would not parse
+	WidthSkipCIDKeyed    WidthSkip = "cid-keyed"     // name-keyed path, CID-keyed program
+	WidthSkipNotCIDKeyed WidthSkip = "not-cid-keyed" // CID path, name-keyed program
+	WidthSkipFontMatrix  WidthSkip = "font-matrix"   // glyph space is not the default 1/1000 em
+	WidthSkipCharStrings WidthSkip = "charstrings"   // CharStrings INDEX missing or unusable
+	WidthSkipGlyphNames  WidthSkip = "glyph-names"   // charset gives no usable glyph names
+	WidthSkipPrivate     WidthSkip = "private-dict"  // Private DICT missing or unreadable
+	WidthSkipCharset     WidthSkip = "charset"       // CID charset would not parse
+	WidthSkipFDArray     WidthSkip = "fd-array"      // FDArray missing or empty
+	WidthSkipFDSelect    WidthSkip = "fd-select"     // no FDSelect and more than one Font DICT
+	WidthSkipEncoding    WidthSkip = "encoding"      // Type1 encoding this package does not model
+	WidthSkipNoWidths    WidthSkip = "no-widths"     // program parsed but yielded no widths
+)
+
+// WidthStats reports what an advance-width extraction covered. Skip is set when
+// the whole program was given up on, in which case the width map is empty;
+// GlyphsSkipped counts glyphs inside an otherwise-usable program whose
+// charstring could not be followed.
+type WidthStats struct {
+	Skip          WidthSkip
+	GlyphsTotal   int
+	GlyphsSkipped int
+}
+
 // CFFAdvanceWidths returns glyph-name -> advance width (in 1/1000 em) for a
 // name-keyed CFF program, or nil when the program is CID-keyed, declares a
 // non-default FontMatrix, or cannot be parsed. Unparseable glyphs are omitted.
 func CFFAdvanceWidths(cff []byte) map[string]int {
+	w, _ := CFFAdvanceWidthsStats(cff)
+	return w
+}
+
+// CFFAdvanceWidthsStats is CFFAdvanceWidths reporting why it gave up.
+func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
 	td, ok := ParseCFFTopDict(cff)
-	if !ok || td.IsCIDKeyed || td.HasFontMatrix || td.CSOffset < 0 || td.PrivateOffset < 0 {
-		return nil
+	switch {
+	case !ok:
+		return nil, WidthStats{Skip: WidthSkipTopDict}
+	case td.IsCIDKeyed:
+		return nil, WidthStats{Skip: WidthSkipCIDKeyed}
+	case td.HasFontMatrix:
+		return nil, WidthStats{Skip: WidthSkipFontMatrix}
+	case td.CSOffset < 0:
+		return nil, WidthStats{Skip: WidthSkipCharStrings}
+	case td.PrivateOffset < 0:
+		return nil, WidthStats{Skip: WidthSkipPrivate}
 	}
 	names := CFFGlyphNames(cff)
 	if names == nil {
-		return nil
+		return nil, WidthStats{Skip: WidthSkipGlyphNames}
 	}
 	charStrings, _ := ParseCFFIndex(cff, td.CSOffset)
 	// names is indexed by gid, including .notdef at gid 0.
-	if len(charStrings) == 0 || len(names) != len(charStrings) {
-		return nil
+	if len(charStrings) == 0 {
+		return nil, WidthStats{Skip: WidthSkipCharStrings}
+	}
+	if len(names) != len(charStrings) {
+		return nil, WidthStats{Skip: WidthSkipGlyphNames}
 	}
 	defaultWidthX, nominalWidthX, lsubrs, ok := cffPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
 	if !ok {
-		return nil
+		return nil, WidthStats{Skip: WidthSkipPrivate}
 	}
 	gsubrs := cffGlobalSubrs(cff)
 
+	stats := WidthStats{GlyphsTotal: len(charStrings) - 1}
 	widths := make(map[string]int, len(names))
 	for gid := 1; gid < len(charStrings); gid++ {
 		if w := cffCharstringWidth(charStrings[gid], gsubrs, lsubrs, defaultWidthX, nominalWidthX); w >= 0 {
 			widths[names[gid]] = w
+		} else {
+			stats.GlyphsSkipped++
 		}
 	}
-	return widths
+	return widths, stats
 }
 
 // CFFCIDAdvanceWidths returns CID -> advance width (in 1/1000 em) for a
 // CID-keyed CFF program, or nil when it cannot be parsed safely.
 func CFFCIDAdvanceWidths(cff []byte) map[int]int {
+	w, _ := CFFCIDAdvanceWidthsStats(cff)
+	return w
+}
+
+// CFFCIDAdvanceWidthsStats is CFFCIDAdvanceWidths reporting why it gave up.
+func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]int, WidthStats) {
 	td, ok := ParseCFFTopDict(cff)
-	if !ok || !td.IsCIDKeyed || td.HasFontMatrix || td.CSOffset < 0 || td.FDArrayOffset < 0 {
-		return nil
+	switch {
+	case !ok:
+		return nil, WidthStats{Skip: WidthSkipTopDict}
+	case !td.IsCIDKeyed:
+		return nil, WidthStats{Skip: WidthSkipNotCIDKeyed}
+	case td.HasFontMatrix:
+		return nil, WidthStats{Skip: WidthSkipFontMatrix}
+	case td.CSOffset < 0:
+		return nil, WidthStats{Skip: WidthSkipCharStrings}
+	case td.FDArrayOffset < 0:
+		return nil, WidthStats{Skip: WidthSkipFDArray}
 	}
 	charStrings, _ := ParseCFFIndex(cff, td.CSOffset)
 	if len(charStrings) == 0 {
-		return nil
+		return nil, WidthStats{Skip: WidthSkipCharStrings}
 	}
 	cids := ParseCFFCharsetCIDs(cff, td.CharsetOffset, len(charStrings))
 	if cids == nil {
-		return nil
+		return nil, WidthStats{Skip: WidthSkipCharset}
 	}
 	fdIndex := parseCFFFDSelect(cff, td.FDSelect, len(charStrings))
 	fds, _ := ParseCFFIndex(cff, td.FDArrayOffset)
 	if len(fds) == 0 {
-		return nil
+		return nil, WidthStats{Skip: WidthSkipFDArray}
 	}
 	if fdIndex == nil {
 		if len(fds) != 1 {
-			return nil
+			return nil, WidthStats{Skip: WidthSkipFDSelect}
 		}
 		fdIndex = make([]int, len(charStrings))
 	}
@@ -400,18 +468,22 @@ func CFFCIDAdvanceWidths(cff []byte) map[int]int {
 	}
 	gsubrs := cffGlobalSubrs(cff)
 
+	stats := WidthStats{GlyphsTotal: len(charStrings)}
 	widths := make(map[int]int, len(charStrings))
 	for gid := 0; gid < len(charStrings); gid++ {
 		fd := fdIndex[gid]
 		if fd < 0 || fd >= len(infos) || !infos[fd].ok {
+			stats.GlyphsSkipped++ // this glyph's Font DICT was unusable
 			continue
 		}
 		info := infos[fd]
 		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.lsubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
 			widths[cids[gid]] = w
+		} else {
+			stats.GlyphsSkipped++
 		}
 	}
-	return widths
+	return widths, stats
 }
 
 // parseCFFFDSelect maps each glyph ID to its Font DICT index (formats 0 and

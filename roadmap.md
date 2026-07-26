@@ -763,14 +763,28 @@ shared — fold what survives into this file.
 - Deduplicate `parseClassicReference` against `parseObject`. It's a copy that has
   already silently diverged on scalars and null once; the only legitimate
   difference is the `N G R` lookahead.
-- Instrument the conservative skips in `CFFAdvanceWidths`/`CFFCIDAdvanceWidths`
-  and the Type1 `FontFile` width path. They bail on FontMatrix, unusual
-  charstring prefixes, and Differences, and the bails are invisible — there's no
-  way to know how much 6.3.6 coverage is silently skipped across the corpus.
-  Same class as item 1a, one layer up: the `ParseSfnt`/`ParseCFFTopDict` bails
-  turned out to be covered by `ValidateFontProgram` reporting the same parse
-  failure, and are now annotated with a test pinning that; the width-path bails
-  have no such sibling.
+- ~~Instrument the conservative skips in `CFFAdvanceWidths`/`CFFCIDAdvanceWidths`
+  and the Type1 `FontFile` width path.~~ **DONE.** They bail on FontMatrix,
+  unusual charstring prefixes, and Differences, and the bails were invisible —
+  the same class as item 1a, one layer up. The three paths now return a typed
+  `WidthSkip` reason and per-glyph counts alongside the widths
+  (`CFFAdvanceWidthsStats`, `CFFCIDAdvanceWidthsStats`, `Type1WidthTable`); the
+  plain functions stay as wrappers, so no call site or verdict moved. Nothing is
+  reported to the user — this measures the coverage hole, it does not close it.
+
+  `TestWidthSkipCorpusBudget` tallies every skip across all 773 committed corpus
+  files against pinned numbers, so a path that starts or stops following a class
+  of font program has to be re-pinned deliberately. The measurement: **of the 30
+  embedded programs that reach a width path, 8 are given up on** — 5 bare-CFF
+  programs declaring a FontMatrix (glyph space is not 1/1000 em, so the widths
+  are not comparable) and 3 Type1 programs whose eexec section yields no
+  charstring widths at all.
+
+  One finding: **the Differences asymmetry costs nothing measurable.** The Type1
+  `FontFile` path models only StandardEncoding and WinAnsiEncoding while the
+  Type1C path handles `/Differences` — but no corpus file hits that bail, so the
+  gap the old TODO flagged is real in principle and empty in practice. Worth
+  knowing before spending effort closing it.
 - Document the `DecodeOptions` cache rule at `Reader`: only the default-options,
   non-image decode is cached, because `StreamKey` identifies raw bytes and would
   otherwise hand back a variant decoded under different parameters.

@@ -1,7 +1,15 @@
 package verify
 
 import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 func TestCFFAdvanceWidths(t *testing.T) {
@@ -252,6 +260,341 @@ func TestCffPrivateInfoWithSubrs(t *testing.T) {
 	if len(subrs) != 1 {
 		t.Errorf("cffPrivateInfo local Subrs = %v, want 1 entry", subrs)
 	}
+}
+
+// TestWidthSkipReasons drives each documented bail in the three width paths and
+// checks the reason it reports, so the tally in TestWidthSkipCorpusBudget can be
+// read as meaning what it says.
+func TestWidthSkipReasons(t *testing.T) {
+	nameKeyed, cidKeyed := buildMinimalCFF(), buildMinimalCIDCFF()
+
+	// Corrupting a Top DICT offset operand in place: the dict still parses, but
+	// the structure it points at does not.
+	brokenCharset := append([]byte{}, cidKeyed...)
+	td, ok := ParseCFFTopDict(cidKeyed)
+	if !ok {
+		t.Fatal("sanity: buildMinimalCIDCFF should parse")
+	}
+	brokenCharset[td.CharsetOffset] = 0x09 // unknown charset format
+
+	cffCases := []struct {
+		name string
+		cff  []byte
+		want WidthSkip
+	}{
+		{"name-keyed ok", nameKeyed, WidthSkipNone},
+		{"top dict unparseable", nil, WidthSkipTopDict},
+		{"cid-keyed program", cidKeyed, WidthSkipCIDKeyed},
+	}
+	for _, c := range cffCases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, stats := CFFAdvanceWidthsStats(c.cff); stats.Skip != c.want {
+				t.Errorf("CFFAdvanceWidthsStats skip = %q, want %q", stats.Skip, c.want)
+			}
+		})
+	}
+
+	cidCases := []struct {
+		name string
+		cff  []byte
+		want WidthSkip
+	}{
+		{"cid-keyed ok", cidKeyed, WidthSkipNone},
+		{"top dict unparseable", nil, WidthSkipTopDict},
+		{"name-keyed program", nameKeyed, WidthSkipNotCIDKeyed},
+		{"charset unparseable", brokenCharset, WidthSkipCharset},
+	}
+	for _, c := range cidCases {
+		t.Run("cid/"+c.name, func(t *testing.T) {
+			if _, stats := CFFCIDAdvanceWidthsStats(c.cff); stats.Skip != c.want {
+				t.Errorf("CFFCIDAdvanceWidthsStats skip = %q, want %q", stats.Skip, c.want)
+			}
+		})
+	}
+
+	// Top DICTs that parse but omit or misplace a section the width walk needs.
+	// Operands use the single-byte encoding (value = byte - 139); operator 17 is
+	// CharStrings, 18 Private, 15 charset, 12 7 FontMatrix, 12 36 FDArray.
+	byTopDict := []struct {
+		name string
+		dict []byte
+		want WidthSkip
+		cid  bool
+	}{
+		{"font matrix", []byte{12, 7, 139, 18}, WidthSkipFontMatrix, false},
+		{"no charstrings", []byte{139, 15}, WidthSkipCharStrings, false},
+		{"no private dict", []byte{139 + 48, 17}, WidthSkipPrivate, false},
+		{"charstrings unparseable", []byte{255, 0x7f, 0, 0, 0, 17, 139, 139, 18}, WidthSkipCharStrings, false},
+		{"cid: no charstrings", cidTopDict(nil), WidthSkipCharStrings, true},
+		{"cid: no fd array", cidTopDict([]byte{139 + 48, 17}), WidthSkipFDArray, true},
+		{"cid: font matrix", cidTopDict([]byte{12, 7}), WidthSkipFontMatrix, true},
+	}
+	for _, c := range byTopDict {
+		t.Run(c.name, func(t *testing.T) {
+			cff := buildCFFWithTopDict(c.dict)
+			var got WidthSkip
+			if c.cid {
+				_, stats := CFFCIDAdvanceWidthsStats(cff)
+				got = stats.Skip
+			} else {
+				_, stats := CFFAdvanceWidthsStats(cff)
+				got = stats.Skip
+			}
+			if got != c.want {
+				t.Errorf("skip = %q, want %q", got, c.want)
+			}
+		})
+	}
+
+	// A name-keyed program whose charset yields no glyph names: point charset at
+	// an unknown format so CFFGlyphNames declines it.
+	noNames := append([]byte{}, nameKeyed...)
+	ntd, ok := ParseCFFTopDict(nameKeyed)
+	if !ok {
+		t.Fatal("sanity: buildMinimalCFF should parse")
+	}
+	noNames[ntd.CharsetOffset] = 0x09
+	if _, stats := CFFAdvanceWidthsStats(noNames); stats.Skip != WidthSkipGlyphNames {
+		t.Errorf("unparseable charset skip = %q, want %q", stats.Skip, WidthSkipGlyphNames)
+	}
+
+	type1 := []struct {
+		name     string
+		encoding string
+		widths   map[string]int
+		want     WidthSkip
+	}{
+		{"ok", "WinAnsiEncoding", map[string]int{"A": 600}, WidthSkipNone},
+		{"unmodelled encoding", "MacExpertEncoding", map[string]int{"A": 600}, WidthSkipEncoding},
+		{"no widths", "StandardEncoding", nil, WidthSkipNoWidths},
+	}
+	for _, c := range type1 {
+		t.Run("type1/"+c.name, func(t *testing.T) {
+			if _, stats := Type1WidthTable(nil, c.encoding, c.widths); stats.Skip != c.want {
+				t.Errorf("Type1WidthTable skip = %q, want %q", stats.Skip, c.want)
+			}
+		})
+	}
+}
+
+// cidTopDict returns a Top DICT marked CID-keyed (ROS, escape operator 12 30)
+// followed by extra.
+func cidTopDict(extra []byte) []byte {
+	return append([]byte{139, 139, 139, 12, 30}, extra...)
+}
+
+// TestWidthSkipGlyphCounts checks the per-glyph half of WidthStats: a program
+// that parses but holds one unfollowable charstring reports it rather than
+// quietly dropping the glyph.
+func TestWidthSkipGlyphCounts(t *testing.T) {
+	widths, stats := CFFAdvanceWidthsStats(buildMinimalCFF())
+	if stats.Skip != WidthSkipNone || stats.GlyphsTotal == 0 {
+		t.Fatalf("stats = %+v, want no skip and a non-zero glyph count", stats)
+	}
+	if stats.GlyphsTotal-stats.GlyphsSkipped != len(widths) {
+		t.Errorf("stats = %+v, but %d widths extracted", stats, len(widths))
+	}
+
+	// Replace glyph 1's charstring (a lone endchar at offset 55, see
+	// buildMinimalCFF's layout) with an operator outside the width-prefix
+	// grammar: the program is still usable, but that one glyph is given up on.
+	broken := buildMinimalCFF()
+	broken[55] = 0x09
+	widths, stats = CFFAdvanceWidthsStats(broken)
+	if stats.Skip != WidthSkipNone {
+		t.Fatalf("one bad charstring should not skip the program: %+v", stats)
+	}
+	if stats.GlyphsSkipped != 1 || len(widths) != 0 {
+		t.Errorf("stats = %+v, widths = %v; want 1 glyph skipped and none extracted", stats, widths)
+	}
+
+	// CID path: point one glyph's FDSelect entry at a Font DICT that does not
+	// exist, so its width is given up on while the rest of the program is fine.
+	cid := buildMinimalCIDCFF()
+	td, ok := ParseCFFTopDict(cid)
+	if !ok {
+		t.Fatal("sanity: buildMinimalCIDCFF should parse")
+	}
+	cid[td.FDSelect+2] = 5 // format-0 FDSelect: one byte per glyph, glyph 1 here
+	cidWidths, cidStats := CFFCIDAdvanceWidthsStats(cid)
+	if cidStats.Skip != WidthSkipNone || cidStats.GlyphsSkipped != 1 {
+		t.Errorf("stats = %+v, want no skip and 1 glyph skipped", cidStats)
+	}
+	if _, found := cidWidths[1]; found {
+		t.Errorf("CID 1 should have no width: %v", cidWidths)
+	}
+}
+
+// widthSkipBudget pins how much 6.3.6 advance-width coverage the conservative
+// bails give up across the committed corpora. These are measured numbers, not
+// targets: a diff here means a width path started or stopped following a class
+// of font program, which is worth a deliberate look before re-pinning.
+// Measured 2026-07-26 over the 773 committed corpus files: of the 30 embedded
+// programs that reach a width path, 8 are given up on -- 5 bare-CFF programs
+// declaring a FontMatrix, and 3 Type1 programs whose eexec section yields no
+// charstring widths. No corpus file hits the Type1 encoding bail, so that
+// asymmetry with the Type1C path costs nothing measurable here.
+var widthSkipBudget = map[string]int{
+	"cidcff/none":        14,
+	"type1/no-widths":    3,
+	"type1/none":         4,
+	"type1c/font-matrix": 5,
+	"type1c/none":        4,
+}
+
+// TestWidthSkipCorpusBudget tallies every width-path skip across both
+// conformance corpora. The bails are individually reasonable, but they were
+// invisible -- the same class of gap as roadmap item 1a, one layer up -- so this
+// measures them instead of leaving them to be guessed at.
+func TestWidthSkipCorpusBudget(t *testing.T) {
+	got := map[string]int{}
+	files := 0
+	for _, dir := range []string{isartorDir, veraPDFDir} {
+		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(p), ".pdf") {
+				return nil
+			}
+			files++
+			tallyWidthSkips(p, got)
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+	if files == 0 {
+		t.Skip("conformance corpora not present")
+	}
+
+	if len(widthSkipBudget) == 0 {
+		// First run, or a deliberate re-pin: report the measurement.
+		t.Errorf("widthSkipBudget is empty; measured tally over %d files:\n%s", files, formatTally(got))
+		return
+	}
+	for _, key := range sortedTallyKeys(got, widthSkipBudget) {
+		if got[key] != widthSkipBudget[key] {
+			t.Errorf("width skip %q: %d, want %d (re-pin widthSkipBudget deliberately)\nfull tally:\n%s",
+				key, got[key], widthSkipBudget[key], formatTally(got))
+			return
+		}
+	}
+}
+
+// tallyWidthSkips opens one PDF and records, per font dictionary, which width
+// path applies and what it reported. It mirrors the dispatch in
+// validateFontDict, so the tally reflects what verification actually does.
+func tallyWidthSkips(path string, tally map[string]int) {
+	r, err := pdf.Open(path)
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	graph, err := r.ResolveGraph()
+	if err != nil {
+		return
+	}
+
+	forEachDict(graph, func(v pdf.PDFDict) {
+		if v.Entries["Type"] != (pdf.PDFName{Value: "Font"}) {
+			return
+		}
+		subtype, _ := v.Entries["Subtype"].(pdf.PDFName)
+		desc, _ := v.Entries["FontDescriptor"].(pdf.PDFDict)
+		if desc.Entries == nil {
+			return
+		}
+
+		record := func(kind string, stats WidthStats) {
+			skip := string(stats.Skip)
+			if skip == "" {
+				skip = "none"
+			}
+			tally[kind+"/"+skip]++
+		}
+
+		switch subtype.Value {
+		case "Type1", "MMType1":
+			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+				data, err := pdf.DecodeStream(ff)
+				if err != nil {
+					return
+				}
+				enc, _ := v.Entries["Encoding"].(pdf.PDFName)
+				_, stats := Type1WidthTable(data, enc.Value, Type1GlyphWidths(data))
+				record("type1", stats)
+			} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+				data, err := pdf.DecodeStream(ff)
+				if err != nil {
+					return
+				}
+				_, stats := CFFAdvanceWidthsStats(data)
+				record("type1c", stats)
+			}
+		case "CIDFontType0":
+			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+				data, err := pdf.DecodeStream(ff)
+				if err != nil {
+					return
+				}
+				_, stats := CFFCIDAdvanceWidthsStats(data)
+				record("cidcff", stats)
+			}
+		}
+	})
+}
+
+// forEachDict visits every dictionary in a resolved graph once. The graph is
+// cyclic (/Parent), so visited nodes are tracked by their Entries map identity.
+func forEachDict(v pdf.PDFValue, fn func(pdf.PDFDict)) {
+	visited := map[uintptr]bool{}
+	var walk func(pdf.PDFValue, int)
+	walk = func(node pdf.PDFValue, depth int) {
+		if depth > 64 {
+			return
+		}
+		switch t := node.(type) {
+		case pdf.PDFDict:
+			ptr := pdf.ValuePointer(t.Entries)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			fn(t)
+			for _, e := range t.Entries {
+				walk(e, depth+1)
+			}
+		case pdf.PDFArray:
+			for _, e := range t {
+				walk(e, depth+1)
+			}
+		}
+	}
+	walk(v, 0)
+}
+
+// sortedTallyKeys returns the union of both maps' keys, sorted.
+func sortedTallyKeys(a, b map[string]int) []string {
+	seen := map[string]bool{}
+	var keys []string
+	for _, m := range []map[string]int{a, b} {
+		for k := range m {
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// formatTally renders a tally as pinnable Go map literal lines.
+func formatTally(t map[string]int) string {
+	var b strings.Builder
+	for _, k := range sortedTallyKeys(t, nil) {
+		fmt.Fprintf(&b, "\t%q: %d,\n", k, t[k])
+	}
+	return b.String()
 }
 
 func TestCffRealNumberAndParseSimpleFloat(t *testing.T) {
