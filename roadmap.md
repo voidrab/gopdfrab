@@ -498,14 +498,52 @@ Still open: the differential and regression jobs cover the committed corpora
 but not a real-world one (item 10). Windows's seek-based read path is now
 exercised on Linux via `pdf.OpenBytesSeek` parity tests (item 9).
 
-### 14. Thread-safety is undocumented
+### 14. Thread-safety is undocumented — **DONE**
 
-Nothing in `gopdfrab.go` or `document.go` says whether a `*Document` may be used
-from multiple goroutines. `Reader` carries several caches and one mutex that
-guards only `DecodeStreamCachedConcurrent`, which strongly suggests the answer is
-no — but callers can't know that, and `VerifyAll`/`ConvertAll` being concurrent
-implies otherwise. Decide the contract, document it at the type, and add a `-race`
-test that enforces it.
+Was: nothing in `gopdfrab.go` or `document.go` said whether a `*Document` may be
+used from multiple goroutines. `Reader` carries several caches and one mutex that
+guards only `DecodeStreamCachedConcurrent`, which strongly suggested the answer
+was no — but callers couldn't know that, and `VerifyAll`/`ConvertAll` being
+concurrent implied otherwise.
+
+The contract is now what the code already did, stated at each type rather than
+only in the package overview:
+
+| Surface | Contract |
+|---|---|
+| `*Document` / `pdf.Reader` | **Not** safe for concurrent use — unsynchronized parse and decode caches. One per goroutine. |
+| Package-level `Verify*`/`Convert*` | Safe to call concurrently; each opens its own document. |
+| `*Profile`, `Options` | Read-only after construction (the profile mutators clone), so one value may be shared. |
+| `Result` | Immutable once returned. |
+| `ConvertResult` | `Output`/`WriteTo`/`Save` are safe concurrently — each opens the spill backing separately, sharing no read offset — but not with `Close`, which releases what they read. |
+| `VerifyAll`/`ConvertAll`/`ConvertEach` | Internally concurrent, call from one goroutine; the `ConvertEach` callback is serialized. |
+| `SetLimits`/`CurrentLimits` | Safe from any goroutine (atomics); a change applies to the next stream decoded, not to work in flight. |
+
+Five `-race` tests enforce it, all cheap enough for CI's `-short` race job:
+`TestDocumentPerGoroutineIsSafe` (a Document per goroutine over a shared
+`*Profile`, every goroutine's issue set compared),
+`TestConvertResultConcurrentReads`, `TestBatchHelpersConcurrentCalls` (a
+`VerifyAll` and a `ConvertEach` running against each other),
+`TestSetLimitsConcurrentWithVerify`, `TestVerifyContextConcurrentCancellation`,
+plus `TestSeparateReadersAreIndependent` in `internal/pdf`.
+
+Findings:
+
+- **The negative half was verified, not assumed.** A throwaway test sharing one
+  `Document` across four goroutines makes the race detector fire immediately, so
+  "not safe for concurrent use" is a measured statement and the test suite would
+  catch a regression that quietly made it safe-looking.
+- **`EqualPDFValue` cannot compare resolved graphs.** A resolved graph is cyclic
+  (a page's `/Parent` points back at its `Pages` node), so the obvious
+  cross-goroutine comparison stack-overflows. `TestSeparateReadersAreIndependent`
+  renders a cycle-safe signature instead (dict keys sorted, each `Entries` map
+  visited once) — worth knowing before anyone else reaches for `EqualPDFValue` on
+  a whole graph.
+- **The `ConvertResult` read/Close split fell out of the spill design.** `bytes`
+  and `writeTo` each `os.Open` the temp file, so concurrent reads were already
+  safe; only `Close` (which clears `path`/`mem` under a `sync.Once`) races with
+  them. Documented rather than locked — a mutex would buy nothing a caller
+  can't get by owning the lifetime.
 
 ---
 

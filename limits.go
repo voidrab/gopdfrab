@@ -25,6 +25,10 @@ func CurrentLimits() Limits {
 // default. The caps are global rather than per-call because they are enforced
 // at decode chokepoints reached from many callers that hold no document handle;
 // set them once at startup, before concurrent verify/convert.
+//
+// SetLimits and CurrentLimits may be called from any goroutine (the caps are
+// atomics), but a change takes effect on the next stream decoded, so calling it
+// mid-run leaves in-flight work split across the old and new cap.
 func SetLimits(l Limits) {
 	pdf.SetMaxDecodedStreamBytes(l.MaxDecodedStreamBytes)
 }

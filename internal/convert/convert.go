@@ -138,6 +138,10 @@ func (r ConvertResult) Save(path string) error {
 // created and dropping any in-memory bytes. It is safe on the zero value and on
 // repeated calls. Callers own Close for results from Convert and ConvertAll;
 // ConvertEach closes each result after its callback returns.
+//
+// Output, WriteTo and Save may run concurrently with each other -- each opens
+// the spill file separately, sharing no read offset -- but not with Close,
+// which releases what they read.
 func (r ConvertResult) Close() error {
 	return r.backing.close()
 }

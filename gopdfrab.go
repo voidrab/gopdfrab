@@ -9,13 +9,21 @@ import (
 )
 
 type (
+	// Result is a verification verdict and its issues. It is immutable once
+	// returned, so any number of goroutines may read one concurrently.
 	Result            = pdf.Result
 	FileResult[T any] = pdf.FileResult[T]
-	Profile           = pdf.Profile
-	LevelType         = pdf.LevelType
-	Check             = pdf.Check
-	PDFError          = pdf.PDFError
-	ConvertResult     = convert.ConvertResult
+	// Profile is the set of checks a Verify or Convert applies. A profile is
+	// immutable -- AddCheck, RemoveCheck and Clear each return a clone -- so one
+	// profile may be shared by concurrent Verify or Convert calls.
+	Profile   = pdf.Profile
+	LevelType = pdf.LevelType
+	Check     = pdf.Check
+	PDFError  = pdf.PDFError
+	// ConvertResult is a conversion's output and its residual issues. Reading it
+	// (Output, WriteTo, Save, Residual) is safe from multiple goroutines; Close
+	// must not run concurrently with those, since it releases what they read.
+	ConvertResult = convert.ConvertResult
 	// PageFidelity is one page's input-vs-output rendering comparison,
 	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
 	PageFidelity = convert.PageFidelity
@@ -70,6 +78,9 @@ var (
 // convert entry points (ConvertAll, ConvertEach). Password applies at the open
 // step, so it has no effect on the *Document methods, whose file is already
 // open (use OpenWithPassword for those).
+//
+// An Options value is only read, never written, so one may be passed to
+// concurrent calls.
 type Options struct {
 	// Password is the user or owner password for an encrypted input. nil is the
 	// empty password.
@@ -140,7 +151,9 @@ func VerifyBytesContext(ctx context.Context, data []byte, p *Profile, o Options)
 	return verify.VerifyBytesContext(ctx, data, p, o.Password)
 }
 
-// VerifyAll opens, verifies, and closes a batch of files concurrently.
+// VerifyAll opens, verifies, and closes a batch of files concurrently. It runs
+// its own workers, each with its own document, so call it from one goroutine
+// rather than fanning it out further.
 func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
 	return verify.VerifyAll(paths, p, nil)
 }
@@ -185,7 +198,8 @@ func ConvertBytesContext(ctx context.Context, data []byte, p *Profile, o Options
 	return convert.ConvertBytesContext(ctx, data, p, o.convert())
 }
 
-// ConvertAll opens, converts, and closes a batch of files concurrently.
+// ConvertAll opens, converts, and closes a batch of files concurrently, with
+// Options.Workers workers. Like VerifyAll, call it from one goroutine.
 func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error) {
 	return convert.ConvertAll(paths, p, convert.Options{})
 }
@@ -225,6 +239,11 @@ func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
 }
 
 // Document represents an open PDF file.
+//
+// A Document is not safe for concurrent use: it holds parse and stream-decode
+// caches that its methods fill without synchronization. Open one per goroutine
+// rather than sharing one. The package-level Verify and Convert functions each
+// open their own document, so those are safe to call concurrently.
 type Document struct {
 	r *pdf.Reader
 }

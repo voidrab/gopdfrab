@@ -33,6 +33,13 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **The concurrency contract is documented and tested.** A `Document` is not safe
+  for concurrent use (open one per goroutine); the package-level `Verify`/`Convert`
+  functions, a shared `Profile` or `Options`, a returned `Result`, and
+  `SetLimits`/`CurrentLimits` all are. A `ConvertResult` may be read from several
+  goroutines but its `Close` must not race those reads. Stated at each type and
+  enforced by `-race` tests that run in CI.
+
 - **Windows read-path coverage and two determinism fixes.** The seek/ReadAt read
   path Windows uses (no memory mapping) is now exercised on any OS via the new
   internal `OpenBytesSeek` and asserted, over both conformance corpora, to parse

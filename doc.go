@@ -54,8 +54,22 @@
 // # Concurrency
 //
 // A [Document] holds parser caches and is not safe for concurrent use; open one
-// per goroutine. The batch helpers VerifyAll, ConvertAll and ConvertEach are
-// internally concurrent and meant to be called once from a single goroutine.
+// per goroutine. Everything else is:
+//
+//   - The package-level [Verify], [Convert] and their variants each open their
+//     own document, so any number of goroutines may call them at once.
+//   - A [Profile] is immutable (AddCheck, RemoveCheck and Clear clone), so one
+//     profile may be shared by concurrent calls. An [Options] value is likewise
+//     only read.
+//   - A [Result] is immutable once returned. A [ConvertResult] may be read
+//     (Output, WriteTo, Save) from several goroutines, but its Close must not
+//     run concurrently with those reads.
+//   - [SetLimits] and [CurrentLimits] are safe from any goroutine; a change
+//     applies to the next stream decoded, not to work already in flight.
+//
+// The batch helpers VerifyAll, ConvertAll and ConvertEach are internally
+// concurrent and meant to be called once from a single goroutine; ConvertEach
+// invokes its callback serially.
 //
 // # Platform support
 //

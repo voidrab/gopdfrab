@@ -28,6 +28,12 @@ type fileSource interface {
 // Validation lives above this package; Reader only records the structural
 // parse diagnostics (see PDFError) it discovers as a side effect of
 // reading -- e.g. malformed stream framing -- for that layer to interpret.
+//
+// A Reader is not safe for concurrent use. Every cache below is filled by
+// ordinary map assignment during resolution, and only decodedCache has a mutex
+// -- guarding DecodeStreamCachedConcurrent alone, for the one place convert
+// fans stream decoding across workers that share a Reader. Anything else
+// concurrent needs its own Reader.
 type Reader struct {
 	file       fileSource
 	size       int64
