@@ -423,19 +423,19 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
-			r.showText(verify.ShownStringBytes(op, operands), &gs)
+			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
 		case "'":
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), &gs)
+			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), &gs)
+			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
 		case "TJ":
-			r.showTextArray(operands, &gs)
+			r.showTextArray(operands, resources, &gs)
 		case "Ts":
 			gs.rise = nums(1)[0]
 		case "Tr":
@@ -754,7 +754,7 @@ func (r *renderer) applyTf(operands []pdf.PDFValue, resources pdf.PDFDict, gs *r
 // showTextArray implements TJ: strings are shown via showText, numeric
 // adjustments shift the text position by -adj/1000*fontSize*hScale (no
 // adjustment for vertical writing mode, out of scope).
-func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
+func (r *renderer) showTextArray(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
 	if len(operands) == 0 {
 		return
 	}
@@ -765,9 +765,9 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
 	for _, item := range arr {
 		switch v := item.(type) {
 		case pdf.PDFString:
-			r.showText([]byte(v.Value), gs)
+			r.showText([]byte(v.Value), resources, gs)
 		case pdf.PDFHexString:
-			r.showText(pdf.DecodePDFHexStringBytes(v.Value), gs)
+			r.showText(pdf.DecodePDFHexStringBytes(v.Value), resources, gs)
 		default:
 			if adj, ok := pdf.PDFNumberToFloat(v); ok {
 				shift := -adj / 1000 * gs.fontSize * gs.hScale
@@ -780,14 +780,9 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, gs *renderState) {
 // showText paints each glyph in raw (decoded from the content stream) bytes
 // and advances gs.tm, mirroring the PDF text-showing algorithm (9.4.3): the
 // glyph displacement is (w0*fontSize + charSpace + wordSpace)*hScale.
-func (r *renderer) showText(raw []byte, gs *renderState) {
+func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) {
 	if gs.font.Entries == nil || len(raw) == 0 {
 		return
-	}
-	// Type 3 glyphs are content-stream procedures, not outlines the rasterizer
-	// can fill; record the loss (glyphs then simply do not draw below).
-	if st, _ := gs.font.Entries["Subtype"].(pdf.PDFName); st.Value == "Type3" {
-		r.drop(dropType3)
 	}
 	// Render modes 3 (invisible) and 7 (clip-only) paint no marks -- most often
 	// the invisible OCR text layer over a scanned image, which must stay
@@ -814,6 +809,17 @@ func (r *renderer) showText(raw []byte, gs *renderState) {
 		width := fi.defaultWidth
 		if w, ok := fi.widths[code]; ok {
 			width = w
+		}
+
+		// A Type 3 glyph is a content stream in glyph space, not an outline,
+		// and its /FontMatrix stands in for the 1000-unit em below.
+		if fi.charProcs != nil {
+			if !invisible {
+				r.drawType3Glyph(fi, code, resources, gs)
+			}
+			advance := (width*fi.fontMatrix.A*gs.fontSize + gs.charSpace + type3WordSpace(code, gs)) * gs.hScale
+			gs.tm = Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
+			continue
 		}
 
 		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
@@ -843,11 +849,17 @@ func (r *renderer) showText(raw []byte, gs *renderState) {
 
 // fontInfo is a font resource's resolved rendering data: per-code advance
 // widths and a glyph-outline lookup, built once per font dict and cached.
+// A Type 3 font has no outlines -- charProcs is non-nil instead, and widths
+// are in glyph space, scaled by fontMatrix rather than the 1000-unit em.
 type fontInfo struct {
 	bytesPerCode int
 	defaultWidth float64
 	widths       map[int]float64
 	glyphFor     func(code int) (GlyphPath, bool)
+
+	charProcs   map[int]pdf.PDFDict
+	fontMatrix  Matrix
+	t3Resources pdf.PDFDict
 }
 
 func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
@@ -861,6 +873,9 @@ func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
 }
 
 func buildFontInfo(font pdf.PDFDict) *fontInfo {
+	if st, _ := font.Entries["Subtype"].(pdf.PDFName); st.Value == "Type3" {
+		return buildType3FontInfo(font)
+	}
 	if df, ok := font.Entries["DescendantFonts"].(pdf.PDFArray); ok && len(df) > 0 {
 		if desc, ok := df[0].(pdf.PDFDict); ok {
 			return buildCompositeFontInfo(desc)
