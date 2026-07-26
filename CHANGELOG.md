@@ -33,6 +33,21 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **The rasterizer draws what it used to drop.** Conversions that fall back to
+  rasterizing a page now render inline images (`BI`/`ID`/`EI`), all seven
+  shading types including the mesh and patch ones, shading patterns, and Type 3
+  glyphs, rather than reporting them as lost. Two silent-loss bugs fell out and
+  are fixed: a fill under a `/Pattern` colour space painted flat black with no
+  report, and a stencil mask (`/ImageMask`) ignored the fill colour on both the
+  inline and XObject paths. What still cannot be drawn — tiling patterns,
+  malformed shadings, a mesh past its primitive cap — stays reported in
+  `ConvertResult.RasterDrops`, which now also carries losses from flattening a
+  transparency group.
+- **`ConvertResult.RasterizedPages`** lists the pages a conversion rebuilt as a
+  flat image. `RasterDrops` reports only content the rasterizer could not draw,
+  so a losslessly flattened page — still a conversion from text and vectors to
+  pixels — did not show up anywhere; this is that signal.
+
 - **The concurrency contract is documented and tested.** A `Document` is not safe
   for concurrent use (open one per goroutine); the package-level `Verify`/`Convert`
   functions, a shared `Profile` or `Options`, a returned `Result`, and

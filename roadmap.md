@@ -16,6 +16,10 @@ Genuinely solid:
 - Convert pipeline: pre-emptive fixups, verify/fix loop (max 4 iterations),
   raster last resort. Corpus floor 510/510 — the former encrypted hold-out now
   decrypts (item 5).
+- The rasterizer draws what a PDF/A conversion actually meets: images (including
+  inline and stencil masks), all seven shading types, shading patterns, Type 3
+  glyphs. What it still cannot draw is reported per page, never dropped in
+  silence (item 6).
 - One stream-decode chain in `internal/pdf`, covering every filter PDF/A-1
   permits, with a typed result separating "encoded image data" from "broken".
 - Arlington object-model checks, verify and convert, off a generated model.
@@ -247,33 +251,92 @@ Passing a password to `Verify`/`Convert` (rather than pre-opening with
 `OpenWithPassword`) landed with item 15 as `Options.Password` on the `…Context`
 entry points, reaching the same internal path.
 
-### 6. The rasterizer silently drops content — **mostly DONE**
+### 6. The rasterizer silently drops content — **DONE**
 
 Was: `internal/convert/raster.go` handled a decent operator set but silently
 ignored `sh`/shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts, and — worse
 than dropping — `Tr`/`Ts`, so an invisible OCR text layer rendered *visible*
 over the scanned image.
 
-Two halves, per the roadmap's "a loud residual beats a quiet blank page":
+Closed in three passes. The `Tr`/`Ts` correctness bug went first, then the
+remaining drops were made loud, and now they are actually drawn. What is still
+reported is only what is genuinely undrawable.
 
-- **The `Tr`/`Ts` correctness bug is fixed.** `showText` now honours the text
-  rise (`Ts`) and paints no marks under render modes 3 and 7 (invisible/clip),
-  so rasterizing an OCR PDF no longer prints its hidden text layer.
+- **The `Tr`/`Ts` correctness bug.** `showText` honours the text rise (`Ts`)
+  and paints no marks under render modes 3 and 7 (invisible/clip), so
+  rasterizing an OCR PDF no longer prints its hidden text layer.
   `TestRasterInvisibleTextRenderMode` pins it (mode 3 → ~0 ink, mode 0 → ink).
-- **The remaining drops are now reported, not silent.** The renderer records
-  every feature it could not draw — `sh`, inline images (`INLINEIMAGE`),
-  Type 3 fonts — accumulated across Form recursion (`r.execContent` shares the
-  renderer). `RenderPage`/`renderContent` return the drop list; the page raster
-  fallback carries it into `ConvertResult.RasterDrops []RasterDrop{Page,
-  Features}` (re-exported from root). This closes item 12's documented blind
-  spot: content the rasterizer drops symmetrically — invisible to the fidelity
-  gate — is now a loud per-page residual.
+- **Inline images** are folded into a synthetic stream dict with their
+  abbreviated keys expanded (`raster_inline.go`), so the whole Image XObject
+  path — filters, predictors, `/Decode`, colour-space resolution — serves them
+  unchanged. Only the key expander was new: `pdf.LookupFilter` and
+  `resolveColor` already accept both spellings of filter and colour-space
+  *values*.
+- **Shadings, all seven types.** Function-based, axial and radial sample per
+  device pixel through the inverse CTM, mirroring `compositeImage`'s loop, so
+  the three sit behind one `colorAt` (`raster_shading.go`). Mesh types decode
+  their vertex/patch stream and paint subdivided flat pieces through the
+  existing scanline filler (`raster_shading_mesh.go`). Reuses
+  `pdf.ParseFunction` and `pdf.ResolveColor` rather than adding any evaluation
+  of its own; the only new machinery is the `/Function` array fan-out (n
+  single-output functions standing in for one n-output function) and a
+  256-entry LUT over the 1-D parametric domain, since evaluating a PDF function
+  per pixel runs into the millions per page.
+- **Type 3 glyphs** run their `/CharProcs` content through the renderer's
+  ordinary operator loop with the CTM set by the font's `/FontMatrix` — which
+  stands in for the 1000-unit em both for the glyph transform and the `/Widths`
+  advance. A Type 3 glyph can therefore itself draw images, shadings and Form
+  XObjects. The Form recursion guard is shared rather than duplicated.
 
-Still open: actually *rendering* shadings, inline images, and Type 3 glyphs
-(rather than reporting their loss) is deferred — a large rendering effort, and
-the loud report already prevents silent data loss. Drops during the
-transparency-flattener path (`flattenFormToImage`, a Fixer with no `ConvertResult`
-handle) are not yet carried; only the page-level raster fallback reports.
+Findings, none of which the plan anticipated:
+
+- **A silent loss the drop mechanism never covered.** A `/Pattern` colour space
+  names its colour with `scn` rather than numbers, so the numeric branch never
+  fired and every pattern fill painted the black a bare `/Pattern cs` leaves in
+  `fillRGB` — with no drop recorded at all. The same class as item 1, found
+  only by going looking. PatternType 2 now paints through its shading;
+  PatternType 1 (tiling) is reported as a new `"tiling pattern"` drop.
+- **Selecting the pattern was not enough.** An *unusable* pattern still fell
+  through to the flat-colour fill, so `renderState` carries
+  `fillIsPattern`/`strokeIsPattern`: under a Pattern colour space a paint draws
+  the pattern or nothing, never black. Four tests failed on exactly that before
+  the flag went in.
+- **Stencil masks painted black on both paths.** Splitting `paintImage` into
+  decode + `compositeImage` exposed it: `DecodeImageRGBA` renders an
+  `/ImageMask`'s coverage as opaque black, and neither paint path substituted
+  the fill colour. Fixed for inline and XObject masks together.
+- **`FillPath`/`StrokePath` needed a per-pixel colour source.** Both now
+  delegate to shared span walkers taking a `colorAt`, so a shading pattern
+  fills and strokes the path's *true shape* rather than its bounding box.
+- **Two honesty guards on meshes**, both reported as drops: a per-mesh
+  primitive cap, so a degenerate mesh cannot blow up render time, and a stream
+  ending mid-record, which would otherwise half-paint the mesh in silence.
+- **Type 3 resources fall back to the page's** when the font declares no
+  `/Resources` (ISO 32000-1 9.6.5), which needed `showText` to take the page
+  resources it previously had no use for.
+- **The allocation ceilings did not move.** `convert/raster` measures ~3174
+  allocs/run against its 3500 ceiling, essentially unchanged from ~3168, so
+  re-pinning was unnecessary — but note what that means: the item-23 guard
+  contains none of the newly-drawn features and does not cover the new paths.
+
+Deliberate approximations, each documented at its code:
+
+- Mesh shadings paint as subdivided flat pieces rather than through a Gouraud
+  rasterizer, reusing the existing filler — the right trade for a conversion
+  fallback, where the alternative was dropping the content.
+- A tensor patch's four interior control points are read but not used; the
+  surface is evaluated by the Coons formula over the shared boundary curves,
+  differing from the true tensor surface only in the interior.
+- Mesh *patterns* have no colour field to sample, so they paint over the path's
+  bounding box — the approximation the renderer already makes for clipping.
+- Tiling patterns are reported, not rendered.
+
+Also closed here: `flattenFormToImage` used to discard its drop list, so
+anything lost while flattening a transparency group never reached the user. The
+flattener carries a per-run sink (stamped by `buildLocalFixers` exactly as `dpi`
+already was), and each drop is tagged with the page its Form sits on. Workers
+write only their own result slot, so the sink drains serially after the wait,
+needing no synchronization.
 
 ### 7. Limits are hardcoded and fail silently — **DONE**
 
@@ -382,9 +445,13 @@ Two corpora, answering different questions, are now wired as `TestRealWorldCorpu
 - **Should-pass**: real files a tool and veraPDF both call PDF/A-1b. gopdfrab must
   verify every one clean; a rejection is a false positive and fails the test.
 - **Should-convert**: ordinary non-PDF/A documents across producers. The test
-  reports the fraction reaching conformance and how many did so only with dropped
-  raster content (`ConvertResult.RasterDrops`). A precise "without raster" metric
-  would want a convert-time rasterized signal — a possible follow-up.
+  reports the fraction reaching conformance, how many needed a page rasterized,
+  and how many lost content the rasterizer could not draw. The first loss metric
+  is `ConvertResult.RasterizedPages` (item 6), which replaced the earlier use of
+  `RasterDrops` for this: drops count only *undrawable* content, so a page
+  flattened losslessly — still a conversion from text and vectors to pixels —
+  never showed up as lossy. That was the "convert-time rasterized signal" this
+  item asked for.
 
 The **PDF bytes are gitignored; the inventory is committed.** `manifest.json`
 records each file's hash, licence, provenance and an optional source URL — never
@@ -470,12 +537,13 @@ Two deliverables:
   any fixup mutates the graph) against output and populates
   `ConvertResult.Fidelity []PageFidelity`, re-exported from the root package.
 
-The symmetric-renderer design has one blind spot — content the rasterizer
-itself cannot draw (shadings, inline images, Type 3) is dropped on *both* sides,
-so a raster fallback that loses it is not caught here. **Item 6 closes it**: the
-rasterizer now reports those drops in `ConvertResult.RasterDrops`, so the loss
-is loud even though the pixel comparison can't see it. The two together are the
-complete fidelity story.
+The symmetric-renderer design had one blind spot — content the rasterizer
+itself cannot draw is dropped on *both* sides, so a raster fallback that loses
+it is not caught here. **Item 6 closed it twice over.** Shadings, inline images
+and Type 3 glyphs are now *drawn* on both sides, so the pixel comparison sees
+them rather than cancelling them out; what still cannot be drawn (tiling
+patterns, malformed shadings, capped meshes) stays loud in
+`ConvertResult.RasterDrops`. The two together are the complete fidelity story.
 
 ### 13. CI runs a fraction of the test suite — **mostly DONE**
 
@@ -889,26 +957,28 @@ Recorded so nobody re-investigates:
 4. ~~**Items 15–21.**~~ Done. The API break, in one pass, while the disclaimer
    covers it: items 15 (options), 16 (context), 17, 18 (lazy `Output`), 19,
    20 (CLI), 21.
-5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate found 0 blanked
+5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate finds 0 blanked
    pages across the corpus, and `Options.CheckFidelity` reports per-page fidelity
    in `ConvertResult`. Item 10's harness is done (hash-referenced external corpus,
-   `TestRealWorldCorpus` + fetch script + manifest schema); populating it with
-   real permissively-licensed files is the remaining curation work.
-6. **Items 5–9.** Item 5 (encryption), item 6 (rasterizer `Tr`/`Ts` fix + drop
-   reporting) and item 7 (settable limits, via a process-global `SetLimits`)
-   done; item 8's batch half and its per-conversion output footprint done
-   (`ConvertEach` + `Options.Workers`; lazy `Output` spilling to a temp file,
-   item 18); item 9 done (Windows seek path exercised on Linux via
-   `OpenBytesSeek` parity + documented). Remaining: item 8's resolved-graph
-   footprint (the larger rearchitecture, now backed by measurement). Rendering
-   the dropped features (shadings, Type 3) is the large deferred half of item 6.
+   `TestRealWorldCorpus` + fetch script + manifest schema), and its "was
+   rasterized" metric landed with item 6; populating it with real
+   permissively-licensed files is the remaining curation work.
+6. **Items 5–9.** Item 5 (encryption), item 6 (the `Tr`/`Ts` fix, drop
+   reporting, and then actually rendering shadings, inline images, Type 3
+   glyphs and shading patterns) and item 7 (settable limits, via a
+   process-global `SetLimits`) done; item 8's batch half and its per-conversion
+   output footprint done (`ConvertEach` + `Options.Workers`; lazy `Output`
+   spilling to a temp file, item 18); item 9 done (Windows seek path exercised
+   on Linux via `OpenBytesSeek` parity + documented). Remaining: item 8's
+   resolved-graph footprint (the larger rearchitecture, now backed by
+   measurement).
 7. ~~**Items 14, 22–29.**~~ Done. Item 14 (concurrency contract stated at each
    type, six `-race` tests); items 23, 24, 25, 26, 27 as noted in their sections;
    item 22 (committed benchstat history) and item 28 (`TODO.md` folded in and
    deleted, wasm `-o` in CI, tree clean); item 29's carry-overs — width-skip
    instrumentation, the shared scalar dispatch, and the three invariant docs.
 
-**What is left.** Three things, all deliberately scoped out rather than
+**What is left.** Two things, both deliberately scoped out rather than
 outstanding:
 
 - **Item 10's curation** — populating the real-world corpus with permissively
@@ -917,9 +987,6 @@ outstanding:
 - **Item 8's resolved-graph footprint** — partial/streaming resolution, against a
   verify/convert model built on a fully-resolved in-heap trailer. The larger
   rearchitecture, now backed by measurement.
-- **Item 6's rendering half** — actually drawing shadings, inline images and
-  Type 3 glyphs rather than reporting their loss. A large rendering effort, and
-  the loud per-page residual already prevents silent data loss.
 
 Item 29 also keeps one small open note: the Type1 width path models fewer
 encodings than the Type1C one — now measured, and costing nothing on either
