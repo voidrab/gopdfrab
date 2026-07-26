@@ -74,7 +74,7 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
 	r.execContent(content, resources, gs)
 	return canvas, sortedDrops(r.dropped), nil
 }
@@ -127,8 +127,14 @@ type renderState struct {
 	fillRGB, strokeRGB     [3]float64
 	fillCS, strokeCS       pdf.PDFValue
 	fillAlpha, strokeAlpha float64
-	lineWidth              float64
-	clip                   [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// Pattern colour: fillIsPattern records that the colour space is a
+	// Pattern one, so a fill paints the pattern or nothing -- never the black
+	// a bare Pattern cs would otherwise leave in fillRGB. fillPattern is the
+	// selected shading pattern, zero when none is usable. See raster_pattern.go.
+	fillIsPattern, strokeIsPattern bool
+	fillPattern, strokePattern     pdf.PDFDict
+	lineWidth                      float64
+	clip                           [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
 
 	font       pdf.PDFDict
 	fontSize   float64
@@ -147,7 +153,13 @@ type renderState struct {
 type renderer struct {
 	canvas    *image.RGBA
 	fontCache map[uintptr]*fontInfo
-	depth     int
+	// shadingCache holds parsed shadings keyed by pattern dict identity; a nil
+	// value records a pattern already found unusable.
+	shadingCache map[uintptr]*shading
+	// patternBase maps the page's default user space to device space, which
+	// is what a pattern /Matrix is relative to (not the CTM in force).
+	patternBase Matrix
+	depth       int
 	// dropped records content features the rasterizer cannot draw (and so
 	// silently omits from the flattened image), keyed by a human name.
 	dropped map[string]bool
@@ -156,9 +168,10 @@ type renderer struct {
 // raster-drop feature names, reported so a rasterized conversion does not
 // silently lose them.
 const (
-	dropShading     = "shading"
-	dropInlineImage = "inline image"
-	dropType3       = "Type 3 font"
+	dropShading       = "shading"
+	dropInlineImage   = "inline image"
+	dropType3         = "Type 3 font"
+	dropTilingPattern = "tiling pattern"
 )
 
 func (r *renderer) drop(feature string) {
@@ -321,39 +334,55 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			a := nums(1)
 			gs.fillRGB = [3]float64{a[0], a[0], a[0]}
 			gs.fillCS = pdf.PDFName{Value: "DeviceGray"}
+			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
 		case "G":
 			a := nums(1)
 			gs.strokeRGB = [3]float64{a[0], a[0], a[0]}
 			gs.strokeCS = pdf.PDFName{Value: "DeviceGray"}
+			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
 		case "rg":
 			a := nums(3)
 			gs.fillRGB = [3]float64{a[0], a[1], a[2]}
 			gs.fillCS = pdf.PDFName{Value: "DeviceRGB"}
+			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
 		case "RG":
 			a := nums(3)
 			gs.strokeRGB = [3]float64{a[0], a[1], a[2]}
 			gs.strokeCS = pdf.PDFName{Value: "DeviceRGB"}
+			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
 		case "k":
 			a := nums(4)
 			gs.fillRGB[0], gs.fillRGB[1], gs.fillRGB[2] = pdf.CMYKToRGB(a)
 			gs.fillCS = pdf.PDFName{Value: "DeviceCMYK"}
+			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
 		case "K":
 			a := nums(4)
 			gs.strokeRGB[0], gs.strokeRGB[1], gs.strokeRGB[2] = pdf.CMYKToRGB(a)
 			gs.strokeCS = pdf.PDFName{Value: "DeviceCMYK"}
+			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
 		case "cs":
 			gs.fillCS = resolveOperandColorSpace(operands, resources)
 			gs.fillRGB = [3]float64{0, 0, 0}
+			gs.fillPattern = pdf.PDFDict{}
+			gs.fillIsPattern = isPatternColorSpace(gs.fillCS)
 		case "CS":
 			gs.strokeCS = resolveOperandColorSpace(operands, resources)
 			gs.strokeRGB = [3]float64{0, 0, 0}
+			gs.strokePattern = pdf.PDFDict{}
+			gs.strokeIsPattern = isPatternColorSpace(gs.strokeCS)
 		case "sc", "scn":
-			if comps := numericOperands(operands); len(comps) > 0 && gs.fillCS != nil {
+			if name, ok := patternNameOperand(operands); ok {
+				gs.fillIsPattern = true
+				gs.fillPattern, _ = r.selectPattern(name, resources)
+			} else if comps := numericOperands(operands); len(comps) > 0 && gs.fillCS != nil {
 				r, g, b := pdf.ResolveColor(gs.fillCS, comps, resources)
 				gs.fillRGB = [3]float64{r, g, b}
 			}
 		case "SC", "SCN":
-			if comps := numericOperands(operands); len(comps) > 0 && gs.strokeCS != nil {
+			if name, ok := patternNameOperand(operands); ok {
+				gs.strokeIsPattern = true
+				gs.strokePattern, _ = r.selectPattern(name, resources)
+			} else if comps := numericOperands(operands); len(comps) > 0 && gs.strokeCS != nil {
 				r, g, b := pdf.ResolveColor(gs.strokeCS, comps, resources)
 				gs.strokeRGB = [3]float64{r, g, b}
 			}
@@ -461,14 +490,31 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	}
 
 	evenOdd := op == "f*" || op == "B*" || op == "b*"
+	// Under a Pattern colour space there is no numeric fill colour, so an
+	// unusable pattern paints nothing rather than the black fillRGB holds.
+	fill := func() {
+		if gs.fillIsPattern {
+			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
+			return
+		}
+		FillPath(target, contours, gs.fillRGB, gs.fillAlpha, evenOdd)
+	}
+	stroke := func() {
+		if gs.strokeIsPattern {
+			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
+			return
+		}
+		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.ctm), gs.strokeRGB, gs.strokeAlpha)
+	}
+
 	switch op {
 	case "f", "F", "f*":
-		FillPath(target, contours, gs.fillRGB, gs.fillAlpha, evenOdd)
+		fill()
 	case "S", "s":
-		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.ctm), gs.strokeRGB, gs.strokeAlpha)
+		stroke()
 	case "B", "B*", "b", "b*":
-		FillPath(target, contours, gs.fillRGB, gs.fillAlpha, evenOdd)
-		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.ctm), gs.strokeRGB, gs.strokeAlpha)
+		fill()
+		stroke()
 	case "n":
 		// Path constructed only to set a clip region; no paint.
 	}
@@ -487,6 +533,20 @@ func ctmScale(ctm Matrix) float64 {
 	sx := math.Hypot(ctm.A, ctm.B)
 	sy := math.Hypot(ctm.C, ctm.D)
 	return (sx + sy) / 2
+}
+
+// patternNameOperand reports an scn/SCN operand list's trailing pattern name.
+// Only a Pattern colour space takes a name here, so its presence is what
+// distinguishes a pattern colour from a numeric one.
+func patternNameOperand(operands []pdf.PDFValue) (string, bool) {
+	if len(operands) == 0 {
+		return "", false
+	}
+	name, ok := operands[len(operands)-1].(pdf.PDFName)
+	if !ok {
+		return "", false
+	}
+	return name.Value, true
 }
 
 func numericOperands(operands []pdf.PDFValue) []float64 {

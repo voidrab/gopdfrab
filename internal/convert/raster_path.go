@@ -11,7 +11,24 @@ import (
 // fill, with nonzero or even-odd winding per the f/f* operator, blending
 // rgb at alpha over the existing pixels.
 func FillPath(canvas *image.RGBA, contours [][]Point, rgb [3]float64, alpha float64, evenOdd bool) {
-	if alpha <= 0 || len(contours) == 0 {
+	if alpha <= 0 {
+		return
+	}
+	fillPathFunc(canvas, contours, evenOdd, func(x, y int) ([3]float64, float64) {
+		return rgb, alpha
+	})
+}
+
+// FillPathShaded fills contours the same way as FillPath, but asks colorAt
+// for each covered pixel's colour and alpha, so a shading pattern paints the
+// path's true shape rather than its bounding box. An alpha of 0 leaves the
+// pixel untouched.
+func FillPathShaded(canvas *image.RGBA, contours [][]Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+	fillPathFunc(canvas, contours, evenOdd, colorAt)
+}
+
+func fillPathFunc(canvas *image.RGBA, contours [][]Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+	if len(contours) == 0 {
 		return
 	}
 	edges := buildEdges(contours)
@@ -48,6 +65,10 @@ func FillPath(canvas *image.RGBA, contours [][]Point, rgb [3]float64, alpha floa
 				x1 = bounds.Max.X - 1
 			}
 			for x := x0; x <= x1; x++ {
+				rgb, alpha := colorAt(x, y)
+				if alpha <= 0 {
+					continue
+				}
 				blendPixel(canvas, x, y, rgb, alpha)
 			}
 		}
@@ -166,6 +187,17 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 // joins rather than mitered/rounded -- a documented approximation since the
 // rasterizer's only purpose is producing a flattened, no-longer-vector page.
 func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [3]float64, alpha float64) {
+	if alpha <= 0 {
+		return
+	}
+	StrokePathShaded(canvas, contours, lineWidth, func(x, y int) ([3]float64, float64) {
+		return rgb, alpha
+	})
+}
+
+// StrokePathShaded strokes as StrokePath does, taking each pixel's colour
+// from colorAt so a shading pattern can stroke as well as fill.
+func StrokePathShaded(canvas *image.RGBA, contours [][]Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
 	half := lineWidth / 2
 	if half <= 0 {
 		half = 0.5
@@ -173,7 +205,7 @@ func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [
 	for _, contour := range contours {
 		for i := 0; i+1 < len(contour); i++ {
 			quad := segmentQuad(contour[i], contour[i+1], half)
-			FillPath(canvas, [][]Point{quad}, rgb, alpha, false)
+			fillPathFunc(canvas, [][]Point{quad}, false, colorAt)
 		}
 	}
 }
