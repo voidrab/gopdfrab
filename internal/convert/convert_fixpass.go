@@ -228,7 +228,7 @@ func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintpt
 		}
 
 	case pdf.PDFArray:
-		ptr := pdf.ValuePointer(val)
+		ptr := pdf.ArrayPointer(val)
 		if visited[ptr] {
 			return
 		}

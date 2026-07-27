@@ -323,7 +323,7 @@ func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 				walk(child)
 			}
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(val)
+			ptr := pdf.ArrayPointer(val)
 			if visited[ptr] {
 				return
 			}
@@ -786,7 +786,7 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 				walk(child)
 			}
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(val)
+			ptr := pdf.ArrayPointer(val)
 			if visited[ptr] {
 				return
 			}

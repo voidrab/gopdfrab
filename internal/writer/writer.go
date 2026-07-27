@@ -354,7 +354,7 @@ func (wr *pdfWriter) discover(v pdf.PDFValue) {
 		wr.keyScratch = wr.keyScratch[:base]
 
 	case pdf.PDFArray:
-		ptr := pdf.ValuePointer(val)
+		ptr := pdf.ArrayPointer(val)
 		if wr.visited[ptr] {
 			return
 		}

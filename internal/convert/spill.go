@@ -38,6 +38,13 @@ type spillWriter struct {
 	n           int64
 }
 
+// grow pre-sizes the in-memory buffer so it does not double its way up.
+func (s *spillWriter) grow(n int) {
+	if n > 0 && n <= spillThreshold {
+		s.buf.Grow(n)
+	}
+}
+
 func (s *spillWriter) Write(p []byte) (int, error) {
 	var n int
 	var err error

@@ -223,3 +223,32 @@ func filepathJoinNonexistent(t *testing.T) string {
 	t.Helper()
 	return t.TempDir() + "/does/not/exist"
 }
+
+// TestSpillWriterGrow: pre-sizing must not change what the writer produces or
+// where it stores it -- it only avoids the buffer doubling its way up.
+func TestSpillWriterGrow(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), 4096)
+
+	for _, hint := range []int{0, -1, 1, 4096, 1 << 30} {
+		var sw spillWriter
+		sw.grow(hint)
+		if _, err := sw.Write(payload); err != nil {
+			t.Fatalf("hint %d: Write: %v", hint, err)
+		}
+		b, err := sw.finish()
+		if err != nil {
+			t.Fatalf("hint %d: finish: %v", hint, err)
+		}
+		got, err := b.bytes()
+		if err != nil {
+			t.Fatalf("hint %d: bytes: %v", hint, err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Errorf("hint %d: content differs", hint)
+		}
+		if b.path != "" {
+			t.Errorf("hint %d: a small output must not spill", hint)
+		}
+		b.close()
+	}
+}

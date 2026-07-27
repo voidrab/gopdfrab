@@ -573,6 +573,9 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // supplies the graph verdicts. A dirty graph gets today's full verify.
 func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool, hint int) error {
 	var sw spillWriter
+	if loopDoc != nil {
+		sw.grow(int(loopDoc.Size()))
+	}
 	order, err := writer.WriteDocumentIndexed(&sw, trailer, hint)
 	if err != nil {
 		return err

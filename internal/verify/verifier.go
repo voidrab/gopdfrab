@@ -709,7 +709,11 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 
 // verifyDocument verifies the entire document graph, including all pages, resources, and content streams.
 func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
-	visited := make(map[uintptr]bool)
+	sizeHint := 0
+	if ctx.reader != nil {
+		sizeHint = ctx.reader.Footprint().Nodes
+	}
+	visited := make(map[uintptr]bool, sizeHint)
 
 	// typedVisit dedupes schema validation per (node, Arlington type): a node shared
 	// between differently-typed paths is re-descended once per new type, so schema
@@ -719,7 +723,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		ptr uintptr
 		typ string
 	}
-	visitedTyped := make(map[typedVisit]bool)
+	visitedTyped := make(map[typedVisit]bool, sizeHint)
 
 	// owner is the nearest enclosing dict, threaded through arrays, so
 	// scalar-limit violations are reported against an object fixers can
@@ -819,7 +823,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(v)
+			ptr := pdf.ArrayPointer(v)
 			first := !visited[ptr]
 			if !first && (expectedType == "" || visitedTyped[typedVisit{ptr, expectedType}]) {
 				return
@@ -964,7 +968,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				walkGraph(child)
 			}
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(val)
+			ptr := pdf.ArrayPointer(val)
 			if visitedPtrs[ptr] {
 				return
 			}

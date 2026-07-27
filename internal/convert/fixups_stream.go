@@ -59,7 +59,7 @@ func walkStreamDicts(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFD
 		}
 
 	case pdf.PDFArray:
-		ptr := pdf.ValuePointer(val)
+		ptr := pdf.ArrayPointer(val)
 		if visited[ptr] {
 			return
 		}

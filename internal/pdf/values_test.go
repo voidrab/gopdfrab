@@ -166,3 +166,37 @@ func TestDecodePDFName(t *testing.T) {
 		})
 	}
 }
+
+// TestArrayPointerMatchesValuePointer: ArrayPointer exists only to avoid boxing
+// a slice into an interface, so it must agree with ValuePointer exactly --
+// same array same answer, different arrays different answers, and a subslice
+// sharing the backing array reads as the same identity.
+func TestArrayPointerMatchesValuePointer(t *testing.T) {
+	a := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}
+	b := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}
+
+	if got, want := ArrayPointer(a), ValuePointer(a); got != want {
+		t.Errorf("ArrayPointer(a) = %d, ValuePointer(a) = %d", got, want)
+	}
+	if ArrayPointer(a) == ArrayPointer(b) {
+		t.Error("distinct arrays share an identity")
+	}
+	if ArrayPointer(a) != ArrayPointer(a[:1]) {
+		t.Error("a subslice of the same backing array should share its identity")
+	}
+	if ArrayPointer(nil) != 0 {
+		t.Errorf("ArrayPointer(nil) = %d, want 0", ArrayPointer(nil))
+	}
+}
+
+// TestArrayPointerDoesNotAllocate is the whole reason the function exists:
+// passing a PDFArray to ValuePointer's interface parameter heap-allocates,
+// once per array per graph walk.
+func TestArrayPointerDoesNotAllocate(t *testing.T) {
+	a := PDFArray{PDFInteger(1), PDFInteger(2)}
+	var sink uintptr
+	if n := testing.AllocsPerRun(100, func() { sink = ArrayPointer(a) }); n != 0 {
+		t.Errorf("ArrayPointer allocated %v times per run, want 0", n)
+	}
+	_ = sink
+}

@@ -24,6 +24,15 @@ func ValuePointer(v PDFValue) uintptr {
 	}
 }
 
+// ArrayPointer is ValuePointer for a PDFArray, without the interface
+// parameter. A slice is three words, so passing one to ValuePointer's PDFValue
+// parameter boxes it onto the heap -- once per array per graph walk, which the
+// walkers do constantly. A map is pointer-shaped and rides in the interface
+// directly, so dicts need no such variant.
+func ArrayPointer(a PDFArray) uintptr {
+	return *(*uintptr)(unsafe.Pointer(&a))
+}
+
 // AbsInt returns the absolute value of x.
 func AbsInt(x int) int {
 	if x < 0 {

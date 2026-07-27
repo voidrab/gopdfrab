@@ -84,7 +84,7 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 				walk(child)
 			}
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(val)
+			ptr := pdf.ArrayPointer(val)
 			if visited[ptr] {
 				return
 			}

@@ -1144,7 +1144,7 @@ func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) 
 		return v, nil
 
 	case PDFArray:
-		ptr := ValuePointer(v)
+		ptr := ArrayPointer(v)
 		if d.resolvedPtrs[ptr] {
 			return v, nil
 		}
