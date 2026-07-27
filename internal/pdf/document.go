@@ -109,7 +109,7 @@ type Reader struct {
 	decodedCache map[StreamKey][]byte
 	decodedMu    sync.Mutex
 
-	// scanCache memoizes TokenizeContent's output keyed by StreamKeyOf, so an
+	// scanCache memoizes ScanStreamFunc's token list keyed by StreamKeyOf, so an
 	// unchanged content stream is lexed/parsed at most once across all of a
 	// Reader's verify passes, even though each pass re-evaluates every check
 	// against the tokens fresh (a check's verdict can depend on state that
@@ -134,7 +134,7 @@ type Reader struct {
 // multiple verify passes never re-inflate an unchanged stream.
 //
 // Only the default-options, non-image decode is cached, here and in
-// ScanStreamCached. A StreamKey identifies raw bytes and nothing else, so a
+// ScanStreamFunc. A StreamKey identifies raw bytes and nothing else, so a
 // cache shared across DecodeOptions would hand back a result decoded under
 // someone else's parameters -- an image decoded with its /Columns and /BPC, say,
 // answering a caller that asked for the plain bytes. Anything needing options
@@ -242,37 +242,75 @@ func (d *Reader) ReleaseCaches() {
 	d.streamChecked = nil
 }
 
-// ScanStreamCached decodes and tokenizes dict's content stream, memoizing the
-// token list by content identity (StreamKeyOf) alongside DecodeStreamCached's
-// decoded-bytes cache, so callers sharing one Reader across multiple verify
-// passes tokenize each unchanged stream at most once.
-func (d *Reader) ScanStreamCached(dict PDFDict) ([]ScannedOp, error) {
+// ScanStreamFunc decodes dict's content stream and reports every operator with
+// its operands to fn, in stream order.
+//
+// The token list is memoized by content identity (StreamKeyOf) alongside
+// DecodeStreamCached's decoded bytes, so a stream that stays unchanged across a
+// Reader's verify passes -- convert's fixer iterations, say -- is lexed once and
+// replayed thereafter. Past the resident budget the scan streams instead, and
+// each pass re-lexes.
+//
+// Operands are only valid for the duration of the call: ContentScanner reuses
+// one stack slice, and a replayed list hands out the cached operands themselves.
+// A consumer that needs them afterwards must copy them.
+func (d *Reader) ScanStreamFunc(dict PDFDict, fn func(op string, operands []PDFValue)) error {
 	key, ok := StreamKeyOf(dict)
 	if !ok {
 		data, err := DecodeStream(dict)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		return TokenizeContent(data), nil
+		NewContentScanner(data).Scan(fn)
+		return nil
 	}
 	if ops, ok := d.scanCache[key]; ok {
-		return ops, nil
+		ReplayOps(ops, fn)
+		return nil
 	}
 	data, err := d.DecodeStreamCached(dict)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	ops := TokenizeContent(data)
-	n := scannedOpsBytes(ops)
-	if !d.cacheHasRoom(n) {
-		return ops, nil
+	d.scanAndMaybeCache(key, data, fn)
+	return nil
+}
+
+// scanAndMaybeCache streams data through fn while building the list to memoize,
+// abandoning that list as soon as it outgrows what is left of the budget.
+//
+// Building the whole list first and consulting the budget afterwards -- which is
+// what this used to do -- bounds only what is retained. A tokenized content
+// stream runs several times the decoded bytes it came from, so on a
+// content-heavy document that peak is the document's memory, and the budget
+// missed it entirely.
+func (d *Reader) scanAndMaybeCache(key StreamKey, data []byte, fn func(op string, operands []PDFValue)) {
+	room := effectiveResidentCap() - d.decodedBytes - d.scanBytes
+	keep := room > 0
+	var ops []ScannedOp
+	var n int64
+
+	NewContentScanner(data).Scan(func(op string, operands []PDFValue) {
+		if keep {
+			if n += scannedOpBytes(op, operands); n > room {
+				keep, ops, n = false, nil, 0
+			} else {
+				ops = append(ops, ScannedOp{Op: op, Operands: append([]PDFValue(nil), operands...)})
+			}
+		}
+		fn(op, operands)
+	})
+
+	// fn may scan nested streams (a form XObject, a tiling pattern) and fill
+	// the cache itself, so room is re-checked rather than trusted.
+	if !keep || !d.cacheHasRoom(n) {
+		return
 	}
 	if d.scanCache == nil {
 		d.scanCache = map[StreamKey][]ScannedOp{}
 	}
 	d.scanCache[key] = ops
 	d.scanBytes += n
-	return ops, nil
 }
 
 // StructErrors returns the structural parse diagnostics recorded so far.

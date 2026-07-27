@@ -22,9 +22,9 @@ type Footprint struct {
 	DecodedStreams int
 	DecodedBytes   int64
 	// ScannedStreams / ScannedBytes describe the tokenized-content cache.
-	// ScannedBytes is an estimate: the operator structs, their names, and
-	// their operand slice headers, but not the operand values, which are
-	// shared with the graph.
+	// ScannedBytes is an estimate: the operator structs, their names, their
+	// operand slice headers, and the operand values themselves (see
+	// scannedOpsBytes).
 	ScannedStreams int
 	ScannedBytes   int64
 	// ObjStreams / ObjStmObjects describe the object-stream cache, which
@@ -55,15 +55,64 @@ func (d *Reader) Footprint() Footprint {
 	return f
 }
 
-// scannedOpsBytes estimates what a tokenized content stream costs on the heap.
-// Operand values are excluded: they are shared with the resolved graph, which
-// is accounted separately.
+// scannedOpsBytes estimates what a tokenized content stream costs on the heap:
+// the operator structs, their names, the operand slice headers, and the operand
+// values. Operands are built fresh per operator by the content lexer -- they are
+// not shared with the resolved graph -- so leaving them out under-counted a
+// vector-heavy stream by about a quarter, and the resident budget under-bound by
+// the same margin.
 func scannedOpsBytes(ops []ScannedOp) int64 {
-	const opSize = int64(unsafe.Sizeof(ScannedOp{}))
-	const ifaceSize = 16 // a PDFValue slot in the operand slice
-	n := int64(len(ops)) * opSize
+	var n int64
 	for _, op := range ops {
-		n += int64(len(op.Op)) + int64(len(op.Operands))*ifaceSize
+		n += scannedOpBytes(op.Op, op.Operands)
 	}
 	return n
+}
+
+// scannedOpBytes is scannedOpsBytes for a single operator, so a scan that
+// accounts as it goes (see Reader.scanAndMaybeCache) and one that accounts a
+// finished list agree by construction.
+func scannedOpBytes(op string, operands []PDFValue) int64 {
+	const opSize = int64(unsafe.Sizeof(ScannedOp{}))
+	return opSize + int64(len(op)) + scannedOperandsBytes(operands)
+}
+
+// ifaceSize is one PDFValue slot: a (type, data) pair.
+const ifaceSize = 16
+
+func scannedOperandsBytes(operands []PDFValue) int64 {
+	n := int64(len(operands)) * ifaceSize
+	for _, v := range operands {
+		n += scannedValueBytes(v)
+	}
+	return n
+}
+
+// scannedValueBytes estimates the heap a content-stream operand owns beyond its
+// interface slot. Only what the lexer allocates fresh counts: names are interned
+// and an inline image's byte spans alias the decoded stream, so both are charged
+// for their box alone.
+func scannedValueBytes(v PDFValue) int64 {
+	const boxSize = 8 // a boxed scalar
+	switch t := v.(type) {
+	case PDFInteger, PDFReal, PDFBoolean:
+		return boxSize
+	case PDFName:
+		return int64(unsafe.Sizeof(t))
+	case PDFString:
+		return int64(unsafe.Sizeof(t)) + int64(len(t.Value))
+	case PDFHexString:
+		return int64(unsafe.Sizeof(t)) + int64(len(t.Value))
+	case PDFArray:
+		return int64(unsafe.Sizeof(t)) + scannedOperandsBytes(t)
+	case PDFDict:
+		n := int64(unsafe.Sizeof(t))
+		for k, e := range t.Entries {
+			n += int64(len(k)) + ifaceSize + scannedValueBytes(e)
+		}
+		return n
+	case InlineImageRaw:
+		return int64(unsafe.Sizeof(t))
+	}
+	return boxSize
 }

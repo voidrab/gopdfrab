@@ -30,152 +30,65 @@ notice.
 
 ## [Unreleased]
 
-This is the first changelog entry; earlier history lives in the git log. Recent
-notable work:
+First changelog entry; earlier history lives in the git log.
 
-- **A conversion's memory footprint is measured and bounded.** Peak heap for a
-  conversion is now attributed rather than guessed: on the 3.9 MB, 40,000-object
-  corpus maximum it was ~70 MB, of which the resolved object graph is ~23.5 MB.
-  Pre-sizing the writer's object-discovery index — which was growing from empty
-  over 30,000 objects on every fix iteration — brings that peak to ~63 MB with
-  no change to output or verdicts. New `Limits.MaxResidentBytes` (with a
-  `--max-resident-mb` CLI flag) caps what one open document keeps in the caches
-  it can rebuild; it is a speed/memory dial, not a correctness limit, and the
-  default is high enough that leaving it alone changes nothing. A conversion now
-  releases those caches when it finishes, so a `Document` held open past
-  `Convert` no longer retains them.
-
-- **The rasterizer draws what it used to drop.** Conversions that fall back to
-  rasterizing a page now render inline images (`BI`/`ID`/`EI`), all seven
-  shading types including the mesh and patch ones, shading patterns, and Type 3
-  glyphs, rather than reporting them as lost. Two silent-loss bugs fell out and
-  are fixed: a fill under a `/Pattern` colour space painted flat black with no
-  report, and a stencil mask (`/ImageMask`) ignored the fill colour on both the
-  inline and XObject paths. What still cannot be drawn — tiling patterns,
-  malformed shadings, a mesh past its primitive cap — stays reported in
-  `ConvertResult.RasterDrops`, which now also carries losses from flattening a
-  transparency group.
-- **`ConvertResult.RasterizedPages`** lists the pages a conversion rebuilt as a
-  flat image. `RasterDrops` reports only content the rasterizer could not draw,
-  so a losslessly flattened page — still a conversion from text and vectors to
-  pixels — did not show up anywhere; this is that signal.
-
-- **The concurrency contract is documented and tested.** A `Document` is not safe
-  for concurrent use (open one per goroutine); the package-level `Verify`/`Convert`
-  functions, a shared `Profile` or `Options`, a returned `Result`, and
-  `SetLimits`/`CurrentLimits` all are. A `ConvertResult` may be read from several
-  goroutines but its `Close` must not race those reads. Stated at each type and
-  enforced by `-race` tests that run in CI.
-
-- **Windows read-path coverage and two determinism fixes.** The seek/ReadAt read
-  path Windows uses (no memory mapping) is now exercised on any OS via the new
-  internal `OpenBytesSeek` and asserted, over both conformance corpora, to parse
-  and verify identically to the mmap/byte-slice path. That surfaced and fixed two
-  cases where a verifier message named an arbitrary map element (the 6.3.5 CharSet
-  missing-glyph and 6.5.3 extra-appearance-entry messages), which now report a
-  stable, sorted choice. Platform behavior is documented in `doc.go`: unix
-  memory-maps (bounded, larger-than-RAM); Windows uses the seek path (identical
-  results, no larger-than-RAM guarantee).
-- **Lazy conversion output (breaking).** `ConvertResult.Output` is now a method,
-  `Output() ([]byte, error)`, rather than a `[]byte` field: a large conversion's
-  output spills to a temp file and is streamed on demand instead of staying
-  resident in the Go heap, and the final verify mmaps it. `WriteTo` and `Save`
-  stream from the backing without a second copy, and a new `Close()` releases it
-  (removing any temp file). Callers own `Close` on results from `Convert` and
-  `ConvertAll`; `ConvertEach` closes each result after its callback returns.
-  Output stays in memory below an 8 MB threshold and on js/wasm (no filesystem),
-  so most callers create no temp files.
-- **Package documentation.** Added a `doc.go` package overview (verify/convert
-  model, profiles, options/limits/cancellation, concurrency) and runnable
-  examples for the main entry points, which double as tests.
-- **Streaming batch conversion.** `ConvertEach`/`ConvertEachContext` convert a
-  batch and invoke a callback on each result as it completes, instead of
-  retaining every output like `ConvertAll` — so a large batch need not hold every
-  converted PDF in memory at once. A new `Options.Workers` field bounds the
-  concurrency of both forms (0 = `runtime.NumCPU`).
-- **Settable resource limits.** The decoded-output cap that guards against
-  decompression bombs is now configurable through the new root-package `Limits`
-  type and `SetLimits`/`CurrentLimits`/`DefaultLimits` functions, and through a
-  `--max-decoded-mb` flag on the `verify` and `convert` CLI commands. It replaces
-  the three internal 256 MB caps (Flate/LZW/RunLength) with one value enforced
-  uniformly across every decode path. The default is unchanged.
-- **Rasterizer honesty.** The raster fallback now reports content it cannot draw
-  (`sh` shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts) in
-  `ConvertResult.RasterDrops` per page, instead of silently omitting it. It also
-  honours text render mode (`Tr`) and rise (`Ts`), so rasterizing a scanned PDF
-  no longer paints its invisible OCR text layer visibly.
-- **Fidelity checking** for conversions. `Options.CheckFidelity` renders the
-  input and the converted output with gopdfrab's own rasterizer and populates
-  `ConvertResult.Fidelity` with a per-page `PageFidelity` (similarity, input/
-  output ink coverage, and a `Blanked()` helper that flags destroyed content).
-  A corpus gate asserts no conversion blanks a page.
-- **Command-line tool** `cmd/gopdfrab` (built on the public API only): `verify`
-  and `convert` subcommands, `--json` output, recursive directory input, exit
-  codes 0/1/2 (conformant / non-conformant / error), `--profile`/`--password`/
-  `--dpi`/`--max-iterations` flags, and SIGINT cancellation. Install with
-  `go install github.com/voidrab/gopdfrab/cmd/gopdfrab@latest`. The old
-  `internal`-importing `main/` example was removed.
-- **Context-aware entry points with an `Options` struct.** Each `Verify`/
-  `Convert` (and `Bytes`/`All`) function has a `…Context` counterpart taking a
-  `context.Context` and an `Options{Password, RasterDPI, MaxIterations}` value
-  (zero value = defaults). `ConvertContext` checks the context before each
-  verify/fix iteration and each raster pass; `ConvertAllContext`/
-  `VerifyAllContext` stop dispatching new files on cancellation. The
-  two-argument forms are unchanged.
-- Whole-table cross-reference **recovery**: a missing, non-numeric, or
-  unlocatable `startxref` no longer fails the open. The object table is rebuilt
-  by a full-file `N G obj` scan and the trailer is synthesized from a
-  cross-reference stream or the document catalog, reported as a 6.1.4 issue. The
-  scan is linear-time (`BenchmarkXRefRecovery`).
-- Standard security handler **decryption**: RC4 40/128, AES-128 (R4) and AES-256
-  (R6). Empty-password files decrypt automatically through `Open`/`OpenBytes`;
-  `OpenWithPassword` / `OpenBytesWithPassword` take an explicit user or owner
-  password.
-- Typed, `errors.Is`-matchable sentinels on the root package: `ErrNotPDF`,
-  `ErrDamaged`, `ErrEncrypted` and `ErrPasswordRequired`. `Open`/`Verify`/
-  `Convert` classify open failures with these instead of message text.
-- Stable JSON encoding of results: `Check`, `PDFError` and `Result` now implement
-  `MarshalJSON`, so `json.Marshal` of a verify/convert result produces a
-  documented shape instead of empty objects.
-- `ConvertResult.WriteTo(io.Writer)` (implements `io.WriterTo`) to stream the
-  converted PDF to any sink alongside the existing `Save(path)`.
-- Per-object recovery of broken cross-reference offsets: an object that fails to
-  parse at its recorded offset is re-located by scanning for its real
-  `N G obj` header, or resolved to null when no intact copy exists. Both
-  outcomes are reported as issues while every unrelated check keeps running.
-- `ErrUnresolvableGraph` sentinel: `Convert` returns it (with the best-effort
-  verify `Result` attached) when no object graph — and therefore no output —
-  could be produced.
+### Added
+- **Breaking:** `ConvertResult.Output` is now `Output() ([]byte, error)`; large
+  output spills to a temp file, and a new `Close()` releases it.
+- `Limits.MaxResidentBytes` and `--max-resident-mb` cap the caches one open
+  document keeps; a conversion releases them when it finishes.
+- `Limits`/`SetLimits`/`CurrentLimits`/`DefaultLimits` and `--max-decoded-mb`
+  make the decompression-bomb cap configurable.
+- `ConvertEach`/`ConvertEachContext` pass each batch result to a callback as it
+  completes; `Options.Workers` bounds the concurrency of both batch forms.
+- `…Context` counterparts of every `Verify`/`Convert` entry point, taking a
+  `context.Context` and an `Options` value.
+- `Options.CheckFidelity` populates `ConvertResult.Fidelity` with per-page
+  similarity and ink coverage.
+- `ConvertResult.RasterizedPages` lists the pages a conversion rebuilt as a flat
+  image; `RasterDrops` lists content the rasterizer could not draw.
+- `ConvertResult.WriteTo(io.Writer)` streams the converted PDF to any sink.
+- `ErrNotPDF`, `ErrDamaged`, `ErrEncrypted`, `ErrPasswordRequired` and
+  `ErrUnresolvableGraph` sentinels, matchable with `errors.Is`.
+- `Check`, `PDFError` and `Result` implement `MarshalJSON`.
+- Standard security handler decryption (RC4 40/128, AES-128, AES-256), with
+  `OpenWithPassword`/`OpenBytesWithPassword` for non-empty passwords.
+- Cross-reference recovery: a missing or unusable `startxref` rebuilds the table
+  by a full-file scan instead of failing the open.
+- Per-object recovery: an object that fails to parse at its recorded offset is
+  re-located or resolved to null, and reported.
+- Command-line tool `cmd/gopdfrab`: `verify`/`convert`, `--json`, recursive
+  input, exit codes 0/1/2, SIGINT cancellation.
+- Package documentation (`doc.go`) and runnable examples.
 
 ### Changed
-- **Breaking:** renamed for Go convention (no underscores, no `Get` prefix).
-  Constant `A_1B` → `A1B`; profile variables `PDFA_1B` → `PDFA1B`, `Legacy_1B` →
-  `Legacy1B`; `Document`/`Reader` accessors `GetPageCount`/`GetVersion`/
-  `GetMetadata` → `PageCount`/`Version`/`Metadata`. No aliases (pre-1.0).
-- Convert refuses a file that genuinely requires a password with
-  `ErrPasswordRequired` instead of emitting a document with undecryptable
-  streams.
+- **Breaking:** renamed for Go convention — `A_1B` → `A1B`, `PDFA_1B` →
+  `PDFA1B`, `Legacy_1B` → `Legacy1B`, `GetPageCount`/`GetVersion`/`GetMetadata`
+  → `PageCount`/`Version`/`Metadata`.
+- Content-stream tokenization streams past `Limits.MaxResidentBytes` rather than
+  materializing first, and the default budget drops from 256 MB to 64 MB.
+- The raster fallback draws inline images, all seven shading types, shading
+  patterns and Type 3 glyphs, and honours text render mode and rise.
+- Convert refuses a file that requires a password with `ErrPasswordRequired`
+  instead of emitting undecryptable streams.
+- The concurrency contract of each public type is documented and race-tested.
 
 ### Fixed
-- Two verifier false-negatives found by cross-checking against the veraPDF
-  binary over both conformance corpora: a referenced PostScript XObject (6.2.7)
-  is now flagged under PDFA1B (reachability-gated like Form XObjects, rather
-  than the whole check being disabled), and a non-embedded font shown only
-  inside a tiling pattern (6.3.4) is no longer suppressed by
-  `SkipUnusedSimpleFonts` — pattern content streams are now walked for usage.
-  Convert neuters a referenced PostScript XObject into an empty Form XObject.
-- Undecodable content streams are now reported (`StreamUndecodable`) rather than
-  silently turning a violation into a pass.
-- A single bad cross-reference offset no longer suppresses unrelated checks:
-  verification degrades per object instead of abandoning whole check families,
-  so a file with one broken offset reports the same issues as the intact file
-  plus the recovery issue. Content-usage suppressions are discarded when any
-  object degraded, and a verifier bail-out no longer drops the per-object parse
-  diagnostics gathered before it.
-- `Convert` can no longer return an empty output with a nil error: an
-  unresolvable graph is `ErrUnresolvableGraph`, and a conversion that nulled an
-  unrecoverable object reports the loss in `Residual()` with `Valid=false`.
-- `InflateZlib` returns `ErrOutputTooLarge` when a stream would inflate past the
-  256 MB cap, instead of silently truncating to a prefix that downstream checks
-  then trusted as complete. The deliberate leniency toward truncated/CRC-broken
-  streams (which still return their inflated prefix) is unchanged.
+- A `/Resources` dictionary pruned to the 4095-entry limit dropped entries in map
+  order, so a conversion was not byte-reproducible.
+- Two verifier false-negatives caught against the veraPDF binary: a referenced
+  PostScript XObject (6.2.7), and a non-embedded font used only by a tiling
+  pattern (6.3.4).
+- Two verifier messages named an arbitrary map element (6.3.5 CharSet, 6.5.3
+  appearance entry) instead of a sorted one.
+- A fill under a `/Pattern` colour space painted flat black, and an `/ImageMask`
+  ignored the fill colour, both without any report.
+- Undecodable content streams are reported (`StreamUndecodable`) rather than
+  turning a violation into a pass.
+- A single bad cross-reference offset suppressed unrelated checks; verification
+  now degrades per object.
+- `Convert` could return empty output with a nil error.
+- `InflateZlib` truncated silently past the 256 MB cap instead of returning
+  `ErrOutputTooLarge`.
+- The Windows seek/ReadAt read path is now exercised on any OS and asserted to
+  match the mmap path over both corpora.

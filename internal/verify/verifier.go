@@ -1076,10 +1076,6 @@ type fontUsage struct {
 }
 
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
-	ops, err := ctx.scanStreamCached(dict)
-	if err != nil {
-		return false // reported as StreamUndecodable by scanStreamCached
-	}
 	complete := true
 	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
 	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
@@ -1090,7 +1086,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	haveSimpleFont := false
 	var compositeFontPtr uintptr
 	haveCompositeFont := false
-	pdf.ReplayOps(ops, func(op string, operands []pdf.PDFValue) {
+	err := ctx.scanStream(dict, func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "q":
 			modeStack = append(modeStack, renderMode)
@@ -1221,6 +1217,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			}
 		}
 	})
+	if err != nil {
+		return false // reported as StreamUndecodable by scanStream
+	}
 	return complete
 }
 

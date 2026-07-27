@@ -139,24 +139,27 @@ func (ctx *ValidationContext) reportUndecodable(dict pdf.PDFDict, err error) {
 		fmt.Sprintf("stream could not be decoded: %v", err))
 }
 
-// scanStreamCached tokenizes dict's content stream, caching the token list via
-// ctx.reader (see pdf.Reader.ScanStreamCached) when available, so repeated
-// scans of the same unchanged stream -- within one verify pass or across
-// convert's fixer iterations -- lex/parse it at most once.
-func (ctx *ValidationContext) scanStreamCached(dict pdf.PDFDict) ([]pdf.ScannedOp, error) {
+// scanStream reports dict's content-stream operators to fn, going through
+// ctx.reader (see pdf.Reader.ScanStreamFunc) when there is one so an unchanged
+// stream is lexed at most once across a verify pass and convert's fixer
+// iterations, and streamed rather than materialized once past the budget.
+//
+// Operands are valid only for the duration of the call; see ScanStreamFunc.
+func (ctx *ValidationContext) scanStream(dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
 	if ctx.reader == nil {
 		data, err := pdf.DecodeStream(dict)
 		if err != nil {
 			ctx.reportUndecodable(dict, err)
-			return nil, err
+			return err
 		}
-		return pdf.TokenizeContent(data), nil
+		pdf.NewContentScanner(data).Scan(fn)
+		return nil
 	}
-	ops, err := ctx.reader.ScanStreamCached(dict)
-	if err != nil {
+	if err := ctx.reader.ScanStreamFunc(dict, fn); err != nil {
 		ctx.reportUndecodable(dict, err)
+		return err
 	}
-	return ops, err
+	return nil
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page

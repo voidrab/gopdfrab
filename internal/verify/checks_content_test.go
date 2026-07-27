@@ -89,10 +89,9 @@ func TestScanAnnotAppearancesHonoursOwnDefaultRGB(t *testing.T) {
 	}
 }
 
-// scanRaw tokenizes raw content-stream bytes and runs scanContent over them.
+// scanRaw runs the content checks over raw content-stream bytes.
 func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
-	ops := pdf.TokenizeContent(data)
-	scanContent(ops, pdf.PDFDict{}, resources, ctx)
+	pdf.NewContentScanner(data).Scan(contentChecker(pdf.PDFDict{}, resources, ctx))
 }
 
 func TestScanContentValue(t *testing.T) {

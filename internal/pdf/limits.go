@@ -37,11 +37,12 @@ func MaxDecodedStreamBytes() int64 { return effectiveDecodedCap() }
 // correctness limit: past it a Reader stops memoizing and starts recomputing,
 // which costs time and changes nothing about the result.
 //
-// 256 MB is chosen to be far above what any ordinary document needs (the
-// largest committed corpus file caches ~3.2 MB) so the default never changes
-// behaviour; it exists for callers converting large documents in parallel, who
-// can lower it to trade speed for a bounded footprint.
-const DefaultMaxResidentBytes int64 = 256 << 20
+// 64 MB leaves the largest committed corpus file (~4 MB of caches) sixteen times
+// the room it needs, so the default binds only on documents whose content is
+// genuinely huge -- exactly the ones a default should bound. It was 256 MB while
+// the budget under-counted what it was measuring; a 100 MB vector document spent
+// all of that on decoded page content and peaked near a gigabyte.
+const DefaultMaxResidentBytes int64 = 64 << 20
 
 // residentCap holds the configured budget; 0 means DefaultMaxResidentBytes.
 // Global for the same reason decodedStreamCap is: the caches are filled from

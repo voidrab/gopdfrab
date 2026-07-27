@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"runtime/metrics"
 	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -266,12 +267,13 @@ func BenchmarkConvertMemory(b *testing.B) {
 }
 
 // TestConvertUnderTightBudgetMatchesDefault: the resident budget governs
-// memoization only, so converting with caching effectively off must produce
-// byte-identical output and the same verdict as converting with the default
-// budget. This is the correctness gate for the budget being a speed dial
-// rather than a behaviour switch.
+// memoization only, so converting with caching effectively off -- which also
+// puts every content scan on the streaming path (pdf.Reader.ScanStreamFunc) --
+// must produce byte-identical output and the same verdict as converting with
+// the default budget. This is the correctness gate for the budget being a speed
+// dial rather than a behaviour switch.
 func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := sampleFixturePaths(failFixturesByExpectedClause(t), 20)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
@@ -287,7 +289,7 @@ func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 	}
 
 	tested := 0
-	for path := range fixtures {
+	for _, path := range fixtures {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -307,13 +309,31 @@ func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 			t.Errorf("%s: verdict differs with caching off: got{valid=%v issues=%d} want{valid=%v issues=%d}",
 				filepath.Base(path), gotValid, gotIssues, wantValid, wantIssues)
 		}
-		if tested++; tested >= 20 {
-			break // a representative sample; the property is structural
-		}
+		tested++
 	}
 	if tested == 0 {
 		t.Skip("no readable fixtures")
 	}
+}
+
+// sampleFixturePaths picks n fixtures spread evenly across the sorted corpus.
+// Ranging over the map instead would sample differently on every run, so a
+// fixture that breaks the property under test would fail one run in thirty --
+// which is how a nondeterministic resource prune stayed hidden.
+func sampleFixturePaths(fixtures map[string]string, n int) []string {
+	paths := make([]string, 0, len(fixtures))
+	for path := range fixtures {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	if len(paths) <= n {
+		return paths
+	}
+	out := make([]string, 0, n)
+	for i := range n {
+		out = append(out, paths[i*len(paths)/n])
+	}
+	return out
 }
 
 // TestConvertReleasesCaches: a Document kept open past Convert must not still

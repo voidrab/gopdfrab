@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -882,20 +883,31 @@ func TestDecodeStreamCached(t *testing.T) {
 	}
 }
 
-// TestScanStreamCachedNoKeyAndHit covers ScanStreamCached's no-cache-key
+// scanOps collects what ScanStreamFunc reports into a list, the shape these
+// tests assert on. Operands are copied for the same reason TokenizeContent
+// copies them: the scanner reuses one stack slice.
+func scanOps(d *Reader, dict PDFDict) ([]ScannedOp, error) {
+	var ops []ScannedOp
+	err := d.ScanStreamFunc(dict, func(op string, operands []PDFValue) {
+		ops = append(ops, ScannedOp{Op: op, Operands: append([]PDFValue(nil), operands...)})
+	})
+	return ops, err
+}
+
+// TestScanStreamFuncNoKeyAndHit covers ScanStreamFunc's no-cache-key
 // decode-and-tokenize path (including its decode-error branch), its
 // with-key decode-error branch, and its cache-hit path.
-func TestScanStreamCachedNoKeyAndHit(t *testing.T) {
+func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 	d := &Reader{}
-	ops, err := d.ScanStreamCached(PDFDict{HasStream: true, RawStream: nil})
+	ops, err := scanOps(d, PDFDict{HasStream: true, RawStream: nil})
 	if err != nil {
-		t.Fatalf("ScanStreamCached (no key): %v", err)
+		t.Fatalf("ScanStreamFunc (no key): %v", err)
 	}
 	if len(ops) != 0 {
 		t.Errorf("ops = %v, want none for empty stream", ops)
 	}
 
-	if _, err := d.ScanStreamCached(PDFDict{}); err == nil {
+	if _, err := scanOps(d, PDFDict{}); err == nil {
 		t.Error("expected error scanning a non-stream dict (no-key decode error)")
 	}
 
@@ -903,21 +915,21 @@ func TestScanStreamCachedNoKeyAndHit(t *testing.T) {
 		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
 		HasStream: true, RawStream: []byte("x"),
 	}
-	if _, err := d.ScanStreamCached(badDict); err == nil {
+	if _, err := scanOps(d, badDict); err == nil {
 		t.Error("expected error scanning an unsupported filter (with-key decode error)")
 	}
 
 	streamDict := PDFDict{HasStream: true, RawStream: []byte("1 2 Tj")}
-	ops1, err := d.ScanStreamCached(streamDict)
+	ops1, err := scanOps(d, streamDict)
 	if err != nil || len(ops1) != 1 || ops1[0].Op != "Tj" {
-		t.Fatalf("ScanStreamCached (first) = %+v, %v", ops1, err)
+		t.Fatalf("ScanStreamFunc (first) = %+v, %v", ops1, err)
 	}
 	if len(d.scanCache) != 1 {
 		t.Errorf("expected one scanCache entry, got %d", len(d.scanCache))
 	}
-	ops2, err := d.ScanStreamCached(streamDict)
+	ops2, err := scanOps(d, streamDict)
 	if err != nil || len(ops2) != 1 || ops2[0].Op != "Tj" {
-		t.Fatalf("ScanStreamCached (cache-hit) = %+v, %v", ops2, err)
+		t.Fatalf("ScanStreamFunc (cache-hit) = %+v, %v", ops2, err)
 	}
 }
 
@@ -1049,9 +1061,9 @@ func TestFootprintCountsCaches(t *testing.T) {
 		t.Errorf("cache hit changed DecodedBytes: %d -> %d", f.DecodedBytes, got.DecodedBytes)
 	}
 
-	ops, err := d.ScanStreamCached(dict)
+	ops, err := scanOps(d, dict)
 	if err != nil {
-		t.Fatalf("ScanStreamCached: %v", err)
+		t.Fatalf("ScanStreamFunc: %v", err)
 	}
 	f = d.Footprint()
 	if f.ScannedStreams != 1 || f.ScannedBytes != scannedOpsBytes(ops) {
@@ -1095,8 +1107,8 @@ func TestFootprintAdoptedWithCaches(t *testing.T) {
 	if _, err := src.DecodeStreamCached(dict); err != nil {
 		t.Fatalf("DecodeStreamCached: %v", err)
 	}
-	if _, err := src.ScanStreamCached(dict); err != nil {
-		t.Fatalf("ScanStreamCached: %v", err)
+	if _, err := scanOps(src, dict); err != nil {
+		t.Fatalf("ScanStreamFunc: %v", err)
 	}
 
 	dst := &Reader{}
@@ -1147,9 +1159,9 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeStreamCached: %v", err)
 	}
-	wantOps, err := warm.ScanStreamCached(dict)
+	wantOps, err := scanOps(warm, dict)
 	if err != nil {
-		t.Fatalf("ScanStreamCached: %v", err)
+		t.Fatalf("ScanStreamFunc: %v", err)
 	}
 	if warm.Footprint().Total() == 0 {
 		t.Fatal("default budget cached nothing")
@@ -1163,9 +1175,9 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeStreamCached (no budget): %v", err)
 	}
-	gotOps, err := cold.ScanStreamCached(dict)
+	gotOps, err := scanOps(cold, dict)
 	if err != nil {
-		t.Fatalf("ScanStreamCached (no budget): %v", err)
+		t.Fatalf("ScanStreamFunc (no budget): %v", err)
 	}
 	concurrent, err := cold.DecodeStreamCachedConcurrent(dict)
 	if err != nil {
@@ -1175,11 +1187,79 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	if !bytes.Equal(gotData, wantData) || !bytes.Equal(concurrent, wantData) {
 		t.Error("decoded bytes differ with caching off")
 	}
-	if len(gotOps) != len(wantOps) {
-		t.Errorf("tokenized %d ops with caching off, want %d", len(gotOps), len(wantOps))
+	if !reflect.DeepEqual(gotOps, wantOps) {
+		t.Errorf("streamed operators differ from cached ones:\n got %+v\nwant %+v", gotOps, wantOps)
 	}
 	if got := cold.Footprint(); got.DecodedStreams != 0 || got.ScannedStreams != 0 || got.Total() != 0 {
 		t.Errorf("caching off still cached: %+v", got)
+	}
+}
+
+// TestScanStreamFuncAbandonsListOverBudget: a budget that fits the decoded
+// bytes but not the token list must leave the scan streaming -- reporting every
+// operator, caching none of them. This is what keeps peak memory, and not just
+// retention, inside the budget.
+func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
+	old := residentCap.Load()
+	defer residentCap.Store(old)
+
+	var content []byte
+	for i := range 400 {
+		content = append(content, fmt.Sprintf("%d %d m %d %d l S\n", i, i, i+1, i+1)...)
+	}
+	dict := PDFDict{Entries: map[string]PDFValue{}, HasStream: true, RawStream: content}
+
+	SetMaxResidentBytes(-1)
+	warm := &Reader{}
+	wantOps, err := scanOps(warm, dict)
+	if err != nil {
+		t.Fatalf("ScanStreamFunc: %v", err)
+	}
+	full := warm.Footprint()
+	if full.ScannedBytes <= int64(len(content)) {
+		t.Fatalf("token list (%d bytes) not larger than its stream (%d)", full.ScannedBytes, len(content))
+	}
+
+	// Room for the decoded stream and a fraction of the tokens.
+	SetMaxResidentBytes(int64(len(content)) + full.ScannedBytes/4)
+	cold := &Reader{}
+	gotOps, err := scanOps(cold, dict)
+	if err != nil {
+		t.Fatalf("ScanStreamFunc (over budget): %v", err)
+	}
+	if !reflect.DeepEqual(gotOps, wantOps) {
+		t.Errorf("operators differ over budget: %d ops, want %d", len(gotOps), len(wantOps))
+	}
+	if got := cold.Footprint(); got.ScannedStreams != 0 || got.ScannedBytes != 0 {
+		t.Errorf("over-budget scan still cached tokens: %+v", got)
+	}
+	if got := cold.Footprint(); got.DecodedStreams != 1 {
+		t.Errorf("decoded bytes should still fit the budget: %+v", got)
+	}
+}
+
+// TestScannedOpBytesMatchesIncremental: the running total scanAndMaybeCache
+// keeps must equal what scannedOpsBytes reports for the finished list, since
+// one decides whether to cache and the other decides what the budget records.
+func TestScannedOpBytesMatchesIncremental(t *testing.T) {
+	ops := TokenizeContent([]byte(
+		"BT /F1 12 Tf [(a) -3 <42>] TJ ET /P << /K 1 >> BDC 1.5 0 0 1.5 0 0 cm true sh " +
+			"BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI"))
+	if len(ops) < 5 {
+		t.Fatalf("tokenized %d ops, want a representative mix", len(ops))
+	}
+	var incremental int64
+	for _, op := range ops {
+		incremental += scannedOpBytes(op.Op, op.Operands)
+	}
+	if got := scannedOpsBytes(ops); got != incremental {
+		t.Errorf("scannedOpsBytes = %d, incremental sum = %d", got, incremental)
+	}
+
+	// A value the content lexer never produces still costs its interface slot
+	// rather than nothing, so an unexpected operand cannot hide from the budget.
+	if got := scannedValueBytes(PDFRef{ObjNum: 1}); got <= 0 {
+		t.Errorf("scannedValueBytes(PDFRef) = %d, want a non-zero charge", got)
 	}
 }
 
@@ -1194,9 +1274,9 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeStreamCached: %v", err)
 	}
-	beforeOps, err := d.ScanStreamCached(dict)
+	beforeOps, err := scanOps(d, dict)
 	if err != nil {
-		t.Fatalf("ScanStreamCached: %v", err)
+		t.Fatalf("ScanStreamFunc: %v", err)
 	}
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
@@ -1223,9 +1303,9 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeStreamCached after release: %v", err)
 	}
-	afterOps, err := d.ScanStreamCached(dict)
+	afterOps, err := scanOps(d, dict)
 	if err != nil {
-		t.Fatalf("ScanStreamCached after release: %v", err)
+		t.Fatalf("ScanStreamFunc after release: %v", err)
 	}
 	if !bytes.Equal(after, before) || len(afterOps) != len(beforeOps) {
 		t.Error("rebuilt cache disagrees with what was released")

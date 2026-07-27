@@ -458,14 +458,40 @@ memory is decoded and tokenized page content, and `Footprint` says where:
 37.5 MB of decoded bytes against **219 MB of tokenized operators**, so the token
 list runs ~6× the decoded stream it came from.
 
-`--max-resident-mb 16` takes that file from 928 MB to 716 MB with byte-identical
-output, which bounds the *cached* half. The rest is transient: `TokenizeContent`
-materializes a whole `[]ScannedOp` per content stream, and a single page here
-decodes to tens of megabytes. `ContentScanner.Scan` already exists as a
-callback API that never builds the list, so the fix for the larger regime is to
-route single-pass consumers through it and reserve the materialized form for
-callers that genuinely re-read. That is a smaller, better-targeted change than
-partial resolution, and it addresses the case that actually reaches a gigabyte.
+**The budget now bounds the peak, not just what is retained, and it counts
+honestly.** Two defects fed each other. `ScanStreamCached` built the whole
+`[]ScannedOp` and *then* asked whether the budget had room, so a stream larger
+than the budget still paid for its token list in full; and `scannedOpsBytes`
+excluded operand values, which the content lexer allocates fresh per operator,
+so the budget under-counted a vector-heavy stream by about a quarter. The entry
+point is now `Reader.ScanStreamFunc(dict, fn)`, which tokenizes *while* it
+streams and abandons the list the moment it outgrows the remaining budget; the
+cached list is replayed when there is one, so the fast path is unchanged. Both
+consumers (`scanContentDict`, `collectUsageFromBytes`) were already single-pass
+callbacks and moved straight onto it, so `ScanStreamCached` is gone — nothing
+needed random access.
+
+**The default budget is 64 MB, down from 256 MB.** With honest accounting the
+largest committed fixture caches ~4 MB, so 64 MB still leaves sixteen times the
+headroom and cannot bind on any ordinary document; it exists to bound the
+document that is genuinely huge. On the content-heavy file: peak RSS **958 MB →
+689 MB**, and *faster* (16.5 s → 11.2 s), since the cache churn it avoids costs
+more than the re-lexing it adds. (Before and after measured in one session,
+best of three; the 928 MB in the table above is the same file on an earlier run.) Object-heavy is unchanged at ~103 MB, corpus
+benchmarks are flat (geomean −0.14%, `allocs/op` unmoved).
+
+The trade the streaming path makes — re-lexing an over-budget stream on every
+fixer iteration — measures at 2–5% on the most cache-heavy corpus file
+(`--max-resident-mb 1` vs default, 15 conversions: 7.42 s → 7.57 s), and applies
+only past the budget.
+
+`TestConvertUnderTightBudgetMatchesDefault` is the gate: 20 fixtures converted
+with memoization off must be byte-identical to the default run. Making its
+sample deterministic (evenly spread over the sorted corpus, not map order)
+immediately caught a *pre-existing* nondeterminism: `pruneUnusedResourceEntries`
+chose which unused resource entries to drop by map iteration order, so a
+document with more prunable entries than excess converted to different bytes on
+every run. Candidates are sorted now.
 
 Still open (deferred): the ~23.5 MB graph itself. `Run` resolves every reachable
 object into Go structures, and at ~590 bytes per object the cost is the

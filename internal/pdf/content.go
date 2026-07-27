@@ -348,7 +348,7 @@ func TokenizeContent(data []byte) []ScannedOp {
 
 // ReplayOps invokes fn for each entry in ops in order, the same callback
 // shape as ContentScanner.Scan, so a cached token list (see
-// Reader.ScanStreamCached) can stand in for re-lexing an unchanged stream.
+// Reader.ScanStreamFunc) can stand in for re-lexing an unchanged stream.
 func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 	for _, o := range ops {
 		fn(o.Op, o.Operands)
