@@ -30,6 +30,15 @@ echo "=== recording $COUNT runs into $(basename "$out") ==="
 ( cd "$BENCH_DIR" && go test -run=^$ -bench=. -benchmem -count="$COUNT" ./micro/... ) \
     | tee "$out"
 
+# The memory benchmarks live in internal/convert, which the benchmarks module
+# cannot import, so they are a second run from the main module appended to the
+# same file. benchstat reads the concatenation fine -- each run carries its own
+# goos/goarch/pkg/cpu header.
+echo
+echo "=== recording $COUNT runs of the memory benchmarks ==="
+( cd "$REPO_DIR" && go test -run=^$ -bench=Memory -benchmem -count="$COUNT" ./internal/convert/ ) \
+    | tee -a "$out"
+
 if ! command -v benchstat >/dev/null 2>&1; then
     echo >&2
     echo "benchstat not found (run setup.sh); skipping the comparison" >&2

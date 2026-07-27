@@ -1,9 +1,13 @@
 package convert
 
 import (
+	"maps"
 	"os"
 	"runtime"
+	"runtime/metrics"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -32,6 +36,79 @@ func heapRetainedBy(build func() any) uint64 {
 		return 0
 	}
 	return before.HeapAlloc - after.HeapAlloc
+}
+
+// liveHeapMetric is the runtime metric peakHeapDuring samples. Unlike
+// ReadMemStats it does not stop the world, so it can be polled tightly.
+const liveHeapMetric = "/memory/classes/heap/objects:bytes"
+
+// liveHeap reads the current live heap in bytes.
+func liveHeap() uint64 {
+	s := []metrics.Sample{{Name: liveHeapMetric}}
+	metrics.Read(s)
+	return s[0].Value.Uint64()
+}
+
+// peakHeapDuring runs fn and returns the highest live heap observed while it
+// ran, measured above the heap at entry. It answers what heapRetainedBy
+// cannot: heapRetainedBy attributes what a *returned* value keeps, but a
+// conversion's resolved graph is dropped before Run returns, so only a sample
+// taken during the call sees it.
+//
+// Sampling means the number moves a little between runs -- treat it as a
+// magnitude, not a deterministic figure like allocs/op.
+func peakHeapDuring(fn func()) uint64 {
+	runtime.GC()
+	base := liveHeap()
+
+	stop := make(chan struct{})
+	done := make(chan uint64)
+	go func() {
+		var peak uint64
+		for {
+			select {
+			case <-stop:
+				done <- peak
+				return
+			default:
+				if h := liveHeap(); h > peak {
+					peak = h
+				}
+				time.Sleep(200 * time.Microsecond)
+			}
+		}
+	}()
+
+	fn()
+	close(stop)
+	peak := <-done
+
+	if peak < base {
+		return 0
+	}
+	return peak - base
+}
+
+// TestPeakHeapDuring pins the sampling primitive against a known transient: a
+// 64 MB slice held only for the duration of the call must show up, and a
+// function allocating nothing must not.
+func TestPeakHeapDuring(t *testing.T) {
+	const size = 64 << 20
+	got := peakHeapDuring(func() {
+		buf := make([]byte, size)
+		for i := 0; i < len(buf); i += 4096 {
+			buf[i] = 1 // touch it so the allocation is real
+		}
+		time.Sleep(5 * time.Millisecond)
+		runtime.KeepAlive(buf)
+	})
+	if got < size/2 {
+		t.Errorf("peak %d bytes for a %d-byte transient, want >= %d", got, size, size/2)
+	}
+
+	if got := peakHeapDuring(func() { time.Sleep(time.Millisecond) }); got > size/2 {
+		t.Errorf("peak %d bytes for a no-op, want ~0", got)
+	}
 }
 
 // TestHeapRetainedBy pins the attribution primitive: a value holding an 8 MB
@@ -76,26 +153,113 @@ func TestConvertMemoryReport(t *testing.T) {
 		len(data)>>10, outputLen>>10, retained>>10)
 }
 
-// BenchmarkConvertMemory reports the converted output size as a metric, so a
-// change to the per-conversion output footprint is visible in benchstat output
-// alongside the standard allocs/op.
+// footprintSamples are the two shapes a conversion's memory can take. The
+// large sample is object-heavy and content-light; the colour sample is the
+// reverse. Attributing only the first would overfit: it says the graph
+// dominates, which is not true of a file whose weight is in its streams.
+var footprintSamples = map[string]string{
+	"large": largeSamplePath,
+	"colour": veraDir + "/6.2 Graphics/6.2.3.4 Separation and DeviceN colour spaces/" +
+		"veraPDF test suite 6-2-3-4-t01-pass-b.pdf",
+}
+
+// TestConvertFootprintReport attributes a conversion's heap: the peak while it
+// runs, what the resolved graph alone costs, and what the Reader's caches hold
+// when it finishes. This is the roadmap item 8 baseline -- it reports, it does
+// not gate, because only allocs/op is deterministic enough to assert on.
+func TestConvertFootprintReport(t *testing.T) {
+	for _, name := range slices.Sorted(maps.Keys(footprintSamples)) {
+		t.Run(name, func(t *testing.T) { reportFootprint(t, footprintSamples[name]) })
+	}
+}
+
+func reportFootprint(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skip("sample not present")
+	}
+
+	peak := peakHeapDuring(func() {
+		cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+		if err != nil {
+			t.Errorf("ConvertBytes: %v", err)
+			return
+		}
+		cr.Close()
+	})
+
+	// The graph on its own, isolated from the conversion around it.
+	var graphFootprint pdf.Footprint
+	graphRetained := heapRetainedBy(func() any {
+		doc, err := pdf.OpenBytes(data)
+		if err != nil {
+			t.Errorf("OpenBytes: %v", err)
+			return nil
+		}
+		g, err := doc.ResolveGraph()
+		if err != nil {
+			t.Errorf("ResolveGraph: %v", err)
+			return nil
+		}
+		graphFootprint = doc.Footprint()
+		return []any{doc, g}
+	})
+
+	// What a full conversion leaves in the Reader's caches.
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+	cr, err := Run(doc, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	defer cr.Close()
+	after := doc.Footprint()
+
+	t.Logf("input %d KB", len(data)>>10)
+	t.Logf("peak heap during convert ~%d KB", peak>>10)
+	t.Logf("resolved graph alone retains ~%d KB (%d objects, %d nodes)",
+		graphRetained>>10, graphFootprint.Objects, graphFootprint.Nodes)
+	t.Logf("after convert: %d objects, %d nodes, decoded %d streams/%d KB, scanned %d streams/%d KB, objstm %d streams/%d objects",
+		after.Objects, after.Nodes,
+		after.DecodedStreams, after.DecodedBytes>>10,
+		after.ScannedStreams, after.ScannedBytes>>10,
+		after.ObjStreams, after.ObjStmObjects)
+}
+
+// BenchmarkConvertMemory reports the converted output size and the peak heap a
+// conversion reaches, so a change to either footprint is visible in benchstat
+// output alongside the standard allocs/op. peak_heap_MB is sampled, so unlike
+// allocs/op it carries run-to-run noise; read it as a magnitude.
 func BenchmarkConvertMemory(b *testing.B) {
 	data, err := os.ReadFile(largeSamplePath)
 	if err != nil {
 		b.Skip("large sample not present")
 	}
 	var outputLen int
+	var peak uint64
 	for b.Loop() {
-		cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
-		if err != nil {
-			b.Fatalf("ConvertBytes: %v", err)
+		p := peakHeapDuring(func() {
+			cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+			if err != nil {
+				b.Errorf("ConvertBytes: %v", err)
+				return
+			}
+			out, err := cr.Output()
+			if err != nil {
+				b.Errorf("Output(): %v", err)
+				return
+			}
+			outputLen = len(out)
+			cr.Close()
+		})
+		if p > peak {
+			peak = p
 		}
-		out, err := cr.Output()
-		if err != nil {
-			b.Fatalf("Output(): %v", err)
-		}
-		outputLen = len(out)
-		cr.Close()
 	}
 	b.ReportMetric(float64(outputLen)/(1<<20), "output_MB")
+	b.ReportMetric(float64(peak)/(1<<20), "peak_heap_MB")
 }

@@ -1019,3 +1019,94 @@ func TestResolveInPlace(t *testing.T) {
 		t.Error("failed array resolution must unmark its pointer")
 	}
 }
+
+// TestFootprintCountsCaches checks the cache accounting against known inputs:
+// counts follow the maps, and the byte totals follow what was put in.
+func TestFootprintCountsCaches(t *testing.T) {
+	d := &Reader{}
+	if got := d.Footprint(); got != (Footprint{}) {
+		t.Errorf("fresh Reader Footprint = %+v, want zero", got)
+	}
+
+	content := []byte("BT /F1 12 Tf (hi) Tj ET")
+	dict := PDFDict{Entries: map[string]PDFValue{}, HasStream: true, RawStream: content}
+
+	data, err := d.DecodeStreamCached(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCached: %v", err)
+	}
+	f := d.Footprint()
+	if f.DecodedStreams != 1 || f.DecodedBytes != int64(len(data)) {
+		t.Errorf("after decode: streams=%d bytes=%d, want 1 and %d",
+			f.DecodedStreams, f.DecodedBytes, len(data))
+	}
+
+	// A second decode of the same bytes hits the cache and must not double-count.
+	if _, err := d.DecodeStreamCached(dict); err != nil {
+		t.Fatalf("DecodeStreamCached (repeat): %v", err)
+	}
+	if got := d.Footprint(); got.DecodedBytes != f.DecodedBytes {
+		t.Errorf("cache hit changed DecodedBytes: %d -> %d", f.DecodedBytes, got.DecodedBytes)
+	}
+
+	ops, err := d.ScanStreamCached(dict)
+	if err != nil {
+		t.Fatalf("ScanStreamCached: %v", err)
+	}
+	f = d.Footprint()
+	if f.ScannedStreams != 1 || f.ScannedBytes != scannedOpsBytes(ops) {
+		t.Errorf("after scan: streams=%d bytes=%d, want 1 and %d",
+			f.ScannedStreams, f.ScannedBytes, scannedOpsBytes(ops))
+	}
+	if f.Total() != f.DecodedBytes+f.ScannedBytes {
+		t.Errorf("Total = %d, want %d", f.Total(), f.DecodedBytes+f.ScannedBytes)
+	}
+
+	d.objCache = map[int]PDFValue{1: PDFInteger(1), 2: PDFInteger(2)}
+	d.resolvedPtrs = map[uintptr]bool{1: true}
+	d.objStmCache = map[int][]objStmEntry{9: {{objNum: 1}, {objNum: 2}, {objNum: 3}}}
+	f = d.Footprint()
+	if f.Objects != 2 || f.Nodes != 1 || f.ObjStreams != 1 || f.ObjStmObjects != 3 {
+		t.Errorf("counts = %+v, want Objects=2 Nodes=1 ObjStreams=1 ObjStmObjects=3", f)
+	}
+}
+
+// TestScannedOpsBytesGrowsWithContent pins the estimate's direction: more
+// operators and more operands must cost more.
+func TestScannedOpsBytesGrowsWithContent(t *testing.T) {
+	if got := scannedOpsBytes(nil); got != 0 {
+		t.Errorf("scannedOpsBytes(nil) = %d, want 0", got)
+	}
+	one := scannedOpsBytes([]ScannedOp{{Op: "Tj", Operands: []PDFValue{PDFInteger(1)}}})
+	two := scannedOpsBytes([]ScannedOp{
+		{Op: "Tj", Operands: []PDFValue{PDFInteger(1)}},
+		{Op: "TJ", Operands: []PDFValue{PDFInteger(1), PDFInteger(2)}},
+	})
+	if one <= 0 || two <= one {
+		t.Errorf("estimate not monotonic: one=%d two=%d", one, two)
+	}
+}
+
+// TestFootprintAdoptedWithCaches: AdoptStreamCaches shares the maps, so the
+// adopting Reader must report what it now holds rather than zero.
+func TestFootprintAdoptedWithCaches(t *testing.T) {
+	src := &Reader{}
+	dict := PDFDict{Entries: map[string]PDFValue{}, HasStream: true, RawStream: []byte("0 0 m 1 1 l S")}
+	if _, err := src.DecodeStreamCached(dict); err != nil {
+		t.Fatalf("DecodeStreamCached: %v", err)
+	}
+	if _, err := src.ScanStreamCached(dict); err != nil {
+		t.Fatalf("ScanStreamCached: %v", err)
+	}
+
+	dst := &Reader{}
+	dst.AdoptStreamCaches(src)
+	if got, want := dst.Footprint(), src.Footprint(); got != want {
+		t.Errorf("adopted Footprint = %+v, want %+v", got, want)
+	}
+
+	dst.AdoptStreamCaches(nil) // no-op, must not clear
+	if got, want := dst.Footprint(), src.Footprint(); got != want {
+		t.Errorf("after nil adopt = %+v, want %+v", got, want)
+	}
+}

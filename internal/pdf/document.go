@@ -117,6 +117,11 @@ type Reader struct {
 	// token list -- never a check's result -- is safe to cache here).
 	scanCache map[StreamKey][]ScannedOp
 
+	// decodedBytes / scanBytes track what the two caches above hold, updated
+	// as entries go in so Footprint costs nothing to read.
+	decodedBytes int64
+	scanBytes    int64
+
 	// password is the password supplied to open the file (nil == empty), used
 	// once to build crypt; crypt is the authenticated decryptor, non-nil only
 	// for an encrypted file whose password authenticated. See crypt.go.
@@ -150,6 +155,7 @@ func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
 		d.decodedCache = map[StreamKey][]byte{}
 	}
 	d.decodedCache[key] = data
+	d.decodedBytes += int64(len(data))
 	return data, nil
 }
 
@@ -176,6 +182,9 @@ func (d *Reader) DecodeStreamCachedConcurrent(dict PDFDict) ([]byte, error) {
 	if d.decodedCache == nil {
 		d.decodedCache = map[StreamKey][]byte{}
 	}
+	if _, dup := d.decodedCache[key]; !dup {
+		d.decodedBytes += int64(len(data))
+	}
 	d.decodedCache[key] = data
 	d.decodedMu.Unlock()
 	return data, nil
@@ -190,9 +199,11 @@ func (d *Reader) AdoptStreamCaches(src *Reader) {
 	}
 	if src.decodedCache != nil {
 		d.decodedCache = src.decodedCache
+		d.decodedBytes = src.decodedBytes
 	}
 	if src.scanCache != nil {
 		d.scanCache = src.scanCache
+		d.scanBytes = src.scanBytes
 	}
 }
 
@@ -221,6 +232,7 @@ func (d *Reader) ScanStreamCached(dict PDFDict) ([]ScannedOp, error) {
 		d.scanCache = map[StreamKey][]ScannedOp{}
 	}
 	d.scanCache[key] = ops
+	d.scanBytes += scannedOpsBytes(ops)
 	return ops, nil
 }
 
