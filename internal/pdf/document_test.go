@@ -1110,3 +1110,126 @@ func TestFootprintAdoptedWithCaches(t *testing.T) {
 		t.Errorf("after nil adopt = %+v, want %+v", got, want)
 	}
 }
+
+// TestMaxResidentBytesConfig pins the budget accessors, which follow
+// SetMaxDecodedStreamBytes: unset and non-positive both mean the default.
+func TestMaxResidentBytesConfig(t *testing.T) {
+	old := residentCap.Load()
+	defer residentCap.Store(old)
+
+	SetMaxResidentBytes(0)
+	if got := MaxResidentBytes(); got != DefaultMaxResidentBytes {
+		t.Errorf("unset budget = %d, want default %d", got, DefaultMaxResidentBytes)
+	}
+	SetMaxResidentBytes(4096)
+	if got := MaxResidentBytes(); got != 4096 {
+		t.Errorf("set budget = %d, want 4096", got)
+	}
+	SetMaxResidentBytes(-1)
+	if got := MaxResidentBytes(); got != DefaultMaxResidentBytes {
+		t.Errorf("negative budget = %d, want default %d", got, DefaultMaxResidentBytes)
+	}
+}
+
+// TestResidentBudgetStopsCaching: under a budget nothing fits, the caches stay
+// empty and every call still returns the same bytes and operators. The caches
+// are memoization, so the budget may cost time but never an answer.
+func TestResidentBudgetStopsCaching(t *testing.T) {
+	old := residentCap.Load()
+	defer residentCap.Store(old)
+
+	dict := PDFDict{Entries: map[string]PDFValue{}, HasStream: true,
+		RawStream: []byte("BT /F1 12 Tf (hello) Tj ET 0 0 m 1 1 l S")}
+
+	SetMaxResidentBytes(-1)
+	warm := &Reader{}
+	wantData, err := warm.DecodeStreamCached(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCached: %v", err)
+	}
+	wantOps, err := warm.ScanStreamCached(dict)
+	if err != nil {
+		t.Fatalf("ScanStreamCached: %v", err)
+	}
+	if warm.Footprint().Total() == 0 {
+		t.Fatal("default budget cached nothing")
+	}
+
+	// 1 byte: no entry fits, which is the documented way to switch memoization
+	// off without giving the zero value a second meaning.
+	SetMaxResidentBytes(1)
+	cold := &Reader{}
+	gotData, err := cold.DecodeStreamCached(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCached (no budget): %v", err)
+	}
+	gotOps, err := cold.ScanStreamCached(dict)
+	if err != nil {
+		t.Fatalf("ScanStreamCached (no budget): %v", err)
+	}
+	concurrent, err := cold.DecodeStreamCachedConcurrent(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCachedConcurrent (no budget): %v", err)
+	}
+
+	if !bytes.Equal(gotData, wantData) || !bytes.Equal(concurrent, wantData) {
+		t.Error("decoded bytes differ with caching off")
+	}
+	if len(gotOps) != len(wantOps) {
+		t.Errorf("tokenized %d ops with caching off, want %d", len(gotOps), len(wantOps))
+	}
+	if got := cold.Footprint(); got.DecodedStreams != 0 || got.ScannedStreams != 0 || got.Total() != 0 {
+		t.Errorf("caching off still cached: %+v", got)
+	}
+}
+
+// TestReleaseCachesKeepsAnswers: releasing drops the memoized state and the
+// next call rebuilds it to the same result.
+func TestReleaseCachesKeepsAnswers(t *testing.T) {
+	d := &Reader{}
+	dict := PDFDict{Entries: map[string]PDFValue{}, HasStream: true,
+		RawStream: []byte("q 1 0 0 1 0 0 cm BT ET Q")}
+
+	before, err := d.DecodeStreamCached(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCached: %v", err)
+	}
+	beforeOps, err := d.ScanStreamCached(dict)
+	if err != nil {
+		t.Fatalf("ScanStreamCached: %v", err)
+	}
+	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
+	d.headerScan = map[int][]int64{1: {0}}
+	d.framingChecked = map[int]bool{1: true}
+	d.streamChecked = map[string]bool{"x": true}
+	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
+
+	d.ReleaseCaches()
+
+	if got := d.Footprint(); got.DecodedStreams != 0 || got.ScannedStreams != 0 ||
+		got.ObjStreams != 0 || got.Total() != 0 {
+		t.Errorf("after ReleaseCaches: %+v, want the derived caches empty", got)
+	}
+	if d.headerScan != nil || d.framingChecked != nil || d.streamChecked != nil {
+		t.Error("ReleaseCaches left a dedupe set behind")
+	}
+	// The object cache carries resolved (and possibly edited) objects, so it
+	// is deliberately kept.
+	if len(d.objCache) != 1 {
+		t.Errorf("ReleaseCaches dropped the object cache: %v", d.objCache)
+	}
+
+	after, err := d.DecodeStreamCached(dict)
+	if err != nil {
+		t.Fatalf("DecodeStreamCached after release: %v", err)
+	}
+	afterOps, err := d.ScanStreamCached(dict)
+	if err != nil {
+		t.Fatalf("ScanStreamCached after release: %v", err)
+	}
+	if !bytes.Equal(after, before) || len(afterOps) != len(beforeOps) {
+		t.Error("rebuilt cache disagrees with what was released")
+	}
+
+	d.ReleaseCaches() // idempotent
+}

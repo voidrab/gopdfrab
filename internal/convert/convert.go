@@ -468,6 +468,11 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		}
 	}
 
+	// The run is over, so the input's decoded and tokenized streams are dead
+	// weight. They matter for a caller who keeps the Document open past
+	// Convert -- the run's own peak is behind us either way.
+	defer doc.ReleaseCaches()
+
 	// Compare the converted output's appearance to the input captured above.
 	if o.CheckFidelity && cr.backing.len() > 0 {
 		if out, err := cr.backing.open(); err == nil {

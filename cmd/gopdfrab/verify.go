@@ -16,6 +16,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	profileName := fs.String("profile", "pdfa1b", "conformance profile: pdfa1b, legacy1b, or pdf")
 	password := fs.String("password", "", "password for an encrypted input")
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
+	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 256)")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: gopdfrab verify [flags] <path-or-dir>...")
@@ -24,7 +25,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err := fs.Parse(args); err != nil {
 		return exitError
 	}
-	applyMaxDecodedMB(*maxDecodedMB)
+	applyLimits(*maxDecodedMB, *maxResidentMB)
 
 	profile := profileByName(*profileName)
 	if profile == nil {

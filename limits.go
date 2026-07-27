@@ -9,16 +9,34 @@ type Limits struct {
 	// (Flate/LZW/RunLength), guarding against decompression bombs. A value of
 	// zero or less means the default (256 MB).
 	MaxDecodedStreamBytes int64
+
+	// MaxResidentBytes caps what one open document keeps in the caches it
+	// could rebuild -- decoded stream bytes and tokenized page content. It is a
+	// speed/memory dial, not a correctness limit: past the budget a document
+	// recomputes instead of remembering, and the verdict is identical either
+	// way. A value of zero or less means the default (256 MB); pass 1 to switch
+	// memoization off, since no entry fits a one-byte budget.
+	//
+	// The default is far above what an ordinary document needs, so leaving it
+	// alone changes nothing. Lower it when converting large documents in
+	// parallel, where the footprint multiplies by the worker count.
+	MaxResidentBytes int64
 }
 
 // DefaultLimits returns the built-in resource caps.
 func DefaultLimits() Limits {
-	return Limits{MaxDecodedStreamBytes: pdf.DefaultMaxDecodedStreamBytes}
+	return Limits{
+		MaxDecodedStreamBytes: pdf.DefaultMaxDecodedStreamBytes,
+		MaxResidentBytes:      pdf.DefaultMaxResidentBytes,
+	}
 }
 
 // CurrentLimits returns the resource caps in effect.
 func CurrentLimits() Limits {
-	return Limits{MaxDecodedStreamBytes: pdf.MaxDecodedStreamBytes()}
+	return Limits{
+		MaxDecodedStreamBytes: pdf.MaxDecodedStreamBytes(),
+		MaxResidentBytes:      pdf.MaxResidentBytes(),
+	}
 }
 
 // SetLimits applies l process-wide. A non-positive field resets that cap to its
@@ -31,4 +49,5 @@ func CurrentLimits() Limits {
 // mid-run leaves in-flight work split across the old and new cap.
 func SetLimits(l Limits) {
 	pdf.SetMaxDecodedStreamBytes(l.MaxDecodedStreamBytes)
+	pdf.SetMaxResidentBytes(l.MaxResidentBytes)
 }

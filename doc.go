@@ -49,7 +49,12 @@
 // The two-argument entry points cover the common case; the ...Context forms add
 // cancellation and an [Options] value (password, raster DPI, iteration bound,
 // batch worker count, and an optional fidelity check). [SetLimits] configures
-// process-wide resource caps, such as the maximum decoded stream size.
+// process-wide resource caps: [Limits.MaxDecodedStreamBytes] bounds a single
+// stream's decoded output, and [Limits.MaxResidentBytes] bounds what one open
+// document keeps in the caches it could rebuild. The first is a safety limit
+// and exceeding it is reported as a violation; the second is a speed/memory
+// dial that never changes a verdict, worth lowering when converting large
+// documents in parallel.
 //
 // # Concurrency
 //

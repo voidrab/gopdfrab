@@ -1,8 +1,10 @@
 package convert
 
 import (
+	"bytes"
 	"maps"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/metrics"
 	"slices"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // largeSamplePath is the corpus maximum (~3.9 MB): the 6.1.12 implementation-
@@ -206,25 +209,23 @@ func reportFootprint(t *testing.T, path string) {
 		return []any{doc, g}
 	})
 
-	// What a full conversion leaves in the Reader's caches.
+	// Cache occupancy is read after a verify rather than a convert, because
+	// convert releases the caches on its way out (TestConvertReleasesCaches).
 	doc, err := pdf.OpenBytes(data)
 	if err != nil {
 		t.Fatalf("OpenBytes: %v", err)
 	}
 	defer doc.Close()
-	cr, err := Run(doc, pdf.PDFA1B, Options{})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if _, err := verify.Verify(doc, pdf.PDFA1B); err != nil {
+		t.Fatalf("Verify: %v", err)
 	}
-	defer cr.Close()
 	after := doc.Footprint()
 
 	t.Logf("input %d KB", len(data)>>10)
 	t.Logf("peak heap during convert ~%d KB", peak>>10)
 	t.Logf("resolved graph alone retains ~%d KB (%d objects, %d nodes)",
 		graphRetained>>10, graphFootprint.Objects, graphFootprint.Nodes)
-	t.Logf("after convert: %d objects, %d nodes, decoded %d streams/%d KB, scanned %d streams/%d KB, objstm %d streams/%d objects",
-		after.Objects, after.Nodes,
+	t.Logf("caches after verify: decoded %d streams/%d KB, scanned %d streams/%d KB, objstm %d streams/%d objects",
 		after.DecodedStreams, after.DecodedBytes>>10,
 		after.ScannedStreams, after.ScannedBytes>>10,
 		after.ObjStreams, after.ObjStmObjects)
@@ -262,4 +263,79 @@ func BenchmarkConvertMemory(b *testing.B) {
 	}
 	b.ReportMetric(float64(outputLen)/(1<<20), "output_MB")
 	b.ReportMetric(float64(peak)/(1<<20), "peak_heap_MB")
+}
+
+// TestConvertUnderTightBudgetMatchesDefault: the resident budget governs
+// memoization only, so converting with caching effectively off must produce
+// byte-identical output and the same verdict as converting with the default
+// budget. This is the correctness gate for the budget being a speed dial
+// rather than a behaviour switch.
+func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
+	fixtures := failFixturesByExpectedClause(t)
+	if len(fixtures) == 0 {
+		t.Skip("no corpora present")
+	}
+	defer pdf.SetMaxResidentBytes(-1)
+
+	convert := func(data []byte) ([]byte, bool, int) {
+		cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+		if err != nil {
+			t.Fatalf("ConvertBytes: %v", err)
+		}
+		defer cr.Close()
+		return mustOutput(t, cr), cr.Result.Valid, len(cr.Result.Issues)
+	}
+
+	tested := 0
+	for path := range fixtures {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		pdf.SetMaxResidentBytes(-1)
+		wantOut, wantValid, wantIssues := convert(data)
+
+		pdf.SetMaxResidentBytes(1) // nothing fits
+		gotOut, gotValid, gotIssues := convert(data)
+
+		if !bytes.Equal(gotOut, wantOut) {
+			t.Errorf("%s: output differs with caching off (%d vs %d bytes)",
+				filepath.Base(path), len(gotOut), len(wantOut))
+		}
+		if gotValid != wantValid || gotIssues != wantIssues {
+			t.Errorf("%s: verdict differs with caching off: got{valid=%v issues=%d} want{valid=%v issues=%d}",
+				filepath.Base(path), gotValid, gotIssues, wantValid, wantIssues)
+		}
+		if tested++; tested >= 20 {
+			break // a representative sample; the property is structural
+		}
+	}
+	if tested == 0 {
+		t.Skip("no readable fixtures")
+	}
+}
+
+// TestConvertReleasesCaches: a Document kept open past Convert must not still
+// be holding the run's decoded and tokenized streams.
+func TestConvertReleasesCaches(t *testing.T) {
+	data, err := os.ReadFile(largeSamplePath)
+	if err != nil {
+		t.Skip("large sample not present")
+	}
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+
+	cr, err := Run(doc, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	defer cr.Close()
+
+	if got := doc.Footprint(); got.Total() != 0 || got.DecodedStreams != 0 || got.ScannedStreams != 0 {
+		t.Errorf("caches retained after Run: %+v", got)
+	}
 }

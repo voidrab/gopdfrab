@@ -212,3 +212,35 @@ func TestContextCancelledConvert(t *testing.T) {
 		t.Errorf("cancelled convert: exit=%d, want %d", code, exitError)
 	}
 }
+
+// TestMaxResidentMBFlag confirms --max-resident-mb reaches the caches without
+// changing the verdict: the budget governs memoization only.
+func TestMaxResidentMBFlag(t *testing.T) {
+	defer gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<</Type/Catalog/Pages 2 0 R>>")
+	b.Obj(2, "<</Type/Pages/Kids[3 0 R]/Count 1>>")
+	b.Obj(3, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R>>")
+	b.StreamObj(4, "<<", []byte("BT ET"))
+	data := b.FinishClassic("<</Size 5/Root 1 0 R>>")
+
+	path := filepath.Join(t.TempDir(), "small.pdf")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	gopdfrab.SetLimits(gopdfrab.DefaultLimits())
+	wantCode, want, _ := runCLI("verify", "--json", path)
+	gotCode, got, _ := runCLI("verify", "--json", "--max-resident-mb", "1", path)
+	if got != want || gotCode != wantCode {
+		t.Errorf("--max-resident-mb changed the verdict:\n got (%d) %s\nwant (%d) %s",
+			gotCode, got, wantCode, want)
+	}
+
+	// The flag must actually reach the process-wide budget.
+	runCLI("verify", "--json", "--max-resident-mb", "7", path)
+	if got := gopdfrab.CurrentLimits().MaxResidentBytes; got != 7<<20 {
+		t.Errorf("MaxResidentBytes after the flag = %d, want %d", got, 7<<20)
+	}
+}

@@ -151,6 +151,13 @@ func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Over budget, stop memoizing rather than evicting: a StreamKey is an
+	// address, so a dropped entry whose bytes are later freed could be matched
+	// by an unrelated allocation at the same address. Not inserting has no
+	// such hazard, and every slice already handed out stays valid.
+	if !d.cacheHasRoom(int64(len(data))) {
+		return data, nil
+	}
 	if d.decodedCache == nil {
 		d.decodedCache = map[StreamKey][]byte{}
 	}
@@ -179,6 +186,10 @@ func (d *Reader) DecodeStreamCachedConcurrent(dict PDFDict) ([]byte, error) {
 		return nil, err
 	}
 	d.decodedMu.Lock()
+	if !d.cacheHasRoom(int64(len(data))) {
+		d.decodedMu.Unlock()
+		return data, nil
+	}
 	if d.decodedCache == nil {
 		d.decodedCache = map[StreamKey][]byte{}
 	}
@@ -207,6 +218,30 @@ func (d *Reader) AdoptStreamCaches(src *Reader) {
 	}
 }
 
+// ReleaseCaches drops everything the Reader memoized but can recompute: the
+// decoded-stream and tokenized-content caches, the object-stream cache, the
+// recovery header scan, and the per-object diagnostic dedupe sets. The resolved
+// graph and the object cache are deliberately kept -- those carry the
+// conversion's edits, and dropping them would lose work rather than recompute
+// it.
+//
+// Every field cleared here is pure memoization, so this costs time and never
+// correctness. Fields are dropped rather than emptied, so a Reader that shared
+// these maps via AdoptStreamCaches keeps its own view of them.
+func (d *Reader) ReleaseCaches() {
+	d.decodedMu.Lock()
+	d.decodedCache = nil
+	d.decodedBytes = 0
+	d.decodedMu.Unlock()
+
+	d.scanCache = nil
+	d.scanBytes = 0
+	d.objStmCache = nil
+	d.headerScan = nil
+	d.framingChecked = nil
+	d.streamChecked = nil
+}
+
 // ScanStreamCached decodes and tokenizes dict's content stream, memoizing the
 // token list by content identity (StreamKeyOf) alongside DecodeStreamCached's
 // decoded-bytes cache, so callers sharing one Reader across multiple verify
@@ -228,11 +263,15 @@ func (d *Reader) ScanStreamCached(dict PDFDict) ([]ScannedOp, error) {
 		return nil, err
 	}
 	ops := TokenizeContent(data)
+	n := scannedOpsBytes(ops)
+	if !d.cacheHasRoom(n) {
+		return ops, nil
+	}
 	if d.scanCache == nil {
 		d.scanCache = map[StreamKey][]ScannedOp{}
 	}
 	d.scanCache[key] = ops
-	d.scanBytes += scannedOpsBytes(ops)
+	d.scanBytes += n
 	return ops, nil
 }
 

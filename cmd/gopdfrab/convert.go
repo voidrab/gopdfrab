@@ -20,6 +20,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	dpi := fs.Int("dpi", 0, "raster fallback resolution in DPI (0 = default 150)")
 	maxIter := fs.Int("max-iterations", 0, "verify/fix loop bound (0 = default 4)")
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
+	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 256)")
 	outPath := fs.String("o", "", "output path (default: <input> with a .pdfa.pdf/.fixed.pdf suffix)")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	fs.Usage = func() {
@@ -29,7 +30,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err := fs.Parse(args); err != nil {
 		return exitError
 	}
-	applyMaxDecodedMB(*maxDecodedMB)
+	applyLimits(*maxDecodedMB, *maxResidentMB)
 
 	profile := profileByName(*profileName)
 	if profile == nil {

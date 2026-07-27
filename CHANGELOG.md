@@ -33,6 +33,18 @@ notice.
 This is the first changelog entry; earlier history lives in the git log. Recent
 notable work:
 
+- **A conversion's memory footprint is measured and bounded.** Peak heap for a
+  conversion is now attributed rather than guessed: on the 3.9 MB, 40,000-object
+  corpus maximum it was ~70 MB, of which the resolved object graph is ~23.5 MB.
+  Pre-sizing the writer's object-discovery index — which was growing from empty
+  over 30,000 objects on every fix iteration — brings that peak to ~63 MB with
+  no change to output or verdicts. New `Limits.MaxResidentBytes` (with a
+  `--max-resident-mb` CLI flag) caps what one open document keeps in the caches
+  it can rebuild; it is a speed/memory dial, not a correctness limit, and the
+  default is high enough that leaving it alone changes nothing. A conversion now
+  releases those caches when it finishes, so a `Document` held open past
+  `Convert` no longer retains them.
+
 - **The rasterizer draws what it used to drop.** Conversions that fall back to
   rasterizing a page now render inline images (`BI`/`ID`/`EI`), all seven
   shading types including the mesh and patch ones, shading patterns, and Type 3
