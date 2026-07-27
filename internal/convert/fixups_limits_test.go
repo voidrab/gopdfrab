@@ -1,6 +1,9 @@
 package convert
 
 import (
+	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -17,6 +20,55 @@ func TestResourceOperatorTarget(t *testing.T) {
 		if got, _ := resourceOperatorTarget(op); got != want {
 			t.Errorf("resourceOperatorTarget(%q) = %q, want %q", op, got, want)
 		}
+	}
+}
+
+// TestPruneUnusedResourceEntriesIsDeterministic: an oversized resource dict
+// normally has more prunable entries than excess to shed, so the choice must
+// not come from map order -- two identical documents would otherwise convert to
+// different bytes.
+func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
+	build := func() pdf.PDFDict {
+		d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+		for i := range maxDictEntries + 10 {
+			d.Entries[fmt.Sprintf("C%04d", i)] = pdf.PDFInteger(i)
+		}
+		return d
+	}
+	used := map[string]bool{"C0000": true, "C0001": true}
+
+	var first []string
+	for run := range 3 {
+		sub := build()
+		if !pruneUnusedResourceEntries(sub, used) {
+			t.Fatal("oversized dict was not pruned")
+		}
+		if got := dictRealEntryCount(sub); got != maxDictEntries {
+			t.Errorf("pruned to %d entries, want %d", got, maxDictEntries)
+		}
+		for k := range used {
+			if _, ok := sub.Entries[k]; !ok {
+				t.Errorf("pruned the used entry %q", k)
+			}
+		}
+		keys := make([]string, 0, len(sub.Entries))
+		for k := range sub.Entries {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		if run == 0 {
+			first = keys
+			continue
+		}
+		if !slices.Equal(keys, first) {
+			t.Fatalf("run %d pruned a different set: %v vs %v", run, keys[:5], first[:5])
+		}
+	}
+
+	// Nothing to shed: a dict at the limit is left alone.
+	small := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"A": pdf.PDFInteger(1)}}
+	if pruneUnusedResourceEntries(small, nil) {
+		t.Error("a dict under the limit was pruned")
 	}
 }
 

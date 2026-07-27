@@ -266,24 +266,31 @@ func dictRealEntryCount(d pdf.PDFDict) int {
 
 // pruneUnusedResourceEntries deletes entries from sub not named in used,
 // down to at most maxDictEntries.
+//
+// Candidates are taken in sorted order because the dictionary usually holds
+// more unused entries than there is excess to shed: which ones go is a real
+// choice, and map order would make it a different choice on every run -- a
+// conversion that is not byte-reproducible.
 func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool) bool {
 	excess := dictRealEntryCount(sub) - maxDictEntries
 	if excess <= 0 {
 		return false
 	}
-	changed := false
+	candidates := make([]string, 0, len(sub.Entries))
 	for k := range sub.Entries {
-		if excess <= 0 {
-			break
-		}
 		if k == "_ref" || k == "_dirty" || used[k] {
 			continue
 		}
-		delete(sub.Entries, k)
-		excess--
-		changed = true
+		candidates = append(candidates, k)
 	}
-	return changed
+	sort.Strings(candidates)
+	if len(candidates) > excess {
+		candidates = candidates[:excess]
+	}
+	for _, k := range candidates {
+		delete(sub.Entries, k)
+	}
+	return len(candidates) > 0
 }
 
 // resourceUsage maps a /Resources sub-dictionary's Entries-map pointer to
