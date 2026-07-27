@@ -441,6 +441,32 @@ caching; pass 1 to switch it off. `Reader.ReleaseCaches` drops the rebuildable
 state and convert calls it on the way out, for callers holding a `Document` open
 past `Convert`.
 
+**The corpus maximum is not the worst case, and the graph is not the worst
+problem.** Every figure above comes from a file that is object-heavy by
+construction (40,015 objects in 3.9 MB). Measuring peak RSS across shapes says
+there are two regimes, and they want different fixes:
+
+| shape | file | objects | peak RSS | ratio |
+|---|---|---|---|---|
+| synthetic content-heavy | 101 MB | 82 | 928 MB | 9.2× |
+| synthetic object-heavy | 5 MB | 40,002 | 106 MB | 21× |
+| isartor 6.1.12 | 3.9 MB | 40,015 | 81 MB | 21× |
+
+A 100 MB document with **82 objects** peaks at nearly a gigabyte. Streaming
+object resolution would do nothing for it — there is no graph to speak of. The
+memory is decoded and tokenized page content, and `Footprint` says where:
+37.5 MB of decoded bytes against **219 MB of tokenized operators**, so the token
+list runs ~6× the decoded stream it came from.
+
+`--max-resident-mb 16` takes that file from 928 MB to 716 MB with byte-identical
+output, which bounds the *cached* half. The rest is transient: `TokenizeContent`
+materializes a whole `[]ScannedOp` per content stream, and a single page here
+decodes to tens of megabytes. `ContentScanner.Scan` already exists as a
+callback API that never builds the list, so the fix for the larger regime is to
+route single-pass consumers through it and reserve the materialized form for
+callers that genuinely re-read. That is a smaller, better-targeted change than
+partial resolution, and it addresses the case that actually reaches a gigabyte.
+
 Still open (deferred): the ~23.5 MB graph itself. `Run` resolves every reachable
 object into Go structures, and at ~590 bytes per object the cost is the
 `map[string]PDFValue` scaffolding, not stream bytes (those already alias the
