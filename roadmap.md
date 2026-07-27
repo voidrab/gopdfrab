@@ -367,7 +367,7 @@ defaults, i.e. holes when lowering for safety) and, backed by `atomic.Int64`, is
 race-clean. Resolve depth and the structural depth consts stay internal. The
 default is unchanged, so no corpus behavior moved.
 
-### 8. Convert holds everything in memory — **output half done; graph deferred**
+### 8. Convert holds everything in memory — **output and indices done; graph deferred**
 
 Was: `ConvertAll` kept a full `ConvertResult` per input, each with the complete
 output PDF as `[]byte`, so 500 files meant 500 output documents resident at once,
@@ -390,11 +390,81 @@ heap and re-opening it with `OpenBytes`; `ConvertResult.Output()` reads it back 
 demand and `Close()` releases it (see item 18). `BenchmarkConvertMemory` and
 `heapRetainedBy` guard it.
 
-Still open (deferred): `Run` resolves the entire object graph into Go structures,
-so a single large conversion still heap-loads what the read path went to trouble
-to mmap — the ~4 MB graph above. Reducing it means partial/streaming resolution,
-which the whole verify/convert model (a fully-resolved in-heap trailer) is built
-against, so it is the larger rearchitecture, now backed by the numbers above.
+**The footprint is now measured rather than inferred.** The ~8.2 MB above was
+what the returned `ConvertResult` retains, which is the wrong instrument for the
+graph: `heapRetainedBy` attributes what a returned value keeps, and the graph is
+dropped before `Run` returns. `peakHeapDuring` (sampling `/memory/classes/heap/
+objects:bytes` from a goroutine) measures it properly, and `Reader.Footprint`
+attributes the caches. On the 3.9 MB, 40,015-object corpus maximum, staged:
+
+| stage | peak heap |
+|---|---|
+| open only | 2 MB |
+| + `ResolveGraph` | 27 MB |
+| + `NumberObjects` | 37 MB |
+| full verify | 42 MB |
+| full convert | 70 MB |
+
+So the graph is ~23.5 MB — six times the file, not the ~4 MB the retention
+figure suggested — and the two stream caches are ~3.2 MB. `TestConvertFootprintReport`
+reports both an object-heavy and a content-heavy sample, since attributing only
+the first would overfit.
+
+**Two things the measurement killed.** Both were planned work that turned out to
+be worth nothing, and are recorded here so nobody re-derives them:
+
+- *Unreachable objects.* `verifyAllObjectFraming` resolves every object in the
+  xref table, not just the reachable graph, so dropping the unreachable ones
+  looked like a win. Measured across both corpora: 426 of 57,885 objects are
+  unreachable (0.7%), and the worst single file has 7.
+- *The object-stream cache*, which holds every object of every object stream in
+  addition to the object cache. One file in 774 uses object streams, and it is
+  the Isartor manual rather than a fixture. Real-world PDFs use them heavily, so
+  this is worth re-measuring when item 10's corpus lands — but not before.
+
+**What the measurement did point at, now fixed.** A single `NumberObjects` pass
+cost ~14.6 MB of scratch to produce a 3.1 MB index, because the discovery maps
+grew from empty over 30,012 objects and left the discarded bucket arrays on the
+heap. Convert paid that per fix iteration and again in the writer. Those entry
+points now take a size hint; convert passes the resolved object count, then what
+the previous pass actually numbered. Peak: **70.4 MB → 63 MB**, `B/op` 145.9 MB
+→ 130.7 MB, `allocs/op` unchanged (this changes allocation size, not count).
+`TestSizeHintDoesNotChangeOutput` pins that the hint cannot affect output.
+
+**The caches are now bounded and released.** `Limits.MaxResidentBytes` (with
+`--max-resident-mb`) caps what one Reader memoizes; over budget it stops
+inserting rather than evicting, because a `StreamKey` is an address and a
+dropped entry whose bytes are freed could be matched by an unrelated allocation
+at the same address. Zero means the default, matching
+`MaxDecodedStreamBytes`, so a partly-filled `Limits` cannot silently disable
+caching; pass 1 to switch it off. `Reader.ReleaseCaches` drops the rebuildable
+state and convert calls it on the way out, for callers holding a `Document` open
+past `Convert`.
+
+Still open (deferred): the ~23.5 MB graph itself. `Run` resolves every reachable
+object into Go structures, and at ~590 bytes per object the cost is the
+`map[string]PDFValue` scaffolding, not stream bytes (those already alias the
+mmap). Reducing it needs partial/streaming resolution, and the blocker is
+sharper than "the model assumes a resolved trailer":
+
+- **Identity is an address.** `StreamKey` is `(&RawStream[0], len)` and ~78 call
+  sites key maps on `ValuePointer(d.Entries)`. Eviction requires identity that
+  survives a re-parse, so those have to move to an object-number key first. That
+  is not a clean swap: fixers build fresh `PDFDict` literals throughout convert,
+  and a dict with no object number has nowhere to carry a stable id except a
+  synthetic `Entries` key — which leaves a hybrid that still falls back to
+  addresses, i.e. the fragility the eviction needed removed.
+- **Whole-document-before-any-page.** `ComputeContentUsage` must finish for the
+  entire document before any page's checks run.
+- **Numbering before writing.** `writer.discover` must enumerate the full object
+  set before the first output byte.
+
+The design that fits: resolve a page subtree, walk it, then re-reference it
+(restore each entry's `PDFRef` from the existing `_ref` marker) and drop those
+object numbers, so the mmap'd input backs clean objects exactly as the temp file
+backs the output in item 18, with fixer-dirtied objects pinned. It is a real
+rearchitecture gated on the identity migration above, and the numbers now say
+what it buys: about a third of a conversion's peak.
 
 ### 9. Windows and macOS are untested — **DONE** (fallback tested + documented)
 
@@ -986,7 +1056,10 @@ outstanding:
   sourcing work, not code, and it gates the last CI gap (item 13).
 - **Item 8's resolved-graph footprint** — partial/streaming resolution, against a
   verify/convert model built on a fully-resolved in-heap trailer. The larger
-  rearchitecture, now backed by measurement.
+  rearchitecture. Now fully measured (~23.5 MB of a 63 MB peak on the corpus
+  maximum) and gated on migrating ~78 address-keyed identity sites to
+  object-number keys; the surrounding waste it was blamed for — the writer's
+  discovery index — is fixed.
 
 Item 29 also keeps one small open note: the Type1 width path models fewer
 encodings than the Type1C one — now measured, and costing nothing on either
