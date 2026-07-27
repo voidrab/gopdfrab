@@ -28,5 +28,5 @@ func TestCrasher_WriterDeepNesting(t *testing.T) {
 	trailer.Entries["Size"] = pdf.PDFInteger(2)
 
 	// Must not panic / stack-overflow; an error is the expected fixed outcome.
-	writer.WriteDocument(io.Discard, trailer)
+	writer.WriteDocument(io.Discard, trailer, 0)
 }

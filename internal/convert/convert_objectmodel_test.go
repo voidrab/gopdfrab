@@ -47,7 +47,7 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	}
 
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 	return buf.Bytes()

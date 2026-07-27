@@ -25,7 +25,7 @@ func fixPassTrailer(t *testing.T, n int) (*fixPass, map[int]pdf.PDFDict) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	byNum := map[int]pdf.PDFDict{}
 	for num, obj := range objs {
 		d, ok := obj.(pdf.PDFDict)
@@ -138,7 +138,7 @@ func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := stream.Entries["_ref"].(pdf.PDFRef)
 

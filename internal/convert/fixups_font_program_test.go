@@ -132,7 +132,7 @@ func fixtureTrailer(t *testing.T, path string) (trailer pdf.PDFDict, closeDoc fu
 func assertCheckClearedByWrite(t *testing.T, trailer pdf.PDFDict, c pdf.Check) {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 	doc, err := pdf.Open(writeTempPDF(t, "font_program_fixed.pdf", buf.Bytes()))

@@ -290,7 +290,7 @@ func TestLZWStreamFixerRoundTripsThroughWriter(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 	if bytes.Contains(buf.Bytes(), []byte("LZWDecode")) {

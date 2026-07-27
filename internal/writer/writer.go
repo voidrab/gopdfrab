@@ -29,16 +29,13 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 	if !ok {
 		return fmt.Errorf("writer: resolved graph is not a dictionary")
 	}
-	return WriteDocument(w, trailer)
+	return WriteDocument(w, trailer, r.Footprint().Objects)
 }
 
 // WriteDocumentIndexed serializes a fully-resolved PDF object graph to w and
 // returns the ordered slice of indirect objects as written.
-func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict) (objs []pdf.PDFDict, err error) {
-	wr := &pdfWriter{
-		numbers: map[objectIdentity]int{},
-		visited: map[uintptr]bool{},
-	}
+func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pdf.PDFDict, err error) {
+	wr := newPDFWriter(hint)
 	wr.discover(trailer.Entries["Root"])
 	wr.discover(trailer.Entries["Info"])
 
@@ -156,8 +153,8 @@ func writeXRefEntry(cw *countingWriter, offset int64) error {
 
 // WriteDocument serializes a fully-resolved PDF object graph to w as a fresh,
 // self-contained PDF with a cross-reference table.
-func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
-	_, err := WriteDocumentIndexed(w, trailer)
+func WriteDocument(w io.Writer, trailer pdf.PDFDict, hint int) error {
+	_, err := WriteDocumentIndexed(w, trailer, hint)
 	return err
 }
 
@@ -165,11 +162,10 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict) error {
 // reachable from trailer, updates their _ref entries, and returns a number-keyed
 // map suitable for pdf.Reader.SeedResolvedGraph. Used to seed in-heap verifies
 // during conversion without serializing bytes.
-func NumberObjects(trailer pdf.PDFDict) map[int]pdf.PDFValue {
-	wr := &pdfWriter{
-		numbers: map[objectIdentity]int{},
-		visited: map[uintptr]bool{},
-	}
+// hint is the expected indirect-object count, used only to size the discovery
+// index; see newPDFWriter. Zero is always safe.
+func NumberObjects(trailer pdf.PDFDict, hint int) map[int]pdf.PDFValue {
+	wr := newPDFWriter(hint)
 	wr.discover(trailer.Entries["Root"])
 	wr.discover(trailer.Entries["Info"])
 
@@ -279,6 +275,25 @@ type pdfWriter struct {
 	// per dict. Frames are stacked: each caller records the length before
 	// its call and restores it afterwards.
 	keyScratch []string
+}
+
+// newPDFWriter builds a writer whose index maps are sized for a graph of
+// about hint indirect objects. Sizing matters more than it looks: growing
+// these maps from empty over tens of thousands of objects leaves the discarded
+// bucket arrays on the heap until the next GC, and on a 40,000-object document
+// that scratch is larger than the index it produces. A hint that is somewhat
+// too large costs a few spare buckets; a hint of zero just means "start small"
+// and behaves as before.
+func newPDFWriter(hint int) *pdfWriter {
+	if hint < 0 {
+		hint = 0
+	}
+	return &pdfWriter{
+		numbers: make(map[objectIdentity]int, hint),
+		// Every indirect object plus the inline composites between them.
+		visited: make(map[uintptr]bool, hint*2),
+		order:   make([]pdf.PDFDict, 0, hint),
+	}
 }
 
 // sortedEntryKeys appends entries' keys (skipping the synthetic

@@ -24,7 +24,7 @@ func targetedFixture(t *testing.T, path string, c pdf.Check) (*fixPass, []pdf.PD
 		closeDoc()
 		t.Fatalf("pdf.Open(%s): %v", path, err)
 	}
-	objs := writer.NumberObjects(*trailerHolder)
+	objs := writer.NumberObjects(*trailerHolder, 0)
 	doc.SeedResolvedGraph(*trailerHolder, objs)
 	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := flagged.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, &ref)
@@ -171,7 +171,7 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := flagged.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref)
@@ -228,7 +228,7 @@ func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := plain.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
@@ -272,7 +272,7 @@ func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := img.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
@@ -306,7 +306,7 @@ func TestNameTooLongFixerTargetsValueFlavour(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := d.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
@@ -343,7 +343,7 @@ func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries["Root"] = root
 
-	objs := writer.NumberObjects(trailer)
+	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := flagged.Entries["_ref"].(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)

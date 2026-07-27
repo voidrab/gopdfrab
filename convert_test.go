@@ -373,7 +373,7 @@ func objModelFixture(t *testing.T) []byte {
 	trailer.Entries["Root"] = catalog
 
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 	return buf.Bytes()

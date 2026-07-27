@@ -120,7 +120,7 @@ func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	if err := WriteDocument(&buf, trailer); err != nil {
+	if err := WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
 
 	var buf bytes.Buffer
-	if err := WriteDocument(&buf, trailer); err != nil {
+	if err := WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 
@@ -486,7 +486,7 @@ func TestNumberObjects(t *testing.T) {
 	}}
 	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
 
-	objs := NumberObjects(trailer)
+	objs := NumberObjects(trailer, 0)
 	if len(objs) != 3 {
 		t.Fatalf("NumberObjects mapped %d objects, want 3", len(objs))
 	}
@@ -555,5 +555,51 @@ func assertFlateDecodes(t *testing.T, d pdf.PDFDict, want []byte) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("decoded = %q, want %q", got, want)
+	}
+}
+
+// TestSizeHintDoesNotChangeOutput: the hint only pre-sizes the discovery
+// index, so every hint -- including a negative one and one wildly larger than
+// the graph -- must produce byte-identical output and identical numbering.
+func TestSizeHintDoesNotChangeOutput(t *testing.T) {
+	build := func() pdf.PDFDict {
+		page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
+			"Contents": pdf.PDFDict{
+				Entries:   map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 4}},
+				HasStream: true, RawStream: []byte("BT ET"),
+			},
+		}}
+		catalog := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
+			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"_ref": pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
+				"Kids": pdf.PDFArray{page},
+			}},
+		}}
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
+	}
+
+	var want []byte
+	var wantCount int
+	for _, hint := range []int{-1, 0, 1, 4, 100000} {
+		var buf bytes.Buffer
+		order, err := WriteDocumentIndexed(&buf, build(), hint)
+		if err != nil {
+			t.Fatalf("hint %d: WriteDocumentIndexed: %v", hint, err)
+		}
+		if want == nil {
+			want, wantCount = buf.Bytes(), len(order)
+			continue
+		}
+		if !bytes.Equal(buf.Bytes(), want) {
+			t.Errorf("hint %d produced different output bytes", hint)
+		}
+		if len(order) != wantCount {
+			t.Errorf("hint %d numbered %d objects, want %d", hint, len(order), wantCount)
+		}
+		if got := len(NumberObjects(build(), hint)); got != wantCount {
+			t.Errorf("hint %d: NumberObjects mapped %d, want %d", hint, got, wantCount)
+		}
 	}
 }

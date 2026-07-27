@@ -356,6 +356,11 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		// replaying the whole graph verification against the output bytes.
 		graphClean bool
 		lastParts  verify.Parts
+
+		// objHint sizes the writer's discovery index. The resolved object
+		// count is the first estimate; after that each pass reports what the
+		// last one actually numbered. See writer.newPDFWriter.
+		objHint = doc.Footprint().Objects
 	)
 
 	for iter := 1; iter <= o.iterations(); iter++ {
@@ -364,12 +369,13 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		}
 		cr.Iterations = iter
 
-		result, parts, objs, err := inHeapVerify(doc, trailer, p)
+		result, parts, objs, err := inHeapVerify(doc, trailer, p, objHint)
 		if err != nil {
 			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
 		cr.Result = result
 		lastParts, graphClean = parts, true
+		objHint = len(objs)
 
 		if cr.Result.Valid {
 			break
@@ -438,14 +444,14 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		graphClean = false
 	}
 
-	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi()); err != nil {
+	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
-	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean); err != nil {
+	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean, objHint); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 
@@ -492,7 +498,7 @@ func renderTrailerPagesOf(out *pdf.Reader) []*image.RGBA {
 // trigger it; structural violations (no registered fixer) are fixed by
 // construction by the writer and do not need rasterization. It updates cr,
 // lastParts, and graphClean exactly as the fix loop's verifies do.
-func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi int) error {
+func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
 	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		return nil
 	}
@@ -504,7 +510,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 		cr.addRasterizedPages(rasterized)
 		cr.Iterations++
 		*graphClean = false
-		result, parts, _, err := inHeapVerify(doc, *trailer, p)
+		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
 		if err != nil {
 			return err
 		}
@@ -517,7 +523,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 			cr.addRasterizedPages(rasterized)
 			cr.Iterations++
 			*graphClean = false
-			result, parts, _, err := inHeapVerify(doc, *trailer, p)
+			result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
 			if err != nil {
 				return err
 			}
@@ -533,8 +539,8 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 // the split issue parts (for serializeAndVerify's merged final verify) and
 // the ObjNum -> object index so the fixer loop can target issues by ref;
 // the index is only valid until the next renumbering.
-func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile) (pdf.Result, verify.Parts, map[int]pdf.PDFValue, error) {
-	objs := writer.NumberObjects(trailer)
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, hint int) (pdf.Result, verify.Parts, map[int]pdf.PDFValue, error) {
+	objs := writer.NumberObjects(trailer, hint)
 	doc.SeedResolvedGraph(trailer, objs)
 	parts, err := verify.VerifyParts(doc, p)
 	if err != nil {
@@ -560,9 +566,9 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // TestConvertSeededVerifyMatchesFreshVerify pins the equivalence), so only
 // the byte-level structural checks run against the output and lastParts
 // supplies the graph verdicts. A dirty graph gets today's full verify.
-func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool) error {
+func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool, hint int) error {
 	var sw spillWriter
-	order, err := writer.WriteDocumentIndexed(&sw, trailer)
+	order, err := writer.WriteDocumentIndexed(&sw, trailer, hint)
 	if err != nil {
 		return err
 	}

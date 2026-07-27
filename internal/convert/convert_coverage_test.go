@@ -35,7 +35,7 @@ func onePageTrailer() pdf.PDFDict {
 func openTrailer(t *testing.T, trailer pdf.PDFDict) *pdf.Reader {
 	t.Helper()
 	var buf bytes.Buffer
-	if _, err := writer.WriteDocumentIndexed(&buf, trailer); err != nil {
+	if _, err := writer.WriteDocumentIndexed(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocumentIndexed: %v", err)
 	}
 	doc, err := pdf.OpenBytes(buf.Bytes())
@@ -62,7 +62,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := false
 
-	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI); err != nil {
+	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -98,7 +98,7 @@ func TestRasterBackstopVerifyErrors(t *testing.T) {
 			}}
 			var lastParts verify.Parts
 			graphClean := true
-			err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI)
+			err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
 			if err == nil {
 				t.Fatal("rasterBackstop with an undefined-level profile did not propagate the verify error")
 			}
@@ -119,7 +119,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI); err != nil {
+	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {
@@ -132,7 +132,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 func TestSerializeAndVerifyRejectsBadProfile(t *testing.T) {
 	for _, clean := range []bool{true, false} {
 		cr := &ConvertResult{}
-		err := serializeAndVerify(nil, onePageTrailer(), cr, nil, verify.Parts{}, clean)
+		err := serializeAndVerify(nil, onePageTrailer(), cr, nil, verify.Parts{}, clean, 0)
 		if err == nil {
 			t.Errorf("serializeAndVerify(nil profile, graphClean=%v) did not error", clean)
 		}
