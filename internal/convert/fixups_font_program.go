@@ -114,8 +114,7 @@ func fixFontMetricsDict(d pdf.PDFDict) bool {
 		}
 	case "Type1", "MMType1":
 		if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
-			pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
-			return fixType1Widths(d, ff, pdfEnc.Value)
+			return fixType1Widths(d, ff, d.Entries["Encoding"])
 		} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
 			return fixType1CWidths(d, ff)
 		}
@@ -199,7 +198,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // fixType1Widths rewrites mismatched /Widths entries to the embedded Type1
 // program's advance width, mirroring validateType1Metrics
 // (checks_font_program.go).
-func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
+func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
 	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
 	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
 	if !fcOK || !wOK {
@@ -209,7 +208,7 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
 	if err != nil || len(fontData) == 0 {
 		return false
 	}
-	enc, ok := verify.Type1EncodingTable(fontData, pdfEncoding)
+	enc, ok := verify.Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return false
 	}

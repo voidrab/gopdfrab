@@ -541,39 +541,55 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 }
 
+// namedEncodingTable resolves one of the base encodings this package models
+// by name to its code->glyph-name table. MacRomanEncoding is deliberately
+// absent: encodings_symbol.go carries it only as a code->Unicode map, not as
+// glyph names, so there is nothing to compare charstring names against.
+func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
+	switch name {
+	case "StandardEncoding":
+		return StandardEncoding, true
+	case "WinAnsiEncoding":
+		return WinAnsiGlyphName, true
+	}
+	return glyphNames, false
+}
+
+// applyDifferences overlays an /Encoding dictionary's /Differences array onto
+// a base table (ISO 32000-1 9.6.6.1).
+func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
+	diffs, ok := enc.Entries["Differences"].(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	code := 0
+	for _, item := range diffs {
+		switch d := item.(type) {
+		case pdf.PDFInteger:
+			code = int(d)
+		case pdf.PDFName:
+			if code >= 0 && code < 256 {
+				glyphNames[code] = d.Value
+			}
+			code++
+		}
+	}
+}
+
 // SimpleFontGlyphNameTable builds a code->glyph-name table from a simple
-// font's /Encoding (WinAnsi base plus optional Differences). ok is false for
-// encodings this package doesn't model by name.
+// font's /Encoding (a modelled base encoding plus optional Differences). ok is
+// false for encodings this package doesn't model by name.
 func SimpleFontGlyphNameTable(v pdf.PDFDict) (glyphNames [256]string, ok bool) {
 	switch enc := v.Entries["Encoding"].(type) {
 	case pdf.PDFName:
-		switch enc.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		default:
-			return glyphNames, false
-		}
+		return namedEncodingTable(enc.Value)
 	case pdf.PDFDict:
 		// Custom encoding: start from BaseEncoding, then apply Differences.
+		// An absent or unmodelled BaseEncoding leaves the base empty rather
+		// than failing, since Differences alone may name every code used.
 		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
-		switch base.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		}
-		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						glyphNames[code] = d.Value
-					}
-					code++
-				}
-			}
-		}
+		glyphNames, _ = namedEncodingTable(base.Value)
+		applyDifferences(&glyphNames, enc)
 	default:
 		return glyphNames, false
 	}
@@ -1909,14 +1925,14 @@ var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
-func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
+func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, encoding pdf.PDFValue, ctx *ValidationContext) {
 	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return
 	}
 
 	glyphWidths := ctx.type1ProgramFor(fontData).widths
-	enc, stats := Type1WidthTable(fontData, pdfEncoding, glyphWidths)
+	enc, stats := Type1WidthTable(fontData, encoding, glyphWidths)
 	if stats.Skip != WidthSkipNone {
 		return
 	}
@@ -1954,16 +1970,55 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 	}
 }
 
+// Type1GlyphNameTable resolves the code->glyph-name table for a Type1
+// (FontFile) program, composing the PDF font dict's /Encoding entry over the
+// program's own built-in encoding per ISO 32000-1 9.6.6.1/9.6.6.2:
+//
+//   - /Encoding is a name: that base encoding.
+//   - /Encoding is a dictionary: its /BaseEncoding if modelled, else the
+//     program's built-in encoding, with /Differences overlaid on top.
+//   - /Encoding is absent: the program's built-in encoding.
+//
+// ok is false only when no base could be established at all.
+//
+// The dictionary arm is what the FontFile path used to lack. Taking only a
+// PDFName meant an /Encoding dictionary read as absent, so a font carrying
+// /Differences was measured against the program's built-in encoding and the
+// remapping was silently ignored -- comparing /Widths to the wrong glyph.
+func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [256]string, ok bool) {
+	builtin := func() ([256]string, bool) { return Type1EncodingTable(fontData, "") }
+
+	switch enc := encoding.(type) {
+	case pdf.PDFName:
+		return Type1EncodingTable(fontData, enc.Value)
+	case pdf.PDFDict:
+		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
+		if base.Value != "" {
+			glyphNames, ok = namedEncodingTable(base.Value)
+		} else {
+			glyphNames, ok = builtin()
+		}
+		// Differences may name every code the font actually shows, so they
+		// are applied even when no base could be resolved; ok stays false in
+		// that case only if the base was required and missing.
+		applyDifferences(&glyphNames, enc)
+		if !ok {
+			_, hasDiffs := enc.Entries["Differences"].(pdf.PDFArray)
+			ok = hasDiffs
+		}
+		return glyphNames, ok
+	default:
+		return builtin()
+	}
+}
+
 // Type1WidthTable is the Type1 (FontFile) counterpart to
 // CFFAdvanceWidthsStats: it resolves the code->glyph-name table the 6.3.6 width
 // comparison needs and reports why it gave up when it did. widths is the
-// program's glyph-name -> advance width map (Type1GlyphWidths).
-//
-// The encoding bail is the asymmetry worth watching: this path models only the
-// two name encodings, while the Type1C path handles /Differences via
-// SimpleFontGlyphNameTable.
-func Type1WidthTable(fontData []byte, pdfEncoding string, widths map[string]int) ([256]string, WidthStats) {
-	enc, ok := Type1EncodingTable(fontData, pdfEncoding)
+// program's glyph-name -> advance width map (Type1GlyphWidths); encoding is the
+// font dict's raw /Encoding entry.
+func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]int) ([256]string, WidthStats) {
+	enc, ok := Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return enc, WidthStats{Skip: WidthSkipEncoding}
 	}

@@ -650,14 +650,14 @@ func TestValidateType1Metrics(t *testing.T) {
 
 	widths := pdf.PDFArray{pdf.PDFInteger(500)}
 	ctx := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, widths, "", ctx)
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, widths, nil, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("unexpected AdvanceWidthMismatch for matching Type1 width")
 	}
 
 	widthsBad := pdf.PDFArray{pdf.PDFInteger(520)}
 	ctx2 := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, widthsBad, "", ctx2)
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, widthsBad, nil, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch for mismatched Type1 width")
 	}
@@ -1197,7 +1197,7 @@ func TestFontProgramCheckersDecodeFailureGuards(t *testing.T) {
 	ValidateSimpleTrueTypeSubset(v, garbage, 0, 0, nil, ctx)
 	validateSimpleTrueTypeMetrics(v, noStream, 0, nil, ctx)
 	validateSimpleTrueTypeMetrics(v, garbage, 0, nil, ctx)
-	validateType1Metrics(v, noStream, 0, nil, "", ctx)
+	validateType1Metrics(v, noStream, 0, nil, nil, ctx)
 	validateCMapWMode(v, pdf.NewPDFDict(), ctx) // no stream
 	if _, ok := trueTypeCmapSubtables(ctx, desc); ok {
 		t.Error("trueTypeCmapSubtables should be ok=false without a FontFile2")
@@ -1398,5 +1398,65 @@ func TestFontFile3BrokenCFFIsInvalid(t *testing.T) {
 	ValidateFontProgram(pdf.NewPDFDict(), desc, "Test", reportCtx)
 	if !hasCheck(reportCtx, pdf.Checks.Font.InvalidProgram) {
 		t.Error("expected Font.InvalidProgram (6.3.2) for a broken CFF")
+	}
+}
+
+// buildType1FontTwoGlyphs is buildType1Font with a second glyph /B of a
+// different advance width (700 vs 500), so a /Differences remapping of a code
+// from one to the other is observable in the 6.3.6 width comparison.
+func buildType1FontTwoGlyphs() []byte {
+	csA := encryptType1([]byte{139, 248, 136, 13}, 4330) // wx=500, hsbw
+	csB := encryptType1([]byte{139, 249, 80, 13}, 4330)  // wx=700, hsbw
+
+	var binPlain []byte
+	binPlain = append(binPlain, []byte("dup /CharStrings 2 dict dup begin\n/A 8 RD ")...)
+	binPlain = append(binPlain, csA...)
+	binPlain = append(binPlain, []byte(" ND\n/B 8 RD ")...)
+	binPlain = append(binPlain, csB...)
+	binPlain = append(binPlain, []byte(" ND\nend\n")...)
+
+	var font []byte
+	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
+	font = append(font, encryptType1(binPlain, 55665)...)
+	return font
+}
+
+// TestValidateType1MetricsHonoursDifferences pins the 6.3.6 width comparison
+// against a Type1 font whose /Encoding is a dictionary carrying /Differences.
+// The program's built-in encoding is StandardEncoding, where code 65 is /A
+// (width 500); /Differences remaps 65 to /B (width 700) and /Widths agrees
+// with the remapping, so the font is conformant.
+//
+// This used to report AdvanceWidthMismatch. The call site cast /Encoding to a
+// PDFName, so a dictionary read as absent, the built-in encoding was used
+// instead, and the width was compared against /A -- a false positive on a
+// correct file, and the reason the FontFile path needed the same /Differences
+// handling the FontFile3 path already had.
+func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
+	font := buildType1FontTwoGlyphs()
+	if w := Type1GlyphWidths(font); w["A"] != 500 || w["B"] != 700 {
+		t.Fatalf("fixture widths = %v, want A=500 B=700", w)
+	}
+
+	encoding := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":        pdf.PDFName{Value: "Encoding"},
+		"Differences": pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "B"}},
+	}}
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.RawStream = font
+
+	ctx := &ValidationContext{}
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(700)}, encoding, ctx)
+	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("AdvanceWidthMismatch reported for a font whose /Widths match its /Differences remapping")
+	}
+
+	// The remapping must still catch a genuine mismatch: 500 is /A's width,
+	// which is exactly the wrong answer the old code accepted.
+	ctx2 := &ValidationContext{}
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, encoding, ctx2)
+	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("expected AdvanceWidthMismatch when /Widths ignores the /Differences remapping")
 	}
 }

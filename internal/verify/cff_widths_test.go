@@ -370,7 +370,7 @@ func TestWidthSkipReasons(t *testing.T) {
 	}
 	for _, c := range type1 {
 		t.Run("type1/"+c.name, func(t *testing.T) {
-			if _, stats := Type1WidthTable(nil, c.encoding, c.widths); stats.Skip != c.want {
+			if _, stats := Type1WidthTable(nil, pdf.PDFName{Value: c.encoding}, c.widths); stats.Skip != c.want {
 				t.Errorf("Type1WidthTable skip = %q, want %q", stats.Skip, c.want)
 			}
 		})
@@ -519,8 +519,7 @@ func tallyWidthSkips(path string, tally map[string]int) {
 				if err != nil {
 					return
 				}
-				enc, _ := v.Entries["Encoding"].(pdf.PDFName)
-				_, stats := Type1WidthTable(data, enc.Value, Type1GlyphWidths(data))
+				_, stats := Type1WidthTable(data, v.Entries["Encoding"], Type1GlyphWidths(data))
 				record("type1", stats)
 			} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
 				data, err := pdf.DecodeStream(ff)
