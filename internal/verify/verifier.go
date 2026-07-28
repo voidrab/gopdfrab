@@ -790,11 +790,17 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			keysBase := len(ctx.keyScratch)
 			for _, k := range ctx.sortedKeys(v.Entries) {
+				if k == "_ref" {
+					// Synthetic bookkeeping, not a PDF entry: its PDFRef value
+					// is this object's own number, so descending into it would
+					// walk a reference the resolver deliberately left in place.
+					continue
+				}
 				val := v.Entries[k]
 				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed 127 bytes after
 					// decoding PDF name-escape sequences (#XX).
-					if k != "_ref" && len(k) > 127 {
+					if len(k) > 127 {
 						decoded := pdf.DecodePDFName(k)
 						if len(decoded) > 127 {
 							ctx.Report(
@@ -811,7 +817,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 					continue
 				}
 				var childType string
-				if expectedType != "" && k != "_ref" {
+				if expectedType != "" {
 					childType = arlingtonChildType(expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
@@ -869,6 +875,23 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				// characters, each in the range 0 to 9, A to F or a to f.
 				validateHexString(v, owner, ctx)
 			}
+
+		case pdf.PDFRef:
+			// Unreachable as long as verifyPdfA1bParts resolves the whole
+			// graph before this walk, which it does. It is spelled out anyway
+			// because falling through is the worst failure mode this package
+			// has: an unresolved subtree would be silently unverified, and the
+			// document would verify clean because nothing looked at it.
+			//
+			// Worth knowing that adding this case was not academic -- it fired
+			// immediately on the synthetic "_ref" bookkeeping key, whose value
+			// really is a PDFRef and which the key loop below now skips.
+			ctx.Report(
+				pdf.Checks.Structure.GraphResolutionFailure,
+				owner,
+				fmt.Sprintf("unresolved reference %d %d R reached during verification", v.ObjNum, v.GenNum),
+			)
+			return
 		}
 
 		if !ctx.schemaOnly {
