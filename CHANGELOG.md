@@ -60,6 +60,7 @@ First changelog entry; earlier history lives in the git log.
 - Command-line tool `cmd/gopdfrab`: `verify`/`convert`, `--json`, recursive
   input, exit codes 0/1/2, SIGINT cancellation.
 - Package documentation (`doc.go`) and runnable examples.
+- A real-world corpus of test documents.
 
 ### Changed
 - **Breaking:** renamed for Go convention — `A_1B` → `A1B`, `PDFA_1B` →
@@ -74,6 +75,26 @@ First changelog entry; earlier history lives in the git log.
 - The concurrency contract of each public type is documented and race-tested.
 
 ### Fixed
+- A cross-reference table with bare CR line endings was unparseable; CR, LF and
+  CRLF are all accepted now, on both read paths.
+- An object listed in the xref but defined nowhere in the file is resolved to
+  null instead of reported as lost content.
+- The Info/XMP `Author` sync check (6.1.5, 6.7.3) rejected values matching its
+  own, over undecoded XML entities and one-sided whitespace trimming.
+- The TrueType CIDSet check (6.3.5) demanded glyphs the document never renders,
+  rejecting real PDF/A; it is scoped to rendered CIDs now.
+- The PDF/A identifier was recognised only in double-quoted XMP attributes, so
+  every Ghostscript-produced PDF/A was reported as missing it (6.7.11).
+- A TrueType glyph with an empty outline and a non-zero advance — the space in
+  any monospaced subset — was reported as missing (6.3.5).
+- A transparency group in an annotation appearance stream was unreachable by the
+  fixer, so no digitally signed document could be converted (6.4).
+- `/EncryptMetadata false` was not honoured, degrading the metadata stream to
+  null.
+- A character code absent from a non-symbolic TrueType's (3,1) cmap skipped the
+  (1,0) lookup ISO 32000-1 9.6.6.4 prescribes next.
+- The simple-font coverage check and the `/XObject` resource walk both took map
+  order, naming a different character code and `RasterDrops` order per run.
 - A `/Resources` dictionary pruned to the 4095-entry limit dropped entries in map
   order, so a conversion was not byte-reproducible.
 - Two verifier false-negatives caught against the veraPDF binary: a referenced

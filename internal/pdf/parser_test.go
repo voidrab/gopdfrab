@@ -34,6 +34,39 @@ func TestParseXRefSectionAt(t *testing.T) {
 		}
 	})
 
+	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3). A
+	// CR-terminated xref used to be wholly unparseable -- the reader swallowed
+	// every following line into the first one -- which sent real documents
+	// (a dvips-produced arXiv paper) down the brute-force recovery path and,
+	// when their trailer carried no /Root, left the graph unresolvable.
+	for _, eol := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"},
+	} {
+		t.Run("line endings "+eol.name, func(t *testing.T) {
+			data := []byte("xref" + eol.sep + "0 2" + eol.sep +
+				"0000000000 65535 f \n0000000010 00000 n \n" +
+				"trailer" + eol.sep + "<< /Size 2 /Root 1 0 R >>" + eol.sep)
+			for _, tc := range []struct {
+				name string
+				r    *Reader
+			}{
+				{"bytes", &Reader{data: data, xrefTable: map[int]int64{}}},
+				{"seek", newTestFileReader(data)},
+			} {
+				dict, err := tc.r.ParseXRefSectionAt(0, false)
+				if err != nil {
+					t.Fatalf("%s path: ParseXRefSectionAt: %v", tc.name, err)
+				}
+				if !EqualPDFValue(dict.Entries["Root"], PDFRef{ObjNum: 1, GenNum: 0}) {
+					t.Errorf("%s path: trailer Root = %v, want 1 0 R", tc.name, dict.Entries["Root"])
+				}
+				if tc.r.xrefTable[1] != 10 {
+					t.Errorf("%s path: xrefTable[1] = %d, want 10", tc.name, tc.r.xrefTable[1])
+				}
+			}
+		})
+	}
+
 	t.Run("bad offset past EOF", func(t *testing.T) {
 		data := []byte("xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n")
 		r := newTestFileReader(data)

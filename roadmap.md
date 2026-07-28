@@ -419,8 +419,20 @@ be worth nothing, and are recorded here so nobody re-derives them:
   unreachable (0.7%), and the worst single file has 7.
 - *The object-stream cache*, which holds every object of every object stream in
   addition to the object cache. One file in 774 uses object streams, and it is
-  the Isartor manual rather than a fixture. Real-world PDFs use them heavily, so
-  this is worth re-measuring when item 10's corpus lands — but not before.
+  the Isartor manual rather than a fixture — so on the committed corpora this
+  cache is dead weight that never fills, and optimising it would have been
+  optimising nothing.
+
+  **Item 10's corpus answers the question this deferred.** Censusing the
+  real-world corpus for `/ObjStm`: **384 of 1235 files, 31%** — arXiv 225/295
+  (76%), Zenodo 152/282 (54%), Wikimedia Commons 2/144, US Federal Register
+  0/484. So the suspicion was right, the committed corpora could never have
+  shown it, and the split is by producer: modern TeX and repository pipelines
+  use object streams as a matter of course, while the older scanner and
+  government toolchains do not. The cache is therefore live on a third of real
+  documents and is worth measuring for memory — as part of item 8's remaining
+  graph-footprint work, where it belongs, rather than on its own. (The census
+  reads each file's leading 4 MB, so it is a lower bound.)
 
 **What the measurement did point at, now fixed.** A single `NumberObjects` pass
 cost ~14.6 MB of scratch to produce a 3.1 MB index, because the discovery maps
@@ -554,7 +566,7 @@ more than anything except P0. Everything currently green is green against
 *synthetic conformance-suite files*. Both suites are hand-built to exercise one
 clause each. Real PDFs are not like that.
 
-### 10. There is no real-world corpus — **harness done; population pending**
+### 10. There is no real-world corpus — **DONE**
 
 Isartor and veraPDF are 777 files averaging 3.6 KB, each deliberately
 constructed. Nothing in the test suite is a 200-page scanned report from a
@@ -586,9 +598,190 @@ checks every present file against the inventory (an unlisted file, hash mismatch
 or `TODO` licence fails), and skips when the corpus is absent;
 `TestRealWorldHarnessSelfCheck`/`TestRealWorldManifestCheck` cover the metric and
 inventory logic against generated fixtures so the harness is green regardless.
-**Still pending: sourcing and populating** with real, permissively-licensed
-documents (arXiv CC-BY, US-gov public domain, Wikimedia, and self-generated
-producer output) — the remaining work is curation, not code.
+
+#### Populating it
+
+`scripts/source-realworld-corpus.py` (plan → fetch → classify → manifest, each
+phase resumable) sources the corpus from public collections that publish
+machine-readable licences, under per-host rate limits and a byte budget:
+**Zenodo** (the widest producer spread — Word, InDesign, Distiller, Quartz,
+scanners), **Wikimedia Commons** (the stress end: scanned books, CCITT G4 and
+JBIG2 bitonal images, non-Latin scripts), the **US Federal Register** via govinfo
+(iText/GPO output, digitally signed), **arXiv** (pdfTeX/dvips/XeTeX, sampled
+across years because the TeX toolchain moved a lot), and **OAPEN** (hundreds of
+pages of typeset book layout). `scripts/gen-realworld-selfmade.sh` then fills the
+gaps the public collections cannot be relied on for: PDF/A-1b/-2b/-3b exports,
+tagged output, RC4-40/128 and AES-128/256 encryption, object streams (only one
+file in the whole committed corpus uses them), CCITT and DCT images, CJK/Arabic
+CID fonts, and a scanned page with an invisible OCR text layer.
+
+Three things the sourcing work settled:
+
+- **Classification is measured, not guessed.** veraPDF's verdict decides
+  should-pass vs should-convert, because provenance predicts nothing: a US
+  Federal Register PDF is iText output and *fails* 1b, while a LibreOffice
+  PDF/A-1b export passes. Any real PDF/A that turns up in a general collection
+  therefore lands in should-pass on its own.
+- **Only redistributable licences are accepted** (CC0, CC-BY, CC-BY-SA,
+  US-federal public domain, self-generated), so every downloaded entry stays
+  legally fetchable from its recorded URL. An unrecognised licence string is
+  treated as not-free — this drops most of arXiv, whose default licence is
+  non-exclusive-distribution rather than CC.
+- **EUR-Lex is off by default.** It would be the best source of real,
+  non-self-generated PDF/A (legislation, every official language), but it answers
+  automated clients with an HTTP 202 interstitial. The right response to a site
+  signalling that is to stop, not to work around it; the source is left in the
+  tool, opt-in, in case that changes.
+
+The generator script also had to be fixed to scale: it ran one `jq` per file over
+a manifest that grew as it went — fine for ten files, quadratic for a few
+thousand. It hashes in parallel and merges in a single pass now.
+
+#### What the corpus found
+
+Nine real defects, each invisible to 777 synthetic fixtures, each now pinned by a
+test that does not need the corpus present. Worth noting where they came from:
+**four of the nine were exposed by the five should-pass files**, the rarest part
+of the corpus and the only part that is a hard gate. Five files found four bugs;
+1580 found five. That is the argument for hunting real PDF/A specifically rather
+than collecting documents by the gigabyte.
+
+The nine, tagged with the corpus half that exposed each:
+
+- **A cross-reference table with bare CR line endings was wholly unparseable.**
+  The line reader split on LF alone, so `xref\r695 71\r0000000016 00000 n` read
+  as one line that is not `xref`, and the whole table was lost. Every such file
+  fell back to the item-4 brute-force object scan — and one whose trailer carries
+  no `/Root` (a linearized dvips-produced arXiv paper) then had no catalog at
+  all, so convert failed outright with `injectOutputIntent: Root is not a
+  dictionary`. CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3);
+  both the mmap and the seek path accept all three now. This is the broadest
+  find: the recovery machinery hid it by making the file *almost* work.
+- **[should-pass] The TrueType CIDSet check rejected real PDF/A (6.3.5).** It required every
+  glyph with outline data to be listed in `/CIDSet`. A TrueType subsetter keeps
+  `loca` and `numGlyphs` at their original size and leaves component glyphs
+  behind: the sample font had 3065 glyph slots, 64 outlines and 26 CIDs in its
+  CIDSet, all perfectly consistent. Scoped to rendered CIDs now. The CFF path is
+  deliberately left alone — a CID-keyed CFF charset lists exactly the subset's
+  glyphs, so there "in the charset" really is "present in the program", and the
+  veraPDF suite's 6-3-5-t03 fail files depend on it.
+- **[should-pass] A (3,1) cmap miss was treated as definitive**, skipping the (1,0) lookup
+  ISO 32000-1 9.6.6.4 prescribes next for a non-symbolic TrueType. Found while
+  investigating the above; no corpus file turns on it, so this is
+  spec-alignment rather than a demonstrated fix.
+
+- **The Info/XMP `Author` sync check failed values against themselves
+  (6.1.5, 6.7.3).** It compared decoded Info text against raw XML markup, so an
+  author list containing an `&` — ordinary on arXiv — never matched; and it
+  trimmed the XMP side only, so a value with leading whitespace differed from
+  its own copy. Convert builds the XMP packet *from* the Info value it is
+  compared against, so both shapes survived conversion and failed the output.
+  Entities are decoded now and neither side is trimmed: trimming both looked
+  right and was wrong, because veraPDF treats a whitespace-only difference as a
+  genuine mismatch — its own 6-1-5-t01-fail-b fixture is exactly that, and it
+  caught the overreach immediately.
+
+- **An object the xref lists but the file never defines was treated as data
+  loss.** Resolution scanned the whole file for its header, found none, and
+  recorded a degraded object — which item 3 carries into the final result and
+  forces `Valid=false`, so the conversion failed. But a reference to an
+  undefined object *is* the null object (ISO 32000-1 7.3.10): the object is not
+  damaged, it does not exist, and every reader agrees on null. `parseReference`
+  already reached exactly that conclusion for an object absent from every xref
+  section; the recovery path just did not. This was the single largest residual
+  in the corpus — 20 files, mostly slide decks from one export pipeline — and
+  the honest reading makes all of them convert cleanly.
+
+- **[should-pass] Every Ghostscript-produced PDF/A was reported as missing its PDF/A
+  identifier (6.7.11).** The XMP scan recognised `pdfaid:part` as an attribute
+  only when double-quoted; Ghostscript writes single quotes, which XML gives
+  equal standing. The same assumption sat in five other regexes (the namespace
+  binding scan, `xmp:CreateDate`/`ModifyDate`), so they are all built from one
+  shared `pdf.XMLAttrValue` pattern now. This is the single highest-impact find:
+  Ghostscript produces a large share of the world's real PDF/A.
+- **[should-pass] The space in a monospaced TrueType subset was reported as a missing glyph
+  (6.3.5).** An empty outline counted as present only if its advance width was
+  also zero. An empty `loca` entry is simply how TrueType encodes a glyph with no
+  contours; the glyph is defined, and only an out-of-range glyph id is genuinely
+  absent. `TTNumGlyphs`' own doc comment already stated the correct rule, which
+  `TTGlyphPresent` then contradicted.
+- **No digitally signed document could be converted (6.4).** Acrobat writes a
+  signature appearance as nested Form XObjects whose innermost form carries
+  `/Group /S /Transparency`. The verifier's graph walk reports it; the
+  transparency fixer walked only page `/Resources`, where an appearance stream
+  does not live. So the verify/fix loop ran all four iterations, rasterized a
+  page trying to make progress, and still returned non-conformant output —
+  losing a page to raster for a violation it never even reached. Now
+  `collectAnnotationTargets` descends `/Annots → /AP → /N,/R,/D` and the
+  appearance-state sub-dictionaries. Worth recording that this fixer is the
+  *only* one with that exposure: every other one walks `walkDicts` from the
+  trailer, which reaches appearance streams naturally. This one walks the page
+  tree because it needs page context (media box, page number, inherited
+  resources) to rasterize.
+- **`/EncryptMetadata false` was parsed but not honoured.** The flag fed key
+  derivation correctly and was then ignored where it matters: the metadata stream
+  is left in the clear so an indexer can read it without the password, and
+  decrypting it anyway produced garbage — under AES it did not even decode, since
+  the plaintext is not block-aligned, so the object degraded to null and the
+  conversion reported 6.1.6. The two committed cleartext-metadata fixtures set
+  the flag but **carry no metadata stream at all**, so they pinned the parsed flag
+  and not the behaviour it governs; `enc_aesv3_cm_meta.pdf` has one.
+
+Plus two latent nondeterminisms, of the class this repo keeps finding: the
+`/XObject` resource walk took its order from a map, so a page losing more than
+one undrawable feature reported `RasterDrops` in a different order on every run;
+and the simple-font coverage check iterated used character codes in map order
+while reporting only the first failure, so it named a different code per run.
+
+**One deviation is recorded rather than fixed, and the mechanism is new.**
+`shouldPassDeviations` (keyed by sha256, so a re-classified file keeps its
+justification) lists should-pass files gopdfrab deliberately rejects, mirroring
+`differentialDeviations` from item 11. It has exactly one entry: an arXiv paper
+whose Word-produced subset of TimesNewRomanPS-BoldMT is shown with character
+code 48 and has no glyph for it — no (3,1), (0,3), (3,0) or (1,0) cmap entry and
+a version-3.0 `post` table, so none of ISO 32000-1 9.6.6.4's three lookup paths
+resolves it and the page renders `.notdef`. veraPDF passes the file; this is a
+veraPDF false negative, verified by hand against the font's tables. A listed file
+that starts verifying clean fails the test, so the entry cannot outlive its
+reason.
+
+#### What it measures
+
+**1585 files, 3.9 GB**, median 224 KB, 34 over 20 MB, largest 140 MB — against
+777 committed fixtures averaging 3.6 KB. By source: 783 US Federal Register,
+295 arXiv, 282 Zenodo, 144 Wikimedia Commons, 51 OAPEN, 30 self-generated.
+
+| metric | result |
+|---|---|
+| should-pass verified clean | 5 of 5 (one via a documented deviation) |
+| should-convert reaching conformance | **1564 of 1580 (99.0%)** |
+| convert errors, panics, hangs | **0** |
+| needed a page rasterized | 85 (5.4%) |
+| lost content the rasterizer cannot draw | 18 (1.1%) |
+| wall time, whole corpus | ~4m20s |
+
+The conformance fraction rose from 97.8% to 99.0% over the fixes above, which is
+the useful way to read them: they were found as clusters, not as one-offs. The
+16 that still fall short are spread thin — the largest group is seven
+object-model violations the fixer matrix does not cover, then 6.1.7 (3), 6.1.4
+and 6.1.6 (2 each), and four singletons.
+The two loss metrics are worth reading together: 85 files needed a raster page,
+but only 18 lost anything that could not be drawn, and across the whole corpus
+the *only* undrawable content is **tiling patterns (43 occurrences) and
+malformed shadings (15)** — both already on item 6's list of deliberate
+approximations. That is the honest coverage statement for the rasterizer, now
+measured against real documents rather than fixtures.
+
+The harness itself was made fit for a corpus of this size: `checkShouldConvert`
+runs through `ConvertEachContext` (which dogfoods the batch API on real input and
+bounds peak memory by worker count rather than batch size, which is what that
+entry point is *for*), `checkShouldPass` through `VerifyAllContext`, and the
+inventory check hashes with `io.Copy` rather than `os.ReadFile` — a corpus with
+hundred-megabyte documents must not be heap-loaded to be hashed, by this
+library's own rule. Two opt-in environment variables carry the triage:
+`GOPDFRAB_REALWORLD_REPORT` writes a per-file verdict record (clauses, rasterized
+pages, drops, size, completion offset), and `GOPDFRAB_REALWORLD_DETERMINISM`
+converts the whole corpus twice and compares output bytes.
 
 ### 11. The differential harness exists but never runs — **DONE**
 
@@ -684,9 +877,12 @@ workflow has:
 - **Differential** (item 11): a `differential` job installs veraPDF and runs
   the cross-check.
 
-Still open: the differential and regression jobs cover the committed corpora
-but not a real-world one (item 10). Windows's seek-based read path is now
-exercised on Linux via `pdf.OpenBytesSeek` parity tests (item 9).
+Still open, and deliberately: the differential and regression jobs cover the
+committed corpora but not the real-world one. That corpus now exists (item 10)
+but is multi-gigabyte and gitignored — re-fetching it per CI run is not a job
+worth having, so `TestRealWorldCorpus` stays local-only and `-short`-gated. The
+manifest's URLs keep it reproducible on any machine. Windows's seek-based read
+path is now exercised on Linux via `pdf.OpenBytesSeek` parity tests (item 9).
 
 ### 14. Thread-safety is undocumented — **DONE**
 
@@ -1079,12 +1275,13 @@ Recorded so nobody re-investigates:
 4. ~~**Items 15–21.**~~ Done. The API break, in one pass, while the disclaimer
    covers it: items 15 (options), 16 (context), 17, 18 (lazy `Output`), 19,
    20 (CLI), 21.
-5. **Items 10 and 12.** Item 12 (fidelity gate) done — the gate finds 0 blanked
-   pages across the corpus, and `Options.CheckFidelity` reports per-page fidelity
-   in `ConvertResult`. Item 10's harness is done (hash-referenced external corpus,
-   `TestRealWorldCorpus` + fetch script + manifest schema), and its "was
-   rasterized" metric landed with item 6; populating it with real
-   permissively-licensed files is the remaining curation work.
+5. ~~**Items 10 and 12.**~~ Done. Item 12 (fidelity gate) finds 0 blanked pages
+   across the corpus, and `Options.CheckFidelity` reports per-page fidelity in
+   `ConvertResult`. Item 10 is populated: a sourcing tool over five public
+   collections plus a self-generated producer matrix, classified by veraPDF's
+   own verdict, inventoried by hash and licence. It paid for itself immediately —
+   four real defects no synthetic fixture could reach, including every
+   Ghostscript PDF/A being rejected and no signed document being convertible.
 6. **Items 5–9.** Item 5 (encryption), item 6 (the `Tr`/`Ts` fix, drop
    reporting, and then actually rendering shadings, inline images, Type 3
    glyphs and shading patterns) and item 7 (settable limits, via a
@@ -1100,12 +1297,8 @@ Recorded so nobody re-investigates:
    deleted, wasm `-o` in CI, tree clean); item 29's carry-overs — width-skip
    instrumentation, the shared scalar dispatch, and the three invariant docs.
 
-**What is left.** Two things, both deliberately scoped out rather than
-outstanding:
+**What is left.** One thing, deliberately scoped out rather than outstanding:
 
-- **Item 10's curation** — populating the real-world corpus with permissively
-  licensed documents. The harness, manifest and fetch script are done; this is
-  sourcing work, not code, and it gates the last CI gap (item 13).
 - **Item 8's resolved-graph footprint** — partial/streaming resolution, against a
   verify/convert model built on a fully-resolved in-heap trailer. The larger
   rearchitecture. Now fully measured (~23.5 MB of a 63 MB peak on the corpus

@@ -65,19 +65,21 @@ func TTGlyphInRange(tables map[string][]byte) func(gid int) bool {
 }
 
 // TTGlyphPresent returns a function reporting whether a glyph ID counts as
-// present for coverage purposes (6.3.5): non-empty outline, or in-range with
-// zero advance width (whitespace glyphs are exempt from needing outline data).
+// present for coverage purposes (6.3.5): a non-empty outline, or any glyph the
+// font defines at all -- an in-range glyph ID with a loca entry.
+//
+// An empty loca entry means "no contours", which is how TrueType encodes a
+// space; the glyph is defined, it just draws nothing. This used to additionally
+// require a zero advance width before accepting an empty outline, which is not
+// a rule TrueType has: a space in a monospaced subset is empty *and* 600/1000
+// wide, so every such font was reported as missing a glyph it plainly defines.
+// A genuinely absent glyph is out of range instead, which is still caught.
 func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 	hasData := ttLocaHasGlyph(tables)
 	inRange := TTGlyphInRange(tables)
 	return func(gid int) bool {
-		if hasData(gid) {
-			return true
-		}
-		if !inRange(gid) {
-			return false
-		}
-		return TTAdvanceWidth(tables, gid) == 0
+		// hasData covers the case of a readable loca with no maxp to bound it.
+		return hasData(gid) || inRange(gid)
 	}
 }
 
@@ -1231,8 +1233,23 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 }
 
 // validateCIDSetTrueType checks that the FontDescriptor's CIDSet bitmap marks
-// every CID whose glyph has outline data in the embedded CIDFontType2 subset
-// program (6.3.5/3), assuming an Identity CIDToGIDMap. CID 0 (.notdef) is exempt.
+// the CIDs the document renders from the embedded CIDFontType2 subset program
+// (6.3.5/3), assuming an Identity CIDToGIDMap. CID 0 (.notdef) is exempt.
+//
+// Scoped to rendered CIDs, unlike the CFF path, and the asymmetry is in how the
+// two formats subset rather than in the rule. A CID-keyed CFF subset's charset
+// lists exactly the glyphs the subset carries, so "in the charset" is the same
+// question as "present in the font program". A TrueType subsetter typically
+// keeps `loca` and `numGlyphs` at their original size and simply empties the
+// entries it dropped, so glyphs with outline data include composite components
+// and whatever else the subsetter chose to retain -- none of which the document
+// renders, and none of which a producer puts in CIDSet. Requiring those made
+// gopdfrab reject real PDF/A that veraPDF accepts: one arXiv paper's font had
+// 3065 glyph slots, 64 outlines and 26 CIDs in its CIDSet, all consistent.
+//
+// When usage is unknown (an undecodable content stream, a degraded object) the
+// check does not run at all rather than falling back to the glyph table, on the
+// item-1 rule that an incomplete usage set must not drive a report.
 func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
@@ -1251,17 +1268,41 @@ func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, 
 	if !ok {
 		return
 	}
+	used, known := cidsRenderedBy(obj, ctx)
+	if !known {
+		return
+	}
 	hasGlyph := ttLocaHasGlyph(tables)
-	for cid := 1; cid < TTNumGlyphs(tables); cid++ {
-		if !hasGlyph(cid) {
-			continue
+	numGlyphs := TTNumGlyphs(tables)
+	for _, cid := range used {
+		if cid < 1 || cid >= numGlyphs || !hasGlyph(cid) {
+			continue // absent glyphs are the coverage check's business, not this one
 		}
 		byteIdx, bitIdx := cid/8, 7-cid%8
 		if byteIdx >= len(bitmap) || bitmap[byteIdx]&(1<<bitIdx) == 0 {
-			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which has a glyph in the embedded font program", cid))
+			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which the document renders from the embedded font program", cid))
 			return
 		}
 	}
+}
+
+// cidsRenderedBy returns the CIDs the document shows from the CIDFont obj, in
+// ascending order, and whether usage is known at all.
+func cidsRenderedBy(obj pdf.PDFValue, ctx *ValidationContext) (cids []int, known bool) {
+	d, ok := obj.(pdf.PDFDict)
+	if !ok {
+		return nil, false
+	}
+	used, known := ctx.usedCIDsFor(d)
+	if !known {
+		return nil, false
+	}
+	cids = make([]int, 0, len(used))
+	for cid := range used {
+		cids = append(cids, cid)
+	}
+	sort.Ints(cids) // the first mismatch is reported, so the order must be stable
+	return cids, true
 }
 
 // cidsToCheck returns the CIDs a coverage/metrics check should examine for the
@@ -1434,12 +1475,15 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
 	codeToGID := func(cc int) (int, bool) {
 		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			gid, exists := winGIDMap[u]
-			if exists {
+			if gid, exists := winGIDMap[u]; exists {
 				return int(gid), true
 			}
-			// Unicode is known but not in (3,1) cmap: glyph definitively absent.
-			return 0, true
+			// A (3,1) miss is not the end of the lookup. ISO 32000-1 9.6.6.4
+			// has a viewer try the (1,0) Macintosh cmap next, and subsetters
+			// prune (3,1) entries for characters the document does not use
+			// while leaving (1,0) intact -- so treating a miss as definitive
+			// rejected real PDF/A (Word-produced subsets in an arXiv paper)
+			// whose glyphs resolve perfectly well through (1,0).
 		}
 		// Fall back to symbolic (3,0)/(1,0) cmap with raw code or PUA offset.
 		if symGIDMap != nil {
@@ -1474,7 +1518,14 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	// non-zero-width codes if usage info is unavailable.
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
 		if usedCodes, knownUsage := ctx.usedCodesFor(fontDict); knownUsage {
+			// Sorted: checkCode reports the first failure and stops, so
+			// iterating the map directly would name a different code per run.
+			codes := make([]int, 0, len(usedCodes))
 			for cc := range usedCodes {
+				codes = append(codes, cc)
+			}
+			sort.Ints(codes)
+			for _, cc := range codes {
 				if !checkCode(cc) {
 					return
 				}

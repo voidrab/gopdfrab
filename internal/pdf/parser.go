@@ -10,22 +10,56 @@ import (
 	"strings"
 )
 
-// readLineBytes returns the line starting at pos (terminated by '\n', with a
-// single trailing '\r' stripped, matching bufio.Reader.ReadLine) and the
-// position just past the terminator.
+// readLineBytes returns the line starting at pos and the position just past its
+// terminator, which may be CR, LF or CRLF.
 func readLineBytes(data []byte, pos int) (line []byte, next int, ok bool) {
 	if pos >= len(data) {
 		return nil, pos, false
 	}
-	i := bytes.IndexByte(data[pos:], '\n')
-	if i < 0 {
-		return data[pos:], len(data), true
+	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3). Splitting
+	// on LF alone swallowed every following line of a CR-terminated file, which
+	// made the whole cross-reference table of such a document unparseable and
+	// sent it down the brute-force recovery path.
+	for i := pos; i < len(data); i++ {
+		c := data[i]
+		if c != '\r' && c != '\n' {
+			continue
+		}
+		line, next = data[pos:i], i+1
+		if c == '\r' && next < len(data) && data[next] == '\n' {
+			next++ // CRLF is one terminator, not two
+		}
+		return line, next, true
 	}
-	line = data[pos : pos+i]
-	if len(line) > 0 && line[len(line)-1] == '\r' {
-		line = line[:len(line)-1]
+	return data[pos:], len(data), true
+}
+
+// readLineTolerant reads one line from r, accepting CR, LF or CRLF as the
+// terminator. bufio.Reader.ReadLine strips the CR of a CRLF but treats a lone
+// CR as ordinary data, so the seek path needs this to agree with
+// readLineBytes -- the two are asserted equivalent by the OpenBytesSeek parity
+// tests.
+func readLineTolerant(r *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		c, err := r.ReadByte()
+		if err != nil {
+			if len(line) > 0 && errors.Is(err, io.EOF) {
+				return line, nil
+			}
+			return line, err
+		}
+		switch c {
+		case '\n':
+			return line, nil
+		case '\r':
+			if next, err := r.ReadByte(); err == nil && next != '\n' {
+				_ = r.UnreadByte()
+			}
+			return line, nil
+		}
+		line = append(line, c)
 	}
-	return line, pos + i + 1, true
 }
 
 // xrefEntryOffset parses the 10-byte offset field of a classic xref entry
@@ -65,7 +99,7 @@ func (d *Reader) parseXRefTable(offset int64) error {
 
 	reader := bufio.NewReader(d.file)
 
-	line, _, err := reader.ReadLine()
+	line, err := readLineTolerant(reader)
 	if err != nil {
 		return err
 	}
@@ -82,7 +116,7 @@ func (d *Reader) parseXRefTable(offset int64) error {
 			break
 		}
 
-		line, _, err := reader.ReadLine()
+		line, err := readLineTolerant(reader)
 		if err != nil {
 			return err
 		}
@@ -174,7 +208,7 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 
 	reader := bufio.NewReader(d.file)
 
-	line, _, err := reader.ReadLine()
+	line, err := readLineTolerant(reader)
 	if err != nil {
 		return PDFDict{}, err
 	}
@@ -191,7 +225,7 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 			break
 		}
 
-		subHeader, _, err := reader.ReadLine()
+		subHeader, err := readLineTolerant(reader)
 		if err != nil {
 			break
 		}

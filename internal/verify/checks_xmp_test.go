@@ -555,6 +555,61 @@ func TestCheckPDFAIdentifier(t *testing.T) {
 	}
 }
 
+// TestCheckPDFAIdentifierQuoteStyles pins that the identifier is recognised in
+// every shape XMP legitimately writes it: as attributes in either quote
+// character, and as child elements.
+//
+// Ghostscript -- which produces a large share of the real PDF/A in existence --
+// writes single-quoted attributes, and reading only double quotes made every
+// file it produces report a missing PDF/A identifier while veraPDF passed it.
+func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
+	const ns = "http://www.aiim.org/pdfa/ns/id/"
+	cases := []struct {
+		name string
+		xmp  string
+	}{
+		{"double-quoted attributes", `<x xmlns:pdfaid="` + ns + `" pdfaid:part="1" pdfaid:conformance="B"/>`},
+		{"single-quoted attributes", `<x xmlns:pdfaid='` + ns + `' pdfaid:part='1' pdfaid:conformance='B'/>`},
+		{"child elements", `<rdf:Description xmlns:pdfaid="` + ns + `">` +
+			`<pdfaid:part>1</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance></rdf:Description>`},
+		{"mixed quoting", `<x xmlns:pdfaid='` + ns + `' pdfaid:part="1" pdfaid:conformance='B'/>`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if errs := checkPDFAIdentifier(c.xmp); len(errs) != 0 {
+				t.Errorf("valid PDF/A identifier reported as a violation: %v", errs)
+			}
+			part, ok := pdf.FirstRegexpGroup(pdf.PDFAPartRe, c.xmp)
+			if !ok || part != "1" {
+				t.Errorf("PDFAPartRe = %q, %v; want \"1\", true", part, ok)
+			}
+			conf, ok := pdf.FirstRegexpGroup(pdf.PDFAConfRe, c.xmp)
+			if !ok || conf != "B" {
+				t.Errorf("PDFAConfRe = %q, %v; want \"B\", true", conf, ok)
+			}
+		})
+	}
+}
+
+// TestXMPNamespaceBindingQuoteStyles covers the same quoting rule on the
+// prefix->URI binding scan, whose capture groups the fix reshuffled.
+func TestXMPNamespaceBindingQuoteStyles(t *testing.T) {
+	xmp := `<rdf:Description xmlns:pdf="http://ns.adobe.com/pdf/1.3/" xmlns:dc='http://purl.org/dc/elements/1.1/'/>`
+	got := map[string]string{}
+	for _, m := range xmpNSBindRe.FindAllStringSubmatch(xmp, -1) {
+		got[m[1]] = m[2] + m[3]
+	}
+	want := map[string]string{
+		"pdf": "http://ns.adobe.com/pdf/1.3/",
+		"dc":  "http://purl.org/dc/elements/1.1/",
+	}
+	for prefix, uri := range want {
+		if got[prefix] != uri {
+			t.Errorf("xmlns:%s bound to %q, want %q", prefix, got[prefix], uri)
+		}
+	}
+}
+
 func TestXmpWellFormed(t *testing.T) {
 	if !xmpWellFormed([]byte(`<a><b>text</b></a>`)) {
 		t.Error("well-formed XML reported as malformed")
@@ -694,5 +749,53 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{})
 	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
+	}
+}
+
+// TestCheckInfoXMPSyncAuthorEquivalence pins that the Author/dc:creator
+// comparison treats the two sides the same way the Title/Subject one does:
+// XML entities decoded, whitespace trimmed on both sides.
+//
+// Neither held before. An author name containing an "&" compared decoded text
+// against raw markup, and a value with leading whitespace was compared against
+// the checker's own trimmed copy of itself -- so two identical values were
+// reported out of sync. Both shapes are ordinary in real documents (arXiv
+// papers carry author lists with "&" and stray padding), and both survived
+// conversion, since convert builds the XMP from the very Info value being
+// compared.
+func TestCheckInfoXMPSyncAuthorEquivalence(t *testing.T) {
+	cases := []struct {
+		name    string
+		author  string
+		creator string
+		wantErr bool
+	}{
+		{"identical", "John Doe", "John Doe", false},
+		{"ampersand entity", "Alice & Bob", "Alice &amp; Bob", false},
+		{"angle brackets", "a<b>c", "a&lt;b&gt;c", false},
+		{"leading and trailing space both sides", " John Doe ", " John Doe ", false},
+		// veraPDF treats a whitespace-only difference as a real mismatch
+		// (6-1-5-t01-fail-b), so neither side is trimmed.
+		{"space only on the Info side", " John Doe ", "John Doe", true},
+		{"genuinely different", "John Doe", "Jane Roe", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := t.TempDir() + "/info.pdf"
+			if err := createPDFWithInfo(f, map[string]string{"Author": c.author}); err != nil {
+				t.Fatalf("createPDFWithInfo: %v", err)
+			}
+			doc, err := pdf.Open(f)
+			if err != nil {
+				t.Fatalf("pdf.Open: %v", err)
+			}
+			defer doc.Close()
+
+			xmp := "<dc:creator><rdf:Seq><rdf:li>" + c.creator + "</rdf:li></rdf:Seq></dc:creator>"
+			errs := checkInfoXMPSync(doc, xmp)
+			if got := len(errs) > 0; got != c.wantErr {
+				t.Errorf("mismatch reported = %v, want %v (errs: %v)", got, c.wantErr, errs)
+			}
+		})
 	}
 }

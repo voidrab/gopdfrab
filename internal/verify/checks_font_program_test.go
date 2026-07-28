@@ -489,13 +489,33 @@ func TestValidateCIDSetTrueType(t *testing.T) {
 	tables, _ := ParseSfnt(ttf)
 	numGlyphs := TTNumGlyphs(tables)
 
+	// A CID the document renders, which the font has a glyph for.
+	rendered := 0
+	hasGlyph := ttLocaHasGlyph(tables)
+	for cid := 1; cid < numGlyphs; cid++ {
+		if hasGlyph(cid) {
+			rendered = cid
+			break
+		}
+	}
+	if rendered == 0 {
+		t.Fatal("fixture font has no glyph with outline data")
+	}
+
+	// The check is scoped to rendered CIDs, so the font dict identity carrying
+	// the usage is what drives it.
+	font := pdf.NewPDFDict()
+	usage := map[uintptr]map[int]bool{
+		pdf.ValuePointer(font.Entries): {rendered: true},
+	}
+
 	desc := pdf.NewPDFDict()
 	cidSet := pdf.NewPDFDict()
 	cidSet.HasStream = true
-	cidSet.RawStream = make([]byte, (numGlyphs+7)/8) // all-zero: first populated glyph is unmarked
+	cidSet.RawStream = make([]byte, (numGlyphs+7)/8) // all-zero: the rendered CID is unmarked
 	desc.Entries["CIDSet"] = cidSet
-	ctx := &ValidationContext{}
-	validateCIDSetTrueType(pdf.PDFDict{}, desc, ff, ctx)
+	ctx := &ValidationContext{UsedCIDs: usage}
+	validateCIDSetTrueType(font, desc, ff, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.CIDSubsetCIDSet) {
 		t.Error("expected CIDSubsetCIDSet with an empty CIDSet bitmap")
 	}
@@ -509,10 +529,31 @@ func TestValidateCIDSetTrueType(t *testing.T) {
 	cidSet2.RawStream = fullBitmap
 	desc2 := pdf.NewPDFDict()
 	desc2.Entries["CIDSet"] = cidSet2
-	ctx2 := &ValidationContext{}
-	validateCIDSetTrueType(pdf.PDFDict{}, desc2, ff, ctx2)
+	ctx2 := &ValidationContext{UsedCIDs: usage}
+	validateCIDSetTrueType(font, desc2, ff, ctx2)
 	if hasCheck(ctx2, pdf.Checks.Font.CIDSubsetCIDSet) {
 		t.Error("unexpected CIDSubsetCIDSet with a fully-set CIDSet bitmap")
+	}
+
+	// A glyph the font carries but the document never renders is not the
+	// CIDSet's business: a TrueType subsetter routinely leaves outlines behind.
+	desc3 := pdf.NewPDFDict()
+	cidSet3 := pdf.NewPDFDict()
+	cidSet3.HasStream = true
+	cidSet3.RawStream = make([]byte, (numGlyphs+7)/8)
+	desc3.Entries["CIDSet"] = cidSet3
+	ctx3 := &ValidationContext{UsedCIDs: map[uintptr]map[int]bool{pdf.ValuePointer(font.Entries): {}}}
+	validateCIDSetTrueType(font, desc3, ff, ctx3)
+	if hasCheck(ctx3, pdf.Checks.Font.CIDSubsetCIDSet) {
+		t.Error("unexpected CIDSubsetCIDSet for glyphs the document never renders")
+	}
+
+	// Usage unknown (an undecodable content stream): the check must not run at
+	// all rather than fall back to the glyph table.
+	ctx4 := &ValidationContext{}
+	validateCIDSetTrueType(font, desc, ff, ctx4)
+	if hasCheck(ctx4, pdf.Checks.Font.CIDSubsetCIDSet) {
+		t.Error("unexpected CIDSubsetCIDSet when usage is unknown")
 	}
 }
 
@@ -893,6 +934,41 @@ func TestTrueTypeTableGuards(t *testing.T) {
 	}
 	if ParseCmapFormat6([]byte{0, 6}) != nil {
 		t.Error("ParseCmapFormat6 should be nil for a too-short subtable")
+	}
+}
+
+// TestTTGlyphPresentEmptyOutlines pins what "the font defines this glyph"
+// means for 6.3.5: an empty loca entry is how TrueType encodes a glyph with no
+// contours -- a space -- and such a glyph is defined, not missing.
+//
+// The check used to accept an empty outline only when its advance width was
+// also zero. A space in a monospaced subset is empty and 600/1000 wide, so
+// every one of those fonts was reported as missing a glyph it plainly defines
+// (Ghostscript's PDF/A output, which veraPDF passes). Only an out-of-range
+// glyph id is genuinely absent.
+func TestTTGlyphPresentEmptyOutlines(t *testing.T) {
+	head := make([]byte, 52) // indexToLocFormat (offset 50) = 0, unitsPerEm at 18
+	head[18], head[19] = 0x03, 0xE8
+	hhea := make([]byte, 36)
+	hhea[34], hhea[35] = 0x00, 0x03 // numberOfHMetrics = 3
+	tables := map[string][]byte{
+		"head": head,
+		"hhea": hhea,
+		// gid 0: outline, zero advance. gid 1: empty outline, 600 advance
+		// (a space). gid 2: outline, 600 advance.
+		"loca": {0, 0, 0, 10, 0, 10, 0, 20},
+		"hmtx": {0x00, 0x00, 0, 0, 0x02, 0x58, 0, 0, 0x02, 0x58, 0, 0},
+		"maxp": {0, 0, 0, 0, 0, 3}, // numGlyphs = 3
+	}
+
+	present := TTGlyphPresent(tables)
+	for gid := range 3 {
+		if !present(gid) {
+			t.Errorf("gid %d reported absent; every glyph the font defines is present", gid)
+		}
+	}
+	if present(3) {
+		t.Error("gid 3 is past numGlyphs and must be reported absent")
 	}
 }
 

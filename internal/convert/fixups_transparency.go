@@ -3,6 +3,7 @@ package convert
 import (
 	"image"
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -199,6 +200,7 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 				return
 			}
 			collectXObjectTargets(resources, visited, pageNum, &out)
+			collectAnnotationTargets(node, visited, pageNum, &out)
 			return
 		}
 		if kids, ok := node.Entries["Kids"].(pdf.PDFArray); ok {
@@ -277,8 +279,11 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 	}
 	visited[ptr] = true
 
-	for name, v := range xobjects.Entries {
-		xobj, ok := v.(pdf.PDFDict)
+	// Sorted, not map order: the targets' order reaches the user through
+	// ConvertResult.RasterDrops, so iterating the map directly would report a
+	// page's drops in a different order on every run.
+	for _, name := range sortedKeys(xobjects.Entries) {
+		xobj, ok := xobjects.Entries[name].(pdf.PDFDict)
 		if !ok {
 			continue
 		}
@@ -300,6 +305,84 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 			}
 		}
 	}
+}
+
+// collectAnnotationTargets flags the Form XObjects reachable through a page's
+// annotation appearance streams (/Annots -> /AP -> /N, /R, /D, and the
+// appearance sub-dictionaries keyed by state).
+//
+// An appearance stream is not in the page's /Resources, so the walk above
+// cannot see it -- but the verifier's graph walk reports violations there all
+// the same. Acrobat writes a signature's appearance as a Form XObject whose
+// nested Form carries /Group /S /Transparency, which is exactly this shape, so
+// without this every digitally signed document reported a 6.4 violation that
+// convert could not reach and the verify/fix loop could never converge.
+func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	for _, a := range annots {
+		annot, ok := a.(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		for _, state := range []string{"N", "R", "D"} {
+			entry, ok := ap.Entries[state].(pdf.PDFDict)
+			if !ok {
+				continue
+			}
+			if isFormXObject(entry) {
+				collectAppearanceForm(entry, ap, state, visited, pageNum, out)
+				continue
+			}
+			// /AP /N << /Off ... /On ... >>: one appearance per state name.
+			for _, name := range sortedKeys(entry.Entries) {
+				if form, ok := entry.Entries[name].(pdf.PDFDict); ok && isFormXObject(form) {
+					collectAppearanceForm(form, entry, name, visited, pageNum, out)
+				}
+			}
+		}
+	}
+}
+
+// collectAppearanceForm flags one appearance Form XObject, or descends into its
+// resources when it is itself clean. container+name address the slot the fixed
+// dict is written back into, exactly as an /XObject resource entry does.
+func collectAppearanceForm(form, container pdf.PDFDict, name string, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+	if hasTransparencyGroup(form) {
+		res, _ := form.Entries["Resources"].(pdf.PDFDict)
+		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: res, xobjects: container, name: name, page: pageNum})
+		return
+	}
+	if res, ok := form.Entries["Resources"].(pdf.PDFDict); ok {
+		collectXObjectTargets(res, visited, pageNum, out)
+	}
+}
+
+// isFormXObject distinguishes an appearance stream from the sub-dictionary of
+// appearance states that can stand in the same slot.
+func isFormXObject(d pdf.PDFDict) bool {
+	if !d.HasStream {
+		return false
+	}
+	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	return subtype.Value == "Form"
+}
+
+// sortedKeys returns a dictionary's keys in a stable order, for walks whose
+// order reaches the user.
+func sortedKeys(entries map[string]pdf.PDFValue) []string {
+	out := make([]string, 0, len(entries))
+	for k := range entries {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // hasTransparencyGroup mirrors validateTransparencyGroup's (checks_dict.go)

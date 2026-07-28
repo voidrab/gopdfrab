@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -312,5 +313,51 @@ func TestRecoverTrailerPicksLatestCatalog(t *testing.T) {
 			t.Fatalf("recovered Root = %v, want object 5 (latest catalog)", d.EffectiveTrailer().Entries["Root"])
 		}
 		d.Close()
+	}
+}
+
+// TestUndefinedObjectIsNullNotDegraded: the xref lists an object the file never
+// defines, and its offset lands on another object's header. A reference to an
+// undefined object *is* the null object (ISO 32000-1 7.3.10), so it resolves to
+// null silently -- nothing was lost, and reporting degradation would wrongly
+// mark a conversion as having lost content.
+func TestUndefinedObjectIsNullNotDegraded(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Missing 4 0 R >>")
+
+	// Object 4 is never written. Its xref entry points at object 1's header, so
+	// the header-number check rejects it and the recovery scan finds nothing.
+	xrefOffset := b.Len()
+	b.WriteString("xref\n0 5\n0000000000 65535 f \n")
+	for i := 1; i <= 3; i++ {
+		b.WriteString(fmt.Sprintf("%010d 00000 n \n", b.OffsetOf(i)))
+	}
+	b.WriteString(fmt.Sprintf("%010d 00000 n \n", b.OffsetOf(1)))
+	b.WriteString("trailer\n<< /Size 5 /Root 1 0 R >>\n")
+	data := b.FinishStartxref(xrefOffset)
+
+	d, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+
+	v, err := d.ResolveReference(PDFRef{ObjNum: 4})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if v != nil {
+		t.Errorf("resolve = %v, want the null object", v)
+	}
+	if d.HasDegradedObjects() {
+		t.Errorf("HasDegradedObjects = true for an object the file never defines: %v", d.DegradedObjects())
+	}
+	if diags := graphResolutionDiags(d); len(diags) != 0 {
+		t.Errorf("GraphResolutionFailure diagnostics = %v, want none", diags)
+	}
+	if _, err := d.ResolveGraph(); err != nil {
+		t.Errorf("ResolveGraph: %v", err)
 	}
 }

@@ -8,12 +8,26 @@ import (
 	"unicode/utf8"
 )
 
+// XMLAttrValue is the pattern matching an XML attribute value, capturing it in
+// whichever quote character it uses.
+//
+// XML gives the two quote characters equal standing (XML 1.0 AttValue), and a
+// property written as an attribute is the abbreviated RDF form of the same
+// property written as an element -- so an XMP reader that recognises only
+// double-quoted attributes silently fails to see half the shapes the same
+// metadata legitimately takes. Ghostscript writes single quotes throughout,
+// which made every PDF/A file it produces report a missing PDF/A identifier.
+//
+// Callers read the value with FirstRegexpGroup, which takes the first non-empty
+// group, so the extra alternative costs them nothing.
+const XMLAttrValue = `\s*=\s*(?:"([^"]*)"|'([^']*)')`
+
 // PDFAPartRe and PDFAConfRe extract the PDF/A part and conformance level a
 // document's XMP metadata claims (6.7.11 pdfaid namespace), shared by
 // ClaimedConformance and the 6.7.11 verifier.
 var (
-	PDFAPartRe = regexp.MustCompile(`pdfaid:part\s*=\s*"([^"]*)"|<pdfaid:part>\s*([^<\s]+)\s*</pdfaid:part>`)
-	PDFAConfRe = regexp.MustCompile(`pdfaid:conformance\s*=\s*"([^"]*)"|<pdfaid:conformance>\s*([^<\s]+)\s*</pdfaid:conformance>`)
+	PDFAPartRe = regexp.MustCompile(`pdfaid:part` + XMLAttrValue + `|<pdfaid:part>\s*([^<\s]+)\s*</pdfaid:part>`)
+	PDFAConfRe = regexp.MustCompile(`pdfaid:conformance` + XMLAttrValue + `|<pdfaid:conformance>\s*([^<\s]+)\s*</pdfaid:conformance>`)
 )
 
 // FirstRegexpGroup returns the first non-empty capture group re matches in s.

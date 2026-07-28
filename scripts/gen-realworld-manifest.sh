@@ -13,6 +13,11 @@
 # which stay gitignored. After running, fill in each new entry's licence (and a
 # url if the file is publicly hosted), then commit manifest.json.
 #
+# For bulk sourcing from public collections, use
+# scripts/source-realworld-corpus.py instead: it records url/license/producer
+# automatically from each source's API. This script is the manual path, for
+# files you drop in by hand.
+#
 # Requires: jq, sha256sum.
 set -euo pipefail
 
@@ -20,24 +25,32 @@ root="tests/realworld"
 manifest="$root/manifest.json"
 [ -f "$manifest" ] || echo "[]" >"$manifest"
 
-tmp=$(mktemp)
-cp "$manifest" "$tmp"
-
+# Hash every corpus file first, in parallel, then merge in a single jq pass.
+# Hashing and merging per file would spawn a jq per file over a manifest that
+# grows as it goes -- fine for ten files, quadratic for a few thousand.
+hashes=$(mktemp)
+trap 'rm -f "$hashes"' EXIT
 for sub in should-pass should-convert; do
-  find "$root/$sub" -type f -name '*.pdf' 2>/dev/null | sort | while read -r file; do
-    rel=${file#"$root/"}
-    sum=$(sha256sum "$file" | cut -d' ' -f1)
-    jq --arg path "$rel" --arg sum "$sum" '
-      if any(.[]; .path == $path)
-      then map(if .path == $path then .sha256 = $sum else . end)
-      else . + [{path: $path, url: "", sha256: $sum, license: "TODO", producer: "", note: ""}]
-      end
-    ' "$tmp" >"$tmp.new" && mv "$tmp.new" "$tmp"
-  done
-done
+  [ -d "$root/$sub" ] || continue
+  find "$root/$sub" -type f -name '*.pdf' -print0 |
+    xargs -0 -r -P "$(nproc 2>/dev/null || echo 4)" -n 32 sha256sum
+done | sort -k2 >"$hashes"
 
-jq 'sort_by(.path)' "$tmp" >"$manifest"
-rm -f "$tmp"
+jq -n --rawfile hashes "$hashes" --slurpfile manifest "$manifest" '
+  # sha256sum lines are "<64 hex><2 spaces><path>", path relative to the repo root.
+  ($hashes | split("\n") | map(select(length > 66))
+           | map({sha256: .[0:64], path: (.[66:] | sub("^tests/realworld/"; ""))})) as $files
+  | ($manifest[0] // []) as $entries
+  | ($entries | map({key: .path, value: .}) | from_entries) as $byPath
+  | ($files | map(
+      ($byPath[.path] // {path: .path, url: "", sha256: "", license: "TODO", producer: "", note: ""})
+      + {sha256: .sha256}
+    )) as $updated
+  | ($updated | map({key: .path, value: true}) | from_entries) as $present
+  # Entries whose file is absent here may exist on another machine: keep them.
+  | ($updated + ($entries | map(select($present[.path] | not)))) | sort_by(.path)
+' >"$manifest.new"
+mv "$manifest.new" "$manifest"
 
 todo=$(jq '[.[] | select(.license == "TODO")] | length' "$manifest")
 echo "manifest updated: $manifest ($(jq length "$manifest") entries, $todo need a licence)"

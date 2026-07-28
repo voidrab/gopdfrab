@@ -102,7 +102,8 @@ var xmpBuiltinTypes = map[string]bool{
 	"RenditionClass": true, "Thumbnail": true, "XPath": true, "Locale": true,
 }
 
-var xmpNSBindRe = regexp.MustCompile(`xmlns:(\w+)\s*=\s*"([^"]*)"`)
+// Groups: 1 = prefix, then the URI in whichever quote character it uses.
+var xmpNSBindRe = regexp.MustCompile(`xmlns:(\w+)` + pdf.XMLAttrValue)
 
 // Intermediate structures for parsed extension schema content.
 
@@ -135,7 +136,7 @@ func checkExtensionSchemas(xmp string) []pdf.PDFError {
 	bindPrefixToURI := map[string]string{}
 	bindURIToPrefixes := map[string][]string{}
 	for _, m := range xmpNSBindRe.FindAllStringSubmatch(xmp, -1) {
-		prefix, uri := m[1], m[2]
+		prefix, uri := m[1], m[2]+m[3] // exactly one quote alternative matches
 		if _, exists := bindPrefixToURI[prefix]; !exists {
 			bindPrefixToURI[prefix] = uri
 		}
@@ -695,7 +696,7 @@ func validateExtSchema(s extSchema, xmp string) []pdf.PDFError {
 
 var (
 	xpacketRe = regexp.MustCompile(`<\?xpacket[^>]*>`)
-	pdfaNSRe  = regexp.MustCompile(`xmlns:pdfaid\s*=\s*"([^"]*)"`)
+	pdfaNSRe  = regexp.MustCompile(`xmlns:pdfaid` + pdf.XMLAttrValue)
 )
 
 func xmpErr(c pdf.Check, msg string) pdf.PDFError {
@@ -854,8 +855,8 @@ func xmpWellFormed(data []byte) bool {
 	}
 }
 
-var xmpCreateDateRe = regexp.MustCompile(`xmp:CreateDate\s*=\s*"([^"]*)"|<xmp:CreateDate>\s*([^<\s]+)\s*</xmp:CreateDate>`)
-var xmpModifyDateRe = regexp.MustCompile(`xmp:ModifyDate\s*=\s*"([^"]*)"|<xmp:ModifyDate>\s*([^<\s]+)\s*</xmp:ModifyDate>`)
+var xmpCreateDateRe = regexp.MustCompile(`xmp:CreateDate` + pdf.XMLAttrValue + `|<xmp:CreateDate>\s*([^<\s]+)\s*</xmp:CreateDate>`)
+var xmpModifyDateRe = regexp.MustCompile(`xmp:ModifyDate` + pdf.XMLAttrValue + `|<xmp:ModifyDate>\s*([^<\s]+)\s*</xmp:ModifyDate>`)
 
 // digitsOf returns only the decimal digits of s.
 func digitsOf(s string) string {
@@ -987,7 +988,17 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			var msg string
 			if len(items) > 1 {
 				msg = "document info Author not synchronized with XMP dc:creator (multiple entries)"
-			} else if len(items) == 1 && strings.TrimSpace(items[0][1]) != author {
+			} else if len(items) == 1 && decodeXMLEntities(items[0][1]) != author {
+				// Compared as written on both sides, entities decoded.
+				//
+				// Two things were wrong here. It compared decoded text against
+				// raw XML markup, so any author name containing an "&" was
+				// reported out of sync -- ordinary in an arXiv author list.
+				// And it trimmed the XMP side only, so a value with leading
+				// whitespace was reported as differing from itself. Trimming
+				// *both* sides is not the fix: veraPDF treats a whitespace-only
+				// difference as a genuine mismatch (its 6-1-5-t01-fail-b
+				// fixture is exactly that), so neither side is trimmed.
 				msg = "document info Author not synchronized with XMP dc:creator"
 			}
 			if msg != "" {

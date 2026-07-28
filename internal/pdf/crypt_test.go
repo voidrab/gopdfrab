@@ -313,3 +313,45 @@ func TestUnsupportedSecurityHandler(t *testing.T) {
 		t.Fatalf("err=%v, want ErrEncrypted", err)
 	}
 }
+
+// TestCleartextMetadataStreamIsNotDecrypted covers /EncryptMetadata false
+// (ISO 32000-1 7.6.3.3): the metadata stream is left in the clear so an indexer
+// can read it without the password, so decrypting it anyway yields garbage --
+// and under AES it does not even decode, because the plaintext is not
+// block-aligned.
+//
+// The two older cleartext-metadata fixtures set the flag but carry no metadata
+// stream at all, so they pinned the parsed flag and not the behaviour it
+// governs. This fixture has one.
+func TestCleartextMetadataStreamIsNotDecrypted(t *testing.T) {
+	r, err := OpenBytes(readFixture(t, "enc_aesv3_cm_meta.pdf"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if r.crypt == nil || r.crypt.encryptMeta {
+		t.Fatalf("fixture should be encrypted with EncryptMetadata false (crypt=%v)", r.crypt)
+	}
+
+	data, meta, err := r.RawXMP()
+	if err != nil {
+		t.Fatalf("RawXMP: %v", err)
+	}
+	if !meta.HasStream {
+		t.Fatal("catalog /Metadata is not a stream")
+	}
+	if !bytes.Contains(data, []byte("<x:xmpmeta")) || !bytes.Contains(data, []byte("pdfaid")) {
+		t.Errorf("metadata stream did not survive as cleartext XMP: %q", firstBytes(data, 80))
+	}
+
+	// The rest of the document is still encrypted and must still decrypt.
+	if found, _ := markerAndTitle(t, r); !found {
+		t.Error("content stream did not decrypt")
+	}
+}
+
+func firstBytes(b []byte, n int) []byte {
+	if len(b) > n {
+		return b[:n]
+	}
+	return b
+}

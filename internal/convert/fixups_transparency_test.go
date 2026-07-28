@@ -93,6 +93,108 @@ func TestTransparencyFlattenerFixDropsPageGroup(t *testing.T) {
 	}
 }
 
+// TestTransparencyFlattenerReachesAnnotationAppearances pins that the fixer
+// walks a page's annotation appearance streams, not only its /Resources.
+//
+// An appearance stream is not in the page's /Resources, but the verifier's
+// graph walk reports violations inside it all the same. Acrobat writes a
+// digital signature's appearance as nested Form XObjects whose innermost form
+// carries /Group /S /Transparency, so before this every signed document
+// reported a 6.4 violation the fixer could not reach: the verify/fix loop ran
+// its full four iterations, rasterized a page trying to make progress, and
+// still returned non-conformant output.
+func TestTransparencyFlattenerReachesAnnotationAppearances(t *testing.T) {
+	group := func() pdf.PDFDict {
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}}
+	}
+	// A form whose content is provably transparency-free, so the fixer can drop
+	// the group outright rather than rasterizing it.
+	form := func(g pdf.PDFDict) pdf.PDFDict {
+		return pdf.PDFDict{
+			Entries: map[string]pdf.PDFValue{
+				"Type":    pdf.PDFName{Value: "XObject"},
+				"Subtype": pdf.PDFName{Value: "Form"},
+				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+				"Group":   g,
+			},
+			HasStream: true,
+			RawStream: []byte("0 0 0 rg 0 0 10 10 re f"),
+		}
+	}
+
+	// /AP /N as a Form XObject directly, and as a dictionary of appearance
+	// states -- both shapes a real annotation uses.
+	direct := form(group())
+	stated := form(group())
+	nested := form(group())
+	outer := pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Type":    pdf.PDFName{Value: "XObject"},
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm1": nested}},
+			}},
+		},
+		HasStream: true,
+		RawStream: []byte("/Fm1 Do"),
+	}
+
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Annots": pdf.PDFArray{
+			pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Widget"},
+				"AP":      pdf.PDFDict{Entries: map[string]pdf.PDFValue{"N": direct}},
+			}},
+			pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Widget"},
+				"AP": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+					"N": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"On": stated}},
+				}},
+			}},
+			// The signature shape: an appearance form with no group of its own,
+			// whose nested Form XObject carries one.
+			pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Widget"},
+				"AP":      pdf.PDFDict{Entries: map[string]pdf.PDFValue{"N": outer}},
+			}},
+		},
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}},
+	}}
+
+	targets := collectTransparencyTargets(trailer)
+	if len(targets) != 3 {
+		t.Fatalf("collectTransparencyTargets found %d targets, want 3 (direct, stated, nested)", len(targets))
+	}
+	for _, tgt := range targets {
+		if tgt.kind != "form" {
+			t.Errorf("target kind = %q, want \"form\"", tgt.kind)
+		}
+		if tgt.page != 1 {
+			t.Errorf("target page = %d, want 1", tgt.page)
+		}
+	}
+
+	changed, err := (transparencyFlattener{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	for name, f := range map[string]pdf.PDFDict{"direct": direct, "stated": stated, "nested": nested} {
+		if f.Entries["Group"] != nil {
+			t.Errorf("%s appearance form still carries /Group after Fix", name)
+		}
+	}
+}
+
 func TestPackRGBSamples(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	img.Pix[0], img.Pix[1], img.Pix[2] = 10, 20, 30

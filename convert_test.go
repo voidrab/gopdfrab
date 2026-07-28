@@ -12,13 +12,17 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -673,6 +677,23 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// sha256File hashes a file without reading it into the heap. The real-world
+// corpus runs to gigabytes and holds individual documents of a hundred
+// megabytes, which is exactly the shape the library itself refuses to load
+// whole (see doc.go on mmap), so its own inventory check must not either.
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // manifestProblems checks each present corpus file against manifest.json under
 // realworldDir, returning a problem per file that is unlisted, hash-mismatched,
 // or missing a licence. err is non-nil only when the manifest cannot be read or
@@ -691,46 +712,260 @@ func manifestProblems(realworldDir string, present []string) (problems []string,
 	for _, e := range entries {
 		byPath[e.Path] = e
 	}
-	for _, f := range present {
-		rel, err := filepath.Rel(realworldDir, f)
-		if err != nil {
-			return nil, err
+	// Hashing a multi-gigabyte corpus is the slow half of this check, so files
+	// are hashed concurrently -- but each writes only its own slot, so the
+	// problem list stays in `present` order rather than completion order.
+	perFile := make([][]string, len(present))
+	errs := make([]error, len(present))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU())
+	for i, f := range present {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			rel, err := filepath.Rel(realworldDir, f)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			rel = filepath.ToSlash(rel)
+			e, ok := byPath[rel]
+			if !ok {
+				perFile[i] = append(perFile[i], fmt.Sprintf("%s: present but not in manifest.json (run scripts/gen-realworld-manifest.sh)", rel))
+				return
+			}
+			got, err := sha256File(f)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			if got != e.SHA256 {
+				perFile[i] = append(perFile[i], fmt.Sprintf("%s: sha256 %s != manifest %s (regenerate the manifest)", rel, got, e.SHA256))
+			}
+			if e.License == "" || e.License == "TODO" {
+				perFile[i] = append(perFile[i], fmt.Sprintf("%s: no licence recorded in manifest.json", rel))
+			}
+		}()
+	}
+	wg.Wait()
+	for i := range present {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
-		rel = filepath.ToSlash(rel)
-		e, ok := byPath[rel]
-		if !ok {
-			problems = append(problems, fmt.Sprintf("%s: present but not in manifest.json (run scripts/gen-realworld-manifest.sh)", rel))
-			continue
-		}
-		b, err := os.ReadFile(f)
-		if err != nil {
-			return nil, err
-		}
-		if got := sha256Hex(b); got != e.SHA256 {
-			problems = append(problems, fmt.Sprintf("%s: sha256 %s != manifest %s (regenerate the manifest)", rel, got, e.SHA256))
-		}
-		if e.License == "" || e.License == "TODO" {
-			problems = append(problems, fmt.Sprintf("%s: no licence recorded in manifest.json", rel))
-		}
+		problems = append(problems, perFile[i]...)
 	}
 	return problems, nil
 }
 
+// realWorldRecord is one file's outcome in the optional per-file report. The
+// corpus is large enough that triaging it by re-running files one at a time is
+// impractical, so a run can dump every verdict at once and be sliced offline.
+type realWorldRecord struct {
+	Path       string   `json:"path"`
+	Kind       string   `json:"kind"` // should-pass | should-convert
+	Bytes      int64    `json:"bytes"`
+	OK         bool     `json:"ok"` // verified clean, or converted to conformance
+	Error      string   `json:"error,omitempty"`
+	Issues     int      `json:"issues,omitempty"`
+	Clauses    []string `json:"clauses,omitempty"`
+	Rasterized int      `json:"rasterizedPages,omitempty"`
+	Drops      []string `json:"rasterDrops,omitempty"`
+	Unstable   bool     `json:"unstable,omitempty"` // two converts, two different outputs
+	// CompletedMs is milliseconds from the start of the batch to this file's
+	// completion. Under a worker pool an individual duration is not observable,
+	// but a large gap between consecutive completions still identifies the slow
+	// file, which is what triage needs. Zero for should-pass, whose batch entry
+	// point returns everything at once.
+	CompletedMs int64 `json:"completedMs,omitempty"`
+}
+
+// realWorldReporter collects per-file records when GOPDFRAB_REALWORLD_REPORT
+// names a file to write them to. Its zero value collects nothing, so the
+// default run pays only a mutex per file.
+type realWorldReporter struct {
+	mu      sync.Mutex
+	path    string
+	records []realWorldRecord
+}
+
+func newRealWorldReporter() *realWorldReporter {
+	return &realWorldReporter{path: os.Getenv("GOPDFRAB_REALWORLD_REPORT")}
+}
+
+func (r *realWorldReporter) enabled() bool { return r != nil && r.path != "" }
+
+func (r *realWorldReporter) add(rec realWorldRecord) {
+	if !r.enabled() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = append(r.records, rec)
+}
+
+// flush writes the records sorted by path, so two runs over the same corpus
+// produce comparable files.
+func (r *realWorldReporter) flush(t *testing.T) {
+	if !r.enabled() {
+		return
+	}
+	t.Helper()
+	sort.Slice(r.records, func(i, j int) bool { return r.records[i].Path < r.records[j].Path })
+	data, err := json.MarshalIndent(r.records, "", " ")
+	if err != nil {
+		t.Errorf("report: %v", err)
+		return
+	}
+	if err := os.WriteFile(r.path, append(data, '\n'), 0o644); err != nil {
+		t.Errorf("report: %v", err)
+		return
+	}
+	t.Logf("wrote %d records to %s", len(r.records), r.path)
+}
+
+// distinctIssueClauses is issueClauses deduped and sorted: a real-world file
+// can report the same clause on dozens of objects, and triage groups by clause.
+func distinctIssueClauses(issues []PDFError) []string {
+	set := make(map[string]bool, len(issues))
+	for _, c := range issueClauses(issues) {
+		set[c] = true
+	}
+	return sortedClauses(set)
+}
+
+func fileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// shouldPassDeviations lists should-pass corpus files gopdfrab deliberately
+// rejects, keyed by sha256 (content-addressed, so a re-classified or renamed
+// file keeps its justification) with the reason as the value.
+//
+// The corpus puts a file in should-pass when veraPDF calls it PDF/A-1b, so a
+// rejection is normally a gopdfrab false positive and a bug. The exception is a
+// veraPDF *false negative*: a file that genuinely violates the standard and
+// that gopdfrab is right to reject. Each entry has to make that case, and a
+// listed file that starts verifying clean fails the test, so a deviation cannot
+// outlive the reason for it.
+var shouldPassDeviations = map[string]string{
+	// arXiv 2008.01611: a Word-produced subset of TimesNewRomanPS-BoldMT is
+	// shown with character code 48 ('0'), and the embedded program has no
+	// glyph for it -- no (3,1), (0,3), (3,0) or (1,0) cmap entry, and `post` is
+	// version 3.0, so none of ISO 32000-1 9.6.6.4's three lookup paths resolves
+	// it. The page renders .notdef, which 6.3.5 exists to prevent. veraPDF
+	// passes the file; verified by hand against the font's tables.
+	"0e1ac7d3fec6acb516bec480c4b9f9d6021b1cd3d018f4900cfc69369b2d6d57": "veraPDF false negative: shown glyph absent from the embedded subset (6.3.5)",
+}
+
 // checkShouldPass verifies each file against PDF/A-1b and returns the paths
 // gopdfrab wrongly rejected. These are real files a tool and veraPDF both call
-// PDF/A-1b, so any rejection is a false positive.
-func checkShouldPass(t *testing.T, files []string) (failures []string) {
-	for _, p := range files {
-		res, err := Verify(p, PDFA1B)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: open/parse error: %v", p, err))
-			continue
+// PDF/A-1b, so any rejection is a false positive unless
+// shouldPassDeviations justifies it.
+//
+// VerifyAllContext rather than a loop: it is the batch entry point real callers
+// use, so the corpus exercises it on real input rather than only on fixtures.
+func checkShouldPass(t *testing.T, files []string, rep *realWorldReporter) (failures []string) {
+	t.Helper()
+	start := time.Now()
+	results, err := VerifyAllContext(context.Background(), files, PDFA1B, Options{})
+	if err != nil {
+		t.Errorf("should-pass batch: %v", err)
+		return nil
+	}
+	t.Logf("should-pass: verified %d files in %s", len(files), time.Since(start).Round(time.Millisecond))
+	for _, fr := range results {
+		rec := realWorldRecord{Path: fr.Path, Kind: "should-pass", Bytes: fileSize(fr.Path)}
+		sum, _ := sha256File(fr.Path)
+		why, deviates := shouldPassDeviations[sum]
+		switch {
+		case fr.Err != nil:
+			rec.Error = fr.Err.Error()
+			failures = append(failures, fmt.Sprintf("%s: open/parse error: %v", fr.Path, fr.Err))
+		case !fr.Result.Valid && deviates:
+			rec.Issues = len(fr.Result.Issues)
+			rec.Clauses = distinctIssueClauses(fr.Result.Issues)
+			t.Logf("known deviation: %s rejected (%v) -- %s", fr.Path, rec.Clauses, why)
+		case !fr.Result.Valid:
+			rec.Issues = len(fr.Result.Issues)
+			rec.Clauses = distinctIssueClauses(fr.Result.Issues)
+			failures = append(failures, fmt.Sprintf("%s: %d issues %v", fr.Path, len(fr.Result.Issues), rec.Clauses))
+		case deviates:
+			// The deviation has been fixed or the file changed: drop the entry
+			// rather than let it sit there unexamined.
+			failures = append(failures, fmt.Sprintf("%s: now verifies clean; remove its shouldPassDeviations entry (%s)", fr.Path, why))
+		default:
+			rec.OK = true
 		}
-		if !res.Valid {
-			failures = append(failures, fmt.Sprintf("%s: %d issues", p, len(res.Issues)))
-		}
+		rep.add(rec)
 	}
 	return failures
+}
+
+// convertCorpusPass converts every file once through the batch entry point and
+// returns each output's hash keyed by path, plus the three metrics.
+//
+// ConvertEachContext rather than a Convert loop, for three reasons beyond
+// speed: it is the batch API real callers use, so the corpus exercises it on
+// real input; its peak memory is bounded by the worker count rather than by the
+// size of the batch, which is what that entry point exists for; and it closes
+// each result after the callback, so a multi-gigabyte run cannot accumulate
+// spilled output files.
+func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter) (hashes map[string]string, conformant, rasterized, dropped int) {
+	t.Helper()
+	hashes = make(map[string]string, len(files))
+	start := time.Now()
+	err := ConvertEachContext(context.Background(), files, PDFA1B, Options{}, func(fr FileResult[ConvertResult]) error {
+		// The callback is serialized, so these counters need no synchronization.
+		rec := realWorldRecord{
+			Path:        fr.Path,
+			Kind:        "should-convert",
+			Bytes:       fileSize(fr.Path),
+			CompletedMs: time.Since(start).Milliseconds(),
+		}
+		defer func() { rep.add(rec) }()
+
+		if fr.Err != nil {
+			rec.Error = fr.Err.Error()
+			t.Errorf("%s: convert error: %v", fr.Path, fr.Err)
+			return nil // keep going: one bad file must not hide the rest
+		}
+		cr := fr.Result
+		if cr.Result.Valid {
+			conformant++
+			rec.OK = true
+		} else {
+			rec.Issues = len(cr.Result.Issues)
+			rec.Clauses = distinctIssueClauses(cr.Result.Issues)
+		}
+		if len(cr.RasterizedPages) > 0 {
+			rasterized++
+			rec.Rasterized = len(cr.RasterizedPages)
+		}
+		if len(cr.RasterDrops) > 0 {
+			dropped++
+			for _, d := range cr.RasterDrops {
+				rec.Drops = append(rec.Drops, fmt.Sprintf("p%d:%s", d.Page, strings.Join(d.Features, ",")))
+			}
+		}
+		h := sha256.New()
+		if _, err := cr.WriteTo(h); err != nil {
+			t.Errorf("%s: reading converted output: %v", fr.Path, err)
+			return nil
+		}
+		hashes[fr.Path] = hex.EncodeToString(h.Sum(nil))
+		return nil
+	})
+	if err != nil {
+		t.Errorf("should-convert batch: %v", err)
+	}
+	return hashes, conformant, rasterized, dropped
 }
 
 // checkShouldConvert converts each file and returns how many reached PDF/A-1b
@@ -740,24 +975,43 @@ func checkShouldPass(t *testing.T, files []string) (failures []string) {
 // rasterized is the honest "lossy" metric: RasterDrops counts only content the
 // rasterizer could not render, so a page flattened losslessly -- still a
 // conversion from text and vectors to pixels -- would not appear there.
-func checkShouldConvert(t *testing.T, files []string) (conformant, rasterized, dropped int) {
+//
+// With GOPDFRAB_REALWORLD_DETERMINISM=1 the corpus is converted a second time
+// and the two runs' outputs compared byte for byte. Every nondeterminism this
+// library has had was a map-iteration order leaking into output or into a
+// message, and each was found only by a parity run -- real documents carry far
+// more ambiguous state than the fixtures do, so this is where the next one
+// would show up.
+func checkShouldConvert(t *testing.T, files []string, rep *realWorldReporter) (conformant, rasterized, dropped int) {
+	t.Helper()
+	first, conformant, rasterized, dropped := convertCorpusPass(t, files, rep)
+	if os.Getenv("GOPDFRAB_REALWORLD_DETERMINISM") == "" {
+		return conformant, rasterized, dropped
+	}
+	t.Logf("determinism sweep: converting %d files a second time", len(files))
+	second, _, _, _ := convertCorpusPass(t, files, nil)
+	unstable := 0
 	for _, p := range files {
-		cr, err := Convert(p, PDFA1B)
-		if err != nil {
-			t.Errorf("%s: convert error: %v", p, err)
+		a, aok := first[p]
+		b, bok := second[p]
+		if !aok || !bok || a == b {
 			continue
 		}
-		if cr.Result.Valid {
-			conformant++
-		}
-		if len(cr.RasterizedPages) > 0 {
-			rasterized++
-		}
-		if len(cr.RasterDrops) > 0 {
-			dropped++
-		}
-		cr.Close()
+		unstable++
+		t.Errorf("nondeterministic conversion: %s produced %s then %s", p, a[:12], b[:12])
 	}
+	if rep.enabled() {
+		rep.mu.Lock()
+		for i := range rep.records {
+			if a, ok := first[rep.records[i].Path]; ok {
+				if b, ok := second[rep.records[i].Path]; ok && a != b {
+					rep.records[i].Unstable = true
+				}
+			}
+		}
+		rep.mu.Unlock()
+	}
+	t.Logf("determinism sweep: %d of %d files converted nondeterministically", unstable, len(files))
 	return conformant, rasterized, dropped
 }
 
@@ -787,17 +1041,21 @@ func TestRealWorldCorpus(t *testing.T) {
 		}
 	}
 
+	rep := newRealWorldReporter()
+	defer rep.flush(t)
+
 	if len(passFiles) > 0 {
-		failures := checkShouldPass(t, passFiles)
+		failures := checkShouldPass(t, passFiles, rep)
 		t.Logf("should-pass: %d files, %d rejected", len(passFiles), len(failures))
 		for _, f := range failures {
 			t.Errorf("should-pass false positive: %s", f)
 		}
 	}
 	if len(convFiles) > 0 {
-		conformant, rasterized, dropped := checkShouldConvert(t, convFiles)
-		t.Logf("should-convert: %d files, %d conformant, %d needed a rasterized page, %d lost undrawable content",
-			len(convFiles), conformant, rasterized, dropped)
+		start := time.Now()
+		conformant, rasterized, dropped := checkShouldConvert(t, convFiles, rep)
+		t.Logf("should-convert: %d files, %d conformant, %d needed a rasterized page, %d lost undrawable content (in %s)",
+			len(convFiles), conformant, rasterized, dropped, time.Since(start).Round(time.Second))
 	}
 }
 
@@ -815,8 +1073,12 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(passDir, "conformant.pdf"), mustOutput(t, cr), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A real reporter, so the report path is covered here too rather than only
+	// on a machine that has the corpus.
+	rep := &realWorldReporter{path: filepath.Join(t.TempDir(), "report.json")}
+
 	pass := realWorldPDFs(t, passDir)
-	if failures := checkShouldPass(t, pass); len(pass) != 1 || len(failures) != 0 {
+	if failures := checkShouldPass(t, pass, rep); len(pass) != 1 || len(failures) != 0 {
 		t.Errorf("should-pass self-check: files=%d failures=%v, want 1/none", len(pass), failures)
 	}
 
@@ -825,7 +1087,7 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	conv := realWorldPDFs(t, convDir)
-	conformant, rasterized, dropped := checkShouldConvert(t, conv)
+	conformant, rasterized, dropped := checkShouldConvert(t, conv, rep)
 	if len(conv) != 1 || conformant != 1 {
 		t.Errorf("should-convert self-check: files=%d conformant=%d, want 1/1", len(conv), conformant)
 	}
@@ -838,6 +1100,24 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	// A missing directory yields no files (the skip path).
 	if got := realWorldPDFs(t, filepath.Join(t.TempDir(), "absent")); len(got) != 0 {
 		t.Errorf("absent dir returned %d files, want 0", len(got))
+	}
+
+	rep.flush(t)
+	data, err := os.ReadFile(rep.path)
+	if err != nil {
+		t.Fatalf("report not written: %v", err)
+	}
+	var records []realWorldRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		t.Fatalf("report is not valid JSON: %v", err)
+	}
+	if len(records) != 2 {
+		t.Errorf("report has %d records, want 2 (one per corpus file)", len(records))
+	}
+	for _, r := range records {
+		if !r.OK || r.Path == "" || r.Kind == "" || r.Bytes == 0 {
+			t.Errorf("report record incomplete: %+v", r)
+		}
 	}
 }
 

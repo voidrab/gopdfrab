@@ -461,9 +461,13 @@ func (d *Reader) shouldDecrypt(ref PDFRef) bool {
 }
 
 // decryptStream replaces m.RawStream with its decrypted bytes. Cross-reference
-// streams are never encrypted and are left untouched.
+// streams are never encrypted and are left untouched, and neither is the
+// metadata stream of a document that declares /EncryptMetadata false.
 func (d *Reader) decryptStream(m *PDFDict, ref PDFRef) error {
 	if !m.HasStream || len(m.RawStream) == 0 || isXRefStream(*m) {
+		return nil
+	}
+	if isCleartextMetadata(*m, d.crypt) {
 		return nil
 	}
 	dec, err := d.crypt.decrypt(m.RawStream, ref.ObjNum, ref.GenNum, false)
@@ -509,6 +513,22 @@ func (d *Reader) decryptStr(b []byte, ref PDFRef) []byte {
 func isXRefStream(m PDFDict) bool {
 	n, ok := m.Entries["Type"].(PDFName)
 	return ok && n.Value == "XRef"
+}
+
+// isCleartextMetadata reports whether m is a metadata stream the document
+// declared unencrypted. /EncryptMetadata false (ISO 32000-1 7.6.3.3) leaves the
+// metadata stream in the clear so an indexer can read it without the password;
+// decrypting it anyway yields garbage, and for AES it does not even decode --
+// the plaintext is not block-aligned, which surfaced as an unresolvable object.
+//
+// The flag only exists from R4 on; before that a /EncryptMetadata entry has no
+// meaning and everything is encrypted.
+func isCleartextMetadata(m PDFDict, h *stdSecurityHandler) bool {
+	if h == nil || h.encryptMeta || h.r < 4 {
+		return false
+	}
+	n, ok := m.Entries["Type"].(PDFName)
+	return ok && n.Value == "Metadata"
 }
 
 // aesCBCNoPadZeroIV decrypts key material (UE/OE) with a zero IV and no padding.

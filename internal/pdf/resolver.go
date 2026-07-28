@@ -99,8 +99,31 @@ func (d *Reader) recoverOrDegradeClassic(ref PDFRef, badOffset int64, cause erro
 			return v, nil
 		}
 	}
+	// The xref lists the object, but the whole-file scan found no header for it
+	// anywhere: it is not damaged, it is undefined, and a reference to an
+	// undefined object *is* the null object (ISO 32000-1 7.3.10) -- the same
+	// conclusion parseReference already reaches for an object absent from every
+	// xref section. Nothing was lost, so this is not degradation, and reporting
+	// it as such wrongly failed the conversion of documents whose only defect
+	// is an over-long xref (20 files in the real-world corpus, mostly slide
+	// decks from one export pipeline).
+	if exists, scanned := d.objectHeaderExists(ref.ObjNum); scanned && !exists {
+		return nil, nil
+	}
 	d.recordDegraded(ref.ObjNum, cause)
 	return nil, nil
+}
+
+// objectHeaderExists reports whether the file physically contains any
+// "objNum G obj" header, and whether the question could be answered at all --
+// scanned is false when the whole-file scan could not read the file, in which
+// case absence proves nothing.
+func (d *Reader) objectHeaderExists(objNum int) (exists, scanned bool) {
+	d.scanForObjectHeader(objNum, -1) // -1 excludes nothing; ensures the scan ran
+	if len(d.headerScan) == 0 {
+		return false, false
+	}
+	return len(d.headerScan[objNum]) > 0, true
 }
 
 // scanForObjectHeader returns the last "objNum G obj" header offset in the
