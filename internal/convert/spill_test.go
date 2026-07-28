@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -113,18 +114,29 @@ func TestSpillWriterSpills(t *testing.T) {
 	}
 }
 
-// TestSpillWriterDegradesWhenTempFails points TMPDIR at a non-existent
-// directory so os.CreateTemp fails, and asserts the writer degrades to
+// TestSpillWriterDegradesWhenTempFails points the temp directory at a
+// non-existent path so os.CreateTemp fails, and asserts the writer degrades to
 // in-memory rather than failing the write -- never worse than the previous
 // always-in-memory behaviour.
 func TestSpillWriterDegradesWhenTempFails(t *testing.T) {
-	t.Setenv("TMPDIR", filepathJoinNonexistent(t))
+	// os.CreateTemp resolves its directory through os.TempDir, which reads a
+	// different variable per platform: TMPDIR on unix, TMP or TEMP (via
+	// GetTempPath) on Windows. Setting only TMPDIR left the Windows runner
+	// spilling to the real temp directory and the assertion below failing.
+	missing := filepathJoinNonexistent(t)
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, missing)
+	}
+	if dir := os.TempDir(); dir != missing {
+		t.Skipf("os.TempDir() = %q, not the redirected %q: cannot force a temp failure here", dir, missing)
+	}
+
 	data := pdfgen.PlainThreeIssue()
 	setSpillThreshold(t, len(data)/4)
 
 	b := seal(t, data)
 	if b.path != "" {
-		t.Fatalf("spilled to %q despite unusable TMPDIR, want in-memory fallback", b.path)
+		t.Fatalf("spilled to %q despite an unusable temp directory, want in-memory fallback", b.path)
 	}
 	assertRoundTrip(t, b, data)
 }
@@ -221,7 +233,7 @@ func TestSpillFinalizerRemovesTempFile(t *testing.T) {
 // test's temp dir so nothing is created.
 func filepathJoinNonexistent(t *testing.T) string {
 	t.Helper()
-	return t.TempDir() + "/does/not/exist"
+	return filepath.Join(t.TempDir(), "does", "not", "exist")
 }
 
 // TestSpillWriterGrow: pre-sizing must not change what the writer produces or

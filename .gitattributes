@@ -1,0 +1,22 @@
+# Git decides text-vs-binary by scanning for a NUL byte, and small PDFs can
+# easily have none. Four tracked PDFs are classified as text today, all
+# encryption fixtures: crypt/base.pdf, enc_aesv2_cm.pdf, enc_rc4_40.pdf and
+# enc_rc4_40_pw.pdf. On a Windows checkout (Git for Windows defaults to
+# core.autocrlf=true) git rewrites every LF in them as CRLF, which shifts every
+# xref offset and, where an LF lands inside ciphertext, breaks decryption
+# outright. That surfaced the first time the Windows CI job got as far as
+# running tests: enc_rc4_40.pdf stopped decrypting there and nowhere else.
+#
+# Which files fall on which side of the heuristic depends on their bytes, so it
+# changes whenever a fixture is regenerated. Mark the binary types explicitly
+# instead of relying on the guess.
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.pfb binary
+*.cff binary
+*.icc binary
+
+# Shell scripts must keep LF regardless of the platform they are checked out
+# on, or a Windows clone produces scripts no shell will run.
+*.sh text eol=lf
