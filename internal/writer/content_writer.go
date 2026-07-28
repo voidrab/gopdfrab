@@ -14,38 +14,88 @@ type ContentOp struct {
 	Operands []pdf.PDFValue
 }
 
+// ContentStreamWriter serializes operators to content-stream bytes one at a
+// time. It exists so a rewriter can emit while it scans rather than building
+// the whole operator list first: a tokenized list runs several times the size
+// of the stream it came from, and unlike Reader.ScanStreamFunc's cache it is
+// not covered by the resident-bytes budget.
+//
+// Emitting inside the scan callback also removes the aliasing hazard that
+// accumulating invites. ContentScanner.Scan reuses one operand stack across
+// callbacks, so operands are only valid until the callback returns -- a
+// retained ContentOp aliases a slice the next operator overwrites.
+//
+// Write errors are sticky: WriteOp reports the first failure and does nothing
+// afterwards, so a caller inside a callback that cannot return an error may
+// scan to the end and check Err once.
+type ContentStreamWriter struct {
+	buf bytes.Buffer
+	err error
+}
+
+// WriteOp appends one operator and its operands. The operands need only be
+// valid for the duration of the call.
+func (w *ContentStreamWriter) WriteOp(op string, operands []pdf.PDFValue) error {
+	if w.err != nil {
+		return w.err
+	}
+	if op == "INLINEIMAGE" {
+		raw, ok := inlineImageBytes(operands)
+		if !ok {
+			w.err = fmt.Errorf("content op %q: missing raw inline image data", op)
+			return w.err
+		}
+		w.buf.Write(raw)
+		w.buf.WriteByte('\n')
+		return nil
+	}
+	for i, operand := range operands {
+		if i > 0 {
+			w.buf.WriteByte(' ')
+		}
+		if err := writeOperand(&w.buf, operand); err != nil {
+			w.err = fmt.Errorf("content op %q: %w", op, err)
+			return w.err
+		}
+	}
+	if len(operands) > 0 {
+		w.buf.WriteByte(' ')
+	}
+	w.buf.WriteString(op)
+	w.buf.WriteByte('\n')
+	return nil
+}
+
+// Err reports the first write failure, or nil.
+func (w *ContentStreamWriter) Err() error { return w.err }
+
+// Bytes returns the serialized content stream. It is only meaningful when Err
+// is nil.
+func (w *ContentStreamWriter) Bytes() []byte { return w.buf.Bytes() }
+
+// Reset discards everything written so far, including a sticky error, so one
+// writer can be reused across streams.
+func (w *ContentStreamWriter) Reset() {
+	w.buf.Reset()
+	w.err = nil
+}
+
 // WriteContentStream serializes ops back to content-stream bytes, the
 // inverse of NewContentScanner(...).scan. An "INLINEIMAGE" op (the scanner's
 // pseudo-operator for a BI...EI sequence) is re-emitted by writing its
 // trailing pdf.InlineImageRaw operand's bytes verbatim, ignoring the parsed
 // params -- see pdf.InlineImageRaw's doc comment in content.go.
+//
+// This is the batch form of ContentStreamWriter; prefer that one when the ops
+// are produced by a scan, so the list never exists.
 func WriteContentStream(ops []ContentOp) ([]byte, error) {
-	var buf bytes.Buffer
+	var w ContentStreamWriter
 	for _, op := range ops {
-		if op.Op == "INLINEIMAGE" {
-			raw, ok := inlineImageBytes(op.Operands)
-			if !ok {
-				return nil, fmt.Errorf("content op %q: missing raw inline image data", op.Op)
-			}
-			buf.Write(raw)
-			buf.WriteByte('\n')
-			continue
+		if err := w.WriteOp(op.Op, op.Operands); err != nil {
+			return nil, err
 		}
-		for i, operand := range op.Operands {
-			if i > 0 {
-				buf.WriteByte(' ')
-			}
-			if err := writeOperand(&buf, operand); err != nil {
-				return nil, fmt.Errorf("content op %q: %w", op.Op, err)
-			}
-		}
-		if len(op.Operands) > 0 {
-			buf.WriteByte(' ')
-		}
-		buf.WriteString(op.Op)
-		buf.WriteByte('\n')
 	}
-	return buf.Bytes(), nil
+	return w.Bytes(), nil
 }
 
 // inlineImageBytes extracts the trailing pdf.InlineImageRaw operand

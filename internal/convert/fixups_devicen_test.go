@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -184,5 +185,42 @@ func TestIsOversizedDeviceN(t *testing.T) {
 	}
 	if isOversizedDeviceN(pdf.PDFName{Value: "DeviceRGB"}) {
 		t.Error("non-array should not be oversized")
+	}
+}
+
+// TestDeviceNRewritePreservesUntouchedOperators pins that operators the
+// DeviceN rewrite does not touch survive with their own operands. The
+// content scanner reuses one operand stack across callbacks, so a rewriter
+// that retains the slice it is handed re-serializes some later operator's
+// operands under an earlier operator's name -- silently, and only when the
+// stream holds more than one operator with operands.
+func TestDeviceNRewritePreservesUntouchedOperators(t *testing.T) {
+	dn := oversizedDeviceN()
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"DN": dn}},
+	}}
+	stream := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{},
+		HasStream: true,
+		RawStream: []byte("1 0 0 RG 5 w /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn 10 20 m 30 40 l S"),
+	}
+
+	out, changed := rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
+	if !changed {
+		t.Fatalf("expected the oversized DeviceN scn to be rewritten")
+	}
+	decoded, err := pdf.DecodeStream(out)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	got := string(decoded)
+
+	for _, want := range []string{"1 0 0 RG", "5 w", "10 20 m", "30 40 l"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rewritten stream lost or corrupted %q\ngot: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "scn") || strings.Contains(got, "/DN cs") {
+		t.Errorf("oversized DeviceN not removed\ngot: %s", got)
 	}
 }

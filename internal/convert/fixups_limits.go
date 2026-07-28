@@ -836,11 +836,14 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 		return dict, false
 	}
 
-	var ops []writer.ContentOp
+	// Emit while scanning: see rewriteContentStreamDict. rewrite edits
+	// operands in place, so the write below must happen after it and before
+	// the callback returns -- the scanner reuses the operand slice.
+	var cw writer.ContentStreamWriter
 	modified := false
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
 		rewrite(op, operands, resources, &modified)
-		ops = append(ops, writer.ContentOp{Op: op, Operands: operands})
+		_ = cw.WriteOp(op, operands)
 
 		if op != "Do" || len(operands) == 0 {
 			return
@@ -871,15 +874,11 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 			modified = true
 		}
 	})
-	if !modified {
+	if !modified || cw.Err() != nil {
 		return dict, false
 	}
 
-	out, err := writer.WriteContentStream(ops)
-	if err != nil {
-		return dict, false
-	}
-	if err := writer.SetStreamFlate(&dict, out); err != nil {
+	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
 		return dict, false
 	}
 	return dict, true

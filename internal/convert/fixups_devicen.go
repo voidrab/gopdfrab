@@ -136,7 +136,10 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 		return dict, false
 	}
 
-	var ops []writer.ContentOp
+	// Emit while scanning: see rewriteContentStreamDict. Retaining the
+	// scanner's operands here would alias its reused stack -- the operands
+	// below are consumed inside the callback, never held.
+	var cw writer.ContentStreamWriter
 	modified := false
 	var fillCS, strokeCS pdf.PDFValue
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -156,14 +159,14 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 		case "scn":
 			if isOversizedDeviceN(fillCS) {
 				r, g, b := pdf.ResolveColor(fillCS, numericOperands(operands), resources)
-				ops = append(ops, writer.ContentOp{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)}})
+				_ = cw.WriteOp("rg", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
 			}
 		case "SCN":
 			if isOversizedDeviceN(strokeCS) {
 				r, g, b := pdf.ResolveColor(strokeCS, numericOperands(operands), resources)
-				ops = append(ops, writer.ContentOp{Op: "RG", Operands: []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)}})
+				_ = cw.WriteOp("RG", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
 			}
@@ -172,17 +175,13 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 				modified = true
 			}
 		}
-		ops = append(ops, writer.ContentOp{Op: op, Operands: operands})
+		_ = cw.WriteOp(op, operands)
 	})
-	if !modified {
+	if !modified || cw.Err() != nil {
 		return dict, false
 	}
 
-	out, err := writer.WriteContentStream(ops)
-	if err != nil {
-		return dict, false
-	}
-	if err := writer.SetStreamFlate(&dict, out); err != nil {
+	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
 		return dict, false
 	}
 	return dict, true

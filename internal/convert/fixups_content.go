@@ -145,24 +145,24 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 		return dict, false
 	}
 
-	var ops []writer.ContentOp
+	// Emit while scanning rather than collecting the operator list: a
+	// tokenized list runs several times the size of the stream it came from,
+	// and it is not covered by the resident-bytes budget. The buffer is
+	// discarded when rewrite turns out to have changed nothing.
+	var cw writer.ContentStreamWriter
 	modified := false
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
 		newOp, keep := rewrite(op, operands, &modified)
 		if !keep {
 			return
 		}
-		ops = append(ops, newOp)
+		_ = cw.WriteOp(newOp.Op, newOp.Operands)
 	})
-	if !modified {
+	if !modified || cw.Err() != nil {
 		return dict, false
 	}
 
-	out, err := writer.WriteContentStream(ops)
-	if err != nil {
-		return dict, false
-	}
-	if err := writer.SetStreamFlate(&dict, out); err != nil {
+	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
 		return dict, false
 	}
 	return dict, true

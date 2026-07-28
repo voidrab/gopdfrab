@@ -342,3 +342,59 @@ func TestCMapCIDClampFixer(t *testing.T) {
 		t.Errorf("CID not clamped in output: %q", data)
 	}
 }
+
+// TestResourceAwareRewritePreservesUntouchedOperators is the
+// rewriteResourceAwareStream counterpart of
+// TestDeviceNRewritePreservesUntouchedOperators: operators the rename does
+// not touch must keep their own operands. Both rewriters used to retain the
+// content scanner's reused operand stack, which only shows up on a stream
+// holding more than one operator with operands.
+func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
+	longKey := strings.Repeat("k", 200)
+	fontsDict := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		longKey: pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}},
+	}}
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": fontsDict}}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+		"Contents": pdf.PDFDict{
+			Entries:   map[string]pdf.PDFValue{},
+			HasStream: true,
+			RawStream: []byte("1 0 0 RG 5 w BT /" + longKey + " 12 Tf (hi) Tj ET 10 20 m 30 40 l S"),
+		},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
+		}},
+	}}
+
+	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected the overlong resource key to trigger a change")
+	}
+
+	var newKey string
+	for k := range fontsDict.Entries {
+		newKey = k
+	}
+	gotPage := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
+	decoded, err := pdf.DecodeStream(gotPage.Entries["Contents"].(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	got := string(decoded)
+
+	for _, want := range []string{"1 0 0 RG", "5 w", "(hi) Tj", "10 20 m", "30 40 l", "/" + newKey + " 12 Tf"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rewritten stream lost or corrupted %q\ngot: %s", want, got)
+		}
+	}
+	if strings.Contains(got, longKey) {
+		t.Errorf("overlong key survived\ngot: %s", got)
+	}
+}
