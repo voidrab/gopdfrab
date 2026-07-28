@@ -14,6 +14,14 @@ import (
 // content stream and Info /Title both hold the literal marker below. They are a
 // true external oracle for every handler revision. isartor-6-1-3-t02-fail-a.pdf
 // (RC4-128/R3) in the Isartor corpus is a second, independent one.
+//
+// Regenerating the two password-matrix fixtures (qpdf 12+ needs
+// --allow-weak-crypto for RC4):
+//
+//	qpdf --allow-weak-crypto --encrypt --user-password=userpw \
+//	     --owner-password=ownerpw --bits=40 -- base.pdf enc_rc4_40_pw.pdf
+//	qpdf --encrypt --user-password="$(printf 'p%.0s' {1..127})" \
+//	     --owner-password=ownerpw --bits=256 -- base.pdf enc_aesv3_longpw.pdf
 const cryptMarker = "SECRET_MARKER_123"
 
 func readFixture(t *testing.T, name string) []byte {
@@ -354,4 +362,124 @@ func firstBytes(b []byte, n int) []byte {
 		return b[:n]
 	}
 	return b
+}
+
+// TestDecryptOwnerPasswordR2 covers the R2 arm of Algorithm 7, where /O is
+// unwrapped with a single RC4 pass rather than the 20 iterations R3+ uses.
+// The other owner-password fixtures are all R4/R6, so without this the R2
+// branch would go unexercised.
+func TestDecryptOwnerPasswordR2(t *testing.T) {
+	data := readFixture(t, "enc_rc4_40_pw.pdf")
+
+	r, err := OpenBytesWithPassword(data, []byte("ownerpw"))
+	if err != nil {
+		t.Fatalf("open with owner password: %v", err)
+	}
+	if r.crypt.r != 2 {
+		t.Fatalf("fixture R=%d, want an R2 file", r.crypt.r)
+	}
+	if found, title := markerAndTitle(t, r); !found || title != cryptMarker {
+		t.Errorf("owner password did not decrypt R2 (marker=%v title=%q)", found, title)
+	}
+
+	// The user password still works, and a wrong one is still rejected.
+	if _, err := OpenBytesWithPassword(data, []byte("userpw")); err != nil {
+		t.Errorf("open with user password: %v", err)
+	}
+	if _, err := OpenBytesWithPassword(data, []byte("nope")); !errors.Is(err, ErrPasswordRequired) {
+		t.Errorf("R2 bad password: err=%v, want ErrPasswordRequired", err)
+	}
+}
+
+// TestDecryptR6PasswordTruncatedAt127 pins Algorithm 2.A's password limit: an
+// R6 password is truncated to 127 bytes before hashing, so anything appended
+// past that must not change the outcome.
+func TestDecryptR6PasswordTruncatedAt127(t *testing.T) {
+	data := readFixture(t, "enc_aesv3_longpw.pdf")
+	pw := bytes.Repeat([]byte("p"), 127)
+
+	r, err := OpenBytesWithPassword(data, pw)
+	if err != nil {
+		t.Fatalf("open with the exact 127-byte password: %v", err)
+	}
+	if found, _ := markerAndTitle(t, r); !found {
+		t.Fatal("127-byte password did not decrypt")
+	}
+
+	long := append(append([]byte(nil), pw...), []byte("ignored past the limit")...)
+	r2, err := OpenBytesWithPassword(data, long)
+	if err != nil {
+		t.Fatalf("open with a %d-byte password: %v", len(long), err)
+	}
+	if found, _ := markerAndTitle(t, r2); !found {
+		t.Error("password past 127 bytes was not truncated")
+	}
+}
+
+// TestStringBytesForms: /O, /U and /OE may be written as literal or hex
+// strings. Both must yield the same raw bytes, since the key derivation hashes
+// them directly.
+func TestStringBytesForms(t *testing.T) {
+	want := []byte{0xDE, 0xAD, 0x00, 0xBE}
+	if got := stringBytes(PDFString{Value: string(want)}); !bytes.Equal(got, want) {
+		t.Errorf("literal string = % x, want % x", got, want)
+	}
+	if got := stringBytes(PDFHexString{Value: "DEAD00BE"}); !bytes.Equal(got, want) {
+		t.Errorf("hex string = % x, want % x", got, want)
+	}
+	if got := stringBytes(PDFInteger(7)); got != nil {
+		t.Errorf("non-string = % x, want nil", got)
+	}
+
+	dict := PDFDict{Entries: map[string]PDFValue{
+		"O":    PDFString{Value: string(want)},
+		"CFM":  PDFName{Value: "AESV2"},
+		"Flag": PDFBoolean(false),
+	}}
+	if got := dictBytes(dict, "O"); !bytes.Equal(got, want) {
+		t.Errorf("dictBytes(O) = % x, want % x", got, want)
+	}
+	if name, ok := dictName(dict, "CFM"); !ok || name != "AESV2" {
+		t.Errorf("dictName(CFM) = %q, %v; want \"AESV2\", true", name, ok)
+	}
+	if _, ok := dictName(dict, "Absent"); ok {
+		t.Error("dictName found a missing key")
+	}
+	if _, ok := dictName(dict, "Flag"); ok {
+		t.Error("dictName accepted a non-name value")
+	}
+	if got := dictBool(dict, "Flag", true); got {
+		t.Error("dictBool ignored the stored false")
+	}
+	if got := dictBool(dict, "Absent", true); !got {
+		t.Error("dictBool did not fall back to the default")
+	}
+}
+
+// TestDecryptUnknownMethod: a crypt method outside the supported set is an
+// error, not a silent pass-through of ciphertext as if it were plaintext.
+func TestDecryptUnknownMethod(t *testing.T) {
+	h := &stdSecurityHandler{stmMethod: cryptMethod(99), strMethod: cryptMethod(99), keyLen: 16}
+	if _, err := h.decrypt([]byte("data"), 1, 0, false); !errors.Is(err, ErrEncrypted) {
+		t.Errorf("stream decrypt err = %v, want ErrEncrypted", err)
+	}
+	if _, err := h.decrypt([]byte("data"), 1, 0, true); !errors.Is(err, ErrEncrypted) {
+		t.Errorf("string decrypt err = %v, want ErrEncrypted", err)
+	}
+}
+
+// TestEncryptEntryNotADictionary: /Encrypt pointing at something other than a
+// dictionary must be reported as an encryption error rather than opening the
+// document as if it were plaintext.
+func TestEncryptEntryNotADictionary(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
+	b.Obj(4, "42") // not a dictionary
+	data := b.FinishClassic("<< /Size 5 /Root 1 0 R /Encrypt 4 0 R >>")
+
+	if _, err := OpenBytes(data); !errors.Is(err, ErrEncrypted) {
+		t.Errorf("err = %v, want ErrEncrypted", err)
+	}
 }

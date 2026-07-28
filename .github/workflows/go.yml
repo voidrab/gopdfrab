@@ -42,7 +42,10 @@ jobs:
           -coverprofile=coverage.txt \
           $PKGS
 
+    # shell: bash is required -- the Windows runner defaults to PowerShell,
+    # which cannot parse the assignment or the pipeline below.
     - name: Test (race)
+      shell: bash
       run: |
         PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
         go test -short -race $PKGS
@@ -82,9 +85,11 @@ jobs:
     - name: Install veraPDF
       run: ./scripts/install-verapdf.sh
     # Cross-checks gopdfrab's verdict against the veraPDF binary over both
-    # committed conformance corpora (TestDifferentialVeraPDFCorpora) and the
-    # convert-then-reverify regression check. Not run under -short, so this
-    # invokes them directly rather than via the -short build.
+    # committed conformance corpora (TestDifferentialVeraPDFCorpora). Not run
+    # under -short, so this invokes them directly rather than via the -short
+    # build. TestConvertNoResidualIssues runs alongside them but skips here:
+    # its regression documents are local-only (gitignored, not redistributable),
+    # so it is a developer-machine check that CI cannot reproduce.
     - name: Differential cross-check
       run: go test -run 'TestDifferentialVeraPDFCorpora|TestConvertNoResidualIssues' -v .
 

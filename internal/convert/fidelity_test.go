@@ -1,10 +1,13 @@
 package convert
 
 import (
+	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -116,6 +119,97 @@ func TestInkFractionExtremes(t *testing.T) {
 	// Two blank pages are identical, so not blanked (no ink was lost).
 	if white[0].Blanked() {
 		t.Errorf("blank-to-blank should not be blanked: %+v", white[0])
+	}
+}
+
+// TestComparePageRendersMissingRenders: the comparison has to survive pages
+// the rasterizer could not draw. A page missing on the input side has no
+// baseline and is skipped entirely; one missing only on the output side is
+// total loss, not a skipped page, or a conversion that stopped rendering would
+// report clean.
+func TestComparePageRendersMissingRenders(t *testing.T) {
+	inked := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for i := range inked.Pix {
+		inked.Pix[i] = 0
+	}
+
+	report := comparePageRenders(
+		[]*image.RGBA{nil, inked, inked},
+		[]*image.RGBA{inked, nil, inked},
+	)
+	if len(report) != 2 {
+		t.Fatalf("got %d page reports, want 2 (page 1 has no baseline)", len(report))
+	}
+	if report[0].Page != 2 || report[0].OutputInk != 0 || report[0].Similarity != 0 {
+		t.Errorf("page 2 = %+v, want a fully lost page", report[0])
+	}
+	if !report[0].Blanked() {
+		t.Errorf("an unrenderable output page was not reported blanked: %+v", report[0])
+	}
+	if report[1].Page != 3 || report[1].Similarity < 0.99 {
+		t.Errorf("page 3 = %+v, want an intact comparison", report[1])
+	}
+
+	// The report covers only pages present on both sides.
+	if got := comparePageRenders([]*image.RGBA{inked, inked}, []*image.RGBA{inked}); len(got) != 1 {
+		t.Errorf("got %d page reports for a shortened output, want 1", len(got))
+	}
+}
+
+// TestFidelityMetricsOnEmptyRenders: the ink and grid metrics are fed straight
+// from the rasterizer, so they must absorb a nil or zero-sized image rather
+// than dividing by zero or indexing an empty pixel buffer.
+func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
+	if got := inkFraction(nil); got != 0 {
+		t.Errorf("inkFraction(nil) = %v, want 0", got)
+	}
+	empty := image.NewRGBA(image.Rect(0, 0, 0, 0))
+	if got := inkFraction(empty); got != 0 {
+		t.Errorf("inkFraction(empty) = %v, want 0", got)
+	}
+	if got := grayGrid(empty); got != [fidelityGrid * fidelityGrid]float64{} {
+		t.Error("grayGrid(empty) returned non-zero samples")
+	}
+	if got := pageSimilarity(empty, empty); got != 1 {
+		t.Errorf("pageSimilarity of two empty renders = %v, want 1", got)
+	}
+}
+
+// TestCompareFidelityRenderErrors: a document whose graph cannot be resolved
+// cannot be rendered, and the failure must name which side failed instead of
+// being reported as a zero-similarity page.
+func TestCompareFidelityRenderErrors(t *testing.T) {
+	// A reference chain past the resolve depth cap, as in
+	// TestConvertUnresolvableGraphReturnsError.
+	const chain = 70000
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Deep 4 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
+	for i := 4; i < 4+chain; i++ {
+		b.Obj(i, fmt.Sprintf("[%d 0 R]", i+1))
+	}
+	b.Obj(4+chain, "42")
+	unresolvable := b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
+	good := onePageDoc(filledPage)
+
+	for _, tc := range []struct {
+		side          string
+		input, output []byte
+	}{
+		{"input", unresolvable, good},
+		{"output", good, unresolvable},
+	} {
+		t.Run(tc.side, func(t *testing.T) {
+			report, err := CompareFidelity(
+				openReader(t, tc.input), openReader(t, tc.output), fidelityDPI)
+			if err == nil {
+				t.Fatalf("CompareFidelity succeeded on an unresolvable %s: %+v", tc.side, report)
+			}
+			if !strings.Contains(err.Error(), "render "+tc.side) {
+				t.Errorf("err = %v, want it to name the %s side", err, tc.side)
+			}
+		})
 	}
 }
 

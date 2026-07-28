@@ -304,3 +304,115 @@ func TestPlaceholderImageDegenerate(t *testing.T) {
 		t.Errorf("placeholderImage pixel = %d,%d,%d, want uniform gray", r, g, b)
 	}
 }
+
+// TestFlattenPagesParallelDedupesAndReports pins three properties of the
+// page-level raster backstop that only show up with a mixed batch: one page
+// object reachable at two positions in the tree is rasterized once, a page the
+// rasterizer cannot draw is excluded from RasterizedPages instead of being
+// reported as flattened, and dropped features are attributed to the right page
+// number.
+func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
+	renderable := func(content string) pdf.PDFDict {
+		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Page"},
+			"Contents": pdf.PDFDict{
+				Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(content),
+			},
+		}}
+	}
+
+	shared := renderable("q Q")
+	// An sh operator with no shading resource is unusable content: the page
+	// still rasterizes, but the feature is reported dropped.
+	dropping := renderable("q /Missing sh Q")
+	// A zero-area media box cannot be rendered at all.
+	unrenderable := renderable("q Q")
+
+	box := [4]float64{0, 0, 20, 20}
+	pages := []pageTarget{
+		{dict: shared, mediaBox: box},
+		{dict: dropping, mediaBox: box},
+		{dict: shared, mediaBox: box}, // the same object again
+		{dict: unrenderable, mediaBox: [4]float64{0, 0, 0, 0}},
+	}
+	drops, rasterized, changed := flattenPagesParallel(pages, []int{1, 2, 3, 4}, 72)
+
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if !slices.Equal(rasterized, []int{1, 2}) {
+		t.Errorf("rasterized = %v, want [1 2]: page 3 is page 1's object and page 4 does not render", rasterized)
+	}
+	if len(drops) != 1 || drops[0].Page != 2 || len(drops[0].Features) == 0 {
+		t.Errorf("drops = %+v, want one entry for page 2", drops)
+	}
+
+	// A batch with nothing in it reports no change rather than an empty rewrite.
+	if _, _, changed := flattenPagesParallel(nil, nil, 72); changed {
+		t.Error("an empty page batch reported changed = true")
+	}
+}
+
+// TestSortedChecksOrdering pins the fixer application order -- clause, then
+// subclause, then name -- over the whole catalog. The order has to be total:
+// it decides which fixer runs first, and any pair left to map order would make
+// the converted bytes differ between runs.
+//
+// It also records why sortedChecks's name comparison never actually decides
+// anything today: (clause, subclause) is already unique across every
+// registered check, so the tiebreak is there for a check added later that
+// collides. If this stops holding, the tiebreak becomes live and the assertion
+// below starts exercising it.
+func TestSortedChecksOrdering(t *testing.T) {
+	all := pdf.AllChecks()
+	counts := make(map[pdf.Check]int, len(all))
+	for _, c := range all {
+		counts[c] = 1
+	}
+	got := sortedChecks(counts)
+	if len(got) != len(counts) {
+		t.Fatalf("sortedChecks returned %d checks, want %d", len(got), len(counts))
+	}
+
+	type key struct {
+		clause    string
+		subclause int
+	}
+	seen := make(map[key]string, len(got))
+	for i, cur := range got {
+		k := key{cur.Clause(), cur.Subclause()}
+		if prevName, dup := seen[k]; dup {
+			t.Logf("checks %q and %q share %s/%d: the name tiebreak is live",
+				prevName, cur.Name(), k.clause, k.subclause)
+		}
+		seen[k] = cur.Name()
+		if i == 0 {
+			continue
+		}
+		prev := got[i-1]
+		switch {
+		case prev.Clause() != cur.Clause():
+			if prev.Clause() > cur.Clause() {
+				t.Fatalf("clause out of order at %d: %q then %q", i, prev.Clause(), cur.Clause())
+			}
+		case prev.Subclause() != cur.Subclause():
+			if prev.Subclause() > cur.Subclause() {
+				t.Fatalf("subclause out of order at %d: %d then %d", i, prev.Subclause(), cur.Subclause())
+			}
+		case prev.Name() >= cur.Name():
+			t.Errorf("name out of order within %s/%d at %d: %q then %q",
+				cur.Clause(), cur.Subclause(), i, prev.Name(), cur.Name())
+		}
+	}
+
+	// The order must not depend on map iteration order.
+	for range 5 {
+		again := sortedChecks(counts)
+		for i := range got {
+			if again[i] != got[i] {
+				t.Fatalf("sortedChecks is not deterministic: position %d was %q, now %q",
+					i, got[i].Name(), again[i].Name())
+			}
+		}
+	}
+}

@@ -29,11 +29,21 @@ func expFunction(c0, c1 []float64) pdf.PDFDict {
 // renderShading paints a shading over a 20x20 page via the sh operator.
 func renderShading(t *testing.T, sh pdf.PDFValue) (*image.RGBA, []string) {
 	t.Helper()
+	return renderShadingContent(t, sh, "q /Sh1 sh Q")
+}
+
+// renderShadingContent is renderShading with the page's content stream chosen
+// by the caller, for the graphics states a plain sh cannot reach.
+func renderShadingContent(t *testing.T, sh pdf.PDFValue, content string) (*image.RGBA, []string) {
+	t.Helper()
 	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q")},
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
 	}}
 	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 		"Shading": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Sh1": sh}},
+		"ExtGState": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"GSNone": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)}},
+		}},
 	}}
 	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -189,6 +199,11 @@ func TestRenderShadingMalformedDrops(t *testing.T) {
 			"Coords":      numArray(0, 0, 20, 0),
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		}}},
+		{"function-based without Function", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"ShadingType": pdf.PDFInteger(1),
+			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+			"Matrix":      numArray(10, 0, 0, 10, 0, 0),
+		}}},
 		{"function-based with a singular Matrix", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(1),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
@@ -231,5 +246,240 @@ func TestShadingFuncArrayFanOut(t *testing.T) {
 	}
 	if parseShadingFunc(nil).valid() {
 		t.Error("a missing /Function should not parse")
+	}
+}
+
+// TestShadingNamedColorSpace: a /ColorSpace given as a bare name resolves
+// through the resource dictionary, the same way image colour spaces do.
+func TestShadingNamedColorSpace(t *testing.T) {
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"CS1": pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+				"WhitePoint": numArray(0.9505, 1, 1.089),
+			}}},
+		}},
+	}}
+	dict := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(2),
+		"ColorSpace":  pdf.PDFName{Value: "CS1"},
+		"Coords":      numArray(0, 0, 20, 0),
+		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+	}}
+
+	sh, ok := parseShading(dict, resources)
+	if !ok {
+		t.Fatal("parseShading rejected a shading with a named colour space")
+	}
+	if _, isName := sh.cs.(pdf.PDFName); isName {
+		t.Errorf("cs = %v, want the resolved array, not the name", sh.cs)
+	}
+
+	// An unresolvable name stays as written, so ResolveColor can still apply
+	// its device-space fallback rather than the shading being dropped.
+	if got := resolveShadingColorSpace(dict, pdf.PDFDict{}); got != dict.Entries["ColorSpace"] {
+		t.Errorf("unresolvable name = %v, want it passed through", got)
+	}
+}
+
+// TestAxialShadingDomain: a /Domain other than the default remaps the
+// parametric range the colour table is sampled over.
+func TestAxialShadingDomain(t *testing.T) {
+	mk := func(domain pdf.PDFValue) *shading {
+		entries := map[string]pdf.PDFValue{
+			"ShadingType": pdf.PDFInteger(2),
+			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+			"Coords":      numArray(0, 0, 20, 0),
+			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+		}
+		if domain != nil {
+			entries["Domain"] = domain
+		}
+		sh, ok := parseShading(pdf.PDFDict{Entries: entries}, pdf.PDFDict{})
+		if !ok {
+			t.Fatal("parseShading rejected an axial shading")
+		}
+		return sh
+	}
+
+	full, half := mk(nil), mk(numArray(0, 0.5))
+	if full.domain != [2]float64{0, 1} {
+		t.Errorf("default domain = %v, want [0 1]", full.domain)
+	}
+	if half.domain != [2]float64{0, 0.5} {
+		t.Errorf("domain = %v, want [0 0.5]", half.domain)
+	}
+	// Half the domain only ever reaches the midpoint colour, so its end is
+	// nowhere near as blue as the full domain's.
+	if half.lutAt(1)[2] >= full.lutAt(1)[2] {
+		t.Errorf("half-domain end blue %v not below full-domain end %v",
+			half.lutAt(1)[2], full.lutAt(1)[2])
+	}
+
+	// A malformed /Domain is ignored rather than rejected.
+	if got := mk(numArray(0, 0.5, 1)).domain; got != [2]float64{0, 1} {
+		t.Errorf("three-element domain = %v, want the default [0 1]", got)
+	}
+}
+
+// TestClampExtend pins the /Extend contract at both ends of the domain: a
+// parametric value outside [0,1] paints the end colour only where the
+// corresponding /Extend flag is set.
+func TestClampExtend(t *testing.T) {
+	tests := []struct {
+		name   string
+		extend [2]bool
+		s      float64
+		want   float64
+		wantOK bool
+	}{
+		{"inside", [2]bool{false, false}, 0.4, 0.4, true},
+		{"below, not extended", [2]bool{false, false}, -0.5, 0, false},
+		{"below, extended", [2]bool{true, false}, -0.5, 0, true},
+		{"above, not extended", [2]bool{false, false}, 1.5, 0, false},
+		{"above, extended", [2]bool{false, true}, 1.5, 1, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sh := &shading{extend: tc.extend}
+			got, ok := sh.clampExtend(tc.s)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("clampExtend(%v) = %v, %v; want %v, %v", tc.s, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestColorAtUnsupportedKind: colorAt is the sampling path for types 1-3 only.
+// Mesh types never reach it, and an unset kind must paint nothing rather than
+// index into an absent colour table.
+func TestColorAtUnsupportedKind(t *testing.T) {
+	for _, kind := range []int{0, 4, 9} {
+		sh := &shading{kind: kind}
+		if _, ok := sh.colorAt(1, 1); ok {
+			t.Errorf("colorAt on a type %d shading returned a colour", kind)
+		}
+	}
+}
+
+// TestRenderAxialDegenerateAxis: an axis whose endpoints coincide has no
+// gradient direction. It floods the plane with the start colour when either
+// /Extend is set, and paints nothing at all when neither is.
+func TestRenderAxialDegenerateAxis(t *testing.T) {
+	mk := func(extend pdf.PDFValue) pdf.PDFDict {
+		entries := map[string]pdf.PDFValue{
+			"ShadingType": pdf.PDFInteger(2),
+			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+			"Coords":      numArray(10, 10, 10, 10),
+			"Function":    expFunction([]float64{0, 1, 0}, []float64{0, 0, 1}),
+		}
+		if extend != nil {
+			entries["Extend"] = extend
+		}
+		return pdf.PDFDict{Entries: entries}
+	}
+
+	img, drops := renderShading(t, mk(pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)}))
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 3, 3); got.G < 200 {
+		t.Errorf("extended degenerate axis at (3,3) = %v, want the start green", got)
+	}
+
+	img, drops = renderShading(t, mk(nil))
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	assertUnpainted(t, img, 3, 3, "an unextended degenerate axis")
+}
+
+// TestRenderRadialLinearCase: when the two circles' radius difference matches
+// their centre distance the quadratic degenerates to a linear equation, and
+// the point where even that has no solution paints nothing.
+func TestRenderRadialLinearCase(t *testing.T) {
+	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(3),
+		// dx=10, dy=0, dr=10: a = dx^2+dy^2-dr^2 = 0. x0 sits on the centre of
+		// device column 0 so that column's linear coefficient vanishes too.
+		"Coords":     numArray(0.5, 10, 0, 10.5, 10, 10),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
+		"Function":   expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+		"Extend":     pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
+	}}
+	img, drops := renderShading(t, sh)
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	// Inside the cone the linear root is solvable and paints.
+	assertPainted(t, img, 12, 10, "the degenerate-quadratic radial")
+	// On the x = x0 column the linear coefficient vanishes too, leaving no
+	// solution: those pixels stay white.
+	assertUnpainted(t, img, 0, 3, "the column where the linear term vanishes")
+}
+
+// TestRenderRadialNoIntersection: pixels no circle in the family passes
+// through are left unpainted (a negative discriminant).
+func TestRenderRadialNoIntersection(t *testing.T) {
+	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(3),
+		// Two unit circles 10 apart: the family sweeps a thin tube around y=10.
+		"Coords":     numArray(5, 10, 1, 15, 10, 1),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
+		"Function":   expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+	}}
+	img, drops := renderShading(t, sh)
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	assertPainted(t, img, 10, 10, "the swept tube")
+	assertUnpainted(t, img, 10, 1, "well outside the swept tube")
+}
+
+// TestPaintShadingDegenerateState: a shading painted under a singular CTM, a
+// zero alpha, or an empty clip paints nothing and reports no drop -- there is
+// no content to lose.
+func TestPaintShadingDegenerateState(t *testing.T) {
+	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(2),
+		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+		"Coords":      numArray(0, 0, 20, 0),
+		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+		"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
+	}}
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"singular CTM", "q 0 0 0 0 0 0 cm /Sh1 sh Q"},
+		{"zero alpha", "q /GSNone gs /Sh1 sh Q"},
+		{"empty clip", "q 5 5 0 0 re W n /Sh1 sh Q"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img, drops := renderShadingContent(t, sh, tc.content)
+			if len(drops) != 0 {
+				t.Errorf("drops = %v, want none", drops)
+			}
+			assertUnpainted(t, img, 10, 10, tc.name)
+		})
+	}
+}
+
+// TestShadingOperandDrops: an sh operator whose operand is missing or is not a
+// name has nothing to paint, and the loss is reported.
+func TestShadingOperandDrops(t *testing.T) {
+	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(2),
+		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+		"Coords":      numArray(0, 0, 20, 0),
+		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+	}}
+	for _, content := range []string{"q sh Q", "q 42 sh Q"} {
+		t.Run(content, func(t *testing.T) {
+			_, drops := renderShadingContent(t, sh, content)
+			if !hasDrop(drops, dropShading) {
+				t.Errorf("drops = %v, want %q", drops, dropShading)
+			}
+		})
 	}
 }

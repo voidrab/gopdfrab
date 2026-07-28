@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"image"
 	"testing"
 
@@ -288,5 +289,319 @@ func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
 
 	if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix without a drop sink: %v", err)
+	}
+}
+
+// grayImage builds a minimal DeviceGray image XObject from its samples.
+func grayImage(w, h int, samples []byte) pdf.PDFDict {
+	return pdf.PDFDict{
+		Entries: map[string]pdf.PDFValue{
+			"Type":             pdf.PDFName{Value: "XObject"},
+			"Subtype":          pdf.PDFName{Value: "Image"},
+			"Width":            pdf.PDFInteger(w),
+			"Height":           pdf.PDFInteger(h),
+			"BitsPerComponent": pdf.PDFInteger(8),
+			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+		},
+		HasStream: true,
+		RawStream: samples,
+	}
+}
+
+func TestHasSoftMask(t *testing.T) {
+	tests := []struct {
+		name  string
+		smask pdf.PDFValue
+		want  bool
+	}{
+		{"absent", nil, false},
+		{"the literal /None", pdf.PDFName{Value: "None"}, false},
+		{"another name", pdf.PDFName{Value: "Im1"}, true},
+		{"a stream dict", pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+			if tc.smask != nil {
+				img.Entries["SMask"] = tc.smask
+			}
+			if got := hasSoftMask(img); got != tc.want {
+				t.Errorf("hasSoftMask = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBakeSoftMaskOutRefusals: baking needs both the base image and its mask
+// to decode. When either does not, the image must be handed back untouched --
+// a half-composited rewrite would corrupt it.
+func TestBakeSoftMaskOutRefusals(t *testing.T) {
+	mask := grayImage(2, 2, []byte{0, 128, 128, 255})
+
+	tests := []struct {
+		name string
+		img  pdf.PDFDict
+	}{
+		{"undecodable base", func() pdf.PDFDict {
+			img := grayImage(2, 2, []byte{1, 2, 3, 4})
+			img.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+			img.Entries["SMask"] = mask
+			return img
+		}()},
+		{"SMask is not a stream dict", func() pdf.PDFDict {
+			img := grayImage(2, 2, []byte{1, 2, 3, 4})
+			img.Entries["SMask"] = pdf.PDFName{Value: "Im1"}
+			return img
+		}()},
+		{"undecodable SMask", func() pdf.PDFDict {
+			bad := grayImage(2, 2, []byte{1, 2, 3, 4})
+			bad.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+			img := grayImage(2, 2, []byte{1, 2, 3, 4})
+			img.Entries["SMask"] = bad
+			return img
+		}()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := bakeSoftMaskOut(tc.img, pdf.PDFDict{})
+			if ok {
+				t.Fatal("bakeSoftMaskOut reported success on an undecodable pair")
+			}
+			if _, still := got.Entries["SMask"]; !still && tc.name != "SMask is not a stream dict" {
+				t.Error("a refused bake must leave /SMask in place")
+			}
+		})
+	}
+}
+
+// TestBakeSoftMaskOutFullyOpaque: a mask that is opaque everywhere composites
+// to the base unchanged, so the /SMask is simply dropped and the original
+// encoding kept -- re-encoding it would be a needless quality loss.
+func TestBakeSoftMaskOutFullyOpaque(t *testing.T) {
+	samples := []byte{10, 20, 30, 40}
+	img := grayImage(2, 2, samples)
+	img.Entries["SMask"] = grayImage(2, 2, []byte{255, 255, 255, 255})
+
+	got, ok := bakeSoftMaskOut(img, pdf.PDFDict{})
+	if !ok {
+		t.Fatal("bakeSoftMaskOut on a fully-opaque mask reported no change")
+	}
+	if _, still := got.Entries["SMask"]; still {
+		t.Error("/SMask survived a fully-opaque bake")
+	}
+	if !bytes.Equal(got.RawStream, samples) {
+		t.Errorf("stream was re-encoded: % x, want the original % x", got.RawStream, samples)
+	}
+	if cs, _ := got.Entries["ColorSpace"].(pdf.PDFName); cs.Value != "DeviceGray" {
+		t.Errorf("ColorSpace = %v, want the original DeviceGray", got.Entries["ColorSpace"])
+	}
+}
+
+// TestBakeSoftMaskOutComposites: a partially transparent mask is composited
+// against white and the image is rewritten flat and opaque.
+func TestBakeSoftMaskOutComposites(t *testing.T) {
+	img := grayImage(2, 1, []byte{0, 0}) // two black pixels
+	img.Entries["SMask"] = grayImage(2, 1, []byte{255, 0})
+
+	got, ok := bakeSoftMaskOut(img, pdf.PDFDict{})
+	if !ok {
+		t.Fatal("bakeSoftMaskOut reported no change")
+	}
+	if _, still := got.Entries["SMask"]; still {
+		t.Error("/SMask survived the bake")
+	}
+	if cs, _ := got.Entries["ColorSpace"].(pdf.PDFName); cs.Value != "DeviceRGB" {
+		t.Errorf("ColorSpace = %v, want DeviceRGB", got.Entries["ColorSpace"])
+	}
+
+	baked, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("baked image does not decode: %v", err)
+	}
+	// Alpha 255 keeps the black base; alpha 0 shows the white backdrop.
+	if r := baked.Pix[0]; r > 20 {
+		t.Errorf("opaque pixel = %d, want near black", r)
+	}
+	if r := baked.Pix[4]; r < 235 {
+		t.Errorf("transparent pixel = %d, want the white backdrop", r)
+	}
+}
+
+// TestCollectTargetsWithoutPageTree: both collectors walk from Root/Pages. A
+// trailer missing either returns no targets rather than panicking -- a damaged
+// document still has to get through the fix pass.
+func TestCollectTargetsWithoutPageTree(t *testing.T) {
+	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	noPages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
+	}}
+	for _, tc := range []struct {
+		name    string
+		trailer pdf.PDFDict
+	}{{"no Root", noRoot}, {"no Pages", noPages}} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := collectTransparencyTargets(tc.trailer); got != nil {
+				t.Errorf("collectTransparencyTargets = %v, want nil", got)
+			}
+			if got := orderedPages(tc.trailer); got != nil {
+				t.Errorf("orderedPages = %v, want nil", got)
+			}
+		})
+	}
+}
+
+// TestCollectXObjectTargetsWalk covers the resource-walk arms the corpus does
+// not isolate: a non-dict /XObject entry is skipped, a nested Form without its
+// own /Resources inherits the parent's, and an /XObject dictionary reached
+// twice is visited once.
+func TestCollectXObjectTargetsWalk(t *testing.T) {
+	group := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}}
+
+	// The innermost form carries the group; the form above it has no
+	// /Resources of its own, so the walk must fall back to the parent's.
+	inner := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"Group":   group,
+	}}
+	outer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+	}}
+	xobjects := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Fm0":     outer,
+		"Fm1":     inner,
+		"NotADic": pdf.PDFInteger(7),
+	}}
+	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"XObject": xobjects}}
+
+	var out []flaggedTarget
+	visited := map[uintptr]bool{}
+	collectXObjectTargets(resources, visited, 1, &out)
+	if len(out) != 1 || out[0].name != "Fm1" {
+		t.Fatalf("targets = %+v, want just Fm1", out)
+	}
+
+	// The same resources reached again must not re-flag: visited is what stops
+	// a cyclic or shared XObject dictionary from looping.
+	collectXObjectTargets(resources, visited, 1, &out)
+	if len(out) != 1 {
+		t.Errorf("revisiting the same /XObject dict produced %d targets, want 1", len(out))
+	}
+}
+
+// TestCollectAnnotationTargetsSkipsMalformed: annotation entries that are not
+// dictionaries, or that carry no /AP, are stepped over rather than aborting
+// the walk of the rest of the array.
+func TestCollectAnnotationTargetsSkipsMalformed(t *testing.T) {
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Annots": pdf.PDFArray{
+			pdf.PDFInteger(1), // not a dictionary
+			pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Link"}}}, // no /AP
+		},
+	}}
+	var out []flaggedTarget
+	collectAnnotationTargets(page, map[uintptr]bool{}, 1, &out)
+	if len(out) != 0 {
+		t.Errorf("targets = %+v, want none", out)
+	}
+
+	// A page with no /Annots at all is equally fine.
+	collectAnnotationTargets(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}, map[uintptr]bool{}, 1, &out)
+	if len(out) != 0 {
+		t.Errorf("targets = %+v, want none", out)
+	}
+}
+
+// TestFlattenUnrenderableLeavesObjectUntouched: a Form or Page the rasterizer
+// cannot draw must be left exactly as it was. Reporting "fixed" on an object
+// that was never rewritten would let the verify/fix loop believe it made
+// progress and converge on a document still carrying its /Group.
+func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
+	group := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}}
+
+	// A Form with no /BBox cannot be rendered in isolation.
+	form := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group},
+		HasStream: true,
+		RawStream: []byte("q Q"),
+	}
+	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150); ok {
+		t.Error("flattenFormToImage on a Form with no /BBox reported success")
+	}
+	if form.Entries["Group"] == nil {
+		t.Error("a failed form flatten dropped /Group anyway")
+	}
+
+	// A page whose media box has no area cannot be rendered either.
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":  pdf.PDFName{Value: "Page"},
+		"Group": group,
+	}}
+	if _, ok := flattenPageToImage(page, pdf.PDFDict{}, [4]float64{0, 0, 0, 0}, 150); ok {
+		t.Error("flattenPageToImage on a zero-area media box reported success")
+	}
+	if page.Entries["Group"] == nil {
+		t.Error("a failed page flatten dropped /Group anyway")
+	}
+}
+
+// TestTransparencyFlattenerSkipsUnfixableTargets: Fix reports changed=false
+// when every flagged target failed to flatten, so the fix pass does not record
+// a no-op iteration as progress.
+func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
+	group := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}}
+	// No /BBox, and content the safety check refuses to call transparency-free,
+	// so neither dropping the group nor flattening is available.
+	form := pdf.PDFDict{
+		Entries:   map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group},
+		HasStream: true,
+		RawStream: []byte("/GS0 gs"),
+	}
+	xobjects := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm0": form}}
+	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"MediaBox":  pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"XObject": xobjects}},
+	}}
+	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	}}
+	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}},
+	}}
+
+	changed, err := (transparencyFlattener{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if changed {
+		t.Error("changed = true although no target could be flattened")
+	}
+	if form.Entries["Group"] == nil {
+		t.Error("/Group was dropped from a form that was never flattened")
+	}
+}
+
+// TestUniqueByDictCollapsesAliases: one Form reachable under two resource
+// names is a single object, so it must be flattened once and the result
+// written back to both slots.
+func TestUniqueByDictCollapsesAliases(t *testing.T) {
+	shared := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}}
+	other := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}}
+
+	targets := []flaggedTarget{
+		{kind: "form", dict: shared, name: "Fm0"},
+		{kind: "form", dict: shared, name: "Fm1"},
+		{kind: "form", dict: other, name: "Fm2"},
+	}
+	got := uniqueByDict(targets)
+	if len(got) != 2 {
+		t.Fatalf("uniqueByDict returned %d targets, want 2", len(got))
+	}
+	if got[0].name != "Fm0" || got[1].name != "Fm2" {
+		t.Errorf("uniqueByDict kept %q and %q, want the first of each object", got[0].name, got[1].name)
 	}
 }

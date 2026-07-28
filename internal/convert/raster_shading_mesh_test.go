@@ -323,3 +323,228 @@ func assertPainted(t *testing.T, img *image.RGBA, x, y int, where string) {
 		t.Errorf("%s at (%d,%d) is unpainted white", where, x, y)
 	}
 }
+
+// TestRenderFreeFormMeshFlag2: a flag-2 vertex shares the previous triangle's
+// *first* edge, keeping va and replacing only vb and vc. Getting this confused
+// with flag 1 mirrors the new triangle across the strip, so it is pinned
+// separately.
+func TestRenderFreeFormMeshFlag2(t *testing.T) {
+	var data []byte
+	data = append(data, flagVertex(0, 0, 0, 255, 0, 0)...)
+	data = append(data, flagVertex(0, 255, 0, 255, 0, 0)...)
+	data = append(data, flagVertex(0, 0, 255, 255, 0, 0)...)
+	// Flag 2 keeps va = (0,0) and the third vertex, dropping the second.
+	data = append(data, flagVertex(2, 255, 255, 0, 255, 0)...)
+
+	img, drops := renderShading(t, meshShading(4, data, nil))
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	// The flag-2 triangle spans (0,0), (0,20), (20,20), inheriting two red
+	// vertices; only its own vertex at user (20,20) is green. Had the walker
+	// treated the flag as a 1 the strip would have mirrored and left this
+	// corner unpainted.
+	if got := nrgbaAt(t, img, 15, 2); got.G <= got.R {
+		t.Errorf("flag-2 triangle near its own vertex = %v, want green-dominant", got)
+	}
+}
+
+// TestRenderMeshWithFunction: a mesh whose /Function is present stores one
+// parametric value per vertex instead of full colour components, so /Decode
+// carries a single colour range and the function supplies the colour.
+func TestRenderMeshWithFunction(t *testing.T) {
+	// Each vertex is flag, x, y, t -- four bytes, not six.
+	fnVertex := func(flag, x, y, tv byte) []byte { return []byte{flag, x, y, tv} }
+	var data []byte
+	data = append(data, fnVertex(0, 0, 0, 0)...)
+	data = append(data, fnVertex(0, 255, 0, 0)...)
+	data = append(data, fnVertex(0, 0, 255, 0)...)
+
+	sh := meshShading(4, data, map[string]pdf.PDFValue{
+		"Decode":   numArray(0, 20, 0, 20, 0, 1),
+		"Function": expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+	})
+	img, drops := renderShading(t, sh)
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	// t = 0 everywhere, so the function's C0 (red) covers the triangle.
+	if got := nrgbaAt(t, img, 3, 17); got.R < 200 || got.B > 60 {
+		t.Errorf("function-coloured mesh at (3,17) = %v, want red", got)
+	}
+}
+
+// TestRenderTensorPatch: a type 7 patch carries four interior control points
+// after its boundary. They are read and skipped, so the record must still be
+// consumed at the right width or every following patch would be misaligned.
+func TestRenderTensorPatch(t *testing.T) {
+	boundary := [][2]byte{
+		{0, 0}, {0, 85}, {0, 170},
+		{0, 255}, {85, 255}, {170, 255},
+		{255, 255}, {255, 170}, {255, 85},
+		{255, 0}, {170, 0}, {85, 0},
+	}
+	interior := [][2]byte{{85, 85}, {85, 170}, {170, 170}, {170, 85}}
+
+	data := []byte{0}
+	for _, p := range append(append([][2]byte{}, boundary...), interior...) {
+		data = append(data, p[0], p[1])
+	}
+	for range 4 {
+		data = append(data, 0, 255, 0) // green corners
+	}
+
+	img, drops := renderShading(t, meshShading(7, data, nil))
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 10, 10); got.G < 200 || got.R > 60 {
+		t.Errorf("tensor patch centre = %v, want green", got)
+	}
+}
+
+// TestRenderMeshTruncationPoints walks a stream cut at every record boundary
+// that a reader can stop at. Each must end the walk and report the loss rather
+// than panicking or painting a half-read primitive.
+func TestRenderMeshTruncationPoints(t *testing.T) {
+	// One complete free-form triangle: three flag-prefixed 8-bit vertices.
+	var triangle []byte
+	for range 3 {
+		triangle = append(triangle, flagVertex(0, 128, 128, 255, 0, 0)...)
+	}
+
+	// One complete Coons patch: flag, 12 boundary points, 4 corner colours.
+	var patch []byte
+	patch = append(patch, 0)
+	for range 12 {
+		patch = append(patch, 128, 128)
+	}
+	for range 4 {
+		patch = append(patch, 255, 0, 0)
+	}
+
+	// One complete tensor patch adds the four interior points.
+	tensor := append(append([]byte{}, patch[:25]...), 128, 128, 128, 128, 128, 128, 128, 128)
+	tensor = append(tensor, patch[25:]...)
+
+	tests := []struct {
+		name  string
+		kind  int
+		data  []byte
+		extra map[string]pdf.PDFValue
+	}{
+		{"free-form cut after the flag", 4, triangle[:1], nil},
+		{"free-form cut inside the coordinates", 4, triangle[:2], nil},
+		{"free-form cut inside the colour", 4, triangle[:4], nil},
+		{"free-form cut before the second vertex", 4, triangle[:6], nil},
+		{"free-form cut inside the second vertex", 4, triangle[:7], nil},
+		{"free-form cut inside the third vertex", 4, triangle[:13], nil},
+		{"lattice cut inside a row", 5, []byte{
+			0, 255, 0, 0, 255, 255, 255, 0, 0, 255, // a full two-vertex row
+			0, 0, 0, // then a partial vertex
+		}, map[string]pdf.PDFValue{"VerticesPerRow": pdf.PDFInteger(2)}},
+		{"patch cut inside the boundary points", 6, patch[:6], nil},
+		{"patch cut inside the corner colours", 6, patch[:27], nil},
+		{"tensor cut inside the interior points", 7, tensor[:28], nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, drops := renderShading(t, meshShading(tc.kind, tc.data, tc.extra))
+			if !hasDrop(drops, dropShading) {
+				t.Errorf("drops = %v, want %q", drops, dropShading)
+			}
+		})
+	}
+}
+
+// TestRenderMeshFlagCutShort: a leading flag wider than the bytes left cannot
+// be read at all. It is the one truncation that stops the walk before any
+// vertex data, for both the free-form and the patch walkers.
+func TestRenderMeshFlagCutShort(t *testing.T) {
+	for _, kind := range []int{4, 6} {
+		t.Run(fmt.Sprintf("type%d", kind), func(t *testing.T) {
+			sh := meshShading(kind, []byte{0}, map[string]pdf.PDFValue{
+				"BitsPerFlag": pdf.PDFInteger(16),
+			})
+			_, drops := renderShading(t, sh)
+			if !hasDrop(drops, dropShading) {
+				t.Errorf("drops = %v, want %q", drops, dropShading)
+			}
+		})
+	}
+}
+
+// TestRenderMeshUndecodableStream: a mesh whose stream cannot be decoded is a
+// dropped shading, not a panic on the raw bytes.
+func TestRenderMeshUndecodableStream(t *testing.T) {
+	sh := meshShading(4, []byte("not deflate data"), map[string]pdf.PDFValue{
+		"Filter": pdf.PDFName{Value: "FlateDecode"},
+	})
+	_, drops := renderShading(t, sh)
+	if !hasDrop(drops, dropShading) {
+		t.Errorf("drops = %v, want %q", drops, dropShading)
+	}
+}
+
+// TestPaintMeshDegenerateState: a mesh under a zero alpha or an empty clip has
+// no area to paint, and reports no drop because nothing was lost.
+func TestPaintMeshDegenerateState(t *testing.T) {
+	var data []byte
+	data = append(data, flagVertex(0, 0, 0, 255, 0, 0)...)
+	data = append(data, flagVertex(0, 255, 0, 255, 0, 0)...)
+	data = append(data, flagVertex(0, 0, 255, 255, 0, 0)...)
+
+	for _, content := range []string{"q /GSNone gs /Sh1 sh Q", "q 5 5 0 0 re W n /Sh1 sh Q"} {
+		t.Run(content, func(t *testing.T) {
+			img, drops := renderShadingContent(t, meshShading(4, data, nil), content)
+			if len(drops) != 0 {
+				t.Errorf("drops = %v, want none", drops)
+			}
+			assertUnpainted(t, img, 3, 17, "a mesh with no area to paint")
+		})
+	}
+}
+
+// TestMeshOverflowStopsPainting: once the primitive cap is hit every painter
+// entry point must return immediately, so a hostile mesh cannot keep the
+// rasterizer busy after the budget is spent.
+func TestMeshOverflowStopsPainting(t *testing.T) {
+	newPainter := func() *meshPainter {
+		return &meshPainter{
+			canvas:   image.NewRGBA(image.Rect(0, 0, 20, 20)),
+			toDevice: IdentityMatrix,
+			alpha:    1,
+			overflow: true,
+		}
+	}
+
+	mp := newPainter()
+	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
+	if mp.primitive != 0 {
+		t.Errorf("tri painted %d pieces after overflow, want 0", mp.primitive)
+	}
+
+	mp = newPainter()
+	mp.flat(meshVertex{}, meshVertex{}, meshVertex{}, 0, 0, 1, false)
+	if mp.primitive != 0 {
+		t.Errorf("flat painted %d pieces after overflow, want 0", mp.primitive)
+	}
+
+	// coonsPatch checks the flag per grid cell, so a painter that overflows on
+	// its first cell must abandon the remaining ones.
+	mp = newPainter()
+	mp.overflow = false
+	mp.primitive = meshMaxPrimitives
+	pts := make([]Point, 12)
+	for i := range pts {
+		pts[i] = Point{X: float64(i), Y: float64(i)}
+	}
+	mp.coonsPatch(pts, [4][3]float64{})
+	if !mp.overflow {
+		t.Error("coonsPatch past the cap did not set overflow")
+	}
+	if mp.primitive != meshMaxPrimitives+1 {
+		t.Errorf("coonsPatch painted %d pieces past the cap, want 1",
+			mp.primitive-meshMaxPrimitives)
+	}
+}

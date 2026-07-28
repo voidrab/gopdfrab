@@ -499,7 +499,13 @@ func TestConvertNoResidualIssues(t *testing.T) {
 		t.Skipf("veraPDF reference verifier not available: %v", err)
 	}
 
-	basePath := "tests/regression"
+	// The regression documents are local-only (gitignored), so a clean
+	// checkout -- CI included -- has nothing to walk.
+	basePath := filepath.Join("tests", "regression")
+	if _, err := os.Stat(basePath); err != nil {
+		t.Skipf("no regression corpus present at %s", basePath)
+	}
+
 	var paths []string
 	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
