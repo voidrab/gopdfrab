@@ -146,11 +146,18 @@ func validateColourSpaceUsage(v pdf.PDFDict, ctx *ValidationContext) {
 // validateColourSpaceArray checks a colour-space array for Separation/DeviceN
 // alternate spaces that reduce to an uncovered device space (6.2.3.4).
 func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
-	if len(arr) < 3 {
+	if len(arr) < 2 {
 		return
 	}
 	head, ok := arr[0].(pdf.PDFName)
-	if !ok || (head.Value != "Separation" && head.Value != "DeviceN") {
+	if !ok {
+		return
+	}
+	if head.Value == "ICCBased" {
+		validateICCBasedColourSpace(arr, ctx)
+		return
+	}
+	if len(arr) < 3 || (head.Value != "Separation" && head.Value != "DeviceN") {
 		return
 	}
 	// [/Separation name alternateSpace tintTransform]
@@ -167,4 +174,22 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 		return
 	}
 	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+}
+
+// validateICCBasedColourSpace checks that an [/ICCBased stream] colour space
+// declares the number of components its embedded profile actually has (6.2.3.2).
+// A profile too damaged to read a header from is a stream defect, reported at
+// the decode chokepoint as 6.1.7, not a component-count disagreement.
+func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
+	stream, ok := arr[1].(pdf.PDFDict)
+	if !ok || !stream.HasStream {
+		return
+	}
+	data, err := ctx.decodeStreamCached(stream)
+	if err != nil || len(data) < 128 {
+		return
+	}
+	if msg := ICCComponentsMismatch(stream, data); msg != "" {
+		ctx.Report(pdf.Checks.Colour.ICCBasedComponentsMismatch, arr, msg)
+	}
 }

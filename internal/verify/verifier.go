@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -1608,31 +1609,47 @@ func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 		return &newErr
 	}
 
-	nObj := dict.Entries.Get("N")
-	if nObj == nil {
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile stream missing required /N entry")}, 0, nil)
-		return &newErr
-	}
-
-	n, ok := nObj.(pdf.PDFInteger)
-	if !ok {
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile stream /N must be an integer")}, 0, nil)
-		return &newErr
-	}
-
-	switch {
-	case n == 1 && colorSpace == "GRAY":
-		// OK
-	case n == 3 && (colorSpace == "RGB " || colorSpace == "Lab "):
-		// OK
-	case n == 4 && colorSpace == "CMYK":
-		// OK
-	default:
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile /N=%d does not match profile colorSpace %q", n, colorSpace)}, 0, nil)
+	if msg := ICCComponentsMismatch(dict, data); msg != "" {
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{errors.New(msg)}, 0, nil)
 		return &newErr
 	}
 
 	return nil
+}
+
+// ICCColourSpaceComponents returns how many components the colour space named
+// by an ICC profile's header signature has; ok is false for anything PDF/A-1
+// does not permit as a profile colour space.
+func ICCColourSpaceComponents(colorSpace string) (n int, ok bool) {
+	switch colorSpace {
+	case "GRAY":
+		return 1, true
+	case "RGB ", "Lab ":
+		return 3, true
+	case "CMYK":
+		return 4, true
+	}
+	return 0, false
+}
+
+// ICCComponentsMismatch compares an ICC profile stream's /N against the number
+// of components its embedded profile actually has (6.2.2 for an output profile,
+// 6.2.3.2 for an ICCBased colour space). data is the decoded profile, which
+// must already be long enough to hold a header. It returns "" when they agree.
+func ICCComponentsMismatch(dict pdf.PDFDict, data []byte) string {
+	nObj := dict.Entries.Get("N")
+	if nObj == nil {
+		return "ICC profile stream missing required /N entry"
+	}
+	n, ok := nObj.(pdf.PDFInteger)
+	if !ok {
+		return "ICC profile stream /N must be an integer"
+	}
+	colorSpace := string(data[16:20])
+	if want, ok := ICCColourSpaceComponents(colorSpace); ok && int(n) == want {
+		return ""
+	}
+	return fmt.Sprintf("ICC profile /N=%d does not match profile colorSpace %q", n, colorSpace)
 }
 
 // trailerIDRe finds the first hex string in any /ID array in the file.

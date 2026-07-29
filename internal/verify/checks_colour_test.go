@@ -239,3 +239,107 @@ func TestComputeColourCoverageNoOutputIntent(t *testing.T) {
 		t.Error("expected hasOutputIntent = false with no OutputIntents entry")
 	}
 }
+
+// iccBasedSpace builds an [/ICCBased stream] colour space whose profile
+// declares the given colour space signature and whose dict declares n
+// components; n < 0 omits /N entirely.
+func iccBasedSpace(colorSpace string, n int) pdf.PDFArray {
+	profile := buildValidICCProfile()
+	copy(profile[16:20], colorSpace)
+
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = profile
+	if n >= 0 {
+		stream.Entries.Set("N", pdf.PDFInteger(n))
+	}
+	return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
+}
+
+// TestValidateICCBasedColourSpace covers 6.2.3.2: an ICCBased colour space
+// must declare the number of components its embedded profile actually has.
+func TestValidateICCBasedColourSpace(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		colorSpace string
+		n          int
+		want       bool
+	}{
+		{"gray with N 1", "GRAY", 1, false},
+		{"rgb with N 3", "RGB ", 3, false},
+		{"lab with N 3", "Lab ", 3, false},
+		{"cmyk with N 4", "CMYK", 4, false},
+		{"rgb with N 4", "RGB ", 4, true},
+		{"cmyk with N 1", "CMYK", 1, true},
+		{"N out of range", "RGB ", 5, true},
+		{"no N at all", "RGB ", -1, true},
+		{"colour space PDF/A does not permit", "5CLR", 5, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			validateColourSpaceArray(iccBasedSpace(tc.colorSpace, tc.n), ctx)
+			got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch)
+			if got != tc.want {
+				t.Errorf("ICCBasedComponentsMismatch reported = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateICCBasedColourSpaceSkipsUnreadable covers the cases the check
+// stays silent on: a profile too damaged or too short to read a header from is
+// a stream defect (6.1.7), and a non-integer /N is an object-model finding.
+func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
+	short := pdf.NewPDFDict()
+	short.HasStream = true
+	short.RawStream = make([]byte, 10)
+	short.Entries.Set("N", pdf.PDFInteger(3))
+
+	undecodable := pdf.NewPDFDict()
+	undecodable.HasStream = true
+	undecodable.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	undecodable.RawStream = []byte("not a zlib stream")
+
+	notAStream := pdf.NewPDFDict()
+
+	for _, tc := range []struct {
+		name string
+		arr  pdf.PDFArray
+	}{
+		{"profile too short", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, short}},
+		{"profile will not decode", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, undecodable}},
+		{"not a stream", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, notAStream}},
+		{"no profile at all", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			validateColourSpaceArray(tc.arr, ctx)
+			if hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch) {
+				t.Error("unexpected ICCBasedComponentsMismatch")
+			}
+		})
+	}
+
+	nonInteger := pdf.NewPDFDict()
+	nonInteger.HasStream = true
+	nonInteger.RawStream = buildValidICCProfile()
+	nonInteger.Entries.Set("N", pdf.PDFReal(3))
+	ctx := &ValidationContext{}
+	validateColourSpaceArray(pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, nonInteger}, ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch) {
+		t.Error("expected ICCBasedComponentsMismatch for a non-integer /N")
+	}
+}
+
+// TestICCColourSpaceComponents covers the signature-to-component-count table
+// the output-intent and ICCBased paths share.
+func TestICCColourSpaceComponents(t *testing.T) {
+	for sig, want := range map[string]int{"GRAY": 1, "RGB ": 3, "Lab ": 3, "CMYK": 4} {
+		if got, ok := ICCColourSpaceComponents(sig); !ok || got != want {
+			t.Errorf("ICCColourSpaceComponents(%q) = %d, %v, want %d, true", sig, got, ok, want)
+		}
+	}
+	if _, ok := ICCColourSpaceComponents("5CLR"); ok {
+		t.Error("ICCColourSpaceComponents(5CLR) = ok, want false")
+	}
+}
