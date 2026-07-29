@@ -3,7 +3,6 @@ package convert
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"os"
 	"sort"
 	"testing"
@@ -767,9 +766,9 @@ func TestConvertClearsOpenTypeFontFile(t *testing.T) {
 	b.Obj(5, "<< /Type /FontDescriptor /FontName /Font /Flags 4 /ItalicAngle 0 "+
 		"/Ascent 700 /Descent -200 /CapHeight 700 /StemV 80 /FontBBox [0 0 100 100] "+
 		"/FontFile3 6 0 R >>")
-	b.StreamObj(6, fmt.Sprintf("<< /Subtype /OpenType /Length %d >>", len(otf)), otf)
+	b.StreamObj(6, "<< /Subtype /OpenType", otf)
 	content := []byte("BT /F1 12 Tf 10 100 Td (A) Tj ET")
-	b.StreamObj(7, fmt.Sprintf("<< /Length %d >>", len(content)), content)
+	b.StreamObj(7, "<<", content)
 	data := b.FinishClassic("<< /Size 8 /Root 1 0 R >>")
 
 	res, err := verify.VerifyBytes(data, pdf.PDFA1B, nil)

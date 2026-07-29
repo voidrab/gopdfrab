@@ -1,7 +1,10 @@
 package convert
 
 import (
+	"encoding/binary"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
@@ -21,6 +24,7 @@ import (
 func init() {
 	registerFixer(fontDictFixer{})
 	registerFixer(type0FontFixer{})
+	registerFixer(baseFontFixer{})
 }
 
 // fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by adding the
@@ -119,4 +123,147 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict),
 			*changed = true
 		}
 	}, true
+}
+
+// baseFontFixer remediates Checks.Font.FontBaseFont by giving a font
+// dictionary the BaseFont name it lacks, mirroring the detection in
+// ValidateFontDict (checks_font.go).
+//
+// The name is only ever read back out of the file, never invented from
+// nothing when the file already says it somewhere: the descriptor's FontName
+// and the embedded program's own name both record what this font is called,
+// and either is preferable to a placeholder.
+type baseFontFixer struct{}
+
+func (baseFontFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Font.FontBaseFont
+}
+
+func (f baseFontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+func (baseFontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+	return func(d pdf.PDFDict) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
+			return
+		}
+		subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+		if subtype.Value == "Type3" {
+			return
+		}
+		if name, ok := d.Entries.Get("BaseFont").(pdf.PDFName); ok && name.Value != "" {
+			return
+		}
+		d.Entries.Set("BaseFont", pdf.PDFName{Value: recoverBaseFontName(d)})
+		*changed = true
+	}, true
+}
+
+// fallbackBaseFontName is what a font is called when neither the file nor the
+// program it embeds says.
+const fallbackBaseFontName = "Unknown"
+
+// recoverBaseFontName digs a PostScript name out of the font, falling back to
+// a fixed placeholder so the repair always converges.
+func recoverBaseFontName(d pdf.PDFDict) string {
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if !ok || desc.Entries == nil {
+		return fallbackBaseFontName
+	}
+	if name, ok := desc.Entries.Get("FontName").(pdf.PDFName); ok {
+		if clean := sanitizeBaseFontName(name.Value); clean != "" {
+			return clean
+		}
+	}
+	for _, key := range []string{"FontFile3", "FontFile2", "FontFile"} {
+		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
+		if !ok || !ff.HasStream {
+			continue
+		}
+		data, err := pdf.DecodeStream(ff)
+		if err != nil {
+			continue
+		}
+		if clean := sanitizeBaseFontName(fontProgramName(key, data)); clean != "" {
+			return clean
+		}
+	}
+	return fallbackBaseFontName
+}
+
+// type1FontNameRe finds the /FontName of a Type 1 program's clear-text header.
+var type1FontNameRe = regexp.MustCompile(`/FontName\s*/([^\s/\[\]<>(){}%]+)`)
+
+// fontProgramName returns the name an embedded font program gives itself, or
+// "" if it does not give one.
+func fontProgramName(key string, data []byte) string {
+	switch key {
+	case "FontFile":
+		if m := type1FontNameRe.FindSubmatch(data); m != nil {
+			return string(m[1])
+		}
+	case "FontFile2":
+		if tables, ok := verify.ParseSfnt(data); ok {
+			return sfntPostScriptName(tables["name"])
+		}
+	case "FontFile3":
+		if cff := extractCFFBytes(data); cff != nil {
+			if names, _ := verify.ParseCFFIndex(cff, int(cff[2])); len(names) > 0 {
+				return string(names[0])
+			}
+		}
+		if tables, ok := verify.ParseSfnt(data); ok {
+			return sfntPostScriptName(tables["name"])
+		}
+	}
+	return ""
+}
+
+// sfntPostScriptName reads name ID 6 (the PostScript name) out of an sfnt name
+// table, decoding the UTF-16BE the Windows platform uses.
+func sfntPostScriptName(nameTable []byte) string {
+	if len(nameTable) < 6 {
+		return ""
+	}
+	count := int(binary.BigEndian.Uint16(nameTable[2:4]))
+	storage := int(binary.BigEndian.Uint16(nameTable[4:6]))
+	for i := range count {
+		rec := 6 + i*12
+		if rec+12 > len(nameTable) {
+			break
+		}
+		if binary.BigEndian.Uint16(nameTable[rec+6:rec+8]) != 6 {
+			continue
+		}
+		platform := binary.BigEndian.Uint16(nameTable[rec : rec+2])
+		length := int(binary.BigEndian.Uint16(nameTable[rec+8 : rec+10]))
+		off := storage + int(binary.BigEndian.Uint16(nameTable[rec+10:rec+12]))
+		if off < 0 || length < 0 || off+length > len(nameTable) {
+			continue
+		}
+		raw := nameTable[off : off+length]
+		if platform == 0 || platform == 3 {
+			// UTF-16BE, and a PostScript name is ASCII, so the high bytes go.
+			var b []byte
+			for j := 1; j < len(raw); j += 2 {
+				b = append(b, raw[j])
+			}
+			return string(b)
+		}
+		return string(raw)
+	}
+	return ""
+}
+
+// sanitizeBaseFontName drops the bytes a PDF name cannot hold, so a name
+// recovered from a font program is always writable as-is.
+func sanitizeBaseFontName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r > 32 && r < 127 && !strings.ContainsRune("/[]<>(){}%#", r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
