@@ -799,3 +799,177 @@ func TestCheckInfoXMPSyncAuthorEquivalence(t *testing.T) {
 		})
 	}
 }
+
+// extValueTypeXMP builds an extension schema declaring one property of the
+// given value type, plus the XMP body that actually uses it, so a single
+// fixture can drive every declared-versus-actual combination.
+func extValueTypeXMP(valueType, usage string) string {
+	return `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"
+  xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"
+  xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#"
+  xmlns:custom="http://example.com/valuetypes/">
+<rdf:Description rdf:about="">
+  <pdfaExtension:schemas>
+    <rdf:Bag>
+      <rdf:li rdf:parseType="Resource">
+        <pdfaSchema:schema>Value Types</pdfaSchema:schema>
+        <pdfaSchema:namespaceURI>http://example.com/valuetypes/</pdfaSchema:namespaceURI>
+        <pdfaSchema:prefix>custom</pdfaSchema:prefix>
+        <pdfaSchema:property>
+          <rdf:Seq>
+            <rdf:li rdf:parseType="Resource">
+              <pdfaProperty:name>myProp</pdfaProperty:name>
+              <pdfaProperty:valueType>` + valueType + `</pdfaProperty:valueType>
+              <pdfaProperty:category>external</pdfaProperty:category>
+              <pdfaProperty:description>a property</pdfaProperty:description>
+            </rdf:li>
+          </rdf:Seq>
+        </pdfaSchema:property>
+      </rdf:li>
+    </rdf:Bag>
+  </pdfaExtension:schemas>
+  ` + usage + `
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+}
+
+// hasXMPCheck reports whether errs contains a violation of c.
+func hasXMPCheck(errs []pdf.PDFError, c pdf.Check) bool {
+	for _, e := range errs {
+		if e.Check() == c {
+			return true
+		}
+	}
+	return false
+}
+
+// TestXMPNoCorrespondingType covers 6.7.9: a property declared in an extension
+// schema must be used with a value matching the type it declares.
+func TestXMPNoCorrespondingType(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		valueType string
+		usage     string
+		want      bool
+	}{
+		{"integer holds text", "Integer", `<custom:myProp>not a number</custom:myProp>`, true},
+		{"integer holds an integer", "Integer", `<custom:myProp>42</custom:myProp>`, false},
+		{"real holds text", "Real", `<custom:myProp>1.2.3</custom:myProp>`, true},
+		{"real holds a real", "Real", `<custom:myProp>-1.5</custom:myProp>`, false},
+		{"real holds a hex float", "Real", `<custom:myProp>0x1p2</custom:myProp>`, true},
+		{"boolean holds a lowercase word", "Boolean", `<custom:myProp>true</custom:myProp>`, true},
+		{"boolean holds a boolean", "Boolean", `<custom:myProp>True</custom:myProp>`, false},
+		{"date holds junk", "Date", `<custom:myProp>last tuesday</custom:myProp>`, true},
+		{"date holds a date", "Date", `<custom:myProp>2026-07-29</custom:myProp>`, false},
+		{"text holds text", "Text", `<custom:myProp>anything at all</custom:myProp>`, false},
+		{"empty value is not judged", "Integer", `<custom:myProp></custom:myProp>`, false},
+
+		{"bag serialized as a scalar", "Bag",
+			`<custom:myProp>plain</custom:myProp>`, true},
+		{"bag serialized as a bag", "Bag",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, false},
+		{"seq serialized as a bag", "Seq",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, true},
+		{"qualified bag declaration", "Bag Text",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, false},
+
+		{"langalt entry without xml:lang", "LangAlt",
+			`<custom:myProp><rdf:Alt><rdf:li>hello</rdf:li></rdf:Alt></custom:myProp>`, true},
+		{"langalt entry with xml:lang", "LangAlt",
+			`<custom:myProp><rdf:Alt><rdf:li xml:lang="x-default">hello</rdf:li></rdf:Alt></custom:myProp>`, false},
+		{"plain alt needs no xml:lang", "Alt",
+			`<custom:myProp><rdf:Alt><rdf:li>hello</rdf:li></rdf:Alt></custom:myProp>`, false},
+
+		{"struct type used as a scalar", "ResourceRef",
+			`<custom:myProp>plain</custom:myProp>`, true},
+		{"struct type used as a struct", "ResourceRef",
+			`<custom:myProp rdf:parseType="Resource"><custom:inner>x</custom:inner></custom:myProp>`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := checkExtensionSchemas(extValueTypeXMP(tc.valueType, tc.usage))
+			got := hasXMPCheck(errs, pdf.Checks.Metadata.XMPNoCorrespondingType)
+			if got != tc.want {
+				t.Errorf("XMPNoCorrespondingType reported = %v, want %v (errs: %v)", got, tc.want, errs)
+			}
+		})
+	}
+}
+
+// TestXMPNoCorrespondingTypeAttributeStyle covers the other serialization: a
+// property written as an rdf:Description attribute is always a plain scalar.
+func TestXMPNoCorrespondingTypeAttributeStyle(t *testing.T) {
+	xmp := strings.Replace(extValueTypeXMP("Integer", ""),
+		`<rdf:Description rdf:about="">`,
+		`<rdf:Description rdf:about="" custom:myProp="not a number">`, 1)
+	if !hasXMPCheck(checkExtensionSchemas(xmp), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("expected XMPNoCorrespondingType for an attribute-style property holding the wrong type")
+	}
+
+	ok := strings.Replace(extValueTypeXMP("Integer", ""),
+		`<rdf:Description rdf:about="">`,
+		`<rdf:Description rdf:about="" custom:myProp="42">`, 1)
+	if hasXMPCheck(checkExtensionSchemas(ok), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("an attribute-style integer property was reported despite holding an integer")
+	}
+}
+
+// TestXMPNoCorrespondingTypeLeavesCustomTypes covers the division of labour: a
+// property declared with a custom (non-builtin) type stays a 6.7.8 report,
+// never a 6.7.9 one, so the two checks do not both fire on the same defect.
+func TestXMPNoCorrespondingTypeLeavesCustomTypes(t *testing.T) {
+	errs := checkExtensionSchemas(extValueTypeXMP("MyCustomType", `<custom:myProp>plain</custom:myProp>`))
+	if hasXMPCheck(errs, pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("a custom-typed property was reported under 6.7.9, want 6.7.8 only")
+	}
+	if !hasXMPCheck(errs, pdf.Checks.Metadata.ExtPropertyComplexAsSimple) {
+		t.Errorf("expected ExtPropertyComplexAsSimple for a custom type used as a simple value, got %v", errs)
+	}
+}
+
+// TestXMPNoCorrespondingTypeIgnoresPredefinedSchemas covers the other half of
+// that division: dc: and friends are checked against XMP 2004 under 6.7.2, and
+// this check must not also claim them.
+func TestXMPNoCorrespondingTypeIgnoresPredefinedSchemas(t *testing.T) {
+	errs := checkExtPropertyValueTypes([]byte(extensionSchemaXMP), []extSchema{{
+		namespaceURI: "http://purl.org/dc/elements/1.1/",
+		properties:   []extProperty{{name: "title", valueType: "Integer"}},
+	}})
+	if len(errs) != 0 {
+		t.Errorf("errs = %v, want none: the fixture uses no dc: properties", errs)
+	}
+}
+
+// TestExtDeclaredType covers the qualified-declaration reduction on its own.
+func TestExtDeclaredType(t *testing.T) {
+	for in, want := range map[string]string{
+		"Bag":       "Bag",
+		"Bag Text":  "Bag",
+		"Seq\tText": "Seq",
+		"":          "",
+		" Text":     " Text",
+	} {
+		if got := extDeclaredType(in); got != want {
+			t.Errorf("extDeclaredType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestCheckExtPropertyValueTypesNoDeclarations covers the early exit: nothing
+// to compare against means no parse and no findings.
+func TestCheckExtPropertyValueTypesNoDeclarations(t *testing.T) {
+	for _, schemas := range [][]extSchema{
+		nil,
+		{{namespaceURI: ""}},
+		{{namespaceURI: "http://example.com/x/", properties: []extProperty{{name: ""}}}},
+		{{namespaceURI: "http://example.com/x/", properties: []extProperty{{name: "p", valueType: "Custom"}}}},
+	} {
+		if errs := checkExtPropertyValueTypes([]byte(extensionSchemaXMP), schemas); len(errs) != 0 {
+			t.Errorf("schemas %+v: errs = %v, want none", schemas, errs)
+		}
+	}
+}
