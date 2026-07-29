@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -409,9 +410,9 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	case pdf.PDFName:
 		applyBase(e.Value)
 	case pdf.PDFDict:
-		base, _ := e.Entries["BaseEncoding"].(pdf.PDFName)
+		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
 		applyBase(base.Value)
-		if diffs, ok := e.Entries["Differences"].(pdf.PDFArray); ok {
+		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
 			code := 0
 			for _, item := range diffs {
 				switch d := item.(type) {
@@ -441,7 +442,7 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
-	charSetVal, ok := desc.Entries["CharSet"]
+	charSetVal, ok := desc.Entries.Lookup("CharSet")
 	if !ok {
 		return // CharSet absence is caught by a separate check
 	}
@@ -541,10 +542,9 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 }
 
-// namedEncodingTable resolves one of the base encodings this package models
-// by name to its code->glyph-name table. MacRomanEncoding is deliberately
-// absent: encodings_symbol.go carries it only as a code->Unicode map, not as
-// glyph names, so there is nothing to compare charstring names against.
+// namedEncodingTable resolves a modelled base encoding to its code->glyph-name
+// table. MacRomanEncoding is absent: encodings_symbol.go carries it only as a
+// code->Unicode map, so there are no glyph names to compare against.
 func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 	switch name {
 	case "StandardEncoding":
@@ -558,7 +558,7 @@ func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 // applyDifferences overlays an /Encoding dictionary's /Differences array onto
 // a base table (ISO 32000-1 9.6.6.1).
 func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
-	diffs, ok := enc.Entries["Differences"].(pdf.PDFArray)
+	diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray)
 	if !ok {
 		return
 	}
@@ -580,14 +580,14 @@ func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
 // font's /Encoding (a modelled base encoding plus optional Differences). ok is
 // false for encodings this package doesn't model by name.
 func SimpleFontGlyphNameTable(v pdf.PDFDict) (glyphNames [256]string, ok bool) {
-	switch enc := v.Entries["Encoding"].(type) {
+	switch enc := v.Entries.Get("Encoding").(type) {
 	case pdf.PDFName:
 		return namedEncodingTable(enc.Value)
 	case pdf.PDFDict:
 		// Custom encoding: start from BaseEncoding, then apply Differences.
 		// An absent or unmodelled BaseEncoding leaves the base empty rather
 		// than failing, since Differences alone may name every code used.
-		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
+		base, _ := enc.Entries.Get("BaseEncoding").(pdf.PDFName)
 		glyphNames, _ = namedEncodingTable(base.Value)
 		applyDifferences(&glyphNames, enc)
 	default:
@@ -675,13 +675,13 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 // embedded Type1 (FontFile) or Type1C (FontFile3) program, or nil when no
 // program is present or it cannot be parsed.
 func embeddedType1GlyphNames(desc pdf.PDFDict, ctx *ValidationContext) []string {
-	if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 		if data, err := ctx.decodeStreamCached(ff); err == nil {
 			return ctx.type1ProgramFor(data).names
 		}
 		return nil
 	}
-	if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		if data, err := ctx.decodeStreamCached(ff); err == nil {
 			return CFFGlyphNames(data)
 		}
@@ -1217,7 +1217,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 // every CID that has a glyph in the embedded CID-keyed CFF program (6.3.5/3).
 // Each byte covers 8 CIDs, MSB first: bit j of byte i is CID i*8+j.
 func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
-	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
 		return
 	}
@@ -1267,7 +1267,7 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 // check does not run at all rather than falling back to the glyph table, on the
 // item-1 rule that an incomplete usage set must not drive a report.
 func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
-	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
 		return
 	}
@@ -1345,7 +1345,7 @@ func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids
 // cidDefaultWidth returns the CIDFont's DW entry, defaulting to 1000.
 func cidDefaultWidth(obj pdf.PDFValue) int {
 	if d, ok := obj.(pdf.PDFDict); ok {
-		switch dw := d.Entries["DW"].(type) {
+		switch dw := d.Entries.Get("DW").(type) {
 		case pdf.PDFInteger:
 			return int(dw)
 		case pdf.PDFReal:
@@ -1468,7 +1468,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	// Build encoding-aware code→unicode table from the font's /Encoding.
 	var enc pdf.PDFValue
 	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries["Encoding"]
+		enc = fontDict.Entries.Get("Encoding")
 	}
 	codeToUnicode := SimpleFontCodeToUnicode(enc)
 
@@ -1481,8 +1481,8 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	numGlyphs := TTNumGlyphs(tables)
 	symbolic := false
 	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		if desc, ok3 := fontDict.Entries["FontDescriptor"].(pdf.PDFDict); ok3 {
-			if f, ok4 := desc.Entries["Flags"].(pdf.PDFInteger); ok4 {
+		if desc, ok3 := fontDict.Entries.Get("FontDescriptor").(pdf.PDFDict); ok3 {
+			if f, ok4 := desc.Entries.Get("Flags").(pdf.PDFInteger); ok4 {
 				symbolic = f&4 != 0
 			}
 		}
@@ -1582,7 +1582,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 
 	var enc pdf.PDFValue
 	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries["Encoding"]
+		enc = fontDict.Entries.Get("Encoding")
 	}
 	codeToUnicode := SimpleFontCodeToUnicode(enc)
 
@@ -1697,7 +1697,7 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 // validateFontProgram flags a damaged embedded font program (6.3.2).
 func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *ValidationContext) {
 	for _, key := range []string{"FontFile", "FontFile2", "FontFile3"} {
-		ff, ok := desc.Entries[key].(pdf.PDFDict)
+		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
 		if !ok {
 			continue
 		}
@@ -1710,7 +1710,7 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 // trueTypeCmapSubtables returns the number of cmap subtables in an embedded
 // TrueType font, and whether it could be determined.
 func trueTypeCmapSubtables(ctx *ValidationContext, desc pdf.PDFDict) (int, bool) {
-	ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {
 		return 0, false
 	}
@@ -1923,6 +1923,31 @@ func Type1GlyphNames(fontData []byte) []string {
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
 var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
+// type1FontMatrixRe captures a Type1 /FontMatrix's first (x-scale) element.
+var type1FontMatrixRe = regexp.MustCompile(`/FontMatrix\s*\[\s*([0-9.eE+-]+)`)
+
+// type1HasNonDefaultFontMatrix reports whether the program declares a
+// /FontMatrix whose scale is not the default 1/1000. Charstring widths are in
+// glyph space, /Widths in 1000-unit text space, so the two are not comparable
+// when they differ -- the same reason CFFAdvanceWidthsStats skips on
+// HasFontMatrix.
+func type1HasNonDefaultFontMatrix(fontData []byte) bool {
+	eexecIdx := bytes.Index(fontData, []byte("eexec"))
+	textPart := fontData
+	if eexecIdx > 0 {
+		textPart = fontData[:eexecIdx]
+	}
+	m := type1FontMatrixRe.FindSubmatch(textPart)
+	if m == nil {
+		return false
+	}
+	scale, err := strconv.ParseFloat(string(m[1]), 64)
+	if err != nil {
+		return true
+	}
+	return math.Abs(scale-0.001) > 1e-9
+}
+
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
 func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, encoding pdf.PDFValue, ctx *ValidationContext) {
@@ -1971,20 +1996,14 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 }
 
 // Type1GlyphNameTable resolves the code->glyph-name table for a Type1
-// (FontFile) program, composing the PDF font dict's /Encoding entry over the
-// program's own built-in encoding per ISO 32000-1 9.6.6.1/9.6.6.2:
+// (FontFile) program, composing the font dict's /Encoding over the program's
+// built-in encoding per ISO 32000-1 9.6.6.1/9.6.6.2: a name selects that base,
+// a dictionary takes its /BaseEncoding when modelled and the built-in
+// otherwise, with /Differences overlaid. ok is false when no base resolved.
 //
-//   - /Encoding is a name: that base encoding.
-//   - /Encoding is a dictionary: its /BaseEncoding if modelled, else the
-//     program's built-in encoding, with /Differences overlaid on top.
-//   - /Encoding is absent: the program's built-in encoding.
-//
-// ok is false only when no base could be established at all.
-//
-// The dictionary arm is what the FontFile path used to lack. Taking only a
-// PDFName meant an /Encoding dictionary read as absent, so a font carrying
-// /Differences was measured against the program's built-in encoding and the
-// remapping was silently ignored -- comparing /Widths to the wrong glyph.
+// The dictionary arm is what this path used to lack: taking only a PDFName
+// meant an /Encoding dictionary read as absent, so /Differences were ignored
+// and /Widths were compared against the wrong glyph.
 func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [256]string, ok bool) {
 	builtin := func() ([256]string, bool) { return Type1EncodingTable(fontData, "") }
 
@@ -1992,7 +2011,7 @@ func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [25
 	case pdf.PDFName:
 		return Type1EncodingTable(fontData, enc.Value)
 	case pdf.PDFDict:
-		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
+		base, _ := enc.Entries.Get("BaseEncoding").(pdf.PDFName)
 		if base.Value != "" {
 			glyphNames, ok = namedEncodingTable(base.Value)
 		} else {
@@ -2003,7 +2022,7 @@ func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [25
 		// that case only if the base was required and missing.
 		applyDifferences(&glyphNames, enc)
 		if !ok {
-			_, hasDiffs := enc.Entries["Differences"].(pdf.PDFArray)
+			_, hasDiffs := enc.Entries.Get("Differences").(pdf.PDFArray)
 			ok = hasDiffs
 		}
 		return glyphNames, ok
@@ -2021,6 +2040,9 @@ func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]i
 	enc, ok := Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return enc, WidthStats{Skip: WidthSkipEncoding}
+	}
+	if type1HasNonDefaultFontMatrix(fontData) {
+		return enc, WidthStats{Skip: WidthSkipFontMatrix}
 	}
 	if len(widths) == 0 {
 		return enc, WidthStats{Skip: WidthSkipNoWidths}
@@ -2083,7 +2105,7 @@ func validateCMapWMode(obj pdf.PDFValue, cmap pdf.PDFDict, ctx *ValidationContex
 	if !cmap.HasStream {
 		return
 	}
-	dictWMode, ok := cmap.Entries["WMode"].(pdf.PDFInteger)
+	dictWMode, ok := cmap.Entries.Get("WMode").(pdf.PDFInteger)
 	if !ok {
 		return
 	}
