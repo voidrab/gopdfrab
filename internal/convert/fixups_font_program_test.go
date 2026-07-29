@@ -3,10 +3,13 @@ package convert
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -469,4 +472,331 @@ func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
 
 	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
+}
+
+func TestFontFileSubtypeFixerAppliesOnlyToFontFileSubtype(t *testing.T) {
+	fixer := fontFileSubtypeFixer{}
+	for _, c := range pdf.AllChecks() {
+		want := c == pdf.Checks.Font.FontFileSubtype
+		if got := fixer.Applies(c); got != want {
+			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
+		}
+	}
+}
+
+// buildMinimalCFF assembles a tiny name-keyed CFF font with two glyphs
+// (.notdef and "A"), a format-0 charset, and an empty Private DICT. Ported
+// from verify.buildMinimalCFF, which is test-only and so not importable.
+func buildMinimalCFF() []byte {
+	i32 := func(v int) []byte {
+		var b [5]byte
+		b[0] = 29
+		binary.BigEndian.PutUint32(b[1:], uint32(v))
+		return b[:]
+	}
+	const (
+		charsetOff     = 45
+		charStringsOff = 48
+		privateOff     = 56
+	)
+
+	var cff []byte
+	// Header: major=1 minor=0 hdrSize=4 offSize=1.
+	cff = append(cff, 0x01, 0x00, 0x04, 0x01)
+	// Name INDEX: 1 entry "Font".
+	cff = append(cff, 0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't')
+	// Top DICT INDEX: 1 entry.
+	var top []byte
+	top = append(top, i32(charStringsOff)...)
+	top = append(top, 17) // CharStrings
+	top = append(top, i32(charsetOff)...)
+	top = append(top, 15)                 // charset
+	top = append(top, i32(4)...)          // Private size
+	top = append(top, i32(privateOff)...) // Private offset
+	top = append(top, 18)                 // Private
+	cff = append(cff, 0x00, 0x01, 0x01, 0x01, byte(len(top)+1))
+	cff = append(cff, top...)
+	// String INDEX and Global Subr INDEX: both empty.
+	cff = append(cff, 0x00, 0x00, 0x00, 0x00)
+	// charset: format 0, one SID (34 = "A") for glyph 1.
+	cff = append(cff, 0x00, 0x00, 0x22)
+	// CharStrings INDEX: two glyphs, each a lone endchar.
+	cff = append(cff, 0x00, 0x02, 0x01, 0x01, 0x02, 0x03, 0x0e, 0x0e)
+	// Private DICT: defaultWidthX 0, nominalWidthX 0.
+	cff = append(cff, 0x8b, 20, 0x8b, 21)
+	return cff
+}
+
+// wrapInSfnt packs tables into an sfnt container with the given version tag,
+// so tests can build the OpenType wrappers the fixer has to unwrap.
+func wrapInSfnt(tag uint32, tables map[string][]byte) []byte {
+	names := make([]string, 0, len(tables))
+	for name := range tables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	head := make([]byte, 12+16*len(names))
+	binary.BigEndian.PutUint32(head[0:4], tag)
+	binary.BigEndian.PutUint16(head[4:6], uint16(len(names)))
+	body := []byte{}
+	off := len(head)
+	for i, name := range names {
+		rec := head[12+16*i:]
+		copy(rec[:4], name)
+		binary.BigEndian.PutUint32(rec[8:12], uint32(off+len(body)))
+		binary.BigEndian.PutUint32(rec[12:16], uint32(len(tables[name])))
+		body = append(body, tables[name]...)
+	}
+	return append(head, body...)
+}
+
+// fontWithFontFile3 builds a trailer holding one font of the given subtype
+// whose descriptor embeds program under FontFile3 with the given /Subtype.
+func fontWithFontFile3(fontSubtype, fileSubtype string, program []byte) pdf.PDFDict {
+	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: program}
+	if fileSubtype != "" {
+		ff.Entries.Set("Subtype", pdf.PDFName{Value: fileSubtype})
+	}
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontFile3": ff})}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":           pdf.PDFName{Value: "Font"},
+		"Subtype":        pdf.PDFName{Value: fontSubtype},
+		"FontDescriptor": desc,
+	})}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})}
+}
+
+// descriptorOf returns the descriptor of the single font in a trailer built by
+// fontWithFontFile3.
+func descriptorOf(t *testing.T, trailer pdf.PDFDict) pdf.PDFDict {
+	t.Helper()
+	font, ok := trailer.Entries.Get("Font").(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("trailer has no font")
+	}
+	desc, ok := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("font has no descriptor")
+	}
+	return desc
+}
+
+// TestFontFileSubtypeFixerUnwrapsOpenTypeCFF covers the common case: the CFF
+// table inside an OpenType wrapper becomes the font file itself, keeping the
+// document's own glyphs rather than substituting a bundled face.
+func TestFontFileSubtypeFixerUnwrapsOpenTypeCFF(t *testing.T) {
+	cff := buildMinimalCIDCFF()
+	otf := wrapInSfnt(0x4F54544F, map[string][]byte{"CFF ": cff, "head": make([]byte, 54)})
+
+	for _, tc := range []struct {
+		fontSubtype string
+		wantSubtype string
+	}{
+		{"CIDFontType0", "CIDFontType0C"},
+		{"Type1", "CIDFontType0C"}, // the CFF itself is CID-keyed
+	} {
+		t.Run(tc.fontSubtype, func(t *testing.T) {
+			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", otf)
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+
+			ff, ok := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
+			if !ok {
+				t.Fatalf("FontFile3 missing after fix")
+			}
+			if (ff.Entries.Get("Subtype") != pdf.PDFName{Value: tc.wantSubtype}) {
+				t.Errorf("Subtype = %v, want /%s", ff.Entries.Get("Subtype"), tc.wantSubtype)
+			}
+			got, err := pdf.DecodeStream(ff)
+			if err != nil {
+				t.Fatalf("DecodeStream: %v", err)
+			}
+			if !bytes.Equal(got, cff) {
+				t.Error("the unwrapped stream is not the CFF table the wrapper carried")
+			}
+		})
+	}
+}
+
+// TestFontFileSubtypeFixerRelabelsBareCFF covers a bare CFF that only misnames
+// itself: the stream is already what PDF 1.4 wants, so only the name changes.
+func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
+	cff := buildMinimalCFF()
+	trailer := fontWithFontFile3("Type1", "OpenType", cff)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+
+	ff := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
+	if (ff.Entries.Get("Subtype") != pdf.PDFName{Value: "Type1C"}) {
+		t.Errorf("Subtype = %v, want /Type1C", ff.Entries.Get("Subtype"))
+	}
+	if !bytes.Equal(ff.RawStream, cff) {
+		t.Error("a bare CFF was re-encoded, want it left untouched")
+	}
+}
+
+// TestFontFileSubtypeFixerMovesTrueTypeToFontFile2 covers a glyf-flavoured
+// wrapper under a TrueType font: the program belongs under FontFile2, which
+// has no Subtype key for the check to object to.
+func TestFontFileSubtypeFixerMovesTrueTypeToFontFile2(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	trailer := fontWithFontFile3("CIDFontType2", "OpenType", ttf)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+
+	desc := descriptorOf(t, trailer)
+	if desc.Entries.Get("FontFile3") != nil {
+		t.Error("FontFile3 still present after the program moved to FontFile2")
+	}
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("FontFile2 missing after fix")
+	}
+	if ff.Entries.Get("Subtype") != nil {
+		t.Error("FontFile2 carries a Subtype, which PDF 1.4 does not define for it")
+	}
+	if ff.Entries.Get("Length1") != pdf.PDFInteger(len(ttf)) {
+		t.Errorf("Length1 = %v, want %d", ff.Entries.Get("Length1"), len(ttf))
+	}
+	got, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if !bytes.Equal(got, ttf) {
+		t.Error("the moved program is not the one the wrapper carried")
+	}
+}
+
+// TestFontFileSubtypeFixerLeavesUnusableProgram covers what the fixer must not
+// do: a TrueType wrapper under a font that cannot read TrueType glyphs, and a
+// stream that is no font at all, are both left for the substitution fixer.
+func TestFontFileSubtypeFixerLeavesUnusableProgram(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	for _, tc := range []struct {
+		name        string
+		fontSubtype string
+		program     []byte
+	}{
+		{"truetype under a Type1 font", "Type1", ttf},
+		{"not a font at all", "Type1", []byte("neither CFF nor sfnt")},
+		{"empty stream", "Type1", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", tc.program)
+			changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+			if err != nil {
+				t.Fatalf("Fix: %v", err)
+			}
+			if changed {
+				t.Error("changed = true, want false: this program cannot be unwrapped")
+			}
+		})
+	}
+}
+
+// TestFontFileSubtypeFixerDropsSpuriousSubtype covers FontFile and FontFile2,
+// which have no Subtype key at all, so one there just goes away.
+func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
+	for _, key := range []string{"FontFile", "FontFile2"} {
+		t.Run(key, func(t *testing.T) {
+			ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "OpenType"},
+			}), HasStream: true, RawStream: []byte("program")}
+			desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: ff})}
+			font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Type":           pdf.PDFName{Value: "Font"},
+				"Subtype":        pdf.PDFName{Value: "TrueType"},
+				"FontDescriptor": desc,
+			})}
+			trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})}
+
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+			got := descriptorOf(t, trailer).Entries.Get(key).(pdf.PDFDict)
+			if got.Entries.Get("Subtype") != nil {
+				t.Errorf("%s still carries a Subtype", key)
+			}
+		})
+	}
+}
+
+// TestFontFileSubtypeFixerSkipsConformingFonts covers the no-op cases: a font
+// file with a legal Subtype or none at all is never touched.
+func TestFontFileSubtypeFixerSkipsConformingFonts(t *testing.T) {
+	for _, subtype := range []string{"", "Type1C", "CIDFontType0C"} {
+		trailer := fontWithFontFile3("Type1", subtype, buildMinimalCFF())
+		changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+		if err != nil {
+			t.Fatalf("Fix: %v", err)
+		}
+		if changed {
+			t.Errorf("Subtype %q: changed = true, want false", subtype)
+		}
+	}
+}
+
+// TestFontFileSubtypeFixerSkipsNonFonts covers the guards: a dict that is not
+// a font, and a font with no descriptor, are both left alone.
+func TestFontFileSubtypeFixerSkipsNonFonts(t *testing.T) {
+	notAFont := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Type1"},
+	})}
+	if fixFontFileSubtypeDict(notAFont) {
+		t.Error("a dict without /Type /Font was treated as a font")
+	}
+	noDescriptor := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "Font"},
+		"Subtype": pdf.PDFName{Value: "Type1"},
+	})}
+	if fixFontFileSubtypeDict(noDescriptor) {
+		t.Error("a font without a descriptor reported a change")
+	}
+}
+
+// TestConvertClearsOpenTypeFontFile is the end-to-end proof: a document whose
+// only defect class includes an OpenType-wrapped font file converts to
+// conformance with the CFF unwrapped in place, not substituted away.
+func TestConvertClearsOpenTypeFontFile(t *testing.T) {
+	cff := buildMinimalCFF()
+	otf := wrapInSfnt(0x4F54544F, map[string][]byte{"CFF ": cff, "head": make([]byte, 54)})
+
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>")
+	b.Obj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Font /FirstChar 65 /LastChar 65 "+
+		"/Widths [0] /FontDescriptor 5 0 R >>")
+	b.Obj(5, "<< /Type /FontDescriptor /FontName /Font /Flags 4 /ItalicAngle 0 "+
+		"/Ascent 700 /Descent -200 /CapHeight 700 /StemV 80 /FontBBox [0 0 100 100] "+
+		"/FontFile3 6 0 R >>")
+	b.StreamObj(6, fmt.Sprintf("<< /Subtype /OpenType /Length %d >>", len(otf)), otf)
+	content := []byte("BT /F1 12 Tf 10 100 Td (A) Tj ET")
+	b.StreamObj(7, fmt.Sprintf("<< /Length %d >>", len(content)), content)
+	data := b.FinishClassic("<< /Size 8 /Root 1 0 R >>")
+
+	res, err := verify.VerifyBytes(data, pdf.PDFA1B, nil)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	found := false
+	for _, iss := range res.Issues {
+		if iss.Check() == pdf.Checks.Font.FontFileSubtype {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("sanity: FontFileSubtype not reported for an OpenType font file")
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	defer cr.Close()
+	for _, iss := range cr.Result.Issues {
+		if iss.Check() == pdf.Checks.Font.FontFileSubtype {
+			t.Errorf("FontFileSubtype survived conversion: %v", iss)
+		}
+	}
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("page %v was rasterized; the font file should have been unwrapped instead", cr.RasterizedPages)
+	}
 }

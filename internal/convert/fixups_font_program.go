@@ -21,6 +21,7 @@ import (
 func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
+	registerFixer(fontFileSubtypeFixer{})
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return promoteEmptyGlyphsInFont
 	})
@@ -60,6 +61,131 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 		return
 	}
 	desc.Entries.Set("FontFile2", ff)
+}
+
+// fontFileSubtypeFixer remediates Checks.Font.FontFileSubtype by unwrapping an
+// embedded font file whose declared format PDF 1.4 does not define -- almost
+// always an OpenType wrapper. The glyphs inside are kept: an OpenType file is
+// a container, and the CFF or TrueType program it carries is exactly what a
+// PDF 1.4 font file holds directly. Substituting a bundled face instead would
+// throw away the document's own glyphs, so anything this cannot unwrap is left
+// alone for the substitution fixer to pick up as an unusable program.
+type fontFileSubtypeFixer struct{}
+
+func (fontFileSubtypeFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Font.FontFileSubtype
+}
+
+func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+// fixTargeted repairs only the fonts the issues reference; the verifier reports
+// every offending font per pass, so this covers all violations.
+func (fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if fixFontFileSubtypeDict(d) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+func (fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+	return func(d pdf.PDFDict) {
+		if fixFontFileSubtypeDict(d) {
+			*changed = true
+		}
+	}, true
+}
+
+// fixFontFileSubtypeDict repairs the embedded font files of one font dict; it
+// re-checks the predicate so a stale or already-fixed target is a no-op.
+func fixFontFileSubtypeDict(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if !ok || desc.Entries == nil {
+		return false
+	}
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+
+	changed := false
+	// FontFile and FontFile2 have no Subtype key at all, so one there is
+	// spurious and simply goes away.
+	for _, key := range []string{"FontFile", "FontFile2"} {
+		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
+		if !ok || !badFontFileSubtype(ff) {
+			continue
+		}
+		ff.Entries.Del("Subtype")
+		changed = true
+	}
+	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok && badFontFileSubtype(ff) {
+		if unwrapFontFile3(desc, ff, subtype.Value) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// badFontFileSubtype reports whether ff declares a font file format PDF 1.4
+// does not define, mirroring the detection in ValidateFontProgram.
+func badFontFileSubtype(ff pdf.PDFDict) bool {
+	st, ok := ff.Entries.Get("Subtype").(pdf.PDFName)
+	return ok && st.Value != "Type1C" && st.Value != "CIDFontType0C"
+}
+
+// unwrapFontFile3 replaces a wrongly-typed FontFile3 with the program it
+// actually holds: the CFF table becomes the stream itself, and a TrueType
+// program moves to FontFile2 where it belongs. fontSubtype is the owning font
+// dictionary's Subtype.
+func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
+	data, err := pdf.DecodeStream(ff)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+
+	if cff := extractCFFBytes(data); cff != nil {
+		want := "Type1C"
+		td, ok := verify.ParseCFFTopDict(cff)
+		if fontSubtype == "CIDFontType0" || (ok && td.IsCIDKeyed) {
+			want = "CIDFontType0C"
+		}
+		// A bare CFF that only misnames itself needs no re-encoding.
+		if len(cff) != len(data) {
+			if err := writer.SetStreamFlate(&ff, cff); err != nil {
+				return false
+			}
+		}
+		ff.Entries.Set("Subtype", pdf.PDFName{Value: want})
+		desc.Entries.Set("FontFile3", ff)
+		return true
+	}
+
+	// A TrueType-flavoured wrapper is only worth moving when the font is one
+	// that reads TrueType glyphs; under any other font it would stop counting
+	// as embedded, which the substitution fixer handles better.
+	if fontSubtype != "TrueType" && fontSubtype != "CIDFontType2" {
+		return false
+	}
+	tables, ok := verify.ParseSfnt(data)
+	if !ok || tables["glyf"] == nil {
+		return false
+	}
+	ff.Entries.Del("Subtype")
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(data)))
+	if err := writer.SetStreamFlate(&ff, data); err != nil {
+		return false
+	}
+	desc.Entries.Set("FontFile2", ff)
+	desc.Entries.Del("FontFile3")
+	return true
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing
