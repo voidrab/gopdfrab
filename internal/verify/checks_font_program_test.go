@@ -1404,6 +1404,66 @@ func TestFontFile3BrokenCFFIsInvalid(t *testing.T) {
 	}
 }
 
+// TestFontFileSubtype covers 6.3.2: an embedded font file may declare no
+// Subtype at all, or Type1C or CIDFontType0C -- anything else (notably the
+// post-PDF-1.4 OpenType) is not a format PDF/A-1 allows.
+func TestFontFileSubtype(t *testing.T) {
+	// A CFF that parses, so only the Subtype is ever in question.
+	program := buildMinimalCFF()
+
+	for _, tc := range []struct {
+		name    string
+		subtype string // "" means no Subtype entry
+		want    bool
+	}{
+		{"no subtype", "", false},
+		{"Type1C", "Type1C", false},
+		{"CIDFontType0C", "CIDFontType0C", false},
+		{"OpenType", "OpenType", true},
+		{"nonsense", "TrueType", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ff := pdf.NewPDFDict()
+			ff.HasStream = true
+			ff.RawStream = program
+			if tc.subtype != "" {
+				ff.Entries.Set("Subtype", pdf.PDFName{Value: tc.subtype})
+			}
+			desc := pdf.NewPDFDict()
+			desc.Entries.Set("FontFile3", ff)
+
+			ctx := &ValidationContext{}
+			ValidateFontProgram(pdf.NewPDFDict(), desc, "Test", ctx)
+
+			if got := hasCheck(ctx, pdf.Checks.Font.FontFileSubtype); got != tc.want {
+				t.Errorf("FontFileSubtype reported = %v, want %v", got, tc.want)
+			}
+			if hasCheck(ctx, pdf.Checks.Font.InvalidProgram) {
+				t.Error("the font program itself is valid; InvalidProgram should not be reported")
+			}
+		})
+	}
+}
+
+// TestFontFileSubtypeNonName covers a Subtype that is not a name at all: the
+// check reads a name and stays silent otherwise, leaving the wrong-type
+// report to the object-model checks.
+func TestFontFileSubtypeNonName(t *testing.T) {
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.RawStream = buildMinimalCFF()
+	ff.Entries.Set("Subtype", pdf.PDFString{Value: "Type1C"})
+
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("FontFile3", ff)
+
+	ctx := &ValidationContext{}
+	ValidateFontProgram(pdf.NewPDFDict(), desc, "Test", ctx)
+	if hasCheck(ctx, pdf.Checks.Font.FontFileSubtype) {
+		t.Error("a non-name Subtype should not be reported as an unsupported font file format")
+	}
+}
+
 // buildType1FontTwoGlyphs is buildType1Font with a second glyph /B of a
 // different advance width (700 vs 500), so a /Differences remapping of a code
 // from one to the other is observable in the 6.3.6 width comparison.
