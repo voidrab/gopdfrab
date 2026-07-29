@@ -136,10 +136,13 @@ func BenchmarkConvert(b *testing.B) {
 // The byte-path xref parser (no per-entry buffer), the ValidationContext
 // key-scratch stack for the walk's sorted key iteration, and the O(1)
 // Arlington row index cut it to ~1.01M.
+// Sharing one pre-boxed PDFValue per common name (lexer.go's
+// internedNameValues) removed the interface box that every /Type, /Subtype
+// and /Filter value used to allocate: ~20k fewer, to ~923k.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_035_000
+const maxLargeFileAllocs = 950_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -195,8 +198,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // verification when the graph is clean (serializeAndVerify's merged path;
 // only the byte-level structural checks re-run against the output) plus the
 // single shared pre-emptive fixup walk cut it to ~1.78M.
+// Sharing one pre-boxed PDFValue per common name (lexer.go's
+// internedNameValues) cut another ~25k, to ~1.53M.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 1_810_000
+const maxConvertLargeAllocs = 1_570_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy

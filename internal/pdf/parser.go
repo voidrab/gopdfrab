@@ -344,7 +344,7 @@ func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 		if tok.Value == "null" {
 			return nil, true, nil
 		}
-		return PDFName{Value: tok.Value}, true, nil
+		return boxName(tok.Value), true, nil
 
 	case TokenBoolean:
 		return PDFBoolean(tok.Value == "true"), true, nil
@@ -363,7 +363,7 @@ func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 		return PDFHexString{Value: tok.Value}, true, nil
 
 	case TokenName:
-		return PDFName{Value: tok.Value}, true, nil
+		return boxName(tok.Value), true, nil
 	}
 	return nil, false, nil
 }
