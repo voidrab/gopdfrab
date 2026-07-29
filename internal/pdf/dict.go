@@ -225,12 +225,3 @@ func (d Dict) Clone() Dict {
 	}
 	return c
 }
-
-// trim releases the surplus capacity append leaves, for use once parsing a
-// dictionary is done.
-func (d Dict) trim() {
-	if d == nil || cap(d.ent) == len(d.ent) {
-		return
-	}
-	d.ent = slices.Clip(d.ent)
-}

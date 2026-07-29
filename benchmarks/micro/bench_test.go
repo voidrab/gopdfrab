@@ -139,10 +139,14 @@ func BenchmarkConvert(b *testing.B) {
 // Sharing one pre-boxed PDFValue per common name (lexer.go's
 // internedNameValues) removed the interface box that every /Type, /Subtype
 // and /Filter value used to allocate: ~20k fewer, to ~923k.
+// Backing PDFDict with a slice instead of a map (dict.go) raised this to
+// ~993k -- a dict is two allocations where a small map was one -- while
+// cutting the resolved graph from 23.5 MB to 16.7 MB. This is the one entry
+// in this list that trades count for bytes; see the commit.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 950_000
+const maxLargeFileAllocs = 1_025_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -200,8 +204,10 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // single shared pre-emptive fixup walk cut it to ~1.78M.
 // Sharing one pre-boxed PDFValue per common name (lexer.go's
 // internedNameValues) cut another ~25k, to ~1.53M.
+// The slice-backed PDFDict raised it to ~1.63M in exchange for bytes; see
+// maxLargeFileAllocs.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 1_570_000
+const maxConvertLargeAllocs = 1_680_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
