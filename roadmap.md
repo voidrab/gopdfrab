@@ -3,1236 +3,125 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Every claim below was checked against the code or reproduced with a test. Where
-something was reproduced, the transcript is quoted.
+Items 1–28 are done; each is one line under "Done", and the commit history has
+the detail. What is still open is in "Open work".
 
 ## Where things stand
 
-Genuinely solid:
-
 - 158 checks across 10 groups. Isartor (204 fail files) and veraPDF (263 pass +
-  306 fail) both fully green — so false positives *are* tested, on synthetic
-  files.
-- Convert pipeline: pre-emptive fixups, verify/fix loop (max 4 iterations),
-  raster last resort. Corpus floor 510/510 — the former encrypted hold-out now
-  decrypts (item 5).
-- The rasterizer draws what a PDF/A conversion actually meets: images (including
-  inline and stencil masks), all seven shading types, shading patterns, Type 3
-  glyphs. What it still cannot draw is reported per page, never dropped in
-  silence (item 6).
-- One stream-decode chain in `internal/pdf`, covering every filter PDF/A-1
-  permits, with a typed result separating "encoded image data" from "broken".
+  306 fail) both fully green, cross-checked against the veraPDF binary itself in
+  CI, not just against filename expectations.
+- Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
+  Committed-corpus floor 510/510. On the 1585-file real-world corpus, 1564 of
+  1580 reach conformance with zero errors, panics or hangs.
+- The rasterizer draws what a PDF/A conversion actually meets: images (inline and
+  stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
+  it cannot draw is reported per page, never dropped in silence.
+- One stream-decode chain covering every filter PDF/A-1 permits, with a typed
+  result separating "encoded image data" from "broken".
 - Arlington object-model checks, verify and convert, off a generated model.
 - Fuzzing at three levels, including semantic oracles (determinism, honesty,
-  convergence) — better than most PDF libraries in any language.
-- Resource hardening is thorough: ~15 depth/size caps across the parser, a
-  256 MB inflate ceiling, LZW and RunLength output caps, CCITT column and byte
-  caps, page-tree and resolve depth limits.
-- Coverage: root 100%, arlington 100%, pdf 96.8%, writer 95.4%, verify 93.5%,
-  convert 92.6%.
+  convergence).
+- Resource hardening: ~15 depth/size caps across the parser, settable decode and
+  resident-cache budgets, no silent truncation anywhere.
+- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.1%,
+  writer 94.1%, pdfgen 94.8%, root 92.5%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
-The gaps below are what stands between that and a release.
+---
+
+## Open work
+
+### 29. Unimplemented catalogue entries
+
+Four `TODO`s in `internal/pdf/checks_catalog.go` are real:
+
+- `FontFileSubtype` (:160) and `XMPNoCorrespondingType` (:236) are declared
+  checks with no implementation.
+- `ICCBasedComponentsMismatch` (:107) and `FontBaseFont` (:156) are detected but
+  have no convert fixer.
+
+The six `// TODO level A` entries are PDF/A-1a and out of scope for 1b; they
+should be relabelled so they stop reading as open.
+
+### 30. Coverage to ~95%
+
+verify 94.3%, convert 94.1%, writer 94.1%, root 92.5% — the root package is now
+the widest gap. Per the standing decision, defensive parser guards are not
+chased; the remainder is CFF/Type1 fixtures.
+
+### 31. Scale Type1 widths instead of skipping them
+
+`Type1WidthTable` skips the 6.3.6 comparison when the program declares a
+non-default `/FontMatrix`, matching what the CFF path does. Scaling the
+charstring widths by the declared matrix would keep the check live instead of
+dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
+every width off by exactly 2x) says it would work. Speculative until a file
+turns up where the skip actually hides something.
 
 ---
 
-## P0 — the verdict can't be trusted yet
-
-### 1. An undecodable content stream turns a violation into a pass — **DONE**
-
-Was: two PDFs with byte-identical page content (`1 0 0 rg` fill, no
-OutputIntent — a 6.2.3.3 violation) differing only in stream encoding, where the
-`/RunLengthDecode` one verified clean because `DecodeStream` failed and
-`collectUsageFromBytes` did `if err != nil { return }`. Not a missing feature —
-the verifier answering "yes" when it meant "I couldn't look."
-
-Fixed across three commits, in the order 1c → 1b → 1a. That order is forced, not
-stylistic: before 1c, `DecodeStream` errored on `DCTDecode`, so 1a's "report
-every decode error" would have fired on every JPEG in the corpus. The typed
-"encoded image data" result is what makes 1a safe to ship.
-`TestEncodedContentStreamStillReportsViolations` now builds both documents and
-asserts their issue sets are equal.
-
-**1c. One decode chain.** New `internal/pdf/filters.go` holds the filter
-registry (both spellings, image and predictor flags) and the typed
-`DecodedStream`. `DecodeStream` keeps its signature and ~52 call sites; a chain
-ending in an image codec returns `ErrEncodedImage` rather than "unsupported
-filter". DecodeParms are resolved positionally, replacing `StreamDecodeParms`'
-last-entry heuristic, and predictors are applied in-chain per filter.
-
-**1b. The remaining filters.** RunLengthDecode (new), LZW reachable from stream
-dicts with `/EarlyChange` finally honoured, predictors on content streams. Both
-new decoders have output caps and fuzz clean.
-
-**1a. Never swallow a decode error.** `Structure.StreamUndecodable` (6.1.7/8) is
-reported from the two decode chokepoints, deduped by `StreamKey`.
-
-Five findings from the work, none of which the plan anticipated:
-
-- **There were six chains, not four.** `ccittEncodedBytes` and
-  `undoInlineImagePredictor` were also copies. The former already *was* the
-  typed image result, hand-rolled for one caller.
-- **The bug had a second half.** `collectUsageFromBytes` is the sole producer of
-  four `ValidationContext` fields, and each drives a check *suppression*. A
-  swallowed decode error made those sets a subset of the truth, so an
-  undecodable content stream suppressed 6.2.3.3 and 6.3.4 findings on objects
-  unrelated to it. Usage collection now reports completeness and all four sets
-  are discarded when incomplete. `SkipUnusedSimpleFonts` inverts — leaving it on
-  with nil usage suppresses *every* 6.3.4 check — so it is explicitly ANDed.
-- **Two latent bugs fell out.** `/Filter [/A85 /LZW]` fed ASCII85 text straight
-  to the LZW decoder (a `hasLZW` flag short-circuited the chain), and
-  `/Filter [/A85 /DCTDecode]` fed raw bytes to `jpeg.Decode`.
-- **`ErrNotAStream` is exempt from the new check**, alongside `ErrEncodedImage`.
-  A dict carrying no stream is not a stream object, so 6.1.7 does not apply; the
-  callers that hit this are defensive guards against a mistyped entry, which the
-  object-model checks report against the schema.
-- **Predictors are scoped to Flate and LZW** per ISO 32000-1 Table 8. Verified
-  against all three corpora: every predictor in every file sits on FlateDecode.
-
-#### Two gaps this work exposed — both closed
-
-- `fontProgramValid`'s FontFile3 arm accepted any program whose first byte was
-  1, so a CFF with a valid header but an unparseable Top DICT passed 6.3.2 while
-  `ValidateCIDCFFSubset` silently skipped it. Now runs `ParseCFFTopDict`, so the
-  check and its dependents agree on what "valid" means. Measured rather than
-  assumed, since it is stricter: the corpora hold 74 bare-CFF FontFile3
-  programs and all 74 still pass.
-- `ComputeContentUsage` runs before `verifyDocument`'s walk, so a content-stream
-  decode failure was reported as document-level. The usage walk now maintains
-  `CurrentPage` over each page subtree and restores it afterwards.
-
-### 2. A single bad xref offset suppresses unrelated checks — **DONE**
-
-Was: one bogus xref offset failed `ResolveGraph` wholesale, and
-`verifyPdfA1bParts` bailed with a single document-level 6.1.6 — dropping the
-6.7.2 catalog-Metadata finding (and every other graph-level check family) along
-with the colour violation the damage legitimately hid. The issue list was wrong,
-and a user fixing reported issues one at a time would never converge.
-
-Fixed at the resolution boundary, not in the walk: a classic object that fails
-to parse at its offset is retried once at its real `N G obj` header (whole-file
-scan, last occurrence wins, memoized across objects) and degraded to a cached
-null only when no intact copy exists. Both outcomes are recorded as per-object
-6.1.6 diagnostics on the existing `parseDiagnostics`/`StructErrors` channel.
-This pulled the per-object half of item 4's recovery forward, as this item's
-cross-reference always implied, and item 4's oracle now holds:
-`TestBrokenXrefOffsetOracle` verifies a broken-offset file to the same issue
-set as the intact original plus exactly one recovery issue.
-
-Findings from the work:
-
-- **The wrong-value case was silent.** `validateObjectStart` parsed the
-  header's object number and threw it away, so an offset landing on another
-  object's well-formed header returned the wrong object with no diagnostic at
-  all. It now returns the header number and a mismatch enters recovery. (The
-  residual case — a garbage header whose body happens to parse as a scalar —
-  still yields a 6.1.8 framing diagnostic only; full repair is item 4.)
-- **Failed attempts had to be rolled back.** A parse attempt at a bad offset
-  records 6.1.7/6.1.8 framing diagnostics before it knows it will fail; those
-  are discarded per-object on failure (nested resolutions' records survive) so
-  recovery leaves no noise and the oracle's issue-set equality holds.
-- **Item 1's completeness lesson applies here too.** A nulled object makes the
-  content-usage sets a subset of the truth exactly like an undecodable stream,
-  so usage completeness is ANDed with `!HasDegradedObjects()` and every
-  usage-driven suppression is discarded when anything degraded.
-- **Both verifier bails dropped diagnostics.** The early returns for an
-  unresolvable graph and an unbuildable page index skipped
-  `structuralPostIssues`, so a degraded *catalog* would have swallowed its own
-  diagnostic. Both bails now emit PostStructural.
-- **Decryption failures degrade too** — the handler was authenticated at
-  `Open`, so a mid-graph decrypt error is object-level corruption. Degradation
-  is gated off during `initializeStructure` so `Open`'s error classification
-  (`ErrDamaged`, `ErrEncrypted`, ...) is unchanged.
-
-### 3. Convert can return no output and no error — **DONE**
-
-Was: `convert.Run` fell back to verify-only when `ResolveGraph` failed and
-returned `ConvertResult{Result: res}, nil` — success with nothing in it, which
-`cr.Save(path)` turned into a different error much later.
-
-With item 2, resolution failure is reduced to pathological cases (the resolve
-depth cap); those now return the new `ErrUnresolvableGraph` sentinel (wrapped
-per the item-19 pattern, re-exported from root) with the best-effort verify
-`Result` still attached. The empty-output-with-nil-error path is gone.
-
-One finding: degradation made convert's other half of the bug visible. The
-final verify runs on the freshly-written output bytes, where a nulled object is
-indistinguishable from an intentional null — so a conversion that lost content
-would have verified *clean*. `Run` now carries the reader's degraded-object
-diagnostics into the final `Result` and forces `Valid=false`; recovered objects
-are deliberately not carried, since the rewrite emits a correct xref and
-genuinely fixes them.
-
----
-
-## P1 — resilience and unusual files
-
-### 4. No xref recovery — **DONE**
-
-Was: corrupting `startxref` gave `could not parse startxref offset`; truncating
-gave `startxref not found`. Both were hard `ErrDamaged` failures — no
-verification, no conversion, nothing. Files with damaged cross-reference data
-are exactly the files people reach for a PDF/A converter to fix.
-
-`initializeStructure` now treats a missing `startxref` keyword, a missing offset
-token, and a non-numeric offset the same way it already treated an unparseable
-xref *table*: a full-file `N G obj` scan (`recoverXRefByBruteForceScan`, last
-definition wins) rebuilds the object table, and a new `recoverTrailer`
-synthesizes the trailer — preferring a literal `trailer` dict if the tail still
-has one, then a scanned cross-reference stream (`/Type /XRef`, which carries
-`/Root`/`/Info`/`/ID`), then the document catalog (`/Type /Catalog`), returning
-`<< /Root <ref> >>`. Catalog and xref-stream selection pick the latest by file
-offset, so recovery is deterministic across map-iteration order. The rebuild is
-reported as a 6.1.4 diagnostic and everything keeps going; a synthesized trailer
-has no `/ID`, so the file is correctly reported non-conformant (6.1.3).
-
-Findings:
-
-- **The per-object half was already done in item 2** (recovery scan for a wrong
-  offset, `TestBrokenXrefOffsetOracle`). This item is the whole-table case.
-- **Trailer recovery with a *valid* xref stays a hard error.** When the xref
-  parses but the trailer keyword/dict is missing or malformed, Open still fails
-  rather than silently synthesizing — recovering there without the 6.1.4
-  umbrella would risk the item-1 honesty gap (a rebuilt file verifying clean).
-  Recovery is scoped to the case where the xref itself is unlocatable/unparseable.
-- **Two 6.1.4 issues fire on a rebuilt file**, not one: the parse-time recovery
-  diagnostic plus the pre-existing verify-time `checkXRefSectionFormat`. Both
-  are legitimately about the broken xref; deduping across the parse/verify layer
-  boundary was judged not worth the coupling.
-- **The full-file scan is linear** (`BenchmarkXRefRecovery`, item 24): 100→5000
-  objects scales ~linearly, a 5000-object damaged file recovering in ~30 ms, so
-  recovery is not a DoS vector.
-
-Oracle: `pdfgen.BreakStartxref` destroys the offset; `TestBrokenStartxrefOracle`
-asserts the rebuilt file verifies to the intact issue set plus the 6.1.4
-recovery issue, and `TestConvertRecoversBrokenStartxref` asserts the rewrite
-emits a fresh xref with no 6.1.4 residual.
-
-### 5. Encrypted input converts to a corrupt document — **DONE**
-
-Was: no decryption anywhere. `/Encrypt` was correctly flagged (6.1.3), convert
-**stripped that entry** to clear the violation, and the RC4-encrypted bytes
-survived into the output unchanged — a document convert knew was broken. The one
-encrypted fixture, `isartor-6-1-3-t02-fail-a.pdf`, was the sole hold-out keeping
-the convert floor at 509.
-
-Implemented the Standard security handler in `internal/pdf/crypt.go`: RC4 40/128
-(V1/R2, V2/R3), AES-128 for R4 (AESV2 + Identity crypt filters), AES-256 for R6
-(ISO 32000-2 Algorithm 2.A/2.B), covering user, owner and empty passwords.
-Empty-password files decrypt automatically through `Open`/`OpenBytes` with no API
-change; `OpenWithPassword`/`OpenBytesWithPassword` take an explicit password. The
-handler is built once in `initializeStructure` (Encrypt dict and trailer `/ID`
-read before it goes live), and applied per object at the single
-`parseClassicReference` choke point — stream bytes into a fresh slice (never
-mutating the mmap alias), strings via a recursive walk — with cross-reference
-streams, the Encrypt object, and object-stream contents exempt by construction.
-New sentinel errors `ErrEncrypted`/`ErrPasswordRequired`, re-exported from root.
-
-Findings from the work:
-
-- **The orphaned Encrypt object had to be dropped, not just its trailer entry.**
-  The writer already omitted `/Encrypt` from the rebuilt trailer, but the in-heap
-  verify still saw the resolved Encrypt dictionary, and the object-model checks
-  reject an AESV3 dict (V5/R6) under PDF/A-1b's model. A pre-emptive fixup now
-  deletes the trailer `/Encrypt` reference (the graph is already plaintext), which
-  orphans the dict so verify and the writer agree.
-- **Hex vs. literal string bytes.** `PDFHexString.Value` holds hex *text*, not
-  decoded bytes, so `/O`, `/U`, `/ID` and every encrypted hex string had to be
-  hex-decoded before use; the decrypted plaintext is raw bytes, so both spellings
-  collapse to a decoded literal string.
-
-Validated against real qpdf output for every revision (RC4-40/128, AESV2, AESV3,
-plus cleartext-metadata, object-stream, and user/owner-password variants) and the
-committed isartor fixture. Convert refuses a genuinely password-required file with
-`ErrPasswordRequired` (surfaces at `pdf.Open`) rather than emitting broken output.
-`minConvertedFully` raised to 510.
-
-Passing a password to `Verify`/`Convert` (rather than pre-opening with
-`OpenWithPassword`) landed with item 15 as `Options.Password` on the `…Context`
-entry points, reaching the same internal path.
-
-### 6. The rasterizer silently drops content — **DONE**
-
-Was: `internal/convert/raster.go` handled a decent operator set but silently
-ignored `sh`/shadings, `BI`/`ID`/`EI` inline images, Type 3 fonts, and — worse
-than dropping — `Tr`/`Ts`, so an invisible OCR text layer rendered *visible*
-over the scanned image.
-
-Closed in three passes. The `Tr`/`Ts` correctness bug went first, then the
-remaining drops were made loud, and now they are actually drawn. What is still
-reported is only what is genuinely undrawable.
-
-- **The `Tr`/`Ts` correctness bug.** `showText` honours the text rise (`Ts`)
-  and paints no marks under render modes 3 and 7 (invisible/clip), so
-  rasterizing an OCR PDF no longer prints its hidden text layer.
-  `TestRasterInvisibleTextRenderMode` pins it (mode 3 → ~0 ink, mode 0 → ink).
-- **Inline images** are folded into a synthetic stream dict with their
-  abbreviated keys expanded (`raster_inline.go`), so the whole Image XObject
-  path — filters, predictors, `/Decode`, colour-space resolution — serves them
-  unchanged. Only the key expander was new: `pdf.LookupFilter` and
-  `resolveColor` already accept both spellings of filter and colour-space
-  *values*.
-- **Shadings, all seven types.** Function-based, axial and radial sample per
-  device pixel through the inverse CTM, mirroring `compositeImage`'s loop, so
-  the three sit behind one `colorAt` (`raster_shading.go`). Mesh types decode
-  their vertex/patch stream and paint subdivided flat pieces through the
-  existing scanline filler (`raster_shading_mesh.go`). Reuses
-  `pdf.ParseFunction` and `pdf.ResolveColor` rather than adding any evaluation
-  of its own; the only new machinery is the `/Function` array fan-out (n
-  single-output functions standing in for one n-output function) and a
-  256-entry LUT over the 1-D parametric domain, since evaluating a PDF function
-  per pixel runs into the millions per page.
-- **Type 3 glyphs** run their `/CharProcs` content through the renderer's
-  ordinary operator loop with the CTM set by the font's `/FontMatrix` — which
-  stands in for the 1000-unit em both for the glyph transform and the `/Widths`
-  advance. A Type 3 glyph can therefore itself draw images, shadings and Form
-  XObjects. The Form recursion guard is shared rather than duplicated.
-
-Findings, none of which the plan anticipated:
-
-- **A silent loss the drop mechanism never covered.** A `/Pattern` colour space
-  names its colour with `scn` rather than numbers, so the numeric branch never
-  fired and every pattern fill painted the black a bare `/Pattern cs` leaves in
-  `fillRGB` — with no drop recorded at all. The same class as item 1, found
-  only by going looking. PatternType 2 now paints through its shading;
-  PatternType 1 (tiling) is reported as a new `"tiling pattern"` drop.
-- **Selecting the pattern was not enough.** An *unusable* pattern still fell
-  through to the flat-colour fill, so `renderState` carries
-  `fillIsPattern`/`strokeIsPattern`: under a Pattern colour space a paint draws
-  the pattern or nothing, never black. Four tests failed on exactly that before
-  the flag went in.
-- **Stencil masks painted black on both paths.** Splitting `paintImage` into
-  decode + `compositeImage` exposed it: `DecodeImageRGBA` renders an
-  `/ImageMask`'s coverage as opaque black, and neither paint path substituted
-  the fill colour. Fixed for inline and XObject masks together.
-- **`FillPath`/`StrokePath` needed a per-pixel colour source.** Both now
-  delegate to shared span walkers taking a `colorAt`, so a shading pattern
-  fills and strokes the path's *true shape* rather than its bounding box.
-- **Two honesty guards on meshes**, both reported as drops: a per-mesh
-  primitive cap, so a degenerate mesh cannot blow up render time, and a stream
-  ending mid-record, which would otherwise half-paint the mesh in silence.
-- **Type 3 resources fall back to the page's** when the font declares no
-  `/Resources` (ISO 32000-1 9.6.5), which needed `showText` to take the page
-  resources it previously had no use for.
-- **The allocation ceilings did not move.** `convert/raster` measures ~3174
-  allocs/run against its 3500 ceiling, essentially unchanged from ~3168, so
-  re-pinning was unnecessary — but note what that means: the item-23 guard
-  contains none of the newly-drawn features and does not cover the new paths.
-
-Deliberate approximations, each documented at its code:
-
-- Mesh shadings paint as subdivided flat pieces rather than through a Gouraud
-  rasterizer, reusing the existing filler — the right trade for a conversion
-  fallback, where the alternative was dropping the content.
-- A tensor patch's four interior control points are read but not used; the
-  surface is evaluated by the Coons formula over the shared boundary curves,
-  differing from the true tensor surface only in the interior.
-- Mesh *patterns* have no colour field to sample, so they paint over the path's
-  bounding box — the approximation the renderer already makes for clipping.
-- Tiling patterns are reported, not rendered.
-
-Also closed here: `flattenFormToImage` used to discard its drop list, so
-anything lost while flattening a transparency group never reached the user. The
-flattener carries a per-run sink (stamped by `buildLocalFixers` exactly as `dpi`
-already was), and each drop is tagged with the page its Form sits on. Workers
-write only their own result slot, so the sink drains serially after the wait,
-needing no synchronization.
-
-### 7. Limits are hardcoded and fail silently — **DONE**
-
-The caps are good (see "already fine" below). The silent-truncation half was
-fixed earlier; the settability half is now done too.
-
-**Silent truncation — DONE.** `InflateZlib` used `io.LimitReader(zr,
-maxInflateOutput)`, which **truncated without error** — a stream over 256 MB
-silently decoded to a prefix every downstream check then ran against as if it
-were whole (same class as item 1). It now reads one byte past the cap and returns
-`ErrOutputTooLarge` when exceeded, matching `maxLZWOutput`/`maxRunLengthOutput`;
-because that error flows through the decode chokepoint it surfaces as a reported
-`StreamUndecodable` rather than vanishing. The size cap is kept distinct from
-`InflateZlib`'s deliberate leniency toward truncated/CRC-broken streams (which
-still return their inflated prefix) — `TestInflateZlibSizeCap` and
-`TestInflateZlibTruncatedKeepsPrefix` pin both. That was the last
-silent-truncation site.
-
-**Settability — DONE.** The three per-stream output caps (Flate/LZW/RunLength,
-all 256 MB) were consolidated into one configurable value and exposed as the
-root-package `Limits` type with `SetLimits`/`CurrentLimits`/`DefaultLimits`, plus
-a `--max-decoded-mb` CLI flag. Deliberately a **process-global** setter, not an
-`Options` field: the caps are read by leaf decoders reached from ~50
-free-function `DecodeStream` call sites that hold no `Reader`, so one global read
-by every decoder enforces the cap uniformly (correct for both raising and
-lowering — a per-call `Options` value would leave the Reader-less sites at
-defaults, i.e. holes when lowering for safety) and, backed by `atomic.Int64`, is
-race-clean. Resolve depth and the structural depth consts stay internal. The
-default is unchanged, so no corpus behavior moved.
-
-### 8. Convert holds everything in memory — **output and indices done; graph deferred**
-
-Was: `ConvertAll` kept a full `ConvertResult` per input, each with the complete
-output PDF as `[]byte`, so 500 files meant 500 output documents resident at once,
-and the worker count was hardcoded to `NumCPU`.
-
-**The batch half is done.** `ConvertEach`/`ConvertEachContext` (re-exported from
-root) invoke a callback on each result as it completes rather than retaining
-them, so a caller can write each output and drop it — peak memory is bounded by
-the worker count, not the batch size. Both batch forms share one worker engine
-and honour a new `Options.Workers` knob (0 = `NumCPU`). The callback is
-serialized, delivered in completion order, and a non-nil return aborts the batch.
-
-**The per-conversion output footprint is done too (with item 18).** Measurement
-first, as this item asked: on the corpus-maximum sample (~3.9 MB) the returned
-`ConvertResult` retained ~8.2 MB, of which the output buffer was ~4.4 MB — the
-resolved graph, not the output, is the larger cost, but the output is the
-tractable slice. So a conversion's output now spills to a temp file above an 8 MB
-threshold and the final verify mmaps it, rather than holding the whole PDF in the
-heap and re-opening it with `OpenBytes`; `ConvertResult.Output()` reads it back on
-demand and `Close()` releases it (see item 18). `BenchmarkConvertMemory` and
-`heapRetainedBy` guard it.
-
-**The footprint is now measured rather than inferred.** The ~8.2 MB above was
-what the returned `ConvertResult` retains, which is the wrong instrument for the
-graph: `heapRetainedBy` attributes what a returned value keeps, and the graph is
-dropped before `Run` returns. `peakHeapDuring` (sampling `/memory/classes/heap/
-objects:bytes` from a goroutine) measures it properly, and `Reader.Footprint`
-attributes the caches. On the 3.9 MB, 40,015-object corpus maximum, staged:
-
-| stage | peak heap |
-|---|---|
-| open only | 2 MB |
-| + `ResolveGraph` | 27 MB |
-| + `NumberObjects` | 37 MB |
-| full verify | 42 MB |
-| full convert | 70 MB |
-
-So the graph is ~23.5 MB — six times the file, not the ~4 MB the retention
-figure suggested — and the two stream caches are ~3.2 MB. `TestConvertFootprintReport`
-reports both an object-heavy and a content-heavy sample, since attributing only
-the first would overfit.
-
-**Two things the measurement killed.** Both were planned work that turned out to
-be worth nothing, and are recorded here so nobody re-derives them:
-
-- *Unreachable objects.* `verifyAllObjectFraming` resolves every object in the
-  xref table, not just the reachable graph, so dropping the unreachable ones
-  looked like a win. Measured across both corpora: 426 of 57,885 objects are
-  unreachable (0.7%), and the worst single file has 7.
-- *The object-stream cache*, which holds every object of every object stream in
-  addition to the object cache. One file in 774 uses object streams, and it is
-  the Isartor manual rather than a fixture — so on the committed corpora this
-  cache is dead weight that never fills, and optimising it would have been
-  optimising nothing.
-
-  **Item 10's corpus answers the question this deferred.** Censusing the
-  real-world corpus for `/ObjStm`: **384 of 1235 files, 31%** — arXiv 225/295
-  (76%), Zenodo 152/282 (54%), Wikimedia Commons 2/144, US Federal Register
-  0/484. So the suspicion was right, the committed corpora could never have
-  shown it, and the split is by producer: modern TeX and repository pipelines
-  use object streams as a matter of course, while the older scanner and
-  government toolchains do not. The cache is therefore live on a third of real
-  documents and is worth measuring for memory — as part of item 8's remaining
-  graph-footprint work, where it belongs, rather than on its own. (The census
-  reads each file's leading 4 MB, so it is a lower bound.)
-
-**What the measurement did point at, now fixed.** A single `NumberObjects` pass
-cost ~14.6 MB of scratch to produce a 3.1 MB index, because the discovery maps
-grew from empty over 30,012 objects and left the discarded bucket arrays on the
-heap. Convert paid that per fix iteration and again in the writer. Those entry
-points now take a size hint; convert passes the resolved object count, then what
-the previous pass actually numbered. Peak: **70.4 MB → 63 MB**, `B/op` 145.9 MB
-→ 130.7 MB, `allocs/op` unchanged (this changes allocation size, not count).
-`TestSizeHintDoesNotChangeOutput` pins that the hint cannot affect output.
-
-**The caches are now bounded and released.** `Limits.MaxResidentBytes` (with
-`--max-resident-mb`) caps what one Reader memoizes; over budget it stops
-inserting rather than evicting, because a `StreamKey` is an address and a
-dropped entry whose bytes are freed could be matched by an unrelated allocation
-at the same address. Zero means the default, matching
-`MaxDecodedStreamBytes`, so a partly-filled `Limits` cannot silently disable
-caching; pass 1 to switch it off. `Reader.ReleaseCaches` drops the rebuildable
-state and convert calls it on the way out, for callers holding a `Document` open
-past `Convert`.
-
-**The corpus maximum is not the worst case, and the graph is not the worst
-problem.** Every figure above comes from a file that is object-heavy by
-construction (40,015 objects in 3.9 MB). Measuring peak RSS across shapes says
-there are two regimes, and they want different fixes:
-
-| shape | file | objects | peak RSS | ratio |
-|---|---|---|---|---|
-| synthetic content-heavy | 101 MB | 82 | 928 MB | 9.2× |
-| synthetic object-heavy | 5 MB | 40,002 | 106 MB | 21× |
-| isartor 6.1.12 | 3.9 MB | 40,015 | 81 MB | 21× |
-
-A 100 MB document with **82 objects** peaks at nearly a gigabyte. Streaming
-object resolution would do nothing for it — there is no graph to speak of. The
-memory is decoded and tokenized page content, and `Footprint` says where:
-37.5 MB of decoded bytes against **219 MB of tokenized operators**, so the token
-list runs ~6× the decoded stream it came from.
-
-**The budget now bounds the peak, not just what is retained, and it counts
-honestly.** Two defects fed each other. `ScanStreamCached` built the whole
-`[]ScannedOp` and *then* asked whether the budget had room, so a stream larger
-than the budget still paid for its token list in full; and `scannedOpsBytes`
-excluded operand values, which the content lexer allocates fresh per operator,
-so the budget under-counted a vector-heavy stream by about a quarter. The entry
-point is now `Reader.ScanStreamFunc(dict, fn)`, which tokenizes *while* it
-streams and abandons the list the moment it outgrows the remaining budget; the
-cached list is replayed when there is one, so the fast path is unchanged. Both
-consumers (`scanContentDict`, `collectUsageFromBytes`) were already single-pass
-callbacks and moved straight onto it, so `ScanStreamCached` is gone — nothing
-needed random access.
-
-**The default budget is 64 MB, down from 256 MB.** With honest accounting the
-largest committed fixture caches ~4 MB, so 64 MB still leaves sixteen times the
-headroom and cannot bind on any ordinary document; it exists to bound the
-document that is genuinely huge. On the content-heavy file: peak RSS **958 MB →
-689 MB**, and *faster* (16.5 s → 11.2 s), since the cache churn it avoids costs
-more than the re-lexing it adds. (Before and after measured in one session,
-best of three; the 928 MB in the table above is the same file on an earlier run.) Object-heavy is unchanged at ~103 MB, corpus
-benchmarks are flat (geomean −0.14%, `allocs/op` unmoved).
-
-The trade the streaming path makes — re-lexing an over-budget stream on every
-fixer iteration — measures at 2–5% on the most cache-heavy corpus file
-(`--max-resident-mb 1` vs default, 15 conversions: 7.42 s → 7.57 s), and applies
-only past the budget.
-
-`TestConvertUnderTightBudgetMatchesDefault` is the gate: 20 fixtures converted
-with memoization off must be byte-identical to the default run. Making its
-sample deterministic (evenly spread over the sorted corpus, not map order)
-immediately caught a *pre-existing* nondeterminism: `pruneUnusedResourceEntries`
-chose which unused resource entries to drop by map iteration order, so a
-document with more prunable entries than excess converted to different bytes on
-every run. Candidates are sorted now.
-
-Still open (deferred): the ~23.5 MB graph itself. `Run` resolves every reachable
-object into Go structures, and at ~590 bytes per object the cost is the
-`map[string]PDFValue` scaffolding, not stream bytes (those already alias the
-mmap). Reducing it needs partial/streaming resolution, and the blocker is
-sharper than "the model assumes a resolved trailer":
-
-- **Identity is an address.** `StreamKey` is `(&RawStream[0], len)` and ~78 call
-  sites key maps on `ValuePointer(d.Entries)`. Eviction requires identity that
-  survives a re-parse, so those have to move to an object-number key first. That
-  is not a clean swap: fixers build fresh `PDFDict` literals throughout convert,
-  and a dict with no object number has nowhere to carry a stable id except a
-  synthetic `Entries` key — which leaves a hybrid that still falls back to
-  addresses, i.e. the fragility the eviction needed removed.
-- **Whole-document-before-any-page.** `ComputeContentUsage` must finish for the
-  entire document before any page's checks run.
-- **Numbering before writing.** `writer.discover` must enumerate the full object
-  set before the first output byte.
-
-The design that fits: resolve a page subtree, walk it, then re-reference it
-(restore each entry's `PDFRef` from the existing `_ref` marker) and drop those
-object numbers, so the mmap'd input backs clean objects exactly as the temp file
-backs the output in item 18, with fixer-dirtied objects pinned. It is a real
-rearchitecture gated on the identity migration above, and the numbers now say
-what it buys: about a third of a conversion's peak.
-
-### 9. Windows and macOS are untested — **DONE** (fallback tested + documented)
-
-Was: CI ubuntu-only, and `mmap_other.go` returns nil on non-unix so Windows takes
-an entirely different, never-exercised seek-based read path — and loses the
-large-file guarantee.
-
-Two corrections and a resolution:
-
-- **macOS is not a separate path.** The `//go:build unix` tag covers darwin and
-  the BSDs, so macOS uses `mmap_unix.go` exactly like Linux; the CI `macos` job
-  (item 13) runs the same code. Only **Windows** hits `mmap_other.go`.
-- **The Windows seek path is now exercised on Linux.** `pdf.OpenBytesSeek` parses
-  in-memory data through the same `d.data == nil` → `NewLexerAt` (ReadAt/seek)
-  path Windows takes without mmap. `TestSeekPathParsesLikeBytes` (internal/pdf)
-  and `TestSeekPathVerifyMatchesBytes` (internal/verify, both committed corpora)
-  assert it produces byte-for-byte the same parse and issue-for-issue the same
-  verify result as the byte-slice path. That parity run immediately caught two
-  latent map-iteration message nondeterminisms (6.3.5 CharSet glyph, 6.5.3
-  appearance entry), now fixed — the fuzz determinism oracle missed them because
-  it compares only `Valid` and `Count`.
-- **The limitation is documented, not implemented away.** Windows still gets no
-  mmap: parsing streams via `ReadAt` (bounded), but the whole-file recovery scans
-  (`fullBytes`) heap-load on a damaged file, so the "larger than RAM" guarantee is
-  unix-only. Implementing `CreateFileMapping`/`MapViewOfFile` was declined for now
-  — it can only be tested on the Windows CI runner, not locally — and the seek
-  fallback is proven correct instead. See `doc.go` and `mmap_other.go`.
-
----
-
-## P2 — proving it works on files nobody wrote a test for
-
-This section is the one the first draft of this roadmap missed, and it may matter
-more than anything except P0. Everything currently green is green against
-*synthetic conformance-suite files*. Both suites are hand-built to exercise one
-clause each. Real PDFs are not like that.
-
-### 10. There is no real-world corpus — **DONE**
-
-Isartor and veraPDF are 777 files averaging 3.6 KB, each deliberately
-constructed. Nothing in the test suite is a 200-page scanned report from a
-real scanner, a LaTeX paper, an InDesign export, a Word document, or a
-Ghostscript-converted invoice.
-
-Two corpora, answering different questions, are now wired as `TestRealWorldCorpus`
-(`convert_test.go`) over `tests/realworld/{should-pass,should-convert}/`:
-
-- **Should-pass**: real files a tool and veraPDF both call PDF/A-1b. gopdfrab must
-  verify every one clean; a rejection is a false positive and fails the test.
-- **Should-convert**: ordinary non-PDF/A documents across producers. The test
-  reports the fraction reaching conformance, how many needed a page rasterized,
-  and how many lost content the rasterizer could not draw. The first loss metric
-  is `ConvertResult.RasterizedPages` (item 6), which replaced the earlier use of
-  `RasterDrops` for this: drops count only *undrawable* content, so a page
-  flattened losslessly — still a conversion from text and vectors to pixels —
-  never showed up as lossy. That was the "convert-time rasterized signal" this
-  item asked for.
-
-The **PDF bytes are gitignored; the inventory is committed.** `manifest.json`
-records each file's hash, licence, provenance and an optional source URL — never
-the bytes. You drop PDFs into the corpus dirs and run
-`scripts/gen-realworld-manifest.sh`, which hashes them and merges them into the
-manifest (preserving annotations, stubbing new licences as `TODO`); this handles
-self-generated PDF/A files, which have no URL. Entries that do carry a URL stay
-reproducible via `scripts/fetch-realworld-corpus.sh`. `TestRealWorldCorpus`
-checks every present file against the inventory (an unlisted file, hash mismatch,
-or `TODO` licence fails), and skips when the corpus is absent;
-`TestRealWorldHarnessSelfCheck`/`TestRealWorldManifestCheck` cover the metric and
-inventory logic against generated fixtures so the harness is green regardless.
-
-#### Populating it
-
-`scripts/source-realworld-corpus.py` (plan → fetch → classify → manifest, each
-phase resumable) sources the corpus from public collections that publish
-machine-readable licences, under per-host rate limits and a byte budget:
-**Zenodo** (the widest producer spread — Word, InDesign, Distiller, Quartz,
-scanners), **Wikimedia Commons** (the stress end: scanned books, CCITT G4 and
-JBIG2 bitonal images, non-Latin scripts), the **US Federal Register** via govinfo
-(iText/GPO output, digitally signed), **arXiv** (pdfTeX/dvips/XeTeX, sampled
-across years because the TeX toolchain moved a lot), and **OAPEN** (hundreds of
-pages of typeset book layout). `scripts/gen-realworld-selfmade.sh` then fills the
-gaps the public collections cannot be relied on for: PDF/A-1b/-2b/-3b exports,
-tagged output, RC4-40/128 and AES-128/256 encryption, object streams (only one
-file in the whole committed corpus uses them), CCITT and DCT images, CJK/Arabic
-CID fonts, and a scanned page with an invisible OCR text layer.
-
-Three things the sourcing work settled:
-
-- **Classification is measured, not guessed.** veraPDF's verdict decides
-  should-pass vs should-convert, because provenance predicts nothing: a US
-  Federal Register PDF is iText output and *fails* 1b, while a LibreOffice
-  PDF/A-1b export passes. Any real PDF/A that turns up in a general collection
-  therefore lands in should-pass on its own.
-- **Only redistributable licences are accepted** (CC0, CC-BY, CC-BY-SA,
-  US-federal public domain, self-generated), so every downloaded entry stays
-  legally fetchable from its recorded URL. An unrecognised licence string is
-  treated as not-free — this drops most of arXiv, whose default licence is
-  non-exclusive-distribution rather than CC.
-- **EUR-Lex is off by default.** It would be the best source of real,
-  non-self-generated PDF/A (legislation, every official language), but it answers
-  automated clients with an HTTP 202 interstitial. The right response to a site
-  signalling that is to stop, not to work around it; the source is left in the
-  tool, opt-in, in case that changes.
-
-The generator script also had to be fixed to scale: it ran one `jq` per file over
-a manifest that grew as it went — fine for ten files, quadratic for a few
-thousand. It hashes in parallel and merges in a single pass now.
-
-#### What the corpus found
-
-Nine real defects, each invisible to 777 synthetic fixtures, each now pinned by a
-test that does not need the corpus present. Worth noting where they came from:
-**four of the nine were exposed by the five should-pass files**, the rarest part
-of the corpus and the only part that is a hard gate. Five files found four bugs;
-1580 found five. That is the argument for hunting real PDF/A specifically rather
-than collecting documents by the gigabyte.
-
-The nine, tagged with the corpus half that exposed each:
-
-- **A cross-reference table with bare CR line endings was wholly unparseable.**
-  The line reader split on LF alone, so `xref\r695 71\r0000000016 00000 n` read
-  as one line that is not `xref`, and the whole table was lost. Every such file
-  fell back to the item-4 brute-force object scan — and one whose trailer carries
-  no `/Root` (a linearized dvips-produced arXiv paper) then had no catalog at
-  all, so convert failed outright with `injectOutputIntent: Root is not a
-  dictionary`. CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3);
-  both the mmap and the seek path accept all three now. This is the broadest
-  find: the recovery machinery hid it by making the file *almost* work.
-- **[should-pass] The TrueType CIDSet check rejected real PDF/A (6.3.5).** It required every
-  glyph with outline data to be listed in `/CIDSet`. A TrueType subsetter keeps
-  `loca` and `numGlyphs` at their original size and leaves component glyphs
-  behind: the sample font had 3065 glyph slots, 64 outlines and 26 CIDs in its
-  CIDSet, all perfectly consistent. Scoped to rendered CIDs now. The CFF path is
-  deliberately left alone — a CID-keyed CFF charset lists exactly the subset's
-  glyphs, so there "in the charset" really is "present in the program", and the
-  veraPDF suite's 6-3-5-t03 fail files depend on it.
-- **[should-pass] A (3,1) cmap miss was treated as definitive**, skipping the (1,0) lookup
-  ISO 32000-1 9.6.6.4 prescribes next for a non-symbolic TrueType. Found while
-  investigating the above; no corpus file turns on it, so this is
-  spec-alignment rather than a demonstrated fix.
-
-- **The Info/XMP `Author` sync check failed values against themselves
-  (6.1.5, 6.7.3).** It compared decoded Info text against raw XML markup, so an
-  author list containing an `&` — ordinary on arXiv — never matched; and it
-  trimmed the XMP side only, so a value with leading whitespace differed from
-  its own copy. Convert builds the XMP packet *from* the Info value it is
-  compared against, so both shapes survived conversion and failed the output.
-  Entities are decoded now and neither side is trimmed: trimming both looked
-  right and was wrong, because veraPDF treats a whitespace-only difference as a
-  genuine mismatch — its own 6-1-5-t01-fail-b fixture is exactly that, and it
-  caught the overreach immediately.
-
-- **An object the xref lists but the file never defines was treated as data
-  loss.** Resolution scanned the whole file for its header, found none, and
-  recorded a degraded object — which item 3 carries into the final result and
-  forces `Valid=false`, so the conversion failed. But a reference to an
-  undefined object *is* the null object (ISO 32000-1 7.3.10): the object is not
-  damaged, it does not exist, and every reader agrees on null. `parseReference`
-  already reached exactly that conclusion for an object absent from every xref
-  section; the recovery path just did not. This was the single largest residual
-  in the corpus — 20 files, mostly slide decks from one export pipeline — and
-  the honest reading makes all of them convert cleanly.
-
-- **[should-pass] Every Ghostscript-produced PDF/A was reported as missing its PDF/A
-  identifier (6.7.11).** The XMP scan recognised `pdfaid:part` as an attribute
-  only when double-quoted; Ghostscript writes single quotes, which XML gives
-  equal standing. The same assumption sat in five other regexes (the namespace
-  binding scan, `xmp:CreateDate`/`ModifyDate`), so they are all built from one
-  shared `pdf.XMLAttrValue` pattern now. This is the single highest-impact find:
-  Ghostscript produces a large share of the world's real PDF/A.
-- **[should-pass] The space in a monospaced TrueType subset was reported as a missing glyph
-  (6.3.5).** An empty outline counted as present only if its advance width was
-  also zero. An empty `loca` entry is simply how TrueType encodes a glyph with no
-  contours; the glyph is defined, and only an out-of-range glyph id is genuinely
-  absent. `TTNumGlyphs`' own doc comment already stated the correct rule, which
-  `TTGlyphPresent` then contradicted.
-- **No digitally signed document could be converted (6.4).** Acrobat writes a
-  signature appearance as nested Form XObjects whose innermost form carries
-  `/Group /S /Transparency`. The verifier's graph walk reports it; the
-  transparency fixer walked only page `/Resources`, where an appearance stream
-  does not live. So the verify/fix loop ran all four iterations, rasterized a
-  page trying to make progress, and still returned non-conformant output —
-  losing a page to raster for a violation it never even reached. Now
-  `collectAnnotationTargets` descends `/Annots → /AP → /N,/R,/D` and the
-  appearance-state sub-dictionaries. Worth recording that this fixer is the
-  *only* one with that exposure: every other one walks `walkDicts` from the
-  trailer, which reaches appearance streams naturally. This one walks the page
-  tree because it needs page context (media box, page number, inherited
-  resources) to rasterize.
-- **`/EncryptMetadata false` was parsed but not honoured.** The flag fed key
-  derivation correctly and was then ignored where it matters: the metadata stream
-  is left in the clear so an indexer can read it without the password, and
-  decrypting it anyway produced garbage — under AES it did not even decode, since
-  the plaintext is not block-aligned, so the object degraded to null and the
-  conversion reported 6.1.6. The two committed cleartext-metadata fixtures set
-  the flag but **carry no metadata stream at all**, so they pinned the parsed flag
-  and not the behaviour it governs; `enc_aesv3_cm_meta.pdf` has one.
-
-Plus two latent nondeterminisms, of the class this repo keeps finding: the
-`/XObject` resource walk took its order from a map, so a page losing more than
-one undrawable feature reported `RasterDrops` in a different order on every run;
-and the simple-font coverage check iterated used character codes in map order
-while reporting only the first failure, so it named a different code per run.
-
-**One deviation is recorded rather than fixed, and the mechanism is new.**
-`shouldPassDeviations` (keyed by sha256, so a re-classified file keeps its
-justification) lists should-pass files gopdfrab deliberately rejects, mirroring
-`differentialDeviations` from item 11. It has exactly one entry: an arXiv paper
-whose Word-produced subset of TimesNewRomanPS-BoldMT is shown with character
-code 48 and has no glyph for it — no (3,1), (0,3), (3,0) or (1,0) cmap entry and
-a version-3.0 `post` table, so none of ISO 32000-1 9.6.6.4's three lookup paths
-resolves it and the page renders `.notdef`. veraPDF passes the file; this is a
-veraPDF false negative, verified by hand against the font's tables. A listed file
-that starts verifying clean fails the test, so the entry cannot outlive its
-reason.
-
-#### What it measures
-
-**1585 files, 3.9 GB**, median 224 KB, 34 over 20 MB, largest 140 MB — against
-777 committed fixtures averaging 3.6 KB. By source: 783 US Federal Register,
-295 arXiv, 282 Zenodo, 144 Wikimedia Commons, 51 OAPEN, 30 self-generated.
-
-| metric | result |
-|---|---|
-| should-pass verified clean | 5 of 5 (one via a documented deviation) |
-| should-convert reaching conformance | **1564 of 1580 (99.0%)** |
-| convert errors, panics, hangs | **0** |
-| needed a page rasterized | 85 (5.4%) |
-| lost content the rasterizer cannot draw | 18 (1.1%) |
-| wall time, whole corpus | ~4m20s |
-
-The conformance fraction rose from 97.8% to 99.0% over the fixes above, which is
-the useful way to read them: they were found as clusters, not as one-offs. The
-16 that still fall short are spread thin — the largest group is seven
-object-model violations the fixer matrix does not cover, then 6.1.7 (3), 6.1.4
-and 6.1.6 (2 each), and four singletons.
-The two loss metrics are worth reading together: 85 files needed a raster page,
-but only 18 lost anything that could not be drawn, and across the whole corpus
-the *only* undrawable content is **tiling patterns (43 occurrences) and
-malformed shadings (15)** — both already on item 6's list of deliberate
-approximations. That is the honest coverage statement for the rasterizer, now
-measured against real documents rather than fixtures.
-
-The harness itself was made fit for a corpus of this size: `checkShouldConvert`
-runs through `ConvertEachContext` (which dogfoods the batch API on real input and
-bounds peak memory by worker count rather than batch size, which is what that
-entry point is *for*), `checkShouldPass` through `VerifyAllContext`, and the
-inventory check hashes with `io.Copy` rather than `os.ReadFile` — a corpus with
-hundred-megabyte documents must not be heap-loaded to be hashed, by this
-library's own rule. Two opt-in environment variables carry the triage:
-`GOPDFRAB_REALWORLD_REPORT` writes a per-file verdict record (clauses, rasterized
-pages, drops, size, completion offset), and `GOPDFRAB_REALWORLD_DETERMINISM`
-converts the whole corpus twice and compares output bytes.
-
-### 11. The differential harness exists but never runs — **DONE**
-
-Was: `convert_regression_test.go` cross-checked gopdfrab against the bundled
-veraPDF binary — the right idea, dark in three ways: it skipped under `-short`
-(what CI ran), skipped when the binary was absent (as in CI), and its corpus
-`tests/regression/` was gitignored, so the documents that caught bugs lived on
-one machine.
-
-Turned on and expanded. `TestDifferentialVeraPDFCorpora` (conformance_test.go)
-runs the veraPDF binary in one batch per corpus over both **committed** suites
-(777 files) and diffs its verdict against gopdfrab's file-by-file — this
-compares against veraPDF the implementation, not the filename expectations the
-suite tests already assert. A verdict disagreement fails unless listed in
-`differentialDeviations` with a justification (empty today). Clause-set
-differences are logged, not failed, since check granularity legitimately
-differs. A new CI `differential` job installs veraPDF via
-`scripts/install-verapdf.sh` and runs this plus the regression cross-check, so
-the harness is no longer dark. The `tests/regression/` real-world corpus stays
-item 10 (licensing); `TestConvertNoResidualIssues` still covers it when present.
-
-Running it immediately paid for itself — **two real verifier bugs**, both
-false-negatives veraPDF caught and no synthetic test did:
-
-- **6.2.7 PostScript XObject was profile-disabled, not reachability-gated.**
-  PDFA1B dropped the `PostScriptXObject` check entirely because veraPDF's
-  corpus passes a file with an *unreferenced* PS XObject — but veraPDF *fails*
-  a referenced one (isartor-6-2-7-t01-fail-a). Now the check is gated on
-  `isReachableXObject` exactly like Form XObjects, matching veraPDF on both. A
-  new convert fixer neuters a referenced PS XObject into an empty Form XObject
-  (PS passthrough renders nothing in a viewer), verified conformant by the
-  veraPDF binary on the converted output.
-- **Content usage never entered tiling-pattern streams.** A non-embedded font
-  shown only inside a tiling pattern's content (isartor-6-3-4-t01-fail-h) was
-  invisible to `ComputeContentUsage`, so `SkipUnusedSimpleFonts` wrongly
-  suppressed the 6.3.4 finding. `scn`/`SCN` now scan the selected pattern's
-  stream (deduped) for font and XObject usage, gated on the pattern actually
-  being set.
-
-Note the benchmarks README explicitly puts correctness out of scope and defers
-to the corpora. That was fine while the corpora were the whole story. It isn't
-now.
-
-### 12. Nothing checks that converted output still looks like the input — **DONE**
-
-Was: no fidelity test anywhere — the only guard was "does it verify clean,"
-which blanking a page always improves. The known failure mode is on record:
-conformant output that was destructively rasterized or blanked.
-
-`internal/convert/fidelity.go` renders the input and the converted output with
-gopdfrab's **own** rasterizer on both sides, so the renderer's operator-coverage
-gaps are symmetric and cancel — the comparison isolates what the *conversion*
-changed, not what the renderer cannot draw. `CompareFidelity` returns a
-`PageFidelity` per page (`Similarity`, `InputInk`, `OutputInk`); `Blanked()`
-flags the unambiguous data loss (input had ink, output is near-empty), which
-unlike a raw similarity threshold does not fire on legitimate changes such as
-font substitution.
-
-Two deliverables:
-
-- **The gate** (`TestConvertFidelityNoBlankedPages`): converts each corpus
-  fixture and asserts no page was blanked. Running it found **0 blanked pages**
-  across the full corpus. Rendering both sides is dominated by a heavy tail of
-  megabyte fixtures, so by default it skips inputs over 50 KB (still ~95% of the
-  corpus, 0.4 s) and `GOPDFRAB_FIDELITY_FULL=1` renders everything (~3 min); a
-  blanking regression is systematic and shows up across the small fixtures too.
-- **The report**: opt-in `Options.CheckFidelity` renders input (captured before
-  any fixup mutates the graph) against output and populates
-  `ConvertResult.Fidelity []PageFidelity`, re-exported from the root package.
-
-The symmetric-renderer design had one blind spot — content the rasterizer
-itself cannot draw is dropped on *both* sides, so a raster fallback that loses
-it is not caught here. **Item 6 closed it twice over.** Shadings, inline images
-and Type 3 glyphs are now *drawn* on both sides, so the pixel comparison sees
-them rather than cancelling them out; what still cannot be drawn (tiling
-patterns, malformed shadings, capped meshes) stays loud in
-`ConvertResult.RasterDrops`. The two together are the complete fidelity story.
-
-### 13. CI runs a fraction of the test suite — **mostly DONE**
-
-Was: `.github/workflows/go.yml` ran `go test -short` on ubuntu only. Now the
-workflow has:
-
-- **`-race`.** Every matrix OS runs `go test -short -race` over all packages,
-  exercising `TestGeneratedCorpusRace`/`TestConcurrentDecodeIsSafe` (green,
-  including on the shared-Reader convert path).
-- **Fuzzing.** `scripts/fuzz.sh` runs every one of the 26 `Fuzz*` targets; a
-  `fuzz` job smoke-fuzzes each for 20 s on every push, and a `nightly-fuzz`
-  cron job runs 5 min per target and uploads any crasher. Seeds replay from the
-  committed corpus as before.
-- **OS matrix** (item 9): ubuntu + windows + macos build and race-test.
-- **wasm** (item 28): a `wasm` job builds `GOOS=js` with `-o /dev/null`.
-- **Differential** (item 11): a `differential` job installs veraPDF and runs
-  the cross-check.
-
-Still open, and deliberately: the differential and regression jobs cover the
-committed corpora but not the real-world one. That corpus now exists (item 10)
-but is multi-gigabyte and gitignored — re-fetching it per CI run is not a job
-worth having, so `TestRealWorldCorpus` stays local-only and `-short`-gated. The
-manifest's URLs keep it reproducible on any machine. Windows's seek-based read
-path is now exercised on Linux via `pdf.OpenBytesSeek` parity tests (item 9).
-
-### 14. Thread-safety is undocumented — **DONE**
-
-Was: nothing in `gopdfrab.go` or `document.go` said whether a `*Document` may be
-used from multiple goroutines. `Reader` carries several caches and one mutex that
-guards only `DecodeStreamCachedConcurrent`, which strongly suggested the answer
-was no — but callers couldn't know that, and `VerifyAll`/`ConvertAll` being
-concurrent implied otherwise.
-
-The contract is now what the code already did, stated at each type rather than
-only in the package overview:
-
-| Surface | Contract |
-|---|---|
-| `*Document` / `pdf.Reader` | **Not** safe for concurrent use — unsynchronized parse and decode caches. One per goroutine. |
-| Package-level `Verify*`/`Convert*` | Safe to call concurrently; each opens its own document. |
-| `*Profile`, `Options` | Read-only after construction (the profile mutators clone), so one value may be shared. |
-| `Result` | Immutable once returned. |
-| `ConvertResult` | `Output`/`WriteTo`/`Save` are safe concurrently — each opens the spill backing separately, sharing no read offset — but not with `Close`, which releases what they read. |
-| `VerifyAll`/`ConvertAll`/`ConvertEach` | Internally concurrent, call from one goroutine; the `ConvertEach` callback is serialized. |
-| `SetLimits`/`CurrentLimits` | Safe from any goroutine (atomics); a change applies to the next stream decoded, not to work in flight. |
-
-Five `-race` tests enforce it, all cheap enough for CI's `-short` race job:
-`TestDocumentPerGoroutineIsSafe` (a Document per goroutine over a shared
-`*Profile`, every goroutine's issue set compared),
-`TestConvertResultConcurrentReads`, `TestBatchHelpersConcurrentCalls` (a
-`VerifyAll` and a `ConvertEach` running against each other),
-`TestSetLimitsConcurrentWithVerify`, `TestVerifyContextConcurrentCancellation`,
-plus `TestSeparateReadersAreIndependent` in `internal/pdf`.
-
-Findings:
-
-- **The negative half was verified, not assumed.** A throwaway test sharing one
-  `Document` across four goroutines makes the race detector fire immediately, so
-  "not safe for concurrent use" is a measured statement and the test suite would
-  catch a regression that quietly made it safe-looking.
-- **`EqualPDFValue` cannot compare resolved graphs.** A resolved graph is cyclic
-  (a page's `/Parent` points back at its `Pages` node), so the obvious
-  cross-goroutine comparison stack-overflows. `TestSeparateReadersAreIndependent`
-  renders a cycle-safe signature instead (dict keys sorted, each `Entries` map
-  visited once) — worth knowing before anyone else reaches for `EqualPDFValue` on
-  a whole graph.
-- **The `ConvertResult` read/Close split fell out of the spill design.** `bytes`
-  and `writeTo` each `os.Open` the temp file, so concurrent reads were already
-  safe; only `Close` (which clears `path`/`mem` under a `sync.Once`) races with
-  them. Documented rather than locked — a mutex would buy nothing a caller
-  can't get by owning the lifetime.
-
----
-
-## P3 — API, before it gets frozen
-
-The disclaimer says the API will change heavily before release. This is the list.
-Do it in one pass.
-
-### 15. Options — **mostly DONE** (merged with item 16)
-
-Was: every entry point took `(path, profile)` and nothing else. Now the
-two-argument forms cover the common case and each has a `…Context` counterpart
-that adds a `context.Context` and an explicit `Options` struct:
-
-```go
-cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
-    Password:      pw,
-    RasterDPI:     300, // replaces the former flattenDPI const
-    MaxIterations: 8,   // replaces the former maxConvertIterations const
-})
-```
-
-A plain struct value, not functional options: an early functional-options pass
-(`WithRasterDPI(…)`) was rejected as too much machinery for a frozen API, and a
-variadic config struct as too loose. `Options.Password` threads to the open
-step (so it applies to `Verify`/`Convert` but not the `*Document` methods, whose
-file is already open); `RasterDPI`/`MaxIterations` are convert-only. To set
-options without a deadline, pass `context.Background()`. Internally
-`convert.Options` and a `verify` password parameter are plain explicit params
-(no variadic); the two-argument public forms pass the zero value.
-
-The **resource-limit** caps from item 7 landed as a process-global
-`SetLimits`/`Limits` surface rather than `Options` fields (item 7 explains why:
-the caps are enforced at decode chokepoints reached from callers with no
-document handle, so one global enforces them uniformly across verify and
-convert). That closes the remaining half of both item 7 and this item.
-
-### 16. No `context.Context` anywhere — **DONE**
-
-Was: nothing was cancellable. Added `VerifyContext`/`VerifyBytesContext`/
-`VerifyAllContext` and `ConvertContext`/`ConvertBytesContext`/
-`ConvertAllContext` (plus `(*Document).VerifyContext`/`ConvertContext`), each
-also carrying the `Options` from item 15 — one `…Context` variant per operation
-rather than separate context and options overloads.
-
-Cancellation is checked at the loop boundaries the roadmap named: **per file in
-a batch** (`ConvertAllContext`/`VerifyAllContext` stop dispatching and record
-`ctx.Err()` for files not started), **per verify/fix iteration**, and **per
-raster pass** (`RunContext` checks before each). A single `Verify` is bounded by
-the parser's resource caps, so `VerifyContext` checks once at entry rather than
-threading ctx through the internal graph walk — a deliberately coarser
-granularity documented at the function. The non-context forms delegate with
-`context.Background()`, so no internal call site or the two-argument public form
-changed.
-
-### 17. Results don't serialize — **DONE**
-
-Every `PDFError` field is unexported, so `json.Marshal(result)` yielded
-`[{},{},{}]`. `internal/pdf/json.go` now defines `MarshalJSON` on `Check`,
-`PDFError` and `Result` with a documented, stable, output-only shape (the root
-aliases inherit it): `Check` → `{name, clause, subclause, description}` (internal
-id omitted); `PDFError` → `{check, page, documentLevel, object?, objModel?,
-messages, text}`; `Result` → `{type, valid, issueCount, issues}` with `issues`
-always an array. Shape is pinned by tests in both `internal/pdf` and the root
-package. No `UnmarshalJSON`: a `Check`'s identity is its registry entry, not free
-text.
-
-### 18. Streaming output — **DONE**
-
-`ConvertResult` has `WriteTo(io.Writer) (int64, error)` (implements
-`io.WriterTo`), so callers can stream the rewrite to any sink without copying it
-again. `Output` is now lazy: it changed from a `[]byte` field to a method
-`Output() ([]byte, error)`, and a conversion's output spills to a temp file above
-an 8 MB threshold (`spillWriter`) instead of staying resident, so the whole PDF
-need not stay in the heap. `WriteTo`/`Save` stream straight from the backing
-(in-memory bytes or the temp file); the final verify mmaps the temp file via
-`pdf.Open` rather than heap-holding it via `OpenBytes`. A new `Close()` releases
-the backing (removing the temp file); the backing is shared by pointer so value
-copies of a `ConvertResult` Close idempotently. `ConvertEach` closes each result
-after its callback; `Convert`/`ConvertAll` leave `Close` to the caller. On
-js/wasm (no filesystem) output stays in memory unchanged. This is the memory
-work item 8 named; the resolved-graph footprint there is the remaining, deferred
-half.
-
-### 19. Typed errors — **DONE**
-
-Callers can now tell the open-failure categories apart with `errors.Is` instead
-of matching message text. `ErrNotPDF`, `ErrDamaged`, `ErrEncrypted` and
-`ErrPasswordRequired` are defined in `internal/pdf/filters.go` and re-exported
-from the root package. The open path wraps them: `newDocument` and
-`initializeStructure` return `ErrNotPDF` when there is no `%PDF-` header (a
-tolerated garbage prefix is not misclassified) and `ErrDamaged` for every
-unparseable startxref/xref/trailer failure; decryption returns
-`ErrEncrypted`/`ErrPasswordRequired`. All wrap the specific cause, so the message
-is unchanged and the chain survives the `failed to parse structure: %w` wrapper.
-`TestOpenBytesErrorClassification` pins the mapping.
-
-The decode chain's `ErrEncodedImage`, `ErrUnsupportedFilter`,
-`ErrUnsupportedPredictor`, `ErrNotAStream` and `ErrOutputTooLarge` remain as
-before. A distinct `ErrIO` was considered and skipped: a genuine mid-read I/O
-error is rare and already surfaces wrapped; splitting it from `ErrNotPDF` would
-add a category with almost no reachable call site.
-
-### 20. A real CLI — **DONE**
-
-Was: `cmd/` empty and `main/main.go` an example importing `internal/pdf` (which
-external users cannot). Shipped `cmd/gopdfrab` built on the public API only,
-with `verify` and `convert` subcommands, `--json`, meaningful exit codes
-(0 conformant, 1 non-conformant, 2 error), recursive directory input on
-`verify`, and `--profile`/`--password`/`--dpi`/`--max-iterations` flags. It uses
-the item-15/16 `Options` and `ConvertContext`/`VerifyAllContext` entry points,
-so a SIGINT cancels an in-flight run through the same context path. The
-`run(ctx, args, stdout, stderr) int` core is table-tested without spawning a
-process (exit codes, JSON shape, pass/fail/error, cancellation), and the
-obsolete `main/` example was removed. `go install
-github.com/voidrab/gopdfrab/cmd/gopdfrab@latest`.
-
-### 21. Naming consistency — **DONE**
-
-The level constants and profile variables mixed snake_case with MixedCaps.
-Dropped the underscores per Go convention (staticcheck ST1003): the `LevelType`
-constant `A_1B` is now `A1B` (`Undefined`/`ObjectModel` unchanged), and the
-profile variables `PDFA1B`/`Legacy1B` are now `PDFA1B`/`Legacy1B` (`PDF`
-unchanged). Initialisms stay all-caps (`PDFA1B`, not `PdfA1b`). The profile's
-`PDF` prefix over the level's bare name is intentional — they are different types
-in different roles (`Verify(path, PDFA1B)` vs `res.Type == A1B`).
-
-Per Effective Go's getter rule, the `Get` prefix is gone from the `Document` and
-`Reader` accessors: `GetPageCount`/`GetVersion`/`GetMetadata` are now
-`PageCount`/`Version`/`Metadata`. A hard rename with no deprecated aliases, since
-the API is still pre-1.0. README updated to match.
-
----
-
-## P4 — performance
-
-Numbers are strong; the work is keeping them.
-
-### 22. Commit performance history — **DONE**
-
-Was: `benchmarks/results/` is gitignored, so every round was local-only and
-regressions across releases invisible.
-
-`benchmarks/results/history/` is now un-ignored and holds one committed file per
-round — the raw `go test -bench` output, which is what benchstat reads, named
-`YYYY-MM-DD-<short-sha>.txt`. `benchmarks/scripts/record-history.sh` records a
-round and prints a benchstat comparison against the previous one; it refuses to
-name a dirty tree anything but `-dirty`, so a committed round always ties to a
-commit. The first baseline is committed.
-
-Two things the directory's README makes explicit, because the numbers are easy
-to over-read: `allocs/op` is deterministic (every sample in the baseline round
-reports ± 0%) and is the signal to trust, backed by the enforced ceilings in
-`TestCostPathAllocationsBounded` (item 23); wall-clock is ±15% thermally noisy
-on a dev machine, so a time difference under that is unproven. Rounds are not
-comparable across machines, which is why `goos`/`goarch`/`cpu` stay in each
-file's header.
-
-### 23. Extend the allocation guards — **DONE**
-
-Was: wall-clock on a dev machine is ±15% noisy, so the `allocs/op` assertions in
-`benchmarks/micro/bench_test.go` are the only stable gate, and they covered only
-the "large" torture-test sample (Open+Verify and Convert). Added
-`TestCostPathAllocationsBounded`, a table-driven guard extending the ceilings to
-the other distinct cost paths: `verify`/`convert` of the embedded-font sample
-(`Convert/fonts` and its verify), Separation/DeviceN colour verification
-(`large_color`), and the raster-fallback conversion (`raster`). Each ceiling is a
-regression ceiling set ~10% over the measured, deterministic `allocs/op`, so a
-reintroduced per-object re-parse (which multiplies allocations) trips it without
-false positives.
-
-### 24. Benchmark the recovery path — **DONE**
-
-`BenchmarkXRefRecovery` (internal/pdf) opens the same document intact and with
-its startxref destroyed at 100/1000/5000 objects. The full-file scan scales
-linearly (10× objects → ~11× time; a 5000-object damaged file recovers in
-~30 ms), so item 4's recovery is not a denial-of-service vector. Still local-only
-until the benchstat history lands (item 22); no allocation guard yet.
-
----
-
-## P5 — release engineering
-
-### 25. Stability policy — **DONE**
-
-`CHANGELOG.md` added (Keep a Changelog format) with a "Versioning and stability"
-section stating it explicitly: pre-1.0 nothing is stable; from 1.0 the guarantee
-covers the root package only, `internal/*` is exempt, a breaking change is one
-that stops a root-package consumer compiling or alters documented behavior (major
-only), a more-correct verifier/converter verdict is a fix not a break, and
-deprecated symbols carry a `// Deprecated:` comment for at least one minor release
-before removal in a later major. The `[Unreleased]` section is seeded with recent
-work.
-
-### 26. Security policy — **DONE**
-
-`SECURITY.md` added: private disclosure via GitHub security advisory or
-`contact@voidrab.com`, what counts as a vulnerability (crash/DoS/limit-bypass, a
-false pass, silent content loss on convert) versus an ordinary bug, best-effort
-response targets (3 / 10 business days), and pre-1.0 supported-version scope.
-
-### 27. Documentation — **DONE**
-
-Was: one `Example()` in the entire repo, no `doc.go`, no package-level overview
-on pkg.go.dev beyond a one-line comment. Added `doc.go` with a package overview
-covering the verify/convert model, profiles, options/limits/cancellation and the
-concurrency contract, plus runnable examples for the main entry points (`Verify`,
-`VerifyBytes`, `ConvertBytes`, `ConvertEach`, `SetLimits`, `Profile.RemoveCheck`)
-that double as tests via their `// Output:` blocks.
-
-The README Roadmap/Status pass this item also called for was already done in an
-earlier refresh — the "early stage"/"must be created" wording is gone.
-
-### 28. Repo hygiene — **DONE**
-
-All four residuals closed:
-
-- **`TODO.md` is folded in and deleted**, along with its `.gitignore` line. Every
-  note it carried is now either done or recorded in item 29 — including the two
-  it held that turned out not to be what they claimed (the Type1 `/Differences`
-  asymmetry, real but costing nothing measurable; the supposedly-dead
-  null-string comparisons in `checks_xmp.go`, which still catch a literal
-  `(null)` Info value).
-- **The wasm `-o` nit is fixed and in CI** — `.github/workflows/go.yml`'s `wasm`
-  job builds `GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/`, so the
-  directory-name collision cannot come back (item 13).
-- **The stale `.test` binaries and coverage files are gone** from the working
-  tree; `git status --ignored` shows only benchmark outputs, the gitignored
-  corpora, and `.env`.
-- **`tests/regression/` stays gitignored** on purpose (item 11): it is real-world
-  documents whose licensing is item 10's problem, and the committed-inventory
-  approach there is the answer, not committing the bytes.
-
-### 29. Carry-over from TODO.md
-
-`TODO.md` is gone — everything it held is either done below or recorded here.
-The one open item it carried that is not yet closed:
-
-- **The Type1 width path models fewer encodings than the Type1C one.**
-  `Type1EncodingTable` handles StandardEncoding and WinAnsiEncoding and bails on
-  anything else, including `/Differences`, while the Type1C path resolves
-  Differences via `SimpleFontGlyphNameTable`. Asymmetric 6.3.6 coverage — but
-  now measured, and no file in either corpus hits the bail (see the
-  instrumentation item below), so closing it is speculative work until a
-  real-world file (item 10) shows otherwise.
-
-- ~~Document the `pdf.StreamKey` invariant at the type.~~ **DONE.** Stated at
-  `StreamKey`: a key is meaningful only while something pins the bytes it was
-  taken from (a key outliving its slice can be matched by an unrelated
-  allocation at the same address), the resolved graph is that pin, and that is
-  exactly why `AdoptStreamCaches` is sound between two Readers seeded with the
-  same graph.
-- ~~Document the null ≡ Go `nil` invariant.~~ **DONE.** Stated at `PDFValue`,
-  with the three sites that depend on it and the trap it creates: a
-  present-but-null entry is `Entries[k] == nil`, indistinguishable from absent,
-  so `if _, ok := Entries[k]; ok` does not mean "has a value".
-- ~~Deduplicate `parseClassicReference` against `parseObject`.~~ **DONE.** The
-  scalar cases now live in one `parseScalarToken`, which both dispatchers call
-  first; each keeps only what genuinely differs. `TestScalarDispatchAgreesAcrossParsers`
-  compares the two over every scalar literal, and
-  `TestObjectBodyIntegerIsNotAReference` pins the one legitimate divergence
-  (`1 0 R` is a reference inside a containing object, but just the integer 1 as
-  an object's whole body — a body is a value, not a reference chain).
-
-  The gate was checked against the historical bug, not just written: making the
-  object-body path return a `PDFName` for `null` again fails the test on the
-  `null` case specifically.
-
-  One sub-item **kept, not removed**: the old note called `checks_xmp.go`'s
-  `val == "null"` comparisons dead now that null is nil. They are not — a
-  producer can legitimately write the literal *string* `(null)` into an Info
-  entry, which is what those comparisons still catch. Left in place.
-- ~~Instrument the conservative skips in `CFFAdvanceWidths`/`CFFCIDAdvanceWidths`
-  and the Type1 `FontFile` width path.~~ **DONE.** They bail on FontMatrix,
-  unusual charstring prefixes, and Differences, and the bails were invisible —
-  the same class as item 1a, one layer up. The three paths now return a typed
-  `WidthSkip` reason and per-glyph counts alongside the widths
-  (`CFFAdvanceWidthsStats`, `CFFCIDAdvanceWidthsStats`, `Type1WidthTable`); the
-  plain functions stay as wrappers, so no call site or verdict moved. Nothing is
-  reported to the user — this measures the coverage hole, it does not close it.
-
-  `TestWidthSkipCorpusBudget` tallies every skip across all 773 committed corpus
-  files against pinned numbers, so a path that starts or stops following a class
-  of font program has to be re-pinned deliberately. The measurement: **of the 30
-  embedded programs that reach a width path, 8 are given up on** — 5 bare-CFF
-  programs declaring a FontMatrix (glyph space is not 1/1000 em, so the widths
-  are not comparable) and 3 Type1 programs whose eexec section yields no
-  charstring widths at all.
-
-  One finding: **the Differences asymmetry costs nothing measurable.** The Type1
-  `FontFile` path models only StandardEncoding and WinAnsiEncoding while the
-  Type1C path handles `/Differences` — but no corpus file hits that bail, so the
-  gap the old TODO flagged is real in principle and empty in practice. Worth
-  knowing before spending effort closing it.
-- ~~Document the `DecodeOptions` cache rule at `Reader`.~~ **DONE.** Stated at
-  `DecodeStreamCached`: only the default-options, non-image decode is cached,
-  because `StreamKey` identifies raw bytes and nothing else, so a cache shared
-  across `DecodeOptions` would answer one caller with another's parameters.
-  Anything needing options goes through `DecodeStreamFull` uncached.
-- Coverage to ~95%: verify 93.5%, convert 92.6% (package-local figures; CI's
-  cross-package `-coverpkg` run reads a little higher). CFF/Type1 fixtures are
-  the bulk, and the width-skip work above added some without moving the total —
-  the remainder is defensive parser guards, which are deliberately not chased.
+## Done
+
+1. **Undecodable content streams no longer pass.** One decode chain
+   (`internal/pdf/filters.go`), every PDF/A-1 filter, `Structure.StreamUndecodable`
+   reported from both chokepoints, and the four usage-driven suppression sets
+   discarded when usage is incomplete.
+2. **A bad xref offset no longer suppresses unrelated checks.** Per-object
+   recovery at the resolution boundary: retry at the real `N G obj` header, else
+   degrade to a cached null, both reported as 6.1.6.
+3. **Convert never returns empty output with a nil error.** `ErrUnresolvableGraph`;
+   reader-degraded objects are carried into the final result and force `Valid=false`.
+4. **Whole-table xref recovery.** A missing or unparseable `startxref` rebuilds by
+   full-file scan and synthesizes a trailer, reported as 6.1.4; linear time.
+5. **Encryption.** Standard security handler (RC4 40/128, AES-128, AES-256), user,
+   owner and empty passwords, applied at one choke point.
+6. **The rasterizer no longer drops content silently.** `Tr`/`Ts` correctness fix,
+   then inline images, all seven shadings, mesh shadings, Type 3 glyphs and
+   shading patterns actually drawn; tiling patterns reported.
+7. **Limits are settable and never truncate silently.** `Limits`/`SetLimits`,
+   `--max-decoded-mb`, `--max-resident-mb`.
+8. **Convert's memory.** `ConvertEach` + `Options.Workers`; output spills to a temp
+   file; streaming content tokenization under a 64 MB budget; bounded, releasable
+   caches; a slice-backed `PDFDict` (graph 23.5 → 16.7 MB, convert peak 63 →
+   52.6 MB). The remaining piece is recorded under "Not in 1.0".
+9. **Windows seek path.** Exercised on Linux via `pdf.OpenBytesSeek` parity tests;
+   the absence of mmap on Windows is documented, not implemented away.
+10. **Real-world corpus.** 1585 files, 3.9 GB, sourced from five public
+    collections plus a self-generated producer matrix, classified by veraPDF's own
+    verdict, inventoried by hash and licence (bytes gitignored). Found nine real
+    defects no synthetic fixture could reach.
+11. **The differential harness runs.** veraPDF binary cross-check over both
+    committed suites, in CI. Found two verifier false-negatives immediately.
+12. **Fidelity gate.** Symmetric-renderer input-vs-output comparison;
+    `Blanked()` finds 0 blanked pages across the corpus; `Options.CheckFidelity`.
+13. **CI.** `-race` on a 3-OS matrix, per-target fuzzing plus a nightly cron, wasm
+    build, differential job.
+14. **Thread-safety is documented and enforced**, with five `-race` tests.
+15. **Options.** Two-argument entry points plus `…Context` counterparts taking a
+    `context.Context` and an `Options` struct.
+16. **Cancellation.** Per file in a batch, per verify/fix iteration, per raster pass.
+17. **Results serialize.** `MarshalJSON` on `Check`, `PDFError`, `Result`.
+18. **Streaming output.** `WriteTo`, lazy spill-backed `Output()`, `Close()`.
+19. **Typed errors.** `ErrNotPDF`, `ErrDamaged`, `ErrEncrypted`, `ErrPasswordRequired`.
+20. **A real CLI.** `cmd/gopdfrab`, public API only, meaningful exit codes.
+21. **Naming.** Underscores dropped per staticcheck ST1003; `Get` prefix removed.
+22. **Committed performance history**, one benchstat-readable file per round.
+23. **Allocation guards** extended to every distinct cost path.
+24. **Recovery benchmarked** (`BenchmarkXRefRecovery`): linear, not a DoS vector.
+    No allocation guard on it yet.
+25. **Stability policy** (`CHANGELOG.md`).
+26. **Security policy** (`SECURITY.md`).
+27. **Documentation.** `doc.go` plus runnable examples that double as tests.
+28. **Repo hygiene.** `TODO.md` folded in and deleted, wasm `-o` in CI, tree clean.
+
+Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
+(it was silently comparing against the wrong glyph, a false positive on
+conformant files) and skips on a non-default `/FontMatrix`; an unresolved
+`PDFRef` in the verify walk is reported rather than silently unverified; the
+DeviceN and resource-rename content rewriters no longer retain the content
+scanner's reused operand stack, which corrupted their output on any
+multi-operator stream.
 
 ---
 
@@ -1240,81 +129,36 @@ The one open item it carried that is not yet closed:
 
 Recorded so nobody re-investigates:
 
-- **Decompression bombs**: capped at 256 MB, plus CCITT column/byte caps and
-  ~15 depth and size limits across the parser. Only the silent-truncation
-  behaviour is a problem (item 7).
-- **Profile immutability**: `AddCheck`/`RemoveCheck`/`Clear` all clone. The
-  `PDFA1B.RemoveCheck(...)` pattern in the README cannot mutate the global.
-- **Corpus is committed**: 777 files tracked. Conformance genuinely does run in
-  CI. It's `tests/regression/` that's missing (item 11).
-- **False positives are tested**: 263 pass files in the veraPDF corpus. The gap
-  is real-world producers (item 10), not pass-file coverage per se.
-- **Predictors belong to Flate and LZW only** (ISO 32000-1 Table 8). Confirmed
-  by scanning all three corpora: every `/Predictor` in every file sits on
-  FlateDecode. The old chains applied the predictor after *any* filter, which is
-  why three test fixtures had predictors on filters that cannot carry them.
-- **CCITT stays an image-only filter.** Its output is packed 1-bpc samples that
-  are meaningless without `/Columns`, `/Rows` and `/BlackIs1`, it is only legal
-  as the terminal filter of an image, and no byte-consuming caller could use the
-  result. `pdf.DecodeCCITT` remains the explicit second step for the rasterizer.
+- **Decompression bombs**: capped, with CCITT column/byte caps and ~15 depth and
+  size limits across the parser.
+- **Profile immutability**: `AddCheck`/`RemoveCheck`/`Clear` all clone.
+- **False positives are tested**: 263 pass files in the veraPDF corpus, plus the
+  real-world should-pass half.
+- **Predictors belong to Flate and LZW only** (ISO 32000-1 Table 8). Confirmed by
+  scanning all three corpora.
+- **CCITT stays an image-only filter.** Its output is packed 1-bpc samples,
+  meaningless without `/Columns`, `/Rows` and `/BlackIs1`.
+- **The real-world corpus stays local.** It is multi-gigabyte and gitignored;
+  `manifest.json` keeps it reproducible on any machine, and re-fetching it per CI
+  run is not a job worth having.
 
 ---
 
-## Order of work
-
-1. ~~**Items 1–3.**~~ Done. P0 is clear: the verdict degrades per-object and
-   convert never returns empty output without an error.
-2. ~~**Items 11 and 13.**~~ Done. Differential harness runs in CI against both
-   committed corpora (found two real verifier false-negatives immediately);
-   `-race`, per-target fuzzing, an OS matrix and the wasm build are all wired.
-   The remaining CI gap is the real-world corpus (item 10); the Windows read
-   path is now covered by the item-9 parity tests.
-3. ~~**Item 4.**~~ Done. Whole-table xref recovery: full-file object scan,
-   catalog/xref-stream trailer synthesis, reported as 6.1.4, linear-time
-   (item 24 benchmark confirms it is not a DoS vector).
-4. ~~**Items 15–21.**~~ Done. The API break, in one pass, while the disclaimer
-   covers it: items 15 (options), 16 (context), 17, 18 (lazy `Output`), 19,
-   20 (CLI), 21.
-5. ~~**Items 10 and 12.**~~ Done. Item 12 (fidelity gate) finds 0 blanked pages
-   across the corpus, and `Options.CheckFidelity` reports per-page fidelity in
-   `ConvertResult`. Item 10 is populated: a sourcing tool over five public
-   collections plus a self-generated producer matrix, classified by veraPDF's
-   own verdict, inventoried by hash and licence. It paid for itself immediately —
-   four real defects no synthetic fixture could reach, including every
-   Ghostscript PDF/A being rejected and no signed document being convertible.
-6. **Items 5–9.** Item 5 (encryption), item 6 (the `Tr`/`Ts` fix, drop
-   reporting, and then actually rendering shadings, inline images, Type 3
-   glyphs and shading patterns) and item 7 (settable limits, via a
-   process-global `SetLimits`) done; item 8's batch half and its per-conversion
-   output footprint done (`ConvertEach` + `Options.Workers`; lazy `Output`
-   spilling to a temp file, item 18); item 9 done (Windows seek path exercised
-   on Linux via `OpenBytesSeek` parity + documented). Remaining: item 8's
-   resolved-graph footprint (the larger rearchitecture, now backed by
-   measurement).
-7. ~~**Items 14, 22–29.**~~ Done. Item 14 (concurrency contract stated at each
-   type, six `-race` tests); items 23, 24, 25, 26, 27 as noted in their sections;
-   item 22 (committed benchstat history) and item 28 (`TODO.md` folded in and
-   deleted, wasm `-o` in CI, tree clean); item 29's carry-overs — width-skip
-   instrumentation, the shared scalar dispatch, and the three invariant docs.
-
-**What is left.** One thing, deliberately scoped out rather than outstanding:
-
-- **Item 8's resolved-graph footprint** — partial/streaming resolution, against a
-  verify/convert model built on a fully-resolved in-heap trailer. The larger
-  rearchitecture. Now fully measured (~23.5 MB of a 63 MB peak on the corpus
-  maximum) and gated on migrating ~78 address-keyed identity sites to
-  object-number keys; the surrounding waste it was blamed for — the writer's
-  discovery index — is fixed.
-
-Item 29 also keeps one small open note: the Type1 width path models fewer
-encodings than the Type1C one — now measured, and costing nothing on either
-corpus.
-
 ## Not in 1.0
 
+- **Item 8's subtree-streaming resolution.** The original design was to resolve a
+  page subtree, walk it, re-reference it and drop the object numbers. It is a
+  **verify-side** optimisation that cannot apply to convert, which holds one
+  trailer across up to four fix iterations, walks the whole graph per fixer, and
+  must enumerate every object before the first output byte because numbers are
+  DFS position — so it would not move the peak that matters. It also rests on
+  blockers that are permanent: arrays have no object number and cannot get one
+  without changing `PDFArray` from `[]PDFValue`, and inline dicts deliberately
+  carry no `_ref`. The footprint was attacked by representation instead (item 8),
+  which needed none of that.
 - PDF/A-2, -3, -4. Adding parts before -1b is airtight spreads item 1's class of
   bug across four conformance levels.
 - PDF/A-1a (accessibility, tagged PDF). Different problem, much larger.
 - Digital signature validation.
 - Rendering as a general-purpose feature. The rasterizer stays a conversion
-  fallback — though items 6 and 12 will improve it considerably as a side effect.
+  fallback.

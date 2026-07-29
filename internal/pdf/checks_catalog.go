@@ -170,7 +170,7 @@ type fontChecks struct {
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.8 ToUnicode (Level A)
-	ToUnicodeMissing Check // TODO level A
+	ToUnicodeMissing Check // PDF/A-1a only; out of scope for 1b
 	// 6.3.5 Subset coverage
 	SubsetGlyphCoverage Check
 	Type1SubsetCharSet  Check
@@ -244,14 +244,14 @@ type metadataChecks struct {
 
 type logicalStructureChecks struct {
 	// 6.8.2.2 Tagged PDF
-	TaggedMarkInfo Check // TODO level A
+	TaggedMarkInfo Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.3.3 Structure tree
-	StructTreeRoot Check // TODO level A
+	StructTreeRoot Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.3.4 Role map
-	RoleMapStandardType Check // TODO level A
-	RoleMapCircular     Check // TODO level A
+	RoleMapStandardType Check // PDF/A-1a only; out of scope for 1b
+	RoleMapCircular     Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.4 Natural language
-	LangIdentifier Check // TODO level A
+	LangIdentifier Check // PDF/A-1a only; out of scope for 1b
 }
 
 type formChecks struct {
