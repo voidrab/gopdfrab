@@ -30,11 +30,11 @@ func TestResolveColorDeviceCMYK(t *testing.T) {
 }
 
 func TestResolveColorICCBasedByComponentCount(t *testing.T) {
-	cs := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(3)}}}
+	cs := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: DictOf(map[string]PDFValue{"N": PDFInteger(3)})}}
 	r, g, b := ResolveColor(cs, []float64{0.1, 0.2, 0.3}, PDFDict{})
 	approxRGB(t, r, g, b, 0.1, 0.2, 0.3, 1e-9)
 
-	csGray := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(1)}}}
+	csGray := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1)})}}
 	r, g, b = ResolveColor(csGray, []float64{0.5}, PDFDict{})
 	approxRGB(t, r, g, b, 0.5, 0.5, 0.5, 1e-9)
 }
@@ -53,13 +53,13 @@ func TestResolveColorIndexed(t *testing.T) {
 
 func TestResolveColorSeparation(t *testing.T) {
 	// Tint 0 -> white, tint 1 -> full DeviceGray-alternate black via Type 2 function.
-	tint := PDFDict{Entries: map[string]PDFValue{
+	tint := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2),
 		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 		"C0":           PDFArray{PDFReal(1)},
 		"C1":           PDFArray{PDFReal(0)},
 		"N":            PDFInteger(1),
-	}}
+	})}
 	cs := PDFArray{PDFName{Value: "Separation"}, PDFName{Value: "Black"}, PDFName{Value: "DeviceGray"}, tint}
 
 	r, g, b := ResolveColor(cs, []float64{0}, PDFDict{})
@@ -70,11 +70,11 @@ func TestResolveColorSeparation(t *testing.T) {
 }
 
 func TestResolveColorNamedInResources(t *testing.T) {
-	resources := PDFDict{Entries: map[string]PDFValue{
-		"ColorSpace": PDFDict{Entries: map[string]PDFValue{
+	resources := PDFDict{Entries: DictOf(map[string]PDFValue{
+		"ColorSpace": PDFDict{Entries: DictOf(map[string]PDFValue{
 			"CS0": PDFName{Value: "DeviceRGB"},
-		}},
-	}}
+		})},
+	})}
 	r, g, b := ResolveColor(PDFName{Value: "CS0"}, []float64{0.9, 0.1, 0.2}, resources)
 	approxRGB(t, r, g, b, 0.9, 0.1, 0.2, 1e-9)
 }
@@ -107,13 +107,13 @@ func rgbClose(a, b [3]float64, tol float64) bool {
 // named-lookup indirection, and the mid-gray fallbacks.
 func TestResolveColorSpaces(t *testing.T) {
 	iccN := func(n int) PDFArray {
-		return PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(n)}}}
+		return PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: DictOf(map[string]PDFValue{"N": PDFInteger(n)})}}
 	}
-	resources := PDFDict{Entries: map[string]PDFValue{
-		"ColorSpace": PDFDict{Entries: map[string]PDFValue{
+	resources := PDFDict{Entries: DictOf(map[string]PDFValue{
+		"ColorSpace": PDFDict{Entries: DictOf(map[string]PDFValue{
 			"CustomRGB": PDFArray{PDFName{Value: "DeviceRGB"}},
-		}},
-	}}
+		})},
+	})}
 
 	cases := []struct {
 		name  string
@@ -165,10 +165,10 @@ func TestResolveColorSpaces(t *testing.T) {
 	}
 
 	// Separation with a Type 2 identity tint over DeviceGray.
-	tint := PDFDict{Entries: map[string]PDFValue{
+	tint := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2), "Domain": PDFArray{PDFReal(0), PDFReal(1)},
 		"C0": PDFArray{PDFReal(0)}, "C1": PDFArray{PDFReal(1)}, "N": PDFInteger(1),
-	}}
+	})}
 	sep := PDFArray{PDFName{Value: "Separation"}, PDFName{Value: "Spot"}, PDFName{Value: "DeviceGray"}, tint}
 	if r, _, _ := ResolveColor(sep, []float64{0.5}, resources); r < 0.4 || r > 0.6 {
 		t.Errorf("Separation(0.5) = %v, want ~0.5", r)
@@ -191,7 +191,7 @@ func TestColorSpaceComponents(t *testing.T) {
 		{PDFArray{PDFName{Value: "CalGray"}}, 1},
 		{PDFArray{PDFName{Value: "Lab"}}, 3},
 		{PDFArray{PDFName{Value: "DeviceCMYK"}}, 4},
-		{PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(3)}}}, 3},
+		{PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: DictOf(map[string]PDFValue{"N": PDFInteger(3)})}}, 3},
 		{PDFArray{PDFName{Value: "Separation"}}, 1},
 		{PDFArray{PDFName{Value: "DeviceN"}, PDFArray{PDFName{Value: "a"}, PDFName{Value: "b"}}}, 2},
 		{PDFArray{}, 1},
@@ -213,7 +213,7 @@ func TestIndexedLookupBytes(t *testing.T) {
 	if b := indexedLookupBytes(PDFHexString{Value: "414243"}); string(b) != "ABC" {
 		t.Errorf("hex lookup = %q", b)
 	}
-	stream := PDFDict{Entries: map[string]PDFValue{}, HasStream: true, RawStream: []byte("xyz")}
+	stream := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("xyz")}
 	if b := indexedLookupBytes(stream); string(b) != "xyz" {
 		t.Errorf("stream lookup = %q", b)
 	}
@@ -221,7 +221,7 @@ func TestIndexedLookupBytes(t *testing.T) {
 		t.Errorf("unsupported lookup = %v, want nil", b)
 	}
 	badStream := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
 		HasStream: true, RawStream: []byte("x"),
 	}
 	if b := indexedLookupBytes(badStream); b != nil {
@@ -250,7 +250,7 @@ func TestColorHelperShortComponentFallbacks(t *testing.T) {
 	if r, g, b := resolveICCBased(PDFArray{PDFName{Value: "ICCBased"}, PDFInteger(1)}, nil); r != 0.5 || g != 0.5 || b != 0.5 {
 		t.Errorf("resolveICCBased(non-dict) = %v,%v,%v, want mid-gray", r, g, b)
 	}
-	iccOdd := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: map[string]PDFValue{"N": PDFInteger(2)}}}
+	iccOdd := PDFArray{PDFName{Value: "ICCBased"}, PDFDict{Entries: DictOf(map[string]PDFValue{"N": PDFInteger(2)})}}
 	if r, g, b := resolveICCBased(iccOdd, []float64{0.5}); r != 0.5 || g != 0.5 || b != 0.5 {
 		t.Errorf("resolveICCBased(N=2) = %v,%v,%v, want mid-gray fallback", r, g, b)
 	}

@@ -26,20 +26,20 @@ func (f fileSpecFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 
 func (fileSpecFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries["EF"]; ok {
-			delete(d.Entries, "EF")
+		if _, ok := d.Entries.Lookup("EF"); ok {
+			d.Entries.Del("EF")
 			*changed = true
 		}
-		if _, ok := d.Entries["EmbeddedFiles"]; ok {
-			delete(d.Entries, "EmbeddedFiles")
+		if _, ok := d.Entries.Lookup("EmbeddedFiles"); ok {
+			d.Entries.Del("EmbeddedFiles")
 			*changed = true
 		}
 		if !d.HasStream {
 			return
 		}
 		for _, key := range []string{"F", "FFilter", "FDecodeParms"} {
-			if _, ok := d.Entries[key]; ok {
-				delete(d.Entries, key)
+			if _, ok := d.Entries.Lookup(key); ok {
+				d.Entries.Del(key)
 				*changed = true
 			}
 		}

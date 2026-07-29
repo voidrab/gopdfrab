@@ -89,21 +89,21 @@ func TestBuildPageIndexBranches(t *testing.T) {
 	defer r.Close()
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
 
 	pagesDict := func(kids pdf.PDFArray, ref int) pdf.PDFDict {
 		p := pdf.NewPDFDict()
-		p.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-		p.Entries["Kids"] = kids
-		p.Entries["_ref"] = pdf.PDFRef{ObjNum: ref}
+		p.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+		p.Entries.Set("Kids", kids)
+		p.Entries.Set("_ref", pdf.PDFRef{ObjNum: ref})
 		return p
 	}
 	graphWith := func(pages pdf.PDFValue) pdf.PDFDict {
 		root := pdf.NewPDFDict()
-		root.Entries["Pages"] = pages
+		root.Entries.Set("Pages", pages)
 		g := pdf.NewPDFDict()
-		g.Entries["Root"] = root
+		g.Entries.Set("Root", root)
 		return g
 	}
 
@@ -117,7 +117,7 @@ func TestBuildPageIndexBranches(t *testing.T) {
 	}
 	// Non-dict Root.
 	badRoot := pdf.NewPDFDict()
-	badRoot.Entries["Root"] = pdf.PDFHexString{Value: "abc"}
+	badRoot.Entries.Set("Root", pdf.PDFHexString{Value: "abc"})
 	if _, err := r.BuildPageIndex(badRoot); err == nil {
 		t.Error("non-dict Root: want error")
 	}
@@ -128,7 +128,7 @@ func TestBuildPageIndexBranches(t *testing.T) {
 	}
 	// Cyclic page tree: Pages whose Kids contains itself must terminate.
 	cyc := pagesDict(nil, 2)
-	cyc.Entries["Kids"] = pdf.PDFArray{cyc}
+	cyc.Entries.Set("Kids", pdf.PDFArray{cyc})
 	if _, err := r.BuildPageIndex(graphWith(cyc)); err != nil {
 		t.Errorf("cyclic page tree: unexpected error %v", err)
 	}
@@ -160,10 +160,10 @@ func TestCrasher_PostScriptDepth(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
 	d.RawStream = []byte(prog)
-	d.Entries["FunctionType"] = pdf.PDFInteger(4)
-	d.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	d.Entries["Range"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	d.Entries["Length"] = pdf.PDFInteger(len(prog))
+	d.Entries.Set("FunctionType", pdf.PDFInteger(4))
+	d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	d.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	d.Entries.Set("Length", pdf.PDFInteger(len(prog)))
 	if _, err := pdf.ParseFunction(d); err == nil {
 		t.Error("expected an error for an over-deep PostScript program")
 	}
@@ -174,18 +174,18 @@ func TestCrasher_PostScriptDepth(t *testing.T) {
 func TestCrasher_StitchingDepth(t *testing.T) {
 	// Innermost is a Type 2; wrap it in `depth` stitching functions.
 	inner := pdf.NewPDFDict()
-	inner.Entries["FunctionType"] = pdf.PDFInteger(2)
-	inner.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	inner.Entries["N"] = pdf.PDFInteger(1)
+	inner.Entries.Set("FunctionType", pdf.PDFInteger(2))
+	inner.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	inner.Entries.Set("N", pdf.PDFInteger(1))
 
 	cur := pdf.PDFValue(inner)
 	for i := 0; i < 200; i++ {
 		s := pdf.NewPDFDict()
-		s.Entries["FunctionType"] = pdf.PDFInteger(3)
-		s.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-		s.Entries["Functions"] = pdf.PDFArray{cur}
-		s.Entries["Bounds"] = pdf.PDFArray{}
-		s.Entries["Encode"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
+		s.Entries.Set("FunctionType", pdf.PDFInteger(3))
+		s.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+		s.Entries.Set("Functions", pdf.PDFArray{cur})
+		s.Entries.Set("Bounds", pdf.PDFArray{})
+		s.Entries.Set("Encode", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
 		cur = s
 	}
 	if _, err := pdf.ParseFunction(cur); err == nil {
@@ -203,12 +203,13 @@ func TestCrasher_SampledBlowup(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
 	d.RawStream = []byte{0, 0, 0, 0}
-	d.Entries["FunctionType"] = pdf.PDFInteger(0)
-	d.Entries["Domain"] = size // reuse: just needs to be long enough not to matter
-	d.Entries["Range"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	d.Entries["Size"] = size
-	d.Entries["BitsPerSample"] = pdf.PDFInteger(8)
-	d.Entries["Length"] = pdf.PDFInteger(4)
+	d.Entries.Set("FunctionType", pdf.PDFInteger(0))
+	d.Entries.Set("Domain", size)
+	// reuse: just needs to be long enough not to matter
+	d.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	d.Entries.Set("Size", size)
+	d.Entries.Set("BitsPerSample", pdf.PDFInteger(8))
+	d.Entries.Set("Length", pdf.PDFInteger(4))
 	if _, err := pdf.ParseFunction(d); err == nil {
 		t.Error("expected an error for an over-dimensional sampled function")
 	}
@@ -227,9 +228,10 @@ func TestCrasher_CCITTRowsAmplification(t *testing.T) {
 // Domain covers indexed out of range in clampDomain (fixed: bounds-check).
 func TestCrasher_ClampDomainShort(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["FunctionType"] = pdf.PDFInteger(2)
-	d.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)} // one input
-	d.Entries["N"] = pdf.PDFInteger(1)
+	d.Entries.Set("FunctionType", pdf.PDFInteger(2))
+	d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	// one input
+	d.Entries.Set("N", pdf.PDFInteger(1))
 	fn, err := pdf.ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -247,29 +249,29 @@ func TestParseFunctionRejectsMalformed(t *testing.T) {
 		d := pdf.NewPDFDict()
 		d.HasStream = true
 		d.RawStream = []byte{0, 0, 0, 0, 0, 0, 0, 0}
-		d.Entries["FunctionType"] = pdf.PDFInteger(0)
-		d.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)}
-		d.Entries["Range"] = unit
-		d.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFInteger(2)}
-		d.Entries["BitsPerSample"] = pdf.PDFInteger(8)
+		d.Entries.Set("FunctionType", pdf.PDFInteger(0))
+		d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
+		d.Entries.Set("Range", unit)
+		d.Entries.Set("Size", pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFInteger(2)})
+		d.Entries.Set("BitsPerSample", pdf.PDFInteger(8))
 		for k, v := range entries {
-			d.Entries[k] = v
+			d.Entries.Set(k, v)
 		}
 		return d
 	}
 	stitching := func(entries map[string]pdf.PDFValue) pdf.PDFValue {
 		sub := pdf.NewPDFDict()
-		sub.Entries["FunctionType"] = pdf.PDFInteger(2)
-		sub.Entries["Domain"] = unit
-		sub.Entries["N"] = pdf.PDFInteger(1)
+		sub.Entries.Set("FunctionType", pdf.PDFInteger(2))
+		sub.Entries.Set("Domain", unit)
+		sub.Entries.Set("N", pdf.PDFInteger(1))
 		d := pdf.NewPDFDict()
-		d.Entries["FunctionType"] = pdf.PDFInteger(3)
-		d.Entries["Domain"] = unit
-		d.Entries["Functions"] = pdf.PDFArray{sub, sub}
-		d.Entries["Bounds"] = pdf.PDFArray{pdf.PDFReal(0.5)}
-		d.Entries["Encode"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)}
+		d.Entries.Set("FunctionType", pdf.PDFInteger(3))
+		d.Entries.Set("Domain", unit)
+		d.Entries.Set("Functions", pdf.PDFArray{sub, sub})
+		d.Entries.Set("Bounds", pdf.PDFArray{pdf.PDFReal(0.5)})
+		d.Entries.Set("Encode", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
 		for k, v := range entries {
-			d.Entries[k] = v
+			d.Entries.Set(k, v)
 		}
 		return d
 	}
@@ -335,12 +337,12 @@ func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
 	d.RawStream = []byte{0, 0, 0, 0}
-	d.Entries["FunctionType"] = pdf.PDFInteger(0)
-	d.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	d.Entries["Range"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	d.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2)}
-	d.Entries["BitsPerSample"] = pdf.PDFInteger(-1)
-	d.Entries["Length"] = pdf.PDFInteger(4)
+	d.Entries.Set("FunctionType", pdf.PDFInteger(0))
+	d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	d.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	d.Entries.Set("Size", pdf.PDFArray{pdf.PDFInteger(2)})
+	d.Entries.Set("BitsPerSample", pdf.PDFInteger(-1))
+	d.Entries.Set("Length", pdf.PDFInteger(4))
 	if _, err := pdf.ParseFunction(d); err == nil {
 		t.Error("expected an error for a negative BitsPerSample")
 	}
@@ -350,7 +352,7 @@ func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 // entryLen into a panicking slice (fixed: per-width cap).
 func TestCrasher_XRefFieldWidthOverflow(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["W"] = pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(9), pdf.PDFInteger(1)}
+	d.Entries.Set("W", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(9), pdf.PDFInteger(1)})
 	if _, err := pdf.XRefFieldWidths(d); err == nil {
 		t.Error("expected an error for an out-of-range /W field width")
 	}
@@ -368,9 +370,9 @@ func TestCrasher_ObjStmHugeN(t *testing.T) {
 	objstm := pdf.NewPDFDict()
 	objstm.HasStream = true
 	objstm.RawStream = []byte("1 0 ")
-	objstm.Entries["Type"] = pdf.PDFName{Value: "ObjStm"}
-	objstm.Entries["N"] = pdf.PDFInteger(100_000_000)
-	objstm.Entries["First"] = pdf.PDFInteger(0)
+	objstm.Entries.Set("Type", pdf.PDFName{Value: "ObjStm"})
+	objstm.Entries.Set("N", pdf.PDFInteger(100_000_000))
+	objstm.Entries.Set("First", pdf.PDFInteger(0))
 	r.SeedResolvedGraph(pdf.NewPDFDict(), map[int]pdf.PDFValue{6: objstm})
 
 	// Assert the /N-capacity error specifically (not the later "malformed
@@ -423,8 +425,8 @@ func TestResolveDepthLimit(t *testing.T) {
 // itself recursed ResolveColor forever (fixed: maxColorSpaceDepth).
 func TestCrasher_CyclicColorSpace(t *testing.T) {
 	inner := pdf.NewPDFDict()
-	inner.Entries["CS0"] = pdf.PDFName{Value: "CS0"} // resolves to itself
+	inner.Entries.Set("CS0", pdf.PDFName{Value: "CS0"}) // resolves to itself
 	resources := pdf.NewPDFDict()
-	resources.Entries["ColorSpace"] = inner
+	resources.Entries.Set("ColorSpace", inner)
 	pdf.ResolveColor(pdf.PDFName{Value: "CS0"}, []float64{0, 0.5, 1}, resources) // must not hang/panic
 }

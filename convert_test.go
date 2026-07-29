@@ -326,55 +326,56 @@ func TestConvertRasterNoOpOnConformantInput(t *testing.T) {
 func objModelFixture(t *testing.T) []byte {
 	t.Helper()
 
-	desc := pdf.NewPDFDict() // deliberately no _ref: inlined in the font dict
-	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	desc.Entries["FontName"] = pdf.PDFName{Value: "Helvetica"}
-	desc.Entries["Flags"] = pdf.PDFInteger(32)
-	desc.Entries["FontBBox"] = pdf.PDFArray{pdf.PDFInteger(-166), pdf.PDFInteger(-225), pdf.PDFInteger(1000), pdf.PDFInteger(931)}
-	desc.Entries["ItalicAngle"] = pdf.PDFInteger(0)
-	desc.Entries["Ascent"] = pdf.PDFInteger(718)
-	desc.Entries["Descent"] = pdf.PDFInteger(-207)
-	desc.Entries["CapHeight"] = pdf.PDFInteger(718)
-	desc.Entries["StemV"] = pdf.PDFInteger(88)
+	desc := pdf.NewPDFDict()
+	// deliberately no _ref: inlined in the font dict
+	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	desc.Entries.Set("FontName", pdf.PDFName{Value: "Helvetica"})
+	desc.Entries.Set("Flags", pdf.PDFInteger(32))
+	desc.Entries.Set("FontBBox", pdf.PDFArray{pdf.PDFInteger(-166), pdf.PDFInteger(-225), pdf.PDFInteger(1000), pdf.PDFInteger(931)})
+	desc.Entries.Set("ItalicAngle", pdf.PDFInteger(0))
+	desc.Entries.Set("Ascent", pdf.PDFInteger(718))
+	desc.Entries.Set("Descent", pdf.PDFInteger(-207))
+	desc.Entries.Set("CapHeight", pdf.PDFInteger(718))
+	desc.Entries.Set("StemV", pdf.PDFInteger(88))
 
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
-	font.Entries["FontDescriptor"] = desc
-	font.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
+	font.Entries.Set("FontDescriptor", desc)
+	font.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 
 	fontMap := pdf.NewPDFDict()
-	fontMap.Entries["F1"] = font
+	fontMap.Entries.Set("F1", font)
 	resources := pdf.NewPDFDict()
-	resources.Entries["Font"] = fontMap
+	resources.Entries.Set("Font", fontMap)
 
 	contents := pdf.NewPDFDict()
 	contents.HasStream = true
 	contents.RawStream = []byte("BT /F1 12 Tf 72 720 Td (x) Tj ET")
-	contents.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	contents.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Count"] = pdf.PDFInteger(1)
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Parent"] = pages
-	page.Entries["MediaBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)}
-	page.Entries["Resources"] = resources
-	page.Entries["Contents"] = contents
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
-	pages.Entries["Kids"] = pdf.PDFArray{page}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Parent", pages)
+	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", contents)
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = pages
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
+	trailer.Entries.Set("Root", catalog)
 
 	var buf bytes.Buffer
 	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {

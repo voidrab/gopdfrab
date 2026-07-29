@@ -19,13 +19,13 @@ func TestCrasher_WriterDeepNesting(t *testing.T) {
 	}
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Junk"] = deep
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Junk", deep)
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Size"] = pdf.PDFInteger(2)
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(2))
 
 	// Must not panic / stack-overflow; an error is the expected fixed outcome.
 	writer.WriteDocument(io.Discard, trailer, 0)

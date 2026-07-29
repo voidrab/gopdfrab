@@ -8,9 +8,9 @@ import (
 
 // inlineImagePage wraps content in a page dict for the inline-image render tests.
 func inlineImagePage(content string) pdf.PDFDict {
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
-	}}
+	})}
 }
 
 func TestInlineImageDictKeyExpansion(t *testing.T) {
@@ -72,8 +72,8 @@ func TestInlineImageDictKeyExpansion(t *testing.T) {
 				t.Errorf("stream not attached: HasStream=%v len=%d", got.HasStream, len(got.RawStream))
 			}
 			for k, want := range tc.want {
-				if got.Entries[k] != want {
-					t.Errorf("Entries[%q] = %v, want %v", k, got.Entries[k], want)
+				if got.Entries.Get(k) != want {
+					t.Errorf("Entries[%q] = %v, want %v", k, got.Entries.Get(k), want)
 				}
 			}
 		})

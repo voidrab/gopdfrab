@@ -467,7 +467,7 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	// trailer (no /Root), this is the first-page trailer that holds /ID, /Root, etc.
 	eff := d.EffectiveTrailer()
 
-	if eff.Entries["ID"] == nil {
+	if eff.Entries.Get("ID") == nil {
 		err := pdf.NewError(
 			pdf.Checks.Structure.TrailerID,
 			[]error{fmt.Errorf("trailer does not contain the required ID keyword")},
@@ -477,7 +477,7 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 		errs = append(errs, err)
 	}
 
-	if eff.Entries["Encrypt"] != nil {
+	if eff.Entries.Get("Encrypt") != nil {
 		err := pdf.NewError(
 			pdf.Checks.Structure.TrailerEncrypt,
 			[]error{fmt.Errorf("trailer contains the forbidden Encrypt keyword")},
@@ -521,7 +521,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 	}
 
 	visited := map[int64]bool{d.XRefOffset(): true}
-	prev := d.Trailer().Entries["Prev"]
+	prev := d.Trailer().Entries.Get("Prev")
 	for {
 		prevInt, ok := prev.(pdf.PDFInteger)
 		if !ok {
@@ -541,7 +541,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 		if err != nil {
 			break
 		}
-		prev = prevTrailer.Entries["Prev"]
+		prev = prevTrailer.Entries.Get("Prev")
 	}
 
 	return nil
@@ -629,11 +629,11 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 // verifyDocumentInformationDictionary verifies requirements outlined in 6.1.5
 func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
-	if !ok || trailer.Entries["Info"] == nil {
+	if !ok || trailer.Entries.Get("Info") == nil {
 		return nil
 	}
 
-	infoDict, ok := trailer.Entries["Info"].(pdf.PDFDict)
+	infoDict, ok := trailer.Entries.Get("Info").(pdf.PDFDict)
 	if !ok {
 		return []pdf.PDFError{pdf.NewError(
 			pdf.Checks.Structure.InfoDictUnreadable,
@@ -660,7 +660,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// 6.1.5: standard entries (Table 10.2, PDF Reference 4th ed.) must be
 	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
 	var typeErrs []error
-	for k, v := range infoDict.Entries {
+	for k, v := range infoDict.Entries.All() {
 		if k == "_ref" || !slices.Contains(allowedFields, k) {
 			continue
 		}
@@ -683,7 +683,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// Custom keys are permitted; only entries present in Table 10.2 of
 	// PDF Reference 4th ed. are checked for emptiness.
 	var emptyErrs []error
-	for k, v := range infoDict.Entries {
+	for k, v := range infoDict.Entries.All() {
 		if k == "_ref" || !slices.Contains(allowedFields, k) {
 			continue
 		}
@@ -759,8 +759,8 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				visitedTyped[typedVisit{ptr, expectedType}] = true
 			}
 
-			if (v.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
-				if ref, ok := v.Entries["_ref"].(pdf.PDFRef); ok {
+			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
+				if ref, ok := v.Entries.Get("_ref").(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 			}
@@ -791,12 +791,10 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			keysBase := len(ctx.keyScratch)
 			for _, k := range ctx.sortedKeys(v.Entries) {
 				if k == "_ref" {
-					// Synthetic bookkeeping, not a PDF entry: its PDFRef value
-					// is this object's own number, so descending into it would
-					// walk a reference the resolver deliberately left in place.
+					// Synthetic bookkeeping, not a PDF entry.
 					continue
 				}
-				val := v.Entries[k]
+				val := v.Entries.Get(k)
 				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed 127 bytes after
 					// decoding PDF name-escape sequences (#XX).
@@ -877,15 +875,10 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable as long as verifyPdfA1bParts resolves the whole
-			// graph before this walk, which it does. It is spelled out anyway
-			// because falling through is the worst failure mode this package
-			// has: an unresolved subtree would be silently unverified, and the
-			// document would verify clean because nothing looked at it.
-			//
-			// Worth knowing that adding this case was not academic -- it fired
-			// immediately on the synthetic "_ref" bookkeeping key, whose value
-			// really is a PDFRef and which the key loop below now skips.
+			// Unreachable while verifyPdfA1bParts resolves the graph first, but
+			// spelled out because falling through would leave an unresolved
+			// subtree silently unverified -- the document would verify clean
+			// because nothing looked at it.
 			ctx.Report(
 				pdf.Checks.Structure.GraphResolutionFailure,
 				owner,
@@ -909,9 +902,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 // with the segment; the segment stays readable even if deeper recursion
 // grows the scratch onto a new backing array, since it is never written
 // again after the sort.
-func (ctx *ValidationContext) sortedKeys(m map[string]pdf.PDFValue) []string {
+func (ctx *ValidationContext) sortedKeys(m pdf.Dict) []string {
 	base := len(ctx.keyScratch)
-	for k := range m {
+	for k := range m.All() {
 		ctx.keyScratch = append(ctx.keyScratch, k)
 	}
 	keys := ctx.keyScratch[base:]
@@ -967,18 +960,18 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			}
 			visitedPtrs[ptr] = true
 
-			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
+			if val.Entries.Get("Type") == (pdf.PDFName{Value: "Page"}) {
 				// Attribute anything reported while reading this page's
 				// streams to the page itself. This walk runs before verifyDocument's,
 				// which is what normally maintains CurrentPage, so without this a
 				// decode failure here would be reported as document-level.
 				// Restored afterwards so nothing outside the page inherits it.
 				prevPage := ctx.CurrentPage
-				if ref, ok := val.Entries["_ref"].(pdf.PDFRef); ok {
+				if ref, ok := val.Entries.Get("_ref").(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
-				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
-				if !collectContentUsage(ctx, val.Entries["Contents"], resources, reachable, fu) {
+				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
+				if !collectContentUsage(ctx, val.Entries.Get("Contents"), resources, reachable, fu) {
 					complete = false
 				}
 				if !collectAnnotAppearanceUsage(ctx, val, reachable, fu) {
@@ -987,7 +980,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				ctx.CurrentPage = prevPage
 				return
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walkGraph(child)
 			}
 		case pdf.PDFArray:
@@ -1015,7 +1008,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
 // appearance streams so validateContentStreams will scan their colour usage.
 func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
-	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
 		return true
 	}
@@ -1025,11 +1018,11 @@ func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reach
 		if !ok {
 			continue
 		}
-		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 		if !ok {
 			continue
 		}
-		if !collectAPEntryUsage(ctx, ap.Entries["N"], reachable, fu) {
+		if !collectAPEntryUsage(ctx, ap.Entries.Get("N"), reachable, fu) {
 			complete = false
 		}
 	}
@@ -1041,15 +1034,15 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 	switch v := n.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
-			for k, sv := range v.Entries {
+			for k, sv := range v.Entries.All() {
 				if k == "_ref" {
 					continue
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
-					apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
 						complete = false
 					}
@@ -1100,8 +1093,8 @@ type fontUsage struct {
 
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
 	complete := true
-	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
-	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
+	fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
+	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
 	renderMode := 0
 	var modeStack []int
 	var currentFontPtrs []uintptr
@@ -1130,16 +1123,16 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			haveCompositeFont = false
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(pdf.PDFName); ok {
-					if fd, ok := fonts.Entries[name.Value].(pdf.PDFDict); ok {
+					if fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict); ok {
 						currentFontPtrs = append(currentFontPtrs, pdf.ValuePointer(fd.Entries))
 						// 6.3.3.2/6.3.5/6.3.6 checks run on the descendant
 						// CIDFont dict, not the Type0 font selected by Tf.
-						if df, ok := fd.Entries["DescendantFonts"].(pdf.PDFArray); ok && len(df) > 0 {
+						if df, ok := fd.Entries.Get("DescendantFonts").(pdf.PDFArray); ok && len(df) > 0 {
 							if desc, ok := df[0].(pdf.PDFDict); ok {
 								currentFontPtrs = append(currentFontPtrs, pdf.ValuePointer(desc.Entries))
 								// Only Identity-H/V map codes directly to CIDs;
 								// other CMaps leave usage unknown for the font.
-								if enc, ok := fd.Entries["Encoding"].(pdf.PDFName); ok &&
+								if enc, ok := fd.Entries.Get("Encoding").(pdf.PDFName); ok &&
 									(enc.Value == "Identity-H" || enc.Value == "Identity-V") {
 									compositeFontPtr = pdf.ValuePointer(desc.Entries)
 									haveCompositeFont = true
@@ -1193,11 +1186,11 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if !ok {
 				return
 			}
-			patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
+			patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
 			if patterns.Entries == nil {
 				return
 			}
-			pat, ok := patterns.Entries[name.Value].(pdf.PDFDict)
+			pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict)
 			if !ok || !pat.HasStream {
 				return // shading patterns (PatternType 2) carry no content
 			}
@@ -1206,7 +1199,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				return
 			}
 			fu.scannedPatterns[ptr] = true
-			subResources, _ := pat.Entries["Resources"].(pdf.PDFDict)
+			subResources, _ := pat.Entries.Get("Resources").(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
@@ -1221,17 +1214,17 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if !ok {
 				return
 			}
-			xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
+			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
 			if !ok {
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
 			alreadyReachable := reachable[ptr]
 			reachable[ptr] = true
-			if alreadyReachable || xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if alreadyReachable || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 				return
 			}
-			subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+			subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
@@ -1314,26 +1307,26 @@ func validateHexString(v pdf.PDFHexString, owner pdf.PDFValue, ctx *ValidationCo
 
 // validateStreamObject validates requirements outlined in 6.1.7 and 6.1.10.
 func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries["F"] != nil {
+	if v.Entries.Get("F") != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileSpec, v, "stream object contains invalid key F")
 	}
-	if v.Entries["FFilter"] != nil {
+	if v.Entries.Get("FFilter") != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileFilter, v, "stream object contains invalid key FFilter")
 	}
-	if v.Entries["FDecodeParms"] != nil {
+	if v.Entries.Get("FDecodeParms") != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileDecodeParams, v, "stream object contains invalid key FDecodeParms")
 	}
-	if pdf.HasFilter(v.Entries["Filter"], pdf.FilterLZW) {
+	if pdf.HasFilter(v.Entries.Get("Filter"), pdf.FilterLZW) {
 		ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 	}
 }
 
 // validateObject validates requirements outlined in 6.1.11
 func validateObject(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries["EF"] != nil {
+	if v.Entries.Get("EF") != nil {
 		ctx.Report(pdf.Checks.Structure.EmbeddedFileSpec, v, "dictionary shall not contain EF key")
 	}
-	if v.Entries["EmbeddedFiles"] != nil {
+	if v.Entries.Get("EmbeddedFiles") != nil {
 		ctx.Report(pdf.Checks.Structure.EmbeddedFiles, v, "dictionary shall not contain EmbeddedFiles key")
 	}
 }
@@ -1370,8 +1363,8 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 		}
 	case pdf.PDFDict:
 		// 6.1.12: maximum number of entries in a dictionary is 4095.
-		realCount := len(v.Entries)
-		if _, has := v.Entries["_ref"]; has {
+		realCount := v.Entries.Len()
+		if _, has := v.Entries.Lookup("_ref"); has {
 			realCount--
 		}
 		if realCount > 4095 {
@@ -1433,7 +1426,7 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			errs = append(errs, err)
 			continue
 		}
-		s, ok := intent.Entries["S"].(pdf.PDFName)
+		s, ok := intent.Entries.Get("S").(pdf.PDFName)
 		if !ok {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentInvalidS,
@@ -1448,14 +1441,14 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 		if s.Value != "GTS_PDFA1" {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentWrongS,
-				[]error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries["S"])},
+				[]error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries.Get("S"))},
 				0,
 				nil,
 			)
 			errs = append(errs, err)
 		}
 
-		if intent.Entries["OutputConditionIdentifier"] == nil {
+		if intent.Entries.Get("OutputConditionIdentifier") == nil {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentMissingIdentifier,
 				[]error{fmt.Errorf("OutputConditionIdentifier is required but was nil")},
@@ -1466,7 +1459,7 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			continue
 		}
 
-		destOutputProfile := intent.Entries["DestOutputProfile"]
+		destOutputProfile := intent.Entries.Get("DestOutputProfile")
 		if destOutputProfile == nil {
 			// 6.2.2: DestOutputProfile shall be present unless OutputConditionIdentifier
 			// names a standard ICC registry profile, which is not the case for "Custom".
@@ -1520,7 +1513,7 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			continue
 		}
 
-		nValue, ok := profileMap.Entries["N"].(pdf.PDFInteger)
+		nValue, ok := profileMap.Entries.Get("N").(pdf.PDFInteger)
 		if !ok {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentMissingN,
@@ -1615,7 +1608,7 @@ func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 		return &newErr
 	}
 
-	nObj := dict.Entries["N"]
+	nObj := dict.Entries.Get("N")
 	if nObj == nil {
 		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{fmt.Errorf("ICC profile stream missing required /N entry")}, 0, nil)
 		return &newErr
@@ -1651,7 +1644,7 @@ var trailerIDRe = regexp.MustCompile(`/ID\s*\[<([0-9A-Fa-f]+)>`)
 func checkLinearizedFileID(d *pdf.Reader) []pdf.PDFError {
 	// A main trailer with /Root is either an ordinary PDF or an
 	// incrementally-updated one; cross-trailer ID consistency does not apply.
-	if d.Trailer().Entries["Root"] != nil {
+	if d.Trailer().Entries.Get("Root") != nil {
 		return nil
 	}
 	raw, err := d.FullBytes()

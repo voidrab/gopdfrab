@@ -16,26 +16,26 @@ func buildDeepGraph(depth int) pdf.PDFDict {
 		big[i] = pdf.PDFInteger(0)
 	}
 	bottom := pdf.NewPDFDict()
-	bottom.Entries["Big"] = big
+	bottom.Entries.Set("Big", big)
 
 	node := pdf.PDFValue(bottom)
 	for i := 0; i < depth; i++ {
 		d := pdf.NewPDFDict()
-		d.Entries["K"] = node
+		d.Entries.Set("K", node)
 		node = d
 	}
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{page}
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
 	root := pdf.NewPDFDict()
-	root.Entries["Pages"] = pages
+	root.Entries.Set("Pages", pages)
 	graph := pdf.NewPDFDict()
-	graph.Entries["Root"] = root
-	graph.Entries["DeepChain"] = node
+	graph.Entries.Set("Root", root)
+	graph.Entries.Set("DeepChain", node)
 	return graph
 }
 

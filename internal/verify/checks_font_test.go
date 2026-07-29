@@ -10,19 +10,19 @@ import (
 // no FontFile2 in its descriptor (simulating a non-embedded font).
 func buildUnembeddedTrueTypeFont(name string) (pdf.PDFDict, uintptr) {
 	desc := pdf.NewPDFDict()
-	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	desc.Entries["FontName"] = pdf.PDFName{Value: name}
-	desc.Entries["Flags"] = pdf.PDFInteger(32)
+	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	desc.Entries.Set("FontName", pdf.PDFName{Value: name})
+	desc.Entries.Set("Flags", pdf.PDFInteger(32))
 
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: name}
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	font.Entries["FirstChar"] = pdf.PDFInteger(32)
-	font.Entries["LastChar"] = pdf.PDFInteger(32)
-	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(278)}
-	font.Entries["FontDescriptor"] = desc
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: name})
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	font.Entries.Set("FirstChar", pdf.PDFInteger(32))
+	font.Entries.Set("LastChar", pdf.PDFInteger(32))
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(278)})
+	font.Entries.Set("FontDescriptor", desc)
 
 	ptr := pdf.ValuePointer(font.Entries)
 	return font, ptr
@@ -75,7 +75,7 @@ func TestHasEmbeddedProgram(t *testing.T) {
 	if HasEmbeddedProgram(desc, "FontFile", "FontFile2") {
 		t.Error("HasEmbeddedProgram should be false with no FontFile* entries")
 	}
-	desc.Entries["FontFile2"] = pdf.NewPDFDict()
+	desc.Entries.Set("FontFile2", pdf.NewPDFDict())
 	if !HasEmbeddedProgram(desc, "FontFile", "FontFile2") {
 		t.Error("HasEmbeddedProgram should be true when FontFile2 is present")
 	}
@@ -102,25 +102,24 @@ func TestValidateType3Metrics(t *testing.T) {
 	proc.RawStream = []byte("500 0 d0\n")
 
 	charProcs := pdf.NewPDFDict()
-	charProcs.Entries["g65"] = proc
+	charProcs.Entries.Set("g65", proc)
 
 	enc := pdf.NewPDFDict()
-	enc.Entries["Differences"] = pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}}
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}})
 
 	v := pdf.NewPDFDict()
-	v.Entries["FirstChar"] = pdf.PDFInteger(65)
-	v.Entries["LastChar"] = pdf.PDFInteger(65)
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
-	v.Entries["CharProcs"] = charProcs
-	v.Entries["Encoding"] = enc
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65))
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500)})
+	v.Entries.Set("CharProcs", charProcs)
+	v.Entries.Set("Encoding", enc)
 
 	ctx := &ValidationContext{}
 	validateType3Metrics(v, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("unexpected AdvanceWidthMismatch for matching Type3 width")
 	}
-
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(520)}
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(520)})
 	ctx2 := &ValidationContext{}
 	validateType3Metrics(v, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
@@ -133,11 +132,11 @@ func TestIdentityCIDToGIDMap(t *testing.T) {
 	if !IdentityCIDToGIDMap(v) {
 		t.Error("absent CIDToGIDMap should count as Identity")
 	}
-	v.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
+	v.Entries.Set("CIDToGIDMap", pdf.PDFName{Value: "Identity"})
 	if !IdentityCIDToGIDMap(v) {
 		t.Error("/Identity CIDToGIDMap should be true")
 	}
-	v.Entries["CIDToGIDMap"] = pdf.NewPDFDict() // an embedded stream map
+	v.Entries.Set("CIDToGIDMap", pdf.NewPDFDict()) // an embedded stream map
 	if IdentityCIDToGIDMap(v) {
 		t.Error("a stream CIDToGIDMap should not count as Identity")
 	}
@@ -148,26 +147,26 @@ func TestDescendantCIDFont(t *testing.T) {
 		t.Error("DescendantCIDFont with no DescendantFonts should be empty")
 	}
 	cid := pdf.NewPDFDict()
-	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
+	cid.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType2"})
 	v := pdf.NewPDFDict()
-	v.Entries["DescendantFonts"] = pdf.PDFArray{cid}
+	v.Entries.Set("DescendantFonts", pdf.PDFArray{cid})
 	got := DescendantCIDFont(v)
-	if got.Entries["Subtype"] != (pdf.PDFName{Value: "CIDFontType2"}) {
+	if got.Entries.Get("Subtype") != (pdf.PDFName{Value: "CIDFontType2"}) {
 		t.Error("DescendantCIDFont should return the first descendant dict")
 	}
 }
 
 func TestSameCIDSystemInfo(t *testing.T) {
 	a := pdf.NewPDFDict()
-	a.Entries["Registry"] = pdf.PDFString{Value: "Adobe"}
-	a.Entries["Ordering"] = pdf.PDFString{Value: "Identity"}
+	a.Entries.Set("Registry", pdf.PDFString{Value: "Adobe"})
+	a.Entries.Set("Ordering", pdf.PDFString{Value: "Identity"})
 	b := pdf.NewPDFDict()
-	b.Entries["Registry"] = pdf.PDFString{Value: "Adobe"}
-	b.Entries["Ordering"] = pdf.PDFString{Value: "Identity"}
+	b.Entries.Set("Registry", pdf.PDFString{Value: "Adobe"})
+	b.Entries.Set("Ordering", pdf.PDFString{Value: "Identity"})
 	if !SameCIDSystemInfo(a, b) {
 		t.Error("matching Registry/Ordering should be equal")
 	}
-	b.Entries["Ordering"] = pdf.PDFString{Value: "Japan1"}
+	b.Entries.Set("Ordering", pdf.PDFString{Value: "Japan1"})
 	if SameCIDSystemInfo(a, b) {
 		t.Error("differing Ordering should not be equal")
 	}
@@ -175,23 +174,22 @@ func TestSameCIDSystemInfo(t *testing.T) {
 
 func TestValidateType0Font(t *testing.T) {
 	cidCSI := pdf.NewPDFDict()
-	cidCSI.Entries["Registry"] = pdf.PDFString{Value: "Adobe"}
-	cidCSI.Entries["Ordering"] = pdf.PDFString{Value: "Identity"}
+	cidCSI.Entries.Set("Registry", pdf.PDFString{Value: "Adobe"})
+	cidCSI.Entries.Set("Ordering", pdf.PDFString{Value: "Identity"})
 	cid := pdf.NewPDFDict()
-	cid.Entries["CIDSystemInfo"] = cidCSI
+	cid.Entries.Set("CIDSystemInfo", cidCSI)
 
 	// A named, non-predefined CMap is flagged as neither predefined nor embedded.
 	v := pdf.NewPDFDict()
-	v.Entries["Encoding"] = pdf.PDFName{Value: "Custom-Encoding"}
-	v.Entries["DescendantFonts"] = pdf.PDFArray{cid}
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "Custom-Encoding"})
+	v.Entries.Set("DescendantFonts", pdf.PDFArray{cid})
 	ctx := &ValidationContext{}
 	validateType0Font(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.CMapNotEmbedded) {
 		t.Error("expected CMapNotEmbedded for a non-predefined named CMap")
 	}
-
 	// Identity-H is predefined: no CMapNotEmbedded.
-	v.Entries["Encoding"] = pdf.PDFName{Value: "Identity-H"}
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-H"})
 	ctx2 := &ValidationContext{}
 	validateType0Font(v, ctx2)
 	if hasCheck(ctx2, pdf.Checks.Font.CMapNotEmbedded) {
@@ -200,11 +198,11 @@ func TestValidateType0Font(t *testing.T) {
 
 	// An embedded CMap dict with mismatched CIDSystemInfo.
 	cmapCSI := pdf.NewPDFDict()
-	cmapCSI.Entries["Registry"] = pdf.PDFString{Value: "Adobe"}
-	cmapCSI.Entries["Ordering"] = pdf.PDFString{Value: "Japan1"}
+	cmapCSI.Entries.Set("Registry", pdf.PDFString{Value: "Adobe"})
+	cmapCSI.Entries.Set("Ordering", pdf.PDFString{Value: "Japan1"})
 	cmap := pdf.NewPDFDict()
-	cmap.Entries["CIDSystemInfo"] = cmapCSI
-	v.Entries["Encoding"] = cmap
+	cmap.Entries.Set("CIDSystemInfo", cmapCSI)
+	v.Entries.Set("Encoding", cmap)
 	ctx3 := &ValidationContext{}
 	validateType0Font(v, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Font.CIDSystemInfoMismatch) {
@@ -214,7 +212,7 @@ func TestValidateType0Font(t *testing.T) {
 
 func TestValidateCMapStreamAndCIDLimits(t *testing.T) {
 	cmap := pdf.NewPDFDict()
-	cmap.Entries["Type"] = pdf.PDFName{Value: "CMap"}
+	cmap.Entries.Set("Type", pdf.PDFName{Value: "CMap"})
 	cmap.HasStream = true
 	cmap.RawStream = []byte("1 begincidrange\n<0000> <FFFF> 70000\nendcidrange\n")
 
@@ -268,7 +266,7 @@ func TestCmapTokenizeAndParseInt(t *testing.T) {
 
 func TestEmbeddedProgramMatchesSubtype(t *testing.T) {
 	descFF := pdf.NewPDFDict()
-	descFF.Entries["FontFile"] = pdf.NewPDFDict()
+	descFF.Entries.Set("FontFile", pdf.NewPDFDict())
 	if !EmbeddedProgramMatchesSubtype("Type1", descFF) {
 		t.Error("Type1 with FontFile should match")
 	}
@@ -277,17 +275,17 @@ func TestEmbeddedProgramMatchesSubtype(t *testing.T) {
 	}
 
 	ff3 := pdf.NewPDFDict()
-	ff3.Entries["Subtype"] = pdf.PDFName{Value: "Type1C"}
+	ff3.Entries.Set("Subtype", pdf.PDFName{Value: "Type1C"})
 	descFF3 := pdf.NewPDFDict()
-	descFF3.Entries["FontFile3"] = ff3
+	descFF3.Entries.Set("FontFile3", ff3)
 	if !EmbeddedProgramMatchesSubtype("Type1", descFF3) {
 		t.Error("Type1 with a Type1C FontFile3 should match")
 	}
 
 	ff3cid := pdf.NewPDFDict()
-	ff3cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType0C"}
+	ff3cid.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType0C"})
 	descCID := pdf.NewPDFDict()
-	descCID.Entries["FontFile3"] = ff3cid
+	descCID.Entries.Set("FontFile3", ff3cid)
 	if !EmbeddedProgramMatchesSubtype("CIDFontType0", descCID) {
 		t.Error("CIDFontType0 with a CIDFontType0C FontFile3 should match")
 	}
@@ -296,7 +294,7 @@ func TestEmbeddedProgramMatchesSubtype(t *testing.T) {
 	}
 
 	descFF2 := pdf.NewPDFDict()
-	descFF2.Entries["FontFile2"] = pdf.NewPDFDict()
+	descFF2.Entries.Set("FontFile2", pdf.NewPDFDict())
 	if !EmbeddedProgramMatchesSubtype("TrueType", descFF2) {
 		t.Error("TrueType with FontFile2 should match")
 	}
@@ -320,18 +318,18 @@ func buildType1FontDict(baseFont string) pdf.PDFDict {
 	ff.RawStream = buildType1Font()
 
 	desc := pdf.NewPDFDict()
-	desc.Entries["FontFile"] = ff
-	desc.Entries["CharSet"] = pdf.PDFString{Value: "/A"}
+	desc.Entries.Set("FontFile", ff)
+	desc.Entries.Set("CharSet", pdf.PDFString{Value: "/A"})
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	v.Entries["BaseFont"] = pdf.PDFName{Value: baseFont}
-	v.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	v.Entries["FirstChar"] = pdf.PDFInteger(65)
-	v.Entries["LastChar"] = pdf.PDFInteger(65)
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
-	v.Entries["FontDescriptor"] = desc
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: baseFont})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65))
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500)})
+	v.Entries.Set("FontDescriptor", desc)
 	return v
 }
 
@@ -349,9 +347,9 @@ func TestValidateFontDictType1Subset(t *testing.T) {
 
 func TestValidateFontDictType1SubsetMissingCharSet(t *testing.T) {
 	v := buildType1FontDict("ABCDEF+Test")
-	desc := v.Entries["FontDescriptor"].(pdf.PDFDict)
-	delete(desc.Entries, "CharSet")
-	v.Entries["FontDescriptor"] = desc
+	desc := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	desc.Entries.Del("CharSet")
+	v.Entries.Set("FontDescriptor", desc)
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.Type1SubsetCharSet) {
@@ -369,17 +367,17 @@ func TestValidateFontDictTrueTypeSubset(t *testing.T) {
 	ff.HasStream = true
 	ff.RawStream = ttf
 	desc := pdf.NewPDFDict()
-	desc.Entries["FontFile2"] = ff
+	desc.Entries.Set("FontFile2", ff)
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
-	v.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+LiberationSans"}
-	v.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	v.Entries["FirstChar"] = pdf.PDFInteger(65)
-	v.Entries["LastChar"] = pdf.PDFInteger(65)
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(widthA)}
-	v.Entries["FontDescriptor"] = desc
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+LiberationSans"})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65))
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(widthA)})
+	v.Entries.Set("FontDescriptor", desc)
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
@@ -390,7 +388,7 @@ func TestValidateFontDictTrueTypeSubset(t *testing.T) {
 
 func TestValidateFontDictCIDFontType2(t *testing.T) {
 	desc, ff, gidA, widthA := buildCIDTrueTypeFont(t)
-	desc.Entries["CIDSet"] = func() pdf.PDFDict {
+	desc.Entries.Set("CIDSet", func() pdf.PDFDict {
 		ttf := loadTTF(t)
 		tables, _ := ParseSfnt(ttf)
 		n := TTNumGlyphs(tables)
@@ -402,23 +400,23 @@ func TestValidateFontDictCIDFontType2(t *testing.T) {
 		d.HasStream = true
 		d.RawStream = bm
 		return d
-	}()
-	desc.Entries["FontFile2"] = ff
+	}())
+	desc.Entries.Set("FontFile2", ff)
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "Type0"}
-	v.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+LiberationSans"}
-	v.Entries["Encoding"] = pdf.PDFName{Value: "Identity-H"}
-	v.Entries["DescendantFonts"] = pdf.PDFArray{func() pdf.PDFDict {
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "Type0"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+LiberationSans"})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-H"})
+	v.Entries.Set("DescendantFonts", pdf.PDFArray{func() pdf.PDFDict {
 		cid := pdf.NewPDFDict()
-		cid.Entries["Type"] = pdf.PDFName{Value: "Font"}
-		cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
-		cid.Entries["FontDescriptor"] = desc
-		cid.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
-		cid.Entries["W"] = pdf.PDFArray{pdf.PDFInteger(gidA), pdf.PDFArray{pdf.PDFInteger(widthA)}}
+		cid.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+		cid.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType2"})
+		cid.Entries.Set("FontDescriptor", desc)
+		cid.Entries.Set("CIDToGIDMap", pdf.PDFName{Value: "Identity"})
+		cid.Entries.Set("W", pdf.PDFArray{pdf.PDFInteger(gidA), pdf.PDFArray{pdf.PDFInteger(widthA)}})
 		return cid
-	}()}
+	}()})
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
@@ -437,24 +435,25 @@ func TestValidateFontDictCIDFontType0(t *testing.T) {
 	ff.RawStream = cff
 
 	desc := pdf.NewPDFDict()
-	desc.Entries["FontFile3"] = ff
+	desc.Entries.Set("FontFile3", ff)
 	cidSet := pdf.NewPDFDict()
 	cidSet.HasStream = true
-	cidSet.RawStream = []byte{0xE0} // CIDs 0, 1, 2 all marked
-	desc.Entries["CIDSet"] = cidSet
+	cidSet.RawStream = []byte{0xE0}
+	// CIDs 0, 1, 2 all marked
+	desc.Entries.Set("CIDSet", cidSet)
 
 	cid := pdf.NewPDFDict()
-	cid.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType0"}
-	cid.Entries["FontDescriptor"] = desc
-	cid.Entries["W"] = pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(600), pdf.PDFInteger(700)}}
+	cid.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	cid.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType0"})
+	cid.Entries.Set("FontDescriptor", desc)
+	cid.Entries.Set("W", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(600), pdf.PDFInteger(700)}})
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "Type0"}
-	v.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+CIDTest"}
-	v.Entries["Encoding"] = pdf.PDFName{Value: "Identity-H"}
-	v.Entries["DescendantFonts"] = pdf.PDFArray{cid}
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "Type0"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+CIDTest"})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-H"})
+	v.Entries.Set("DescendantFonts", pdf.PDFArray{cid})
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
@@ -468,18 +467,18 @@ func TestValidateFontDictType3(t *testing.T) {
 	proc.HasStream = true
 	proc.RawStream = []byte("500 0 d0\n")
 	charProcs := pdf.NewPDFDict()
-	charProcs.Entries["g65"] = proc
+	charProcs.Entries.Set("g65", proc)
 	enc := pdf.NewPDFDict()
-	enc.Entries["Differences"] = pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}}
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}})
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "Type3"}
-	v.Entries["FirstChar"] = pdf.PDFInteger(65)
-	v.Entries["LastChar"] = pdf.PDFInteger(65)
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
-	v.Entries["CharProcs"] = charProcs
-	v.Entries["Encoding"] = enc
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "Type3"})
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65))
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500)})
+	v.Entries.Set("CharProcs", charProcs)
+	v.Entries.Set("Encoding", enc)
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
@@ -489,7 +488,7 @@ func TestValidateFontDictType3(t *testing.T) {
 
 	// A missing/invalid Subtype is reported and skips further checks.
 	vBad := pdf.NewPDFDict()
-	vBad.Entries["Type"] = pdf.PDFName{Value: "Font"}
+	vBad.Entries.Set("Type", pdf.PDFName{Value: "Font"})
 	ctx2 := &ValidationContext{}
 	ValidateFontDict(vBad, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.InvalidSubtype) {
@@ -503,15 +502,17 @@ func TestValidateFontDictSymbolicTrueType(t *testing.T) {
 	ff.HasStream = true
 	ff.RawStream = ttf
 	desc := pdf.NewPDFDict()
-	desc.Entries["Flags"] = pdf.PDFInteger(4) // symbolic
-	desc.Entries["FontFile2"] = ff
+	desc.Entries.Set("Flags", pdf.PDFInteger(4))
+	// symbolic
+	desc.Entries.Set("FontFile2", ff)
 
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	v.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
-	v.Entries["BaseFont"] = pdf.PDFName{Value: "SymbolFont"}
-	v.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"} // shall not be set for symbolic
-	v.Entries["FontDescriptor"] = desc
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: "SymbolFont"})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	// shall not be set for symbolic
+	v.Entries.Set("FontDescriptor", desc)
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(v, ctx)
@@ -525,10 +526,10 @@ func TestValidateFontDictCIDFontType0NotEmbedded(t *testing.T) {
 	// (it is itself a /Type /Font dict); CIDNotEmbedded fires there, not on
 	// the wrapping Type0 dict (which is exempted from the embedding check).
 	cid := pdf.NewPDFDict()
-	cid.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	cid.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType0"}
-	cid.Entries["BaseFont"] = pdf.PDFName{Value: "NotEmbedded"}
-	cid.Entries["FontDescriptor"] = pdf.NewPDFDict() // no embedded program
+	cid.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	cid.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType0"})
+	cid.Entries.Set("BaseFont", pdf.PDFName{Value: "NotEmbedded"})
+	cid.Entries.Set("FontDescriptor", pdf.NewPDFDict()) // no embedded program
 
 	ctx := &ValidationContext{}
 	ValidateFontDict(cid, ctx)
@@ -541,7 +542,7 @@ func TestValidateFontDictInvisibleFontSkipsChecks(t *testing.T) {
 	// A Type1 subset font with a mismatched width would normally be flagged,
 	// but a font shown only under invisible rendering modes is exempt.
 	v := buildType1FontDict("ABCDEF+Test")
-	v.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(999)} // deliberately wrong
+	v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(999)}) // deliberately wrong
 	ptr := pdf.ValuePointer(v.Entries)
 
 	ctx := &ValidationContext{InvisibleOnlyFontPtrs: map[uintptr]bool{ptr: true}}

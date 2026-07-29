@@ -145,10 +145,9 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 		return dict, false
 	}
 
-	// Emit while scanning rather than collecting the operator list: a
-	// tokenized list runs several times the size of the stream it came from,
-	// and it is not covered by the resident-bytes budget. The buffer is
-	// discarded when rewrite turns out to have changed nothing.
+	// Emit while scanning: an operator list runs several times the size of the
+	// stream, and is not covered by the resident-bytes budget. The buffer is
+	// discarded if rewrite changed nothing.
 	var cw writer.ContentStreamWriter
 	modified := false
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -177,12 +176,12 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		switch {
-		case (d.Entries["Type"] == pdf.PDFName{Value: "Page"}):
-			switch contents := d.Entries["Contents"].(type) {
+		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
+			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
 					if fixed, ok := rewriteContentStreamDict(contents, rewrite); ok {
-						d.Entries["Contents"] = fixed
+						d.Entries.Set("Contents", fixed)
 						changed = true
 					}
 				}
@@ -200,23 +199,23 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 			}
 			return d, false
 
-		case d.Entries["PatternType"] == pdf.PDFInteger(1) && d.HasStream,
-			(d.Entries["Subtype"] == pdf.PDFName{Value: "Form"}) && d.HasStream:
+		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.HasStream,
+			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.HasStream:
 			if fixed, ok := rewriteContentStreamDict(d, rewrite); ok {
 				changed = true
 				return fixed, true
 			}
 			return d, false
 
-		case (d.Entries["Subtype"] == pdf.PDFName{Value: "Type3"}):
-			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
-				for k, v := range procs.Entries {
+		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
+			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
+				for k, v := range procs.Entries.All() {
 					pd, ok := v.(pdf.PDFDict)
 					if !ok || !pd.HasStream {
 						continue
 					}
 					if fixed, ok := rewriteContentStreamDict(pd, rewrite); ok {
-						procs.Entries[k] = fixed
+						procs.Entries.Set(k, fixed)
 						changed = true
 					}
 				}
@@ -303,12 +302,12 @@ func walkScalars(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFValue
 			return
 		}
 		visited[ptr] = true
-		for k, child := range val.Entries {
+		for k, child := range val.Entries.All() {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
 			if updated, ok := fix(child); ok {
-				val.Entries[k] = updated
+				val.Entries.Set(k, updated)
 				child = updated
 			}
 			walkScalars(child, visited, fix)

@@ -9,7 +9,7 @@ import "github.com/voidrab/gopdfrab/internal/pdf"
 // which PDF/A-1b's model does not permit).
 func init() {
 	registerPreemptiveFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		delete(trailer.Entries, "Encrypt")
+		trailer.Entries.Del("Encrypt")
 		return nil
 	})
 }

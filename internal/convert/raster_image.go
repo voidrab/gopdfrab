@@ -59,7 +59,7 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 	bpc := pdf.DictInt(dict, "BitsPerComponent", 8)
 	cs := resolveImageColorSpace(dict, resources)
 	ncomp := pdf.ColorSpaceComponents(cs)
-	isMask := dict.Entries["ImageMask"] == pdf.PDFBoolean(true)
+	isMask := dict.Entries.Get("ImageMask") == pdf.PDFBoolean(true)
 	if isMask {
 		ncomp = 1
 		bpc = 1
@@ -285,10 +285,10 @@ func (c colorRGBA64) RGBA() (r, g, b, a uint32) {
 // named reference against resources if needed. ImageMask images have an
 // implicit DeviceGray space (the sample is opacity, not colour).
 func resolveImageColorSpace(dict pdf.PDFDict, resources pdf.PDFDict) pdf.PDFValue {
-	if dict.Entries["ImageMask"] == pdf.PDFBoolean(true) {
+	if dict.Entries.Get("ImageMask") == pdf.PDFBoolean(true) {
 		return pdf.PDFName{Value: "DeviceGray"}
 	}
-	cs := dict.Entries["ColorSpace"]
+	cs := dict.Entries.Get("ColorSpace")
 	if name, ok := cs.(pdf.PDFName); ok {
 		if named, ok := pdf.LookupNamedColorSpace(name.Value, resources); ok {
 			return named
@@ -300,7 +300,7 @@ func resolveImageColorSpace(dict pdf.PDFDict, resources pdf.PDFDict) pdf.PDFValu
 // imageDecodeArray returns the effective per-component Decode range,
 // defaulting to the colour space's natural range when /Decode is absent.
 func imageDecodeArray(dict pdf.PDFDict, cs pdf.PDFValue, ncomp, bpc int) []float64 {
-	if arr, err := pdf.FloatArray(dict.Entries["Decode"]); err == nil && len(arr) == 2*ncomp {
+	if arr, err := pdf.FloatArray(dict.Entries.Get("Decode")); err == nil && len(arr) == 2*ncomp {
 		return arr
 	}
 	if _, isIndexed := indexedHead(cs); isIndexed {
@@ -332,8 +332,8 @@ func decodeCCITTImage(dict pdf.PDFDict, resources pdf.PDFDict, s pdf.DecodedStre
 		Columns:   pdf.DictInt(parms, "Columns", 1728),
 		Rows:      pdf.DictInt(parms, "Rows", 0),
 		K:         pdf.DictInt(parms, "K", 0),
-		ByteAlign: parms.Entries["EncodedByteAlign"] == pdf.PDFBoolean(true),
-		BlackIs1:  parms.Entries["BlackIs1"] == pdf.PDFBoolean(true),
+		ByteAlign: parms.Entries.Get("EncodedByteAlign") == pdf.PDFBoolean(true),
+		BlackIs1:  parms.Entries.Get("BlackIs1") == pdf.PDFBoolean(true),
 	}
 	if p.Columns <= 0 {
 		p.Columns = width

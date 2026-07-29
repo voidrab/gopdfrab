@@ -100,7 +100,7 @@ func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
 	if !dict.HasStream {
 		return DecodedStream{}, ErrNotAStream
 	}
-	names := FilterNames(dict.Entries["Filter"])
+	names := FilterNames(dict.Entries.Get("Filter"))
 	data := dict.RawStream
 	for i, name := range names {
 		info, ok := LookupFilter(name)

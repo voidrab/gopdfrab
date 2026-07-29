@@ -72,15 +72,15 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	changed := false
 	promote := func(v pdf.PDFValue) {
 		child, ok := v.(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries["_ref"] != nil {
+		if !ok || child.Entries == nil || child.Entries.Get("_ref") != nil {
 			return
 		}
-		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
+		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: next})
 		next++
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		for k, v := range d.Entries {
+		for k, v := range d.Entries.All() {
 			if k == "_ref" {
 				continue
 			}
@@ -101,10 +101,10 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
 	promote := func(child pdf.PDFDict) bool {
-		if child.Entries == nil || child.Entries["_ref"] != nil {
+		if child.Entries == nil || child.Entries.Get("_ref") != nil {
 			return false
 		}
-		child.Entries["_ref"] = pdf.PDFRef{ObjNum: next}
+		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: next})
 		next++
 		return true
 	}
@@ -137,7 +137,7 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if kd == nil || kd.IndirectReference != arlington.IndirectRequired {
 			continue
 		}
-		if child, isDict := d.Entries[detail.Key].(pdf.PDFDict); isDict && promote(child) {
+		if child, isDict := d.Entries.Get(detail.Key).(pdf.PDFDict); isDict && promote(child) {
 			changed = true
 		}
 	}
@@ -174,10 +174,10 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 		if !ok {
 			continue
 		}
-		if _, present := d.Entries[detail.Key]; !present {
+		if _, present := d.Entries.Lookup(detail.Key); !present {
 			continue
 		}
-		delete(d.Entries, detail.Key)
+		d.Entries.Del(detail.Key)
 		changed = true
 	}
 	return changed, true, nil
@@ -241,11 +241,11 @@ func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for _, r := range reservedFlagBits {
-			if t, ok := d.Entries[r.discKey].(pdf.PDFName); !ok || t.Value != r.discVal {
+			if t, ok := d.Entries.Get(r.discKey).(pdf.PDFName); !ok || t.Value != r.discVal {
 				continue
 			}
-			if v, ok := d.Entries[r.flagKey].(pdf.PDFInteger); ok && int64(v)&r.clear != 0 {
-				d.Entries[r.flagKey] = v &^ pdf.PDFInteger(r.clear)
+			if v, ok := d.Entries.Get(r.flagKey).(pdf.PDFInteger); ok && int64(v)&r.clear != 0 {
+				d.Entries.Set(r.flagKey, v&^pdf.PDFInteger(r.clear))
 				changed = true
 			}
 		}
@@ -270,7 +270,7 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 			continue
 		}
 		kd := keyDefFor(detail.TypeName, detail.Key)
-		if kd == nil || kd.SpecialCase == nil || d.Entries[detail.Key] == nil {
+		if kd == nil || kd.SpecialCase == nil || d.Entries.Get(detail.Key) == nil {
 			continue
 		}
 		if holds, ok := verify.EvalCond(kd.SpecialCase, d); !ok || holds {
@@ -286,8 +286,8 @@ func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, b
 // repairConstraint applies the neutral repair for key's violated SpecialCase on d.
 func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef) bool {
 	if mask := clearMaskFromCond(kd.SpecialCase, key); mask != 0 {
-		if v, ok := d.Entries[key].(pdf.PDFInteger); ok && int64(v)&mask != 0 {
-			d.Entries[key] = v &^ pdf.PDFInteger(mask)
+		if v, ok := d.Entries.Get(key).(pdf.PDFInteger); ok && int64(v)&mask != 0 {
+			d.Entries.Set(key, v&^pdf.PDFInteger(mask))
 			return true
 		}
 	}
@@ -297,8 +297,8 @@ func repairConstraint(d pdf.PDFDict, typeName, key string, kd *arlington.KeyDef)
 	if strings.HasPrefix(key, "FontFile") && pruneFontFiles(d, typeName) {
 		return true
 	}
-	if nv, ok := clampToBounds(d.Entries[key], kd.SpecialCase, key); ok {
-		d.Entries[key] = nv
+	if nv, ok := clampToBounds(d.Entries.Get(key), kd.SpecialCase, key); ok {
+		d.Entries.Set(key, nv)
 		return true
 	}
 	return false
@@ -330,21 +330,21 @@ func lengthCoupledSibling(c *arlington.Cond, key string) (string, bool) {
 // length. The model only couples parameter arrays to their filter arrays this way, so the
 // resize never touches decode semantics.
 func resizeToSiblingLength(d pdf.PDFDict, key, sib string) bool {
-	a, ok := d.Entries[key].(pdf.PDFArray)
+	a, ok := d.Entries.Get(key).(pdf.PDFArray)
 	if !ok {
 		return false
 	}
-	b, ok := d.Entries[sib].(pdf.PDFArray)
+	b, ok := d.Entries.Get(sib).(pdf.PDFArray)
 	if !ok || len(a) == len(b) {
 		return false
 	}
 	if len(a) > len(b) {
-		d.Entries[key] = a[:len(b)]
+		d.Entries.Set(key, a[:len(b)])
 		return true
 	}
 	resized := make(pdf.PDFArray, len(b))
 	copy(resized, a)
-	d.Entries[key] = resized
+	d.Entries.Set(key, resized)
 	return true
 }
 
@@ -366,7 +366,7 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 	}
 	present := 0
 	for _, k := range pref {
-		if v, exists := d.Entries[k]; exists && v != nil {
+		if v, exists := d.Entries.Lookup(k); exists && v != nil {
 			present++
 		}
 	}
@@ -376,7 +376,7 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 	kept := false
 	changed := false
 	for _, k := range pref {
-		v, exists := d.Entries[k]
+		v, exists := d.Entries.Lookup(k)
 		if !exists || v == nil {
 			continue
 		}
@@ -384,7 +384,7 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 			kept = true
 			continue
 		}
-		delete(d.Entries, k)
+		d.Entries.Del(k)
 		changed = true
 	}
 	return changed
@@ -425,14 +425,14 @@ func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		if kd == nil {
 			continue
 		}
-		if v, present := d.Entries[detail.Key]; present && v != nil {
+		if v, present := d.Entries.Lookup(detail.Key); present && v != nil {
 			continue // repaired by an earlier pass; stale finding
 		}
 		val, ok := synthesizedValue(kd, d)
 		if !ok {
 			continue
 		}
-		d.Entries[detail.Key] = val
+		d.Entries.Set(detail.Key, val)
 		changed = true
 	}
 	return changed, true, nil
@@ -463,7 +463,7 @@ func arrayElemTarget(p *fixPass, iss pdf.PDFError) (arr pdf.PDFArray, kd *arling
 	if !found {
 		return nil, nil, 0, false
 	}
-	arr, isArr := d.Entries[detail.Entry].(pdf.PDFArray)
+	arr, isArr := d.Entries.Get(detail.Entry).(pdf.PDFArray)
 	idx, _ = strconv.Atoi(detail.Key)
 	if !isArr || idx >= len(arr) {
 		return nil, nil, 0, false
@@ -572,17 +572,17 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 		if kd == nil || len(kd.Types) == 0 {
 			continue
 		}
-		val, present := d.Entries[detail.Key]
+		val, present := d.Entries.Lookup(detail.Key)
 		if !present || val == nil || verify.MatchesValueType(val, kd.Types) {
 			continue // absent, null, or repaired earlier: stale finding
 		}
 		if nv, ok := coerceScalar(val, kd.Types); ok {
-			d.Entries[detail.Key] = nv
+			d.Entries.Set(detail.Key, nv)
 			changed = true
 			continue
 		}
 		if deletableKey(kd) {
-			delete(d.Entries, detail.Key)
+			d.Entries.Del(detail.Key)
 			changed = true
 		}
 	}
@@ -674,7 +674,7 @@ func (disallowedValueFixer) Applies(c pdf.Check) bool {
 func (disallowedValueFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if t, ok := d.Entries["Type"].(pdf.PDFName); !ok || t.Value != "FontDescriptor" {
+		if t, ok := d.Entries.Get("Type").(pdf.PDFName); !ok || t.Value != "FontDescriptor" {
 			return
 		}
 		if negateDescent(d) {
@@ -710,7 +710,7 @@ func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bo
 		if kd == nil {
 			continue
 		}
-		if val := d.Entries[detail.Key]; val == nil {
+		if val := d.Entries.Get(detail.Key); val == nil {
 			continue
 		}
 		if repairDisallowedValue(d, detail.Key, kd) {
@@ -723,15 +723,15 @@ func (f disallowedValueFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bo
 // negateDescent flips a positive /Descent in place, preserving its magnitude where a clamp
 // to the range bound would zero it.
 func negateDescent(d pdf.PDFDict) bool {
-	switch v := d.Entries["Descent"].(type) {
+	switch v := d.Entries.Get("Descent").(type) {
 	case pdf.PDFInteger:
 		if v > 0 {
-			d.Entries["Descent"] = -v
+			d.Entries.Set("Descent", -v)
 			return true
 		}
 	case pdf.PDFReal:
 		if v > 0 {
-			d.Entries["Descent"] = -v
+			d.Entries.Set("Descent", -v)
 			return true
 		}
 	}
@@ -744,14 +744,14 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if key == "Descent" && negateDescent(d) {
 		return true // a descriptor without /Type, missed by the whole-graph pass
 	}
-	val := d.Entries[key]
+	val := d.Entries.Get(key)
 	violated := false
 
 	if !kd.Predicated.Values && len(kd.PossibleValues) > 0 {
 		if s, ok := verify.EnumString(val); ok && !stringInList(s, kd.PossibleValues) {
 			if len(kd.PossibleValues) == 1 {
 				if nv, ok := scalarFromEnum(kd.PossibleValues[0], kd.Types); ok {
-					d.Entries[key] = nv
+					d.Entries.Set(key, nv)
 					return true
 				}
 			}
@@ -766,7 +766,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 		}
 		if s, ok := verify.EnumString(val); ok && s != pin.Value {
 			if nv, ok := scalarFromEnum(pin.Value, kd.Types); ok {
-				d.Entries[key] = nv
+				d.Entries.Set(key, nv)
 				return true
 			}
 			violated = true
@@ -776,7 +776,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if kd.ValueCond != nil {
 		if legal, ok := verify.EvalCond(kd.ValueCond, d); ok && !legal {
 			if nv, ok := clampToBounds(val, kd.ValueCond, key); ok {
-				d.Entries[key] = nv
+				d.Entries.Set(key, nv)
 				return true
 			}
 			violated = true
@@ -784,7 +784,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	}
 
 	if violated && deletableKey(kd) {
-		delete(d.Entries, key)
+		d.Entries.Del(key)
 		return true
 	}
 	return false

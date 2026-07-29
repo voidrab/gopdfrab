@@ -22,7 +22,7 @@ func TestAsFloat(t *testing.T) {
 
 func TestValidateActions(t *testing.T) {
 	forbidden := pdf.NewPDFDict()
-	forbidden.Entries["S"] = pdf.PDFName{Value: "JavaScript"}
+	forbidden.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
 	ctx := &ValidationContext{}
 	validateActions(forbidden, ctx)
 	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
@@ -30,8 +30,8 @@ func TestValidateActions(t *testing.T) {
 	}
 
 	namedBad := pdf.NewPDFDict()
-	namedBad.Entries["S"] = pdf.PDFName{Value: "Named"}
-	namedBad.Entries["N"] = pdf.PDFName{Value: "GoBackToStart"}
+	namedBad.Entries.Set("S", pdf.PDFName{Value: "Named"})
+	namedBad.Entries.Set("N", pdf.PDFName{Value: "GoBackToStart"})
 	ctx2 := &ValidationContext{}
 	validateActions(namedBad, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Action.DisallowedNamedAction) {
@@ -39,8 +39,8 @@ func TestValidateActions(t *testing.T) {
 	}
 
 	namedOK := pdf.NewPDFDict()
-	namedOK.Entries["S"] = pdf.PDFName{Value: "Named"}
-	namedOK.Entries["N"] = pdf.PDFName{Value: "NextPage"}
+	namedOK.Entries.Set("S", pdf.PDFName{Value: "Named"})
+	namedOK.Entries.Set("N", pdf.PDFName{Value: "NextPage"})
 	ctx3 := &ValidationContext{}
 	validateActions(namedOK, ctx3)
 	if len(ctx3.errs) != 0 {
@@ -57,7 +57,7 @@ func TestValidateActions(t *testing.T) {
 
 func TestValidateAdditionalActions(t *testing.T) {
 	v := pdf.NewPDFDict()
-	v.Entries["AA"] = pdf.NewPDFDict()
+	v.Entries.Set("AA", pdf.NewPDFDict())
 	ctx := &ValidationContext{}
 	validateAdditionalActions(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Action.AdditionalActions) {
@@ -73,14 +73,14 @@ func TestValidateAdditionalActions(t *testing.T) {
 
 func TestValidateExtGState(t *testing.T) {
 	v := pdf.NewPDFDict()
-	v.Entries["Type"] = pdf.PDFName{Value: "ExtGState"}
-	v.Entries["TR"] = pdf.PDFName{Value: "Identity"}
-	v.Entries["TR2"] = pdf.PDFName{Value: "Custom"}
-	v.Entries["RI"] = pdf.PDFName{Value: "BadIntent"}
-	v.Entries["SMask"] = pdf.PDFName{Value: "Luminosity"}
-	v.Entries["BM"] = pdf.PDFName{Value: "Multiply"}
-	v.Entries["CA"] = pdf.PDFReal(0.5)
-	v.Entries["ca"] = pdf.PDFReal(0.5)
+	v.Entries.Set("Type", pdf.PDFName{Value: "ExtGState"})
+	v.Entries.Set("TR", pdf.PDFName{Value: "Identity"})
+	v.Entries.Set("TR2", pdf.PDFName{Value: "Custom"})
+	v.Entries.Set("RI", pdf.PDFName{Value: "BadIntent"})
+	v.Entries.Set("SMask", pdf.PDFName{Value: "Luminosity"})
+	v.Entries.Set("BM", pdf.PDFName{Value: "Multiply"})
+	v.Entries.Set("CA", pdf.PDFReal(0.5))
+	v.Entries.Set("ca", pdf.PDFReal(0.5))
 	ctx := &ValidationContext{}
 	validateExtGState(v, ctx)
 	for _, chk := range []pdf.Check{
@@ -99,9 +99,9 @@ func TestValidateExtGState(t *testing.T) {
 
 	// A conformant ExtGState triggers nothing.
 	good := pdf.NewPDFDict()
-	good.Entries["Type"] = pdf.PDFName{Value: "ExtGState"}
-	good.Entries["BM"] = pdf.PDFName{Value: "Normal"}
-	good.Entries["CA"] = pdf.PDFReal(1.0)
+	good.Entries.Set("Type", pdf.PDFName{Value: "ExtGState"})
+	good.Entries.Set("BM", pdf.PDFName{Value: "Normal"})
+	good.Entries.Set("CA", pdf.PDFReal(1.0))
 	ctx2 := &ValidationContext{}
 	validateExtGState(good, ctx2)
 	if len(ctx2.errs) != 0 {
@@ -115,8 +115,8 @@ func TestValidateExtGState(t *testing.T) {
 		t.Error("unexpected violation for a dict with no transparency-related keys")
 	}
 	other := pdf.NewPDFDict()
-	other.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	other.Entries["TR"] = pdf.PDFName{Value: "Identity"}
+	other.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	other.Entries.Set("TR", pdf.PDFName{Value: "Identity"})
 	ctx4 := &ValidationContext{}
 	validateExtGState(other, ctx4)
 	if len(ctx4.errs) != 0 {
@@ -126,9 +126,9 @@ func TestValidateExtGState(t *testing.T) {
 
 func TestValidateTransparencyGroup(t *testing.T) {
 	group := pdf.NewPDFDict()
-	group.Entries["S"] = pdf.PDFName{Value: "Transparency"}
+	group.Entries.Set("S", pdf.PDFName{Value: "Transparency"})
 	v := pdf.NewPDFDict()
-	v.Entries["Group"] = group
+	v.Entries.Set("Group", group)
 	ctx := &ValidationContext{}
 	validateTransparencyGroup(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Transparency.TransparencyGroup) {
@@ -144,13 +144,13 @@ func TestValidateTransparencyGroup(t *testing.T) {
 
 func TestValidateXObjectDict(t *testing.T) {
 	img := pdf.NewPDFDict()
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Interpolate"] = pdf.PDFBoolean(true)
-	img.Entries["Alternates"] = pdf.PDFArray{}
-	img.Entries["OPI"] = pdf.NewPDFDict()
-	img.Entries["Intent"] = pdf.PDFName{Value: "BadIntent"}
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(3)
-	img.Entries["SMask"] = pdf.PDFName{Value: "Luminosity"}
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Interpolate", pdf.PDFBoolean(true))
+	img.Entries.Set("Alternates", pdf.PDFArray{})
+	img.Entries.Set("OPI", pdf.NewPDFDict())
+	img.Entries.Set("Intent", pdf.PDFName{Value: "BadIntent"})
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(3))
+	img.Entries.Set("SMask", pdf.PDFName{Value: "Luminosity"})
 	ctx := &ValidationContext{}
 	validateXObjectDict(img, ctx)
 	for _, chk := range []pdf.Check{
@@ -167,9 +167,9 @@ func TestValidateXObjectDict(t *testing.T) {
 	}
 
 	mask := pdf.NewPDFDict()
-	mask.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	mask.Entries["ImageMask"] = pdf.PDFBoolean(true)
-	mask.Entries["BitsPerComponent"] = pdf.PDFInteger(2)
+	mask.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	mask.Entries.Set("ImageMask", pdf.PDFBoolean(true))
+	mask.Entries.Set("BitsPerComponent", pdf.PDFInteger(2))
 	ctx2 := &ValidationContext{}
 	validateXObjectDict(mask, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Image.ImageMaskBitsPerComponent) {
@@ -177,11 +177,11 @@ func TestValidateXObjectDict(t *testing.T) {
 	}
 
 	form := pdf.NewPDFDict()
-	form.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
-	form.Entries["Ref"] = pdf.NewPDFDict()
-	form.Entries["OPI"] = pdf.NewPDFDict()
-	form.Entries["PS"] = pdf.PDFString{Value: "x"}
-	form.Entries["Subtype2"] = pdf.PDFName{Value: "PS"}
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	form.Entries.Set("Ref", pdf.NewPDFDict())
+	form.Entries.Set("OPI", pdf.NewPDFDict())
+	form.Entries.Set("PS", pdf.PDFString{Value: "x"})
+	form.Entries.Set("Subtype2", pdf.PDFName{Value: "PS"})
 	ctx3 := &ValidationContext{}
 	validateXObjectDict(form, ctx3)
 	for _, chk := range []pdf.Check{
@@ -204,7 +204,7 @@ func TestValidateXObjectDict(t *testing.T) {
 	}
 
 	ps := pdf.NewPDFDict()
-	ps.Entries["Subtype"] = pdf.PDFName{Value: "PS"}
+	ps.Entries.Set("Subtype", pdf.PDFName{Value: "PS"})
 	ctx5 := &ValidationContext{}
 	validateXObjectDict(ps, ctx5)
 	if !hasCheck(ctx5, pdf.Checks.Image.PostScriptXObject) {
@@ -250,10 +250,10 @@ func TestCheckAnnotColour(t *testing.T) {
 
 func TestValidateFormField(t *testing.T) {
 	widget := pdf.NewPDFDict()
-	widget.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
-	widget.Entries["A"] = pdf.NewPDFDict()
-	widget.Entries["AA"] = pdf.NewPDFDict()
+	widget.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
+	widget.Entries.Set("A", pdf.NewPDFDict())
+	widget.Entries.Set("AA", pdf.NewPDFDict())
 	ctx := &ValidationContext{}
 	validateFormField(widget, ctx)
 	if !hasCheck(ctx, pdf.Checks.Form.FieldAction) {
@@ -264,8 +264,8 @@ func TestValidateFormField(t *testing.T) {
 	}
 
 	field := pdf.NewPDFDict()
-	field.Entries["FT"] = pdf.PDFName{Value: "Tx"}
-	field.Entries["A"] = pdf.NewPDFDict()
+	field.Entries.Set("FT", pdf.PDFName{Value: "Tx"})
+	field.Entries.Set("A", pdf.NewPDFDict())
 	ctx2 := &ValidationContext{}
 	validateFormField(field, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Form.FieldAction) {
@@ -273,7 +273,7 @@ func TestValidateFormField(t *testing.T) {
 	}
 
 	notAField := pdf.NewPDFDict()
-	notAField.Entries["A"] = pdf.NewPDFDict()
+	notAField.Entries.Set("A", pdf.NewPDFDict())
 	ctx3 := &ValidationContext{}
 	validateFormField(notAField, ctx3)
 	if len(ctx3.errs) != 0 {
@@ -350,11 +350,11 @@ func TestVerifyInteractiveFormsNoAcroForm(t *testing.T) {
 func TestValidateViewerPreferencesFlagsPost14Keys(t *testing.T) {
 	for _, key := range Post14ViewerPrefKeys {
 		vp := pdf.NewPDFDict()
-		vp.Entries[key] = pdf.PDFName{Value: "None"}
+		vp.Entries.Set(key, pdf.PDFName{Value: "None"})
 
 		catalog := pdf.NewPDFDict()
-		catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-		catalog.Entries["ViewerPreferences"] = vp
+		catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+		catalog.Entries.Set("ViewerPreferences", vp)
 
 		ctx := &ValidationContext{}
 		validateViewerPreferences(catalog, ctx)
@@ -375,12 +375,12 @@ func TestValidateViewerPreferencesFlagsPost14Keys(t *testing.T) {
 // reported for ViewerPreferences keys that are valid in PDF 1.4.
 func TestValidateViewerPreferencesIgnoresValid14Keys(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["DisplayDocTitle"] = pdf.PDFBoolean(true)
-	vp.Entries["HideToolbar"] = pdf.PDFBoolean(false)
+	vp.Entries.Set("DisplayDocTitle", pdf.PDFBoolean(true))
+	vp.Entries.Set("HideToolbar", pdf.PDFBoolean(false))
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["ViewerPreferences"] = vp
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("ViewerPreferences", vp)
 
 	ctx := &ValidationContext{}
 	validateViewerPreferences(catalog, ctx)
@@ -396,16 +396,15 @@ func TestValidateViewerPreferencesIgnoresValid14Keys(t *testing.T) {
 // the child widget, and that a direct value takes precedence over the parent.
 func TestResolveInheritedFT(t *testing.T) {
 	parent := pdf.NewPDFDict()
-	parent.Entries["FT"] = pdf.PDFName{Value: "Btn"}
+	parent.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 
 	child := pdf.NewPDFDict()
-	child.Entries["Parent"] = parent
+	child.Entries.Set("Parent", parent)
 
 	if got := resolveInheritedFT(child); got != (pdf.PDFName{Value: "Btn"}) {
 		t.Errorf("resolveInheritedFT child without FT = %v, want Btn", got)
 	}
-
-	child.Entries["FT"] = pdf.PDFName{Value: "Tx"}
+	child.Entries.Set("FT", pdf.PDFName{Value: "Tx"})
 	if got := resolveInheritedFT(child); got != (pdf.PDFName{Value: "Tx"}) {
 		t.Errorf("resolveInheritedFT child with FT = %v, want Tx (direct wins)", got)
 	}
@@ -415,20 +414,20 @@ func TestResolveInheritedFT(t *testing.T) {
 // FT=Btn is on the Parent, not the widget itself.
 func TestValidateAnnotationInheritsBtn(t *testing.T) {
 	parent := pdf.NewPDFDict()
-	parent.Entries["FT"] = pdf.PDFName{Value: "Btn"}
+	parent.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 
 	nStream := pdf.NewPDFDict()
 	nStream.HasStream = true
 	nStream.RawStream = []byte("")
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = nStream
+	ap.Entries.Set("N", nStream)
 
 	widget := pdf.NewPDFDict()
-	widget.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
-	widget.Entries["F"] = pdf.PDFInteger(4)
-	widget.Entries["Parent"] = parent
-	widget.Entries["AP"] = ap
+	widget.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
+	widget.Entries.Set("F", pdf.PDFInteger(4))
+	widget.Entries.Set("Parent", parent)
+	widget.Entries.Set("AP", ap)
 
 	ctx := &ValidationContext{}
 	validateAnnotation(widget, ctx)
@@ -445,21 +444,21 @@ func TestValidateAnnotationInheritsBtn(t *testing.T) {
 // widget (N as subdictionary) with inherited FT passes without AppearanceNNotStream.
 func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 	parent := pdf.NewPDFDict()
-	parent.Entries["FT"] = pdf.PDFName{Value: "Btn"}
+	parent.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 
 	stateStream := pdf.NewPDFDict()
 	stateStream.HasStream = true
 	nSubdict := pdf.NewPDFDict()
-	nSubdict.Entries["Off"] = stateStream
+	nSubdict.Entries.Set("Off", stateStream)
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = nSubdict
+	ap.Entries.Set("N", nSubdict)
 
 	widget := pdf.NewPDFDict()
-	widget.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
-	widget.Entries["F"] = pdf.PDFInteger(4)
-	widget.Entries["Parent"] = parent
-	widget.Entries["AP"] = ap
+	widget.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
+	widget.Entries.Set("F", pdf.PDFInteger(4))
+	widget.Entries.Set("Parent", parent)
+	widget.Entries.Set("AP", ap)
 
 	ctx := &ValidationContext{}
 	validateAnnotation(widget, ctx)
@@ -473,8 +472,8 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 
 func TestValidateAnnotationBranches(t *testing.T) {
 	disallowed := pdf.NewPDFDict()
-	disallowed.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	disallowed.Entries["Subtype"] = pdf.PDFName{Value: "Sound"}
+	disallowed.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	disallowed.Entries.Set("Subtype", pdf.PDFName{Value: "Sound"})
 	ctx := &ValidationContext{}
 	validateAnnotation(disallowed, ctx)
 	if !hasCheck(ctx, pdf.Checks.Annotation.DisallowedSubtype) {
@@ -482,10 +481,10 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	}
 
 	flagged := pdf.NewPDFDict()
-	flagged.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	flagged.Entries["Subtype"] = pdf.PDFName{Value: "Square"}
-	flagged.Entries["F"] = pdf.PDFInteger(AnnotFlagHidden | AnnotFlagInvisible | AnnotFlagNoView)
-	flagged.Entries["CA"] = pdf.PDFReal(0.5)
+	flagged.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	flagged.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
+	flagged.Entries.Set("F", pdf.PDFInteger(AnnotFlagHidden|AnnotFlagInvisible|AnnotFlagNoView))
+	flagged.Entries.Set("CA", pdf.PDFReal(0.5))
 	ctx2 := &ValidationContext{}
 	validateAnnotation(flagged, ctx2)
 	for _, chk := range []pdf.Check{
@@ -503,12 +502,12 @@ func TestValidateAnnotationBranches(t *testing.T) {
 
 	// An AP dict with an extra entry and no N.
 	ap := pdf.NewPDFDict()
-	ap.Entries["D"] = pdf.NewPDFDict()
+	ap.Entries.Set("D", pdf.NewPDFDict())
 	extraAP := pdf.NewPDFDict()
-	extraAP.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	extraAP.Entries["Subtype"] = pdf.PDFName{Value: "Square"}
-	extraAP.Entries["F"] = pdf.PDFInteger(AnnotFlagPrint)
-	extraAP.Entries["AP"] = ap
+	extraAP.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	extraAP.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
+	extraAP.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
+	extraAP.Entries.Set("AP", ap)
 	ctx3 := &ValidationContext{}
 	validateAnnotation(extraAP, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Annotation.AppearanceMissingN) {
@@ -520,12 +519,12 @@ func TestValidateAnnotationBranches(t *testing.T) {
 
 	// N present but not a stream/subdictionary.
 	badN := pdf.NewPDFDict()
-	badN.Entries["N"] = pdf.PDFName{Value: "not-a-stream"}
+	badN.Entries.Set("N", pdf.PDFName{Value: "not-a-stream"})
 	badNAnnot := pdf.NewPDFDict()
-	badNAnnot.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	badNAnnot.Entries["Subtype"] = pdf.PDFName{Value: "Square"}
-	badNAnnot.Entries["F"] = pdf.PDFInteger(AnnotFlagPrint)
-	badNAnnot.Entries["AP"] = badN
+	badNAnnot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	badNAnnot.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
+	badNAnnot.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
+	badNAnnot.Entries.Set("AP", badN)
 	ctx4 := &ValidationContext{}
 	validateAnnotation(badNAnnot, ctx4)
 	if !hasCheck(ctx4, pdf.Checks.Annotation.AppearanceNNotStream) {
@@ -534,9 +533,9 @@ func TestValidateAnnotationBranches(t *testing.T) {
 
 	// Popup/Link are exempt from the missing-appearance check.
 	popup := pdf.NewPDFDict()
-	popup.Entries["Type"] = pdf.PDFName{Value: "Annot"}
-	popup.Entries["Subtype"] = pdf.PDFName{Value: "Popup"}
-	popup.Entries["F"] = pdf.PDFInteger(AnnotFlagPrint)
+	popup.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	popup.Entries.Set("Subtype", pdf.PDFName{Value: "Popup"})
+	popup.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
 	ctx5 := &ValidationContext{}
 	validateAnnotation(popup, ctx5)
 	if hasCheck(ctx5, pdf.Checks.Annotation.MissingAppearance) {

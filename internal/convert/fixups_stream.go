@@ -18,7 +18,7 @@ func (lzwStreamFixer) Applies(c pdf.Check) bool {
 func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if !d.HasStream || !pdf.HasFilter(d.Entries["Filter"], pdf.FilterLZW) {
+		if !d.HasStream || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW) {
 			return d, false
 		}
 		plaintext, err := pdf.DecodeStream(d)
@@ -45,13 +45,13 @@ func walkStreamDicts(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFD
 			return
 		}
 		visited[ptr] = true
-		for k, child := range val.Entries {
+		for k, child := range val.Entries.All() {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
 			if cd, ok := child.(pdf.PDFDict); ok {
 				if updated, ok := fix(cd); ok {
-					val.Entries[k] = updated
+					val.Entries.Set(k, updated)
 					child = updated
 				}
 			}

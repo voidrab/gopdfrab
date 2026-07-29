@@ -158,10 +158,10 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 	var found pdf.PDFDict
 	ok := false
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ok || (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+		if ok || (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
 		}
-		st, _ := d.Entries["Subtype"].(pdf.PDFName)
+		st, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 		if st.Value == subtype {
 			found, ok = d, true
 		}
@@ -179,19 +179,19 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 // pass over the already-promoted program is a no-op.
 func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
-	ff := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: ttf}
-	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"FontFile2": ff}}
-	font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: ttf}
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontFile2": ff})}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":        pdf.PDFName{Value: "CIDFontType2"},
 		"FontDescriptor": desc,
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": font}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})}
 
 	if err := promoteEmptyGlyphsInFonts(&trailer, nil); err != nil {
 		t.Fatalf("promoteEmptyGlyphsInFonts: %v", err)
 	}
-	desc = trailer.Entries["Font"].(pdf.PDFDict).Entries["FontDescriptor"].(pdf.PDFDict)
-	ff1, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	desc = trailer.Entries.Get("Font").(pdf.PDFDict).Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff1, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("FontFile2 missing after first pass")
 	}
@@ -206,8 +206,8 @@ func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	if err := promoteEmptyGlyphsInFonts(&trailer, nil); err != nil {
 		t.Fatalf("promoteEmptyGlyphsInFonts (second pass): %v", err)
 	}
-	desc = trailer.Entries["Font"].(pdf.PDFDict).Entries["FontDescriptor"].(pdf.PDFDict)
-	ff2 := desc.Entries["FontFile2"].(pdf.PDFDict)
+	desc = trailer.Entries.Get("Font").(pdf.PDFDict).Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff2 := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	repaired2, err := pdf.DecodeStream(ff2)
 	if err != nil {
 		t.Fatalf("DecodeStream (second pass): %v", err)
@@ -301,15 +301,15 @@ func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
 // program is hand-built (buildMinimalCIDCFF: CID 1 width 600, CID 2 width 700).
 func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
 	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
-	v := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	v := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"W": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500)}},
-	}}
+	})}
 
 	if !fixCIDCFFWidths(v, ff) {
 		t.Fatalf("fixCIDCFFWidths = false, want true (500/500 mismatches the embedded 600/700)")
 	}
 	want := map[int]int{1: 600, 2: 700}
-	for _, pair := range verify.ParseCIDWidths(v.Entries["W"].(pdf.PDFArray)) {
+	for _, pair := range verify.ParseCIDWidths(v.Entries.Get("W").(pdf.PDFArray)) {
 		if pair[1] != want[pair[0]] {
 			t.Errorf("CID %d width = %d, want %d", pair[0], pair[1], want[pair[0]])
 		}
@@ -324,7 +324,7 @@ func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
 // TestFixCIDCFFWidthsNoOpWithoutW covers the missing-/W short-circuit.
 func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
-	if fixCIDCFFWidths(pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}, ff) {
+	if fixCIDCFFWidths(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, ff) {
 		t.Error("fixCIDCFFWidths without /W = true, want false")
 	}
 }
@@ -334,16 +334,16 @@ func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 // directly, so fixTrueTypeCIDSet must bail out without touching desc.
 func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
-	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"CIDToGIDMap": pdf.PDFDict{HasStream: true, RawStream: []byte{0, 1, 0, 2}},
-	}}
-	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	})}
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
 
 	if fixTrueTypeCIDSet(d, desc, ff) {
 		t.Error("fixTrueTypeCIDSet with a stream CIDToGIDMap = true, want false")
 	}
-	if desc.Entries["CIDSet"] != nil {
+	if desc.Entries.Get("CIDSet") != nil {
 		t.Error("desc/CIDSet was populated despite the non-Identity CIDToGIDMap guard")
 	}
 }
@@ -352,8 +352,8 @@ func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
 // /CIDSet no-op branch via a real embedded TrueType program.
 func TestFixTrueTypeCIDSetNoOpWhenAlreadyComplete(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
-	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
-	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
 
 	if !fixTrueTypeCIDSet(d, desc, ff) {
@@ -372,16 +372,16 @@ func TestFontSubsetMetaFixerSynthesizesType1CharSet(t *testing.T) {
 	defer closeDoc()
 
 	font := findFontBySubtype(t, trailer, "Type1")
-	desc := font.Entries["FontDescriptor"].(pdf.PDFDict)
-	if desc.Entries["CharSet"] != nil {
+	desc := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if desc.Entries.Get("CharSet") != nil {
 		t.Fatalf("fixture precondition failed: CharSet already present")
 	}
 
 	runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
 
-	cs, ok := desc.Entries["CharSet"].(pdf.PDFString)
+	cs, ok := desc.Entries.Get("CharSet").(pdf.PDFString)
 	if !ok || cs.Value == "" {
-		t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries["CharSet"])
+		t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries.Get("CharSet"))
 	}
 	assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 }
@@ -399,13 +399,13 @@ func TestFontSubsetMetaFixerSynthesizesCFFCharSet(t *testing.T) {
 			defer closeDoc()
 
 			font := findFontBySubtype(t, trailer, "Type1")
-			desc := font.Entries["FontDescriptor"].(pdf.PDFDict)
+			desc := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
 
 			runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
 
-			cs, ok := desc.Entries["CharSet"].(pdf.PDFString)
+			cs, ok := desc.Entries.Get("CharSet").(pdf.PDFString)
 			if !ok || cs.Value == "" {
-				t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries["CharSet"])
+				t.Fatalf("CharSet = %v, want a non-empty pdf.PDFString", desc.Entries.Get("CharSet"))
 			}
 			assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.Type1SubsetCharSet)
 		})
@@ -425,16 +425,16 @@ func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 			defer closeDoc()
 
 			font := findFontBySubtype(t, trailer, "CIDFontType0")
-			desc := font.Entries["FontDescriptor"].(pdf.PDFDict)
+			desc := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
 
 			runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
 
-			cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+			cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 			if !ok || !cidSet.HasStream || len(cidSet.RawStream) == 0 {
-				t.Fatalf("CIDSet = %v, want a non-empty stream dict", desc.Entries["CIDSet"])
+				t.Fatalf("CIDSet = %v, want a non-empty stream dict", desc.Entries.Get("CIDSet"))
 			}
-			if (cidSet.Entries["Filter"] != pdf.PDFName{Value: "FlateDecode"}) {
-				t.Errorf("CIDSet Filter = %v, want /FlateDecode", cidSet.Entries["Filter"])
+			if (cidSet.Entries.Get("Filter") != pdf.PDFName{Value: "FlateDecode"}) {
+				t.Errorf("CIDSet Filter = %v, want /FlateDecode", cidSet.Entries.Get("Filter"))
 			}
 			assertCheckClearedByWrite(t, trailer, pdf.Checks.Font.CIDSubsetCIDSet)
 		})

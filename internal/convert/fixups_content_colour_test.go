@@ -41,31 +41,31 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 	xobj := pdf.NewPDFDict()
 	xobj.HasStream = true
 	xobj.RawStream = rgbContent
-	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	// Appearance stream: Does the XObject
 	doContent, _ := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Fm0"}}},
 	})
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Fm0"] = xobj
+	xobjects.Entries.Set("Fm0", xobj)
 	apRes := pdf.NewPDFDict()
-	apRes.Entries["XObject"] = xobjects
+	apRes.Entries.Set("XObject", xobjects)
 
 	apStream := pdf.NewPDFDict()
 	apStream.HasStream = true
 	apStream.RawStream = doContent
-	apStream.Entries["Resources"] = apRes
+	apStream.Entries.Set("Resources", apRes)
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = apStream
+	ap.Entries.Set("N", apStream)
 
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 
 	page = pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 	resources = pdf.NewPDFDict()
 	return page, resources
 }
@@ -75,11 +75,11 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 	page, _ := buildNestedAPPage()
 
-	annots := page.Entries["Annots"].(pdf.PDFArray)
+	annots := page.Entries.Get("Annots").(pdf.PDFArray)
 	annot := annots[0].(pdf.PDFDict)
-	ap := annot.Entries["AP"].(pdf.PDFDict)
-	apStream := ap.Entries["N"].(pdf.PDFDict)
-	apRes := apStream.Entries["Resources"].(pdf.PDFDict)
+	ap := annot.Entries.Get("AP").(pdf.PDFDict)
+	apStream := ap.Entries.Get("N").(pdf.PDFDict)
+	apRes := apStream.Entries.Get("Resources").(pdf.PDFDict)
 
 	visited := map[uintptr]bool{}
 	claim := func(ptr uintptr) bool {
@@ -112,22 +112,22 @@ func TestPageDeviceColourModelsFindsNestedAppearanceRGB(t *testing.T) {
 // /DefaultRGB into the nested Form XObject's own /Resources/ColorSpace dict.
 func TestFixAPColourInjectsIntoNestedXObject(t *testing.T) {
 	page, _ := buildNestedAPPage()
-	annots := page.Entries["Annots"].(pdf.PDFArray)
+	annots := page.Entries.Get("Annots").(pdf.PDFArray)
 	annot := annots[0].(pdf.PDFDict)
-	ap := annot.Entries["AP"].(pdf.PDFDict)
-	apStream := ap.Entries["N"].(pdf.PDFDict)
-	apRes := apStream.Entries["Resources"].(pdf.PDFDict)
-	xobjects := apRes.Entries["XObject"].(pdf.PDFDict)
-	xobj := xobjects.Entries["Fm0"].(pdf.PDFDict)
+	ap := annot.Entries.Get("AP").(pdf.PDFDict)
+	apStream := ap.Entries.Get("N").(pdf.PDFDict)
+	apRes := apStream.Entries.Get("Resources").(pdf.PDFDict)
+	xobjects := apRes.Entries.Get("XObject").(pdf.PDFDict)
+	xobj := xobjects.Entries.Get("Fm0").(pdf.PDFDict)
 
 	sharedRGB := iccBasedColourSpace(3, []byte("fakeicc"))
-	changed := fixAPColour(ap.Entries["N"], true, false, sharedRGB, nil, nil)
+	changed := fixAPColour(ap.Entries.Get("N"), true, false, sharedRGB, nil, nil)
 
 	if !changed {
 		t.Fatal("fixAPColour returned false, expected an injection")
 	}
 	// DefaultRGB must be present in the nested XObject's own resources.
-	xobjRes, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+	xobjRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("rgb", xobjRes) {
 		t.Error("DefaultRGB not injected into nested Form XObject resources")
 	}
@@ -148,37 +148,37 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	apStream := pdf.NewPDFDict()
 	apStream.HasStream = true
 	apStream.RawStream = apContent
-	apStream.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	apStream.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = apStream
+	ap.Entries.Set("N", apStream)
 
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 
 	// Inject DefaultRGB into page resources to simulate a prior converter pass.
 	sharedRGB := iccBasedColourSpace(3, srgbICCProfile)
 	pageCS := pdf.NewPDFDict()
-	pageCS.Entries["DefaultRGB"] = sharedRGB
+	pageCS.Entries.Set("DefaultRGB", sharedRGB)
 	pageRes := pdf.NewPDFDict()
-	pageRes.Entries["ColorSpace"] = pageCS
+	pageRes.Entries.Set("ColorSpace", pageCS)
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Resources"] = pageRes
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", pageRes)
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
 	// Minimal trailer with a CMYK OutputIntent (OutputConditionIdentifier only).
 	oi := pdf.NewPDFDict()
-	oi.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	oi.Entries["DestOutputProfile"] = pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.PDFInteger(4)}
+	oi.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	oi.Entries.Set("DestOutputProfile", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.PDFInteger(4)})
 	oiArr := pdf.PDFArray{oi}
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["OutputIntents"] = oiArr
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("OutputIntents", oiArr)
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Pages"] = pdf.PDFArray{page}
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
 	fixer := deviceColourFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -190,8 +190,8 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	}
 
 	// The appearance stream's own resources must now carry DefaultRGB.
-	apStream2 := annot.Entries["AP"].(pdf.PDFDict).Entries["N"].(pdf.PDFDict)
-	apRes2, _ := apStream2.Entries["Resources"].(pdf.PDFDict)
+	apStream2 := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
+	apRes2, _ := apStream2.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("rgb", apRes2) {
 		t.Error("DefaultRGB not injected into AP stream resources despite page already having it")
 	}
@@ -215,18 +215,18 @@ func buildStatefulAPPage() (page pdf.PDFDict, onStream pdf.PDFDict) {
 	offStream.RawStream = offContent
 
 	n := pdf.NewPDFDict()
-	n.Entries["On"] = onStream
-	n.Entries["Off"] = offStream
+	n.Entries.Set("On", onStream)
+	n.Entries.Set("Off", offStream)
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = n
+	ap.Entries.Set("N", n)
 
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 
 	page = pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 	return page, onStream
 }
 
@@ -245,14 +245,14 @@ func TestPageDeviceColourModelsFindsStatefulAppearanceRGB(t *testing.T) {
 // state-sub-dictionary branch: each state stream must get its own injection.
 func TestFixAPColourInjectsIntoEachState(t *testing.T) {
 	page, onStream := buildStatefulAPPage()
-	annot := page.Entries["Annots"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	n := annot.Entries["AP"].(pdf.PDFDict).Entries["N"]
+	annot := page.Entries.Get("Annots").(pdf.PDFArray)[0].(pdf.PDFDict)
+	n := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N")
 
 	sharedRGB := iccBasedColourSpace(3, []byte("fakeicc"))
 	if !fixAPColour(n, true, false, sharedRGB, nil, nil) {
 		t.Fatal("fixAPColour returned false, expected an injection into the On state")
 	}
-	onRes, _ := onStream.Entries["Resources"].(pdf.PDFDict)
+	onRes, _ := onStream.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("rgb", onRes) {
 		t.Error("DefaultRGB not injected into the On state's own resources")
 	}
@@ -275,24 +275,24 @@ func TestPageDeviceColourModelsFindsShadingPatternAndArrayContents(t *testing.T)
 	dictB.RawStream = contentB
 
 	shading := pdf.NewPDFDict()
-	shading.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	shading.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 	shadings := pdf.NewPDFDict()
-	shadings.Entries["Sh1"] = shading
+	shadings.Entries.Set("Sh1", shading)
 
 	patternShading := pdf.NewPDFDict()
-	patternShading.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	patternShading.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 	pattern := pdf.NewPDFDict()
-	pattern.Entries["Shading"] = patternShading
+	pattern.Entries.Set("Shading", patternShading)
 	patterns := pdf.NewPDFDict()
-	patterns.Entries["P1"] = pattern
+	patterns.Entries.Set("P1", pattern)
 
 	resources := pdf.NewPDFDict()
-	resources.Entries["Shading"] = shadings
-	resources.Entries["Pattern"] = patterns
+	resources.Entries.Set("Shading", shadings)
+	resources.Entries.Set("Pattern", patterns)
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Contents"] = pdf.PDFArray{dictA, dictB}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Contents", pdf.PDFArray{dictA, dictB})
 
 	used := pageDeviceColourModels(page, resources, nil)
 	if !used["cmyk"] {
@@ -317,20 +317,20 @@ func TestPageDeviceColourModelsFindsContentAndDictUsage(t *testing.T) {
 	}
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	contentsDict := pdf.NewPDFDict()
 	contentsDict.HasStream = true
 	contentsDict.RawStream = content
-	page.Entries["Contents"] = contentsDict
+	page.Entries.Set("Contents", contentsDict)
 
 	image := pdf.NewPDFDict()
-	image.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	image.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	image.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	image.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Im0"] = image
+	xobjects.Entries.Set("Im0", image)
 	resources := pdf.NewPDFDict()
-	resources.Entries["XObject"] = xobjects
+	resources.Entries.Set("XObject", xobjects)
 
 	used := pageDeviceColourModels(page, resources, nil)
 	if !used["cmyk"] {
@@ -394,9 +394,9 @@ func TestScanContentColourDetectsPatternCMYK(t *testing.T) {
 	pattern.RawStream = patternContent
 
 	patterns := pdf.NewPDFDict()
-	patterns.Entries["P0"] = pattern
+	patterns.Entries.Set("P0", pattern)
 	resources := pdf.NewPDFDict()
-	resources.Entries["Pattern"] = patterns
+	resources.Entries.Set("Pattern", patterns)
 
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "scn", Operands: []pdf.PDFValue{pdf.PDFName{Value: "P0"}}},
@@ -448,21 +448,21 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 	apStream.RawStream = apContent
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = apStream
+	ap.Entries.Set("N", apStream)
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Contents"] = contentsDict
-	page.Entries["Resources"] = pdf.NewPDFDict()
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Contents", contentsDict)
+	page.Entries.Set("Resources", pdf.NewPDFDict())
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Pages"] = pdf.PDFArray{page}
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
 	fixer := deviceColourFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -473,11 +473,11 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 		t.Fatal("expected Fix to return changed=true")
 	}
 
-	pageRes, _ := page.Entries["Resources"].(pdf.PDFDict)
+	pageRes, _ := page.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("cmyk", pageRes) {
 		t.Error("DefaultCMYK not injected into page resources")
 	}
-	apRes, _ := apStream.Entries["Resources"].(pdf.PDFDict)
+	apRes, _ := apStream.Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("cmyk", apRes) {
 		t.Error("DefaultCMYK not injected into AP stream resources")
 	}

@@ -50,9 +50,9 @@ func TestSimpleFontCodeToUnicodeDifferences(t *testing.T) {
 		pdf.PDFName{Value: "fi"},
 	}
 	enc := pdf.NewPDFDict()
-	enc.Entries["Type"] = pdf.PDFName{Value: "Encoding"}
-	enc.Entries["BaseEncoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	enc.Entries["Differences"] = diffs
+	enc.Entries.Set("Type", pdf.PDFName{Value: "Encoding"})
+	enc.Entries.Set("BaseEncoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	enc.Entries.Set("Differences", diffs)
 
 	table := SimpleFontCodeToUnicode(enc)
 
@@ -74,8 +74,8 @@ func TestSimpleFontCodeToUnicodeUnknownGlyphName(t *testing.T) {
 		pdf.PDFName{Value: ".unimappedglyph"},
 	}
 	enc := pdf.NewPDFDict()
-	enc.Entries["BaseEncoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	enc.Entries["Differences"] = diffs
+	enc.Entries.Set("BaseEncoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	enc.Entries.Set("Differences", diffs)
 
 	table := SimpleFontCodeToUnicode(enc)
 	// Unknown glyph name must map to 0 so the check skips conservatively.

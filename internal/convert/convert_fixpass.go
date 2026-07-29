@@ -47,7 +47,7 @@ func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	r, ok := d.Entries["_ref"].(pdf.PDFRef)
+	r, ok := d.Entries.Get("_ref").(pdf.PDFRef)
 	if !ok || r.ObjNum != ref.ObjNum {
 		return pdf.PDFDict{}, false
 	}
@@ -106,7 +106,7 @@ func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
 	for _, set := range p.parents[ptr] {
 		set(updated)
 	}
-	if ref, ok := old.Entries["_ref"].(pdf.PDFRef); ok {
+	if ref, ok := old.Entries.Get("_ref").(pdf.PDFRef); ok {
 		if _, exists := p.objs[ref.ObjNum]; exists {
 			p.objs[ref.ObjNum] = updated
 		}
@@ -132,8 +132,8 @@ func (p *fixPass) isContentStream(d pdf.PDFDict) bool {
 func collectContentStreamPtrs(trailer pdf.PDFDict, out map[uintptr]bool) {
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		switch {
-		case (d.Entries["Type"] == pdf.PDFName{Value: "Page"}):
-			switch contents := d.Entries["Contents"].(type) {
+		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
+			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
 					out[pdf.ValuePointer(contents.Entries)] = true
@@ -145,12 +145,12 @@ func collectContentStreamPtrs(trailer pdf.PDFDict, out map[uintptr]bool) {
 					}
 				}
 			}
-		case d.Entries["PatternType"] == pdf.PDFInteger(1) && d.HasStream,
-			(d.Entries["Subtype"] == pdf.PDFName{Value: "Form"}) && d.HasStream:
+		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.HasStream,
+			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.HasStream:
 			out[pdf.ValuePointer(d.Entries)] = true
-		case (d.Entries["Subtype"] == pdf.PDFName{Value: "Type3"}):
-			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
-				for _, v := range procs.Entries {
+		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
+			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
+				for _, v := range procs.Entries.All() {
 					if pd, ok := v.(pdf.PDFDict); ok && pd.HasStream {
 						out[pdf.ValuePointer(pd.Entries)] = true
 					}
@@ -187,7 +187,7 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 			}
 		}
 	}
-	for k, val := range d.Entries {
+	for k, val := range d.Entries.All() {
 		if k == "_ref" || k == "_dirty" {
 			continue
 		}
@@ -197,7 +197,7 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 			fixArray(v)
 		default:
 			if nv, ok := fix(val); ok {
-				d.Entries[k] = nv
+				d.Entries.Set(k, nv)
 				changed = true
 			}
 		}
@@ -215,14 +215,14 @@ func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintpt
 			return
 		}
 		visited[ptr] = true
-		for k, child := range val.Entries {
+		for k, child := range val.Entries.All() {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
 			if cd, ok := child.(pdf.PDFDict); ok {
 				entries, key := val.Entries, k
 				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],
-					func(nd pdf.PDFDict) { entries[key] = nd })
+					func(nd pdf.PDFDict) { entries.Set(key, nd) })
 			}
 			collectParentSlots(child, visited, out)
 		}

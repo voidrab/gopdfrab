@@ -75,12 +75,12 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 				return
 			}
 			visited[ptr] = true
-			if (val.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
+			if (val.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
+				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
 				rewriteDeviceNPageContents(val, resources, visitedForm, &changed)
 				return
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walk(child)
 			}
 		case pdf.PDFArray:
@@ -99,11 +99,11 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 }
 
 func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uintptr]bool, changed *bool) {
-	switch v := page.Entries["Contents"].(type) {
+	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
 			if fixed, ok := rewriteDeviceNStream(v, resources, visitedForm); ok {
-				page.Entries["Contents"] = fixed
+				page.Entries.Set("Contents", fixed)
 				*changed = true
 			}
 		}
@@ -136,9 +136,8 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 		return dict, false
 	}
 
-	// Emit while scanning: see rewriteContentStreamDict. Retaining the
-	// scanner's operands here would alias its reused stack -- the operands
-	// below are consumed inside the callback, never held.
+	// Emit while scanning: see rewriteContentStreamDict. Retaining operands
+	// here would alias the scanner's reused stack.
 	var cw writer.ContentStreamWriter
 	modified := false
 	var fillCS, strokeCS pdf.PDFValue
@@ -198,12 +197,12 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
+	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
-	if !ok || (xobj.Entries["Subtype"] != pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+	if !ok || (xobj.Entries.Get("Subtype") != pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 		return pdf.PDFDict{}, false
 	}
 	ptr := pdf.ValuePointer(xobj.Entries)
@@ -211,7 +210,7 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 		return pdf.PDFDict{}, false
 	}
 	visitedForm[ptr] = true
-	subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+	subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 	if subResources.Entries == nil {
 		subResources = resources
 	}
@@ -219,7 +218,7 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	xobjects.Entries[name.Value] = fixed
+	xobjects.Entries.Set(name.Value, fixed)
 	return fixed, true
 }
 
@@ -232,19 +231,19 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if (d.Entries["Subtype"] != pdf.PDFName{Value: "Image"}) {
+		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
 			return d, false
 		}
-		if !isOversizedDeviceN(d.Entries["ColorSpace"]) {
+		if !isOversizedDeviceN(d.Entries.Get("ColorSpace")) {
 			return d, false
 		}
 		img, err := DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
 			return d, false
 		}
-		d.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
-		d.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-		delete(d.Entries, "Decode")
+		d.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+		d.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+		d.Entries.Del("Decode")
 		if err := writer.SetStreamFlate(&d, packRGBSamples(img)); err != nil {
 			return d, false
 		}
@@ -264,16 +263,17 @@ func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 func pruneDeadDeviceNColorSpaceEntries(trailer *pdf.PDFDict) bool {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		cs, ok := d.Entries["ColorSpace"].(pdf.PDFDict)
+		cs, ok := d.Entries.Get("ColorSpace").(pdf.PDFDict)
 		if !ok {
 			return
 		}
-		for name, v := range cs.Entries {
-			if isOversizedDeviceN(v) {
-				delete(cs.Entries, name)
-				changed = true
+		cs.Entries.DeleteFunc(func(_ string, v pdf.PDFValue) bool {
+			if !isOversizedDeviceN(v) {
+				return false
 			}
-		}
+			changed = true
+			return true
+		})
 	})
 	return changed
 }

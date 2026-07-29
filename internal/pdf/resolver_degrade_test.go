@@ -272,9 +272,9 @@ func TestRecoverTrailerFromCatalog(t *testing.T) {
 	}
 	defer d.Close()
 
-	root, ok := d.EffectiveTrailer().Entries["Root"].(PDFRef)
+	root, ok := d.EffectiveTrailer().Entries.Get("Root").(PDFRef)
 	if !ok || root.ObjNum != 1 {
-		t.Fatalf("recovered Root = %v, want ref to object 1", d.EffectiveTrailer().Entries["Root"])
+		t.Fatalf("recovered Root = %v, want ref to object 1", d.EffectiveTrailer().Entries.Get("Root"))
 	}
 	v, err := d.ResolveReference(PDFRef{ObjNum: 4})
 	if err != nil || v != (PDFString{Value: "hello"}) {
@@ -308,9 +308,9 @@ func TestRecoverTrailerPicksLatestCatalog(t *testing.T) {
 		if err != nil {
 			t.Fatalf("OpenBytes: %v", err)
 		}
-		root, ok := d.EffectiveTrailer().Entries["Root"].(PDFRef)
+		root, ok := d.EffectiveTrailer().Entries.Get("Root").(PDFRef)
 		if !ok || root.ObjNum != 5 {
-			t.Fatalf("recovered Root = %v, want object 5 (latest catalog)", d.EffectiveTrailer().Entries["Root"])
+			t.Fatalf("recovered Root = %v, want object 5 (latest catalog)", d.EffectiveTrailer().Entries.Get("Root"))
 		}
 		d.Close()
 	}

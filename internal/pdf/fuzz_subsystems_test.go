@@ -28,8 +28,8 @@ func FuzzDecodeStream(f *testing.F) {
 			d := pdf.NewPDFDict()
 			d.HasStream = true
 			d.RawStream = data
-			d.Entries["Filter"] = pdf.PDFName{Value: name}
-			d.Entries["Length"] = pdf.PDFInteger(len(data))
+			d.Entries.Set("Filter", pdf.PDFName{Value: name})
+			d.Entries.Set("Length", pdf.PDFInteger(len(data)))
 			pdf.DecodeStream(d)
 		}
 	})

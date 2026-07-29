@@ -15,20 +15,20 @@ import (
 // because FontDescriptor was absent.
 func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
 	// No FontDescriptor, no FirstChar/Widths -- like a standard Type1 in AcroForm/DR.
 
 	dr := pdf.NewPDFDict()
-	dr.Entries["Font"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Helv": font}}
+	dr.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Helv": font})})
 
 	acroForm := pdf.NewPDFDict()
-	acroForm.Entries["DR"] = dr
+	acroForm.Entries.Set("DR", dr)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"AcroForm": acroForm}}
+	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
 	fixer := fontSubstitutionFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -39,17 +39,17 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 		t.Fatalf("changed = false, want true (Helvetica has no embedded program)")
 	}
 
-	desc, ok := font.Entries["FontDescriptor"].(pdf.PDFDict)
+	desc, ok := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("FontDescriptor not set after substitution")
 	}
 	if !verify.HasEmbeddedProgram(desc, "FontFile", "FontFile2", "FontFile3") {
 		t.Errorf("FontDescriptor still has no embedded program after substitution")
 	}
-	if (desc.Entries["Type"] != pdf.PDFName{Value: "FontDescriptor"}) {
-		t.Errorf("FontDescriptor.Type = %v, want /FontDescriptor", desc.Entries["Type"])
+	if (desc.Entries.Get("Type") != pdf.PDFName{Value: "FontDescriptor"}) {
+		t.Errorf("FontDescriptor.Type = %v, want /FontDescriptor", desc.Entries.Get("Type"))
 	}
-	if _, ok := desc.Entries["FontName"].(pdf.PDFName); !ok {
+	if _, ok := desc.Entries.Get("FontName").(pdf.PDFName); !ok {
 		t.Errorf("FontDescriptor.FontName not set after substitution")
 	}
 }
@@ -63,21 +63,21 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 // none.
 func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testing.T) {
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	font.Entries["FirstChar"] = pdf.PDFInteger(32)
-	font.Entries["LastChar"] = pdf.PDFInteger(33)
-	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0)}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	font.Entries.Set("FirstChar", pdf.PDFInteger(32))
+	font.Entries.Set("LastChar", pdf.PDFInteger(33))
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0)})
 	// No FontDescriptor: the fixer must create one only as scratch space.
 
 	dr := pdf.NewPDFDict()
-	dr.Entries["Font"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Helv": font}}
+	dr.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Helv": font})})
 	acroForm := pdf.NewPDFDict()
-	acroForm.Entries["DR"] = dr
+	acroForm.Entries.Set("DR", dr)
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"AcroForm": acroForm}}
+	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
 	fixer := fontSubstitutionFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -87,8 +87,8 @@ func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testi
 	if changed {
 		t.Errorf("changed = true, want false (all-zero Widths means no glyphs are actually used)")
 	}
-	if font.Entries["FontDescriptor"] != nil {
-		t.Errorf("FontDescriptor = %v, want absent (scratch descriptor must not be left behind)", font.Entries["FontDescriptor"])
+	if font.Entries.Get("FontDescriptor") != nil {
+		t.Errorf("FontDescriptor = %v, want absent (scratch descriptor must not be left behind)", font.Entries.Get("FontDescriptor"))
 	}
 }
 
@@ -96,13 +96,13 @@ func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testi
 // second pass is a no-op once the font is already substituted.
 func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": font}}
+	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})})
 
 	fixer := fontSubstitutionFixer{}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
@@ -119,19 +119,19 @@ func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 }
 
 func TestCloneFontDescriptor(t *testing.T) {
-	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "FontDescriptor"}, "Flags": pdf.PDFInteger(4),
 		"_ref": pdf.PDFRef{ObjNum: 1}, "_dirty": pdf.PDFBoolean(true),
-	}}
+	})}
 	next := 42
 	clone := cloneFontDescriptor(desc, &next)
-	if clone.Entries["Flags"] != pdf.PDFInteger(4) {
+	if clone.Entries.Get("Flags") != pdf.PDFInteger(4) {
 		t.Error("clone did not copy Flags")
 	}
-	if ref, _ := clone.Entries["_ref"].(pdf.PDFRef); ref.ObjNum != 42 {
-		t.Errorf("clone _ref = %v, want ObjNum 42", clone.Entries["_ref"])
+	if ref, _ := clone.Entries.Get("_ref").(pdf.PDFRef); ref.ObjNum != 42 {
+		t.Errorf("clone _ref = %v, want ObjNum 42", clone.Entries.Get("_ref"))
 	}
-	if _, ok := clone.Entries["_dirty"]; ok {
+	if _, ok := clone.Entries.Lookup("_dirty"); ok {
 		t.Error("clone should not carry _dirty")
 	}
 	if next != 43 {
@@ -146,7 +146,7 @@ func TestCloneFontDescriptor(t *testing.T) {
 // convert_test.go).
 func TestCIDFontSubstitutionEligible(t *testing.T) {
 	toUnicodeStream := func(cmap string) pdf.PDFDict {
-		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(cmap)}
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(cmap)}
 	}
 	validCMap := "1 beginbfchar\n<0001> <0041>\nendbfchar\n"
 
@@ -155,21 +155,21 @@ func TestCIDFontSubstitutionEligible(t *testing.T) {
 		d    pdf.PDFDict
 		ok   bool
 	}{
-		{"not Identity-H/V", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		{"not Identity-H/V", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Encoding": pdf.PDFName{Value: "WinAnsiEncoding"}, "ToUnicode": toUnicodeStream(validCMap),
-		}}, false},
-		{"no ToUnicode", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}, false},
+		{"no ToUnicode", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Encoding": pdf.PDFName{Value: "Identity-H"},
-		}}, false},
-		{"ToUnicode not a stream", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Encoding": pdf.PDFName{Value: "Identity-H"}, "ToUnicode": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-		}}, false},
-		{"ToUnicode parses to nothing", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}, false},
+		{"ToUnicode not a stream", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Encoding": pdf.PDFName{Value: "Identity-H"}, "ToUnicode": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		})}, false},
+		{"ToUnicode parses to nothing", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Encoding": pdf.PDFName{Value: "Identity-H"}, "ToUnicode": toUnicodeStream("no bfchar or bfrange here"),
-		}}, false},
-		{"eligible (Identity-V)", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}, false},
+		{"eligible (Identity-V)", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Encoding": pdf.PDFName{Value: "Identity-V"}, "ToUnicode": toUnicodeStream(validCMap),
-		}}, true},
+		})}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -264,9 +264,9 @@ func TestSubstituteFlags(t *testing.T) {
 // via BaseFont name heuristics.
 func TestPickLiberationFace(t *testing.T) {
 	flagsDict := func(flags int) pdf.PDFDict {
-		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags)}}
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags)})}
 	}
-	empty := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	empty := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 
 	cases := []struct {
 		name                            string
@@ -283,7 +283,7 @@ func TestPickLiberationFace(t *testing.T) {
 		{"italic name", empty, "Foo-Italic", false, false, true, false},
 		{"bold flag", flagsDict(0x40000), "Foo", false, false, false, true},
 		{"bold name", empty, "Foo-Bold", false, false, false, true},
-		{"bold weight", pdf.PDFDict{Entries: map[string]pdf.PDFValue{"FontWeight": pdf.PDFInteger(700)}}, "Foo", false, false, false, true},
+		{"bold weight", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontWeight": pdf.PDFInteger(700)})}, "Foo", false, false, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestSubstituteCoversUsage(t *testing.T) {
 	codeToUnicode['A'] = 'A'
 	// code 200 deliberately left unmapped (codeToUnicode[200] == 0).
 
-	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 
 	usedCovered := map[uintptr]map[int]bool{pdf.ValuePointer(d.Entries): {int('A'): true}}
 	if !substituteCoversUsage(d, usedCovered, codeToUnicode, cmap, tables) {
@@ -324,16 +324,16 @@ func TestSubstituteCoversUsage(t *testing.T) {
 		t.Error("substituteCoversUsage(usedCodes={200, unmapped}) = true, want false")
 	}
 
-	fallback := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	fallback := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FirstChar": pdf.PDFInteger('A'), "Widths": pdf.PDFArray{pdf.PDFInteger(600)},
-	}}
+	})}
 	if !substituteCoversUsage(fallback, nil, codeToUnicode, cmap, tables) {
 		t.Error("substituteCoversUsage(Widths fallback, 'A' covered) = false, want true")
 	}
 
-	fallbackUncovered := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	fallbackUncovered := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FirstChar": pdf.PDFInteger(200), "Widths": pdf.PDFArray{pdf.PDFInteger(600)},
-	}}
+	})}
 	if substituteCoversUsage(fallbackUncovered, nil, codeToUnicode, cmap, tables) {
 		t.Error("substituteCoversUsage(Widths fallback, unmapped code) = true, want false")
 	}
@@ -419,13 +419,13 @@ func TestTrimSymbolicCmap(t *testing.T) {
 		t.Skip("bundled face already has a single cmap subtable; nothing to trim")
 	}
 
-	desc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"FontFile2": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: data},
-	}}
+	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"FontFile2": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: data},
+	})}
 	if !trimSymbolicCmap(desc) {
 		t.Fatal("trimSymbolicCmap on a multi-subtable face = false, want true")
 	}
-	ff := desc.Entries["FontFile2"].(pdf.PDFDict)
+	ff := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	trimmed, err := pdf.DecodeStream(ff)
 	if err != nil {
 		t.Fatalf("DecodeStream: %v", err)
@@ -435,9 +435,9 @@ func TestTrimSymbolicCmap(t *testing.T) {
 	}
 
 	// Re-running against the already-trimmed (single-subtable) program is a no-op.
-	desc2 := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"FontFile2": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: trimmed},
-	}}
+	desc2 := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"FontFile2": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: trimmed},
+	})}
 	if trimSymbolicCmap(desc2) {
 		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")
 	}

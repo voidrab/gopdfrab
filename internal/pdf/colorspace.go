@@ -113,11 +113,11 @@ func clamp01(v float64) float64 {
 }
 
 func LookupNamedColorSpace(name string, resources PDFDict) (PDFValue, bool) {
-	csDict, ok := resources.Entries["ColorSpace"].(PDFDict)
+	csDict, ok := resources.Entries.Get("ColorSpace").(PDFDict)
 	if !ok {
 		return nil, false
 	}
-	v, ok := csDict.Entries[name]
+	v, ok := csDict.Entries.Lookup(name)
 	return v, ok
 }
 
@@ -129,7 +129,7 @@ func resolveICCBased(arr PDFArray, comps []float64) (r, g, b float64) {
 	if !ok {
 		return placeholderRGB(comps)
 	}
-	n, _ := PDFNumberToInt(stream.Entries["N"])
+	n, _ := PDFNumberToInt(stream.Entries.Get("N"))
 	switch n {
 	case 1:
 		return gray(comps)
@@ -169,7 +169,7 @@ func ColorSpaceComponents(cs PDFValue) int {
 		case "ICCBased":
 			if len(v) > 1 {
 				if stream, ok := v[1].(PDFDict); ok {
-					if n, ok := PDFNumberToInt(stream.Entries["N"]); ok {
+					if n, ok := PDFNumberToInt(stream.Entries.Get("N")); ok {
 						return n
 					}
 				}

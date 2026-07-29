@@ -23,7 +23,7 @@ func symbolGlyphNameToUnicode(name string) (uint16, bool) {
 // standardSymbolBuiltinTable returns the built-in encoding of the standard
 // Symbol/ZapfDingbats fonts for d's BaseFont, or ok=false for other fonts.
 func standardSymbolBuiltinTable(d pdf.PDFDict) ([256]uint16, bool) {
-	baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
+	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
 	name := verify.SubsetTagRe.ReplaceAllString(baseFont.Value, "")
 	switch name {
 	case "Symbol":
@@ -35,11 +35,11 @@ func standardSymbolBuiltinTable(d pdf.PDFDict) ([256]uint16, bool) {
 }
 
 func fontFlagsSymbolic(d pdf.PDFDict) bool {
-	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
-	flags, _ := desc.Entries["Flags"].(pdf.PDFInteger)
+	flags, _ := desc.Entries.Get("Flags").(pdf.PDFInteger)
 	return flags&4 != 0
 }
 
@@ -62,18 +62,18 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnow
 		}
 	}
 
-	switch enc := d.Entries["Encoding"].(type) {
+	switch enc := d.Entries.Get("Encoding").(type) {
 	case pdf.PDFName:
 		applyBase(enc.Value)
 	case pdf.PDFDict:
-		if base, ok := enc.Entries["BaseEncoding"].(pdf.PDFName); ok {
+		if base, ok := enc.Entries.Get("BaseEncoding").(pdf.PDFName); ok {
 			applyBase(base.Value)
 		} else if t, ok := standardSymbolBuiltinTable(d); ok {
 			table, baseKnown = t, true
 		} else if !fontFlagsSymbolic(d) {
 			table, baseKnown = verify.StandardToUnicode, true
 		}
-		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
+		if diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray); ok {
 			code := 0
 			for _, item := range diffs {
 				switch v := item.(type) {
@@ -99,7 +99,7 @@ func originalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnow
 	}
 
 	// A /ToUnicode CMap authoritatively fills codes still unresolved.
-	if toUni, ok := d.Entries["ToUnicode"].(pdf.PDFDict); ok && toUni.HasStream {
+	if toUni, ok := d.Entries.Get("ToUnicode").(pdf.PDFDict); ok && toUni.HasStream {
 		if data, err := pdf.DecodeStream(toUni); err == nil {
 			for code, u := range parseToUnicodeCMap(data) {
 				if code >= 0 && code < 256 && table[code] == 0 {
@@ -125,8 +125,8 @@ func forEachAssumedUsedCode(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, f
 			return true
 		}
 	}
-	firstChar, _ := d.Entries["FirstChar"].(pdf.PDFInteger)
-	widths, _ := d.Entries["Widths"].(pdf.PDFArray)
+	firstChar, _ := d.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, _ := d.Entries.Get("Widths").(pdf.PDFArray)
 	if len(widths) > 0 {
 		for i, w := range widths {
 			if n, ok := pdf.PDFNumberToInt(w); ok && n > 0 {

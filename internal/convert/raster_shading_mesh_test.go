@@ -13,16 +13,16 @@ import (
 // with 8-bit fields and DeviceRGB colours, so a test's bytes map linearly:
 // a raw 0 is 0 and a raw 255 is 20 (or full intensity for a colour).
 func meshShading(kind int, data []byte, extra map[string]pdf.PDFValue) pdf.PDFDict {
-	entries := map[string]pdf.PDFValue{
+	entries := pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType":       pdf.PDFInteger(kind),
 		"ColorSpace":        pdf.PDFName{Value: "DeviceRGB"},
 		"BitsPerCoordinate": pdf.PDFInteger(8),
 		"BitsPerComponent":  pdf.PDFInteger(8),
 		"BitsPerFlag":       pdf.PDFInteger(8),
 		"Decode":            numArray(0, 20, 0, 20, 0, 1, 0, 1, 0, 1),
-	}
+	})
 	for k, v := range extra {
-		entries[k] = v
+		entries.Set(k, v)
 	}
 	return pdf.PDFDict{Entries: entries, HasStream: true, RawStream: data}
 }

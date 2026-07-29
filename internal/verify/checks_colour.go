@@ -26,12 +26,12 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		if !ok {
 			continue
 		}
-		if (intent.Entries["S"] != pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if (intent.Entries.Get("S") != pdf.PDFName{Value: "GTS_PDFA1"}) {
 			continue
 		}
 		ctx.hasOutputIntent = true
 
-		destRef := intent.Entries["DestOutputProfile"]
+		destRef := intent.Entries.Get("DestOutputProfile")
 		if destRef == nil {
 			continue
 		}
@@ -43,7 +43,7 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		if !ok {
 			continue
 		}
-		n, ok := profile.Entries["N"].(pdf.PDFInteger)
+		n, ok := profile.Entries.Get("N").(pdf.PDFInteger)
 		if !ok {
 			continue
 		}
@@ -98,17 +98,17 @@ func DeviceColourModel(cs pdf.PDFValue) string {
 // DefaultColorSpaceDefined reports whether a Default* colour space is present in
 // resources/ColorSpace, substituting the device space and avoiding a 6.2.3.3 violation.
 func DefaultColorSpaceDefined(model string, resources pdf.PDFDict) bool {
-	cs, ok := resources.Entries["ColorSpace"].(pdf.PDFDict)
+	cs, ok := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
 	switch model {
 	case "rgb":
-		return cs.Entries["DefaultRGB"] != nil
+		return cs.Entries.Get("DefaultRGB") != nil
 	case "cmyk":
-		return cs.Entries["DefaultCMYK"] != nil
+		return cs.Entries.Get("DefaultCMYK") != nil
 	case "gray":
-		return cs.Entries["DefaultGray"] != nil
+		return cs.Entries.Get("DefaultGray") != nil
 	}
 	return false
 }
@@ -130,14 +130,14 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
 // shading colour spaces (6.2.3.3) and Separation/DeviceN alternate spaces (6.2.3.4).
 func validateColourSpaceUsage(v pdf.PDFDict, ctx *ValidationContext) {
-	if (v.Entries["Subtype"] == pdf.PDFName{Value: "Image"}) {
-		if cs := v.Entries["ColorSpace"]; cs != nil {
+	if (v.Entries.Get("Subtype") == pdf.PDFName{Value: "Image"}) {
+		if cs := v.Entries.Get("ColorSpace"); cs != nil {
 			checkDeviceColour(v, cs, ctx, "image")
 		}
 	}
 
-	if v.Entries["ShadingType"] != nil {
-		if cs := v.Entries["ColorSpace"]; cs != nil {
+	if v.Entries.Get("ShadingType") != nil {
+		if cs := v.Entries.Get("ColorSpace"); cs != nil {
 			checkDeviceColour(v, cs, ctx, "shading")
 		}
 	}

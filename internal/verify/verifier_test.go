@@ -262,8 +262,8 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["ID"] = pdf.PDFString{Value: "a"}
-	trailer.Entries["Encrypt"] = pdf.PDFString{Value: "a"}
+	trailer.Entries.Set("ID", pdf.PDFString{Value: "a"})
+	trailer.Entries.Set("Encrypt", pdf.PDFString{Value: "a"})
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -287,7 +287,7 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	defer os.Remove(filename)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["ID"] = pdf.PDFString{Value: "a"}
+	trailer.Entries.Set("ID", pdf.PDFString{Value: "a"})
 
 	f, _ := os.Open(filename)
 	info, _ := f.Stat()
@@ -376,8 +376,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 
 	trailer := pdf.NewPDFDict()
 	info := make(pdf.PDFArray, 0)
-
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -403,11 +402,9 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *te
 
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()
-
-	info.Entries["Title"] = pdf.PDFString{Value: "Test"}
-	info.Entries["CustomKey"] = pdf.PDFString{Value: "Value"}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("Title", pdf.PDFString{Value: "Test"})
+	info.Entries.Set("CustomKey", pdf.PDFString{Value: "Value"})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -427,10 +424,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()
-
-	info.Entries["Title"] = pdf.PDFString{Value: ""}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("Title", pdf.PDFString{Value: ""})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -456,10 +451,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyEmptyValueAll
 
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()
-
-	info.Entries["CustomKey"] = pdf.PDFString{Value: ""}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("CustomKey", pdf.PDFString{Value: ""})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -482,11 +475,9 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
-
-	info.Entries["Title"] = pdf.PDFHexString{Value: "XXXX"}
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("Title", pdf.PDFHexString{Value: "XXXX"})
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -517,11 +508,9 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
-
-	info.Entries["Title"] = pdf.PDFHexString{Value: "AAA"}
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("Title", pdf.PDFHexString{Value: "AAA"})
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -555,11 +544,9 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	minimalConformantRoot(trailer)
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-
-	stream.Entries["F"] = pdf.PDFHexString{Value: "aaaa"}
-	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["XStream"] = stream
+	stream.Entries.Set("F", pdf.PDFHexString{Value: "aaaa"})
+	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -591,11 +578,9 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	minimalConformantRoot(trailer)
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-
-	stream.Entries["FFilter"] = pdf.PDFHexString{Value: "aaaa"}
-	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["XStream"] = stream
+	stream.Entries.Set("FFilter", pdf.PDFHexString{Value: "aaaa"})
+	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -627,11 +612,9 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	minimalConformantRoot(trailer)
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-
-	stream.Entries["FDecodeParms"] = pdf.PDFHexString{Value: "aaaa"}
-	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["XStream"] = stream
+	stream.Entries.Set("FDecodeParms", pdf.PDFHexString{Value: "aaaa"})
+	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -667,10 +650,9 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	// the filter check fires.
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-	stream.Entries["Filter"] = pdf.PDFName{Value: "LZWDecode"}
-	stream.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["XStream"] = stream
+	stream.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
+	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -703,11 +685,9 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
-
-	info.Entries["EF"] = pdf.PDFHexString{Value: "aaaa"}
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("EF", pdf.PDFHexString{Value: "aaaa"})
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -738,11 +718,9 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
-
-	info.Entries["EmbeddedFiles"] = pdf.PDFHexString{Value: "aaaa"}
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 90}
-
-	trailer.Entries["Info"] = info
+	info.Entries.Set("EmbeddedFiles", pdf.PDFHexString{Value: "aaaa"})
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -774,10 +752,9 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-
 	// Staged on an untyped custom trailer key: DocInfo's wildcard row types any
 	// custom Info key as string-text, which would add objmodel findings here.
-	trailer.Entries["TooLarge"] = pdf.PDFName{Value: strings.Repeat("a", 128)}
+	trailer.Entries.Set("TooLarge", pdf.PDFName{Value: strings.Repeat("a", 128)})
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -807,11 +784,10 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 
 	trailer := pdf.NewPDFDict()
 	minimalConformantRoot(trailer)
-
 	// Staged on untyped custom trailer keys: DocInfo's wildcard row types any
 	// custom Info key as string-text, which would add objmodel findings here.
-	trailer.Entries["TooLarge"] = pdf.PDFInteger(2_147_483_648)
-	trailer.Entries["TooSmall"] = pdf.PDFInteger(-2_147_483_649)
+	trailer.Entries.Set("TooLarge", pdf.PDFInteger(2_147_483_648))
+	trailer.Entries.Set("TooSmall", pdf.PDFInteger(-2_147_483_649))
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -874,17 +850,15 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
 	destOutputProfile := pdf.NewPDFDict()
-	destOutputProfile.Entries["N"] = pdf.PDFInteger(3)
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
+	destOutputProfile.Entries.Set("N", pdf.PDFInteger(3))
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
 	// "Test" does not name a standard production condition, so a
 	// DestOutputProfile must be present (6.2.2/7).
-	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
+	outputIntent.Entries.Set("DestOutputProfile", destOutputProfile)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -905,10 +879,8 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntents(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	outputIntents := pdf.NewPDFDict()
 	outputIntent := pdf.NewPDFDict()
-
-	outputIntents.Entries["OutputIntents"] = outputIntent
-
-	trailer.Entries["Root"] = outputIntents
+	outputIntents.Entries.Set("OutputIntents", outputIntent)
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -935,8 +907,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntent(t *testing.T) {
 	outputIntent := pdf.PDFArray{}
 
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -961,11 +932,10 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidSType(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
-	outputIntent.Entries["S"] = pdf.PDFInteger(1)
+	outputIntent.Entries.Set("S", pdf.PDFInteger(1))
 
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -991,15 +961,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
 	destOutputProfile := pdf.NewPDFDict()
-	destOutputProfile.Entries["N"] = pdf.PDFInteger(3)
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "Wrong"}
-	outputIntent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
+	destOutputProfile.Entries.Set("N", pdf.PDFInteger(3))
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "Wrong"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent.Entries.Set("DestOutputProfile", destOutputProfile)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1024,13 +992,11 @@ func TestDocument_VerifyPDFAOutputIntent_WrongOutputConditionIdentifier(t *testi
 	trailer := pdf.NewPDFDict()
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent.Entries["OutputConditionIdentifier"] = nil
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", nil)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1056,27 +1022,22 @@ func TestDocument_VerifyPDFAOutputIntent_DifferingDestOutputProfiles(t *testing.
 	outputIntents := pdf.PDFArray{}
 	outputIntent1 := pdf.NewPDFDict()
 	destOutputProfile1 := pdf.NewPDFDict()
-
-	destOutputProfile1.Entries["N"] = pdf.PDFInteger(1)
-
-	outputIntent1.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent1.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent1.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent1.Entries["DestOutputProfile"] = destOutputProfile1
+	destOutputProfile1.Entries.Set("N", pdf.PDFInteger(1))
+	outputIntent1.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent1.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent1.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent1.Entries.Set("DestOutputProfile", destOutputProfile1)
 
 	outputIntent2 := pdf.NewPDFDict()
 	destOutputProfile2 := pdf.NewPDFDict()
-
-	destOutputProfile2.Entries["N"] = pdf.PDFInteger(2)
-
-	outputIntent2.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent2.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent2.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent2.Entries["DestOutputProfile"] = destOutputProfile2
+	destOutputProfile2.Entries.Set("N", pdf.PDFInteger(2))
+	outputIntent2.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent2.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent2.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent2.Entries.Set("DestOutputProfile", destOutputProfile2)
 
 	outputIntents = append(outputIntents, outputIntent1, outputIntent2)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1102,14 +1063,12 @@ func TestDocument_VerifyPDFAOutputIntent_DestOutputProfileWrongFormat(t *testing
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
 	destOutputProfile := pdf.PDFInteger(1)
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent.Entries.Set("DestOutputProfile", destOutputProfile)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1135,16 +1094,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongNType(t *testing.T) {
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
 	destOutputProfile := pdf.NewPDFDict()
-
-	destOutputProfile.Entries["N"] = pdf.PDFString{Value: "3"}
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
+	destOutputProfile.Entries.Set("N", pdf.PDFString{Value: "3"})
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent.Entries.Set("DestOutputProfile", destOutputProfile)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1170,16 +1126,13 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	outputIntents := pdf.PDFArray{}
 	outputIntent := pdf.NewPDFDict()
 	destOutputProfile := pdf.NewPDFDict()
-
-	destOutputProfile.Entries["N"] = pdf.PDFInteger(5)
-
-	outputIntent.Entries["Type"] = pdf.PDFString{Value: "OutputIntent"}
-	outputIntent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	outputIntent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: "Test"}
-	outputIntent.Entries["DestOutputProfile"] = destOutputProfile
+	destOutputProfile.Entries.Set("N", pdf.PDFInteger(5))
+	outputIntent.Entries.Set("Type", pdf.PDFString{Value: "OutputIntent"})
+	outputIntent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	outputIntent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+	outputIntent.Entries.Set("DestOutputProfile", destOutputProfile)
 	outputIntents = append(outputIntents, outputIntent)
-
-	trailer.Entries["Root"] = outputIntents
+	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
 	doc := pdf.NewRawReader(f, trailer, 0, 0)
@@ -1200,12 +1153,12 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 // threading through arrays -- so convert's targeted fixers can resolve them.
 func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
 	owner := pdf.NewPDFDict()
-	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
-	owner.Entries["Big"] = pdf.PDFInteger(3_000_000_000)
-	owner.Entries["List"] = pdf.PDFArray{pdf.PDFName{Value: strings.Repeat("x", 130)}}
-	owner.Entries["Hex"] = pdf.PDFHexString{Value: "abc"}
+	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	owner.Entries.Set("Big", pdf.PDFInteger(3_000_000_000))
+	owner.Entries.Set("List", pdf.PDFArray{pdf.PDFName{Value: strings.Repeat("x", 130)}})
+	owner.Entries.Set("Hex", pdf.PDFHexString{Value: "abc"})
 	graph := pdf.NewPDFDict()
-	graph.Entries["Root"] = owner
+	graph.Entries.Set("Root", owner)
 
 	ctx := &ValidationContext{}
 	verifyDocument(graph, ctx)
@@ -1238,15 +1191,15 @@ func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
 
 func TestCollectAPEntryUsage(t *testing.T) {
 	xobj := pdf.NewPDFDict()
-	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	xobj.HasStream = true
 	xobj.RawStream = []byte("q Q\n")
 	xobjPtr := pdf.ValuePointer(xobj.Entries)
 
 	resources := pdf.NewPDFDict()
 	xobjDict := pdf.NewPDFDict()
-	xobjDict.Entries["X1"] = xobj
-	resources.Entries["XObject"] = xobjDict
+	xobjDict.Entries.Set("X1", xobj)
+	resources.Entries.Set("XObject", xobjDict)
 
 	doContent, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
@@ -1257,7 +1210,7 @@ func TestCollectAPEntryUsage(t *testing.T) {
 	direct := pdf.NewPDFDict()
 	direct.HasStream = true
 	direct.RawStream = doContent
-	direct.Entries["Resources"] = resources
+	direct.Entries.Set("Resources", resources)
 
 	ctx := &ValidationContext{}
 	reachable := map[uintptr]bool{}
@@ -1269,8 +1222,8 @@ func TestCollectAPEntryUsage(t *testing.T) {
 
 	// Subdictionary-of-states form (Btn widget).
 	states := pdf.NewPDFDict()
-	states.Entries["On"] = direct
-	states.Entries["Off"] = pdf.NewPDFDict() // no stream: skipped
+	states.Entries.Set("On", direct)
+	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
 	reachable2 := map[uintptr]bool{}
 	collectAPEntryUsage(ctx, states, reachable2, fu)
 	if !reachable2[xobjPtr] {
@@ -1319,7 +1272,7 @@ func TestValidateICCProfileStream(t *testing.T) {
 	good := pdf.NewPDFDict()
 	good.HasStream = true
 	good.RawStream = buildValidICCProfile()
-	good.Entries["N"] = pdf.PDFInteger(3)
+	good.Entries.Set("N", pdf.PDFInteger(3))
 	if err := ValidateICCProfileStream(good); err != nil {
 		t.Errorf("unexpected error for a valid ICC profile: %v", err)
 	}
@@ -1378,7 +1331,7 @@ func TestValidateICCProfileStream(t *testing.T) {
 	badNType := pdf.NewPDFDict()
 	badNType.HasStream = true
 	badNType.RawStream = buildValidICCProfile()
-	badNType.Entries["N"] = pdf.PDFName{Value: "3"}
+	badNType.Entries.Set("N", pdf.PDFName{Value: "3"})
 	if err := ValidateICCProfileStream(badNType); err == nil {
 		t.Error("expected an error when /N is not an integer")
 	}
@@ -1386,7 +1339,7 @@ func TestValidateICCProfileStream(t *testing.T) {
 	mismatch := pdf.NewPDFDict()
 	mismatch.HasStream = true
 	mismatch.RawStream = buildValidICCProfile()
-	mismatch.Entries["N"] = pdf.PDFInteger(4) // RGB colour space, N=4 mismatched
+	mismatch.Entries.Set("N", pdf.PDFInteger(4)) // RGB colour space, N=4 mismatched
 	if err := ValidateICCProfileStream(mismatch); err == nil {
 		t.Error("expected an error when /N does not match the profile colour space")
 	}
@@ -1413,29 +1366,29 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	// twice (second Do should hit the already-reachable skip), and text shown
 	// under invisible rendering mode (Tr 3) for the simple font.
 	cidDesc := pdf.NewPDFDict()
-	cidDesc.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
+	cidDesc.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType2"})
 	type0Font := pdf.NewPDFDict()
-	type0Font.Entries["Subtype"] = pdf.PDFName{Value: "Type0"}
-	type0Font.Entries["Encoding"] = pdf.PDFName{Value: "Identity-H"}
-	type0Font.Entries["DescendantFonts"] = pdf.PDFArray{cidDesc}
+	type0Font.Entries.Set("Subtype", pdf.PDFName{Value: "Type0"})
+	type0Font.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-H"})
+	type0Font.Entries.Set("DescendantFonts", pdf.PDFArray{cidDesc})
 
 	simpleFont := pdf.NewPDFDict()
-	simpleFont.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
+	simpleFont.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
 
 	fonts := pdf.NewPDFDict()
-	fonts.Entries["F0"] = type0Font
-	fonts.Entries["F1"] = simpleFont
+	fonts.Entries.Set("F0", type0Font)
+	fonts.Entries.Set("F1", simpleFont)
 
 	xobj := pdf.NewPDFDict()
-	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	xobj.HasStream = true
 	xobj.RawStream = []byte("q Q\n")
 	xobjs := pdf.NewPDFDict()
-	xobjs.Entries["X1"] = xobj
+	xobjs.Entries.Set("X1", xobj)
 
 	resources := pdf.NewPDFDict()
-	resources.Entries["Font"] = fonts
-	resources.Entries["XObject"] = xobjs
+	resources.Entries.Set("Font", fonts)
+	resources.Entries.Set("XObject", xobjs)
 
 	ops := []writer.ContentOp{
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
@@ -1455,9 +1408,9 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	}
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Resources"] = resources
-	page.Entries["Contents"] = pdf.PDFDict{HasStream: true, RawStream: content, Entries: pdf.NewPDFDict().Entries}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", pdf.PDFDict{HasStream: true, RawStream: content, Entries: pdf.NewPDFDict().Entries})
 
 	ctx := &ValidationContext{}
 	reachable, invisibleOnly, usedCodes, usedCIDs, _ := ComputeContentUsage(page, ctx)
@@ -1513,7 +1466,7 @@ func TestCheckLinearizedFileID(t *testing.T) {
 
 	// A trailer with /Root is an ordinary (non-linearized-overflow) file: no-op.
 	rootTrailer := pdf.NewPDFDict()
-	rootTrailer.Entries["Root"] = pdf.NewPDFDict()
+	rootTrailer.Entries.Set("Root", pdf.NewPDFDict())
 	doc3 := pdf.NewRawReader(f2, rootTrailer, int64(len(matching)), 0)
 	if errs := checkLinearizedFileID(doc3); errs != nil {
 		t.Errorf("unexpected check when trailer has /Root: %v", errs)
@@ -1533,15 +1486,15 @@ func TestCheckLinearizedFileID(t *testing.T) {
 
 func TestCollectAnnotAppearanceUsageAndContentUsage(t *testing.T) {
 	xobj := pdf.NewPDFDict()
-	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	xobj.HasStream = true
 	xobj.RawStream = []byte("q Q\n")
 	xobjPtr := pdf.ValuePointer(xobj.Entries)
 
 	resources := pdf.NewPDFDict()
 	xobjDict := pdf.NewPDFDict()
-	xobjDict.Entries["X1"] = xobj
-	resources.Entries["XObject"] = xobjDict
+	xobjDict.Entries.Set("X1", xobj)
+	resources.Entries.Set("XObject", xobjDict)
 
 	doContent, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "X1"}}},
@@ -1552,14 +1505,14 @@ func TestCollectAnnotAppearanceUsageAndContentUsage(t *testing.T) {
 	apStream := pdf.NewPDFDict()
 	apStream.HasStream = true
 	apStream.RawStream = doContent
-	apStream.Entries["Resources"] = resources
+	apStream.Entries.Set("Resources", resources)
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = apStream
+	ap.Entries.Set("N", apStream)
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 	page := pdf.NewPDFDict()
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
 	ctx := &ValidationContext{}
 	reachable := map[uintptr]bool{}
@@ -1681,21 +1634,21 @@ func runLengthEncode(data []byte) []byte {
 // document graph.
 func pageGraphWithContents(contents pdf.PDFDict) pdf.PDFDict {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Contents"] = contents
-	page.Entries["Resources"] = pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Contents", contents)
+	page.Entries.Set("Resources", pdf.NewPDFDict())
 
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{page}
-	pages.Entries["Count"] = pdf.PDFInteger(1)
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
 
 	root := pdf.NewPDFDict()
-	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	root.Entries["Pages"] = pages
+	root.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	root.Entries.Set("Pages", pages)
 
 	graph := pdf.NewPDFDict()
-	graph.Entries["Root"] = root
+	graph.Entries.Set("Root", root)
 	return graph
 }
 
@@ -1722,7 +1675,7 @@ func TestEncodedContentStreamStillReportsViolations(t *testing.T) {
 	rleStream := pdf.NewPDFDict()
 	rleStream.HasStream = true
 	rleStream.RawStream = runLengthEncode(content)
-	rleStream.Entries["Filter"] = pdf.PDFName{Value: "RunLengthDecode"}
+	rleStream.Entries.Set("Filter", pdf.PDFName{Value: "RunLengthDecode"})
 
 	plain := verifyDeepGraph(t, pageGraphWithContents(plainStream))
 	rle := verifyDeepGraph(t, pageGraphWithContents(rleStream))
@@ -1753,7 +1706,7 @@ func TestEncodedContentStreamStillReportsViolations(t *testing.T) {
 func TestUndecodableStreamIsReported(t *testing.T) {
 	broken := pdf.NewPDFDict()
 	broken.HasStream = true
-	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	broken.RawStream = []byte("this is not a zlib stream")
 
 	res := verifyDeepGraph(t, pageGraphWithContents(broken))
@@ -1768,13 +1721,13 @@ func TestUndecodableStreamIsReported(t *testing.T) {
 func TestImageStreamIsNotUndecodable(t *testing.T) {
 	img := pdf.NewPDFDict()
 	img.HasStream = true
-	img.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Filter"] = pdf.PDFName{Value: "DCTDecode"}
-	img.Entries["Width"] = pdf.PDFInteger(1)
-	img.Entries["Height"] = pdf.PDFInteger(1)
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceGray"}
+	img.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Filter", pdf.PDFName{Value: "DCTDecode"})
+	img.Entries.Set("Width", pdf.PDFInteger(1))
+	img.Entries.Set("Height", pdf.PDFInteger(1))
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceGray"})
 	img.RawStream = []byte("\xff\xd8\xff\xe0 not really a jpeg")
 
 	content, err := writer.WriteContentStream([]writer.ContentOp{
@@ -1788,15 +1741,15 @@ func TestImageStreamIsNotUndecodable(t *testing.T) {
 	stream.RawStream = content
 
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Im0"] = img
+	xobjects.Entries.Set("Im0", img)
 	resources := pdf.NewPDFDict()
-	resources.Entries["XObject"] = xobjects
+	resources.Entries.Set("XObject", xobjects)
 
 	graph := pageGraphWithContents(stream)
-	root := graph.Entries["Root"].(pdf.PDFDict)
-	pages := root.Entries["Pages"].(pdf.PDFDict)
-	page := pages.Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	page.Entries["Resources"] = resources
+	root := graph.Entries.Get("Root").(pdf.PDFDict)
+	pages := root.Entries.Get("Pages").(pdf.PDFDict)
+	page := pages.Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	page.Entries.Set("Resources", resources)
 
 	res := verifyDeepGraph(t, graph)
 	if resultHasCheck(res, pdf.Checks.Structure.StreamUndecodable) {
@@ -1822,29 +1775,29 @@ func buildSuppressionGraph(t *testing.T, contents pdf.PDFDict) pdf.PDFDict {
 	form := pdf.NewPDFDict()
 	form.HasStream = true
 	form.RawStream = formContent
-	form.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-	form.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
-	form.Entries["Resources"] = pdf.NewPDFDict()
+	form.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	form.Entries.Set("Resources", pdf.NewPDFDict())
 
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Arial"}
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Arial"})
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
 
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Fm0"] = form
+	xobjects.Entries.Set("Fm0", form)
 	fonts := pdf.NewPDFDict()
-	fonts.Entries["F0"] = font
+	fonts.Entries.Set("F0", font)
 	resources := pdf.NewPDFDict()
-	resources.Entries["XObject"] = xobjects
-	resources.Entries["Font"] = fonts
+	resources.Entries.Set("XObject", xobjects)
+	resources.Entries.Set("Font", fonts)
 
 	graph := pageGraphWithContents(contents)
-	root := graph.Entries["Root"].(pdf.PDFDict)
-	pages := root.Entries["Pages"].(pdf.PDFDict)
-	page := pages.Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	page.Entries["Resources"] = resources
+	root := graph.Entries.Get("Root").(pdf.PDFDict)
+	pages := root.Entries.Get("Pages").(pdf.PDFDict)
+	page := pages.Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	page.Entries.Set("Resources", resources)
 	return graph
 }
 
@@ -1870,7 +1823,7 @@ func TestUndecodableContentDoesNotSuppressChecks(t *testing.T) {
 
 	broken := pdf.NewPDFDict()
 	broken.HasStream = true
-	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	broken.RawStream = []byte("not a zlib stream at all")
 
 	suppressed := verifyDeepGraph(t, buildSuppressionGraph(t, good))
@@ -1911,28 +1864,28 @@ func TestUndecodableContentReportsItsPage(t *testing.T) {
 
 	broken := pdf.NewPDFDict()
 	broken.HasStream = true
-	broken.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	broken.RawStream = []byte("not a zlib stream")
 
 	// Two pages, the second unreadable.
 	mkPage := func(contents pdf.PDFDict, obj int) pdf.PDFDict {
 		p := pdf.NewPDFDict()
-		p.Entries["Type"] = pdf.PDFName{Value: "Page"}
-		p.Entries["Contents"] = contents
-		p.Entries["Resources"] = pdf.NewPDFDict()
-		p.Entries["_ref"] = pdf.PDFRef{ObjNum: obj}
+		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+		p.Entries.Set("Contents", contents)
+		p.Entries.Set("Resources", pdf.NewPDFDict())
+		p.Entries.Set("_ref", pdf.PDFRef{ObjNum: obj})
 		return p
 	}
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{mkPage(good, 10), mkPage(broken, 11)}
-	pages.Entries["Count"] = pdf.PDFInteger(2)
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{mkPage(good, 10), mkPage(broken, 11)})
+	pages.Entries.Set("Count", pdf.PDFInteger(2))
 
 	root := pdf.NewPDFDict()
-	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	root.Entries["Pages"] = pages
+	root.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	root.Entries.Set("Pages", pages)
 	graph := pdf.NewPDFDict()
-	graph.Entries["Root"] = root
+	graph.Entries.Set("Root", root)
 
 	ctx := &ValidationContext{PageIndex: map[int]int{10: 1, 11: 2}}
 	ComputeContentUsage(graph, ctx)

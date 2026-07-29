@@ -78,8 +78,8 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if !ok {
 				return
 			}
-			xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-			if xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && xobj.HasStream {
+			xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
+			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
 				scanContentColour(xobj, resourcesOf(xobj, resources), claim, decode, emit)
 			}
 		case "scn", "SCN":
@@ -90,8 +90,8 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if !ok {
 				return
 			}
-			patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
-			if pat, ok := patterns.Entries[name.Value].(pdf.PDFDict); ok && pat.HasStream {
+			patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
+			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.HasStream {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
 		}
@@ -127,10 +127,10 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	var sharedRGB, sharedCMYK pdf.PDFArray
 
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Page"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
 			return
 		}
-		resources, _ := d.Entries["Resources"].(pdf.PDFDict)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
 		used := pageDeviceColourModels(d, resources, f.decode)
 
 		needRGB := used["rgb"] && !rgbCovered && !verify.DefaultColorSpaceDefined("rgb", resources)
@@ -151,34 +151,34 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 		}
 
 		if needRGB || needCMYK {
-			csDict, ok := resources.Entries["ColorSpace"].(pdf.PDFDict)
+			csDict, ok := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
 			if !ok {
 				csDict = pdf.NewPDFDict()
 			}
 			if needRGB {
-				csDict.Entries["DefaultRGB"] = sharedRGB
+				csDict.Entries.Set("DefaultRGB", sharedRGB)
 			}
 			if needCMYK {
-				csDict.Entries["DefaultCMYK"] = sharedCMYK
+				csDict.Entries.Set("DefaultCMYK", sharedCMYK)
 			}
-			resources.Entries["ColorSpace"] = csDict
-			d.Entries["Resources"] = resources
+			resources.Entries.Set("ColorSpace", csDict)
+			d.Entries.Set("Resources", resources)
 			changed = true
 		}
 
 		// Appearance streams have their own resource dicts and are checked
 		// independently by strict verifiers, so also inject Default* there.
-		if annots, ok := d.Entries["Annots"].(pdf.PDFArray); ok {
+		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok {
 			for _, item := range annots {
 				annot, ok := item.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+				ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				if fixAPColour(ap.Entries["N"], apNeedRGB, apNeedCMYK, sharedRGB, sharedCMYK, f.decode) {
+				if fixAPColour(ap.Entries.Get("N"), apNeedRGB, apNeedCMYK, sharedRGB, sharedCMYK, f.decode) {
 					changed = true
 				}
 			}
@@ -197,7 +197,7 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		if v.HasStream {
 			changed = injectDefaultCSRecursive(v, needRGB, needCMYK, sharedRGB, sharedCMYK, visited, decode) || changed
 		} else {
-			for k, sv := range v.Entries {
+			for k, sv := range v.Entries.All() {
 				if k == "_ref" {
 					continue
 				}
@@ -222,7 +222,7 @@ func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, shared
 
 	changed := injectDefaultCS(stream, needRGB, needCMYK, sharedRGB, sharedCMYK)
 
-	res, _ := stream.Entries["Resources"].(pdf.PDFDict)
+	res, _ := stream.Entries.Get("Resources").(pdf.PDFDict)
 	if decode == nil {
 		decode = pdf.DecodeStream
 	}
@@ -238,8 +238,8 @@ func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, shared
 		if !ok {
 			return
 		}
-		xobjects, _ := res.Entries["XObject"].(pdf.PDFDict)
-		if xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && xobj.HasStream {
+		xobjects, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+		if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
 			if injectDefaultCSRecursive(xobj, needRGB, needCMYK, sharedRGB, sharedCMYK, visited, decode) {
 				changed = true
 			}
@@ -251,26 +251,26 @@ func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, shared
 // injectDefaultCS injects missing Default* colour-space entries into the
 // /Resources/ColorSpace dict of a stream dictionary.
 func injectDefaultCS(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray) bool {
-	res, _ := stream.Entries["Resources"].(pdf.PDFDict)
+	res, _ := stream.Entries.Get("Resources").(pdf.PDFDict)
 	if res.Entries == nil {
 		res = pdf.NewPDFDict()
 	}
-	cs, _ := res.Entries["ColorSpace"].(pdf.PDFDict)
+	cs, _ := res.Entries.Get("ColorSpace").(pdf.PDFDict)
 	if cs.Entries == nil {
 		cs = pdf.NewPDFDict()
 	}
 	changed := false
 	if needRGB && !verify.DefaultColorSpaceDefined("rgb", res) {
-		cs.Entries["DefaultRGB"] = sharedRGB
+		cs.Entries.Set("DefaultRGB", sharedRGB)
 		changed = true
 	}
 	if needCMYK && !verify.DefaultColorSpaceDefined("cmyk", res) {
-		cs.Entries["DefaultCMYK"] = sharedCMYK
+		cs.Entries.Set("DefaultCMYK", sharedCMYK)
 		changed = true
 	}
 	if changed {
-		res.Entries["ColorSpace"] = cs
-		stream.Entries["Resources"] = res
+		res.Entries.Set("ColorSpace", cs)
+		stream.Entries.Set("Resources", res)
 	}
 	return changed
 }
@@ -299,7 +299,7 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 	}
 	emit := func(model string, _ pdf.PDFDict) { addModel(model) }
 
-	switch contents := page.Entries["Contents"].(type) {
+	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		if contents.HasStream {
 			scanContentColour(contents, resources, claim, decode, emit)
@@ -321,35 +321,35 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 		}
 		dictVisited[ptr] = true
 
-		if xobjects, ok := res.Entries["XObject"].(pdf.PDFDict); ok {
-			for _, v := range xobjects.Entries {
+		if xobjects, ok := res.Entries.Get("XObject").(pdf.PDFDict); ok {
+			for _, v := range xobjects.Entries.All() {
 				xobj, ok := v.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				switch xobj.Entries["Subtype"] {
+				switch xobj.Entries.Get("Subtype") {
 				case pdf.PDFName{Value: "Image"}:
-					addModel(verify.DeviceColourModel(xobj.Entries["ColorSpace"]))
+					addModel(verify.DeviceColourModel(xobj.Entries.Get("ColorSpace")))
 				case pdf.PDFName{Value: "Form"}:
 					scanResourceColour(resourcesOf(xobj, res))
 				}
 			}
 		}
-		if shadings, ok := res.Entries["Shading"].(pdf.PDFDict); ok {
-			for _, v := range shadings.Entries {
+		if shadings, ok := res.Entries.Get("Shading").(pdf.PDFDict); ok {
+			for _, v := range shadings.Entries.All() {
 				if sh, ok := v.(pdf.PDFDict); ok {
-					addModel(verify.DeviceColourModel(sh.Entries["ColorSpace"]))
+					addModel(verify.DeviceColourModel(sh.Entries.Get("ColorSpace")))
 				}
 			}
 		}
-		if patterns, ok := res.Entries["Pattern"].(pdf.PDFDict); ok {
-			for _, v := range patterns.Entries {
+		if patterns, ok := res.Entries.Get("Pattern").(pdf.PDFDict); ok {
+			for _, v := range patterns.Entries.All() {
 				pat, ok := v.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				if sh, ok := pat.Entries["Shading"].(pdf.PDFDict); ok {
-					addModel(verify.DeviceColourModel(sh.Entries["ColorSpace"]))
+				if sh, ok := pat.Entries.Get("Shading").(pdf.PDFDict); ok {
+					addModel(verify.DeviceColourModel(sh.Entries.Get("ColorSpace")))
 				}
 				scanResourceColour(resourcesOf(pat, res))
 			}
@@ -359,17 +359,17 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 
 	// Appearance streams (reached via /AP/N, not via Do from page content)
 	// are rendered as part of the page and must also be colour-clean.
-	if annots, ok := page.Entries["Annots"].(pdf.PDFArray); ok {
+	if annots, ok := page.Entries.Get("Annots").(pdf.PDFArray); ok {
 		for _, item := range annots {
 			annot, ok := item.(pdf.PDFDict)
 			if !ok {
 				continue
 			}
-			ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+			ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 			if !ok {
 				continue
 			}
-			scanAPAppearance(ap.Entries["N"], claim, decode, emit)
+			scanAPAppearance(ap.Entries.Get("N"), claim, decode, emit)
 		}
 	}
 
@@ -384,16 +384,16 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 		return
 	}
 	if v.HasStream {
-		apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+		apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 		scanContentColour(v, apRes, claim, decode, emit)
 		return
 	}
-	for k, sv := range v.Entries {
+	for k, sv := range v.Entries.All() {
 		if k == "_ref" {
 			continue
 		}
 		if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
-			apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+			apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}
 	}

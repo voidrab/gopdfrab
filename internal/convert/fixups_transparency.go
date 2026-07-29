@@ -88,8 +88,8 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 					fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI())
 					results[i] = result{fixed: fixed, ok: ok, drops: drops}
 				case "page":
-					_, had := t.dict.Entries["Group"]
-					delete(t.dict.Entries, "Group")
+					_, had := t.dict.Entries.Lookup("Group")
+					t.dict.Entries.Del("Group")
 					results[i] = result{fixed: pdf.PDFDict{}, ok: had}
 				}
 			}
@@ -123,11 +123,11 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 		}
 		changed = true
 		if r.dropGroup {
-			delete(r.fixed.Entries, "Group")
+			r.fixed.Entries.Del("Group")
 			continue
 		}
 		if t.kind != "page" {
-			t.xobjects.Entries[t.name] = r.fixed
+			t.xobjects.Entries.Set(t.name, r.fixed)
 		}
 	}
 	return changed, nil
@@ -171,11 +171,11 @@ type flaggedTarget struct {
 // deleted) or descends into its resource graph to flag the individual
 // Form/Image XObjects responsible.
 func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
-	pages, ok := root.Entries["Pages"].(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
@@ -187,13 +187,13 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 	pageNum := 0
 	var walk func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64)
 	walk = func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64) {
-		if r, ok := node.Entries["Resources"].(pdf.PDFDict); ok {
+		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
 			resources = r
 		}
-		if mb, err := pdf.FloatArray(node.Entries["MediaBox"]); err == nil && len(mb) == 4 {
+		if mb, err := pdf.FloatArray(node.Entries.Get("MediaBox")); err == nil && len(mb) == 4 {
 			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
 		}
-		if (node.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
+		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 			pageNum++
 			if hasTransparencyGroup(node) {
 				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
@@ -203,7 +203,7 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 			collectAnnotationTargets(node, visited, pageNum, &out)
 			return
 		}
-		if kids, ok := node.Entries["Kids"].(pdf.PDFArray); ok {
+		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
 			for _, kid := range kids {
 				if kd, ok := kid.(pdf.PDFDict); ok {
 					walk(kd, resources, mediaBox)
@@ -228,11 +228,11 @@ type pageTarget struct {
 // Root/Pages/Kids walk the verifier numbers pages by -- so the slice index
 // matches a PDFError's 1-based Page().
 func orderedPages(trailer pdf.PDFDict) []pageTarget {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
-	pages, ok := root.Entries["Pages"].(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
@@ -240,17 +240,17 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	var out []pageTarget
 	var walk func(node, resources pdf.PDFDict, mediaBox [4]float64)
 	walk = func(node, resources pdf.PDFDict, mediaBox [4]float64) {
-		if r, ok := node.Entries["Resources"].(pdf.PDFDict); ok {
+		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
 			resources = r
 		}
-		if mb, err := pdf.FloatArray(node.Entries["MediaBox"]); err == nil && len(mb) == 4 {
+		if mb, err := pdf.FloatArray(node.Entries.Get("MediaBox")); err == nil && len(mb) == 4 {
 			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
 		}
-		if (node.Entries["Type"] == pdf.PDFName{Value: "Page"}) {
+		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 			out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
 			return
 		}
-		if kids, ok := node.Entries["Kids"].(pdf.PDFArray); ok {
+		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
 			for _, kid := range kids {
 				if kd, ok := kid.(pdf.PDFDict); ok {
 					walk(kd, resources, mediaBox)
@@ -269,7 +269,7 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 // further: it's about to be wholly replaced, so anything inside it is moot.
 // visited guards against cyclic/shared XObject subdictionaries.
 func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page int, out *[]flaggedTarget) {
-	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
+	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
 	if !ok {
 		return
 	}
@@ -283,18 +283,18 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 	// ConvertResult.RasterDrops, so iterating the map directly would report a
 	// page's drops in a different order on every run.
 	for _, name := range sortedKeys(xobjects.Entries) {
-		xobj, ok := xobjects.Entries[name].(pdf.PDFDict)
+		xobj, ok := xobjects.Entries.Get(name).(pdf.PDFDict)
 		if !ok {
 			continue
 		}
-		subtype, _ := xobj.Entries["Subtype"].(pdf.PDFName)
+		subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 		switch subtype.Value {
 		case "Form":
 			if hasTransparencyGroup(xobj) {
 				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
 				continue
 			}
-			formRes, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+			formRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 			if formRes.Entries == nil {
 				formRes = resources
 			}
@@ -318,7 +318,7 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 // without this every digitally signed document reported a 6.4 violation that
 // convert could not reach and the verify/fix loop could never converge.
 func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
-	annots, ok := page.Entries["Annots"].(pdf.PDFArray)
+	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
 		return
 	}
@@ -327,12 +327,12 @@ func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNu
 		if !ok {
 			continue
 		}
-		ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+		ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 		if !ok {
 			continue
 		}
 		for _, state := range []string{"N", "R", "D"} {
-			entry, ok := ap.Entries[state].(pdf.PDFDict)
+			entry, ok := ap.Entries.Get(state).(pdf.PDFDict)
 			if !ok {
 				continue
 			}
@@ -342,7 +342,7 @@ func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNu
 			}
 			// /AP /N << /Off ... /On ... >>: one appearance per state name.
 			for _, name := range sortedKeys(entry.Entries) {
-				if form, ok := entry.Entries[name].(pdf.PDFDict); ok && isFormXObject(form) {
+				if form, ok := entry.Entries.Get(name).(pdf.PDFDict); ok && isFormXObject(form) {
 					collectAppearanceForm(form, entry, name, visited, pageNum, out)
 				}
 			}
@@ -355,11 +355,11 @@ func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNu
 // dict is written back into, exactly as an /XObject resource entry does.
 func collectAppearanceForm(form, container pdf.PDFDict, name string, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	if hasTransparencyGroup(form) {
-		res, _ := form.Entries["Resources"].(pdf.PDFDict)
+		res, _ := form.Entries.Get("Resources").(pdf.PDFDict)
 		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: res, xobjects: container, name: name, page: pageNum})
 		return
 	}
-	if res, ok := form.Entries["Resources"].(pdf.PDFDict); ok {
+	if res, ok := form.Entries.Get("Resources").(pdf.PDFDict); ok {
 		collectXObjectTargets(res, visited, pageNum, out)
 	}
 }
@@ -370,17 +370,14 @@ func isFormXObject(d pdf.PDFDict) bool {
 	if !d.HasStream {
 		return false
 	}
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	return subtype.Value == "Form"
 }
 
 // sortedKeys returns a dictionary's keys in a stable order, for walks whose
 // order reaches the user.
-func sortedKeys(entries map[string]pdf.PDFValue) []string {
-	out := make([]string, 0, len(entries))
-	for k := range entries {
-		out = append(out, k)
-	}
+func sortedKeys(entries pdf.Dict) []string {
+	out := entries.Keys()
 	sort.Strings(out)
 	return out
 }
@@ -388,17 +385,17 @@ func sortedKeys(entries map[string]pdf.PDFValue) []string {
 // hasTransparencyGroup mirrors validateTransparencyGroup's (checks_dict.go)
 // /Group /S /Transparency test.
 func hasTransparencyGroup(d pdf.PDFDict) bool {
-	group, ok := d.Entries["Group"].(pdf.PDFDict)
+	group, ok := d.Entries.Get("Group").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
-	return group.Entries["S"] == pdf.PDFName{Value: "Transparency"}
+	return group.Entries.Get("S") == pdf.PDFName{Value: "Transparency"}
 }
 
 // hasSoftMask mirrors validateXObjectDict's (checks_dict.go) ImageWithSoftMask
 // test: an /SMask entry present and not the literal name /None.
 func hasSoftMask(img pdf.PDFDict) bool {
-	sm, ok := img.Entries["SMask"]
+	sm, ok := img.Entries.Lookup("SMask")
 	if !ok {
 		return false
 	}
@@ -417,7 +414,7 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 	if err != nil {
 		return img, false
 	}
-	smaskDict, ok := img.Entries["SMask"].(pdf.PDFDict)
+	smaskDict, ok := img.Entries.Get("SMask").(pdf.PDFDict)
 	if !ok {
 		return img, false
 	}
@@ -429,7 +426,7 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 	// A uniformly-opaque mask composites to the base unchanged: drop the
 	// SMask and keep the original image encoding untouched.
 	if smaskFullyOpaque(smask) {
-		delete(img.Entries, "SMask")
+		img.Entries.Del("SMask")
 		return img, true
 	}
 
@@ -470,14 +467,13 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 			op += 4
 		}
 	}
-
-	img.Entries["Width"] = pdf.PDFInteger(outW)
-	img.Entries["Height"] = pdf.PDFInteger(outH)
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
-	delete(img.Entries, "SMask")
-	delete(img.Entries, "Decode")
-	delete(img.Entries, "Mask")
+	img.Entries.Set("Width", pdf.PDFInteger(outW))
+	img.Entries.Set("Height", pdf.PDFInteger(outH))
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+	img.Entries.Del("SMask")
+	img.Entries.Del("Decode")
+	img.Entries.Del("Mask")
 	if err := setStreamRGBFlate(&img, out); err != nil {
 		return img, false
 	}
@@ -536,20 +532,20 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.P
 	}
 
 	img := pdf.NewPDFDict()
-	img.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Width"] = pdf.PDFInteger(canvas.Bounds().Dx())
-	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	img.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Width", pdf.PDFInteger(canvas.Bounds().Dx()))
+	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 	if err := setStreamRGBFlate(&img, canvas); err != nil {
 		return form, nil, false
 	}
 
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Im0"] = img
+	xobjects.Entries.Set("Im0", img)
 	formResources := pdf.NewPDFDict()
-	formResources.Entries["XObject"] = xobjects
+	formResources.Entries.Set("XObject", xobjects)
 
 	w, h := bbox[2]-bbox[0], bbox[3]-bbox[1]
 	ops := []writer.ContentOp{
@@ -566,8 +562,8 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.P
 		return form, nil, false
 	}
 
-	delete(form.Entries, "Group")
-	form.Entries["Resources"] = formResources
+	form.Entries.Del("Group")
+	form.Entries.Set("Resources", formResources)
 	if err := writer.SetStreamFlate(&form, data); err != nil {
 		return form, nil, false
 	}
@@ -589,23 +585,23 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	}
 
 	img := pdf.NewPDFDict()
-	img.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Width"] = pdf.PDFInteger(canvas.Bounds().Dx())
-	img.Entries["Height"] = pdf.PDFInteger(canvas.Bounds().Dy())
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	img.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Width", pdf.PDFInteger(canvas.Bounds().Dx()))
+	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 	if err := setStreamRGBFlate(&img, canvas); err != nil {
 		return nil, false
 	}
 
 	xobjects := pdf.NewPDFDict()
-	xobjects.Entries["Im0"] = img
+	xobjects.Entries.Set("Im0", img)
 	csDict := pdf.NewPDFDict()
-	csDict.Entries["DefaultRGB"] = iccBasedColourSpace(3, srgbICCProfile)
+	csDict.Entries.Set("DefaultRGB", iccBasedColourSpace(3, srgbICCProfile))
 	pageResources := pdf.NewPDFDict()
-	pageResources.Entries["XObject"] = xobjects
-	pageResources.Entries["ColorSpace"] = csDict
+	pageResources.Entries.Set("XObject", xobjects)
+	pageResources.Entries.Set("ColorSpace", csDict)
 
 	w, h := mediaBox[2]-mediaBox[0], mediaBox[3]-mediaBox[1]
 	ops := []writer.ContentOp{
@@ -626,10 +622,10 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 		return nil, false
 	}
 
-	delete(page.Entries, "Group")
-	delete(page.Entries, "Rotate")
-	page.Entries["Resources"] = pageResources
-	page.Entries["Contents"] = contents
+	page.Entries.Del("Group")
+	page.Entries.Del("Rotate")
+	page.Entries.Set("Resources", pageResources)
+	page.Entries.Set("Contents", contents)
 	return drops, true
 }
 

@@ -246,7 +246,7 @@ func cidSubstitutionPossible(t *testing.T, path string) bool {
 	}
 	possible := false
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if possible || (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) || (d.Entries["Subtype"] != pdf.PDFName{Value: "Type0"}) {
+		if possible || (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) || (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Type0"}) {
 			return
 		}
 		if _, ok := cidFontSubstitutionEligible(d); ok {
@@ -735,39 +735,39 @@ func TestConvertEachCancelled(t *testing.T) {
 // trigger it) and asserts the page's Contents/Resources are replaced with a
 // single flattened Image XObject.
 func TestFlattenAllPages(t *testing.T) {
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-	}}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"},
 		"Kids": pdf.PDFArray{page},
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":  pdf.PDFName{Value: "Catalog"},
 		"Pages": pages,
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
 	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); !changed {
 		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
 	}
 
 	got := assertOnePageGraph(t, trailer)
-	resources, ok := got.Entries["Resources"].(pdf.PDFDict)
+	resources, ok := got.Entries.Get("Resources").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Page/Resources did not resolve to a dict after flattening")
 	}
-	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
-	if !ok || xobjects.Entries["Im0"] == nil {
-		t.Errorf("Page/Resources/XObject/Im0 missing after flattening: %v", resources.Entries["XObject"])
+	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
+	if !ok || xobjects.Entries.Get("Im0") == nil {
+		t.Errorf("Page/Resources/XObject/Im0 missing after flattening: %v", resources.Entries.Get("XObject"))
 	}
 }
 
 // TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
 func TestFlattenAllPagesNoPages(t *testing.T) {
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); changed {
 		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
 	}
@@ -881,18 +881,18 @@ func TestConvertReportsRasterizedPages(t *testing.T) {
 // rebuilt, whether or not anything was dropped doing it.
 func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 	page := func() pdf.PDFDict {
-		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type":     pdf.PDFName{Value: "Page"},
 			"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
 			"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 2 2 5 5 re f")},
-		}}
+		})}
 	}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"},
 		"Kids": pdf.PDFArray{page(), page()},
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Pages": pages}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
 	drops, rasterized, changed := flattenAllPages(&trailer, defaultRasterDPI)
 	if !changed {

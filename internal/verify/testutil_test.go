@@ -48,19 +48,18 @@ func createValidPDF(filename string) error {
 // tripping MissingRequiredKey on the surrounding trailer/Catalog/Pages structure.
 func minimalConformantRoot(trailer pdf.PDFDict) {
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{}
-	pages.Entries["Count"] = pdf.PDFInteger(0)
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{})
+	pages.Entries.Set("Count", pdf.PDFInteger(0))
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = pages
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
-
-	trailer.Entries["Root"] = catalog
-	if trailer.Entries["Size"] == nil {
-		trailer.Entries["Size"] = pdf.PDFInteger(1)
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	trailer.Entries.Set("Root", catalog)
+	if trailer.Entries.Get("Size") == nil {
+		trailer.Entries.Set("Size", pdf.PDFInteger(1))
 	}
 }
 

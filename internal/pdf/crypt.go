@@ -59,18 +59,18 @@ func stringBytes(v PDFValue) []byte {
 }
 
 func dictBytes(dict PDFDict, key string) []byte {
-	return stringBytes(dict.Entries[key])
+	return stringBytes(dict.Entries.Get(key))
 }
 
 func dictName(dict PDFDict, key string) (string, bool) {
-	if n, ok := dict.Entries[key].(PDFName); ok {
+	if n, ok := dict.Entries.Get(key).(PDFName); ok {
 		return n.Value, true
 	}
 	return "", false
 }
 
 func dictBool(dict PDFDict, key string, def bool) bool {
-	if b, ok := dict.Entries[key].(PDFBoolean); ok {
+	if b, ok := dict.Entries.Get(key).(PDFBoolean); ok {
 		return bool(b)
 	}
 	return def
@@ -110,7 +110,7 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	}
 
 	if h.v >= 4 {
-		cf, _ := enc.Entries["CF"].(PDFDict)
+		cf, _ := enc.Entries.Get("CF").(PDFDict)
 		stmf, _ := dictName(enc, "StmF")
 		strf, _ := dictName(enc, "StrF")
 		h.stmMethod = cryptFilterMethod(stmf, cf)
@@ -131,7 +131,7 @@ func cryptFilterMethod(name string, cf PDFDict) cryptMethod {
 	if name == "" || name == "Identity" {
 		return cryptIdentity
 	}
-	filt, ok := cf.Entries[name].(PDFDict)
+	filt, ok := cf.Entries.Get(name).(PDFDict)
 	if !ok {
 		return cryptIdentity
 	}
@@ -411,9 +411,9 @@ func aesCBCDecrypt(key, data []byte) ([]byte, error) {
 // It runs at the end of initializeStructure, while d.crypt is still nil, so
 // the Encrypt dictionary and trailer /ID are read without decryption.
 func (d *Reader) setupDecryption() error {
-	encRef := d.trailer.Entries["Encrypt"]
+	encRef := d.trailer.Entries.Get("Encrypt")
 	if encRef == nil {
-		encRef = d.EffectiveTrailer().Entries["Encrypt"]
+		encRef = d.EffectiveTrailer().Entries.Get("Encrypt")
 	}
 	if encRef == nil {
 		return nil
@@ -443,9 +443,9 @@ func (d *Reader) setupDecryption() error {
 // firstIDBytes returns the raw bytes of the trailer /ID[0], which feeds key
 // derivation and is itself never encrypted.
 func (d *Reader) firstIDBytes() []byte {
-	id := d.trailer.Entries["ID"]
+	id := d.trailer.Entries.Get("ID")
 	if id == nil {
-		id = d.EffectiveTrailer().Entries["ID"]
+		id = d.EffectiveTrailer().Entries.Get("ID")
 	}
 	arr, ok := id.(PDFArray)
 	if !ok || len(arr) == 0 {
@@ -492,11 +492,11 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 			t[i] = d.decryptStrings(t[i], ref)
 		}
 	case PDFDict:
-		for k, val := range t.Entries {
+		for k, val := range t.Entries.All() {
 			if k == "_ref" {
 				continue
 			}
-			t.Entries[k] = d.decryptStrings(val, ref)
+			t.Entries.Set(k, d.decryptStrings(val, ref))
 		}
 	}
 	return v
@@ -511,7 +511,7 @@ func (d *Reader) decryptStr(b []byte, ref PDFRef) []byte {
 }
 
 func isXRefStream(m PDFDict) bool {
-	n, ok := m.Entries["Type"].(PDFName)
+	n, ok := m.Entries.Get("Type").(PDFName)
 	return ok && n.Value == "XRef"
 }
 
@@ -527,7 +527,7 @@ func isCleartextMetadata(m PDFDict, h *stdSecurityHandler) bool {
 	if h == nil || h.encryptMeta || h.r < 4 {
 		return false
 	}
-	n, ok := m.Entries["Type"].(PDFName)
+	n, ok := m.Entries.Get("Type").(PDFName)
 	return ok && n.Value == "Metadata"
 }
 

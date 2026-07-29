@@ -43,14 +43,14 @@ func (f fontDictFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 
 func (fontDictFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
 		}
-		if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
+		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "CIDFontType2"}) {
 			return
 		}
-		if d.Entries["CIDToGIDMap"] == nil {
-			d.Entries["CIDToGIDMap"] = pdf.PDFName{Value: "Identity"}
+		if d.Entries.Get("CIDToGIDMap") == nil {
+			d.Entries.Set("CIDToGIDMap", pdf.PDFName{Value: "Identity"})
 			*changed = true
 		}
 	}, true
@@ -79,22 +79,22 @@ func (f type0FontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error
 
 func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
 		}
-		if (d.Entries["Subtype"] != pdf.PDFName{Value: "Type0"}) {
+		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Type0"}) {
 			return
 		}
-		cmap, ok := d.Entries["Encoding"].(pdf.PDFDict)
+		cmap, ok := d.Entries.Get("Encoding").(pdf.PDFDict)
 		if !ok {
 			return
 		}
 
 		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
-			cmapCSI, hasCmapCSI := cmap.Entries["CIDSystemInfo"].(pdf.PDFDict)
-			cidCSI, hasCidCSI := cid.Entries["CIDSystemInfo"].(pdf.PDFDict)
+			cmapCSI, hasCmapCSI := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
+			cidCSI, hasCidCSI := cid.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
 			if hasCmapCSI && hasCidCSI && !verify.SameCIDSystemInfo(cmapCSI, cidCSI) {
-				cmap.Entries["CIDSystemInfo"] = cid.Entries["CIDSystemInfo"]
+				cmap.Entries.Set("CIDSystemInfo", cid.Entries.Get("CIDSystemInfo"))
 				*changed = true
 			}
 		}
@@ -102,7 +102,7 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict),
 		if !cmap.HasStream {
 			return
 		}
-		dictWMode, ok := cmap.Entries["WMode"].(pdf.PDFInteger)
+		dictWMode, ok := cmap.Entries.Get("WMode").(pdf.PDFInteger)
 		if !ok {
 			return
 		}
@@ -115,7 +115,7 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict),
 			return
 		}
 		if streamWMode, err := strconv.Atoi(string(m[1])); err == nil && int(dictWMode) != streamWMode {
-			cmap.Entries["WMode"] = pdf.PDFInteger(streamWMode)
+			cmap.Entries.Set("WMode", pdf.PDFInteger(streamWMode))
 			*changed = true
 		}
 	}, true

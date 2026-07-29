@@ -17,13 +17,13 @@ func numArray(v ...float64) pdf.PDFArray {
 
 // expFunction builds a Type 2 exponential function interpolating c0 -> c1.
 func expFunction(c0, c1 []float64) pdf.PDFDict {
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FunctionType": pdf.PDFInteger(2),
 		"Domain":       numArray(0, 1),
 		"C0":           numArray(c0...),
 		"C1":           numArray(c1...),
 		"N":            pdf.PDFInteger(1),
-	}}
+	})}
 }
 
 // renderShading paints a shading over a 20x20 page via the sh operator.
@@ -36,15 +36,15 @@ func renderShading(t *testing.T, sh pdf.PDFValue) (*image.RGBA, []string) {
 // by the caller, for the graphics states a plain sh cannot reach.
 func renderShadingContent(t *testing.T, sh pdf.PDFValue, content string) (*image.RGBA, []string) {
 	t.Helper()
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
-	}}
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Shading": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Sh1": sh}},
-		"ExtGState": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"GSNone": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)}},
-		}},
-	}}
+	})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Shading": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Sh1": sh})},
+		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"GSNone": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)})},
+		})},
+	})}
 	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
@@ -64,13 +64,13 @@ func assertUnpainted(t *testing.T, img *image.RGBA, x, y int, where string) {
 // TestRenderAxialShading: a red-to-blue axial gradient across the page paints
 // red at the left edge, blue at the right, and a blend between.
 func TestRenderAxialShading(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Coords":      numArray(0, 0, 20, 0),
 		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -91,13 +91,13 @@ func TestRenderAxialShading(t *testing.T) {
 // TestRenderAxialShadingWithoutExtend: with /Extend absent the shading paints
 // only between its axis endpoints.
 func TestRenderAxialShadingWithoutExtend(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		// The axis spans only the middle of the page.
 		"Coords":   numArray(8, 0, 12, 0),
 		"Function": expFunction([]float64{1, 0, 0}, []float64{1, 0, 0}),
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -111,12 +111,12 @@ func TestRenderAxialShadingWithoutExtend(t *testing.T) {
 // TestRenderRadialShading: a radial shading centred on the page paints its
 // inner colour at the centre and nothing beyond the outer circle.
 func TestRenderRadialShading(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(3),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Coords":      numArray(10, 10, 0, 10, 10, 8),
 		"Function":    expFunction([]float64{0, 1, 0}, []float64{0, 0, 1}),
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -133,14 +133,14 @@ func TestRenderRadialShading(t *testing.T) {
 // TestRenderFunctionBasedShading: a type 1 shading maps device space through
 // the inverse of /Matrix and paints only inside /Domain.
 func TestRenderFunctionBasedShading(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(1),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Domain":      numArray(0, 1, 0, 1),
 		// Maps the unit domain onto the lower-left 10x10 of the page.
 		"Matrix":   numArray(10, 0, 0, 10, 0, 0),
 		"Function": expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -157,14 +157,14 @@ func TestRenderFunctionBasedShading(t *testing.T) {
 
 // TestRenderShadingBBoxClips: a /BBox restricts where the shading paints.
 func TestRenderShadingBBoxClips(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Coords":      numArray(0, 0, 20, 0),
 		"Function":    expFunction([]float64{1, 0, 0}, []float64{1, 0, 0}),
 		"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
 		"BBox":        numArray(0, 0, 10, 20),
-	}}
+	})}
 	img, _ := renderShading(t, sh)
 	if got := nrgbaAt(t, img, 5, 10); got.R != 255 || got.G != 0 {
 		t.Errorf("inside BBox = %v, want red", got)
@@ -180,36 +180,36 @@ func TestRenderShadingMalformedDrops(t *testing.T) {
 		sh   pdf.PDFValue
 	}{
 		{"missing entry", nil},
-		{"unknown type", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		{"unknown type", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(9),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
-		}}},
-		{"axial without Coords", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}},
+		{"axial without Coords", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-		}}},
-		{"axial without Function", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}},
+		{"axial without Function", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Coords":      numArray(0, 0, 20, 0),
-		}}},
-		{"no colour space", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}},
+		{"no colour space", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"Coords":      numArray(0, 0, 20, 0),
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-		}}},
-		{"function-based without Function", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}},
+		{"function-based without Function", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(1),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Matrix":      numArray(10, 0, 0, 10, 0, 0),
-		}}},
-		{"function-based with a singular Matrix", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})}},
+		{"function-based with a singular Matrix", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(1),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Matrix":      numArray(0, 0, 0, 0, 0, 0),
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-		}}},
+		})}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,19 +252,19 @@ func TestShadingFuncArrayFanOut(t *testing.T) {
 // TestShadingNamedColorSpace: a /ColorSpace given as a bare name resolves
 // through the resource dictionary, the same way image colour spaces do.
 func TestShadingNamedColorSpace(t *testing.T) {
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"CS1": pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"CS1": pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 				"WhitePoint": numArray(0.9505, 1, 1.089),
-			}}},
-		}},
-	}}
-	dict := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			})}},
+		})},
+	})}
+	dict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "CS1"},
 		"Coords":      numArray(0, 0, 20, 0),
 		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-	}}
+	})}
 
 	sh, ok := parseShading(dict, resources)
 	if !ok {
@@ -276,7 +276,7 @@ func TestShadingNamedColorSpace(t *testing.T) {
 
 	// An unresolvable name stays as written, so ResolveColor can still apply
 	// its device-space fallback rather than the shading being dropped.
-	if got := resolveShadingColorSpace(dict, pdf.PDFDict{}); got != dict.Entries["ColorSpace"] {
+	if got := resolveShadingColorSpace(dict, pdf.PDFDict{}); got != dict.Entries.Get("ColorSpace") {
 		t.Errorf("unresolvable name = %v, want it passed through", got)
 	}
 }
@@ -285,14 +285,14 @@ func TestShadingNamedColorSpace(t *testing.T) {
 // parametric range the colour table is sampled over.
 func TestAxialShadingDomain(t *testing.T) {
 	mk := func(domain pdf.PDFValue) *shading {
-		entries := map[string]pdf.PDFValue{
+		entries := pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Coords":      numArray(0, 0, 20, 0),
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-		}
+		})
 		if domain != nil {
-			entries["Domain"] = domain
+			entries.Set("Domain", domain)
 		}
 		sh, ok := parseShading(pdf.PDFDict{Entries: entries}, pdf.PDFDict{})
 		if !ok {
@@ -366,14 +366,14 @@ func TestColorAtUnsupportedKind(t *testing.T) {
 // /Extend is set, and paints nothing at all when neither is.
 func TestRenderAxialDegenerateAxis(t *testing.T) {
 	mk := func(extend pdf.PDFValue) pdf.PDFDict {
-		entries := map[string]pdf.PDFValue{
+		entries := pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Coords":      numArray(10, 10, 10, 10),
 			"Function":    expFunction([]float64{0, 1, 0}, []float64{0, 0, 1}),
-		}
+		})
 		if extend != nil {
-			entries["Extend"] = extend
+			entries.Set("Extend", extend)
 		}
 		return pdf.PDFDict{Entries: entries}
 	}
@@ -397,7 +397,7 @@ func TestRenderAxialDegenerateAxis(t *testing.T) {
 // their centre distance the quadratic degenerates to a linear equation, and
 // the point where even that has no solution paints nothing.
 func TestRenderRadialLinearCase(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(3),
 		// dx=10, dy=0, dr=10: a = dx^2+dy^2-dr^2 = 0. x0 sits on the centre of
 		// device column 0 so that column's linear coefficient vanishes too.
@@ -405,7 +405,7 @@ func TestRenderRadialLinearCase(t *testing.T) {
 		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
 		"Function":   expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		"Extend":     pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -420,13 +420,13 @@ func TestRenderRadialLinearCase(t *testing.T) {
 // TestRenderRadialNoIntersection: pixels no circle in the family passes
 // through are left unpainted (a negative discriminant).
 func TestRenderRadialNoIntersection(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(3),
 		// Two unit circles 10 apart: the family sweeps a thin tube around y=10.
 		"Coords":     numArray(5, 10, 1, 15, 10, 1),
 		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
 		"Function":   expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-	}}
+	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
@@ -439,13 +439,13 @@ func TestRenderRadialNoIntersection(t *testing.T) {
 // zero alpha, or an empty clip paints nothing and reports no drop -- there is
 // no content to lose.
 func TestPaintShadingDegenerateState(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Coords":      numArray(0, 0, 20, 0),
 		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
-	}}
+	})}
 	tests := []struct {
 		name    string
 		content string
@@ -468,12 +468,12 @@ func TestPaintShadingDegenerateState(t *testing.T) {
 // TestShadingOperandDrops: an sh operator whose operand is missing or is not a
 // name has nothing to paint, and the loss is reported.
 func TestShadingOperandDrops(t *testing.T) {
-	sh := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	sh := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ShadingType": pdf.PDFInteger(2),
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Coords":      numArray(0, 0, 20, 0),
 		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-	}}
+	})}
 	for _, content := range []string{"q sh Q", "q 42 sh Q"} {
 		t.Run(content, func(t *testing.T) {
 			_, drops := renderShadingContent(t, sh, content)

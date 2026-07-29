@@ -21,7 +21,7 @@ type PDFName struct{ Value string }
 type PDFArray []PDFValue
 
 type PDFDict struct {
-	Entries   map[string]PDFValue
+	Entries   Dict
 	HasStream bool
 	// RawStream holds the undecoded stream bytes. The slice may alias a
 	// read-only memory-map; always assign a new slice, never mutate in place.
@@ -30,7 +30,7 @@ type PDFDict struct {
 
 func NewPDFDict() PDFDict {
 	return PDFDict{
-		Entries:   map[string]PDFValue{},
+		Entries:   NewDict(),
 		HasStream: false,
 	}
 }
@@ -91,11 +91,11 @@ func EqualPDFValue(a, b PDFValue) bool {
 
 	case PDFDict:
 		vb, ok := b.(PDFDict)
-		if !ok || len(va.Entries) != len(vb.Entries) || va.HasStream != vb.HasStream {
+		if !ok || va.Entries.Len() != vb.Entries.Len() || va.HasStream != vb.HasStream {
 			return false
 		}
-		for k, vaVal := range va.Entries {
-			vbVal, ok := vb.Entries[k]
+		for k, vaVal := range va.Entries.All() {
+			vbVal, ok := vb.Entries.Lookup(k)
 			if !ok {
 				return false
 			}

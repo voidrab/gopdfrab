@@ -29,23 +29,23 @@ func init() {
 // majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
 // 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
 func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("regenerateXMP: Root is not a dictionary")
 	}
 
 	normalizeInfoDict(trailer)
-	info, _ := trailer.Entries["Info"].(pdf.PDFDict)
+	info, _ := trailer.Entries.Get("Info").(pdf.PDFDict)
 	xmp := buildXMPPacket(info)
 
-	meta, _ := root.Entries["Metadata"].(pdf.PDFDict)
-	delete(meta.Entries, "Filter")
-	delete(meta.Entries, "DecodeParms")
-	delete(meta.Entries, "DP")
+	meta, _ := root.Entries.Get("Metadata").(pdf.PDFDict)
+	meta.Entries.Del("Filter")
+	meta.Entries.Del("DecodeParms")
+	meta.Entries.Del("DP")
 	if meta.Entries == nil {
 		meta = pdf.NewPDFDict()
-		meta.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
-		meta.Entries["Subtype"] = pdf.PDFName{Value: "XML"}
+		meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+		meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
 	}
 	meta.HasStream = true
 	meta.RawStream = []byte(xmp)
@@ -53,8 +53,8 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	// (6.7.2 forbids a Filter on the Metadata stream), whereas MarkStreamDirty
 	// tells the writer to Flate-encode and add /Filter /FlateDecode.
 
-	root.Entries["Metadata"] = meta
-	trailer.Entries["Root"] = root
+	root.Entries.Set("Metadata", meta)
+	trailer.Entries.Set("Root", root)
 	return nil
 }
 
@@ -71,22 +71,22 @@ func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 // stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
 // for the shared pre-emptive walk; nil when there is no catalog to protect.
 func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.PDFDict) {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok {
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 	return func(d pdf.PDFDict) {
-		meta, ok := d.Entries["Metadata"].(pdf.PDFDict)
+		meta, ok := d.Entries.Get("Metadata").(pdf.PDFDict)
 		if !ok {
 			return
 		}
 		// Keep the catalog's metadata; strip all others.
 		if pdf.ValuePointer(meta.Entries) != catalogMetaPtr {
-			delete(d.Entries, "Metadata")
+			d.Entries.Del("Metadata")
 		}
 	}
 }
@@ -101,64 +101,64 @@ func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.
 // non-"D:" date, since checkInfoXMPSync flags that independently of XMP
 // content).
 func normalizeInfoDict(trailer *pdf.PDFDict) {
-	info, ok := trailer.Entries["Info"].(pdf.PDFDict)
+	info, ok := trailer.Entries.Get("Info").(pdf.PDFDict)
 	if !ok {
 		return
 	}
 	for _, key := range []string{"Title", "Author", "Subject", "Keywords", "Creator", "Producer"} {
-		switch info.Entries[key].(type) {
+		switch info.Entries.Get(key).(type) {
 		case nil:
 		case pdf.PDFString, pdf.PDFHexString:
 			if infoString(info, key) == "" {
-				delete(info.Entries, key)
+				info.Entries.Del(key)
 			}
 		default:
-			delete(info.Entries, key)
+			info.Entries.Del(key)
 		}
 	}
 	// checkInfoXMPSync compares Author against the XMP dc:creator value with
 	// the latter trimmed but not the former (checks_xmp.go); trimming here,
 	// the single source both Metadata and the regenerated XMP read from,
 	// keeps the two sides in sync instead of requiring matching surgery there.
-	if s, ok := info.Entries["Author"].(pdf.PDFString); ok {
-		info.Entries["Author"] = pdf.PDFString{Value: strings.TrimSpace(s.Value)}
+	if s, ok := info.Entries.Get("Author").(pdf.PDFString); ok {
+		info.Entries.Set("Author", pdf.PDFString{Value: strings.TrimSpace(s.Value)})
 	}
-	if v, ok := info.Entries["Trapped"]; ok {
+	if v, ok := info.Entries.Lookup("Trapped"); ok {
 		if _, isName := v.(pdf.PDFName); !isName {
-			delete(info.Entries, "Trapped")
+			info.Entries.Del("Trapped")
 		}
 	}
 	for _, key := range []string{"CreationDate", "ModDate"} {
-		v, present := info.Entries[key]
+		v, present := info.Entries.Lookup(key)
 		if !present {
 			continue
 		}
 		s, ok := v.(pdf.PDFString)
 		if !ok {
-			delete(info.Entries, key)
+			info.Entries.Del(key)
 			continue
 		}
 		if normalized, ok := normalizePDFDate(s.Value); ok {
-			info.Entries[key] = pdf.PDFString{Value: normalized}
+			info.Entries.Set(key, pdf.PDFString{Value: normalized})
 		} else {
-			delete(info.Entries, key)
+			info.Entries.Del(key)
 		}
 	}
 	// The object model (DocInfo's wildcard row) types every custom Info key as
 	// a text string; a non-string custom value has no faithful coercion, so it
 	// is dropped (real-world producers park integers/names here, e.g. /SPDF).
-	for key, v := range info.Entries {
+	info.Entries.DeleteFunc(func(key string, v pdf.PDFValue) bool {
 		switch key {
 		case "_ref", "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
 			"Trapped", "CreationDate", "ModDate":
-			continue
+			return false
 		}
 		switch v.(type) {
 		case nil, pdf.PDFString, pdf.PDFHexString:
-		default:
-			delete(info.Entries, key)
+			return false
 		}
-	}
+		return true
+	})
 }
 
 // isoDateRe loosely matches an ISO-8601-ish date/time, every component but
@@ -204,7 +204,7 @@ func normalizePDFDate(s string) (string, bool) {
 // DecodeInfoTextString (literal escapes + PDFDocEncoding / UTF-16BE), so the
 // result matches what Metadata returns and checkInfoXMPSync compares against.
 func infoString(info pdf.PDFDict, key string) string {
-	s := pdf.DecodeInfoTextString(info.Entries[key])
+	s := pdf.DecodeInfoTextString(info.Entries.Get(key))
 	if trimmed := strings.TrimSpace(s); trimmed == "" || trimmed == "null" {
 		return ""
 	}

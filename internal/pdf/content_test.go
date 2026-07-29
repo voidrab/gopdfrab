@@ -61,7 +61,7 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 
 	flateDict := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "FlateDecode"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "FlateDecode"}}),
 		HasStream: true, RawStream: flate([]byte("flated")),
 	}
 	if got, err := DecodeStream(flateDict); err != nil || string(got) != "flated" {
@@ -69,7 +69,7 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 
 	hexDict := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "ASCIIHexDecode"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "ASCIIHexDecode"}}),
 		HasStream: true, RawStream: []byte("48656C6C6F>"),
 	}
 	if got, err := DecodeStream(hexDict); err != nil || string(got) != "Hello" {
@@ -83,9 +83,9 @@ func TestDecodeStreamFilters(t *testing.T) {
 	m := ascii85.Encode(enc, flated)
 	a85 := append(append([]byte{}, enc[:m]...), "~>"...)
 	cascade := PDFDict{
-		Entries: map[string]PDFValue{"Filter": PDFArray{
+		Entries: DictOf(map[string]PDFValue{"Filter": PDFArray{
 			PDFName{Value: "ASCII85Decode"}, PDFName{Value: "FlateDecode"},
-		}},
+		}}),
 		HasStream: true, RawStream: a85,
 	}
 	if got, err := DecodeStream(cascade); err != nil || !bytes.Equal(got, raw) {
@@ -93,7 +93,7 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 
 	bad := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "Frobnicate"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "Frobnicate"}}),
 		HasStream: true, RawStream: []byte("x"),
 	}
 	if _, err := DecodeStream(bad); !errors.Is(err, ErrUnsupportedFilter) {
@@ -111,7 +111,7 @@ func TestDecodeStreamFilters(t *testing.T) {
 func TestDecodeStreamNewFilters(t *testing.T) {
 	t.Run("RunLengthDecode", func(t *testing.T) {
 		dict := PDFDict{
-			Entries:   map[string]PDFValue{"Filter": PDFName{Value: "RunLengthDecode"}},
+			Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "RunLengthDecode"}}),
 			HasStream: true, RawStream: []byte{2, 'a', 'b', 'c', 255, 'z', 128},
 		}
 		if got, err := DecodeStream(dict); err != nil || string(got) != "abczz" {
@@ -124,9 +124,9 @@ func TestDecodeStreamNewFilters(t *testing.T) {
 		enc := make([]byte, ascii85.MaxEncodedLen(len(rle)))
 		m := ascii85.Encode(enc, rle)
 		dict := PDFDict{
-			Entries: map[string]PDFValue{"Filter": PDFArray{
+			Entries: DictOf(map[string]PDFValue{"Filter": PDFArray{
 				PDFName{Value: "ASCII85Decode"}, PDFName{Value: "RunLengthDecode"},
-			}},
+			}}),
 			HasStream: true, RawStream: append(append([]byte{}, enc[:m]...), "~>"...),
 		}
 		if got, err := DecodeStream(dict); err != nil || string(got) != "abc" {
@@ -148,13 +148,13 @@ func TestDecodeStreamNewFilters(t *testing.T) {
 		raw := packLZWCodesVarWidth(codes, widths)
 
 		mk := func(parms PDFValue) PDFDict {
-			e := map[string]PDFValue{"Filter": PDFName{Value: "LZWDecode"}}
+			e := DictOf(map[string]PDFValue{"Filter": PDFName{Value: "LZWDecode"}})
 			if parms != nil {
-				e["DecodeParms"] = parms
+				e.Set("DecodeParms", parms)
 			}
 			return PDFDict{Entries: e, HasStream: true, RawStream: raw}
 		}
-		zero, err := DecodeStream(mk(PDFDict{Entries: map[string]PDFValue{"EarlyChange": PDFInteger(0)}}))
+		zero, err := DecodeStream(mk(PDFDict{Entries: DictOf(map[string]PDFValue{"EarlyChange": PDFInteger(0)})}))
 		if err != nil {
 			t.Fatalf("EarlyChange 0: %v", err)
 		}
@@ -177,12 +177,12 @@ func TestDecodeStreamNewFilters(t *testing.T) {
 			predicted = append(predicted, plaintext[row:row+4]...)
 		}
 		dict := PDFDict{
-			Entries: map[string]PDFValue{
+			Entries: DictOf(map[string]PDFValue{
 				"Filter": PDFName{Value: "LZWDecode"},
-				"DecodeParms": PDFDict{Entries: map[string]PDFValue{
+				"DecodeParms": PDFDict{Entries: DictOf(map[string]PDFValue{
 					"Predictor": PDFInteger(12), "Columns": PDFInteger(4), "Colors": PDFInteger(1),
-				}},
-			},
+				})},
+			}),
 			HasStream: true, RawStream: lzwEncodeLiterals(predicted),
 		}
 		got, err := DecodeStream(dict)
@@ -272,7 +272,7 @@ func TestHasFilter(t *testing.T) {
 // be distinguishable from a damaged stream.
 func TestDecodeStreamImageFilters(t *testing.T) {
 	jpeg := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "DCTDecode"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "DCTDecode"}}),
 		HasStream: true, RawStream: []byte("jpegbytes"),
 	}
 
@@ -299,9 +299,9 @@ func TestDecodeStreamImageFilters(t *testing.T) {
 	enc := make([]byte, ascii85.MaxEncodedLen(len("jpegbytes")))
 	m := ascii85.Encode(enc, []byte("jpegbytes"))
 	wrapped := PDFDict{
-		Entries: map[string]PDFValue{"Filter": PDFArray{
+		Entries: DictOf(map[string]PDFValue{"Filter": PDFArray{
 			PDFName{Value: "ASCII85Decode"}, PDFName{Value: "DCTDecode"},
-		}},
+		}}),
 		HasStream: true, RawStream: append(append([]byte{}, enc[:m]...), "~>"...),
 	}
 	s, err = DecodeStreamFull(wrapped, DecodeOptions{})
@@ -314,9 +314,9 @@ func TestDecodeStreamImageFilters(t *testing.T) {
 
 	// An image codec consumes the stream, so nothing may follow it.
 	notLast := PDFDict{
-		Entries: map[string]PDFValue{"Filter": PDFArray{
+		Entries: DictOf(map[string]PDFValue{"Filter": PDFArray{
 			PDFName{Value: "DCTDecode"}, PDFName{Value: "FlateDecode"},
-		}},
+		}}),
 		HasStream: true, RawStream: []byte("x"),
 	}
 	if _, err := DecodeStreamFull(notLast, DecodeOptions{}); !errors.Is(err, ErrUnsupportedFilter) {
@@ -340,7 +340,7 @@ func TestContentScannerOperandTypes(t *testing.T) {
 		PDFName{Value: "Name"},
 		PDFBoolean(true),
 		PDFArray{PDFInteger(1), PDFInteger(2)},
-		PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
+		PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 	}
 	if !reflect.DeepEqual(ops[0].Operands, want) {
 		t.Errorf("operands = %#v, want %#v", ops[0].Operands, want)
@@ -424,24 +424,24 @@ func TestContentScannerInlineImageEdgeCases(t *testing.T) {
 // image stream takes Columns from /Width and BitsPerComponent from its own,
 // rather than the spec's 1 and 8.
 func TestImageDecodeOptions(t *testing.T) {
-	dict := PDFDict{Entries: map[string]PDFValue{
+	dict := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Width":            PDFInteger(64),
 		"BitsPerComponent": PDFInteger(4),
-	}}
+	})}
 	opts := ImageDecodeOptions(dict)
 	if opts.Columns != 64 || opts.BitsPerComponent != 4 || !opts.LenientPredictor {
 		t.Errorf("ImageDecodeOptions = %+v, want Columns 64, BPC 4, lenient", opts)
 	}
 
 	// Absent entries fall back to the spec defaults.
-	bare := ImageDecodeOptions(PDFDict{Entries: map[string]PDFValue{}})
+	bare := ImageDecodeOptions(PDFDict{Entries: DictOf(map[string]PDFValue{})})
 	if bare.Columns != 1 || bare.BitsPerComponent != 8 {
 		t.Errorf("bare ImageDecodeOptions = %+v, want Columns 1, BPC 8", bare)
 	}
 
 	// LenientPredictor accepts a predictor value the strict chain rejects.
 	if _, err := UndoStreamPredictor([]byte{0, 1, 2},
-		PDFDict{Entries: map[string]PDFValue{"Predictor": PDFInteger(5)}},
+		PDFDict{Entries: DictOf(map[string]PDFValue{"Predictor": PDFInteger(5)})},
 		DecodeOptions{Columns: 2, LenientPredictor: true}); err != nil {
 		t.Errorf("lenient predictor still errored: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestImageDecodeOptions(t *testing.T) {
 // decoder, which must read as unsupported rather than unknown.
 func TestDecodeStreamCryptFilter(t *testing.T) {
 	dict := PDFDict{
-		Entries:   map[string]PDFValue{"Filter": PDFName{Value: "Crypt"}},
+		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "Crypt"}}),
 		HasStream: true, RawStream: []byte("x"),
 	}
 	if _, err := DecodeStream(dict); !errors.Is(err, ErrUnsupportedFilter) {

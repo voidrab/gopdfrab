@@ -101,13 +101,13 @@ func parseShading(v pdf.PDFValue, resources pdf.PDFDict) (*shading, bool) {
 		kind:      pdf.DictInt(dict, "ShadingType", 0),
 		cs:        resolveShadingColorSpace(dict, resources),
 		resources: resources,
-		fn:        parseShadingFunc(dict.Entries["Function"]),
+		fn:        parseShadingFunc(dict.Entries.Get("Function")),
 		dict:      dict,
 	}
 	if sh.cs == nil {
 		return nil, false
 	}
-	if bbox, err := pdf.FloatArray(dict.Entries["BBox"]); err == nil && len(bbox) == 4 {
+	if bbox, err := pdf.FloatArray(dict.Entries.Get("BBox")); err == nil && len(bbox) == 4 {
 		sh.bbox, sh.hasBBox = [4]float64{bbox[0], bbox[1], bbox[2], bbox[3]}, true
 	}
 
@@ -125,7 +125,7 @@ func parseShading(v pdf.PDFValue, resources pdf.PDFDict) (*shading, bool) {
 // resolveShadingColorSpace reads /ColorSpace, resolving a bare name through
 // the resource dictionary the way image colour spaces are resolved.
 func resolveShadingColorSpace(dict pdf.PDFDict, resources pdf.PDFDict) pdf.PDFValue {
-	cs := dict.Entries["ColorSpace"]
+	cs := dict.Entries.Get("ColorSpace")
 	if name, ok := cs.(pdf.PDFName); ok {
 		if named, ok := pdf.LookupNamedColorSpace(name.Value, resources); ok {
 			return named
@@ -139,11 +139,11 @@ func (sh *shading) initFunctionBased(dict pdf.PDFDict) bool {
 		return false
 	}
 	sh.dom4 = [4]float64{0, 1, 0, 1}
-	if d, err := pdf.FloatArray(dict.Entries["Domain"]); err == nil && len(d) == 4 {
+	if d, err := pdf.FloatArray(dict.Entries.Get("Domain")); err == nil && len(d) == 4 {
 		sh.dom4 = [4]float64{d[0], d[1], d[2], d[3]}
 	}
 	m := IdentityMatrix
-	if a, err := pdf.FloatArray(dict.Entries["Matrix"]); err == nil && len(a) == 6 {
+	if a, err := pdf.FloatArray(dict.Entries.Get("Matrix")); err == nil && len(a) == 6 {
 		m = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	inv, ok := m.Invert()
@@ -159,7 +159,7 @@ func (sh *shading) initAxialRadial(dict pdf.PDFDict) bool {
 	if sh.kind == 3 {
 		want = 6
 	}
-	coords, err := pdf.FloatArray(dict.Entries["Coords"])
+	coords, err := pdf.FloatArray(dict.Entries.Get("Coords"))
 	if err != nil || len(coords) != want {
 		return false
 	}
@@ -169,10 +169,10 @@ func (sh *shading) initAxialRadial(dict pdf.PDFDict) bool {
 	sh.coords = coords
 
 	sh.domain = [2]float64{0, 1}
-	if d, err := pdf.FloatArray(dict.Entries["Domain"]); err == nil && len(d) == 2 {
+	if d, err := pdf.FloatArray(dict.Entries.Get("Domain")); err == nil && len(d) == 2 {
 		sh.domain = [2]float64{d[0], d[1]}
 	}
-	if e, ok := dict.Entries["Extend"].(pdf.PDFArray); ok && len(e) == 2 {
+	if e, ok := dict.Entries.Get("Extend").(pdf.PDFArray); ok && len(e) == 2 {
 		sh.extend[0] = e[0] == pdf.PDFBoolean(true)
 		sh.extend[1] = e[1] == pdf.PDFBoolean(true)
 	}
@@ -356,8 +356,8 @@ func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) 
 		r.drop(dropShading)
 		return nil, false
 	}
-	shadings, _ := resources.Entries["Shading"].(pdf.PDFDict)
-	sh, ok := parseShading(shadings.Entries[name.Value], resources)
+	shadings, _ := resources.Entries.Get("Shading").(pdf.PDFDict)
+	sh, ok := parseShading(shadings.Entries.Get(name.Value), resources)
 	if !ok {
 		r.drop(dropShading)
 		return nil, false

@@ -15,7 +15,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 			"'stream' keyword not followed by a single EOL marker")
 	}
 
-	lengthRef, ok := dict.Entries["Length"]
+	lengthRef, ok := dict.Entries.Lookup("Length")
 	if !ok {
 		return fmt.Errorf("stream missing Length")
 	}

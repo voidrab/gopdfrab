@@ -139,8 +139,8 @@ func TestInlineImageDecodeParms(t *testing.T) {
 	}
 
 	dp := pdf.PDFArray{
-		pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Ignored": pdf.PDFInteger(1)}},
-		pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(12)}},
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Ignored": pdf.PDFInteger(1)})},
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(12)})},
 	}
 	params := []pdf.PDFValue{pdf.PDFName{Value: "DecodeParms"}, dp}
 	got := inlineImageDecodeParms(params)
@@ -162,9 +162,9 @@ func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 
 	plaintext := []byte{10, 20, 30, 40}
 	predicted := append([]byte{0}, plaintext...) // one row, PNG filter type 0 (None)
-	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	parms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
-	}}
+	})}
 	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
 	got, err = pdf.UndoStreamPredictor(predicted, inlineImageDecodeParms(params), pdf.DecodeOptions{})
 	if err != nil {
@@ -178,7 +178,7 @@ func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 // TestInlineImagePredictorUnsupported covers the default (neither 1, 2, nor
 // >= 10) error branch.
 func TestInlineImagePredictorUnsupported(t *testing.T) {
-	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)}}
+	parms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})}
 	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
 	if _, err := pdf.UndoStreamPredictor([]byte{1, 2, 3, 4}, inlineImageDecodeParms(params), pdf.DecodeOptions{}); err == nil {
 		t.Error("UndoStreamPredictor with predictor=3 = nil error, want an error")

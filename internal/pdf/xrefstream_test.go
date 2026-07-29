@@ -277,7 +277,7 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	// The graph-resolved Page dict (from inside the ObjStm) must carry the
 	// synthetic _ref stamp like any classically-stored object, since
 	// buildPageIndex and every checker key off it.
-	if ref, ok := page.Entries["_ref"].(pdf.PDFRef); !ok || ref.ObjNum != 3 {
+	if ref, ok := page.Entries.Get("_ref").(pdf.PDFRef); !ok || ref.ObjNum != 3 {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
@@ -294,28 +294,28 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 // Page dict, failing the test on any structural mismatch.
 func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 	t.Helper()
-	root, ok := graph.(pdf.PDFDict).Entries["Root"].(pdf.PDFDict)
+	root, ok := graph.(pdf.PDFDict).Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(root.Entries["Type"], pdf.PDFName{Value: "Catalog"}) {
-		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries["Type"])
+	if !pdf.EqualPDFValue(root.Entries.Get("Type"), pdf.PDFName{Value: "Catalog"}) {
+		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries.Get("Type"))
 	}
 
-	pages, ok := root.Entries["Pages"].(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root/Pages did not resolve to a dict")
 	}
-	kids, ok := pages.Entries["Kids"].(pdf.PDFArray)
+	kids, ok := pages.Entries.Get("Kids").(pdf.PDFArray)
 	if !ok || len(kids) != 1 {
-		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries["Kids"])
+		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries.Get("Kids"))
 	}
 	page, ok := kids[0].(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Kids[0] did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(page.Entries["Type"], pdf.PDFName{Value: "Page"}) {
-		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries["Type"])
+	if !pdf.EqualPDFValue(page.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries.Get("Type"))
 	}
 	return page
 }
@@ -323,7 +323,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 // assertContentStream decodes page's /Contents stream and checks it matches want.
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
-	contents, ok := page.Entries["Contents"].(pdf.PDFDict)
+	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
 	if !ok || !contents.HasStream {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}

@@ -10,27 +10,27 @@ import (
 // axialPattern wraps a red-to-blue axial shading across x = 0..20 as a
 // PatternType 2 pattern.
 func axialPattern() pdf.PDFDict {
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"PatternType": pdf.PDFInteger(2),
-		"Shading": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Shading": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"ShadingType": pdf.PDFInteger(2),
 			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 			"Coords":      numArray(0, 0, 20, 0),
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 			"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
-		}},
-	}}
+		})},
+	})}
 }
 
 // renderPattern paints content over a 20x20 page with pattern as /P1.
 func renderPattern(t *testing.T, content string, pattern pdf.PDFValue) (*image.RGBA, []string) {
 	t.Helper()
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
-	}}
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Pattern": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"P1": pattern}},
-	}}
+	})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
+	})}
 	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
@@ -79,10 +79,10 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 	data = append(data, vertex(255, 255, 0, 0, 255)...)
 	data = append(data, vertex(0, 0, 0, 0, 255)...)
 	data = append(data, vertex(255, 0, 0, 0, 255)...)
-	pattern := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	pattern := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"PatternType": pdf.PDFInteger(2),
 		"Shading":     meshShading(5, data, map[string]pdf.PDFValue{"VerticesPerRow": pdf.PDFInteger(2)}),
-	}}
+	})}
 
 	img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", pattern)
 	if len(drops) != 0 {
@@ -97,14 +97,14 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 // reported rather than painting the flat black a Pattern cs leaves behind.
 func TestTilingPatternReportsDrop(t *testing.T) {
 	pattern := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"PatternType": pdf.PDFInteger(1),
 			"PaintType":   pdf.PDFInteger(1),
 			"TilingType":  pdf.PDFInteger(1),
 			"BBox":        numArray(0, 0, 4, 4),
 			"XStep":       pdf.PDFInteger(4),
 			"YStep":       pdf.PDFInteger(4),
-		},
+		}),
 		HasStream: true,
 		RawStream: []byte("1 0 0 rg 0 0 4 4 re f"),
 	}
@@ -124,16 +124,16 @@ func TestUnusablePatternReportsDrop(t *testing.T) {
 		pattern pdf.PDFValue
 	}{
 		{"no such pattern", nil},
-		{"shading pattern with an unusable shading", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		{"shading pattern with an unusable shading", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"PatternType": pdf.PDFInteger(2),
-			"Shading": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"Shading": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 				"ShadingType": pdf.PDFInteger(2),
 				"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
-			}},
-		}}},
-		{"unknown pattern type", pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			})},
+		})}},
+		{"unknown pattern type", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"PatternType": pdf.PDFInteger(7),
-		}}},
+		})}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

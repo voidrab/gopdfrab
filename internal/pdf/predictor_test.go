@@ -55,32 +55,32 @@ func TestUndoTIFFPredictor(t *testing.T) {
 // forms, including the lone-dict shorthand real writers emit.
 func TestFilterDecodeParms(t *testing.T) {
 	// A lone dict on a single-filter chain belongs to filter 0.
-	single := PDFDict{Entries: map[string]PDFValue{
+	single := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter":      PDFName{Value: "FlateDecode"},
-		"DecodeParms": PDFDict{Entries: map[string]PDFValue{"Predictor": PDFInteger(12)}},
-	}}
+		"DecodeParms": PDFDict{Entries: DictOf(map[string]PDFValue{"Predictor": PDFInteger(12)})},
+	})}
 	if got := DictInt(FilterDecodeParms(single, 0, 1), "Predictor", 1); got != 12 {
 		t.Errorf("single-dict Predictor = %d, want 12", got)
 	}
 
 	// An array is matched positionally; a null element means no parameters.
-	arr := PDFDict{Entries: map[string]PDFValue{
+	arr := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter":      PDFArray{PDFName{Value: "ASCII85Decode"}, PDFName{Value: "FlateDecode"}},
-		"DecodeParms": PDFArray{nil, PDFDict{Entries: map[string]PDFValue{"Columns": PDFInteger(5)}}},
-	}}
+		"DecodeParms": PDFArray{nil, PDFDict{Entries: DictOf(map[string]PDFValue{"Columns": PDFInteger(5)})}},
+	})}
 	if got := DictInt(FilterDecodeParms(arr, 1, 2), "Columns", 0); got != 5 {
 		t.Errorf("array filter 1 Columns = %d, want 5", got)
 	}
-	if got := FilterDecodeParms(arr, 0, 2); len(got.Entries) != 0 {
+	if got := FilterDecodeParms(arr, 0, 2); got.Entries.Len() != 0 {
 		t.Errorf("array filter 0 = %v, want empty dict", got)
 	}
 
 	// A lone dict on a multi-filter chain attaches to the sole predictor-taking
 	// filter, not to filter 0.
-	lone := PDFDict{Entries: map[string]PDFValue{
+	lone := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter":      PDFArray{PDFName{Value: "ASCII85Decode"}, PDFName{Value: "FlateDecode"}},
-		"DecodeParms": PDFDict{Entries: map[string]PDFValue{"Predictor": PDFInteger(12)}},
-	}}
+		"DecodeParms": PDFDict{Entries: DictOf(map[string]PDFValue{"Predictor": PDFInteger(12)})},
+	})}
 	if got := DictInt(FilterDecodeParms(lone, 1, 2), "Predictor", 1); got != 12 {
 		t.Errorf("lone-dict filter 1 Predictor = %d, want 12", got)
 	}
@@ -89,23 +89,23 @@ func TestFilterDecodeParms(t *testing.T) {
 	}
 
 	// With no predictor-taking filter, a lone dict falls back to filter 0.
-	noPred := PDFDict{Entries: map[string]PDFValue{
+	noPred := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter":      PDFArray{PDFName{Value: "ASCIIHexDecode"}, PDFName{Value: "ASCII85Decode"}},
-		"DecodeParms": PDFDict{Entries: map[string]PDFValue{"Columns": PDFInteger(7)}},
-	}}
+		"DecodeParms": PDFDict{Entries: DictOf(map[string]PDFValue{"Columns": PDFInteger(7)})},
+	})}
 	if got := DictInt(FilterDecodeParms(noPred, 0, 2), "Columns", 0); got != 7 {
 		t.Errorf("no-predictor lone dict filter 0 Columns = %d, want 7", got)
 	}
 
-	dp := PDFDict{Entries: map[string]PDFValue{
+	dp := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter": PDFName{Value: "FlateDecode"},
-		"DP":     PDFDict{Entries: map[string]PDFValue{"Colors": PDFInteger(3)}},
-	}}
+		"DP":     PDFDict{Entries: DictOf(map[string]PDFValue{"Colors": PDFInteger(3)})},
+	})}
 	if got := DictInt(FilterDecodeParms(dp, 0, 1), "Colors", 0); got != 3 {
 		t.Errorf("/DP Colors = %d, want 3", got)
 	}
 
-	if got := FilterDecodeParms(PDFDict{Entries: map[string]PDFValue{}}, 0, 1); len(got.Entries) != 0 {
+	if got := FilterDecodeParms(PDFDict{Entries: DictOf(map[string]PDFValue{})}, 0, 1); got.Entries.Len() != 0 {
 		t.Errorf("absent DecodeParms = %v, want empty dict", got)
 	}
 }
@@ -121,9 +121,9 @@ func TestDecodeStreamPredictorInChain(t *testing.T) {
 		return buf.Bytes()
 	}
 	streamDict := func(raw []byte, parms map[string]PDFValue) PDFDict {
-		e := map[string]PDFValue{"Filter": PDFName{Value: "FlateDecode"}}
+		e := DictOf(map[string]PDFValue{"Filter": PDFName{Value: "FlateDecode"}})
 		if parms != nil {
-			e["DecodeParms"] = PDFDict{Entries: parms}
+			e.Set("DecodeParms", PDFDict{Entries: DictOf(parms)})
 		}
 		return PDFDict{Entries: e, HasStream: true, RawStream: flate(raw)}
 	}

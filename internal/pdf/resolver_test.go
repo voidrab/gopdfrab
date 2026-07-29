@@ -15,7 +15,7 @@ func TestParseReferenceDanglingScan(t *testing.T) {
 			t.Fatalf("parseReference: %v", err)
 		}
 		dict, ok := v.(PDFDict)
-		if !ok || !EqualPDFValue(dict.Entries["Foo"], PDFInteger(1)) {
+		if !ok || !EqualPDFValue(dict.Entries.Get("Foo"), PDFInteger(1)) {
 			t.Errorf("parseReference result = %#v, want dict with Foo=1", v)
 		}
 	})
@@ -39,7 +39,7 @@ func TestParseClassicReferenceFileBacked(t *testing.T) {
 		t.Fatalf("parseClassicReference: %v", err)
 	}
 	dict, ok := v.(PDFDict)
-	if !ok || !EqualPDFValue(dict.Entries["Foo"], PDFInteger(1)) {
+	if !ok || !EqualPDFValue(dict.Entries.Get("Foo"), PDFInteger(1)) {
 		t.Errorf("parseClassicReference result = %#v, want dict with Foo=1", v)
 	}
 }
@@ -170,7 +170,7 @@ func TestParseClassicReferenceDictBranches(t *testing.T) {
 			t.Fatalf("ResolveReference: %v", err)
 		}
 		dict, ok := v.(PDFDict)
-		if !ok || !EqualPDFValue(dict.Entries["A"], PDFInteger(1)) {
+		if !ok || !EqualPDFValue(dict.Entries.Get("A"), PDFInteger(1)) {
 			t.Errorf("result = %#v, want dict with A=1", v)
 		}
 	})

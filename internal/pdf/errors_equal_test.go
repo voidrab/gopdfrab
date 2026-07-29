@@ -46,8 +46,8 @@ func TestEqualPDFValue(t *testing.T) {
 		{PDFRef{ObjNum: 1, GenNum: 2}, PDFRef{ObjNum: 1, GenNum: 2}},
 		{PDFArray{PDFInteger(1)}, PDFArray{PDFInteger(1)}},
 		{
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 		},
 		{nil, nil},
 	}
@@ -68,16 +68,16 @@ func TestEqualPDFValue(t *testing.T) {
 		{PDFArray{PDFInteger(1)}, PDFArray{PDFInteger(1), PDFInteger(2)}},
 		{PDFArray{PDFInteger(1)}, PDFArray{PDFInteger(2)}},
 		{
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(2)}},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(2)})},
 		},
 		{
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
-			PDFDict{Entries: map[string]PDFValue{"J": PDFInteger(1)}},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"J": PDFInteger(1)})},
 		},
 		{
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}, HasStream: true},
-			PDFDict{Entries: map[string]PDFValue{"K": PDFInteger(1)}},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)}), HasStream: true},
+			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 		},
 		{PDFInteger(1), PDFName{Value: "N"}}, // type mismatch
 		{PDFInteger(1), nil},                 // one nil

@@ -439,8 +439,11 @@ func parseDictionary(l *Lexer) (PDFDict, error) {
 		if err != nil {
 			return dict, err
 		}
-		dict.Entries[key] = elem
+		dict.Entries.Set(key, elem)
 	}
+	// Release the surplus append leaves: growth is 1,2,4,8, so a 3-entry dict
+	// would otherwise carry a 4-entry array.
+	dict.Entries.trim()
 	return dict, nil
 }
 

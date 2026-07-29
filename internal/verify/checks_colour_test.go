@@ -42,8 +42,8 @@ func TestDefaultColorSpaceDefined(t *testing.T) {
 		t.Error("should be false with no ColorSpace dict")
 	}
 	cs := pdf.NewPDFDict()
-	cs.Entries["DefaultRGB"] = pdf.NewPDFDict()
-	res.Entries["ColorSpace"] = cs
+	cs.Entries.Set("DefaultRGB", pdf.NewPDFDict())
+	res.Entries.Set("ColorSpace", cs)
 	if !DefaultColorSpaceDefined("rgb", res) {
 		t.Error("should be true when DefaultRGB is present")
 	}
@@ -73,8 +73,8 @@ func TestCheckDeviceColour(t *testing.T) {
 	// Overridden by a page-level Default* colour space -> no report.
 	res := pdf.NewPDFDict()
 	csDict := pdf.NewPDFDict()
-	csDict.Entries["DefaultRGB"] = pdf.NewPDFDict()
-	res.Entries["ColorSpace"] = csDict
+	csDict.Entries.Set("DefaultRGB", pdf.NewPDFDict())
+	res.Entries.Set("ColorSpace", csDict)
 	ctx3 := &ValidationContext{pageResources: res}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "DeviceRGB"}, ctx3, "image")
 	if hasCheck(ctx3, pdf.Checks.Colour.DeviceColourSpaceUsage) {
@@ -91,8 +91,8 @@ func TestCheckDeviceColour(t *testing.T) {
 
 func TestValidateColourSpaceUsage(t *testing.T) {
 	img := pdf.NewPDFDict()
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceCMYK"}
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceCMYK"})
 	ctx := &ValidationContext{}
 	validateColourSpaceUsage(img, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourSpaceUsage) {
@@ -100,8 +100,8 @@ func TestValidateColourSpaceUsage(t *testing.T) {
 	}
 
 	shading := pdf.NewPDFDict()
-	shading.Entries["ShadingType"] = pdf.PDFInteger(2)
-	shading.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceRGB"}
+	shading.Entries.Set("ShadingType", pdf.PDFInteger(2))
+	shading.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 	ctx2 := &ValidationContext{}
 	validateColourSpaceUsage(shading, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.DeviceColourSpaceUsage) {

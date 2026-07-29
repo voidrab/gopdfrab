@@ -12,32 +12,32 @@ import (
 func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDFDict {
 	charProcs := pdf.NewPDFDict()
 	if procName != "" {
-		charProcs.Entries[procName] = pdf.PDFDict{HasStream: true, RawStream: []byte(proc)}
+		charProcs.Entries.Set(procName, pdf.PDFDict{HasStream: true, RawStream: []byte(proc)})
 	}
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":       pdf.PDFName{Value: "Font"},
 		"Subtype":    pdf.PDFName{Value: "Type3"},
 		"FontMatrix": numArray(matrixScale, 0, 0, matrixScale, 0, 0),
 		"FontBBox":   numArray(0, 0, 1000, 1000),
 		"CharProcs":  charProcs,
-		"Encoding": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"Encoding": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Differences": pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "square"}},
-		}},
+		})},
 		"FirstChar": pdf.PDFInteger(65),
 		"LastChar":  pdf.PDFInteger(65),
 		"Widths":    numArray(width),
-	}}
+	})}
 }
 
 // renderType3 draws content over a 20x20 page with font as /F1.
 func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, []string) {
 	t.Helper()
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
-	}}
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Font": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"F1": font}},
-	}}
+	})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
+	})}
 	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
@@ -140,24 +140,24 @@ func TestRenderType3MissingCharProcDrops(t *testing.T) {
 // shading named Sh1, used to prove which resource dict a CharProc resolved
 // against: an unresolvable name would report a drop instead of painting.
 func redShadingResources() pdf.PDFDict {
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Shading": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Sh1": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Shading": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Sh1": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 				"ShadingType": pdf.PDFInteger(2),
 				"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 				"Coords":      numArray(0, 0, 1000, 0),
 				"Function":    expFunction([]float64{1, 0, 0}, []float64{1, 0, 0}),
 				"Extend":      pdf.PDFArray{pdf.PDFBoolean(true), pdf.PDFBoolean(true)},
-			}},
-		}},
-	}}
+			})},
+		})},
+	})}
 }
 
 // TestRenderType3GlyphUsesFontResources: a CharProc draws through the font's
 // own /Resources.
 func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
-	font.Entries["Resources"] = redShadingResources()
+	font.Entries.Set("Resources", redShadingResources())
 
 	img, drops := renderType3(t, "BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
 	if len(drops) != 0 {
@@ -173,12 +173,12 @@ func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 // 9.6.5), rather than finding nothing.
 func TestRenderType3GlyphFallsBackToPageResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true,
 			RawStream: []byte("BT /F1 20 Tf 2 2 Td (A) Tj ET")},
-	}}
+	})}
 	resources := redShadingResources()
-	resources.Entries["Font"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"F1": font}}
+	resources.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})})
 
 	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {

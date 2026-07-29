@@ -713,7 +713,7 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	// 6.7.2: the metadata stream shall not be filtered.
-	if meta.Entries["Filter"] != nil {
+	if meta.Entries.Get("Filter") != nil {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataFiltered, "Metadata stream shall not specify a Filter"))
 	}
 
@@ -743,12 +743,12 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 	if !ok {
 		return nil
 	}
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok && meta.HasStream {
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.HasStream {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 
@@ -763,7 +763,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				return
 			}
 			visited[ptr] = true
-			if val.HasStream && val.Entries["Type"] == (pdf.PDFName{Value: "Metadata"}) &&
+			if val.HasStream && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
 				ptr != catalogMetaPtr {
 				// A stream that will not decode is a structural defect, not a
 				// missing xpacket wrapper; the chokepoint reports it as
@@ -774,7 +774,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
 				}
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walk(child)
 			}
 		case pdf.PDFArray:

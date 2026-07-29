@@ -18,15 +18,15 @@ func buildType3FontInfo(font pdf.PDFDict) *fontInfo {
 	// A Type 3 /FontMatrix is required and arbitrary; 1/1000 only matches the
 	// common case of a font emulating the usual glyph space.
 	fi.fontMatrix = Matrix{A: 0.001, D: 0.001}
-	if m, err := pdf.FloatArray(font.Entries["FontMatrix"]); err == nil && len(m) == 6 {
+	if m, err := pdf.FloatArray(font.Entries.Get("FontMatrix")); err == nil && len(m) == 6 {
 		fi.fontMatrix = Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 	}
 
-	firstChar, ok := font.Entries["FirstChar"].(pdf.PDFInteger)
+	firstChar, ok := font.Entries.Get("FirstChar").(pdf.PDFInteger)
 	if !ok {
 		firstChar = 0
 	}
-	if widths, ok := font.Entries["Widths"].(pdf.PDFArray); ok {
+	if widths, ok := font.Entries.Get("Widths").(pdf.PDFArray); ok {
 		for i, w := range widths {
 			if v, ok := pdf.PDFNumberToFloat(w); ok {
 				fi.widths[int(firstChar)+i] = v
@@ -34,14 +34,14 @@ func buildType3FontInfo(font pdf.PDFDict) *fontInfo {
 		}
 	}
 
-	fi.t3Resources, _ = font.Entries["Resources"].(pdf.PDFDict)
-	procs, _ := font.Entries["CharProcs"].(pdf.PDFDict)
-	names := resolveSimpleEncoding(font.Entries["Encoding"])
+	fi.t3Resources, _ = font.Entries.Get("Resources").(pdf.PDFDict)
+	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
+	names := resolveSimpleEncoding(font.Entries.Get("Encoding"))
 	for code, name := range names {
 		if name == "" {
 			continue
 		}
-		if proc, ok := procs.Entries[name].(pdf.PDFDict); ok && proc.HasStream {
+		if proc, ok := procs.Entries.Get(name).(pdf.PDFDict); ok && proc.HasStream {
 			fi.charProcs[code] = proc
 		}
 	}

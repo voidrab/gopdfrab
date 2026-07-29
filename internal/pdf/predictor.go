@@ -17,9 +17,9 @@ import "fmt"
 // Reads dict.Entries directly with no reference resolution, so it stays safe
 // on the xref/objstm bootstrap path where the resolver is not yet live.
 func FilterDecodeParms(dict PDFDict, i, n int) PDFDict {
-	parms := dict.Entries["DecodeParms"]
+	parms := dict.Entries.Get("DecodeParms")
 	if parms == nil {
-		parms = dict.Entries["DP"]
+		parms = dict.Entries.Get("DP")
 	}
 	switch p := parms.(type) {
 	case PDFDict:
@@ -40,7 +40,7 @@ func FilterDecodeParms(dict PDFDict, i, n int) PDFDict {
 // n-filter chain: the sole predictor-taking filter if there is exactly one,
 // otherwise filter 0.
 func loneParmsFilter(dict PDFDict, n int) int {
-	names := FilterNames(dict.Entries["Filter"])
+	names := FilterNames(dict.Entries.Get("Filter"))
 	idx, count := 0, 0
 	for i, name := range names {
 		if info, ok := LookupFilter(name); ok && info.Predictor {
@@ -56,7 +56,7 @@ func loneParmsFilter(dict PDFDict, n int) int {
 // dictInt reads an integer-valued entry from dict, returning def if absent or
 // not an integer.
 func DictInt(dict PDFDict, key string, def int) int {
-	if v, ok := dict.Entries[key].(PDFInteger); ok {
+	if v, ok := dict.Entries.Get(key).(PDFInteger); ok {
 		return int(v)
 	}
 	return def

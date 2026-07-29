@@ -11,11 +11,11 @@ func buildObjStmDict() PDFDict {
 	return PDFDict{
 		HasStream: true,
 		RawStream: []byte(full),
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"Type":  PDFName{Value: "ObjStm"},
 			"N":     PDFInteger(2),
 			"First": PDFInteger(len(header) + 1),
-		},
+		}),
 	}
 }
 
@@ -55,7 +55,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("decode failure", func(t *testing.T) {
 		dict := PDFDict{
 			HasStream: true, RawStream: []byte("x"),
-			Entries: map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}},
+			Entries: DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
@@ -74,7 +74,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("malformed header", func(t *testing.T) {
 		dict := PDFDict{
 			HasStream: true, RawStream: []byte("X Y true"),
-			Entries: map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)},
+			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
@@ -85,7 +85,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("out-of-range offset", func(t *testing.T) {
 		dict := PDFDict{
 			HasStream: true, RawStream: []byte("1 1000 true"),
-			Entries: map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)},
+			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
@@ -98,7 +98,7 @@ func TestDecodeObjStm(t *testing.T) {
 		region := "[1 2" // unterminated array
 		dict := PDFDict{
 			HasStream: true, RawStream: []byte(header + " " + region),
-			Entries: map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)},
+			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
@@ -128,7 +128,7 @@ func TestDecodeObjStm(t *testing.T) {
 		region := "<< /K 1 >>"
 		dict := PDFDict{
 			HasStream: true, RawStream: []byte(header + " " + region),
-			Entries: map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)},
+			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{9: dict}}
 		entries, err := d.decodeObjStm(9)
@@ -136,7 +136,7 @@ func TestDecodeObjStm(t *testing.T) {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
 		got, ok := entries[0].value.(PDFDict)
-		if !ok || !EqualPDFValue(got.Entries["_ref"], PDFRef{ObjNum: 7}) {
+		if !ok || !EqualPDFValue(got.Entries.Get("_ref"), PDFRef{ObjNum: 7}) {
 			t.Errorf("nested dict = %#v, want _ref stamped to 7", entries[0].value)
 		}
 	})

@@ -40,7 +40,7 @@ func inlineImageDict(params []pdf.PDFValue, raw pdf.InlineImageRaw) (pdf.PDFDict
 		if long, ok := inlineImageKeys[key]; ok {
 			key = long
 		}
-		dict.Entries[key] = params[i+1]
+		dict.Entries.Set(key, params[i+1])
 	}
 	if pdf.DictInt(dict, "Width", 0) <= 0 || pdf.DictInt(dict, "Height", 0) <= 0 {
 		return pdf.PDFDict{}, false

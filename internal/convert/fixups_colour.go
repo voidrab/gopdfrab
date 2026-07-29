@@ -37,7 +37,7 @@ var colourModelN = map[string]int{"rgb": 3, "cmyk": 4}
 // injectOutputIntent ensures the document's catalog has a PDF/A OutputIntent
 // backed by an embedded ICC profile.
 func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
@@ -55,20 +55,19 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	}
 
 	profile := pdf.NewPDFDict()
-	profile.Entries["N"] = pdf.PDFInteger(wantN)
-	profile.Entries["Alternate"] = pdf.PDFName{Value: alternate}
+	profile.Entries.Set("N", pdf.PDFInteger(wantN))
+	profile.Entries.Set("Alternate", pdf.PDFName{Value: alternate})
 	profile.HasStream = true
 	profile.RawStream = iccBytes
 
 	intent := pdf.NewPDFDict()
-	intent.Entries["Type"] = pdf.PDFName{Value: "OutputIntent"}
-	intent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	intent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: identifier}
-	intent.Entries["Info"] = pdf.PDFString{Value: identifier + " ICC profile injected by gopdfrab"}
-	intent.Entries["DestOutputProfile"] = profile
-
-	root.Entries["OutputIntents"] = pdf.PDFArray{intent}
-	trailer.Entries["Root"] = root
+	intent.Entries.Set("Type", pdf.PDFName{Value: "OutputIntent"})
+	intent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	intent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: identifier})
+	intent.Entries.Set("Info", pdf.PDFString{Value: identifier + " ICC profile injected by gopdfrab"})
+	intent.Entries.Set("DestOutputProfile", profile)
+	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
+	trailer.Entries.Set("Root", root)
 	return nil
 }
 
@@ -77,7 +76,7 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 // for a /DefaultRGB or /DefaultCMYK resource entry.
 func iccBasedColourSpace(n int, profile []byte) pdf.PDFArray {
 	stream := pdf.NewPDFDict()
-	stream.Entries["N"] = pdf.PDFInteger(n)
+	stream.Entries.Set("N", pdf.PDFInteger(n))
 	stream.HasStream = true
 	stream.RawStream = profile
 	return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
@@ -97,7 +96,7 @@ func dominantColourModel(usage map[string]int) string {
 }
 
 func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
-	if res, ok := dict.Entries["Resources"].(pdf.PDFDict); ok {
+	if res, ok := dict.Entries.Get("Resources").(pdf.PDFDict); ok {
 		return res
 	}
 	return fallback
@@ -144,11 +143,11 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 
 	var jobs []scanJob
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if model := verify.DeviceColourModel(d.Entries["ColorSpace"]); model != "" {
+		if model := verify.DeviceColourModel(d.Entries.Get("ColorSpace")); model != "" {
 			counts[model]++
 		}
 
-		for _, v := range d.Entries {
+		for _, v := range d.Entries.All() {
 			arr, ok := v.(pdf.PDFArray)
 			if !ok || len(arr) < 3 {
 				continue
@@ -162,10 +161,10 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 			}
 		}
 
-		resources, _ := d.Entries["Resources"].(pdf.PDFDict)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
 
-		if pdf.EqualPDFValue(d.Entries["Type"], pdf.PDFName{Value: "Page"}) {
-			switch contents := d.Entries["Contents"].(type) {
+		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
 					jobs = append(jobs, scanJob{contents, resources})
@@ -179,10 +178,10 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 			}
 			return
 		}
-		if pdf.EqualPDFValue(d.Entries["Type"], pdf.PDFName{Value: "Font"}) &&
-			pdf.EqualPDFValue(d.Entries["Subtype"], pdf.PDFName{Value: "Type3"}) {
-			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
-				for _, proc := range procs.Entries {
+		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Font"}) &&
+			pdf.EqualPDFValue(d.Entries.Get("Subtype"), pdf.PDFName{Value: "Type3"}) {
+			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
+				for _, proc := range procs.Entries.All() {
 					if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
 						jobs = append(jobs, scanJob{pd, resources})
 					}
@@ -231,7 +230,7 @@ type scanJob struct {
 // validPDFAOutputIntentN returns the /N value of the first OutputIntent that meets all PDF/A-1 and ICC profile checks.
 // If multiple intents exist, they must use the same profile object, or the entire array is treated as invalid.
 func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
-	intents, ok := root.Entries["OutputIntents"].(pdf.PDFArray)
+	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {
 		return 0, false
 	}
@@ -242,7 +241,7 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 		if !ok {
 			continue
 		}
-		profile := intent.Entries["DestOutputProfile"]
+		profile := intent.Entries.Get("DestOutputProfile")
 		if profile == nil {
 			continue
 		}
@@ -258,17 +257,17 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 		if !ok {
 			continue
 		}
-		if !pdf.EqualPDFValue(intent.Entries["S"], pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if !pdf.EqualPDFValue(intent.Entries.Get("S"), pdf.PDFName{Value: "GTS_PDFA1"}) {
 			continue
 		}
-		if intent.Entries["OutputConditionIdentifier"] == nil {
+		if intent.Entries.Get("OutputConditionIdentifier") == nil {
 			continue
 		}
-		profile, ok := intent.Entries["DestOutputProfile"].(pdf.PDFDict)
+		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
 		if !ok || !profile.HasStream {
 			continue
 		}
-		nVal, ok := profile.Entries["N"].(pdf.PDFInteger)
+		nVal, ok := profile.Entries.Get("N").(pdf.PDFInteger)
 		if !ok {
 			continue
 		}

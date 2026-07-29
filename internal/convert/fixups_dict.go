@@ -49,7 +49,7 @@ func walkDicts(v pdf.PDFValue, visited map[uintptr]bool, fn func(pdf.PDFDict)) {
 		}
 		visited[ptr] = true
 		fn(val)
-		for k, child := range val.Entries {
+		for k, child := range val.Entries.All() {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
@@ -72,22 +72,18 @@ func walkDicts(v pdf.PDFValue, visited map[uintptr]bool, fn func(pdf.PDFDict)) {
 // remains a validly-targetable indirect object, just inert), used to
 // neutralize a forbidden action dictionary in place.
 func clearDict(d pdf.PDFDict) {
-	for k := range d.Entries {
-		if k != "_ref" {
-			delete(d.Entries, k)
-		}
-	}
+	d.Entries.DeleteFunc(func(k string, _ pdf.PDFValue) bool { return k != "_ref" })
 }
 
 // clearJSNameTree recursively clears JS action dicts within a /Names/JavaScript
 // name tree. walkDicts won't reach the subtree once the parent key is deleted.
 func clearJSNameTree(d pdf.PDFDict, changed *bool) {
-	if s, ok := d.Entries["S"].(pdf.PDFName); ok && verify.ForbiddenActions[s.Value] {
+	if s, ok := d.Entries.Get("S").(pdf.PDFName); ok && verify.ForbiddenActions[s.Value] {
 		clearDict(d)
 		*changed = true
 		return
 	}
-	for _, v := range d.Entries {
+	for _, v := range d.Entries.All() {
 		switch val := v.(type) {
 		case pdf.PDFDict:
 			clearJSNameTree(val, changed)
@@ -122,20 +118,20 @@ func (f actionFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 
 func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries["AA"]; ok {
-			delete(d.Entries, "AA")
+		if _, ok := d.Entries.Lookup("AA"); ok {
+			d.Entries.Del("AA")
 			*changed = true
 		}
 
 		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
 		// action dicts first -- walkDicts won't reach them after the key is gone.
-		if jsTree, ok := d.Entries["JavaScript"].(pdf.PDFDict); ok {
+		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok {
 			clearJSNameTree(jsTree, changed)
-			delete(d.Entries, "JavaScript")
+			d.Entries.Del("JavaScript")
 			*changed = true
 		}
 
-		s, ok := d.Entries["S"].(pdf.PDFName)
+		s, ok := d.Entries.Get("S").(pdf.PDFName)
 		if !ok || !verify.ActionTypes[s.Value] {
 			return
 		}
@@ -145,7 +141,7 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 			return
 		}
 		if s.Value == "Named" {
-			n, ok := d.Entries["N"].(pdf.PDFName)
+			n, ok := d.Entries.Get("N").(pdf.PDFName)
 			if !ok || !verify.AllowedNamedActions[n.Value] {
 				clearDict(d)
 				*changed = true
@@ -183,46 +179,46 @@ func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error
 
 func (extGStateFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if t, ok := d.Entries["Type"].(pdf.PDFName); ok && t.Value != "ExtGState" {
+		if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 			return
 		}
 		if !verify.HasAnyKey(d, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI") {
 			return
 		}
 
-		if _, ok := d.Entries["TR"]; ok {
-			delete(d.Entries, "TR")
+		if _, ok := d.Entries.Lookup("TR"); ok {
+			d.Entries.Del("TR")
 			*changed = true
 		}
-		if tr2, ok := d.Entries["TR2"]; ok {
+		if tr2, ok := d.Entries.Lookup("TR2"); ok {
 			if name, isName := tr2.(pdf.PDFName); !isName || name.Value != "Default" {
-				d.Entries["TR2"] = pdf.PDFName{Value: "Default"}
+				d.Entries.Set("TR2", pdf.PDFName{Value: "Default"})
 				*changed = true
 			}
 		}
-		if ri, ok := d.Entries["RI"].(pdf.PDFName); ok && !verify.AllowedIntents[ri.Value] {
-			delete(d.Entries, "RI")
+		if ri, ok := d.Entries.Get("RI").(pdf.PDFName); ok && !verify.AllowedIntents[ri.Value] {
+			d.Entries.Del("RI")
 			*changed = true
 		}
-		if sm, ok := d.Entries["SMask"]; ok {
+		if sm, ok := d.Entries.Lookup("SMask"); ok {
 			if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
-				d.Entries["SMask"] = pdf.PDFName{Value: "None"}
+				d.Entries.Set("SMask", pdf.PDFName{Value: "None"})
 				*changed = true
 			}
 		}
-		if bm, ok := d.Entries["BM"]; ok && !verify.IsAllowedBlendMode(bm) {
-			d.Entries["BM"] = pdf.PDFName{Value: "Normal"}
+		if bm, ok := d.Entries.Lookup("BM"); ok && !verify.IsAllowedBlendMode(bm) {
+			d.Entries.Set("BM", pdf.PDFName{Value: "Normal"})
 			*changed = true
 		}
-		if ca, ok := d.Entries["CA"]; ok {
+		if ca, ok := d.Entries.Lookup("CA"); ok {
 			if f, num := verify.AsFloat(ca); num && verify.Abs64(f-1.0) > 1e-5 {
-				d.Entries["CA"] = pdf.PDFReal(1.0)
+				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
 			}
 		}
-		if ca, ok := d.Entries["ca"]; ok {
+		if ca, ok := d.Entries.Lookup("ca"); ok {
 			if f, num := verify.AsFloat(ca); num && verify.Abs64(f-1.0) > 1e-5 {
-				d.Entries["ca"] = pdf.PDFReal(1.0)
+				d.Entries.Set("ca", pdf.PDFReal(1.0))
 				*changed = true
 			}
 		}
@@ -254,24 +250,24 @@ func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 
 func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 			return
 		}
 
 		flags := 0
-		if f, ok := d.Entries["F"].(pdf.PDFInteger); ok {
+		if f, ok := d.Entries.Get("F").(pdf.PDFInteger); ok {
 			flags = int(f)
 		}
 		want := flags | verify.AnnotFlagPrint
 		want &^= verify.AnnotFlagHidden | verify.AnnotFlagInvisible | verify.AnnotFlagNoView
 		if want != flags {
-			d.Entries["F"] = pdf.PDFInteger(want)
+			d.Entries.Set("F", pdf.PDFInteger(want))
 			*changed = true
 		}
 
-		if ca, ok := d.Entries["CA"]; ok {
+		if ca, ok := d.Entries.Lookup("CA"); ok {
 			if f, num := verify.AsFloat(ca); num && f != 1.0 {
-				d.Entries["CA"] = pdf.PDFReal(1.0)
+				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
 			}
 		}
@@ -299,32 +295,32 @@ func (f formFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 }
 
 func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-	if root, ok := trailer.Entries["Root"].(pdf.PDFDict); ok {
-		if form, ok := root.Entries["AcroForm"].(pdf.PDFDict); ok {
-			if na, ok := form.Entries["NeedAppearances"].(pdf.PDFBoolean); ok && bool(na) {
-				form.Entries["NeedAppearances"] = pdf.PDFBoolean(false)
+	if root, ok := trailer.Entries.Get("Root").(pdf.PDFDict); ok {
+		if form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict); ok {
+			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
+				form.Entries.Set("NeedAppearances", pdf.PDFBoolean(false))
 				*changed = true
 			}
-			if _, ok := form.Entries["XFA"]; ok {
-				delete(form.Entries, "XFA")
+			if _, ok := form.Entries.Lookup("XFA"); ok {
+				form.Entries.Del("XFA")
 				*changed = true
 			}
 		}
 	}
 
 	return func(d pdf.PDFDict) {
-		isWidget := d.Entries["Type"] == pdf.PDFName{Value: "Annot"} &&
-			d.Entries["Subtype"] == pdf.PDFName{Value: "Widget"}
-		isField := d.Entries["FT"] != nil
+		isWidget := d.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
+			d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
+		isField := d.Entries.Get("FT") != nil
 		if !isWidget && !isField {
 			return
 		}
-		if _, ok := d.Entries["A"]; ok {
-			delete(d.Entries, "A")
+		if _, ok := d.Entries.Lookup("A"); ok {
+			d.Entries.Del("A")
 			*changed = true
 		}
-		if _, ok := d.Entries["AA"]; ok {
-			delete(d.Entries, "AA")
+		if _, ok := d.Entries.Lookup("AA"); ok {
+			d.Entries.Del("AA")
 			*changed = true
 		}
 	}, true
@@ -355,35 +351,35 @@ func (imageMetadataFixer) Applies(c pdf.Check) bool {
 func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		subtype, ok := d.Entries["Subtype"].(pdf.PDFName)
+		subtype, ok := d.Entries.Get("Subtype").(pdf.PDFName)
 		if !ok {
 			return
 		}
 		switch subtype.Value {
 		case "Image":
-			if b, ok := d.Entries["Interpolate"].(pdf.PDFBoolean); ok && bool(b) {
-				d.Entries["Interpolate"] = pdf.PDFBoolean(false)
+			if b, ok := d.Entries.Get("Interpolate").(pdf.PDFBoolean); ok && bool(b) {
+				d.Entries.Set("Interpolate", pdf.PDFBoolean(false))
 				changed = true
 			}
-			if _, ok := d.Entries["Alternates"]; ok {
-				delete(d.Entries, "Alternates")
+			if _, ok := d.Entries.Lookup("Alternates"); ok {
+				d.Entries.Del("Alternates")
 				changed = true
 			}
-			if _, ok := d.Entries["OPI"]; ok {
-				delete(d.Entries, "OPI")
+			if _, ok := d.Entries.Lookup("OPI"); ok {
+				d.Entries.Del("OPI")
 				changed = true
 			}
-			if intent, ok := d.Entries["Intent"].(pdf.PDFName); ok && !verify.AllowedIntents[intent.Value] {
-				delete(d.Entries, "Intent")
+			if intent, ok := d.Entries.Get("Intent").(pdf.PDFName); ok && !verify.AllowedIntents[intent.Value] {
+				d.Entries.Del("Intent")
 				changed = true
 			}
 		case "Form":
-			if _, ok := d.Entries["Ref"]; ok {
-				delete(d.Entries, "Ref")
+			if _, ok := d.Entries.Lookup("Ref"); ok {
+				d.Entries.Del("Ref")
 				changed = true
 			}
-			if _, ok := d.Entries["OPI"]; ok {
-				delete(d.Entries, "OPI")
+			if _, ok := d.Entries.Lookup("OPI"); ok {
+				d.Entries.Del("OPI")
 				changed = true
 			}
 		}
@@ -414,15 +410,15 @@ func (postScriptXObjectFixer) Applies(c pdf.Check) bool {
 func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		switch d.Entries["Subtype"] {
+		switch d.Entries.Get("Subtype") {
 		case pdf.PDFName{Value: "Form"}:
 			hit := false
-			if _, ok := d.Entries["PS"]; ok {
-				delete(d.Entries, "PS")
+			if _, ok := d.Entries.Lookup("PS"); ok {
+				d.Entries.Del("PS")
 				hit = true
 			}
-			if (d.Entries["Subtype2"] == pdf.PDFName{Value: "PS"}) {
-				delete(d.Entries, "Subtype2")
+			if (d.Entries.Get("Subtype2") == pdf.PDFName{Value: "PS"}) {
+				d.Entries.Del("Subtype2")
 				hit = true
 			}
 			if hit {
@@ -434,16 +430,16 @@ func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 			// object with an empty Form XObject rather than trying to preserve
 			// its (encoded) PostScript body. Writing empty uncompressed content
 			// keeps stream framing and /Filter consistent.
-			d.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-			d.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
-			d.Entries["FormType"] = pdf.PDFInteger(1)
-			if _, ok := d.Entries["BBox"].(pdf.PDFArray); !ok {
-				d.Entries["BBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)}
+			d.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+			d.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+			d.Entries.Set("FormType", pdf.PDFInteger(1))
+			if _, ok := d.Entries.Get("BBox").(pdf.PDFArray); !ok {
+				d.Entries.Set("BBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)})
 			}
-			delete(d.Entries, "Filter")
-			delete(d.Entries, "DecodeParms")
-			delete(d.Entries, "DP")
-			delete(d.Entries, "Level1")
+			d.Entries.Del("Filter")
+			d.Entries.Del("DecodeParms")
+			d.Entries.Del("DP")
+			d.Entries.Del("Level1")
 			d.HasStream = true
 			d.RawStream = []byte("\n")
 			changed = true
@@ -470,14 +466,14 @@ func (optionalContentFixer) Applies(c pdf.Check) bool {
 }
 
 func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false, nil
 	}
-	if _, ok := root.Entries["OCProperties"]; !ok {
+	if _, ok := root.Entries.Lookup("OCProperties"); !ok {
 		return false, nil
 	}
-	delete(root.Entries, "OCProperties")
+	root.Entries.Del("OCProperties")
 	return true, nil
 }
 
@@ -492,18 +488,18 @@ func (viewerPrefFixer) Applies(c pdf.Check) bool {
 }
 
 func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false, nil
 	}
-	vp, ok := root.Entries["ViewerPreferences"].(pdf.PDFDict)
+	vp, ok := root.Entries.Get("ViewerPreferences").(pdf.PDFDict)
 	if !ok {
 		return false, nil
 	}
 	changed := false
 	for _, k := range verify.Post14ViewerPrefKeys {
-		if vp.Entries[k] != nil {
-			delete(vp.Entries, k)
+		if vp.Entries.Get(k) != nil {
+			vp.Entries.Del(k)
 			changed = true
 		}
 	}

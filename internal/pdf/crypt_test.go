@@ -50,9 +50,9 @@ func markerAndTitle(t *testing.T, r *Reader) (bool, string) {
 		}
 	}
 	var title string
-	if info, err := r.ResolveObject(r.EffectiveTrailer().Entries["Info"]); err == nil {
+	if info, err := r.ResolveObject(r.EffectiveTrailer().Entries.Get("Info")); err == nil {
 		if d, ok := info.(PDFDict); ok {
-			if s, ok := d.Entries["Title"].(PDFString); ok {
+			if s, ok := d.Entries.Get("Title").(PDFString); ok {
 				title = s.Value
 			}
 		}
@@ -190,12 +190,12 @@ func TestUnencryptedFileHasNoHandler(t *testing.T) {
 }
 
 func TestCryptFilterMethod(t *testing.T) {
-	cf := PDFDict{Entries: map[string]PDFValue{
-		"StdCF":  PDFDict{Entries: map[string]PDFValue{"CFM": PDFName{Value: "AESV2"}}},
-		"AesCF":  PDFDict{Entries: map[string]PDFValue{"CFM": PDFName{Value: "AESV3"}}},
-		"RC4CF":  PDFDict{Entries: map[string]PDFValue{"CFM": PDFName{Value: "V2"}}},
-		"NoneCF": PDFDict{Entries: map[string]PDFValue{"CFM": PDFName{Value: "None"}}},
-	}}
+	cf := PDFDict{Entries: DictOf(map[string]PDFValue{
+		"StdCF":  PDFDict{Entries: DictOf(map[string]PDFValue{"CFM": PDFName{Value: "AESV2"}})},
+		"AesCF":  PDFDict{Entries: DictOf(map[string]PDFValue{"CFM": PDFName{Value: "AESV3"}})},
+		"RC4CF":  PDFDict{Entries: DictOf(map[string]PDFValue{"CFM": PDFName{Value: "V2"}})},
+		"NoneCF": PDFDict{Entries: DictOf(map[string]PDFValue{"CFM": PDFName{Value: "None"}})},
+	})}
 	cases := []struct {
 		name string
 		want cryptMethod
@@ -254,12 +254,12 @@ func TestAESBadCiphertextLength(t *testing.T) {
 }
 
 func TestInvalidKeyLengthRejected(t *testing.T) {
-	enc := PDFDict{Entries: map[string]PDFValue{
+	enc := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Filter": PDFName{Value: "Standard"},
 		"V":      PDFInteger(2),
 		"R":      PDFInteger(3),
 		"Length": PDFInteger(8), // 1 byte -- too short
-	}}
+	})}
 	if _, err := newStdSecurityHandler(enc, nil, 1, nil); !errors.Is(err, ErrEncrypted) {
 		t.Fatalf("err=%v, want ErrEncrypted", err)
 	}
@@ -273,10 +273,10 @@ func TestObjectKeyR6IsFileKey(t *testing.T) {
 }
 
 func TestIsXRefStream(t *testing.T) {
-	if !isXRefStream(PDFDict{Entries: map[string]PDFValue{"Type": PDFName{Value: "XRef"}}}) {
+	if !isXRefStream(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "XRef"}})}) {
 		t.Error("XRef stream not recognised")
 	}
-	if isXRefStream(PDFDict{Entries: map[string]PDFValue{"Type": PDFName{Value: "ObjStm"}}}) {
+	if isXRefStream(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "ObjStm"}})}) {
 		t.Error("ObjStm wrongly recognised as XRef")
 	}
 }
@@ -315,7 +315,7 @@ func TestDecryptPdfgenSeed(t *testing.T) {
 }
 
 func TestUnsupportedSecurityHandler(t *testing.T) {
-	enc := PDFDict{Entries: map[string]PDFValue{"Filter": PDFName{Value: "Custom"}}}
+	enc := PDFDict{Entries: DictOf(map[string]PDFValue{"Filter": PDFName{Value: "Custom"}})}
 	_, err := newStdSecurityHandler(enc, nil, 1, nil)
 	if !errors.Is(err, ErrEncrypted) {
 		t.Fatalf("err=%v, want ErrEncrypted", err)
@@ -431,11 +431,11 @@ func TestStringBytesForms(t *testing.T) {
 		t.Errorf("non-string = % x, want nil", got)
 	}
 
-	dict := PDFDict{Entries: map[string]PDFValue{
+	dict := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"O":    PDFString{Value: string(want)},
 		"CFM":  PDFName{Value: "AESV2"},
 		"Flag": PDFBoolean(false),
-	}}
+	})}
 	if got := dictBytes(dict, "O"); !bytes.Equal(got, want) {
 		t.Errorf("dictBytes(O) = % x, want % x", got, want)
 	}

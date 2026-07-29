@@ -650,15 +650,10 @@ func internName(b []byte) string {
 	return internBytes(internedNames, b)
 }
 
-// internedNameValues holds the same names as internedNames, pre-boxed into a
-// PDFValue. internedNames canonicalizes the *string*, which stops readName
-// allocating; boxing a PDFName into an interface allocates again, because the
-// struct is two words and does not ride in the interface directly. A document
-// with 40,000 objects boxes /Type, /Subtype and /Filter tens of thousands of
-// times, so the shared boxes are worth one map lookup.
-//
-// Sound only because PDFName is an immutable value type and nothing in the
-// package mutates through a PDFValue -- see the PDFValue doc comment.
+// internedNameValues pre-boxes internedNames into PDFValues. Interning the
+// string stops readName allocating; boxing the PDFName allocates again, and a
+// 40,000-object document boxes /Type and /Subtype tens of thousands of times.
+// Sound because PDFName is an immutable value type.
 var internedNameValues = func() map[string]PDFValue {
 	m := make(map[string]PDFValue, len(internedNames))
 	for n := range internedNames {
@@ -667,7 +662,7 @@ var internedNameValues = func() map[string]PDFValue {
 	return m
 }()
 
-// boxName returns a shared boxed PDFName for a common name, else a fresh one.
+// boxName returns a shared box for a common name, else a fresh one.
 func boxName(s string) PDFValue {
 	if v, ok := internedNameValues[s]; ok {
 		return v

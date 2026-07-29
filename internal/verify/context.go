@@ -259,7 +259,7 @@ func (ctx *ValidationContext) ReportObjModelElem(c pdf.Check, obj pdf.PDFValue, 
 func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
 	var ref *pdf.PDFRef
 	if dict, ok := obj.(pdf.PDFDict); ok {
-		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
+		if r, ok := dict.Entries.Get("_ref").(pdf.PDFRef); ok {
 			ref = &r
 		}
 	}

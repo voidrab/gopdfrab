@@ -495,11 +495,11 @@ func tallyWidthSkips(path string, tally map[string]int) {
 	}
 
 	forEachDict(graph, func(v pdf.PDFDict) {
-		if v.Entries["Type"] != (pdf.PDFName{Value: "Font"}) {
+		if v.Entries.Get("Type") != (pdf.PDFName{Value: "Font"}) {
 			return
 		}
-		subtype, _ := v.Entries["Subtype"].(pdf.PDFName)
-		desc, _ := v.Entries["FontDescriptor"].(pdf.PDFDict)
+		subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
+		desc, _ := v.Entries.Get("FontDescriptor").(pdf.PDFDict)
 		if desc.Entries == nil {
 			return
 		}
@@ -514,14 +514,14 @@ func tallyWidthSkips(path string, tally map[string]int) {
 
 		switch subtype.Value {
 		case "Type1", "MMType1":
-			if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+			if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 				data, err := pdf.DecodeStream(ff)
 				if err != nil {
 					return
 				}
-				_, stats := Type1WidthTable(data, v.Entries["Encoding"], Type1GlyphWidths(data))
+				_, stats := Type1WidthTable(data, v.Entries.Get("Encoding"), Type1GlyphWidths(data))
 				record("type1", stats)
-			} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+			} else if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 				data, err := pdf.DecodeStream(ff)
 				if err != nil {
 					return
@@ -530,7 +530,7 @@ func tallyWidthSkips(path string, tally map[string]int) {
 				record("type1c", stats)
 			}
 		case "CIDFontType0":
-			if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+			if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 				data, err := pdf.DecodeStream(ff)
 				if err != nil {
 					return
@@ -559,7 +559,7 @@ func forEachDict(v pdf.PDFValue, fn func(pdf.PDFDict)) {
 			}
 			visited[ptr] = true
 			fn(t)
-			for _, e := range t.Entries {
+			for _, e := range t.Entries.All() {
 				walk(e, depth+1)
 			}
 		case pdf.PDFArray:

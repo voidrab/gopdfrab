@@ -648,7 +648,7 @@ func (d *Reader) initializeStructure() error {
 
 	// Linearized PDFs may have a main trailer lacking /Root; locate the
 	// first-page trailer instead so /Root and /ID can be found.
-	if d.trailer.Entries["Root"] == nil {
+	if d.trailer.Entries.Get("Root") == nil {
 		d.findAndLoadFirstPageTrailer()
 	}
 
@@ -660,7 +660,7 @@ func (d *Reader) initializeStructure() error {
 func (d *Reader) followXRefPrevChain() {
 	d.mergeHybridXRefStream(d.trailer)
 	visited := map[int64]bool{d.xrefOffset: true}
-	prev := d.trailer.Entries["Prev"]
+	prev := d.trailer.Entries.Get("Prev")
 	for {
 		prevInt, ok := prev.(PDFInteger)
 		if !ok {
@@ -687,7 +687,7 @@ func (d *Reader) followXRefPrevChain() {
 			}
 		}
 		d.mergeHybridXRefStream(prevTrailer)
-		prev = prevTrailer.Entries["Prev"]
+		prev = prevTrailer.Entries.Get("Prev")
 	}
 }
 
@@ -695,7 +695,7 @@ func (d *Reader) followXRefPrevChain() {
 // points to via /XRefStm (hybrid-reference files, ISO 32000-1 7.5.8.4). Such a
 // trailer's newest objects live only in that stream; existing entries win.
 func (d *Reader) mergeHybridXRefStream(trailer PDFDict) {
-	stm, ok := trailer.Entries["XRefStm"].(PDFInteger)
+	stm, ok := trailer.Entries.Get("XRefStm").(PDFInteger)
 	if !ok {
 		return
 	}
@@ -759,7 +759,7 @@ func (d *Reader) recoverTrailerFromXRefStream() (PDFDict, error) {
 		}
 		// Later occurrence (higher offset) wins, matching /Prev-chain order and
 		// keeping recovery deterministic across map-iteration order.
-		if dict.Entries["Type"] == (PDFName{Value: "XRef"}) && off > bestOff {
+		if dict.Entries.Get("Type") == (PDFName{Value: "XRef"}) && off > bestOff {
 			best, bestOff, found = dict, off, true
 		}
 	}
@@ -789,7 +789,7 @@ func (d *Reader) recoverTrailer() (PDFDict, error) {
 		if !ok {
 			continue
 		}
-		if dict.Entries["Type"] == (PDFName{Value: "Catalog"}) && off > catalogOff {
+		if dict.Entries.Get("Type") == (PDFName{Value: "Catalog"}) && off > catalogOff {
 			catalogNum, catalogOff, found = objNum, off, true
 		}
 	}
@@ -797,7 +797,7 @@ func (d *Reader) recoverTrailer() (PDFDict, error) {
 		return PDFDict{}, errors.New("no catalog or cross-reference stream object found")
 	}
 	t := NewPDFDict()
-	t.Entries["Root"] = PDFRef{ObjNum: catalogNum}
+	t.Entries.Set("Root", PDFRef{ObjNum: catalogNum})
 	return t, nil
 }
 
@@ -817,7 +817,7 @@ func (d *Reader) findAndLoadFirstPageTrailer() {
 		if err != nil {
 			continue
 		}
-		if trailer.Entries["Root"] != nil && d.firstPageTrailer.Entries == nil {
+		if trailer.Entries.Get("Root") != nil && d.firstPageTrailer.Entries == nil {
 			d.firstPageTrailer = trailer
 		}
 	}
@@ -857,7 +857,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	if !ok {
 		return nil, fmt.Errorf("document graph is not a dictionary")
 	}
-	root := graphDict.Entries["Root"]
+	root := graphDict.Entries.Get("Root")
 	if root == nil {
 		return nil, fmt.Errorf("dict Root is nil")
 	}
@@ -865,7 +865,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	if !ok {
 		return nil, fmt.Errorf("Root is not a dictionary")
 	}
-	pages := rootDict.Entries["Pages"]
+	pages := rootDict.Entries.Get("Pages")
 	if pages == nil {
 		return nil, fmt.Errorf("dict Pages is nil")
 	}
@@ -887,22 +887,22 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 		if !ok {
 			return nil
 		}
-		if ref, ok := dict.Entries["_ref"].(PDFRef); ok {
+		if ref, ok := dict.Entries.Get("_ref").(PDFRef); ok {
 			if seen[ref.ObjNum] {
 				return nil
 			}
 			seen[ref.ObjNum] = true
 		}
 
-		if (dict.Entries["Type"] == PDFName{Value: "Page"}) {
+		if (dict.Entries.Get("Type") == PDFName{Value: "Page"}) {
 			pageNum++
-			if ref, ok := dict.Entries["_ref"].(PDFRef); ok {
+			if ref, ok := dict.Entries.Get("_ref").(PDFRef); ok {
 				index[ref.ObjNum] = pageNum
 			}
 			return nil
 		}
 
-		if kids, ok := dict.Entries["Kids"].(PDFArray); ok {
+		if kids, ok := dict.Entries.Get("Kids").(PDFArray); ok {
 			for _, kid := range kids {
 				if err := walk(kid, depth+1); err != nil {
 					return err
@@ -1003,7 +1003,7 @@ func (d *Reader) Metadata() (map[string]string, error) {
 	}
 
 	metadata := make(map[string]string)
-	for k, v := range dict.Entries {
+	for k, v := range dict.Entries.All() {
 		switch s := v.(type) {
 		case PDFString:
 			metadata[k] = DecodePDFTextString([]byte(s.Value))
@@ -1119,7 +1119,7 @@ func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 		}
 
 		if dict, ok := current.(PDFDict); ok {
-			val, found := dict.Entries[key]
+			val, found := dict.Entries.Lookup(key)
 			if !found {
 				return nil, fmt.Errorf("key %q not found in dictionary", key)
 			}
@@ -1163,7 +1163,7 @@ func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) 
 			d.resolvedPtrs = map[uintptr]bool{}
 		}
 		d.resolvedPtrs[ptr] = true // mark before recursing, so cycles terminate
-		for k, val := range v.Entries {
+		for k, val := range v.Entries.All() {
 			if k == "_ref" {
 				continue
 			}
@@ -1177,7 +1177,7 @@ func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) 
 				delete(d.resolvedPtrs, ptr)
 				return nil, err
 			}
-			v.Entries[k] = r
+			v.Entries.Set(k, r)
 		}
 		return v, nil
 

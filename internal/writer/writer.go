@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"maps"
 	"sort"
 	"strconv"
 
@@ -36,8 +35,8 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 // returns the ordered slice of indirect objects as written.
 func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pdf.PDFDict, err error) {
 	wr := newPDFWriter(hint)
-	wr.discover(trailer.Entries["Root"])
-	wr.discover(trailer.Entries["Info"])
+	wr.discover(trailer.Entries.Get("Root"))
+	wr.discover(trailer.Entries.Get("Info"))
 
 	// Buffer output so the many small dict/value writes are batched.
 	bw := bufio.NewWriterSize(w, 64<<10)
@@ -73,17 +72,16 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 		}
 	}
 
-	newTrailer := map[string]pdf.PDFValue{
-		"Size": pdf.PDFInteger(len(wr.order) + 1),
+	newTrailer := pdf.NewDict()
+	newTrailer.Set("Size", pdf.PDFInteger(len(wr.order)+1))
+	if root, ok := trailer.Entries.Lookup("Root"); ok {
+		newTrailer.Set("Root", root)
 	}
-	if root, ok := trailer.Entries["Root"]; ok {
-		newTrailer["Root"] = root
+	if info, ok := trailer.Entries.Lookup("Info"); ok {
+		newTrailer.Set("Info", info)
 	}
-	if info, ok := trailer.Entries["Info"]; ok {
-		newTrailer["Info"] = info
-	}
-	if id, ok := trailer.Entries["ID"]; ok {
-		newTrailer["ID"] = id
+	if id, ok := trailer.Entries.Lookup("ID"); ok {
+		newTrailer.Set("ID", id)
 	} else {
 		// 6.1.3: the trailer shall contain an ID. Synthesize one deterministically
 		// from content already fixed at this point (object count and xref offset)
@@ -91,7 +89,7 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 		// input is reproducible; PDF/A permits ID[0] == ID[1].
 		sum := md5.Sum(fmt.Appendf(nil, "gopdfrab:%d:%d", len(wr.order), xrefOffset))
 		id := pdf.PDFHexString{Value: hex.EncodeToString(sum[:])}
-		newTrailer["ID"] = pdf.PDFArray{id, id}
+		newTrailer.Set("ID", pdf.PDFArray{id, id})
 	}
 
 	if _, err = io.WriteString(cw, "trailer\n"); err != nil {
@@ -113,7 +111,7 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 	// Rewrite each dict's _ref to its assigned output object number so the
 	// in-memory graph's numbering matches the serialized output.
 	for i, obj := range wr.order {
-		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		obj.Entries.Set("_ref", pdf.PDFRef{ObjNum: i + 1})
 		wr.order[i] = obj
 	}
 
@@ -166,12 +164,12 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict, hint int) error {
 // index; see newPDFWriter. Zero is always safe.
 func NumberObjects(trailer pdf.PDFDict, hint int) map[int]pdf.PDFValue {
 	wr := newPDFWriter(hint)
-	wr.discover(trailer.Entries["Root"])
-	wr.discover(trailer.Entries["Info"])
+	wr.discover(trailer.Entries.Get("Root"))
+	wr.discover(trailer.Entries.Get("Info"))
 
 	objs := make(map[int]pdf.PDFValue, len(wr.order))
 	for i, obj := range wr.order {
-		obj.Entries["_ref"] = pdf.PDFRef{ObjNum: i + 1}
+		obj.Entries.Set("_ref", pdf.PDFRef{ObjNum: i + 1})
 		objs[i+1] = obj
 	}
 	return objs
@@ -195,9 +193,9 @@ func setStreamFlateLevel(d *pdf.PDFDict, decoded []byte, level int) error {
 	}
 	d.RawStream = compressed
 	d.HasStream = true
-	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-	delete(d.Entries, "DecodeParms")
-	delete(d.Entries, "DP")
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	d.Entries.Del("DecodeParms")
+	d.Entries.Del("DP")
 	return nil
 }
 
@@ -221,9 +219,9 @@ func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) err
 	}
 	d.RawStream = buf.Bytes()
 	d.HasStream = true
-	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-	delete(d.Entries, "DecodeParms")
-	delete(d.Entries, "DP")
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	d.Entries.Del("DecodeParms")
+	d.Entries.Del("DP")
 	return nil
 }
 
@@ -241,14 +239,14 @@ type objectIdentity struct {
 // isIndirectDict reports whether v must be written as its own indirect
 // object rather than inlined where referenced.
 func isIndirectDict(v pdf.PDFDict) bool {
-	if _, ok := v.Entries["_ref"].(pdf.PDFRef); ok {
+	if _, ok := v.Entries.Get("_ref").(pdf.PDFRef); ok {
 		return true
 	}
 	return v.HasStream
 }
 
 func identityOf(v pdf.PDFDict) objectIdentity {
-	if ref, ok := v.Entries["_ref"].(pdf.PDFRef); ok {
+	if ref, ok := v.Entries.Get("_ref").(pdf.PDFRef); ok {
 		return objectIdentity{hasRef: true, objNum: ref.ObjNum}
 	}
 	return objectIdentity{ptr: pdf.ValuePointer(v.Entries)}
@@ -302,9 +300,9 @@ func newPDFWriter(hint int) *pdfWriter {
 // to its prior length when done with the segment. The segment stays readable
 // even if deeper recursion grows the scratch onto a new backing array, since
 // it is never written again after the sort.
-func (wr *pdfWriter) sortedEntryKeys(entries map[string]pdf.PDFValue) []string {
+func (wr *pdfWriter) sortedEntryKeys(entries pdf.Dict) []string {
 	base := len(wr.keyScratch)
-	for k := range entries {
+	for k := range entries.All() {
 		if k == "_ref" || k == "_dirty" {
 			continue
 		}
@@ -349,7 +347,7 @@ func (wr *pdfWriter) discover(v pdf.PDFValue) {
 		// every run, making conversion output non-reproducible.
 		base := len(wr.keyScratch)
 		for _, k := range wr.sortedEntryKeys(val.Entries) {
-			wr.discover(val.Entries[k])
+			wr.discover(val.Entries.Get(k))
 		}
 		wr.keyScratch = wr.keyScratch[:base]
 
@@ -389,9 +387,8 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 	// /Length is always recomputed from the bytes actually being written,
 	// regardless of what the source declared (which may have been wrong, or
 	// even a non-integer; see stream.go's tolerant Length handling).
-	lengthClone := make(map[string]pdf.PDFValue, len(entries)+1)
-	maps.Copy(lengthClone, entries)
-	lengthClone["Length"] = pdf.PDFInteger(len(raw))
+	lengthClone := entries.Clone()
+	lengthClone.Set("Length", pdf.PDFInteger(len(raw)))
 
 	if err := wr.writeDictEntries(cw, lengthClone); err != nil {
 		return err
@@ -409,7 +406,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 // writeDictEntries writes "<< /Key value /Key2 value2 >>", skipping the
 // synthetic "_ref"/"_dirty" bookkeeping keys and visiting real keys in sorted
 // order for deterministic, diffable output.
-func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf.PDFValue) error {
+func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries pdf.Dict) error {
 	base := len(wr.keyScratch)
 	defer func() { wr.keyScratch = wr.keyScratch[:base] }()
 	keys := wr.sortedEntryKeys(entries)
@@ -427,7 +424,7 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries map[string]pdf
 		if _, err := io.WriteString(cw, " "); err != nil {
 			return err
 		}
-		if err := wr.writeValue(cw, entries[k]); err != nil {
+		if err := wr.writeValue(cw, entries.Get(k)); err != nil {
 			return err
 		}
 	}
@@ -568,8 +565,8 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 		return err
 
 	case pdf.PDFDict:
-		keys := make([]string, 0, len(val.Entries))
-		for k := range val.Entries {
+		keys := make([]string, 0, val.Entries.Len())
+		for k := range val.Entries.All() {
 			if k == "_ref" || k == "_dirty" {
 				continue
 			}
@@ -589,7 +586,7 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 			if _, err := io.WriteString(w, " "); err != nil {
 				return err
 			}
-			if err := writeOperand(w, val.Entries[k]); err != nil {
+			if err := writeOperand(w, val.Entries.Get(k)); err != nil {
 				return err
 			}
 		}

@@ -32,7 +32,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			continue
 		}
 
-		val, present := v.Entries[kd.Name]
+		val, present := v.Entries.Lookup(kd.Name)
 
 		required := kd.Required
 		if !required && kd.RequiredWhen != nil {
@@ -122,7 +122,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 			if k == "_ref" || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
 				continue
 			}
-			val := v.Entries[k]
+			val := v.Entries.Get(k)
 			if !wc.Predicated.Types && len(wc.Types) > 0 && !matchesValueType(val, wc.Types) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.WrongValueType,
@@ -155,7 +155,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// to flag there; a custom/private key on a non-wildcard type is likewise never in
 	// Post14Keys, so it is never flagged either.
 	if ot.Wildcard == nil {
-		for k := range v.Entries {
+		for k := range v.Entries.All() {
 			if k != "_ref" && stringInList(k, ot.Post14Keys) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
@@ -272,7 +272,7 @@ type condOperands interface {
 type dictOperands struct{ v pdf.PDFDict }
 
 func (d dictOperands) lookup(key string) (pdf.PDFValue, bool) {
-	val, present := d.v.Entries[key]
+	val, present := d.v.Entries.Lookup(key)
 	return val, present
 }
 
@@ -531,12 +531,12 @@ func comparisonOperands[S condOperands](src S, c *arlington.Cond) (lhs, rhs floa
 // selfIdentifiedType re-anchors an untyped dict by its own /Type (+/Subtype) names via the
 // generated unambiguous-identification table; "" when they do not identify exactly one type.
 func selfIdentifiedType(v pdf.PDFDict) string {
-	t, ok := v.Entries["Type"].(pdf.PDFName)
+	t, ok := v.Entries.Get("Type").(pdf.PDFName)
 	if !ok {
 		return ""
 	}
 	sub := ""
-	if s, ok := v.Entries["Subtype"].(pdf.PDFName); ok {
+	if s, ok := v.Entries.Get("Subtype").(pdf.PDFName); ok {
 		sub = s.Value
 	}
 	return arlington.SelfIdentified(t.Value, sub)
@@ -562,7 +562,7 @@ func isIndirect(val pdf.PDFValue) bool {
 	if !ok {
 		return true
 	}
-	_, ok = d.Entries["_ref"]
+	_, ok = d.Entries.Lookup("_ref")
 	return ok
 }
 
@@ -700,7 +700,7 @@ func resolveLinkGroups(groups []arlington.LinkGroup, keyTypes []arlington.ValueT
 			var dv pdf.PDFValue
 			switch tv := val.(type) {
 			case pdf.PDFDict:
-				dv = tv.Entries[g.Discriminator]
+				dv = tv.Entries.Get(g.Discriminator)
 			case pdf.PDFArray:
 				idx, err := strconv.Atoi(g.Discriminator)
 				if err != nil || idx < 0 || idx >= len(tv) {

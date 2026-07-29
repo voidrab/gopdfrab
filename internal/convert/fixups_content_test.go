@@ -79,7 +79,7 @@ func TestFixHexStringValue(t *testing.T) {
 // branches: rewriteOperatorsAndLimits drops it, so a cleared stream proves
 // that branch was actually reached and rewritten.
 func undefinedOpStream() pdf.PDFDict {
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q 1 0 0 RG XX 1 2 Q\n")}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q 1 0 0 RG XX 1 2 Q\n")}
 }
 
 // assertOperatorDropped decodes dict's content stream and fails the test if
@@ -108,50 +108,50 @@ func assertOperatorDropped(t *testing.T, label string, dict pdf.PDFDict) {
 // Page /Contents case, leaving the rest unexercised.
 func TestWalkContentStreamsDispatch(t *testing.T) {
 	pattern := undefinedOpStream()
-	pattern.Entries["PatternType"] = pdf.PDFInteger(1)
+	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
 
 	form := undefinedOpStream()
-	form.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	glyph := undefinedOpStream()
-	charProcs := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"g1": glyph}}
-	type3Font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	charProcs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"g1": glyph})}
+	type3Font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":   pdf.PDFName{Value: "Type3"},
 		"CharProcs": charProcs,
-	}}
+	})}
 
 	pageStreamA := undefinedOpStream()
 	pageStreamB := undefinedOpStream()
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"Contents": pdf.PDFArray{pageStreamA, pageStreamB},
-		"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pattern": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"P1": pattern}},
-			"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm1": form}},
-			"Font":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"T3": type3Font}},
-		}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
-		}},
-	}}
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
+			"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form})},
+			"Font":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"T3": type3Font})},
+		})},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
 
 	if !walkContentStreams(&trailer, rewriteOperatorsAndLimits) {
 		t.Fatalf("walkContentStreams reported no change across an array-Contents page, a Pattern, a Form, and a Type3 glyph")
 	}
 
-	gotPage := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	contents := gotPage.Entries["Contents"].(pdf.PDFArray)
+	gotPage := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	contents := gotPage.Entries.Get("Contents").(pdf.PDFArray)
 	assertOperatorDropped(t, "Page/Contents[0]", contents[0].(pdf.PDFDict))
 	assertOperatorDropped(t, "Page/Contents[1]", contents[1].(pdf.PDFDict))
 
-	resources := gotPage.Entries["Resources"].(pdf.PDFDict)
-	gotPattern := resources.Entries["Pattern"].(pdf.PDFDict).Entries["P1"].(pdf.PDFDict)
+	resources := gotPage.Entries.Get("Resources").(pdf.PDFDict)
+	gotPattern := resources.Entries.Get("Pattern").(pdf.PDFDict).Entries.Get("P1").(pdf.PDFDict)
 	assertOperatorDropped(t, "Pattern", gotPattern)
-	gotForm := resources.Entries["XObject"].(pdf.PDFDict).Entries["Fm1"].(pdf.PDFDict)
+	gotForm := resources.Entries.Get("XObject").(pdf.PDFDict).Entries.Get("Fm1").(pdf.PDFDict)
 	assertOperatorDropped(t, "Form", gotForm)
-	gotGlyph := resources.Entries["Font"].(pdf.PDFDict).Entries["T3"].(pdf.PDFDict).Entries["CharProcs"].(pdf.PDFDict).Entries["g1"].(pdf.PDFDict)
+	gotGlyph := resources.Entries.Get("Font").(pdf.PDFDict).Entries.Get("T3").(pdf.PDFDict).Entries.Get("CharProcs").(pdf.PDFDict).Entries.Get("g1").(pdf.PDFDict)
 	assertOperatorDropped(t, "Type3 glyph", gotGlyph)
 }
 

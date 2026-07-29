@@ -14,17 +14,17 @@ import (
 // terminate.
 func TestFontDictFixerAddsIdentityCIDToGIDMap(t *testing.T) {
 	cidFont := pdf.NewPDFDict()
-	cidFont.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	cidFont.Entries["Subtype"] = pdf.PDFName{Value: "CIDFontType2"}
-	cidFont.Entries["BaseFont"] = pdf.PDFName{Value: "Test"}
+	cidFont.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	cidFont.Entries.Set("Subtype", pdf.PDFName{Value: "CIDFontType2"})
+	cidFont.Entries.Set("BaseFont", pdf.PDFName{Value: "Test"})
 
 	type0 := pdf.NewPDFDict()
-	type0.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	type0.Entries["Subtype"] = pdf.PDFName{Value: "Type0"}
-	type0.Entries["DescendantFonts"] = pdf.PDFArray{cidFont}
+	type0.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	type0.Entries.Set("Subtype", pdf.PDFName{Value: "Type0"})
+	type0.Entries.Set("DescendantFonts", pdf.PDFArray{cidFont})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": type0}}
+	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": type0})})
 
 	fixer := fontDictFixer{}
 
@@ -35,9 +35,9 @@ func TestFontDictFixerAddsIdentityCIDToGIDMap(t *testing.T) {
 	if !changed {
 		t.Fatalf("changed = false, want true (CIDToGIDMap was missing)")
 	}
-	got, ok := cidFont.Entries["CIDToGIDMap"].(pdf.PDFName)
+	got, ok := cidFont.Entries.Get("CIDToGIDMap").(pdf.PDFName)
 	if !ok || got.Value != "Identity" {
-		t.Fatalf("CIDToGIDMap = %#v, want pdf.PDFName{Identity}", cidFont.Entries["CIDToGIDMap"])
+		t.Fatalf("CIDToGIDMap = %#v, want pdf.PDFName{Identity}", cidFont.Entries.Get("CIDToGIDMap"))
 	}
 
 	changed, err = fixer.Fix(&trailer, nil)
@@ -64,30 +64,30 @@ func TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing(t *testing.T) {
 }
 
 func TestType0FontFixerCIDSystemInfo(t *testing.T) {
-	cid := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	cid := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "CIDFontType2"},
-		"CIDSystemInfo": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"CIDSystemInfo": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Registry": pdf.PDFString{Value: "Adobe"}, "Ordering": pdf.PDFString{Value: "Japan1"},
 			"Supplement": pdf.PDFInteger(0),
-		}},
-	}}
-	cmap := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})},
+	})}
+	cmap := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "CMap"},
-		"CIDSystemInfo": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"CIDSystemInfo": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Registry": pdf.PDFString{Value: "Adobe"}, "Ordering": pdf.PDFString{Value: "Identity"},
 			"Supplement": pdf.PDFInteger(0),
-		}},
-	}}
-	font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		})},
+	})}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type0"},
 		"Encoding": cmap, "DescendantFonts": pdf.PDFArray{cid},
-	}}
+	})}
 	trailer := trailerWith("F1", font)
 	changed, err := type0FontFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("type0FontFixer.Fix = %v, %v", changed, err)
 	}
-	got := cmap.Entries["CIDSystemInfo"].(pdf.PDFDict).Entries["Ordering"]
+	got := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict).Entries.Get("Ordering")
 	if got != (pdf.PDFString{Value: "Japan1"}) {
 		t.Errorf("CMap CIDSystemInfo Ordering = %v, want it copied from the CIDFont (Japan1)", got)
 	}

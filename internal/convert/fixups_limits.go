@@ -40,7 +40,7 @@ func init() {
 func nextAvailableObjNum(trailer pdf.PDFDict) int {
 	max := 0
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries["_ref"].(pdf.PDFRef); ok && ref.ObjNum > max {
+		if ref, ok := d.Entries.Get("_ref").(pdf.PDFRef); ok && ref.ObjNum > max {
 			max = ref.ObjNum
 		}
 	})
@@ -89,17 +89,17 @@ func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (boo
 func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool) func(pdf.PDFDict) {
 	nextObjNum := 0
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Pages"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Pages"}) {
 			return
 		}
-		kids, ok := d.Entries["Kids"].(pdf.PDFArray)
+		kids, ok := d.Entries.Get("Kids").(pdf.PDFArray)
 		if !ok || len(kids) <= maxPDFArrayElements {
 			return
 		}
 		if nextObjNum == 0 {
 			nextObjNum = nextAvailableObjNum(*trailer)
 		}
-		d.Entries["Kids"] = rebalancePagesKids(d, kids, &nextObjNum)
+		d.Entries.Set("Kids", rebalancePagesKids(d, kids, &nextObjNum))
 		if changed != nil {
 			*changed = true
 		}
@@ -111,19 +111,19 @@ func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool) func(pdf.PDF
 // stripping the catalog's /StructTreeRoot and /MarkInfo and the now-orphaned
 // /StructParent(s) links throughout the graph.
 func dropOversizedStructure(trailer *pdf.PDFDict) bool {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
-	st, ok := root.Entries["StructTreeRoot"].(pdf.PDFDict)
+	st, ok := root.Entries.Get("StructTreeRoot").(pdf.PDFDict)
 	if !ok || !hasOversizedArray(st, map[uintptr]bool{}) {
 		return false
 	}
-	delete(root.Entries, "StructTreeRoot")
-	delete(root.Entries, "MarkInfo")
+	root.Entries.Del("StructTreeRoot")
+	root.Entries.Del("MarkInfo")
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		delete(d.Entries, "StructParents")
-		delete(d.Entries, "StructParent")
+		d.Entries.Del("StructParents")
+		d.Entries.Del("StructParent")
 	})
 	return true
 }
@@ -153,7 +153,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
 			return false
 		}
 		visited[ptr] = true
-		for k, e := range t.Entries {
+		for k, e := range t.Entries.All() {
 			if k == "_ref" || k == "Parent" || k == "P" {
 				continue
 			}
@@ -175,15 +175,15 @@ func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int) 
 	for i := 0; i < len(kids); i += pagesTreeChunkSize {
 		chunk := append(pdf.PDFArray{}, kids[i:min(i+pagesTreeChunkSize, len(kids))]...)
 		node := pdf.NewPDFDict()
-		node.Entries["_ref"] = pdf.PDFRef{ObjNum: *nextObjNum}
+		node.Entries.Set("_ref", pdf.PDFRef{ObjNum: *nextObjNum})
 		*nextObjNum++
-		node.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-		node.Entries["Parent"] = parent
-		node.Entries["Count"] = pdf.PDFInteger(countPageLeaves(chunk))
-		node.Entries["Kids"] = chunk
+		node.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+		node.Entries.Set("Parent", parent)
+		node.Entries.Set("Count", pdf.PDFInteger(countPageLeaves(chunk)))
+		node.Entries.Set("Kids", chunk)
 		for _, kid := range chunk {
 			if kd, ok := kid.(pdf.PDFDict); ok {
-				kd.Entries["Parent"] = node
+				kd.Entries.Set("Parent", node)
 			}
 		}
 		out = append(out, node)
@@ -201,8 +201,8 @@ func countPageLeaves(items pdf.PDFArray) int {
 		if !ok {
 			continue
 		}
-		if (d.Entries["Type"] == pdf.PDFName{Value: "Pages"}) {
-			if c, ok := d.Entries["Count"].(pdf.PDFInteger); ok {
+		if (d.Entries.Get("Type") == pdf.PDFName{Value: "Pages"}) {
+			if c, ok := d.Entries.Get("Count").(pdf.PDFInteger); ok {
 				total += int(c)
 				continue
 			}
@@ -242,7 +242,7 @@ func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for _, cat := range resourceCategories {
-			sub, ok := d.Entries[cat].(pdf.PDFDict)
+			sub, ok := d.Entries.Get(cat).(pdf.PDFDict)
 			if !ok {
 				continue
 			}
@@ -257,8 +257,8 @@ func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 // dictRealEntryCount mirrors validateArchitecturalLimits' own count
 // (verifier.go): every entry except the synthetic "_ref" bookkeeping key.
 func dictRealEntryCount(d pdf.PDFDict) int {
-	n := len(d.Entries)
-	if _, ok := d.Entries["_ref"]; ok {
+	n := d.Entries.Len()
+	if _, ok := d.Entries.Lookup("_ref"); ok {
 		n--
 	}
 	return n
@@ -276,8 +276,8 @@ func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool) bool {
 	if excess <= 0 {
 		return false
 	}
-	candidates := make([]string, 0, len(sub.Entries))
-	for k := range sub.Entries {
+	candidates := make([]string, 0, sub.Entries.Len())
+	for k := range sub.Entries.All() {
 		if k == "_ref" || k == "_dirty" || used[k] {
 			continue
 		}
@@ -288,7 +288,7 @@ func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool) bool {
 		candidates = candidates[:excess]
 	}
 	for _, k := range candidates {
-		delete(sub.Entries, k)
+		sub.Entries.Del(k)
 	}
 	return len(candidates) > 0
 }
@@ -321,12 +321,12 @@ func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 				return
 			}
 			visited[ptr] = true
-			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
-				collectResourceUsageFromContents(val.Entries["Contents"], resources, ru)
+			if val.Entries.Get("Type") == (pdf.PDFName{Value: "Page"}) {
+				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
+				collectResourceUsageFromContents(val.Entries.Get("Contents"), resources, ru)
 				return
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walk(child)
 			}
 		case pdf.PDFArray:
@@ -366,7 +366,7 @@ func collectResourceUsageFromContents(contents pdf.PDFValue, resources pdf.PDFDi
 // markResourceUsed records that name was selected from resources' category
 // sub-dictionary.
 func markResourceUsed(resources pdf.PDFDict, category, name string, ru *resourceUsage) {
-	sub, ok := resources.Entries[category].(pdf.PDFDict)
+	sub, ok := resources.Entries.Get(category).(pdf.PDFDict)
 	if !ok || sub.Entries == nil {
 		return
 	}
@@ -392,12 +392,12 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 				return
 			}
 			markResourceUsed(resources, "XObject", name.Value, ru)
-			xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
+			xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
 			if !ok {
 				return
 			}
-			xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
-			if !ok || xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+			if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
@@ -405,7 +405,7 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 				return
 			}
 			ru.visitedForm[ptr] = true
-			subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+			subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
@@ -538,7 +538,7 @@ func truncateOverlongName(v pdf.PDFValue) (pdf.PDFValue, bool) {
 // content-stream reference rewrite.
 func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bool {
 	var overlong []string
-	for k := range d.Entries {
+	for k := range d.Entries.All() {
 		if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
 			overlong = append(overlong, k)
 		}
@@ -546,8 +546,8 @@ func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bo
 	sort.Strings(overlong) // deterministic collision suffixes
 	for _, k := range overlong {
 		newKey := shortenDictKey(d, k)
-		d.Entries[newKey] = d.Entries[k]
-		delete(d.Entries, k)
+		d.Entries.Set(newKey, d.Entries.Get(k))
+		d.Entries.Del(k)
 		ptr := pdf.ValuePointer(d.Entries)
 		if renames[ptr] == nil {
 			renames[ptr] = map[string]string{}
@@ -565,12 +565,12 @@ func shortenDictKey(d pdf.PDFDict, k string) string {
 	if len(base) > maxNameLength-8 {
 		base = base[:maxNameLength-8]
 	}
-	if _, exists := d.Entries[base]; !exists {
+	if _, exists := d.Entries.Lookup(base); !exists {
 		return base
 	}
 	for i := 0; ; i++ {
 		candidate := fmt.Sprintf("%s~%d", base, i)
-		if _, exists := d.Entries[candidate]; !exists {
+		if _, exists := d.Entries.Lookup(candidate); !exists {
 			return candidate
 		}
 	}
@@ -591,7 +591,7 @@ func renameResourceReferences(trailer *pdf.PDFDict, renames map[uintptr]map[stri
 		if !ok {
 			return
 		}
-		sub, ok := resources.Entries[category].(pdf.PDFDict)
+		sub, ok := resources.Entries.Get(category).(pdf.PDFDict)
 		if !ok {
 			return
 		}
@@ -681,7 +681,7 @@ func (cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed
 // clampCMapStreamDict returns a copy of d with out-of-range CIDs clamped in
 // its decoded stream, or ok=false when d is not a CMap stream or needs no fix.
 func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
-	if (d.Entries["Type"] != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
 		return d, false
 	}
 	data, err := pdf.DecodeStream(d)
@@ -784,12 +784,12 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 				return
 			}
 			visited[ptr] = true
-			if val.Entries["Type"] == (pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries["Resources"].(pdf.PDFDict)
+			if val.Entries.Get("Type") == (pdf.PDFName{Value: "Page"}) {
+				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
 				rewritePageContents(val, resources, rewrite, visitedForm, &changed)
 				return
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walk(child)
 			}
 		case pdf.PDFArray:
@@ -808,11 +808,11 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 }
 
 func rewritePageContents(page, resources pdf.PDFDict, rewrite resourceOpRewriter, visitedForm map[uintptr]bool, changed *bool) {
-	switch v := page.Entries["Contents"].(type) {
+	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
 			if fixed, ok := rewriteResourceAwareStream(v, resources, rewrite, visitedForm); ok {
-				page.Entries["Contents"] = fixed
+				page.Entries.Set("Contents", fixed)
 				*changed = true
 			}
 		}
@@ -836,9 +836,8 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 		return dict, false
 	}
 
-	// Emit while scanning: see rewriteContentStreamDict. rewrite edits
-	// operands in place, so the write below must happen after it and before
-	// the callback returns -- the scanner reuses the operand slice.
+	// Emit while scanning: see rewriteContentStreamDict. rewrite edits operands
+	// in place, so the write must follow it and precede the callback's return.
 	var cw writer.ContentStreamWriter
 	modified := false
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
@@ -852,12 +851,12 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 		if !ok {
 			return
 		}
-		xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
+		xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
 		if !ok {
 			return
 		}
-		xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
-		if !ok || xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+		xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+		if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 			return
 		}
 		ptr := pdf.ValuePointer(xobj.Entries)
@@ -865,12 +864,12 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 			return
 		}
 		visitedForm[ptr] = true
-		subResources, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+		subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 		if subResources.Entries == nil {
 			subResources = resources
 		}
 		if fixed, ok := rewriteResourceAwareStream(xobj, subResources, rewrite, visitedForm); ok {
-			xobjects.Entries[name.Value] = fixed
+			xobjects.Entries.Set(name.Value, fixed)
 			modified = true
 		}
 	})

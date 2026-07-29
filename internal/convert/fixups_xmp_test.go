@@ -13,35 +13,35 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	// Catalog metadata (must be kept).
 	catalogMeta := pdf.NewPDFDict()
 	catalogMeta.HasStream = true
-	catalogMeta.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	catalogMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	root := pdf.NewPDFDict()
-	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	root.Entries["Metadata"] = catalogMeta
+	root.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	root.Entries.Set("Metadata", catalogMeta)
 
 	// Image XObject with its own embedded metadata (must be stripped).
 	imageMeta := pdf.NewPDFDict()
 	imageMeta.HasStream = true
-	imageMeta.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	imageMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	image := pdf.NewPDFDict()
-	image.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	image.Entries["Metadata"] = imageMeta
+	image.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	image.Entries.Set("Metadata", imageMeta)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
-	trailer.Entries["Image"] = image // reachable from trailer for the walk
+	trailer.Entries.Set("Root", root)
+	trailer.Entries.Set("Image", image) // reachable from trailer for the walk
 
 	if err := stripEmbeddedMetadata(&trailer, nil); err != nil {
 		t.Fatalf("stripEmbeddedMetadata: %v", err)
 	}
 
-	rootAfter := trailer.Entries["Root"].(pdf.PDFDict)
-	if rootAfter.Entries["Metadata"] == nil {
+	rootAfter := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if rootAfter.Entries.Get("Metadata") == nil {
 		t.Errorf("catalog /Metadata was removed but should be kept")
 	}
-	imageAfter := trailer.Entries["Image"].(pdf.PDFDict)
-	if imageAfter.Entries["Metadata"] != nil {
+	imageAfter := trailer.Entries.Get("Image").(pdf.PDFDict)
+	if imageAfter.Entries.Get("Metadata") != nil {
 		t.Errorf("image /Metadata still present after stripEmbeddedMetadata")
 	}
 }
@@ -50,7 +50,7 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 // decoded string bytes PDFString holds (parens need no special handling).
 func TestInfoStringKeepsDecodedText(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = pdf.PDFString{Value: "Title (Edition)"}
+	info.Entries.Set("Title", pdf.PDFString{Value: "Title (Edition)"})
 
 	got := infoString(info, "Title")
 	if got != "Title (Edition)" {
@@ -63,7 +63,7 @@ func TestInfoStringKeepsDecodedText(t *testing.T) {
 func TestInfoStringDecodesPDFDocEncoding(t *testing.T) {
 	info := pdf.NewPDFDict()
 	// 0xE4 = ä in PDFDocEncoding/Latin-1.
-	info.Entries["Author"] = pdf.PDFString{Value: string([]byte{0xE4})}
+	info.Entries.Set("Author", pdf.PDFString{Value: string([]byte{0xE4})})
 
 	got := infoString(info, "Author")
 	if !strings.Contains(got, "ä") {
@@ -75,7 +75,7 @@ func TestInfoStringDecodesPDFDocEncoding(t *testing.T) {
 // Info value into the XML output unchanged.
 func TestBuildXMPPacketKeepsParens(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = pdf.PDFString{Value: "Doc (v2)"}
+	info.Entries.Set("Title", pdf.PDFString{Value: "Doc (v2)"})
 
 	xmp := buildXMPPacket(info)
 	if !strings.Contains(xmp, "(v2)") {
@@ -114,39 +114,41 @@ func TestNormalizeInfoDict(t *testing.T) {
 	// Absent Info: must not panic and must not add one.
 	noInfo := pdf.NewPDFDict()
 	normalizeInfoDict(&noInfo)
-	if noInfo.Entries["Info"] != nil {
+	if noInfo.Entries.Get("Info") != nil {
 		t.Error("normalizeInfoDict added an Info dict where none existed")
 	}
 
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = pdf.PDFInteger(1) // wrong type: dropped
-	info.Entries["Subject"] = pdf.PDFString{Value: ""}
-	info.Entries["Author"] = pdf.PDFString{Value: "  Jane Doe  "}
-	info.Entries["Trapped"] = pdf.PDFInteger(1) // not a name: dropped
-	info.Entries["CreationDate"] = pdf.PDFString{Value: "2008-05-13T09:00:00Z"}
-	info.Entries["ModDate"] = pdf.PDFInteger(1) // not a string: dropped
+	info.Entries.Set("Title", pdf.PDFInteger(1))
+	// wrong type: dropped
+	info.Entries.Set("Subject", pdf.PDFString{Value: ""})
+	info.Entries.Set("Author", pdf.PDFString{Value: "  Jane Doe  "})
+	info.Entries.Set("Trapped", pdf.PDFInteger(1))
+	// not a name: dropped
+	info.Entries.Set("CreationDate", pdf.PDFString{Value: "2008-05-13T09:00:00Z"})
+	info.Entries.Set("ModDate", pdf.PDFInteger(1)) // not a string: dropped
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 
 	normalizeInfoDict(&trailer)
-	got := trailer.Entries["Info"].(pdf.PDFDict)
+	got := trailer.Entries.Get("Info").(pdf.PDFDict)
 
-	if got.Entries["Title"] != nil {
+	if got.Entries.Get("Title") != nil {
 		t.Error("wrong-typed Title not dropped")
 	}
-	if got.Entries["Subject"] != nil {
+	if got.Entries.Get("Subject") != nil {
 		t.Error("empty-string Subject not dropped")
 	}
-	if s, ok := got.Entries["Author"].(pdf.PDFString); !ok || s.Value != "Jane Doe" {
-		t.Errorf("Author = %v, want trimmed \"Jane Doe\"", got.Entries["Author"])
+	if s, ok := got.Entries.Get("Author").(pdf.PDFString); !ok || s.Value != "Jane Doe" {
+		t.Errorf("Author = %v, want trimmed \"Jane Doe\"", got.Entries.Get("Author"))
 	}
-	if got.Entries["Trapped"] != nil {
+	if got.Entries.Get("Trapped") != nil {
 		t.Error("non-name Trapped not dropped")
 	}
-	if s, ok := got.Entries["CreationDate"].(pdf.PDFString); !ok || s.Value != "D:20080513090000Z" {
-		t.Errorf("CreationDate = %v, want normalized D:20080513090000Z", got.Entries["CreationDate"])
+	if s, ok := got.Entries.Get("CreationDate").(pdf.PDFString); !ok || s.Value != "D:20080513090000Z" {
+		t.Errorf("CreationDate = %v, want normalized D:20080513090000Z", got.Entries.Get("CreationDate"))
 	}
-	if got.Entries["ModDate"] != nil {
+	if got.Entries.Get("ModDate") != nil {
 		t.Error("non-string ModDate not dropped")
 	}
 }
@@ -215,30 +217,32 @@ func TestIsAllDigits(t *testing.T) {
 // dropped while string (and null) ones survive.
 func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["SPDF"] = pdf.PDFInteger(1153)               // real-world producer key: dropped
-	info.Entries["GTS_PDFXVersion"] = pdf.PDFName{Value: "X"} // name-valued custom key: dropped
-	info.Entries["CustomNote"] = pdf.PDFString{Value: "ok"}
-	info.Entries["CustomHex"] = pdf.PDFHexString{Value: "AB"}
-	info.Entries["CustomNull"] = nil
+	info.Entries.Set("SPDF", pdf.PDFInteger(1153))
+	// real-world producer key: dropped
+	info.Entries.Set("GTS_PDFXVersion", pdf.PDFName{Value: "X"})
+	// name-valued custom key: dropped
+	info.Entries.Set("CustomNote", pdf.PDFString{Value: "ok"})
+	info.Entries.Set("CustomHex", pdf.PDFHexString{Value: "AB"})
+	info.Entries.Set("CustomNull", nil)
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 
 	normalizeInfoDict(&trailer)
-	got := trailer.Entries["Info"].(pdf.PDFDict)
+	got := trailer.Entries.Get("Info").(pdf.PDFDict)
 
-	if got.Entries["SPDF"] != nil {
+	if got.Entries.Get("SPDF") != nil {
 		t.Error("integer-valued custom key SPDF not dropped")
 	}
-	if got.Entries["GTS_PDFXVersion"] != nil {
+	if got.Entries.Get("GTS_PDFXVersion") != nil {
 		t.Error("name-valued custom key not dropped")
 	}
-	if _, ok := got.Entries["CustomNote"].(pdf.PDFString); !ok {
+	if _, ok := got.Entries.Get("CustomNote").(pdf.PDFString); !ok {
 		t.Error("string custom key must survive")
 	}
-	if _, ok := got.Entries["CustomHex"].(pdf.PDFHexString); !ok {
+	if _, ok := got.Entries.Get("CustomHex").(pdf.PDFHexString); !ok {
 		t.Error("hex-string custom key must survive")
 	}
-	if v, present := got.Entries["CustomNull"]; !present || v != nil {
+	if v, present := got.Entries.Lookup("CustomNull"); !present || v != nil {
 		t.Error("null custom key must survive as null")
 	}
 }

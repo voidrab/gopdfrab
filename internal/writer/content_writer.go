@@ -14,27 +14,20 @@ type ContentOp struct {
 	Operands []pdf.PDFValue
 }
 
-// ContentStreamWriter serializes operators to content-stream bytes one at a
-// time. It exists so a rewriter can emit while it scans rather than building
-// the whole operator list first: a tokenized list runs several times the size
-// of the stream it came from, and unlike Reader.ScanStreamFunc's cache it is
-// not covered by the resident-bytes budget.
+// ContentStreamWriter serializes operators one at a time, so a rewriter can
+// emit while it scans instead of building the whole operator list first. That
+// also removes the aliasing hazard accumulating invites: ContentScanner.Scan
+// reuses one operand stack, so operands are only valid inside the callback.
 //
-// Emitting inside the scan callback also removes the aliasing hazard that
-// accumulating invites. ContentScanner.Scan reuses one operand stack across
-// callbacks, so operands are only valid until the callback returns -- a
-// retained ContentOp aliases a slice the next operator overwrites.
-//
-// Write errors are sticky: WriteOp reports the first failure and does nothing
-// afterwards, so a caller inside a callback that cannot return an error may
-// scan to the end and check Err once.
+// Write errors are sticky, so a caller inside a callback that cannot return an
+// error may scan to the end and check Err once.
 type ContentStreamWriter struct {
 	buf bytes.Buffer
 	err error
 }
 
-// WriteOp appends one operator and its operands. The operands need only be
-// valid for the duration of the call.
+// WriteOp appends one operator and its operands, which need only be valid for
+// the call.
 func (w *ContentStreamWriter) WriteOp(op string, operands []pdf.PDFValue) error {
 	if w.err != nil {
 		return w.err
@@ -66,15 +59,13 @@ func (w *ContentStreamWriter) WriteOp(op string, operands []pdf.PDFValue) error 
 	return nil
 }
 
-// Err reports the first write failure, or nil.
+// Err reports the first write failure.
 func (w *ContentStreamWriter) Err() error { return w.err }
 
-// Bytes returns the serialized content stream. It is only meaningful when Err
-// is nil.
+// Bytes returns the serialized stream; meaningful only when Err is nil.
 func (w *ContentStreamWriter) Bytes() []byte { return w.buf.Bytes() }
 
-// Reset discards everything written so far, including a sticky error, so one
-// writer can be reused across streams.
+// Reset discards everything written, including a sticky error.
 func (w *ContentStreamWriter) Reset() {
 	w.buf.Reset()
 	w.err = nil
@@ -86,8 +77,7 @@ func (w *ContentStreamWriter) Reset() {
 // trailing pdf.InlineImageRaw operand's bytes verbatim, ignoring the parsed
 // params -- see pdf.InlineImageRaw's doc comment in content.go.
 //
-// This is the batch form of ContentStreamWriter; prefer that one when the ops
-// are produced by a scan, so the list never exists.
+// Batch form of ContentStreamWriter; prefer that when the ops come from a scan.
 func WriteContentStream(ops []ContentOp) ([]byte, error) {
 	var w ContentStreamWriter
 	for _, op := range ops {

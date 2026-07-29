@@ -24,8 +24,8 @@ func flateStreamDict(payload []byte) pdf.PDFDict {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
 	d.RawStream = zb.Bytes()
-	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-	d.Entries["Length"] = pdf.PDFInteger(zb.Len())
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	d.Entries.Set("Length", pdf.PDFInteger(zb.Len()))
 	return d
 }
 
@@ -116,15 +116,15 @@ func graphSig(b *strings.Builder, v pdf.PDFValue, seen map[uintptr]bool) {
 			return
 		}
 		seen[id] = true
-		keys := make([]string, 0, len(t.Entries))
-		for k := range t.Entries {
+		keys := make([]string, 0, t.Entries.Len())
+		for k := range t.Entries.All() {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		b.WriteString("<<")
 		for _, k := range keys {
 			fmt.Fprintf(b, "/%s ", k)
-			graphSig(b, t.Entries[k], seen)
+			graphSig(b, t.Entries.Get(k), seen)
 		}
 		if t.HasStream {
 			fmt.Fprintf(b, "stream:%d ", len(t.RawStream))

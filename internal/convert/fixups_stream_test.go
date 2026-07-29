@@ -67,21 +67,21 @@ func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 // content stream is LZW-encoded, with optional DecodeParms (for predictor
 // coverage), for exercising lzwStreamFixer.
 func lzwStreamTrailer(encoded []byte, decodeParms pdf.PDFDict) pdf.PDFDict {
-	entries := map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 4}, "Filter": pdf.PDFName{Value: "LZWDecode"}}
+	entries := pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 4}, "Filter": pdf.PDFName{Value: "LZWDecode"}})
 	if decodeParms.Entries != nil {
-		entries["DecodeParms"] = decodeParms
+		entries.Set("DecodeParms", decodeParms)
 	}
 	streamDict := pdf.PDFDict{Entries: entries, HasStream: true, RawStream: encoded}
 
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"_ref":     pdf.PDFRef{ObjNum: 3},
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(100)},
 		"Contents": streamDict,
-	}}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)}}
-	catalog := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages}}
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": catalog}}
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})}
+	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 }
 
 func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
@@ -97,10 +97,10 @@ func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
 		t.Fatalf("changed = false, want true (stream used LZWDecode)")
 	}
 
-	page := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	contents := page.Entries["Contents"].(pdf.PDFDict)
-	if (contents.Entries["Filter"] != pdf.PDFName{Value: "FlateDecode"}) {
-		t.Errorf("Filter = %v, want /FlateDecode", contents.Entries["Filter"])
+	page := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	contents := page.Entries.Get("Contents").(pdf.PDFDict)
+	if (contents.Entries.Get("Filter") != pdf.PDFName{Value: "FlateDecode"}) {
+		t.Errorf("Filter = %v, want /FlateDecode", contents.Entries.Get("Filter"))
 	}
 	decoded, err := pdf.DecodeStream(contents)
 	if err != nil {
@@ -130,11 +130,11 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 			predicted[i] -= predicted[i-1]
 		}
 	}
-	parms := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	parms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Predictor": pdf.PDFInteger(2),
 		"Columns":   pdf.PDFInteger(4),
 		"Colors":    pdf.PDFInteger(1),
-	}}
+	})}
 	trailer := lzwStreamTrailer(encodeLZW(t, predicted), parms)
 
 	fixer := lzwStreamFixer{}
@@ -146,8 +146,8 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 		t.Fatalf("changed = false, want true")
 	}
 
-	page := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	contents := page.Entries["Contents"].(pdf.PDFDict)
+	page := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	contents := page.Entries.Get("Contents").(pdf.PDFDict)
 	decoded, err := pdf.DecodeStream(contents)
 	if err != nil {
 		t.Fatalf("DecodeStream: %v", err)
@@ -155,8 +155,8 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 	if string(decoded) != string(plaintext) {
 		t.Errorf("decoded = %v, want %v (predictor not undone)", decoded, plaintext)
 	}
-	if contents.Entries["DecodeParms"] != nil {
-		t.Errorf("DecodeParms = %v, want removed", contents.Entries["DecodeParms"])
+	if contents.Entries.Get("DecodeParms") != nil {
+		t.Errorf("DecodeParms = %v, want removed", contents.Entries.Get("DecodeParms"))
 	}
 }
 
@@ -169,9 +169,9 @@ func TestLZWStreamDecodeChainedFilters(t *testing.T) {
 	encoded := encodeASCII85(lzwed)
 
 	dict := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"}},
-		},
+		}),
 		HasStream: true, RawStream: encoded,
 	}
 	got, err := pdf.DecodeStream(dict)
@@ -206,12 +206,12 @@ func TestLZWStreamDecodeASCIIHexAndPNGPredictor(t *testing.T) {
 	hexed := encodeASCIIHex(buf.Bytes())
 
 	dict := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
-			"DecodeParms": pdf.PDFArray{nil, pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+			"DecodeParms": pdf.PDFArray{nil, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 				"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
-			}}},
-		},
+			})}},
+		}),
 		HasStream: true, RawStream: hexed,
 	}
 	got, err := pdf.DecodeStream(dict)
@@ -239,9 +239,9 @@ func TestLZWStreamDecodeFlateThenLZW(t *testing.T) {
 	}
 
 	dict := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "LZWDecode"}},
-		},
+		}),
 		HasStream: true, RawStream: buf.Bytes(),
 	}
 	got, err := pdf.DecodeStream(dict)
@@ -258,7 +258,7 @@ func TestLZWStreamDecodeFlateThenLZW(t *testing.T) {
 // predictor value that is neither 1 (none), 2 (TIFF), nor >= 10 (PNG).
 func TestLZWStreamDecodeUnsupportedFilterOrPredictor(t *testing.T) {
 	unsupportedFilter := pdf.PDFDict{
-		Entries:   map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}},
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}}),
 		HasStream: true, RawStream: []byte("whatever"),
 	}
 	if _, err := pdf.DecodeStream(unsupportedFilter); err == nil {
@@ -266,10 +266,10 @@ func TestLZWStreamDecodeUnsupportedFilterOrPredictor(t *testing.T) {
 	}
 
 	unsupportedPredictor := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Filter":      pdf.PDFName{Value: "LZWDecode"},
-			"DecodeParms": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)}},
-		},
+			"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})},
+		}),
 		HasStream: true, RawStream: encodeLZW(t, []byte("abc")),
 	}
 	if _, err := pdf.DecodeStream(unsupportedPredictor); err == nil {

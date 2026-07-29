@@ -107,7 +107,7 @@ func scannedValueBytes(v PDFValue) int64 {
 		return int64(unsafe.Sizeof(t)) + scannedOperandsBytes(t)
 	case PDFDict:
 		n := int64(unsafe.Sizeof(t))
-		for k, e := range t.Entries {
+		for k, e := range t.Entries.All() {
 			n += int64(len(k)) + ifaceSize + scannedValueBytes(e)
 		}
 		return n

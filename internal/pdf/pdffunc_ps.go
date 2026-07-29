@@ -44,7 +44,7 @@ func newPostScriptFunction(d PDFDict, domain []float64) (*postScriptFunction, er
 	}
 
 	var rangeArr []float64
-	if v, ok := d.Entries["Range"]; ok {
+	if v, ok := d.Entries.Lookup("Range"); ok {
 		if rangeArr, err = FloatArray(v); err != nil {
 			return nil, fmt.Errorf("pdffunc: Range: %w", err)
 		}

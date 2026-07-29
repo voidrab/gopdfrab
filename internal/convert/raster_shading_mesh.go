@@ -51,7 +51,7 @@ func (sh *shading) initMesh(dict pdf.PDFDict) bool {
 		return false
 	}
 
-	decode, err := pdf.FloatArray(dict.Entries["Decode"])
+	decode, err := pdf.FloatArray(dict.Entries.Get("Decode"))
 	if err != nil || len(decode) < 4+2*sh.ncomp {
 		return false
 	}

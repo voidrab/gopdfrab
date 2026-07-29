@@ -15,20 +15,20 @@ import (
 
 // onePageTrailer builds a minimal in-heap one-page document graph.
 func onePageTrailer() pdf.PDFDict {
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
-		"Contents": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
+		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-	}}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"},
 		"Kids": pdf.PDFArray{page},
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":  pdf.PDFName{Value: "Catalog"},
 		"Pages": pages,
-	}}
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 }
 
 // openTrailer serializes trailer and reopens it as a Reader.
@@ -71,12 +71,12 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	if !graphClean {
 		t.Error("graphClean = false after the backstop's verify")
 	}
-	page := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	res, ok := page.Entries["Resources"].(pdf.PDFDict)
+	page := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	res, ok := page.Entries.Get("Resources").(pdf.PDFDict)
 	if !ok {
 		t.Fatal("page was not flattened: no Resources dict")
 	}
-	if xo, ok := res.Entries["XObject"].(pdf.PDFDict); !ok || xo.Entries["Im0"] == nil {
+	if xo, ok := res.Entries.Get("XObject").(pdf.PDFDict); !ok || xo.Entries.Get("Im0") == nil {
 		t.Error("page was not flattened: Resources/XObject/Im0 missing")
 	}
 }
@@ -158,8 +158,8 @@ func TestRunWrapsSerializeError(t *testing.T) {
 		t.Fatalf("ResolveGraph: %v", err)
 	}
 	trailer := g.(pdf.PDFDict)
-	root := trailer.Entries["Root"].(pdf.PDFDict)
-	root.Entries["Bogus"] = struct{ X int }{1}
+	root := trailer.Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Bogus", struct{ X int }{1})
 
 	_, err = Run(doc, pdf.PDFA1B, Options{})
 	if err == nil || !strings.Contains(err.Error(), "unsupported value type") {
@@ -191,35 +191,35 @@ func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 // synthetic dicts: wrong subtype, missing descriptor, missing/streamless
 // FontFile2, and an undecodable program all leave the dict untouched.
 func TestPromoteEmptyGlyphsInFontGuards(t *testing.T) {
-	notCID := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "TrueType"}}}
+	notCID := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "TrueType"}})}
 	promoteEmptyGlyphsInFont(notCID)
 
-	noDesc := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "CIDFontType2"}}}
+	noDesc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "CIDFontType2"}})}
 	promoteEmptyGlyphsInFont(noDesc)
 
-	noFF := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	noFF := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":        pdf.PDFName{Value: "CIDFontType2"},
-		"FontDescriptor": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-	}}
+		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	})}
 	promoteEmptyGlyphsInFont(noFF)
 
-	streamless := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	streamless := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "CIDFontType2"},
-		"FontDescriptor": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"FontFile2": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-		}},
-	}}
+		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"FontFile2": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		})},
+	})}
 	promoteEmptyGlyphsInFont(streamless)
 
-	badFF := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	badFF := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Filter": pdf.PDFName{Value: "NoSuchFilter"},
-	}, HasStream: true, RawStream: []byte("junk")}
-	undecodable := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	}), HasStream: true, RawStream: []byte("junk")}
+	undecodable := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "CIDFontType2"},
-		"FontDescriptor": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"FontFile2": badFF,
-		}},
-	}}
+		})},
+	})}
 	promoteEmptyGlyphsInFont(undecodable)
 	if string(badFF.RawStream) != "junk" {
 		t.Error("undecodable FontFile2 was rewritten")
@@ -232,17 +232,17 @@ func TestPromoteEmptyGlyphsInFontGuards(t *testing.T) {
 func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	kids := make(pdf.PDFArray, maxPDFArrayElements+1)
 	for i := range kids {
-		kids[i] = pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Page"}}}
+		kids[i] = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Page"}})}
 	}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"},
 		"Kids": kids,
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":  pdf.PDFName{Value: "Catalog"},
 		"Pages": pages,
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
 	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
 	if err != nil {
@@ -251,7 +251,7 @@ func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	if !changed {
 		t.Fatal("Fix reported no change for an oversized Kids array")
 	}
-	got, ok := pages.Entries["Kids"].(pdf.PDFArray)
+	got, ok := pages.Entries.Get("Kids").(pdf.PDFArray)
 	if !ok || len(got) > maxPDFArrayElements {
 		t.Errorf("Kids not rebalanced: len = %d, want <= %d", len(got), maxPDFArrayElements)
 	}
@@ -270,15 +270,15 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 	for i := range parents {
 		parents[i] = pdf.PDFInteger(i)
 	}
-	st := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	st := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "StructTreeRoot"},
 		"K":    parents,
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":           pdf.PDFName{Value: "Catalog"},
 		"StructTreeRoot": st,
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
 	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
 	if err != nil {
@@ -287,7 +287,7 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 	if !changed {
 		t.Fatal("Fix reported no change for an oversized struct tree")
 	}
-	if _, still := root.Entries["StructTreeRoot"]; still {
+	if _, still := root.Entries.Lookup("StructTreeRoot"); still {
 		t.Error("StructTreeRoot was not dropped")
 	}
 }
@@ -313,12 +313,12 @@ func TestPlaceholderImageDegenerate(t *testing.T) {
 // number.
 func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 	renderable := func(content string) pdf.PDFDict {
-		return pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Page"},
 			"Contents": pdf.PDFDict{
-				Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte(content),
+				Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(content),
 			},
-		}}
+		})}
 	}
 
 	shared := renderable("q Q")

@@ -11,15 +11,15 @@ import (
 // PrintScaling and other post-1.4 ViewerPreferences entries.
 func TestViewerPrefFixerRemovesPost14Keys(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["PrintScaling"] = pdf.PDFName{Value: "None"}
-	vp.Entries["DisplayDocTitle"] = pdf.PDFBoolean(true) // 1.4 key, must stay
+	vp.Entries.Set("PrintScaling", pdf.PDFName{Value: "None"})
+	vp.Entries.Set("DisplayDocTitle", pdf.PDFBoolean(true)) // 1.4 key, must stay
 
 	root := pdf.NewPDFDict()
-	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	root.Entries["ViewerPreferences"] = vp
+	root.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	root.Entries.Set("ViewerPreferences", vp)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
 	fixer := viewerPrefFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -29,10 +29,10 @@ func TestViewerPrefFixerRemovesPost14Keys(t *testing.T) {
 	if !changed {
 		t.Fatalf("changed = false, want true")
 	}
-	if vp.Entries["PrintScaling"] != nil {
+	if vp.Entries.Get("PrintScaling") != nil {
 		t.Errorf("/PrintScaling still present after viewerPrefFixer")
 	}
-	if vp.Entries["DisplayDocTitle"] == nil {
+	if vp.Entries.Get("DisplayDocTitle") == nil {
 		t.Errorf("/DisplayDocTitle was removed but should be kept")
 	}
 }
@@ -41,14 +41,14 @@ func TestViewerPrefFixerRemovesPost14Keys(t *testing.T) {
 // post-1.4 keys are present.
 func TestViewerPrefFixerNoOp(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["DisplayDocTitle"] = pdf.PDFBoolean(true)
+	vp.Entries.Set("DisplayDocTitle", pdf.PDFBoolean(true))
 
 	root := pdf.NewPDFDict()
-	root.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	root.Entries["ViewerPreferences"] = vp
+	root.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	root.Entries.Set("ViewerPreferences", vp)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
 	changed, err := viewerPrefFixer{}.Fix(&trailer, nil)
 	if err != nil {
@@ -65,22 +65,22 @@ func TestViewerPrefFixerNoOp(t *testing.T) {
 func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	// Minimal JS action dict (the leaf).
 	action := pdf.NewPDFDict()
-	action.Entries["S"] = pdf.PDFName{Value: "JavaScript"}
-	action.Entries["JS"] = pdf.PDFString{Value: "app.alert('hi')"}
+	action.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
+	action.Entries.Set("JS", pdf.PDFString{Value: "app.alert('hi')"})
 
 	// Name tree dict containing the action.
 	nameTree := pdf.NewPDFDict()
-	nameTree.Entries["Names"] = pdf.PDFArray{pdf.PDFString{Value: "open"}, action}
+	nameTree.Entries.Set("Names", pdf.PDFArray{pdf.PDFString{Value: "open"}, action})
 
 	// Catalog /Names dict with /JavaScript key.
 	names := pdf.NewPDFDict()
-	names.Entries["JavaScript"] = nameTree
+	names.Entries.Set("JavaScript", nameTree)
 
 	root := pdf.NewPDFDict()
-	root.Entries["Names"] = names
+	root.Entries.Set("Names", names)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
 	fixer := actionFixer{}
 	changed, err := fixer.Fix(&trailer, nil)
@@ -92,19 +92,19 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	}
 
 	// /Names/JavaScript must be gone.
-	namesAfter := root.Entries["Names"].(pdf.PDFDict)
-	if namesAfter.Entries["JavaScript"] != nil {
+	namesAfter := root.Entries.Get("Names").(pdf.PDFDict)
+	if namesAfter.Entries.Get("JavaScript") != nil {
 		t.Errorf("/Names/JavaScript still present after actionFixer")
 	}
 
 	// The leaf action dict must also be cleared.
-	if action.Entries["S"] != nil || action.Entries["JS"] != nil {
+	if action.Entries.Get("S") != nil || action.Entries.Get("JS") != nil {
 		t.Errorf("leaf action dict not cleared: %v", action.Entries)
 	}
 }
 
 func TestExtGStateFixer(t *testing.T) {
-	gs := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":  pdf.PDFName{Value: "ExtGState"},
 		"TR":    pdf.PDFName{Value: "Identity"},
 		"TR2":   pdf.PDFName{Value: "Foo"},
@@ -113,47 +113,47 @@ func TestExtGStateFixer(t *testing.T) {
 		"BM":    pdf.PDFName{Value: "Weird"},
 		"CA":    pdf.PDFReal(0.5),
 		"ca":    pdf.PDFReal(0.5),
-	}}
+	})}
 	trailer := trailerWith("GS", gs)
 	changed, err := extGStateFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
-	if _, ok := gs.Entries["TR"]; ok {
+	if _, ok := gs.Entries.Lookup("TR"); ok {
 		t.Error("TR not removed")
 	}
-	if gs.Entries["TR2"] != (pdf.PDFName{Value: "Default"}) {
+	if gs.Entries.Get("TR2") != (pdf.PDFName{Value: "Default"}) {
 		t.Error("TR2 not normalized to Default")
 	}
-	if _, ok := gs.Entries["RI"]; ok {
+	if _, ok := gs.Entries.Lookup("RI"); ok {
 		t.Error("invalid RI not removed")
 	}
-	if gs.Entries["SMask"] != (pdf.PDFName{Value: "None"}) {
+	if gs.Entries.Get("SMask") != (pdf.PDFName{Value: "None"}) {
 		t.Error("SMask not normalized to None")
 	}
-	if gs.Entries["BM"] != (pdf.PDFName{Value: "Normal"}) {
+	if gs.Entries.Get("BM") != (pdf.PDFName{Value: "Normal"}) {
 		t.Error("BM not normalized to Normal")
 	}
-	if gs.Entries["CA"] != pdf.PDFReal(1.0) || gs.Entries["ca"] != pdf.PDFReal(1.0) {
+	if gs.Entries.Get("CA") != pdf.PDFReal(1.0) || gs.Entries.Get("ca") != pdf.PDFReal(1.0) {
 		t.Error("alpha not normalized to 1.0")
 	}
 }
 
 func TestAnnotationFlagsFixer(t *testing.T) {
-	annot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Annot"},
 		"F":    pdf.PDFInteger(2), // Hidden set, Print not set
 		"CA":   pdf.PDFReal(0.5),
-	}}
+	})}
 	trailer := trailerWith("Annot0", annot)
 	changed, err := annotationFlagsFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("annotationFlagsFixer.Fix = %v, %v", changed, err)
 	}
-	if annot.Entries["CA"] != pdf.PDFReal(1.0) {
+	if annot.Entries.Get("CA") != pdf.PDFReal(1.0) {
 		t.Error("annotation CA not normalized")
 	}
-	f := int(annot.Entries["F"].(pdf.PDFInteger))
+	f := int(annot.Entries.Get("F").(pdf.PDFInteger))
 	if f&verify.AnnotFlagPrint == 0 {
 		t.Error("Print flag not set")
 	}
@@ -163,55 +163,55 @@ func TestAnnotationFlagsFixer(t *testing.T) {
 }
 
 func TestFormFixer(t *testing.T) {
-	widget := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	widget := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Annot"}, "Subtype": pdf.PDFName{Value: "Widget"},
 		"FT": pdf.PDFName{Value: "Tx"},
-		"A":  pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-		"AA": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-	}}
-	acroForm := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"A":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		"AA": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	})}
+	acroForm := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"NeedAppearances": pdf.PDFBoolean(true),
 		"XFA":             pdf.PDFArray{},
 		"Fields":          pdf.PDFArray{widget},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Catalog"}, "AcroForm": acroForm,
-		}},
-	}}
+		})},
+	})}
 	changed, err := formFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("formFixer.Fix = %v, %v", changed, err)
 	}
-	if acroForm.Entries["NeedAppearances"] != pdf.PDFBoolean(false) {
+	if acroForm.Entries.Get("NeedAppearances") != pdf.PDFBoolean(false) {
 		t.Error("NeedAppearances not cleared")
 	}
-	if _, ok := acroForm.Entries["XFA"]; ok {
+	if _, ok := acroForm.Entries.Lookup("XFA"); ok {
 		t.Error("XFA not removed")
 	}
-	if _, ok := widget.Entries["A"]; ok {
+	if _, ok := widget.Entries.Lookup("A"); ok {
 		t.Error("widget /A action not removed")
 	}
-	if _, ok := widget.Entries["AA"]; ok {
+	if _, ok := widget.Entries.Lookup("AA"); ok {
 		t.Error("widget /AA additional actions not removed")
 	}
 }
 
 func TestPostScriptXObjectFixer(t *testing.T) {
-	xobj := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	xobj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":  pdf.PDFName{Value: "Form"},
 		"PS":       pdf.PDFInteger(1),
 		"Subtype2": pdf.PDFName{Value: "PS"},
-	}}
+	})}
 	trailer := trailerWith("XObj", xobj)
 	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("postScriptXObjectFixer.Fix = %v, %v", changed, err)
 	}
-	if _, ok := xobj.Entries["PS"]; ok {
+	if _, ok := xobj.Entries.Lookup("PS"); ok {
 		t.Error("PS not removed")
 	}
-	if _, ok := xobj.Entries["Subtype2"]; ok {
+	if _, ok := xobj.Entries.Lookup("Subtype2"); ok {
 		t.Error("Subtype2 PS not removed")
 	}
 }
@@ -220,41 +220,41 @@ func TestPostScriptXObjectFixer(t *testing.T) {
 // empty Form XObject (viewers never render PS passthrough, so nothing visual
 // is lost) with the stream filter metadata cleared.
 func TestPostScriptXObjectFixerNeutersPSSubtype(t *testing.T) {
-	xobj := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	xobj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "XObject"},
 		"Subtype": pdf.PDFName{Value: "PS"},
 		"Filter":  pdf.PDFName{Value: "FlateDecode"},
 		"Level1":  pdf.PDFRef{ObjNum: 9},
-	}, HasStream: true, RawStream: []byte("compressed ps")}
+	}), HasStream: true, RawStream: []byte("compressed ps")}
 	trailer := trailerWith("XObj", xobj)
 	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("postScriptXObjectFixer.Fix = %v, %v", changed, err)
 	}
-	if xobj.Entries["Subtype"] != (pdf.PDFName{Value: "Form"}) {
-		t.Errorf("Subtype = %v, want Form", xobj.Entries["Subtype"])
+	if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) {
+		t.Errorf("Subtype = %v, want Form", xobj.Entries.Get("Subtype"))
 	}
-	if _, ok := xobj.Entries["BBox"].(pdf.PDFArray); !ok {
+	if _, ok := xobj.Entries.Get("BBox").(pdf.PDFArray); !ok {
 		t.Error("BBox not synthesized")
 	}
 	for _, k := range []string{"Filter", "DecodeParms", "DP", "Level1"} {
-		if _, ok := xobj.Entries[k]; ok {
+		if _, ok := xobj.Entries.Lookup(k); ok {
 			t.Errorf("%s not removed", k)
 		}
 	}
 }
 
 func TestOptionalContentFixer(t *testing.T) {
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":         pdf.PDFName{Value: "Catalog"},
-		"OCProperties": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+		"OCProperties": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 	changed, err := optionalContentFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("optionalContentFixer.Fix = %v, %v", changed, err)
 	}
-	if _, ok := root.Entries["OCProperties"]; ok {
+	if _, ok := root.Entries.Lookup("OCProperties"); ok {
 		t.Error("OCProperties not removed")
 	}
 }
@@ -262,14 +262,14 @@ func TestOptionalContentFixer(t *testing.T) {
 // TestOptionalContentFixerNoOp covers the two no-op short-circuits: no Root,
 // and a Root with no /OCProperties to remove.
 func TestOptionalContentFixerNoOp(t *testing.T) {
-	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	if changed, err := (optionalContentFixer{}).Fix(&noRoot, nil); err != nil || changed {
 		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
 	}
 
-	noOCProps := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}},
-	}}
+	noOCProps := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}})},
+	})}
 	if changed, err := (optionalContentFixer{}).Fix(&noOCProps, nil); err != nil || changed {
 		t.Errorf("Fix(no OCProperties) = %v, %v, want (false, nil)", changed, err)
 	}
@@ -279,14 +279,14 @@ func TestOptionalContentFixerNoOp(t *testing.T) {
 // no-ViewerPreferences short-circuits (distinct from TestViewerPrefFixerNoOp,
 // which covers ViewerPreferences present but clean).
 func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
-	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	if changed, err := (viewerPrefFixer{}).Fix(&noRoot, nil); err != nil || changed {
 		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
 	}
 
-	noVP := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}}},
-	}}
+	noVP := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}})},
+	})}
 	if changed, err := (viewerPrefFixer{}).Fix(&noVP, nil); err != nil || changed {
 		t.Errorf("Fix(no ViewerPreferences) = %v, %v, want (false, nil)", changed, err)
 	}

@@ -34,7 +34,7 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 // identity or placement. Returns the rendered buffer and the BBox it was
 // rendered against (needed to place the replacement image back into it).
 func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (*image.RGBA, [4]float64, []string, error) {
-	bbox, err := pdf.FloatArray(form.Entries["BBox"])
+	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
 	if err != nil || len(bbox) != 4 {
 		return nil, [4]float64{}, nil, fmt.Errorf("raster: missing or invalid Form /BBox")
 	}
@@ -96,7 +96,7 @@ func sortedDrops(set map[string]bool) []string {
 // stream or an array of streams, per the spec, joined by whitespace).
 func pageContentBytes(page pdf.PDFDict) ([]byte, error) {
 	var out []byte
-	switch c := page.Entries["Contents"].(type) {
+	switch c := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		data, err := pdf.DecodeStream(c)
 		if err != nil {
@@ -592,15 +592,15 @@ func (r *renderer) applyExtGState(operands []pdf.PDFValue, resources pdf.PDFDict
 	if !ok {
 		return
 	}
-	extGStates, _ := resources.Entries["ExtGState"].(pdf.PDFDict)
-	egs, ok := extGStates.Entries[name.Value].(pdf.PDFDict)
+	extGStates, _ := resources.Entries.Get("ExtGState").(pdf.PDFDict)
+	egs, ok := extGStates.Entries.Get(name.Value).(pdf.PDFDict)
 	if !ok {
 		return
 	}
-	if ca, ok := pdf.PDFNumberToFloat(egs.Entries["ca"]); ok {
+	if ca, ok := pdf.PDFNumberToFloat(egs.Entries.Get("ca")); ok {
 		gs.fillAlpha = ca
 	}
-	if CA, ok := pdf.PDFNumberToFloat(egs.Entries["CA"]); ok {
+	if CA, ok := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); ok {
 		gs.strokeAlpha = CA
 	}
 }
@@ -615,12 +615,12 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 	if !ok {
 		return
 	}
-	xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-	xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict)
+	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
+	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
 	if !ok || !xobj.HasStream {
 		return
 	}
-	subtype, _ := xobj.Entries["Subtype"].(pdf.PDFName)
+	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Form":
 		if r.depth > 12 {
@@ -628,12 +628,12 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		}
 		r.depth++
 		defer func() { r.depth-- }()
-		formRes, _ := xobj.Entries["Resources"].(pdf.PDFDict)
+		formRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 		if formRes.Entries == nil {
 			formRes = resources
 		}
 		childGS := *gs
-		if m, err := pdf.FloatArray(xobj.Entries["Matrix"]); err == nil && len(m) == 6 {
+		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
 			fm := Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 			childGS.ctm = fm.Mul(gs.ctm)
 		}
@@ -655,7 +655,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 		return
 	}
 	var smask *image.RGBA
-	if sm, ok := xobj.Entries["SMask"].(pdf.PDFDict); ok {
+	if sm, ok := xobj.Entries.Get("SMask").(pdf.PDFDict); ok {
 		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
 			smask = decoded
 		}
@@ -666,7 +666,7 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 // isImageMask reports whether an image dict is a stencil mask, whose samples
 // select where to paint the current fill colour rather than carrying colour.
 func isImageMask(dict pdf.PDFDict) bool {
-	return dict.Entries["ImageMask"] == pdf.PDFBoolean(true)
+	return dict.Entries.Get("ImageMask") == pdf.PDFBoolean(true)
 }
 
 // compositeImage maps an image's unit square through the CTM, sampling the
@@ -742,8 +742,8 @@ func (r *renderer) applyTf(operands []pdf.PDFValue, resources pdf.PDFDict, gs *r
 		return
 	}
 	size, _ := pdf.PDFNumberToFloat(operands[len(operands)-1])
-	fonts, _ := resources.Entries["Font"].(pdf.PDFDict)
-	fd, ok := fonts.Entries[name.Value].(pdf.PDFDict)
+	fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
+	fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict)
 	if !ok {
 		return
 	}
@@ -873,10 +873,10 @@ func (r *renderer) fontInfoFor(font pdf.PDFDict) *fontInfo {
 }
 
 func buildFontInfo(font pdf.PDFDict) *fontInfo {
-	if st, _ := font.Entries["Subtype"].(pdf.PDFName); st.Value == "Type3" {
+	if st, _ := font.Entries.Get("Subtype").(pdf.PDFName); st.Value == "Type3" {
 		return buildType3FontInfo(font)
 	}
-	if df, ok := font.Entries["DescendantFonts"].(pdf.PDFArray); ok && len(df) > 0 {
+	if df, ok := font.Entries.Get("DescendantFonts").(pdf.PDFArray); ok && len(df) > 0 {
 		if desc, ok := df[0].(pdf.PDFDict); ok {
 			return buildCompositeFontInfo(desc)
 		}
@@ -891,17 +891,17 @@ func buildFontInfo(font pdf.PDFDict) *fontInfo {
 // CharStrings INDEX are already GID-ordered.
 func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	fi := &fontInfo{bytesPerCode: 2, defaultWidth: 1000, widths: map[int]float64{}}
-	if dw, ok := pdf.PDFNumberToFloat(desc.Entries["DW"]); ok {
+	if dw, ok := pdf.PDFNumberToFloat(desc.Entries.Get("DW")); ok {
 		fi.defaultWidth = dw
 	}
-	if w, ok := desc.Entries["W"].(pdf.PDFArray); ok {
+	if w, ok := desc.Entries.Get("W").(pdf.PDFArray); ok {
 		for _, pair := range verify.ParseCIDWidths(w) {
 			fi.widths[pair[0]] = float64(pair[1])
 		}
 	}
 
 	cidToGID := func(cid int) int { return cid }
-	if c2g, ok := desc.Entries["CIDToGIDMap"].(pdf.PDFDict); ok && c2g.HasStream {
+	if c2g, ok := desc.Entries.Get("CIDToGIDMap").(pdf.PDFDict); ok && c2g.HasStream {
 		if data, err := pdf.DecodeStream(c2g); err == nil {
 			cidToGID = func(cid int) int {
 				if cid*2+2 > len(data) {
@@ -912,8 +912,8 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 		}
 	}
 
-	desc2, _ := desc.Entries["FontDescriptor"].(pdf.PDFDict)
-	if ff2, ok := desc2.Entries["FontFile2"].(pdf.PDFDict); ok {
+	desc2, _ := desc.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if ff2, ok := desc2.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
 			if tables, ok := verify.ParseSfnt(data); ok {
@@ -924,7 +924,7 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 			}
 		}
 	}
-	if ff3, ok := desc2.Entries["FontFile3"].(pdf.PDFDict); ok {
+	if ff3, ok := desc2.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
 			cff := extractCFFBytes(data)
@@ -945,11 +945,11 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 // then to outlines via the embedded font program.
 func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	fi := &fontInfo{bytesPerCode: 1, widths: map[int]float64{}}
-	firstChar, fcOK := font.Entries["FirstChar"].(pdf.PDFInteger)
+	firstChar, fcOK := font.Entries.Get("FirstChar").(pdf.PDFInteger)
 	if !fcOK {
 		firstChar = 0
 	}
-	if widths, ok := font.Entries["Widths"].(pdf.PDFArray); ok {
+	if widths, ok := font.Entries.Get("Widths").(pdf.PDFArray); ok {
 		for i, w := range widths {
 			if v, ok := pdf.PDFNumberToFloat(w); ok {
 				fi.widths[int(firstChar)+i] = v
@@ -957,14 +957,14 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		}
 	}
 
-	desc, _ := font.Entries["FontDescriptor"].(pdf.PDFDict)
-	if mw, ok := pdf.PDFNumberToFloat(desc.Entries["MissingWidth"]); ok {
+	desc, _ := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if mw, ok := pdf.PDFNumberToFloat(desc.Entries.Get("MissingWidth")); ok {
 		fi.defaultWidth = mw
 	}
 
-	names := resolveSimpleEncoding(font.Entries["Encoding"])
+	names := resolveSimpleEncoding(font.Entries.Get("Encoding"))
 
-	if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff)
 		if err == nil {
 			fi.glyphFor = func(code int) (GlyphPath, bool) {
@@ -976,7 +976,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 			return fi
 		}
 	}
-	if ff2, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+	if ff2, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
 			if tables, ok := verify.ParseSfnt(data); ok {
@@ -988,7 +988,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 			}
 		}
 	}
-	if ff3, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+	if ff3, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
 			if cff := extractCFFBytes(data); cff != nil {
@@ -1010,7 +1010,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 			cmap   map[uint16]uint16
 		}
 		var faces []parsedFace
-		baseFont, _ := font.Entries["BaseFont"].(pdf.PDFName)
+		baseFont, _ := font.Entries.Get("BaseFont").(pdf.PDFName)
 		lib := pickLiberationFace(desc, baseFont.Value)
 		for _, data := range [][]byte{lib.data, notoSymbols2, notoSymbols} {
 			if tables, ok := verify.ParseSfnt(data); ok {
@@ -1106,14 +1106,14 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 			names = verify.StandardEncoding
 		}
 	case pdf.PDFDict:
-		base, _ := e.Entries["BaseEncoding"].(pdf.PDFName)
+		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
 		switch base.Value {
 		case "WinAnsiEncoding":
 			names = verify.WinAnsiGlyphName
 		default:
 			names = verify.StandardEncoding
 		}
-		if diffs, ok := e.Entries["Differences"].(pdf.PDFArray); ok {
+		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
 			code := 0
 			for _, item := range diffs {
 				switch d := item.(type) {

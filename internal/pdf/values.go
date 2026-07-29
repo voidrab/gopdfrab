@@ -13,9 +13,9 @@ import (
 // walking the object graph.
 func ValuePointer(v PDFValue) uintptr {
 	switch x := v.(type) {
-	case map[string]PDFValue:
-		// A map variable is a pointer to the runtime map header; dereference it.
-		return *(*uintptr)(unsafe.Pointer(&x))
+	case Dict:
+		// Already pointer-shaped, and stable across Set/Del -- see Dict.
+		return uintptr(unsafe.Pointer(x))
 	case PDFArray:
 		// A slice header starts with the data pointer.
 		return *(*uintptr)(unsafe.Pointer(&x))

@@ -57,7 +57,7 @@ func TestParseIndirectObjectAtErrors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseIndirectObjectAt: %v", err)
 		}
-		if objNum != 1 || dict.HasStream || !EqualPDFValue(dict.Entries["A"], PDFInteger(1)) {
+		if objNum != 1 || dict.HasStream || !EqualPDFValue(dict.Entries.Get("A"), PDFInteger(1)) {
 			t.Errorf("got objNum=%d dict=%#v, want objNum=1, A=1, HasStream=false", objNum, dict)
 		}
 	})
@@ -131,8 +131,8 @@ func TestTryParseXRefStream(t *testing.T) {
 		if err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
 		}
-		if !EqualPDFValue(dict.Entries["Type"], PDFName{Value: "XRef"}) {
-			t.Errorf("returned dict Type = %v, want /XRef", dict.Entries["Type"])
+		if !EqualPDFValue(dict.Entries.Get("Type"), PDFName{Value: "XRef"}) {
+			t.Errorf("returned dict Type = %v, want /XRef", dict.Entries.Get("Type"))
 		}
 		if d.xrefTable[1] != 50 {
 			t.Errorf("xrefTable[1] = %d, want 50", d.xrefTable[1])
@@ -256,27 +256,27 @@ func TestTryParseXRefStream(t *testing.T) {
 // TestXrefFieldWidths covers the missing-/W, wrong-length, non-integer, and
 // negative-entry error branches, plus the success path.
 func TestXrefFieldWidths(t *testing.T) {
-	if _, err := xrefFieldWidths(PDFDict{Entries: map[string]PDFValue{}}); err == nil {
+	if _, err := xrefFieldWidths(PDFDict{Entries: DictOf(map[string]PDFValue{})}); err == nil {
 		t.Error("expected error for a missing /W")
 	}
-	if _, err := xrefFieldWidths(PDFDict{Entries: map[string]PDFValue{
+	if _, err := xrefFieldWidths(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"W": PDFArray{PDFInteger(1), PDFInteger(1)},
-	}}); err == nil {
+	})}); err == nil {
 		t.Error("expected error for a /W array of the wrong length")
 	}
-	if _, err := xrefFieldWidths(PDFDict{Entries: map[string]PDFValue{
+	if _, err := xrefFieldWidths(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"W": PDFArray{PDFName{Value: "X"}, PDFInteger(1), PDFInteger(1)},
-	}}); err == nil {
+	})}); err == nil {
 		t.Error("expected error for a non-integer /W entry")
 	}
-	if _, err := xrefFieldWidths(PDFDict{Entries: map[string]PDFValue{
+	if _, err := xrefFieldWidths(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"W": PDFArray{PDFInteger(-1), PDFInteger(1), PDFInteger(1)},
-	}}); err == nil {
+	})}); err == nil {
 		t.Error("expected error for a negative /W entry")
 	}
-	w, err := xrefFieldWidths(PDFDict{Entries: map[string]PDFValue{
+	w, err := xrefFieldWidths(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"W": PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(1)},
-	}})
+	})})
 	if err != nil || w != [3]int{1, 2, 1} {
 		t.Errorf("xrefFieldWidths = %v, %v; want {1 2 1}", w, err)
 	}
@@ -286,30 +286,30 @@ func TestXrefFieldWidths(t *testing.T) {
 // missing-/Size error), the odd-length and non-integer /Index errors, and an
 // explicit multi-range /Index success.
 func TestXrefIndexRanges(t *testing.T) {
-	if _, err := xrefIndexRanges(PDFDict{Entries: map[string]PDFValue{}}); err == nil {
+	if _, err := xrefIndexRanges(PDFDict{Entries: DictOf(map[string]PDFValue{})}); err == nil {
 		t.Error("expected error when both /Index and /Size are missing")
 	}
 
-	ranges, err := xrefIndexRanges(PDFDict{Entries: map[string]PDFValue{"Size": PDFInteger(5)}})
+	ranges, err := xrefIndexRanges(PDFDict{Entries: DictOf(map[string]PDFValue{"Size": PDFInteger(5)})})
 	if err != nil || len(ranges) != 1 || ranges[0] != (xrefRange{start: 0, count: 5}) {
 		t.Errorf("default range = %v, %v; want [{0 5}]", ranges, err)
 	}
 
-	if _, err := xrefIndexRanges(PDFDict{Entries: map[string]PDFValue{
+	if _, err := xrefIndexRanges(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Index": PDFArray{PDFInteger(0)},
-	}}); err == nil {
+	})}); err == nil {
 		t.Error("expected error for an odd-length /Index")
 	}
 
-	if _, err := xrefIndexRanges(PDFDict{Entries: map[string]PDFValue{
+	if _, err := xrefIndexRanges(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Index": PDFArray{PDFName{Value: "X"}, PDFInteger(1)},
-	}}); err == nil {
+	})}); err == nil {
 		t.Error("expected error for a non-integer /Index entry")
 	}
 
-	ranges, err = xrefIndexRanges(PDFDict{Entries: map[string]PDFValue{
+	ranges, err = xrefIndexRanges(PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Index": PDFArray{PDFInteger(0), PDFInteger(1), PDFInteger(10), PDFInteger(2)},
-	}})
+	})})
 	want := []xrefRange{{start: 0, count: 1}, {start: 10, count: 2}}
 	if err != nil || len(ranges) != 2 || ranges[0] != want[0] || ranges[1] != want[1] {
 		t.Errorf("explicit ranges = %v, %v; want %v", ranges, err, want)

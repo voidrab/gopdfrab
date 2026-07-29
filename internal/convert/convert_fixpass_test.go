@@ -14,16 +14,16 @@ import (
 func fixPassTrailer(t *testing.T, n int) (*fixPass, map[int]pdf.PDFDict) {
 	t.Helper()
 	root := pdf.NewPDFDict()
-	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	root.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 	kids := make(pdf.PDFArray, 0, n)
 	for i := 0; i < n; i++ {
 		child := pdf.NewPDFDict()
-		child.Entries["_ref"] = pdf.PDFRef{ObjNum: 100 + i}
+		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: 100 + i})
 		kids = append(kids, child)
 	}
-	root.Entries["Kids"] = kids
+	root.Entries.Set("Kids", kids)
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	byNum := map[int]pdf.PDFDict{}
@@ -67,7 +67,7 @@ func TestFixPassDictForRef(t *testing.T) {
 		anyNum = num
 		break
 	}
-	byNum[anyNum].Entries["_ref"] = pdf.PDFRef{ObjNum: 777}
+	byNum[anyNum].Entries.Set("_ref", pdf.PDFRef{ObjNum: 777})
 	if _, ok := pass.dictForRef(pdf.PDFRef{ObjNum: anyNum}); ok {
 		t.Error("dictForRef ok = true for a dict whose _ref no longer matches")
 	}
@@ -127,29 +127,29 @@ func TestFixPassDictsForIssuesGateAndOrder(t *testing.T) {
 // the iteration index, since stream fields don't propagate via Entries.
 func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 	stream := pdf.PDFDict{
-		Entries:   map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}},
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}}),
 		HasStream: true,
 		RawStream: []byte("old"),
 	}
 	root := pdf.NewPDFDict()
-	root.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
-	root.Entries["Direct"] = stream
-	root.Entries["List"] = pdf.PDFArray{stream}
+	root.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	root.Entries.Set("Direct", stream)
+	root.Entries.Set("List", pdf.PDFArray{stream})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := stream.Entries["_ref"].(pdf.PDFRef)
+	ref := stream.Entries.Get("_ref").(pdf.PDFRef)
 
 	updated := stream
 	updated.RawStream = []byte("new")
 	pass.replaceObject(stream, updated)
 
-	if got := root.Entries["Direct"].(pdf.PDFDict).RawStream; string(got) != "new" {
+	if got := root.Entries.Get("Direct").(pdf.PDFDict).RawStream; string(got) != "new" {
 		t.Errorf("dict-entry slot RawStream = %q, want %q", got, "new")
 	}
-	if got := root.Entries["List"].(pdf.PDFArray)[0].(pdf.PDFDict).RawStream; string(got) != "new" {
+	if got := root.Entries.Get("List").(pdf.PDFArray)[0].(pdf.PDFDict).RawStream; string(got) != "new" {
 		t.Errorf("array slot RawStream = %q, want %q", got, "new")
 	}
 	if got, ok := pass.objs[ref.ObjNum].(pdf.PDFDict); !ok || string(got.RawStream) != "new" {
@@ -165,31 +165,31 @@ func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 // a Type3 CharProcs glyph -- plus a plain (non-content) stream that must not
 // be flagged.
 func TestFixPassIsContentStream(t *testing.T) {
-	pageStreamA := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
-	pageStreamB := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
-	pattern := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"PatternType": pdf.PDFInteger(1)}, HasStream: true, RawStream: []byte("q Q")}
-	form := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}, HasStream: true, RawStream: []byte("q Q")}
-	glyph := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("q Q")}
-	type3Font := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	pageStreamA := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
+	pageStreamB := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
+	pattern := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"PatternType": pdf.PDFInteger(1)}), HasStream: true, RawStream: []byte("q Q")}
+	form := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), HasStream: true, RawStream: []byte("q Q")}
+	glyph := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
+	type3Font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":   pdf.PDFName{Value: "Type3"},
-		"CharProcs": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"g1": glyph}},
-	}}
-	notContent := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}, HasStream: true, RawStream: []byte("\x00\x01")}
+		"CharProcs": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"g1": glyph})},
+	})}
+	notContent := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), HasStream: true, RawStream: []byte("\x00\x01")}
 
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"Contents": pdf.PDFArray{pageStreamA, pageStreamB},
-		"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pattern": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"P1": pattern}},
-			"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm1": form, "Im1": notContent}},
-			"Font":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"T3": type3Font}},
-		}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
-		}},
-	}}
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
+			"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form, "Im1": notContent})},
+			"Font":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"T3": type3Font})},
+		})},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
 	pass := &fixPass{trailer: &trailer}
 
 	for _, want := range []struct {

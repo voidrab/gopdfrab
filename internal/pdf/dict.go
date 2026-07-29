@@ -1,42 +1,20 @@
 package pdf
 
 import (
+	"fmt"
 	"iter"
 	"slices"
+	"strings"
 )
 
-// Dict is a PDF dictionary's entry set. It is pointer-shaped on purpose, and
-// three properties follow from that -- all three are load-bearing:
-//
-//   - nil is the absent dictionary, so `d.Entries == nil` keeps working and
-//     keeps meaning "this was not a dictionary".
-//   - the pointer is a stable identity that survives mutation, which is what
-//     ValuePointer keys on. A bare slice would not do: appending an entry can
-//     move the backing array, and roughly eighty sites across this repo key
-//     cycle guards, content-usage suppression sets, the writer's discovery
-//     index and the fixers' parent index on that identity. An identity that
-//     changed under Set would fail to dedupe or fail to suppress, silently.
-//   - a PDFDict copied by value shares its entries, exactly as it did when
-//     Entries was a map.
-//
-// The representation is a slice, not a map, because PDF dictionaries are
-// small: measured over the 774 committed fixtures, 60,017 distinct
-// dictionaries hold 3.84 entries on average, 95% have six or fewer and 99%
-// have eight or fewer. At those sizes a Go map costs 392-440 bytes against a
-// slice's 184-328, and the resolved graph is dominated by that scaffolding
-// rather than by stream bytes (those alias the mmap).
-//
-// Above promoteThreshold entries a key->index map is built alongside, so a
-// pathologically wide dictionary does not turn lookups quadratic.
+// Dict is a PDF dictionary's entry set: a slice, since dictionaries are small
+// and a Go map costs roughly twice the memory at that size.
 type Dict = *DictBody
 
-// DictBody is Dict's referent. Use Dict; this type is named only so the
-// methods have somewhere to live and so godoc reads sensibly.
+// DictBody is Dict's referent. Use Dict.
 type DictBody struct {
 	ent []DictEntry
-	// idx is nil until the entry count passes promoteThreshold, at which
-	// point it maps key -> index into ent and is maintained thereafter.
-	idx map[string]int
+	idx map[string]int // nil below promoteThreshold; key -> index into ent
 }
 
 // DictEntry is one key/value pair, in insertion order.
@@ -45,10 +23,8 @@ type DictEntry struct {
 	Val PDFValue
 }
 
-// promoteThreshold is the entry count past which a Dict also maintains an
-// index map. Linear scan wins comfortably below it -- 99.8% of dictionaries
-// in the committed corpora have twelve entries or fewer -- and the index
-// bounds the tail.
+// promoteThreshold is where a Dict starts maintaining an index map. Linear
+// scan wins below it; 99.8% of corpus dictionaries stay under.
 const promoteThreshold = 12
 
 // NewDict returns an empty dictionary.
@@ -63,9 +39,8 @@ func NewDictCap(n int) Dict {
 	return d
 }
 
-// DictOf builds a dictionary from a map. Iteration order of a Go map is
-// random, so the entries are inserted in sorted key order to keep the result
-// reproducible; callers that need a specific order should Set in that order.
+// DictOf builds a dictionary from a map, inserting in sorted key order so the
+// result does not depend on map iteration order.
 func DictOf(m map[string]PDFValue) Dict {
 	d := NewDictCap(len(m))
 	for _, k := range slices.Sorted(maps_Keys(m)) {
@@ -74,7 +49,6 @@ func DictOf(m map[string]PDFValue) Dict {
 	return d
 }
 
-// maps_Keys avoids importing "maps" purely for one iterator.
 func maps_Keys(m map[string]PDFValue) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		for k := range m {
@@ -104,12 +78,8 @@ func (d Dict) find(k string) int {
 	return -1
 }
 
-// Get returns the value stored under k, or nil when k is absent. Note that a
-// present-but-null entry is also nil: null is a nil PDFValue (see PDFValue),
-// and the spec treats a null entry and an absent one as equivalent. Use
-// Lookup only when the distinction genuinely matters, which is rare.
-//
-// Safe on a nil Dict, matching a read from a nil map.
+// Get returns the value under k, or nil when absent. A present-but-null entry
+// is also nil -- see PDFValue. Safe on a nil Dict.
 func (d Dict) Get(k string) PDFValue {
 	if i := d.find(k); i >= 0 {
 		return d.ent[i].Val
@@ -126,7 +96,6 @@ func (d Dict) Lookup(k string) (PDFValue, bool) {
 }
 
 // Set stores v under k, replacing any existing value and otherwise appending.
-// It panics on a nil Dict, matching a write to a nil map.
 func (d Dict) Set(k string, v PDFValue) {
 	if d == nil {
 		panic("pdf: Set on a nil Dict")
@@ -143,8 +112,7 @@ func (d Dict) Set(k string, v PDFValue) {
 	}
 }
 
-// Del removes k if present. Removal preserves the order of the remaining
-// entries, so a document's key order survives a fixer deleting one entry.
+// Del removes k if present, preserving the order of the rest.
 func (d Dict) Del(k string) {
 	i := d.find(k)
 	if i < 0 {
@@ -172,24 +140,64 @@ func (d Dict) Len() int {
 	return len(d.ent)
 }
 
-// All iterates the entries in insertion order. Safe on a nil Dict.
+// All iterates in insertion order. Safe on a nil Dict.
 //
-// The order being deterministic is a side effect, not a licence: every walk
-// whose output must be reproducible still sorts explicitly (ctx.sortedKeys,
-// pdfWriter.sortedEntryKeys, pruneUnusedResourceEntries). Relying on
-// insertion order there would only hide a missing sort, and the writer's
-// reproducibility argument has to stand on its own.
+// Do not Set a new key or Del during iteration: unlike a Go map, removing an
+// entry shifts its successors. Use DeleteFunc instead. Callers needing a
+// reproducible order must still sort; insertion order is not a substitute.
 func (d Dict) All() iter.Seq2[string, PDFValue] {
 	return func(yield func(string, PDFValue) bool) {
 		if d == nil {
 			return
 		}
-		for i := range d.ent {
+		for i := 0; i < len(d.ent); i++ {
 			if !yield(d.ent[i].Key, d.ent[i].Val) {
 				return
 			}
 		}
 	}
+}
+
+// DeleteFunc removes every entry pred selects, in one pass, keeping order.
+// This is the safe way to remove while inspecting; All plus Del is not.
+func (d Dict) DeleteFunc(pred func(k string, v PDFValue) bool) {
+	if d == nil {
+		return
+	}
+	out := d.ent[:0]
+	for _, e := range d.ent {
+		if !pred(e.Key, e.Val) {
+			out = append(out, e)
+		}
+	}
+	// Clear the tail so dropped values are not kept alive.
+	for i := len(out); i < len(d.ent); i++ {
+		d.ent[i] = DictEntry{}
+	}
+	d.ent = out
+	if d.idx != nil {
+		d.reindex()
+	}
+}
+
+// String formats as the map this replaced did, keys sorted. Without it fmt
+// prints the pointer, putting a heap address into every check message.
+func (d Dict) String() string {
+	if d == nil {
+		return "map[]"
+	}
+	keys := d.Keys()
+	slices.Sort(keys)
+	var b strings.Builder
+	b.WriteString("map[")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%s:%v", k, d.Get(k))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // Keys returns the keys in insertion order. The slice is freshly allocated;
@@ -218,10 +226,8 @@ func (d Dict) Clone() Dict {
 	return c
 }
 
-// trim releases surplus capacity left by append's growth, so a freshly parsed
-// dictionary retains only what it holds. Worth doing once at the end of
-// parsing -- append grows 1,2,4,8, so a 3-entry dictionary otherwise carries
-// a 4-entry array and a 6-entry one an 8-entry array.
+// trim releases the surplus capacity append leaves, for use once parsing a
+// dictionary is done.
 func (d Dict) trim() {
 	if d == nil || cap(d.ent) == len(d.ent) {
 		return

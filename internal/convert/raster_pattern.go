@@ -36,8 +36,8 @@ func (r *renderer) patternShading(pattern pdf.PDFDict) (*shading, bool) {
 	if sh, ok := r.shadingCache[key]; ok {
 		return sh, sh != nil
 	}
-	resources, _ := pattern.Entries["Resources"].(pdf.PDFDict)
-	sh, ok := parseShading(pattern.Entries["Shading"], resources)
+	resources, _ := pattern.Entries.Get("Resources").(pdf.PDFDict)
+	sh, ok := parseShading(pattern.Entries.Get("Shading"), resources)
 	if !ok {
 		sh = nil
 	}
@@ -53,7 +53,7 @@ func (r *renderer) patternShading(pattern pdf.PDFDict) (*shading, bool) {
 // it is used in, not to the CTM in force when it is selected.
 func (r *renderer) patternToDevice(pattern pdf.PDFDict) Matrix {
 	m := IdentityMatrix
-	if a, err := pdf.FloatArray(pattern.Entries["Matrix"]); err == nil && len(a) == 6 {
+	if a, err := pdf.FloatArray(pattern.Entries.Get("Matrix")); err == nil && len(a) == 6 {
 		m = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	return m.Mul(r.patternBase)
@@ -63,8 +63,8 @@ func (r *renderer) patternToDevice(pattern pdf.PDFDict) Matrix {
 // reported as a drop and yields no pattern, so the caller paints nothing
 // rather than a misleading flat colour.
 func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDict, bool) {
-	patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
-	pattern, ok := patterns.Entries[name].(pdf.PDFDict)
+	patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
+	pattern, ok := patterns.Entries.Get(name).(pdf.PDFDict)
 	if !ok {
 		r.drop(dropShading)
 		return pdf.PDFDict{}, false

@@ -65,8 +65,8 @@ func TestAppearanceFontSourceScoping(t *testing.T) {
 // reported error.
 func TestAppearanceFontWidthsMatchHmtx(t *testing.T) {
 	font := (&appearanceFontSource{}).font()
-	desc := font.Entries["FontDescriptor"].(pdf.PDFDict)
-	ff := desc.Entries["FontFile2"].(pdf.PDFDict)
+	desc := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	data, err := pdf.DecodeStream(ff)
 	if err != nil {
 		t.Fatalf("pdf.DecodeStream(FontFile2): %v", err)
@@ -77,8 +77,8 @@ func TestAppearanceFontWidthsMatchHmtx(t *testing.T) {
 	}
 	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
 
-	widths := font.Entries["Widths"].(pdf.PDFArray)
-	firstChar := int(font.Entries["FirstChar"].(pdf.PDFInteger))
+	widths := font.Entries.Get("Widths").(pdf.PDFArray)
+	firstChar := int(font.Entries.Get("FirstChar").(pdf.PDFInteger))
 	for _, cc := range []int{'A', 'a', ' ', '0', 'W'} {
 		gid, ok := gidMap[verify.WinAnsiToUnicode[cc]]
 		if !ok {

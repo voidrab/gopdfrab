@@ -23,8 +23,8 @@ func TestParseXRefSectionAt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseXRefSectionAt: %v", err)
 		}
-		if !EqualPDFValue(dict.Entries["Root"], PDFRef{ObjNum: 1, GenNum: 0}) {
-			t.Errorf("trailer Root = %v, want 1 0 R", dict.Entries["Root"])
+		if !EqualPDFValue(dict.Entries.Get("Root"), PDFRef{ObjNum: 1, GenNum: 0}) {
+			t.Errorf("trailer Root = %v, want 1 0 R", dict.Entries.Get("Root"))
 		}
 		if r.xrefTable[1] != 10 {
 			t.Errorf("xrefTable[1] = %d, want 10", r.xrefTable[1])
@@ -57,8 +57,8 @@ func TestParseXRefSectionAt(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s path: ParseXRefSectionAt: %v", tc.name, err)
 				}
-				if !EqualPDFValue(dict.Entries["Root"], PDFRef{ObjNum: 1, GenNum: 0}) {
-					t.Errorf("%s path: trailer Root = %v, want 1 0 R", tc.name, dict.Entries["Root"])
+				if !EqualPDFValue(dict.Entries.Get("Root"), PDFRef{ObjNum: 1, GenNum: 0}) {
+					t.Errorf("%s path: trailer Root = %v, want 1 0 R", tc.name, dict.Entries.Get("Root"))
 				}
 				if tc.r.xrefTable[1] != 10 {
 					t.Errorf("%s path: xrefTable[1] = %d, want 10", tc.name, tc.r.xrefTable[1])
@@ -188,20 +188,20 @@ func TestParseObjectValueTypes(t *testing.T) {
 		t.Fatalf("parseDictionary: %v", err)
 	}
 
-	if dict.Entries["A"] != nil {
-		t.Errorf("A (null) should be nil, got %#v", dict.Entries["A"])
+	if dict.Entries.Get("A") != nil {
+		t.Errorf("A (null) should be nil, got %#v", dict.Entries.Get("A"))
 	}
-	if !EqualPDFValue(dict.Entries["B"], PDFName{Value: "keywordX"}) {
-		t.Errorf("B = %#v, want PDFName(keywordX)", dict.Entries["B"])
+	if !EqualPDFValue(dict.Entries.Get("B"), PDFName{Value: "keywordX"}) {
+		t.Errorf("B = %#v, want PDFName(keywordX)", dict.Entries.Get("B"))
 	}
-	if dict.Entries["C"] != PDFBoolean(true) {
-		t.Errorf("C = %#v, want true", dict.Entries["C"])
+	if dict.Entries.Get("C") != PDFBoolean(true) {
+		t.Errorf("C = %#v, want true", dict.Entries.Get("C"))
 	}
-	if dict.Entries["D"] != PDFReal(1.5) {
-		t.Errorf("D = %#v, want 1.5", dict.Entries["D"])
+	if dict.Entries.Get("D") != PDFReal(1.5) {
+		t.Errorf("D = %#v, want 1.5", dict.Entries.Get("D"))
 	}
-	if !EqualPDFValue(dict.Entries["E"], PDFHexString{Value: "48656C6C6F"}) {
-		t.Errorf("E = %#v, want hex string", dict.Entries["E"])
+	if !EqualPDFValue(dict.Entries.Get("E"), PDFHexString{Value: "48656C6C6F"}) {
+		t.Errorf("E = %#v, want hex string", dict.Entries.Get("E"))
 	}
 }
 

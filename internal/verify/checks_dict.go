@@ -10,7 +10,7 @@ import (
 // HasAnyKey reports whether dict v contains any of the given keys.
 func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 	for _, k := range keys {
-		if v.Entries[k] != nil {
+		if v.Entries.Get(k) != nil {
 			return true
 		}
 	}
@@ -66,7 +66,7 @@ var AllowedNamedActions = map[string]bool{
 
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
-	s, ok := v.Entries["S"].(pdf.PDFName)
+	s, ok := v.Entries.Get("S").(pdf.PDFName)
 	if !ok || !ActionTypes[s.Value] {
 		return
 	}
@@ -75,7 +75,7 @@ func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 		return
 	}
 	if s.Value == "Named" {
-		n, ok := v.Entries["N"].(pdf.PDFName)
+		n, ok := v.Entries.Get("N").(pdf.PDFName)
 		if !ok || !AllowedNamedActions[n.Value] {
 			ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
 		}
@@ -84,7 +84,7 @@ func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 
 // validateAdditionalActions flags presence of an additional-actions dictionary (6.6.2).
 func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries["AA"] != nil {
+	if v.Entries.Get("AA") != nil {
 		ctx.Report(pdf.Checks.Action.AdditionalActions, v, "additional-actions (AA) dictionary not allowed")
 	}
 }
@@ -95,15 +95,15 @@ var Post14ViewerPrefKeys = []string{"PrintScaling", "PickTrayByPDFSize", "PrintP
 
 // validateViewerPreferences flags ViewerPreferences keys not valid in PDF 1.4.
 func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
-	if (v.Entries["Type"] != pdf.PDFName{Value: "Catalog"}) {
+	if (v.Entries.Get("Type") != pdf.PDFName{Value: "Catalog"}) {
 		return
 	}
-	vp, ok := v.Entries["ViewerPreferences"].(pdf.PDFDict)
+	vp, ok := v.Entries.Get("ViewerPreferences").(pdf.PDFDict)
 	if !ok {
 		return
 	}
 	for _, k := range Post14ViewerPrefKeys {
-		if vp.Entries[k] != nil {
+		if vp.Entries.Get(k) != nil {
 			ctx.Report(pdf.Checks.Structure.PostPDF14ViewerPref, v,
 				fmt.Sprintf("ViewerPreferences entry /%s requires PDF 1.5 or later", k))
 		}
@@ -117,44 +117,44 @@ func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
 func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	// A dict with a Type other than ExtGState (Annot, XObject, Page, ...) is
 	// handled by another
-	if t, ok := v.Entries["Type"].(pdf.PDFName); ok && t.Value != "ExtGState" {
+	if t, ok := v.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 		return
 	}
 	if !HasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI") {
 		return
 	}
 
-	if v.Entries["TR"] != nil {
+	if v.Entries.Get("TR") != nil {
 		ctx.Report(pdf.Checks.Transparency.TransferFunction, v, "ExtGState shall not contain a TR key")
 	}
-	if tr2, ok := v.Entries["TR2"]; ok {
+	if tr2, ok := v.Entries.Lookup("TR2"); ok {
 		if name, isName := tr2.(pdf.PDFName); !isName || name.Value != "Default" {
 			ctx.Report(pdf.Checks.Transparency.DefaultTransferFunction, v, "ExtGState shall not contain a TR2 key other than /Default")
 		}
 	}
 	// 6.2.8: RI must be a standard rendering intent (distinct from the 6.2.9
 	// check on the content-stream `ri` operator).
-	if ri, ok := v.Entries["RI"].(pdf.PDFName); ok && !AllowedIntents[ri.Value] {
+	if ri, ok := v.Entries.Get("RI").(pdf.PDFName); ok && !AllowedIntents[ri.Value] {
 		ctx.Report(pdf.Checks.Transparency.ExtGStateRenderingIntent, v, fmt.Sprintf("ExtGState rendering intent /%s is not a standard rendering intent", ri.Value))
 	}
 
 	// 6.4: transparency soft masks, blend modes and non-opaque alpha.
-	if sm, ok := v.Entries["SMask"]; ok {
+	if sm, ok := v.Entries.Lookup("SMask"); ok {
 		if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 			ctx.Report(pdf.Checks.Transparency.SoftMaskExtGState, v, "ExtGState SMask shall be /None")
 		}
 	}
-	if bm, ok := v.Entries["BM"]; ok && !IsAllowedBlendMode(bm) {
+	if bm, ok := v.Entries.Lookup("BM"); ok && !IsAllowedBlendMode(bm) {
 		ctx.Report(pdf.Checks.Transparency.BlendMode, v, "ExtGState uses a non-Normal blend mode")
 	}
-	if ca, ok := v.Entries["CA"]; ok {
+	if ca, ok := v.Entries.Lookup("CA"); ok {
 		// Allow values within 1e-5 of 1.0 to handle floating-point rounding
 		// (e.g. 1.0000001 or 0.9999999 round to 1.0 in practice).
 		if f, num := AsFloat(ca); num && Abs64(f-1.0) > 1e-5 {
 			ctx.Report(pdf.Checks.Transparency.StrokingAlpha, v, "ExtGState stroking alpha (CA) shall be 1.0")
 		}
 	}
-	if ca, ok := v.Entries["ca"]; ok {
+	if ca, ok := v.Entries.Lookup("ca"); ok {
 		if f, num := AsFloat(ca); num && Abs64(f-1.0) > 1e-5 {
 			ctx.Report(pdf.Checks.Transparency.NonStrokingAlpha, v, "ExtGState non-stroking alpha (ca) shall be 1.0")
 		}
@@ -182,11 +182,11 @@ func IsAllowedBlendMode(bm pdf.PDFValue) bool {
 
 // validateTransparencyGroup flags a transparency group attribute dictionary (6.4).
 func validateTransparencyGroup(v pdf.PDFDict, ctx *ValidationContext) {
-	group, ok := v.Entries["Group"].(pdf.PDFDict)
+	group, ok := v.Entries.Get("Group").(pdf.PDFDict)
 	if !ok {
 		return
 	}
-	if (group.Entries["S"] == pdf.PDFName{Value: "Transparency"}) {
+	if (group.Entries.Get("S") == pdf.PDFName{Value: "Transparency"}) {
 		ctx.Report(pdf.Checks.Transparency.TransparencyGroup, v, "transparency group (/S /Transparency) not allowed")
 	}
 }
@@ -195,28 +195,28 @@ func validateTransparencyGroup(v pdf.PDFDict, ctx *ValidationContext) {
 
 // validateXObjectDict checks image and form/PostScript XObjects.
 func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
-	subtype, ok := v.Entries["Subtype"].(pdf.PDFName)
+	subtype, ok := v.Entries.Get("Subtype").(pdf.PDFName)
 	if !ok {
 		return
 	}
 
 	switch subtype.Value {
 	case "Image":
-		if b, ok := v.Entries["Interpolate"].(pdf.PDFBoolean); ok && bool(b) {
+		if b, ok := v.Entries.Get("Interpolate").(pdf.PDFBoolean); ok && bool(b) {
 			ctx.Report(pdf.Checks.Image.ImageInterpolate, v, "image Interpolate shall not be true")
 		}
-		if v.Entries["Alternates"] != nil {
+		if v.Entries.Get("Alternates") != nil {
 			ctx.Report(pdf.Checks.Image.ImageAlternates, v, "image shall not contain Alternates")
 		}
-		if v.Entries["OPI"] != nil {
+		if v.Entries.Get("OPI") != nil {
 			ctx.Report(pdf.Checks.Image.ImageOPI, v, "image shall not contain OPI")
 		}
-		if intent, ok := v.Entries["Intent"].(pdf.PDFName); ok && !AllowedIntents[intent.Value] {
+		if intent, ok := v.Entries.Get("Intent").(pdf.PDFName); ok && !AllowedIntents[intent.Value] {
 			ctx.Report(pdf.Checks.Image.ImageRenderingIntent, v, fmt.Sprintf("image uses invalid rendering intent /%s", intent.Value))
 		}
 		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1/2/4/8, or 1 for image masks.
-		if bpc, ok := v.Entries["BitsPerComponent"].(pdf.PDFInteger); ok {
-			isMask, _ := v.Entries["ImageMask"].(pdf.PDFBoolean)
+		if bpc, ok := v.Entries.Get("BitsPerComponent").(pdf.PDFInteger); ok {
+			isMask, _ := v.Entries.Get("ImageMask").(pdf.PDFBoolean)
 			if bool(isMask) {
 				if bpc != 1 {
 					ctx.Report(pdf.Checks.Image.ImageMaskBitsPerComponent, v, fmt.Sprintf("image mask BitsPerComponent is %d, must be 1", int(bpc)))
@@ -226,7 +226,7 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 		// 6.4: soft-masked images introduce transparency.
-		if sm, ok := v.Entries["SMask"]; ok {
+		if sm, ok := v.Entries.Lookup("SMask"); ok {
 			if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 				ctx.Report(pdf.Checks.Transparency.ImageWithSoftMask, v, "image shall not contain a soft mask (SMask)")
 			}
@@ -237,19 +237,19 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 		if !ctx.isReachableXObject(v) {
 			return
 		}
-		if v.Entries["Ref"] != nil {
+		if v.Entries.Get("Ref") != nil {
 			ctx.Report(pdf.Checks.Image.ReferenceXObject, v, "reference XObject (/Ref) not allowed")
 		}
-		if v.Entries["OPI"] != nil {
+		if v.Entries.Get("OPI") != nil {
 			ctx.Report(pdf.Checks.Image.FormOPI, v, "form XObject shall not contain OPI")
 		}
-		if v.Entries["PS"] != nil {
+		if v.Entries.Get("PS") != nil {
 			// Reported under both clauses; filterByProfile picks the active one
 			// (6.2.7/1 strict/Isartor, 6.2.5/3 lenient/veraPDF).
 			ctx.Report(pdf.Checks.Image.FormPostScript, v, "form XObject shall not contain PostScript (PS)")
 			ctx.Report(pdf.Checks.Image.FormPSEntry, v, "form XObject shall not contain PostScript passthrough (PS)")
 		}
-		if v.Entries["Subtype2"] == (pdf.PDFName{Value: "PS"}) {
+		if v.Entries.Get("Subtype2") == (pdf.PDFName{Value: "PS"}) {
 			ctx.Report(pdf.Checks.Image.FormSubtype2PS, v, "form XObject shall not have Subtype2=PS")
 		}
 	case "PS":
@@ -268,10 +268,10 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 // following AcroForm field-attribute inheritance (ISO 32000-1 12.7.3.4).
 func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
 	for range 20 {
-		if ft := v.Entries["FT"]; ft != nil {
+		if ft := v.Entries.Get("FT"); ft != nil {
 			return ft
 		}
-		parent, ok := v.Entries["Parent"].(pdf.PDFDict)
+		parent, ok := v.Entries.Get("Parent").(pdf.PDFDict)
 		if !ok {
 			return nil
 		}
@@ -299,11 +299,11 @@ const (
 // validateAnnotation checks annotation types (6.5.2) and annotation
 // dictionaries (6.5.3).
 func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
-	if (v.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+	if (v.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 		return
 	}
 
-	subtype, _ := v.Entries["Subtype"].(pdf.PDFName)
+	subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
 
 	if !AllowedAnnotationTypes[subtype.Value] {
 		ctx.Report(pdf.Checks.Annotation.DisallowedSubtype, v, fmt.Sprintf("annotation subtype /%s not allowed", subtype.Value))
@@ -311,7 +311,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 
 	flags := 0
-	if f, ok := v.Entries["F"].(pdf.PDFInteger); ok {
+	if f, ok := v.Entries.Get("F").(pdf.PDFInteger); ok {
 		flags = int(f)
 	}
 	if flags&AnnotFlagPrint == 0 {
@@ -327,18 +327,18 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		ctx.Report(pdf.Checks.Annotation.NoViewFlagSet, v, "annotation NoView flag shall be clear")
 	}
 
-	if ca, ok := v.Entries["CA"]; ok {
+	if ca, ok := v.Entries.Lookup("CA"); ok {
 		if f, num := AsFloat(ca); num && f != 1.0 {
 			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
 		}
 	}
 
-	checkAnnotColour(v, v.Entries["C"], ctx)
-	checkAnnotColour(v, v.Entries["IC"], ctx)
+	checkAnnotColour(v, v.Entries.Get("C"), ctx)
+	checkAnnotColour(v, v.Entries.Get("IC"), ctx)
 
 	// 6.5.3: appearance dictionary, where present, shall contain only N, an
 	// appearance stream. Non-Popup/Link annotations require an appearance.
-	ap, hasAP := v.Entries["AP"].(pdf.PDFDict)
+	ap, hasAP := v.Entries.Get("AP").(pdf.PDFDict)
 	isFormField := resolveInheritedFT(v) != nil
 	switch {
 	case !hasAP:
@@ -351,12 +351,12 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 	default:
-		n, hasN := ap.Entries["N"]
+		n, hasN := ap.Entries.Lookup("N")
 		if !hasN {
 			ctx.Report(pdf.Checks.Annotation.AppearanceMissingN, v, "appearance dictionary has no N entry")
 		}
 		var extras []string
-		for k := range ap.Entries {
+		for k := range ap.Entries.All() {
 			if k != "N" && k != "_ref" {
 				extras = append(extras, k)
 			}
@@ -411,16 +411,16 @@ func checkAnnotColour(v pdf.PDFDict, c pdf.PDFValue, ctx *ValidationContext) {
 // validateFormField flags actions on interactive form fields / widget
 // annotations (6.9).
 func validateFormField(v pdf.PDFDict, ctx *ValidationContext) {
-	isWidget := v.Entries["Type"] == pdf.PDFName{Value: "Annot"} &&
-		v.Entries["Subtype"] == pdf.PDFName{Value: "Widget"}
-	isField := v.Entries["FT"] != nil
+	isWidget := v.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
+		v.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
+	isField := v.Entries.Get("FT") != nil
 	if !isWidget && !isField {
 		return
 	}
-	if v.Entries["A"] != nil {
+	if v.Entries.Get("A") != nil {
 		ctx.Report(pdf.Checks.Form.FieldAction, v, "form field shall not contain an A action")
 	}
-	if v.Entries["AA"] != nil {
+	if v.Entries.Get("AA") != nil {
 		ctx.Report(pdf.Checks.Form.FieldAdditionalActions, v, "form field shall not contain AA additional actions")
 	}
 }
@@ -439,10 +439,10 @@ func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
 	}
 
 	errs := []pdf.PDFError{}
-	if na, ok := form.Entries["NeedAppearances"].(pdf.PDFBoolean); ok && bool(na) {
+	if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedAppearances, []error{fmt.Errorf("AcroForm NeedAppearances shall not be true")}, 0, nil))
 	}
-	if form.Entries["XFA"] != nil {
+	if form.Entries.Get("XFA") != nil {
 		errs = append(errs, pdf.NewError(pdf.Checks.Form.XFA, []error{fmt.Errorf("AcroForm shall not contain XFA")}, 0, nil))
 	}
 
