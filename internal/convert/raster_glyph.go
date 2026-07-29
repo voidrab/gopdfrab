@@ -72,6 +72,11 @@ func ttSimpleGlyphContours(rec []byte) ([][]Point, bool) {
 		}
 		endPts[i] = int(binary.BigEndian.Uint16(rec[off:]))
 		off += 2
+		// The endpoints must climb: the point arrays below are sized from the
+		// last one, but indexed by all of them.
+		if i > 0 && endPts[i] < endPts[i-1] {
+			return nil, false
+		}
 	}
 	if off+2 > len(rec) {
 		return nil, false
