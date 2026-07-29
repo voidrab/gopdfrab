@@ -3,14 +3,16 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–28 are done; each is one line under "Done", and the commit history has
+Items 1–29 are done; each is one line under "Done", and the commit history has
 the detail. What is still open is in "Open work".
 
 ## Where things stand
 
-- 158 checks across 10 groups. Isartor (204 fail files) and veraPDF (263 pass +
-  306 fail) both fully green, cross-checked against the veraPDF binary itself in
-  CI, not just against filename expectations.
+- 158 checks across 10 groups. Every check in scope for 1b is implemented; the
+  ten that are not each say why in the catalogue — six are PDF/A-1a, four are
+  subsumed by the object-model checks. Isartor (204 fail files) and veraPDF
+  (263 pass + 306 fail) both fully green, cross-checked against the veraPDF
+  binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, 1564 of
   1580 reach conformance with zero errors, panics or hangs.
@@ -24,7 +26,7 @@ the detail. What is still open is in "Open work".
   convergence).
 - Resource hardening: ~15 depth/size caps across the parser, settable decode and
   resident-cache budgets, no silent truncation anywhere.
-- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.1%,
+- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.3%,
   writer 94.1%, pdfgen 94.8%, root 92.5%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
@@ -32,21 +34,9 @@ the detail. What is still open is in "Open work".
 
 ## Open work
 
-### 29. Unimplemented catalogue entries
-
-Four `TODO`s in `internal/pdf/checks_catalog.go` are real:
-
-- `FontFileSubtype` (:160) and `XMPNoCorrespondingType` (:236) are declared
-  checks with no implementation.
-- `ICCBasedComponentsMismatch` (:107) and `FontBaseFont` (:156) are detected but
-  have no convert fixer.
-
-The six `// TODO level A` entries are PDF/A-1a and out of scope for 1b; they
-should be relabelled so they stop reading as open.
-
 ### 30. Coverage to ~95%
 
-verify 94.3%, convert 94.1%, writer 94.1%, root 92.5% — the root package is now
+verify 94.3%, convert 94.3%, writer 94.1%, root 92.5% — the root package is now
 the widest gap. Per the standing decision, defensive parser guards are not
 chased; the remainder is CFF/Type1 fixtures.
 
@@ -58,6 +48,16 @@ charstring widths by the declared matrix would keep the check live instead of
 dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
 every width off by exactly 2x) says it would work. Speculative until a file
 turns up where the skip actually hides something.
+
+### 32. Validate an ICC *input* profile, not just its component count
+
+Item 29 made 6.2.3.2 live for the `/N`-versus-profile disagreement (veraPDF rule
+6.2.3.2-2). The other half of that clause — an ICCBased profile's version,
+device class and connection space, rule 6.2.3.2-1 — is still unchecked. Output
+profiles already get exactly this treatment in `ValidateICCProfileStream`, so
+the logic exists; what it needs is its own catalogue entry, because folding it
+into `ICCBasedComponentsMismatch` would report two unrelated defects under one
+name. No corpus file exercises it, which is why it was not done blind.
 
 ---
 
@@ -114,6 +114,16 @@ turns up where the skip actually hides something.
 26. **Security policy** (`SECURITY.md`).
 27. **Documentation.** `doc.go` plus runnable examples that double as tests.
 28. **Repo hygiene.** `TODO.md` folded in and deleted, wasm `-o` in CI, tree clean.
+29. **The catalogue tells the truth.** No registered check is silently dead any
+    more, and the ones deliberately left to something else say so in place.
+    `FontFileSubtype` and `XMPNoCorrespondingType` were declared but never
+    reported; `ICCBasedComponentsMismatch` fired only from the output-intent
+    path, never the ICCBased colour spaces its clause names; `FontBaseFont` had
+    no fixer. All four now do what the catalogue says, with fixers that keep the
+    document's own content: an OpenType font file is unwrapped to the CFF or
+    TrueType program inside it rather than substituted away, and an ICCBased
+    profile is replaced to match `/N` rather than the reverse, since `/N` is the
+    operand count every `sc` in the file depends on.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on

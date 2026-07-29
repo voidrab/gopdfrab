@@ -3,6 +3,7 @@ package convert
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"os"
 	"sort"
 	"testing"
@@ -797,5 +798,77 @@ func TestConvertClearsOpenTypeFontFile(t *testing.T) {
 	}
 	if len(cr.RasterizedPages) != 0 {
 		t.Errorf("page %v was rasterized; the font file should have been unwrapped instead", cr.RasterizedPages)
+	}
+}
+
+// openTypeFontDoc builds a document whose one font embeds program under
+// FontFile3 with /Subtype /OpenType, for tests that need a real numbered graph.
+func openTypeFontDoc(fontSubtype string, program []byte) []byte {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>")
+	b.Obj(4, "<< /Type /Font /Subtype /"+fontSubtype+" /BaseFont /Font /FirstChar 65 "+
+		"/LastChar 65 /Widths [0] /FontDescriptor 5 0 R >>")
+	b.Obj(5, "<< /Type /FontDescriptor /FontName /Font /Flags 4 /ItalicAngle 0 "+
+		"/Ascent 700 /Descent -200 /CapHeight 700 /StemV 80 /FontBBox [0 0 100 100] "+
+		"/FontFile3 6 0 R >>")
+	b.StreamObj(6, "<< /Subtype /OpenType", program)
+	content := []byte("BT /F1 12 Tf 10 100 Td (A) Tj ET")
+	b.StreamObj(7, "<<", content)
+	return b.FinishClassic("<< /Size 8 /Root 1 0 R >>")
+}
+
+// TestFontFileSubtypeFixerTargeted drives the targeted path the convert loop
+// prefers, which repairs only the fonts the issues point at.
+func TestFontFileSubtypeFixerTargeted(t *testing.T) {
+	cff := buildMinimalCFF()
+	data := openTypeFontDoc("Type1", wrapInSfnt(0x4F54544F, map[string][]byte{"CFF ": cff}))
+
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+	graph, err := doc.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	trailer := graph.(pdf.PDFDict)
+	objs := writer.NumberObjects(trailer, 0)
+	doc.SeedResolvedGraph(trailer, objs)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	issues := res.IssuesForCheck(pdf.Checks.Font.FontFileSubtype)
+	if len(issues) == 0 {
+		t.Fatalf("fixture reports no FontFileSubtype issues")
+	}
+
+	pass := &fixPass{trailer: &trailer, objs: objs}
+	runTargetedAndCheckIdempotent(t, fontFileSubtypeFixer{}, pass, issues)
+
+	// An issue with no object ref cannot be targeted, and the caller falls
+	// back to the whole-graph Fix.
+	noRef := pdf.NewError(pdf.Checks.Font.FontFileSubtype, []error{errors.New("no ref")}, 0, nil)
+	if _, handled, err := (fontFileSubtypeFixer{}).fixTargeted(pass, []pdf.PDFError{noRef}); err != nil || handled {
+		t.Errorf("fixTargeted(ref-less issue) = handled %v, err %v, want false, nil", handled, err)
+	}
+}
+
+// TestFontFileSubtypeFixerLeavesWrapperWithNoProgram covers a wrapper that
+// parses as an sfnt but carries neither a CFF table nor TrueType glyphs: there
+// is nothing to unwrap, so it is left for the substitution fixer.
+func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
+	empty := wrapInSfnt(0x4F54544F, map[string][]byte{"head": make([]byte, 54)})
+	trailer := fontWithFontFile3("CIDFontType2", "OpenType", empty)
+	changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if changed {
+		t.Error("changed = true, want false: the wrapper carries no font program")
 	}
 }

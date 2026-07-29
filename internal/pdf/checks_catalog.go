@@ -104,7 +104,7 @@ type colourChecks struct {
 	OutputIntentInvalidN          Check
 	OutputIntentICCVersion        Check // contains profile and components mismatch checks
 	// 6.2.3.2 ICCBased colour spaces
-	ICCBasedComponentsMismatch Check // TODO add convert
+	ICCBasedComponentsMismatch Check
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -151,13 +151,13 @@ type transparencyChecks struct {
 
 type fontChecks struct {
 	// 6.3.2 Font dictionary and program validity
-	FontType            Check // unused, wontdo
+	FontType            Check // left to the object model, which requires /Type
 	InvalidSubtype      Check
-	FontBaseFont        Check // TODO add convert
-	SimpleFontFirstChar Check // unused, wontdo
-	SimpleFontLastChar  Check // unused, wontdo
-	SimpleFontWidths    Check // unused, wontdo
-	FontFileSubtype     Check // TODO add check
+	FontBaseFont        Check
+	SimpleFontFirstChar Check // left to the object model, which requires /FirstChar
+	SimpleFontLastChar  Check // left to the object model, which requires /LastChar
+	SimpleFontWidths    Check // left to the object model, which requires /Widths
+	FontFileSubtype     Check
 	InvalidProgram      Check
 	// 6.3.3.1 CIDSystemInfo consistency
 	CIDSystemInfoMismatch Check
@@ -233,7 +233,7 @@ type metadataChecks struct {
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
-	XMPNoCorrespondingType Check // TODO add check
+	XMPNoCorrespondingType Check
 	// 6.7.11 PDF/A identifier
 	PDFAIdentifierMissing           Check
 	PDFAIdentifierNamespace         Check

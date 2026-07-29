@@ -274,3 +274,60 @@ func TestConvertClearsICCBasedMismatch(t *testing.T) {
 		t.Errorf("page %v was rasterized; the profile should have been replaced instead", cr.RasterizedPages)
 	}
 }
+
+// TestICCBasedProfileFixerReplacesNestedSpace covers the setter for a space
+// held by another array: the gray fallback swaps the whole space out, so the
+// slot it sat in has to be written back through.
+func TestICCBasedProfileFixerReplacesNestedSpace(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = buildICCProfileHeader("RGB ")
+	stream.Entries.Set("N", pdf.PDFInteger(1))
+
+	indexed := pdf.PDFArray{
+		pdf.PDFName{Value: "Indexed"},
+		pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream},
+		pdf.PDFInteger(255),
+		pdf.PDFString{Value: "lookup"},
+	}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("CS", indexed)
+
+	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+
+	if got := trailer.Entries.Get("CS").(pdf.PDFArray)[1]; (got != pdf.PDFName{Value: "DeviceGray"}) {
+		t.Errorf("base colour space = %v, want /DeviceGray", got)
+	}
+}
+
+// TestICCBasedProfileFixerCollectsEverySlot covers the traversal: an array
+// reached twice is walked once, but a colour space sitting in two slots yields
+// a target per slot, since replacing it has to write back through both.
+func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = buildICCProfileHeader("RGB ")
+	stream.Entries.Set("N", pdf.PDFInteger(1))
+	cs := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
+
+	shared := pdf.PDFArray{cs, cs}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("A", shared)
+	trailer.Entries.Set("B", shared)
+
+	if got := len(collectICCBasedSpaces(trailer)); got != 2 {
+		t.Errorf("collectICCBasedSpaces found %d targets, want 2 (one per slot)", got)
+	}
+
+	if _, err := (iccBasedProfileFixer{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	for i, got := range trailer.Entries.Get("A").(pdf.PDFArray) {
+		if (got != pdf.PDFName{Value: "DeviceGray"}) {
+			t.Errorf("slot %d = %v, want /DeviceGray", i, got)
+		}
+	}
+	if changed, _ := (iccBasedProfileFixer{}).Fix(&trailer, nil); changed {
+		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
+	}
+}

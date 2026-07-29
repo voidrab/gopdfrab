@@ -310,7 +310,7 @@ func checkExtPropertyValueTypes(data []byte, schemas []extSchema) []pdf.PDFError
 			continue
 		}
 		for _, p := range s.properties {
-			if p.name == "" || !xmpBuiltinTypes[extDeclaredType(p.valueType)] {
+			if _, known := extBuiltinKinds[extDeclaredType(p.valueType)]; p.name == "" || !known {
 				continue
 			}
 			if declared[s.namespaceURI] == nil {

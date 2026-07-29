@@ -358,3 +358,29 @@ func TestConvertClearsMissingBaseFont(t *testing.T) {
 		t.Errorf("page %v was rasterized; a BaseFont should just have been added", cr.RasterizedPages)
 	}
 }
+
+// TestSfntPostScriptNameUTF16 covers the Windows platform's encoding, where the
+// name is UTF-16BE and a PostScript name's high bytes are all zero.
+func TestSfntPostScriptNameUTF16(t *testing.T) {
+	// One record: platform 3, encoding 1, language 0, name ID 6, at offset 0.
+	table := []byte{0, 0, 0, 1, 0, 18, 0, 3, 0, 1, 0, 0, 0, 6, 0, 6, 0, 0}
+	table = append(table, 0, 'A', 0, 'B', 0, 'C')
+	if got := sfntPostScriptName(table); got != "ABC" {
+		t.Errorf("sfntPostScriptName = %q, want ABC", got)
+	}
+}
+
+// TestFontProgramNameFontFile3Sfnt covers a FontFile3 holding an sfnt with no
+// CFF table: the name still comes out, from the sfnt's own name table.
+func TestFontProgramNameFontFile3Sfnt(t *testing.T) {
+	ttf := loadLiberationSansForTest(t)
+	if got := fontProgramName("FontFile3", ttf); got != "LiberationSans" {
+		t.Errorf("fontProgramName = %q, want LiberationSans", got)
+	}
+	if got := fontProgramName("FontFile3", []byte("neither CFF nor sfnt")); got != "" {
+		t.Errorf("fontProgramName(junk) = %q, want empty", got)
+	}
+	if got := fontProgramName("Nonsense", nil); got != "" {
+		t.Errorf("fontProgramName(unknown key) = %q, want empty", got)
+	}
+}

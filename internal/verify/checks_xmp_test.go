@@ -973,3 +973,36 @@ func TestCheckExtPropertyValueTypesNoDeclarations(t *testing.T) {
 		}
 	}
 }
+
+// TestExtBuiltinKindsCoversEveryBuiltinType pins the two tables together: a
+// value type XMP defines but extBuiltinKinds does not name would silently go
+// unchecked, since the property collection skips what it cannot compare.
+func TestExtBuiltinKindsCoversEveryBuiltinType(t *testing.T) {
+	for name := range xmpBuiltinTypes {
+		if _, ok := extBuiltinKinds[name]; !ok {
+			t.Errorf("value type %q is in xmpBuiltinTypes but has no shape in extBuiltinKinds", name)
+		}
+	}
+	for name := range extBuiltinKinds {
+		if !xmpBuiltinTypes[name] {
+			t.Errorf("value type %q is in extBuiltinKinds but is not a builtin XMP type", name)
+		}
+	}
+}
+
+// TestExtValueTypeErrsUnknownType covers the guard for a type with no known
+// shape: nothing is claimed about a property the check cannot judge.
+func TestExtValueTypeErrsUnknownType(t *testing.T) {
+	if errs := extValueTypeErrs("p", "SomeTypeNobodyDefined", xmpKindScalar, "x", nil); len(errs) != 0 {
+		t.Errorf("errs = %v, want none for a type with no known shape", errs)
+	}
+}
+
+// TestXMPNoCorrespondingTypeSkipsBOM covers the leading-bytes strip: real XMP
+// packets often start with a BOM or white space before the first element.
+func TestXMPNoCorrespondingTypeSkipsBOM(t *testing.T) {
+	xmp := "\xef\xbb\xbf\n  " + extValueTypeXMP("Integer", `<custom:myProp>not a number</custom:myProp>`)
+	if !hasXMPCheck(checkExtensionSchemas(xmp), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("expected XMPNoCorrespondingType in a packet with leading bytes before the XML")
+	}
+}
