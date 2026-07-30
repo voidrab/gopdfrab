@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -924,7 +925,7 @@ func checkShouldPass(t *testing.T, files []string, rep *realWorldReporter) (fail
 // size of the batch, which is what that entry point exists for; and it closes
 // each result after the callback, so a multi-gigabyte run cannot accumulate
 // spilled output files.
-func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter) (hashes map[string]string, conformant, rasterized, dropped int) {
+func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter, sample *veraSample) (hashes map[string]string, conformant, rasterized, dropped int) {
 	t.Helper()
 	hashes = make(map[string]string, len(files))
 	start := time.Now()
@@ -967,12 +968,138 @@ func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter) (ha
 			return nil
 		}
 		hashes[fr.Path] = hex.EncodeToString(h.Sum(nil))
+		sample.keep(t, fr.Path, cr)
 		return nil
 	})
 	if err != nil {
 		t.Errorf("should-convert batch: %v", err)
 	}
 	return hashes, conformant, rasterized, dropped
+}
+
+// veraSample cross-checks converted real-world output against the veraPDF
+// binary. The corpus is not in CI and so is not covered by the differential
+// harness over the committed suites, which is exactly why two verifier
+// false-negatives lived in it unseen: both showed up as veraPDF rejecting an
+// output gopdfrab had just called conformant.
+//
+// Off unless GOPDFRAB_REALWORLD_VERAPDF names a sample size ("all", or a count
+// of files). A JVM run over 1500 documents takes hours, so the default when it
+// is set is a sample -- evenly spaced through the sorted file list, never by
+// map order, so two runs check the same files.
+type veraSample struct {
+	dir    string
+	want   map[string]bool   // source paths to check
+	kept   map[string]string // written output path -> source path
+	failed int
+}
+
+func newVeraSample(t *testing.T, files []string) *veraSample {
+	t.Helper()
+	spec := os.Getenv("GOPDFRAB_REALWORLD_VERAPDF")
+	if spec == "" || len(files) == 0 {
+		return nil
+	}
+	if _, err := os.Stat(veraPDFBin); err != nil {
+		t.Skipf("veraPDF reference verifier not available: %v", err)
+	}
+
+	n := len(files)
+	if spec != "all" {
+		parsed, err := strconv.Atoi(spec)
+		if err != nil || parsed <= 0 {
+			t.Fatalf("GOPDFRAB_REALWORLD_VERAPDF = %q, want \"all\" or a positive count", spec)
+		}
+		n = min(parsed, len(files))
+	}
+	sorted := append([]string(nil), files...)
+	sort.Strings(sorted)
+	want := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		// Evenly spaced rather than the first n: a corpus is grouped by
+		// source, and the first n would all come from one collection.
+		want[sorted[i*len(sorted)/n]] = true
+	}
+	t.Logf("veraPDF cross-check: %d of %d converted outputs", len(want), len(files))
+	return &veraSample{dir: t.TempDir(), want: want, kept: map[string]string{}}
+}
+
+// keep writes one converted output to disk for the cross-check, if it is in
+// the sample. The output is otherwise closed and gone by the next callback.
+func (v *veraSample) keep(t *testing.T, source string, cr ConvertResult) {
+	if v == nil || !v.want[source] {
+		return
+	}
+	t.Helper()
+	out := filepath.Join(v.dir, fmt.Sprintf("%04d.pdf", len(v.kept)))
+	if err := cr.Save(out); err != nil {
+		t.Errorf("%s: saving output for the veraPDF cross-check: %v", source, err)
+		return
+	}
+	v.kept[out] = source
+}
+
+// crossCheck runs veraPDF over everything kept and reports every output it
+// rejects. gopdfrab converts the whole corpus to conformance, so any rejection
+// is a verifier false negative -- a rule gopdfrab does not enforce, or enforces
+// too leniently -- and not a matter of interpretation to be argued away.
+func (v *veraSample) crossCheck(t *testing.T) {
+	if v == nil || len(v.kept) == 0 {
+		return
+	}
+	t.Helper()
+	args := make([]string, 0, len(v.kept))
+	for out := range v.kept {
+		args = append(args, out)
+	}
+	sort.Strings(args)
+
+	start := time.Now()
+	rep, err := runVeraPDF(args...)
+	if err != nil {
+		t.Errorf("veraPDF cross-check: %v", err)
+		return
+	}
+	seen := 0
+	for _, job := range rep.Jobs.Job {
+		source, ok := v.kept[job.Item.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		if job.Report == nil {
+			t.Errorf("veraPDF cross-check: no verdict for the output of %s", source)
+			continue
+		}
+		if job.Report.IsCompliant {
+			continue
+		}
+		v.failed++
+		var clauses []string
+		for _, r := range job.Report.Details.Rules {
+			if r.Status == "failed" {
+				clauses = append(clauses, r.Clause)
+			}
+		}
+		t.Errorf("veraPDF rejects the converted output of %s: %v", source, sortedStrings(clauses))
+	}
+	t.Logf("veraPDF cross-check: %d outputs checked, %d rejected (in %s)",
+		seen, v.failed, time.Since(start).Round(time.Second))
+}
+
+// sortedStrings returns a sorted copy with duplicates removed, so a clause
+// reported on dozens of objects is named once and in the same order every run.
+func sortedStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // checkShouldConvert converts each file and returns how many reached PDF/A-1b
@@ -991,12 +1118,14 @@ func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter) (ha
 // would show up.
 func checkShouldConvert(t *testing.T, files []string, rep *realWorldReporter) (conformant, rasterized, dropped int) {
 	t.Helper()
-	first, conformant, rasterized, dropped := convertCorpusPass(t, files, rep)
+	sample := newVeraSample(t, files)
+	first, conformant, rasterized, dropped := convertCorpusPass(t, files, rep, sample)
+	sample.crossCheck(t)
 	if os.Getenv("GOPDFRAB_REALWORLD_DETERMINISM") == "" {
 		return conformant, rasterized, dropped
 	}
 	t.Logf("determinism sweep: converting %d files a second time", len(files))
-	second, _, _, _ := convertCorpusPass(t, files, nil)
+	second, _, _, _ := convertCorpusPass(t, files, nil, nil)
 	unstable := 0
 	for _, p := range files {
 		a, aok := first[p]

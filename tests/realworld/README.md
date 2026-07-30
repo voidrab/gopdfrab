@@ -79,7 +79,7 @@ go test -run TestRealWorldCorpus -v -timeout 4h .
 ```
 
 Not under `-short`, so no CI job runs it; a full local run over a multi-gigabyte
-corpus takes tens of minutes. Two environment variables extend it:
+corpus takes tens of minutes. Three environment variables extend it:
 
 - `GOPDFRAB_REALWORLD_REPORT=<path>` writes one JSON record per file — verdict,
   issue clauses, rasterized pages, raster drops, size, completion offset. Triage
@@ -88,6 +88,12 @@ corpus takes tens of minutes. Two environment variables extend it:
   compares the outputs byte for byte. Every nondeterminism this library has had
   was a map-iteration order reaching output, and each was found only by a parity
   run.
+- `GOPDFRAB_REALWORLD_VERAPDF=<n|all>` runs the bundled veraPDF binary over the
+  converted output and fails on anything it rejects. This corpus is not covered
+  by the differential harness over the committed suites, and two verifier
+  false-negatives lived here unseen because of it. A JVM run over every file
+  takes hours, so `<n>` checks an evenly spaced sample of the sorted file list —
+  the same files on every run.
 
 ### Getting the corpus onto another machine
 
