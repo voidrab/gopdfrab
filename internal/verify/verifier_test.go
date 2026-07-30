@@ -1321,6 +1321,58 @@ func TestValidateICCProfileStream(t *testing.T) {
 		t.Error("expected an error for an invalid colour space")
 	}
 
+	// An output intent is held to a narrower set than an ICCBased colour space:
+	// it must describe a real output device, in a colour space that device
+	// renders in.
+	for _, tc := range []struct {
+		name        string
+		deviceClass string
+		colorSpace  string
+		n           int
+	}{
+		{"scanner class", "scnr", "RGB ", 3},
+		{"colour space conversion class", "spac", "RGB ", 3},
+		{"device link class", "link", "RGB ", 3},
+		{"abstract class", "abst", "RGB ", 3},
+		{"named colour class", "nmcl", "RGB ", 3},
+		{"lab colour space", "mntr", "Lab ", 3},
+		{"six-colorant space", "prtr", "6CLR", 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dict := pdf.NewPDFDict()
+			dict.HasStream = true
+			dict.RawStream = buildValidICCProfile()
+			copy(dict.RawStream[12:16], tc.deviceClass)
+			copy(dict.RawStream[16:20], tc.colorSpace)
+			dict.Entries.Set("N", pdf.PDFInteger(tc.n))
+			if err := ValidateICCProfileStream(dict); err == nil {
+				t.Error("expected an error for a profile an output intent may not use")
+			}
+		})
+	}
+
+	// The two an output intent may use, so the narrowing is not just a blanket
+	// rejection.
+	for _, tc := range []struct {
+		deviceClass string
+		colorSpace  string
+		n           int
+	}{
+		{"prtr", "CMYK", 4},
+		{"prtr", "GRAY", 1},
+		{"mntr", "RGB ", 3},
+	} {
+		dict := pdf.NewPDFDict()
+		dict.HasStream = true
+		dict.RawStream = buildValidICCProfile()
+		copy(dict.RawStream[12:16], tc.deviceClass)
+		copy(dict.RawStream[16:20], tc.colorSpace)
+		dict.Entries.Set("N", pdf.PDFInteger(tc.n))
+		if err := ValidateICCProfileStream(dict); err != nil {
+			t.Errorf("%s/%s: unexpected error: %v", tc.deviceClass, tc.colorSpace, err)
+		}
+	}
+
 	noN := pdf.NewPDFDict()
 	noN.HasStream = true
 	noN.RawStream = buildValidICCProfile()

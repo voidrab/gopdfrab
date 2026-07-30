@@ -1552,19 +1552,18 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 	return nil
 }
 
-// iccValidDeviceClasses are the ICC profile device classes permitted in PDF/A-1.
-var iccValidDeviceClasses = map[string]bool{
-	"scnr": true, "mntr": true, "prtr": true, "link": true,
-	"spac": true, "abst": true, "nmcl": true,
+// iccOutputDeviceClasses are the profile kinds an output intent may name. It is
+// narrower than what an ICCBased colour space may use: an output intent
+// describes the device the file is destined for, so only those two make sense.
+var iccOutputDeviceClasses = map[string]bool{
+	"prtr": true, "mntr": true,
 }
 
-// iccValidColorSpaces are the ICC color space signatures defined by ICC.1.
-var iccValidColorSpaces = map[string]bool{
-	"XYZ ": true, "Lab ": true, "Luv ": true, "YCbr": true, "Yxy ": true,
-	"RGB ": true, "GRAY": true, "HSV ": true, "HLS ": true, "CMYK": true,
-	"CMY ": true, "2CLR": true, "3CLR": true, "4CLR": true, "5CLR": true,
-	"6CLR": true, "7CLR": true, "8CLR": true, "9CLR": true, "ACLR": true,
-	"BCLR": true, "CCLR": true, "DCLR": true, "ECLR": true, "FCLR": true,
+// iccOutputColourSpaces are the colour spaces an output intent's profile may
+// describe. Lab is missing on purpose -- it is a connection space, not
+// something a device renders in.
+var iccOutputColourSpaces = map[string]bool{
+	"RGB ": true, "CMYK": true, "GRAY": true,
 }
 
 // ValidateICCProfileStream checks that a DestOutputProfile stream is a valid
@@ -1594,17 +1593,16 @@ func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 		return &newErr
 	}
 
-	// Device class must be one of:
-	// prtr (output), mntr (display), scnr (input), spac (colorspace conversion).
+	// Device class must be prtr (output) or mntr (display).
 	deviceClass := string(data[12:16])
-	if !iccValidDeviceClasses[deviceClass] {
+	if !iccOutputDeviceClasses[deviceClass] {
 		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, nil)
 		return &newErr
 	}
 
-	// Color space must be one of the PDF/A-1 permitted spaces.
+	// Color space must be one an output device actually renders in.
 	colorSpace := string(data[16:20])
-	if !iccValidColorSpaces[colorSpace] {
+	if !iccOutputColourSpaces[colorSpace] {
 		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, nil)
 		return &newErr
 	}
