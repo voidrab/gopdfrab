@@ -33,6 +33,9 @@ notice.
 First changelog entry; earlier history lives in the git log.
 
 ### Added
+- `ICCBasedProfileInvalid` rejects an ICCBased colour space whose embedded ICC
+  profile is a version or kind PDF/A-1 does not allow, and conversion replaces
+  it; output-intent profiles are now held to the same clause's narrower set.
 - **Breaking:** `ConvertResult.Output` is now `Output() ([]byte, error)`; large
   output spills to a temp file, and a new `Close()` releases it.
 - `Limits.MaxResidentBytes` and `--max-resident-mb` cap the caches one open

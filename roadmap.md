@@ -3,12 +3,12 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–29 are done; each is one line under "Done", and the commit history has
-the detail. What is still open is in "Open work".
+Items 1–29 and 32 are done; each is one line under "Done", and the commit
+history has the detail. What is still open is in "Open work".
 
 ## Where things stand
 
-- 158 checks across 10 groups. Every check in scope for 1b is implemented; the
+- 159 checks across 10 groups. Every check in scope for 1b is implemented; the
   ten that are not each say why in the catalogue — six are PDF/A-1a, four are
   subsumed by the object-model checks. Isartor (204 fail files) and veraPDF
   (263 pass + 306 fail) both fully green, cross-checked against the veraPDF
@@ -49,15 +49,45 @@ dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
 every width off by exactly 2x) says it would work. Speculative until a file
 turns up where the skip actually hides something.
 
-### 32. Validate an ICC *input* profile, not just its component count
+### 33. The last 16 files: 1564 of 1580 → 1580 of 1580
 
-Item 29 made 6.2.3.2 live for the `/N`-versus-profile disagreement (veraPDF rule
-6.2.3.2-2). The other half of that clause — an ICCBased profile's version,
-device class and connection space, rule 6.2.3.2-1 — is still unchecked. Output
-profiles already get exactly this treatment in `ValidateICCProfileStream`, so
-the logic exists; what it needs is its own catalogue entry, because folding it
-into `ICCBasedComponentsMismatch` would report two unrelated defects under one
-name. No corpus file exercises it, which is why it was not done blind.
+Measured 2026-07-30, with the harness's own per-file report
+(`GOPDFRAB_REALWORLD_REPORT`). What the 16 non-conformant files report:
+
+| residual | files |
+| --- | --- |
+| objmodel: `OutlineItem` missing `/Title` (119, 170 and 21 issues) | 3 |
+| `StreamUndecodable` 6.1.7 (72 issues on one) | 3 |
+| `XRefSubsectionHeaderFormat` 6.1.4 | 2 |
+| `GraphResolutionFailure` 6.1.6 | 2 |
+| objmodel: page-tree `Kids`/`Count`, trailer `Info` type, outline `Parent` | 3 |
+| `SeparationAlternateColour` 6.2.3.4, `ImageWithSoftMask` 6.4, `ImageBitsPerComponent` 16, `TrueTypeEncoding` 6.3.7 | 4 |
+
+Two separate problems sit behind that list, and the second is the smaller one.
+
+**The verdict disagrees with the file it just wrote.** Re-reading all 16 written
+outputs with the same profile, every one of them verifies **clean**. Only one of
+the 16 is explained by the deliberate carry-over at
+`internal/convert/convert.go:458`, where an object the reader degraded to null is
+re-reported so a lossy conversion cannot claim success — that path emits nothing
+but `GraphResolutionFailure`. The other 15 report checks it never emits, so they
+come from the final verify, which the code says runs on the output bytes. Bytes
+that then verify clean on a fresh read. That contradiction is the thing to chase
+first; it is most of the 16, and until it is understood the conformance fraction
+is measuring something other than what it claims.
+
+The carry-over itself is worth revisiting alongside it: it makes "content was
+lost" and "the file is not conformant" the same signal, when they are different
+facts a caller would want separately.
+
+**Four outputs really are non-conformant, and we pass them.** veraPDF fails 4 of
+the 16 outputs: 6.2.4-4, 6.2.3.3-2, and 6.3.6-1 twice. Those are verifier
+false-negatives, found the same way item 32's was, and the 6.3.6-1 pair is worth
+reading next to item 31 — that check is already skipped for some font programs.
+
+The real-world corpus is not in CI and so is not covered by the differential
+harness (item 11), which is why both of these went unseen. A differential pass
+over converted real-world output, even a sampled one, would have caught them.
 
 ---
 
@@ -124,6 +154,16 @@ name. No corpus file exercises it, which is why it was not done blind.
     TrueType program inside it rather than substituted away, and an ICCBased
     profile is replaced to match `/N` rather than the reverse, since `/N` is the
     operand count every `sc` in the file depends on.
+
+32. **An ICCBased colour space's own profile is checked.** `ICCBasedProfileInvalid`
+    (6.2.3.2/2) rejects a profile whose version, device class or colour space
+    PDF/A-1 does not allow, and the ICCBased fixer replaces it. Not the
+    speculative gap it was recorded as: 38 real-world files carry an ICC v4
+    input profile, and one of them converted to output gopdfrab called
+    conformant that veraPDF rejected on exactly this rule. Output-intent
+    profiles were narrowed to the same clause's stricter set in passing, and
+    `sgray.icc` — committed but unused — was embedded so a one-component space
+    is repaired in place instead of being dropped for `DeviceGray`.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on
