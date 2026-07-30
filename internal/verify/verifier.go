@@ -551,7 +551,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
 func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
-	cur := pdf.NewCursor(d.WindowAt(offset+d.PDFStart(), 8192))
+	cur := newXRefCursor(d, offset+d.PDFStart())
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
@@ -625,6 +625,71 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 	}
 
 	return nil
+}
+
+// xrefWindowStep is how much of an xref section xrefCursor reads at a time.
+const xrefWindowStep = 8192
+
+// xrefCursor reads a cross reference section line by line, widening its view of
+// the file whenever the section turns out to be longer than what it has read.
+// The section's length is not known in advance -- it is the sum of its
+// subsection counts -- and a table of a few hundred entries already outgrows any
+// fixed window: reading one window instead left everything past it unchecked,
+// and reported the bytes the window cut through as a malformed subsection
+// header.
+type xrefCursor struct {
+	d    *pdf.Reader
+	base int64  // file offset the section starts at
+	buf  []byte // bytes read from base so far
+	pos  int    // read position within buf
+	eof  bool   // the file ended inside buf
+}
+
+func newXRefCursor(d *pdf.Reader, offset int64) *xrefCursor {
+	c := &xrefCursor{d: d, base: offset}
+	c.fill(xrefWindowStep)
+	return c
+}
+
+// fill reads n bytes from the section's start, noting whether the file ran out
+// first -- which is the only thing that makes a line without an EOL marker real
+// rather than an artefact of where the read stopped.
+func (c *xrefCursor) fill(n int) {
+	c.buf = c.d.WindowAt(c.base, n)
+	c.eof = len(c.buf) < n
+}
+
+// ReadLine returns the next line, or false once the section's last line has
+// been read. A line reaching the end of the current read is held back until the
+// read has been widened far enough to prove the file itself ends there.
+func (c *xrefCursor) ReadLine() (string, bool) {
+	for {
+		if i := bytes.IndexAny(c.buf[c.pos:], "\r\n"); i >= 0 {
+			end := c.pos + i
+			// A CR as the last byte read may be half of a CRLF split by the
+			// window; widen before deciding where the next line starts.
+			if c.buf[end] == '\r' && end == len(c.buf)-1 && !c.eof {
+				c.fill(len(c.buf) + xrefWindowStep)
+				continue
+			}
+			line := string(c.buf[c.pos:end])
+			c.pos = end + 1
+			if c.buf[end] == '\r' && c.pos < len(c.buf) && c.buf[c.pos] == '\n' {
+				c.pos++
+			}
+			return line, true
+		}
+		if !c.eof {
+			c.fill(len(c.buf) + xrefWindowStep)
+			continue
+		}
+		if c.pos >= len(c.buf) {
+			return "", false
+		}
+		line := string(c.buf[c.pos:])
+		c.pos = len(c.buf)
+		return line, true
+	}
 }
 
 // verifyDocumentInformationDictionary verifies requirements outlined in 6.1.5

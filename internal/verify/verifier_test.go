@@ -366,6 +366,90 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 	}
 }
 
+// xrefSectionFile writes a cross reference section -- the keyword, one
+// subsection header per (start, count) pair, and count entries under each --
+// and returns a reader over it, so a test can put a section of any length in
+// front of checkXRefSectionFormat.
+func xrefSectionFile(t *testing.T, eol string, subsections ...[2]int) *pdf.Reader {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("xref" + eol)
+	for _, s := range subsections {
+		fmt.Fprintf(&b, "%d %d%s", s[0], s[1], eol)
+		for i := 0; i < s[1]; i++ {
+			fmt.Fprintf(&b, "%010d 00000 n%s", i*17, eol)
+		}
+	}
+	b.WriteString("trailer" + eol + "<< /Size 1 >>" + eol)
+
+	path := filepath.Join(t.TempDir(), "xref.pdf")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+}
+
+// TestXRefSectionFormatLongTable pins the real-world false positive: a section
+// of more than 400 entries runs past one read, and the bytes the read stopped
+// in the middle of were reported as a malformed subsection header.
+func TestXRefSectionFormatLongTable(t *testing.T) {
+	doc := xrefSectionFile(t, "\n", [2]int{0, 500})
+	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+		t.Errorf("long xref section reported %v, want no findings", errs)
+	}
+}
+
+// TestXRefSectionFormatCRLFAcrossReads covers the CR that lands on the last
+// byte of a read: with CRLF endings entry 408's CR sits exactly on offset 8191,
+// so its LF is only visible once the read has been widened.
+func TestXRefSectionFormatCRLFAcrossReads(t *testing.T) {
+	doc := xrefSectionFile(t, "\r\n", [2]int{0, 420})
+	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+		t.Errorf("CRLF xref section reported %v, want no findings", errs)
+	}
+}
+
+// TestXRefSectionFormatMalformedHeaderPastFirstRead proves the widening
+// actually checks what it now reads: a bad header in a second subsection, far
+// past the first read, must still be reported.
+func TestXRefSectionFormatMalformedHeaderPastFirstRead(t *testing.T) {
+	// A leading space is what the format rule forbids.
+	doc := xrefSectionFileWithHeader(t, 500, " 600 2")
+	errs := checkXRefSectionFormat(doc, 0)
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
+		t.Fatalf("malformed header past the first read reported %v, want XRefSubsectionHeaderFormat", errs)
+	}
+}
+
+// xrefSectionFileWithHeader writes a section of first valid entries followed by
+// the raw header line second, for the malformed-header case.
+func xrefSectionFileWithHeader(t *testing.T, first int, second string) *pdf.Reader {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("xref\n")
+	fmt.Fprintf(&b, "0 %d\n", first)
+	for i := 0; i < first; i++ {
+		fmt.Fprintf(&b, "%010d 00000 n\n", i*17)
+	}
+	b.WriteString(second + "\ntrailer\n<< /Size 1 >>\n")
+
+	path := filepath.Join(t.TempDir(), "xref.pdf")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+}
+
 // 6.1.5
 
 func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *testing.T) {
