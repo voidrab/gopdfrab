@@ -82,10 +82,10 @@ func TestConvertRecoversBrokenStartxref(t *testing.T) {
 	}
 }
 
-// TestConvertDegradedObjectReportsResidual: an unrecoverable object converts
-// to a best-effort rewrite, but the content loss is a residual and the result
-// never claims validity -- output and honesty together (roadmap items 2+3).
-func TestConvertDegradedObjectReportsResidual(t *testing.T) {
+// TestConvertDegradedObjectReportsLoss: an unrecoverable object converts to a
+// best-effort rewrite. The bytes that come out really do meet the profile, so
+// Result says so; what they no longer hold is reported separately, as loss.
+func TestConvertDegradedObjectReportsLoss(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	broken := bytes.Replace(intact, []byte("4 0 obj\n<< /Length"), []byte("4 0 obj\n<< ]Length"), 1)
 	if bytes.Equal(broken, intact) {
@@ -99,12 +99,12 @@ func TestConvertDegradedObjectReportsResidual(t *testing.T) {
 	if len(mustOutput(t, cr)) == 0 {
 		t.Fatal("Output is empty, want a best-effort rewrite")
 	}
-	if cr.Result.Valid {
-		t.Error("Result.Valid = true for a conversion that lost content")
+	if got := graphResolutionIssues(cr.Residual()); len(got) != 0 {
+		t.Errorf("Residual() = %v, want the loss reported as loss, not as a residual issue", got)
 	}
-	got := graphResolutionIssues(cr.Residual())
+	got := graphResolutionIssues(cr.LostObjects)
 	if len(got) != 1 || !strings.Contains(got[0].Messages()[0], "treated as null") {
-		t.Errorf("Residual() resolution issues = %v, want exactly one degradation record", got)
+		t.Errorf("LostObjects resolution issues = %v, want exactly one degradation record", got)
 	}
 }
 

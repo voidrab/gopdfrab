@@ -74,8 +74,8 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
 // resolved: the unparseable object degrades to null, the rewrite proceeds, and
-// the content loss is carried as a residual issue so the conversion never
-// claims success. The input is a fixture whose object 2 body is mangled into
+// the content it held is reported as lost -- separately from the verdict on
+// the bytes, which really are conformant. The input is a fixture whose object 2 body is mangled into
 // an unparseable dictionary with no intact copy elsewhere in the file, so
 // offset recovery cannot repair it.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
@@ -96,20 +96,17 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if cr.Result.Valid {
-		t.Fatalf("expected a non-conformant Result when an object degraded to null, got Valid=true")
-	}
 	if len(mustOutput(t, cr)) == 0 {
 		t.Errorf("Output is empty, want a best-effort rewrite with the degraded object as null")
 	}
 	found := false
-	for _, e := range cr.Residual() {
+	for _, e := range cr.LostObjects {
 		if e.Check() == pdf.Checks.Structure.GraphResolutionFailure {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("Residual() = %v, want a GraphResolutionFailure issue for the degraded object", cr.Residual())
+		t.Errorf("LostObjects = %v, want a GraphResolutionFailure record for the degraded object", cr.LostObjects)
 	}
 }
 

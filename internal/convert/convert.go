@@ -464,15 +464,16 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	}
 
 	// Objects the reader degraded to null were serialized as null: their
-	// content is lost, so the conversion must not claim success. The final
-	// verify ran on the output bytes, where the loss is invisible, so the
-	// degradation issues are carried over explicitly. (Recovered objects are
-	// not carried: the rewrite emits a correct xref, genuinely fixing them.)
+	// content is lost. The final verify ran on the output bytes, where the
+	// loss is invisible, so it is recorded here instead -- as loss, not as
+	// non-conformance. The file that was written really does meet PDF/A-1b;
+	// what it no longer holds is a separate fact, and one a caller wants
+	// separately. (Recovered objects are not carried: the rewrite emits a
+	// correct xref, genuinely fixing them.)
 	for _, e := range doc.DegradedObjects() {
 		c := e.Check()
 		if p.Allows(c.Clause(), c.Subclause()) {
-			cr.Result.Issues = append(cr.Result.Issues, e)
-			cr.Result.Valid = false
+			cr.LostObjects = append(cr.LostObjects, e)
 		}
 	}
 

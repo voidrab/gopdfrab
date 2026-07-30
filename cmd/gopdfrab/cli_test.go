@@ -242,6 +242,40 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	}
 }
 
+// TestConvertPrintersReportLostContent: a conformant conversion that lost an
+// object still has to say so. The loss is not a residual issue -- the file
+// that was written is valid -- so it is printed on its own line and carried in
+// its own JSON field.
+func TestConvertPrintersReportLostContent(t *testing.T) {
+	lost := nonConformantResult(t).Residual()[:1]
+	cr := gopdfrab.ConvertResult{
+		Result:      gopdfrab.Result{Valid: true},
+		LostObjects: lost,
+	}
+
+	var stdout strings.Builder
+	if code := printConvertText("in.pdf", "out.pdf", cr, &stdout); code != exitValid {
+		t.Errorf("printConvertText: exit=%d, want %d for a conformant output", code, exitValid)
+	}
+	if !strings.Contains(stdout.String(), "lost: 1 object(s)") ||
+		!strings.Contains(stdout.String(), lost[0].String()) {
+		t.Errorf("printConvertText output = %q, want the lost object reported", stdout.String())
+	}
+
+	stdout.Reset()
+	var stderr strings.Builder
+	if code := printConvertJSON("in.pdf", "out.pdf", cr, &stdout, &stderr); code != exitValid {
+		t.Errorf("printConvertJSON: exit=%d, want %d", code, exitValid)
+	}
+	var row convertJSON
+	if err := json.Unmarshal([]byte(stdout.String()), &row); err != nil {
+		t.Fatalf("printConvertJSON output is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if !row.Valid || row.IssueCount != 0 || len(row.Lost) != 1 {
+		t.Errorf("printConvertJSON row = %+v, want valid, no issues, one lost object", row)
+	}
+}
+
 func TestConvertJSONEncodeError(t *testing.T) {
 	var stderr strings.Builder
 	cr := gopdfrab.ConvertResult{Result: gopdfrab.Result{Valid: true}}

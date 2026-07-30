@@ -91,6 +91,10 @@ type convertJSON struct {
 	Valid      bool                `json:"valid"`
 	IssueCount int                 `json:"issueCount"`
 	Residual   []gopdfrab.PDFError `json:"residual"`
+	// Lost is content the conversion could not carry over. It is not a
+	// conformance failure -- the output can be valid and still have lost
+	// something -- so it is reported on its own.
+	Lost []gopdfrab.PDFError `json:"lost,omitempty"`
 }
 
 func printConvertJSON(input, output string, cr gopdfrab.ConvertResult, stdout, stderr io.Writer) int {
@@ -105,6 +109,7 @@ func printConvertJSON(input, output string, cr gopdfrab.ConvertResult, stdout, s
 		Valid:      cr.Result.Valid,
 		IssueCount: len(residual),
 		Residual:   residual,
+		Lost:       cr.LostObjects,
 	}
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
@@ -120,6 +125,14 @@ func printConvertJSON(input, output string, cr gopdfrab.ConvertResult, stdout, s
 
 func printConvertText(input, output string, cr gopdfrab.ConvertResult, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "%s -> %s (%d iteration(s))\n", input, output, cr.Iterations)
+	// Loss is reported whatever the verdict: a conformant output can still be
+	// missing something the input had.
+	if len(cr.LostObjects) > 0 {
+		fmt.Fprintf(stdout, "lost: %d object(s) could not be carried over\n", len(cr.LostObjects))
+		for _, e := range cr.LostObjects {
+			fmt.Fprintf(stdout, "    %s\n", e.String())
+		}
+	}
 	if cr.Result.Valid {
 		fmt.Fprintln(stdout, "result: conformant")
 		return exitValid

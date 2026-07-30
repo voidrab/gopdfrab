@@ -23,6 +23,11 @@ type (
 	// ConvertResult is a conversion's output and its residual issues. Reading it
 	// (Output, WriteTo, Save, Residual) is safe from multiple goroutines; Close
 	// must not run concurrently with those, since it releases what they read.
+	//
+	// A conformant result can still have lost content: LostObjects lists what
+	// the conversion could not carry over, RasterizedPages and RasterDrops what
+	// it had to redraw. Result.Valid answers only whether the file that was
+	// written meets the profile.
 	ConvertResult = convert.ConvertResult
 	// PageFidelity is one page's input-vs-output rendering comparison,
 	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
