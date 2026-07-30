@@ -121,7 +121,7 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	if DefaultColorSpaceDefined(model, ctx.pageResources) {
+	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
 	ctx.Report(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))

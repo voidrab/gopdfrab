@@ -71,10 +71,12 @@ type ValidationContext struct {
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
 	schemaOnly bool
 
-	// pageResources is the Resources dict of the current page. Default* colour
-	// spaces defined at page level are inherited by patterns and Form XObjects
-	// that do not define their own Default*.
-	pageResources pdf.PDFDict
+	// resourceScope is the resource dictionary in force where the walk
+	// currently is: the nearest /Resources at or above it. Default* colour
+	// spaces (6.2.3.3) are looked up there, so content in a form XObject with
+	// its own /Resources is not excused by the page's Default*, while a form
+	// without any inherits the enclosing one.
+	resourceScope pdf.PDFDict
 
 	// undecodable is the set of streams already reported as
 	// Structure.StreamUndecodable, so a stream several checks read is flagged

@@ -476,3 +476,65 @@ func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
 	}
 }
+
+// TestSeparationAlternateFixerSwapsUncoveredAlternate covers 6.2.3.4: a
+// Separation whose alternate is DeviceCMYK under an RGB output intent gets an
+// ICCBased alternate with the same four components, so the tint transform above
+// it still applies; the DeviceRGB alternate the intent does cover is left alone.
+func TestSeparationAlternateFixerSwapsUncoveredAlternate(t *testing.T) {
+	tint := pdf.NewPDFDict()
+	tint.Entries.Set("FunctionType", pdf.PDFInteger(2))
+	cmyk := pdf.PDFArray{
+		pdf.PDFName{Value: "Separation"},
+		pdf.PDFName{Value: "Black"},
+		pdf.PDFName{Value: "DeviceCMYK"},
+		tint,
+	}
+	rgb := pdf.PDFArray{
+		pdf.PDFName{Value: "Separation"},
+		pdf.PDFName{Value: "Spot"},
+		pdf.PDFName{Value: "DeviceRGB"},
+		tint,
+	}
+	// Nested one array deep as well, where an Indexed base keeps its space.
+	csDict := pdf.NewPDFDict()
+	csDict.Entries.Set("Cs0", cmyk)
+	csDict.Entries.Set("Cs1", rgb)
+	csDict.Entries.Set("Both", pdf.PDFArray{cmyk, rgb})
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("ColorSpace", csDict)
+
+	profile := pdf.NewPDFDict()
+	profile.Entries.Set("N", pdf.PDFInteger(3))
+	oi := pdf.NewPDFDict()
+	oi.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	oi.Entries.Set("DestOutputProfile", profile)
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("OutputIntents", pdf.PDFArray{oi})
+	catalog.Entries.Set("Res", resources)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	changed, err := (separationAlternateFixer{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected the uncovered CMYK alternate to be replaced")
+	}
+
+	alt, ok := cmyk[2].(pdf.PDFArray)
+	if !ok || len(alt) != 2 || (alt[0] != pdf.PDFName{Value: "ICCBased"}) {
+		t.Fatalf("CMYK alternate = %v, want an ICCBased array", cmyk[2])
+	}
+	if n, _ := alt[1].(pdf.PDFDict).Entries.Get("N").(pdf.PDFInteger); n != 4 {
+		t.Errorf("replacement profile has N = %v, want 4 (the tint transform's output count)", n)
+	}
+	if rgb[2] != (pdf.PDFName{Value: "DeviceRGB"}) {
+		t.Errorf("covered RGB alternate = %v, want it untouched", rgb[2])
+	}
+	if changed, _ := (separationAlternateFixer{}).Fix(&trailer, nil); changed {
+		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
+	}
+}

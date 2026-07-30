@@ -197,6 +197,85 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	}
 }
 
+// TestDeviceColourFixerInjectsIntoNestedFormResources covers the form XObject
+// a page draws: it is checked in its own /Resources, so the page's DefaultCMYK
+// does not excuse the CMYK inside it and it needs the entry too. A form with no
+// resources of its own reads the page's and must be left as it is -- giving it
+// one would cut it off from every other name the page defines.
+func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
+	formContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "k", Operands: []pdf.PDFValue{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}},
+	})
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	owned := pdf.NewPDFDict()
+	owned.HasStream = true
+	owned.RawStream = formContent
+	owned.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	owned.Entries.Set("Resources", pdf.NewPDFDict())
+
+	borrowed := pdf.NewPDFDict()
+	borrowed.HasStream = true
+	borrowed.RawStream = formContent
+	borrowed.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+
+	pageContent, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Fown"}}},
+		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Fborrowed"}}},
+	})
+	if err != nil {
+		t.Fatalf("WriteContentStream: %v", err)
+	}
+	contents := pdf.NewPDFDict()
+	contents.HasStream = true
+	contents.RawStream = pageContent
+
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("Fown", owned)
+	xobjects.Entries.Set("Fborrowed", borrowed)
+	// The page already carries DefaultCMYK, which is what used to stop the
+	// injection reaching anything below it.
+	pageCS := pdf.NewPDFDict()
+	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
+	pageRes := pdf.NewPDFDict()
+	pageRes.Entries.Set("ColorSpace", pageCS)
+	pageRes.Entries.Set("XObject", xobjects)
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", pageRes)
+	page.Entries.Set("Contents", contents)
+
+	oi := pdf.NewPDFDict()
+	oi.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	profile := pdf.NewPDFDict()
+	profile.Entries.Set("N", pdf.PDFInteger(3))
+	oi.Entries.Set("DestOutputProfile", profile)
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("OutputIntents", pdf.PDFArray{oi})
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Pages", pdf.PDFArray{page})
+
+	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected Fix to return changed=true")
+	}
+
+	ownRes, _ := owned.Entries.Get("Resources").(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", ownRes) {
+		t.Error("DefaultCMYK not injected into the form's own resources")
+	}
+	if _, has := borrowed.Entries.Lookup("Resources"); has {
+		t.Error("a form without its own resources was given one")
+	}
+}
+
 // buildStatefulAPPage constructs a page with one widget annotation whose
 // AP/N is a state sub-dictionary (checkbox On/Off), rather than a direct
 // stream -- the shape scanAPAppearance/fixAPColour dispatch to when /N isn't

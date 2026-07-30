@@ -831,6 +831,17 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 			}
 
+			// A dict that brings its own /Resources -- a page, a form XObject,
+			// a tiling pattern, a Type 3 font -- sets the resource scope for
+			// everything under it and nothing above it. The Default* colour
+			// spaces of 6.2.3.3 are read from that scope, so a form's own
+			// resources have to displace the page's for its content and images.
+			if res, ok := v.Entries.Get("Resources").(pdf.PDFDict); ok {
+				saved := ctx.resourceScope
+				ctx.resourceScope = res
+				defer func() { ctx.resourceScope = saved }()
+			}
+
 			if first && !ctx.schemaOnly {
 				if v.HasStream {
 					validateStreamObject(v, ctx)

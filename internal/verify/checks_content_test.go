@@ -50,7 +50,7 @@ func TestScanAnnotAppearancesRejectsPageDefaultRGB(t *testing.T) {
 	page, pageRes := buildAPWithRGB(t)
 
 	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
-	ctx.pageResources = pageRes
+	ctx.resourceScope = pageRes
 
 	scanAnnotAppearances(page, ctx)
 
@@ -293,9 +293,57 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	}
 }
 
+// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB pins the resource scope
+// the walk sets: a form XObject bringing its own /Resources is checked in that
+// dict, so the page's /DefaultRGB no longer excuses the DeviceRGB inside it.
+// Real files hide uncovered device colour exactly there.
+func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := pdf.NewPDFDict()
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	form.Entries.Set("Resources", pdf.NewPDFDict()) // its own, and empty
+	form.HasStream = true
+	form.RawStream = content
+
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("Fx0", form)
+	cs := pdf.NewPDFDict()
+	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
+	pageRes := pdf.NewPDFDict()
+	pageRes.Entries.Set("ColorSpace", cs)
+	pageRes.Entries.Set("XObject", xobjects)
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", pageRes)
+
+	pages := pdf.NewPDFDict()
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(5))
+
+	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	verifyDocument(trailer, ctx)
+
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("expected DeviceColourContentStream for rg inside a form with its own resources")
+	}
+}
+
 // TestPageContentFormXObjectStillInheritsPageDefaultRGB confirms the existing
 // behaviour: a Form XObject invoked from page content (via Do) is excused by the
-// page's /DefaultRGB via the ctx.pageResources fallback — unaffected by Fix A.
+// page's /DefaultRGB via the ctx.resourceScope fallback — unaffected by Fix A.
 func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	// Form XObject with DeviceRGB usage, no own resources.
 	fContent, err := writer.WriteContentStream([]writer.ContentOp{
@@ -305,7 +353,7 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 		t.Fatal(err)
 	}
 	// scanContentDict is called with the XObject's own (empty) resources and the
-	// page resources as ctx.pageResources — reportContentColour should not fire.
+	// page resources as ctx.resourceScope — reportContentColour should not fire.
 	xobj := pdf.NewPDFDict()
 	xobj.HasStream = true
 	xobj.RawStream = fContent
@@ -316,7 +364,7 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	pageRes.Entries.Set("ColorSpace", cs)
 
 	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
-	ctx.pageResources = pageRes
+	ctx.resourceScope = pageRes
 
 	scanContentDict(xobj, pdf.NewPDFDict(), ctx)
 

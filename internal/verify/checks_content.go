@@ -177,7 +177,7 @@ func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, 
 	if DefaultColorSpaceDefined(model, resources) {
 		return
 	}
-	if DefaultColorSpaceDefined(model, ctx.pageResources) {
+	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
 	ctx.Report(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
@@ -254,7 +254,7 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 	resources, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 	switch {
 	case v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}:
-		ctx.pageResources = resources
+		// The walk has already put this page's /Resources in scope.
 		scanContentValue(v.Entries.Get("Contents"), resources, ctx)
 		scanAnnotAppearances(v, ctx)
 	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.HasStream:
@@ -285,9 +285,9 @@ func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 	if !ok {
 		return
 	}
-	saved := ctx.pageResources
-	ctx.pageResources = pdf.PDFDict{}
-	defer func() { ctx.pageResources = saved }()
+	saved := ctx.resourceScope
+	ctx.resourceScope = pdf.PDFDict{}
+	defer func() { ctx.resourceScope = saved }()
 	for _, item := range annots {
 		annot, ok := item.(pdf.PDFDict)
 		if !ok {

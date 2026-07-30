@@ -75,7 +75,7 @@ func TestCheckDeviceColour(t *testing.T) {
 	csDict := pdf.NewPDFDict()
 	csDict.Entries.Set("DefaultRGB", pdf.NewPDFDict())
 	res.Entries.Set("ColorSpace", csDict)
-	ctx3 := &ValidationContext{pageResources: res}
+	ctx3 := &ValidationContext{resourceScope: res}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "DeviceRGB"}, ctx3, "image")
 	if hasCheck(ctx3, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("unexpected report when a Default* colour space overrides it")

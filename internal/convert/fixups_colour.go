@@ -35,6 +35,7 @@ var grayICCProfile []byte
 func init() {
 	registerPreemptiveFixup(injectOutputIntent)
 	registerFixer(iccBasedProfileFixer{})
+	registerFixer(separationAlternateFixer{})
 }
 
 // colourModelN maps dominantColourModel's "rgb"/"cmyk" result to the /N an
@@ -77,6 +78,81 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
 	trailer.Entries.Set("Root", root)
 	return nil
+}
+
+// separationAlternateFixer remediates 6.2.3.4: a Separation or DeviceN whose
+// alternate space is a device space no OutputIntent covers. The alternate is
+// swapped for an ICCBased space with the same number of components, so the
+// tint transform feeding it needs no change and the colourant still resolves
+// to the colour the document asked for -- where dropping the space or
+// rasterizing the page would lose the colourant or the text on top of it.
+type separationAlternateFixer struct{}
+
+func (separationAlternateFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Colour.SeparationAlternateColour
+}
+
+func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
+	covered := map[string]bool{"rgb": rgbCovered, "cmyk": cmykCovered, "gray": hasIntent}
+
+	// One shared space per model, so the writer emits a single ICC stream
+	// however many colourants the document defines.
+	shared := map[string]pdf.PDFArray{}
+	spaceFor := func(model string) (pdf.PDFArray, bool) {
+		if cs, ok := shared[model]; ok {
+			return cs, true
+		}
+		var cs pdf.PDFArray
+		switch model {
+		case "rgb":
+			cs = iccBasedColourSpace(3, srgbICCProfile)
+		case "cmyk":
+			cs = iccBasedColourSpace(4, cmykICCProfile)
+		case "gray":
+			cs = iccBasedColourSpace(1, grayICCProfile)
+		default:
+			return nil, false
+		}
+		shared[model] = cs
+		return cs, true
+	}
+
+	changed := false
+	visit := func(v pdf.PDFValue) {
+		arr, ok := v.(pdf.PDFArray)
+		if !ok || len(arr) < 4 {
+			return
+		}
+		head, ok := arr[0].(pdf.PDFName)
+		if !ok || (head.Value != "Separation" && head.Value != "DeviceN") {
+			return
+		}
+		model := verify.DeviceColourModel(arr[2])
+		if model == "" || covered[model] {
+			return
+		}
+		if cs, ok := spaceFor(model); ok {
+			arr[2] = cs
+			changed = true
+		}
+	}
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		for k, v := range d.Entries.All() {
+			if k == "_ref" {
+				continue
+			}
+			visit(v)
+			// A colour space also appears as the base of an Indexed space and
+			// as an element of a /ColorSpace array elsewhere.
+			if arr, ok := v.(pdf.PDFArray); ok {
+				for _, item := range arr {
+					visit(item)
+				}
+			}
+		}
+	})
+	return changed, nil
 }
 
 // iccBasedColourSpace builds a "[/ICCBased <stream>]" colour-space array
