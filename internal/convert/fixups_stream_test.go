@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"encoding/ascii85"
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -309,4 +310,85 @@ func TestLZWStreamFixerRoundTripsThroughWriter(t *testing.T) {
 	}
 	gotPage := assertOnePageGraph(t, graph)
 	assertContentStream(t, gotPage, string(plaintext))
+}
+
+// TestUndecodableStreamFixerDropsFilterOnEmptyBody covers the shape real files
+// carry by the dozen: a content-stream part with a filter and no bytes. It
+// decodes to nothing either way, so dropping the filter loses nothing and
+// makes it readable.
+func TestUndecodableStreamFixerDropsFilterOnEmptyBody(t *testing.T) {
+	empty := pdf.NewPDFDict()
+	empty.HasStream = true
+	empty.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	empty.Entries.Set("DecodeParms", pdf.NewPDFDict())
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Contents", empty)
+
+	changed, err := (undecodableStreamFixer{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected the empty filtered stream to be repaired")
+	}
+	if empty.Entries.Get("Filter") != nil || empty.Entries.Get("DecodeParms") != nil {
+		t.Errorf("filter chain survived: %v", empty.Entries.Get("Filter"))
+	}
+	if data, err := pdf.DecodeStream(empty); err != nil || len(data) != 0 {
+		t.Errorf("repaired stream decodes to %q, %v; want empty and no error", data, err)
+	}
+}
+
+// TestUndecodableStreamFixerRebuildsType3Glyph covers the glyph procedure
+// nothing can decode: the marks are gone, but /Widths still states the advance,
+// and a reader that reads a different width out of the program disagrees with
+// the dictionary (6.3.6). The replacement draws nothing and declares that
+// advance, and the loss is reported rather than swallowed.
+func TestUndecodableStreamFixerRebuildsType3Glyph(t *testing.T) {
+	proc := pdf.NewPDFDict()
+	proc.HasStream = true
+	proc.RawStream = []byte("this was never deflate")
+	proc.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	proc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 21})
+
+	procs := pdf.NewPDFDict()
+	procs.Entries.Set("g108", proc)
+
+	enc := pdf.NewPDFDict()
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(108), pdf.PDFName{Value: "g108"}})
+
+	font := pdf.NewPDFDict()
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type3"})
+	font.Entries.Set("CharProcs", procs)
+	font.Entries.Set("Encoding", enc)
+	font.Entries.Set("FirstChar", pdf.PDFInteger(108))
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(1000)})
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Font", font)
+
+	var lost []pdf.PDFError
+	changed, err := (undecodableStreamFixer{lost: &lost}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected the undecodable glyph procedure to be replaced")
+	}
+
+	fixed := procs.Entries.Get("g108").(pdf.PDFDict)
+	data, err := pdf.DecodeStream(fixed)
+	if err != nil {
+		t.Fatalf("repaired glyph does not decode: %v", err)
+	}
+	if got := string(data); !strings.Contains(got, "d0") || !strings.Contains(got, "1000") {
+		t.Errorf("repaired glyph = %q, want the declared advance via d0", got)
+	}
+	if len(lost) != 1 {
+		t.Fatalf("reported %d losses, want 1", len(lost))
+	}
+	if ref, ok := lost[0].ObjectRef(); !ok || ref.ObjNum != 21 {
+		t.Errorf("loss reported for %v, want object 21", ref)
+	}
 }

@@ -94,6 +94,12 @@ type ConvertResult struct {
 	// rasterized, whether or not anything was dropped doing it, so it stopped
 	// being text and vector content.
 	RasterizedPages []int
+	// LostObjects lists content the conversion could not carry over: an object
+	// the reader could not resolve, a stream nothing can decode. Each entry
+	// says what was lost and where it was. The output is still conformant --
+	// that is what Result reports -- but it no longer holds all of the input,
+	// so a caller who must not lose anything checks this list.
+	LostObjects []pdf.PDFError
 }
 
 // addRasterizedPages merges pages into RasterizedPages, kept sorted and
@@ -340,10 +346,11 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// Per-run deviceColourFixer wired to the Reader's concurrent decode cache,
 	// shared with the pre-loop detectColourModelUsage scan.
 	dcFixer := deviceColourFixer{decode: decoderFor(doc)}
-	// The transparency flattener is a Fixer, with no handle on the result, so
-	// the drops it cannot render are collected here and folded in below.
+	// Fixers have no handle on the result, so what they render or carry over
+	// incompletely is collected here and folded in below.
 	var formDrops []RasterDrop
-	localFixers := buildLocalFixers(dcFixer, doc, o.dpi(), &formDrops)
+	var lost []pdf.PDFError
+	localFixers := buildLocalFixers(dcFixer, doc, o.dpi(), &formDrops, &lost)
 
 	var (
 		cr         ConvertResult
@@ -448,6 +455,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
+	cr.LostObjects = append(cr.LostObjects, lost...)
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
@@ -623,7 +631,7 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 // substituted for the registry singletons: the per-run dcFixer, a
 // fontSubstitutionFixer carrying the run's Reader for cached usage scans,
 // and an appearanceFixer carrying the run's appearance font.
-func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop) map[pdf.Check]Fixer {
+func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError) map[pdf.Check]Fixer {
 	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
@@ -638,6 +646,8 @@ func buildLocalFixers(dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formD
 			local[c] = appearanceFixer{fontSrc: fontSrc}
 		case transparencyFlattener:
 			local[c] = transparencyFlattener{dpi: dpi, drops: formDrops}
+		case undecodableStreamFixer:
+			local[c] = undecodableStreamFixer{lost: lost}
 		default:
 			local[c] = f
 		}
