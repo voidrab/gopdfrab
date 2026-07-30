@@ -25,6 +25,13 @@ var srgbICCProfile []byte
 //go:embed assets/profiles/Small-footprint_FOGRA39v2.icc
 var cmykICCProfile []byte
 
+// grayICCProfile is Artifex Software's sGray v2 profile, embedded so a
+// one-component ICCBased colour space can be repaired in place rather than
+// dropped for a device colour space.
+//
+//go:embed assets/profiles/sgray.icc
+var grayICCProfile []byte
+
 func init() {
 	registerPreemptiveFixup(injectOutputIntent)
 	registerFixer(iccBasedProfileFixer{})
@@ -285,9 +292,10 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 	return 0, false
 }
 
-// iccBasedProfileFixer remediates Checks.Colour.ICCBasedComponentsMismatch by
-// making an ICCBased colour space's embedded profile agree with the /N it
-// declares.
+// iccBasedProfileFixer remediates both halves of 6.2.3.2: an ICCBased colour
+// space whose embedded profile disagrees with the /N it declares, and one whose
+// profile is a kind PDF/A does not allow. Both are the same repair -- swap in a
+// profile that fits -- so one fixer covers them.
 //
 // The repair goes that way round, never the other: /N is how many operands the
 // content streams pass to sc and scn, so changing it would turn every colour
@@ -296,37 +304,30 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 type iccBasedProfileFixer struct{}
 
 func (iccBasedProfileFixer) Applies(c pdf.Check) bool {
-	return c == pdf.Checks.Colour.ICCBasedComponentsMismatch
+	return c == pdf.Checks.Colour.ICCBasedComponentsMismatch ||
+		c == pdf.Checks.Colour.ICCBasedProfileInvalid
 }
 
 func (iccBasedProfileFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	for _, t := range collectICCBasedSpaces(*trailer) {
-		if fixICCBasedSpace(t.arr, t.replace) {
+	for _, arr := range collectICCBasedSpaces(*trailer) {
+		if fixICCBasedSpace(arr) {
 			changed = true
 		}
 	}
 	return changed, nil
 }
 
-// iccBasedTarget is one [/ICCBased stream] colour space together with a setter
-// for the slot holding it, so a space that cannot be repaired in place can be
-// swapped for a device colour space instead.
-type iccBasedTarget struct {
-	arr     pdf.PDFArray
-	replace func(pdf.PDFValue)
-}
-
 // collectICCBasedSpaces finds every ICCBased colour space in the graph. It
 // collects before editing so nothing is rewritten mid-walk.
-func collectICCBasedSpaces(trailer pdf.PDFDict) []iccBasedTarget {
-	var out []iccBasedTarget
+func collectICCBasedSpaces(trailer pdf.PDFDict) []pdf.PDFArray {
+	var out []pdf.PDFArray
 	visited := map[uintptr]bool{}
 
 	var walk func(v pdf.PDFValue)
-	consider := func(child pdf.PDFValue, replace func(pdf.PDFValue)) {
+	consider := func(child pdf.PDFValue) {
 		if arr, ok := child.(pdf.PDFArray); ok && isICCBasedSpace(arr) {
-			out = append(out, iccBasedTarget{arr: arr, replace: replace})
+			out = append(out, arr)
 		}
 	}
 	walk = func(v pdf.PDFValue) {
@@ -341,8 +342,7 @@ func collectICCBasedSpaces(trailer pdf.PDFDict) []iccBasedTarget {
 				if k == "_ref" || k == "_dirty" {
 					continue
 				}
-				entries, key := val.Entries, k
-				consider(child, func(nv pdf.PDFValue) { entries.Set(key, nv) })
+				consider(child)
 				walk(child)
 			}
 		case pdf.PDFArray:
@@ -351,9 +351,8 @@ func collectICCBasedSpaces(trailer pdf.PDFDict) []iccBasedTarget {
 				return
 			}
 			visited[ptr] = true
-			for i, child := range val {
-				arr, idx := val, i
-				consider(child, func(nv pdf.PDFValue) { arr[idx] = nv })
+			for _, child := range val {
+				consider(child)
 				walk(child)
 			}
 		}
@@ -377,37 +376,36 @@ func isICCBasedSpace(arr pdf.PDFArray) bool {
 
 // fixICCBasedSpace repairs one ICCBased colour space, re-checking the
 // predicate so an already-fixed space is a no-op.
-func fixICCBasedSpace(arr pdf.PDFArray, replace func(pdf.PDFValue)) bool {
+func fixICCBasedSpace(arr pdf.PDFArray) bool {
 	stream := arr[1].(pdf.PDFDict)
 	data, err := pdf.DecodeStream(stream)
-	if err == nil && len(data) >= 128 && verify.ICCComponentsMismatch(stream, data) == "" {
+	usable := err == nil && len(data) >= 128 && verify.ICCInputProfileDefect(data) == ""
+	if usable && verify.ICCComponentsMismatch(stream, data) == "" {
 		return false
 	}
 
-	// With a readable profile of a component count PDF/A allows, /N can simply
-	// be made to say so -- nothing in the file depends on a missing or
-	// out-of-range /N.
+	// When the profile itself is fine, /N can simply be made to say what that
+	// profile holds -- nothing in the file depends on a missing or out-of-range
+	// /N. A usable profile always has a component count, since that is part of
+	// what makes it usable.
 	n, ok := stream.Entries.Get("N").(pdf.PDFInteger)
 	if !ok || (n != 1 && n != 3 && n != 4) {
-		if err == nil && len(data) >= 128 {
-			if want, ok := verify.ICCColourSpaceComponents(string(data[16:20])); ok {
-				stream.Entries.Set("N", pdf.PDFInteger(want))
-				return true
-			}
+		if usable {
+			want, _ := verify.ICCColourSpaceComponents(string(data[16:20]))
+			stream.Entries.Set("N", pdf.PDFInteger(want))
+			return true
 		}
 		n = 3
 	}
 
-	// Gray is the one case with no bundled replacement profile. Any PDF/A
-	// output intent covers DeviceGray, so the space becomes that instead --
-	// still one operand per colour, so the content streams stay valid.
-	if n == 1 {
-		replace(pdf.PDFName{Value: "DeviceGray"})
-		return true
-	}
-
+	// Otherwise the profile goes, and a bundled one of the right size takes its
+	// place. /N stays as it was, so every sc and scn in the file keeps passing
+	// the number of operands it always did.
 	profile := srgbICCProfile
-	if n == 4 {
+	switch n {
+	case 1:
+		profile = grayICCProfile
+	case 4:
 		profile = cmykICCProfile
 	}
 	stream.Entries.Set("N", pdf.PDFInteger(n))

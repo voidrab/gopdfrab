@@ -12,9 +12,15 @@ import (
 // buildICCProfileHeader returns a minimal 128-byte ICC v2 profile header
 // declaring the given colour space signature.
 func buildICCProfileHeader(colorSpace string) []byte {
+	return buildICCProfileHeaderWith(2, "mntr", colorSpace)
+}
+
+// buildICCProfileHeaderWith is buildICCProfileHeader with the profile's version
+// and device class chosen as well.
+func buildICCProfileHeaderWith(version byte, deviceClass, colorSpace string) []byte {
 	data := make([]byte, 128)
-	data[8] = 2 // major version 2
-	copy(data[12:16], "mntr")
+	data[8] = version
+	copy(data[12:16], deviceClass)
 	copy(data[16:20], colorSpace)
 	copy(data[36:40], "acsp")
 	return data
@@ -23,9 +29,14 @@ func buildICCProfileHeader(colorSpace string) []byte {
 // iccBasedTrailer wraps an [/ICCBased stream] colour space in a trailer, under
 // a resource dictionary the way a real document holds one.
 func iccBasedTrailer(colorSpace string, n int) (trailer pdf.PDFDict, cs pdf.PDFArray) {
+	return iccBasedTrailerWith(buildICCProfileHeader(colorSpace), n)
+}
+
+// iccBasedTrailerWith is iccBasedTrailer over a profile the caller built.
+func iccBasedTrailerWith(profile []byte, n int) (trailer pdf.PDFDict, cs pdf.PDFArray) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-	stream.RawStream = buildICCProfileHeader(colorSpace)
+	stream.RawStream = profile
 	if n >= 0 {
 		stream.Entries.Set("N", pdf.PDFInteger(n))
 	}
@@ -48,10 +59,13 @@ func currentSpace(t *testing.T, trailer pdf.PDFDict) pdf.PDFValue {
 	return res.Entries.Get("ColorSpace").(pdf.PDFDict).Entries.Get("CS0")
 }
 
-func TestICCBasedProfileFixerAppliesOnlyToComponentsMismatch(t *testing.T) {
+// TestICCBasedProfileFixerAppliesToBothHalvesOfTheClause covers the fixer's
+// reach: both 6.2.3.2 defects, and nothing else.
+func TestICCBasedProfileFixerAppliesToBothHalvesOfTheClause(t *testing.T) {
 	fixer := iccBasedProfileFixer{}
 	for _, c := range pdf.AllChecks() {
-		want := c == pdf.Checks.Colour.ICCBasedComponentsMismatch
+		want := c == pdf.Checks.Colour.ICCBasedComponentsMismatch ||
+			c == pdf.Checks.Colour.ICCBasedProfileInvalid
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
 		}
@@ -97,15 +111,82 @@ func TestICCBasedProfileFixerReplacesProfile(t *testing.T) {
 	}
 }
 
-// TestICCBasedProfileFixerFallsBackToDeviceGray covers the one component count
-// with no bundled replacement profile: the space becomes DeviceGray, which any
-// PDF/A output intent covers and which still takes one operand per colour.
-func TestICCBasedProfileFixerFallsBackToDeviceGray(t *testing.T) {
+// TestICCBasedProfileFixerReplacesGrayProfile covers the one-component case,
+// which has a bundled profile like the other two: the space stays ICCBased
+// rather than being dropped for a device colour space.
+func TestICCBasedProfileFixerReplacesGrayProfile(t *testing.T) {
 	trailer, _ := iccBasedTrailer("RGB ", 1)
 	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
 
-	if got := currentSpace(t, trailer); (got != pdf.PDFName{Value: "DeviceGray"}) {
-		t.Errorf("colour space = %v, want /DeviceGray", got)
+	cs, ok := currentSpace(t, trailer).(pdf.PDFArray)
+	if !ok {
+		t.Fatalf("colour space = %v, want an ICCBased array", currentSpace(t, trailer))
+	}
+	stream := cs[1].(pdf.PDFDict)
+	if stream.Entries.Get("N") != pdf.PDFInteger(1) {
+		t.Errorf("N = %v, want 1 unchanged", stream.Entries.Get("N"))
+	}
+	data, err := pdf.DecodeStream(stream)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if got := string(data[16:20]); got != "GRAY" {
+		t.Errorf("replacement profile colour space = %q, want GRAY", got)
+	}
+	if msg := verify.ICCComponentsMismatch(stream, data); msg != "" {
+		t.Errorf("still mismatched after the fix: %s", msg)
+	}
+	if msg := verify.ICCInputProfileDefect(data); msg != "" {
+		t.Errorf("replacement profile is not one PDF/A allows: %s", msg)
+	}
+}
+
+// TestICCBasedProfileFixerReplacesUnusableProfileKind covers the other half of
+// the clause: a profile PDF/A does not allow is swapped out even though the
+// component count it declares is right.
+func TestICCBasedProfileFixerReplacesUnusableProfileKind(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		version     byte
+		deviceClass string
+		colorSpace  string
+		n           int
+		wantCS      string
+	}{
+		{"version 4 rgb", 4, "mntr", "RGB ", 3, "RGB "},
+		{"version 4 scanner rgb", 4, "scnr", "RGB ", 3, "RGB "},
+		{"version 4 cmyk", 4, "prtr", "CMYK", 4, "CMYK"},
+		{"version 4 gray", 4, "mntr", "GRAY", 1, "GRAY"},
+		{"device link class", 2, "link", "RGB ", 3, "RGB "},
+		{"connection space as the colour space", 2, "mntr", "XYZ ", 3, "RGB "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := buildICCProfileHeaderWith(tc.version, tc.deviceClass, tc.colorSpace)
+			trailer, _ := iccBasedTrailerWith(profile, tc.n)
+			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+
+			cs, ok := currentSpace(t, trailer).(pdf.PDFArray)
+			if !ok {
+				t.Fatalf("colour space = %v, want an ICCBased array", currentSpace(t, trailer))
+			}
+			stream := cs[1].(pdf.PDFDict)
+			if stream.Entries.Get("N") != pdf.PDFInteger(tc.n) {
+				t.Errorf("N = %v, want %d unchanged", stream.Entries.Get("N"), tc.n)
+			}
+			data, err := pdf.DecodeStream(stream)
+			if err != nil {
+				t.Fatalf("DecodeStream: %v", err)
+			}
+			if got := string(data[16:20]); got != tc.wantCS {
+				t.Errorf("replacement profile colour space = %q, want %q", got, tc.wantCS)
+			}
+			if msg := verify.ICCInputProfileDefect(data); msg != "" {
+				t.Errorf("replacement profile is not one PDF/A allows: %s", msg)
+			}
+			if msg := verify.ICCComponentsMismatch(stream, data); msg != "" {
+				t.Errorf("replacement profile does not match /N: %s", msg)
+			}
+		})
 	}
 }
 
@@ -275,10 +356,58 @@ func TestConvertClearsICCBasedMismatch(t *testing.T) {
 	}
 }
 
-// TestICCBasedProfileFixerReplacesNestedSpace covers the setter for a space
-// held by another array: the gray fallback swaps the whole space out, so the
-// slot it sat in has to be written back through.
-func TestICCBasedProfileFixerReplacesNestedSpace(t *testing.T) {
+// TestConvertClearsICCBasedProfileInvalid is the end-to-end proof for the other
+// half of the clause: a page drawing in an ICCBased space whose profile is a
+// version PDF/A does not allow converts to conformance, profile replaced rather
+// than page rasterized.
+func TestConvertClearsICCBasedProfileInvalid(t *testing.T) {
+	profile := buildICCProfileHeaderWith(4, "mntr", "RGB ")
+
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /ColorSpace << /CS0 [/ICCBased 4 0 R] >> >> /Contents 5 0 R >>")
+	b.StreamObj(4, "<< /N 3", profile)
+	content := []byte("/CS0 cs 1 0 0 sc 10 10 50 50 re f")
+	b.StreamObj(5, "<<", content)
+	data := b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
+
+	res, err := verify.VerifyBytes(data, pdf.PDFA1B, nil)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	found := false
+	for _, iss := range res.Issues {
+		if iss.Check() == pdf.Checks.Colour.ICCBasedProfileInvalid {
+			found = true
+		}
+		if iss.Check() == pdf.Checks.Colour.ICCBasedComponentsMismatch {
+			t.Error("sanity: the component count agrees, only the profile kind is wrong")
+		}
+	}
+	if !found {
+		t.Fatal("sanity: ICCBasedProfileInvalid not reported for a version 4 profile")
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	defer cr.Close()
+	for _, iss := range cr.Result.Issues {
+		if iss.Check() == pdf.Checks.Colour.ICCBasedProfileInvalid {
+			t.Errorf("ICCBasedProfileInvalid survived conversion: %v", iss)
+		}
+	}
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("page %v was rasterized; the profile should have been replaced instead", cr.RasterizedPages)
+	}
+}
+
+// TestICCBasedProfileFixerRepairsNestedGraySpace covers a one-component space
+// held by another array, as /Indexed bases are: it is repaired where it sits.
+func TestICCBasedProfileFixerRepairsNestedGraySpace(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.RawStream = buildICCProfileHeader("RGB ")
@@ -295,14 +424,22 @@ func TestICCBasedProfileFixerReplacesNestedSpace(t *testing.T) {
 
 	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
 
-	if got := trailer.Entries.Get("CS").(pdf.PDFArray)[1]; (got != pdf.PDFName{Value: "DeviceGray"}) {
-		t.Errorf("base colour space = %v, want /DeviceGray", got)
+	base, ok := trailer.Entries.Get("CS").(pdf.PDFArray)[1].(pdf.PDFArray)
+	if !ok {
+		t.Fatalf("base colour space = %v, want an ICCBased array", trailer.Entries.Get("CS").(pdf.PDFArray)[1])
+	}
+	data, err := pdf.DecodeStream(base[1].(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if got := string(data[16:20]); got != "GRAY" {
+		t.Errorf("nested profile colour space = %q, want GRAY", got)
 	}
 }
 
 // TestICCBasedProfileFixerCollectsEverySlot covers the traversal: an array
-// reached twice is walked once, but a colour space sitting in two slots yields
-// a target per slot, since replacing it has to write back through both.
+// reached twice is walked once, and a colour space sitting in two slots is the
+// same array in both, so repairing it once shows up in both.
 func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
@@ -316,15 +453,23 @@ func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 	trailer.Entries.Set("B", shared)
 
 	if got := len(collectICCBasedSpaces(trailer)); got != 2 {
-		t.Errorf("collectICCBasedSpaces found %d targets, want 2 (one per slot)", got)
+		t.Errorf("collectICCBasedSpaces found %d spaces, want 2 (one per slot)", got)
 	}
 
 	if _, err := (iccBasedProfileFixer{}).Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 	for i, got := range trailer.Entries.Get("A").(pdf.PDFArray) {
-		if (got != pdf.PDFName{Value: "DeviceGray"}) {
-			t.Errorf("slot %d = %v, want /DeviceGray", i, got)
+		arr, ok := got.(pdf.PDFArray)
+		if !ok {
+			t.Fatalf("slot %d = %v, want an ICCBased array", i, got)
+		}
+		data, err := pdf.DecodeStream(arr[1].(pdf.PDFDict))
+		if err != nil {
+			t.Fatalf("slot %d: DecodeStream: %v", i, err)
+		}
+		if s := string(data[16:20]); s != "GRAY" {
+			t.Errorf("slot %d profile colour space = %q, want GRAY", i, s)
 		}
 	}
 	if changed, _ := (iccBasedProfileFixer{}).Fix(&trailer, nil); changed {
