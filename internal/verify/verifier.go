@@ -1632,6 +1632,34 @@ func ICCColourSpaceComponents(colorSpace string) (n int, ok bool) {
 	return 0, false
 }
 
+// iccInputDeviceClasses are the profile kinds an ICCBased colour space may use.
+var iccInputDeviceClasses = map[string]bool{
+	"prtr": true, "mntr": true, "scnr": true, "spac": true,
+}
+
+// ICCInputProfileDefect says why an ICCBased colour space's own ICC profile is
+// one PDF/A-1 will not take (6.2.3.2), or "" when it is fine. data is the
+// decoded profile, which must already be long enough to hold a header.
+func ICCInputProfileDefect(data []byte) string {
+	if major := data[8]; major >= 3 {
+		return fmt.Sprintf("ICC profile version %d.x is not allowed in PDF/A-1 (must be < 3.0)", major)
+	}
+	if class := string(data[12:16]); !iccInputDeviceClasses[class] {
+		return fmt.Sprintf("ICC profile has device class %q, which an ICCBased colour space may not use", class)
+	}
+	if colorSpace := string(data[16:20]); !iccInputColourSpace(colorSpace) {
+		return fmt.Sprintf("ICC profile has colour space %q, which PDF/A-1 does not permit", colorSpace)
+	}
+	return ""
+}
+
+// iccInputColourSpace reports whether an ICCBased profile may describe this
+// colour space. It is the same set the component count is known for.
+func iccInputColourSpace(colorSpace string) bool {
+	_, ok := ICCColourSpaceComponents(colorSpace)
+	return ok
+}
+
 // ICCComponentsMismatch compares an ICC profile stream's /N against the number
 // of components its embedded profile actually has (6.2.2 for an output profile,
 // 6.2.3.2 for an ICCBased colour space). data is the decoded profile, which

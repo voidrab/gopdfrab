@@ -244,7 +244,15 @@ func TestComputeColourCoverageNoOutputIntent(t *testing.T) {
 // declares the given colour space signature and whose dict declares n
 // components; n < 0 omits /N entirely.
 func iccBasedSpace(colorSpace string, n int) pdf.PDFArray {
+	return iccBasedSpaceWithHeader(2, "mntr", colorSpace, n)
+}
+
+// iccBasedSpaceWithHeader is iccBasedSpace with the profile's version and
+// device class chosen as well.
+func iccBasedSpaceWithHeader(version byte, deviceClass, colorSpace string, n int) pdf.PDFArray {
 	profile := buildValidICCProfile()
+	profile[8] = version
+	copy(profile[12:16], deviceClass)
 	copy(profile[16:20], colorSpace)
 
 	stream := pdf.NewPDFDict()
@@ -260,20 +268,23 @@ func iccBasedSpace(colorSpace string, n int) pdf.PDFArray {
 // must declare the number of components its embedded profile actually has.
 func TestValidateICCBasedColourSpace(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		colorSpace string
-		n          int
-		want       bool
+		name        string
+		colorSpace  string
+		n           int
+		want        bool
+		wantProfile bool
 	}{
-		{"gray with N 1", "GRAY", 1, false},
-		{"rgb with N 3", "RGB ", 3, false},
-		{"lab with N 3", "Lab ", 3, false},
-		{"cmyk with N 4", "CMYK", 4, false},
-		{"rgb with N 4", "RGB ", 4, true},
-		{"cmyk with N 1", "CMYK", 1, true},
-		{"N out of range", "RGB ", 5, true},
-		{"no N at all", "RGB ", -1, true},
-		{"colour space PDF/A does not permit", "5CLR", 5, true},
+		{"gray with N 1", "GRAY", 1, false, false},
+		{"rgb with N 3", "RGB ", 3, false, false},
+		{"lab with N 3", "Lab ", 3, false, false},
+		{"cmyk with N 4", "CMYK", 4, false, false},
+		{"rgb with N 4", "RGB ", 4, true, false},
+		{"cmyk with N 1", "CMYK", 1, true, false},
+		{"N out of range", "RGB ", 5, true, false},
+		{"no N at all", "RGB ", -1, true, false},
+		// A colour space PDF/A does not permit is two defects at once: the
+		// profile itself is unusable, and no /N can match it.
+		{"colour space PDF/A does not permit", "5CLR", 5, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := &ValidationContext{}
@@ -281,6 +292,44 @@ func TestValidateICCBasedColourSpace(t *testing.T) {
 			got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch)
 			if got != tc.want {
 				t.Errorf("ICCBasedComponentsMismatch reported = %v, want %v", got, tc.want)
+			}
+			if got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedProfileInvalid); got != tc.wantProfile {
+				t.Errorf("ICCBasedProfileInvalid reported = %v, want %v", got, tc.wantProfile)
+			}
+		})
+	}
+}
+
+// TestValidateICCBasedProfile covers the other half of 6.2.3.2: the profile an
+// ICCBased colour space embeds must be one PDF/A-1 allows.
+func TestValidateICCBasedProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		version     byte
+		deviceClass string
+		colorSpace  string
+		n           int
+		want        bool
+	}{
+		{"version 2 display profile", 2, "mntr", "RGB ", 3, false},
+		{"version 2 printer profile", 2, "prtr", "CMYK", 4, false},
+		{"version 2 scanner profile", 2, "scnr", "RGB ", 3, false},
+		{"version 2 colour space profile", 2, "spac", "Lab ", 3, false},
+		{"version 4", 4, "mntr", "RGB ", 3, true},
+		{"version 5", 5, "mntr", "RGB ", 3, true},
+		{"device link class", 2, "link", "RGB ", 3, true},
+		{"abstract class", 2, "abst", "RGB ", 3, true},
+		{"named colour class", 2, "nmcl", "RGB ", 3, true},
+		{"unknown class", 2, "xxxx", "RGB ", 3, true},
+		{"connection space as the colour space", 2, "mntr", "XYZ ", 3, true},
+		{"six-colorant space", 2, "mntr", "6CLR", 3, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			arr := iccBasedSpaceWithHeader(tc.version, tc.deviceClass, tc.colorSpace, tc.n)
+			validateColourSpaceArray(arr, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedProfileInvalid); got != tc.want {
+				t.Errorf("ICCBasedProfileInvalid reported = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -316,6 +365,9 @@ func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 			validateColourSpaceArray(tc.arr, ctx)
 			if hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch) {
 				t.Error("unexpected ICCBasedComponentsMismatch")
+			}
+			if hasCheck(ctx, pdf.Checks.Colour.ICCBasedProfileInvalid) {
+				t.Error("unexpected ICCBasedProfileInvalid")
 			}
 		})
 	}

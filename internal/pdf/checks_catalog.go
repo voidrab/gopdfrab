@@ -105,6 +105,7 @@ type colourChecks struct {
 	OutputIntentICCVersion        Check // contains profile and components mismatch checks
 	// 6.2.3.2 ICCBased colour spaces
 	ICCBasedComponentsMismatch Check
+	ICCBasedProfileInvalid     Check
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -585,6 +586,10 @@ func init() {
 				"ICCBasedComponentsMismatch",
 				"An ICCBased colour space N entry must be 1, 3, or 4 and match the component count of the embedded ICC profile",
 				"6.2.3.2", 1),
+			ICCBasedProfileInvalid: newCheck(
+				"ICCBasedProfileInvalid",
+				"An ICCBased colour space's embedded ICC profile must be version 2.x with a device class and colour space PDF/A-1 permits",
+				"6.2.3.2", 2),
 			DeviceColourSpaceUsage: newCheck(
 				"DeviceColourSpaceUsage",
 				"Device colour spaces used in image or shading XObjects require a matching OutputIntent",

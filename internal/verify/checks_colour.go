@@ -176,10 +176,12 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
 }
 
-// validateICCBasedColourSpace checks that an [/ICCBased stream] colour space
-// declares the number of components its embedded profile actually has (6.2.3.2).
+// validateICCBasedColourSpace checks an [/ICCBased stream] colour space against
+// both halves of 6.2.3.2: the embedded profile must be one PDF/A-1 allows, and
+// the space must declare the number of components that profile actually has.
+// The two are separate defects, so a space can be reported for either or both.
 // A profile too damaged to read a header from is a stream defect, reported at
-// the decode chokepoint as 6.1.7, not a component-count disagreement.
+// the decode chokepoint as 6.1.7, not as anything about its contents.
 func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
 	stream, ok := arr[1].(pdf.PDFDict)
 	if !ok || !stream.HasStream {
@@ -188,6 +190,9 @@ func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(stream)
 	if err != nil || len(data) < 128 {
 		return
+	}
+	if msg := ICCInputProfileDefect(data); msg != "" {
+		ctx.Report(pdf.Checks.Colour.ICCBasedProfileInvalid, arr, msg)
 	}
 	if msg := ICCComponentsMismatch(stream, data); msg != "" {
 		ctx.Report(pdf.Checks.Colour.ICCBasedComponentsMismatch, arr, msg)
