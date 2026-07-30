@@ -50,6 +50,17 @@ func (f transparencyFlattener) renderDPI() int {
 var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
 func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	changed := f.flattenPageTargets(trailer)
+	if bakeStraySoftMasks(trailer) {
+		changed = true
+	}
+	return changed, nil
+}
+
+// flattenPageTargets does the page-tree walk's share of the work: every
+// transparency group and soft-masked image the pages reach, flattened in
+// parallel and written back through the resource slot that named it.
+func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 	targets := collectTransparencyTargets(*trailer)
 
 	unique := uniqueByDict(targets)
@@ -62,7 +73,7 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 	results := make([]result, len(unique))
 	workers := min(runtime.NumCPU(), len(unique))
 	if workers < 1 {
-		return false, nil
+		return false
 	}
 
 	jobs := make(chan int)
@@ -130,7 +141,32 @@ func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool
 			t.xobjects.Entries.Set(t.name, r.fixed)
 		}
 	}
-	return changed, nil
+	return changed
+}
+
+// bakeStraySoftMasks composites out the soft mask of every image the page walk
+// above cannot see. 6.4 is reported against any image dictionary in the graph,
+// and an image reaches the graph by more routes than a resource dictionary --
+// a Photoshop /PieceInfo keeps one, and no amount of rasterizing the pages it
+// is not on will remove it. Images the walk already fixed no longer have a
+// soft mask, so this pass skips them on its own.
+func bakeStraySoftMasks(trailer *pdf.PDFDict) bool {
+	changed := false
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || !hasSoftMask(d) {
+			return d, false
+		}
+		// No resource dictionary: an image reached outside any content stream
+		// has no named colour spaces in scope, and one that needs them stays
+		// as it is rather than being decoded against the wrong names.
+		fixed, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
+		if !ok {
+			return d, false
+		}
+		changed = true
+		return fixed, true
+	})
+	return changed
 }
 
 // uniqueByDict drops targets addressing the same underlying object so each is

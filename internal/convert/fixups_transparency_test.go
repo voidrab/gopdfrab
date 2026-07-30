@@ -606,3 +606,45 @@ func TestUniqueByDictCollapsesAliases(t *testing.T) {
 		t.Errorf("uniqueByDict kept %q and %q, want the first of each object", got[0].name, got[1].name)
 	}
 }
+
+// TestBakeStraySoftMasksReachesOutsideThePageTree covers the image no page
+// walk can see: a Photoshop /PieceInfo keeps a composite copy with its soft
+// mask, and 6.4 is reported against it like any other image dictionary. No
+// amount of rasterizing the pages it is not on would remove it.
+func TestBakeStraySoftMasksReachesOutsideThePageTree(t *testing.T) {
+	img := grayImage(2, 2, []byte{10, 20, 30, 40})
+	img.Entries.Set("SMask", grayImage(2, 2, []byte{0, 128, 255, 64}))
+
+	private := pdf.NewPDFDict()
+	private.Entries.Set("CompositeImage", img)
+	photoshop := pdf.NewPDFDict()
+	photoshop.Entries.Set("Private", private)
+	pieceInfo := pdf.NewPDFDict()
+	pieceInfo.Entries.Set("AdobePhotoshop", photoshop)
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("PieceInfo", pieceInfo)
+	pages := pdf.NewPDFDict()
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Pages", pages)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	changed, err := (transparencyFlattener{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("Fix reported no change for a soft mask outside the page resources")
+	}
+	got, _ := private.Entries.Get("CompositeImage").(pdf.PDFDict)
+	if _, still := got.Entries.Lookup("SMask"); still {
+		t.Error("/SMask survived on an image reached through /PieceInfo")
+	}
+	if changed, _ := (transparencyFlattener{}).Fix(&trailer, nil); changed {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}

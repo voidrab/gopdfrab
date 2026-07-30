@@ -291,3 +291,60 @@ func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
 		t.Errorf("Fix(no ViewerPreferences) = %v, %v, want (false, nil)", changed, err)
 	}
 }
+
+// TestImageSampleDepthFixerRewritesSixteenBit covers 6.2.4: PDF/A-1 allows 1,
+// 2, 4 or 8 bits per component, and real documents carry 16-bit images. The
+// samples come back at 8 bits rather than the page being rasterized around
+// them; an image mask, whose depth is a different rule's business, is left.
+func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
+	// A 2x1 16-bit grayscale image: two big-endian samples per pixel.
+	img := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype":          pdf.PDFName{Value: "Image"},
+			"Width":            pdf.PDFInteger(2),
+			"Height":           pdf.PDFInteger(1),
+			"BitsPerComponent": pdf.PDFInteger(16),
+			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+		}),
+		HasStream: true,
+		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
+	}
+	mask := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype":          pdf.PDFName{Value: "Image"},
+			"Width":            pdf.PDFInteger(2),
+			"Height":           pdf.PDFInteger(1),
+			"BitsPerComponent": pdf.PDFInteger(16),
+			"ImageMask":        pdf.PDFBoolean(true),
+		}),
+		HasStream: true,
+		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
+	}
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("Im0", img)
+	xobjects.Entries.Set("Im1", mask)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("XObject", xobjects)
+
+	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("Fix reported no change for a 16-bit image")
+	}
+	got, _ := xobjects.Entries.Get("Im0").(pdf.PDFDict)
+	if bpc, _ := got.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc != 8 {
+		t.Errorf("BitsPerComponent = %v, want 8", got.Entries.Get("BitsPerComponent"))
+	}
+	if _, err := DecodeImageRGBA(got, pdf.PDFDict{}); err != nil {
+		t.Errorf("rewritten image does not decode: %v", err)
+	}
+	gotMask, _ := xobjects.Entries.Get("Im1").(pdf.PDFDict)
+	if bpc, _ := gotMask.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc != 16 {
+		t.Errorf("image mask BitsPerComponent = %v, want it left to 6.2.4-6", bpc)
+	}
+	if changed, _ := (imageSampleDepthFixer{}).Fix(&trailer, nil); changed {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}

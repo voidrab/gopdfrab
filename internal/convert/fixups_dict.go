@@ -29,6 +29,7 @@ func init() {
 	registerFixer(annotationFlagsFixer{})
 	registerFixer(formFixer{})
 	registerFixer(imageMetadataFixer{})
+	registerFixer(imageSampleDepthFixer{})
 	registerFixer(postScriptXObjectFixer{})
 	registerFixer(optionalContentFixer{})
 	registerFixer(viewerPrefFixer{})
@@ -387,6 +388,59 @@ func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 	if walkContentStreams(trailer, fixInlineImageInterpolate) {
 		changed = true
 	}
+	return changed, nil
+}
+
+// --- 6.2.4 sample depth ---
+
+// imageSampleDepthFixer remediates ImageBitsPerComponent: PDF/A-1 allows 1, 2,
+// 4 or 8 bits per component, and 16-bit images turn up in real documents.
+// The samples are decoded and written back at 8 bits, which is the depth the
+// standard allows and the one a viewer shows anyway; the alternative -- leaving
+// it -- ends with the page rasterized around it.
+//
+// It also clears the object model's matching finding on the same key, since the
+// enumeration it fails is the same rule.
+type imageSampleDepthFixer struct{}
+
+func (imageSampleDepthFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Image.ImageBitsPerComponent
+}
+
+func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	changed := false
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
+			return d, false
+		}
+		if mask, _ := d.Entries.Get("ImageMask").(pdf.PDFBoolean); bool(mask) {
+			return d, false // an image mask is 6.2.4-6's business, always 1 bit
+		}
+		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc {
+		case 1, 2, 4, 8:
+			return d, false
+		case 0:
+			return d, false // absent: nothing to repair
+		}
+		canvas, err := DecodeImageRGBA(d, pdf.PDFDict{})
+		if err != nil {
+			return d, false
+		}
+		fixed := d
+		if err := setStreamRGBFlate(&fixed, canvas); err != nil {
+			return d, false
+		}
+		fixed.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+		fixed.Entries.Set("Width", pdf.PDFInteger(canvas.Bounds().Dx()))
+		fixed.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
+		// The samples are now device RGB, whatever they were converted from, so
+		// the space they name has to say that rather than the profile they came
+		// through.
+		fixed.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+		fixed.Entries.Del("Decode")
+		changed = true
+		return fixed, true
+	})
 	return changed, nil
 }
 
