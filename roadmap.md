@@ -51,44 +51,52 @@ turns up where the skip actually hides something.
 
 ### 33. The last 16 files: 1564 of 1580 → 1580 of 1580
 
-Measured 2026-07-30, with the harness's own per-file report
-(`GOPDFRAB_REALWORLD_REPORT`). What the 16 non-conformant files report:
+Measured 2026-07-30 with the harness's own per-file report
+(`GOPDFRAB_REALWORLD_REPORT`), then re-measured per file: each of the 16 was
+converted on its own and its written output verified again, and the named object
+read out of that output.
 
-| residual | files |
+An earlier reading of this item claimed the outputs verify clean on a fresh read,
+and made that contradiction the thing to chase. It does not hold. Fifteen of the
+16 reproduce their residual exactly on the written bytes; only the
+`GraphResolutionFailure`-only file verifies clean, which is the deliberate
+carry-over at `internal/convert/convert.go:458`. Every residual is a true
+finding, and each traces to one of ten causes:
+
+| cause | files |
 | --- | --- |
-| objmodel: `OutlineItem` missing `/Title` (119, 170 and 21 issues) | 3 |
-| `StreamUndecodable` 6.1.7 (72 issues on one) | 3 |
-| `XRefSubsectionHeaderFormat` 6.1.4 | 2 |
-| objmodel: a page tree whose `Kids`/`Count` disagree, and a trailer `Info` of the wrong type | 2 |
-| `GraphResolutionFailure` 6.1.6 | 1 |
-| `GraphResolutionFailure` 6.1.6 together with outline items missing `/Parent` | 1 |
-| one each: `SeparationAlternateColour` 6.2.3.4, `ImageWithSoftMask` 6.4, `ImageBitsPerComponent` 16, `TrueTypeEncoding` 6.3.7 | 4 |
+| `checkXRefSectionFormat` reads a fixed 8 KB window, so the leftover `"t"` of `trailer` after a 409-entry table is reported as a malformed subsection header — a false positive on our own output, and everything past 8 KB goes unchecked | 2 |
+| the `Default*` colour-space exemption is taken from the *page's* resources, so it excuses content inside a form XObject that has its own `/Resources`, and stops convert injecting `Default*` there | 1 |
+| undecodable streams: 19 zero-length `/FlateDecode` bodies, and a 74-byte junk Type 3 `CharProc` | 3 |
+| outline items with no `/Title` (producer stubs `<< /Parent N >>` whose parent is `<< >>`), and elsewhere items with no `/Parent` | 4 |
+| an empty page-tree node `<< /Count 0 /Kids [] >>` | 1 |
+| trailer `/Info` pointing at the `/Metadata` stream | 1 |
+| an `/SMask` image reachable only through `/PieceInfo`, which the transparency fixer's page-resource walk never visits | 1 |
+| image `/BitsPerComponent 16`, with no fixer for it | 1 |
+| a non-symbolic TrueType whose `/Encoding` dict carries `/Differences` but no `/BaseEncoding` | 1 |
+| reader-degraded objects force `Valid=false` although the output is clean | 1 |
 
-Two separate problems sit behind that list, and the second is the smaller one.
+veraPDF fails 4 of the 16 outputs, and only two of those are ours to fix. The
+6.3.6-1 pair is the broken Type 3 `CharProc`: veraPDF reads the unreadable glyph
+as width 0 against `/Widths [1000]`, while `Type3GlyphWidth` skips a stream it
+cannot decode, so repairing the stream closes both. 6.2.3.3-2 is the `Default*`
+scope. The remaining 6.2.4-4 is the 16-bit image we already report, at our own
+subclause number.
 
-**The verdict disagrees with the file it just wrote.** Re-reading all 16 written
-outputs with the same profile, every one of them verifies **clean**. Only one of
-the 16 is explained by the deliberate carry-over at
-`internal/convert/convert.go:458`, where an object the reader degraded to null is
-re-reported so a lossy conversion cannot claim success — that path emits nothing
-but `GraphResolutionFailure`. The other 15 report checks it never emits, so they
-come from the final verify, which the code says runs on the output bytes. Bytes
-that then verify clean on a fresh read. That contradiction is the thing to chase
-first; it is most of the 16, and until it is understood the conformance fraction
-is measuring something other than what it claims.
+That the `Default*` exemption exists at all is settled by veraPDF's own suite:
+`6-2-3-3-t03-pass-b.pdf` uses DeviceRGB with no output intent and passes purely
+on `/DefaultRGB` in the page resources. Its *scope* is the resource dictionary in
+force for the content being executed, which `scanAnnotAppearances` already
+honours for appearance streams and nothing else does.
 
-The carry-over itself is worth revisiting alongside it: it makes "content was
-lost" and "the file is not conformant" the same signal, when they are different
-facts a caller would want separately.
-
-**Four outputs really are non-conformant, and we pass them.** veraPDF fails 4 of
-the 16 outputs: 6.2.4-4, 6.2.3.3-2, and 6.3.6-1 twice. Those are verifier
-false-negatives, found the same way item 32's was, and the 6.3.6-1 pair is worth
-reading next to item 31 — that check is already skipped for some font programs.
+Two of the 16 need the carry-over revisited as well: it makes "content was lost"
+and "the file is not conformant" the same signal, when they are different facts a
+caller would want separately.
 
 The real-world corpus is not in CI and so is not covered by the differential
-harness (item 11), which is why both of these went unseen. A differential pass
-over converted real-world output, even a sampled one, would have caught them.
+harness (item 11), which is why the two false negatives went unseen. A
+differential pass over converted real-world output, even a sampled one, would
+have caught them.
 
 ---
 
