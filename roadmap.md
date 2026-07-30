@@ -59,9 +59,10 @@ Measured 2026-07-30, with the harness's own per-file report
 | objmodel: `OutlineItem` missing `/Title` (119, 170 and 21 issues) | 3 |
 | `StreamUndecodable` 6.1.7 (72 issues on one) | 3 |
 | `XRefSubsectionHeaderFormat` 6.1.4 | 2 |
-| `GraphResolutionFailure` 6.1.6 | 2 |
-| objmodel: page-tree `Kids`/`Count`, trailer `Info` type, outline `Parent` | 3 |
-| `SeparationAlternateColour` 6.2.3.4, `ImageWithSoftMask` 6.4, `ImageBitsPerComponent` 16, `TrueTypeEncoding` 6.3.7 | 4 |
+| objmodel: a page tree whose `Kids`/`Count` disagree, and a trailer `Info` of the wrong type | 2 |
+| `GraphResolutionFailure` 6.1.6 | 1 |
+| `GraphResolutionFailure` 6.1.6 together with outline items missing `/Parent` | 1 |
+| one each: `SeparationAlternateColour` 6.2.3.4, `ImageWithSoftMask` 6.4, `ImageBitsPerComponent` 16, `TrueTypeEncoding` 6.3.7 | 4 |
 
 Two separate problems sit behind that list, and the second is the smaller one.
 
