@@ -1568,6 +1568,54 @@ func TestComputeContentUsageFullFlow(t *testing.T) {
 	}
 }
 
+// TestComputeContentUsageThroughInheritedResources covers the page that names
+// no /Resources of its own: /Resources is inheritable, and documents that hang
+// one shared dict on the page tree root are common. Reading only the page's own
+// left every font in it unseen, and with it the fact that a shown font is not
+// embedded (6.3.4).
+func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F2", font)
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("Font", fonts)
+
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "BT", Operands: nil},
+		{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: "F2"}, pdf.PDFInteger(12)}},
+		{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: "A"}}},
+		{Op: "ET", Operands: nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Contents", pdf.PDFDict{HasStream: true, RawStream: content, Entries: pdf.NewPDFDict().Entries})
+	pages := pdf.NewPDFDict()
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Resources", resources)
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	page.Entries.Set("Parent", pages)
+
+	_, _, usedCodes, _, _ := ComputeContentUsage(pages, &ValidationContext{})
+	if len(usedCodes[pdf.ValuePointer(font.Entries)]) == 0 {
+		t.Error("no usage recorded for a font named only by inherited resources")
+	}
+}
+
+// TestInheritedResourcesStopsOnACycle: a /Parent chain that points back at
+// itself must not spin.
+func TestInheritedResourcesStopsOnACycle(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Parent", page)
+	if got := inheritedResources(page); got.Entries != nil {
+		t.Errorf("inheritedResources on a self-parented page = %v, want none", got)
+	}
+}
+
 func TestCheckLinearizedFileID(t *testing.T) {
 	mismatched := "/ID [<AABBCC>]\nsome bytes in between\n/ID [<DDEEFF>]\n"
 	filename := t.TempDir() + "/lin-mismatch.pdf"

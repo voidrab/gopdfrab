@@ -287,7 +287,14 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 		return
 	}
 
-	// Non-symbolic TrueType: Encoding shall be MacRomanEncoding or WinAnsiEncoding.
+	// Non-symbolic TrueType: Encoding shall be MacRomanEncoding or
+	// WinAnsiEncoding. The clause qualifies this one with "used for rendering"
+	// -- unlike the symbolic sentences above -- so a font a resource dictionary
+	// names and no content stream ever selects is outside it, decided by the
+	// same profile flag that scopes 6.3.4 embedding.
+	if ctx.SkipUnusedSimpleFonts && !ctx.simpleFontShown(v) {
+		return
+	}
 	name, ok := enc.(pdf.PDFName)
 	if !ok || (name.Value != "MacRomanEncoding" && name.Value != "WinAnsiEncoding") {
 		ctx.Report(pdf.Checks.Font.TrueTypeEncoding, v, "non-symbolic TrueType font shall use MacRoman or WinAnsi encoding")

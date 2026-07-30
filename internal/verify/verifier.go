@@ -627,6 +627,30 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 	return nil
 }
 
+// inheritedResources returns the resource dictionary in force for a page: its
+// own /Resources, or else the nearest one up the /Parent chain. /Resources is
+// an inheritable page attribute (ISO 32000-1 7.7.3.4), and a document that
+// hangs one shared dict on the page tree root is common enough that reading
+// only the page's own leaves every font and XObject it names invisible --
+// including fonts that are shown, and so have to be embedded (6.3.4).
+//
+// The depth bound is for a /Parent chain that loops back on itself; a page
+// tree deeper than this has bigger problems than its resources.
+func inheritedResources(page pdf.PDFDict) pdf.PDFDict {
+	node := page
+	for depth := 0; node.Entries != nil && depth < 64; depth++ {
+		if res, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
+			return res
+		}
+		parent, ok := node.Entries.Get("Parent").(pdf.PDFDict)
+		if !ok {
+			break
+		}
+		node = parent
+	}
+	return pdf.PDFDict{}
+}
+
 // xrefWindowStep is how much of an xref section xrefCursor reads at a time.
 const xrefWindowStep = 8192
 
@@ -1047,7 +1071,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				if ref, ok := val.Entries.Get("_ref").(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
-				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
+				resources := inheritedResources(val)
 				if !collectContentUsage(ctx, val.Entries.Get("Contents"), resources, reachable, fu) {
 					complete = false
 				}

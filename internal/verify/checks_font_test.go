@@ -521,6 +521,47 @@ func TestValidateFontDictSymbolicTrueType(t *testing.T) {
 	}
 }
 
+// TestValidateTrueTypeEncodingUnusedFont covers the clause's own wording: the
+// non-symbolic encoding rule governs fonts "used for rendering", so a font a
+// resource dictionary names and no content stream selects is out of its scope
+// under the veraPDF-matching profile -- and still reported under the literal
+// one, which is what the Isartor suite expects.
+func TestValidateTrueTypeEncodingUnusedFont(t *testing.T) {
+	enc := pdf.NewPDFDict()
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(128), pdf.PDFName{Value: "gamma"}})
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("Flags", pdf.PDFInteger(32)) // non-symbolic
+
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	v.Entries.Set("Encoding", enc)
+
+	unused := &ValidationContext{
+		SkipUnusedSimpleFonts: true,
+		UsedCharCodes:         map[uintptr]map[int]bool{},
+	}
+	validateTrueTypeEncoding(v, desc, unused)
+	if hasCheck(unused, pdf.Checks.Font.TrueTypeEncoding) {
+		t.Error("reported 6.3.7 for a font no content stream selects")
+	}
+
+	shown := &ValidationContext{
+		SkipUnusedSimpleFonts: true,
+		UsedCharCodes:         map[uintptr]map[int]bool{pdf.ValuePointer(v.Entries): {128: true}},
+	}
+	validateTrueTypeEncoding(v, desc, shown)
+	if !hasCheck(shown, pdf.Checks.Font.TrueTypeEncoding) {
+		t.Error("no 6.3.7 for a shown font whose Encoding is a dictionary")
+	}
+
+	literal := &ValidationContext{} // Legacy1B: no usage gating
+	validateTrueTypeEncoding(v, desc, literal)
+	if !hasCheck(literal, pdf.Checks.Font.TrueTypeEncoding) {
+		t.Error("the spec-literal profile must report an unused font too")
+	}
+}
+
 func TestValidateFontDictCIDFontType0NotEmbedded(t *testing.T) {
 	// The verifier walks and validates the descendant CIDFont dict directly
 	// (it is itself a /Type /Font dict); CIDNotEmbedded fires there, not on
