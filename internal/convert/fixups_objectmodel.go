@@ -238,7 +238,7 @@ var reservedFlagBits = map[string]struct {
 }
 
 func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	changed := false
+	changed := pruneEmptyPageTreeNodes(*trailer)
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for _, r := range reservedFlagBits {
 			if t, ok := d.Entries.Get(r.discKey).(pdf.PDFName); !ok || t.Value != r.discVal {
@@ -251,6 +251,61 @@ func (constraintFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		}
 	})
 	return changed, nil
+}
+
+// pruneEmptyPageTreeNodes drops page tree nodes with no kids from the tree. The
+// model requires an intermediate node to hold at least one kid and a positive
+// /Count, and a node holding neither describes no pages at all -- so removing
+// it costs the document nothing and leaves every /Count above it correct, since
+// it was contributing zero.
+func pruneEmptyPageTreeNodes(trailer pdf.PDFDict) bool {
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+
+	changed := false
+	visited := map[uintptr]bool{}
+	// prune returns whether node itself is now empty, so a parent left holding
+	// nothing but pruned children is pruned in turn.
+	var prune func(node pdf.PDFDict) bool
+	prune = func(node pdf.PDFDict) bool {
+		if (node.Entries.Get("Type") != pdf.PDFName{Value: "Pages"}) {
+			return false
+		}
+		ptr := pdf.ValuePointer(node.Entries)
+		if visited[ptr] {
+			return false
+		}
+		visited[ptr] = true
+
+		kids, ok := node.Entries.Get("Kids").(pdf.PDFArray)
+		if !ok {
+			return false
+		}
+		kept := make(pdf.PDFArray, 0, len(kids))
+		for _, kid := range kids {
+			kd, isDict := kid.(pdf.PDFDict)
+			if isDict && prune(kd) {
+				continue
+			}
+			kept = append(kept, kid)
+		}
+		if len(kept) != len(kids) {
+			node.Entries.Set("Kids", kept)
+			changed = true
+		}
+		return len(kept) == 0
+	}
+	// The root of the tree stays even when it ends up empty: the catalogue has
+	// to point at something, and a document with no pages is a different
+	// problem from a stray empty node inside the tree.
+	prune(pages)
+	return changed
 }
 
 func (f constraintFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
@@ -408,16 +463,15 @@ func (missingRequiredKeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 
 func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed := false
+	if namesType(issues, "OutlineItem") && repairOutlineTree(*p.trailer) {
+		changed = true
+	}
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
 		if !ok || isArrayIndexKey(detail.Key) {
 			continue // untargetable, or a missing array element (never synthesized)
 		}
-		ref, ok := iss.ObjectRef()
-		if !ok {
-			continue
-		}
-		d, ok := p.dictForRef(ref)
+		d, ok := p.dictForIssue(iss)
 		if !ok {
 			continue
 		}
@@ -436,6 +490,98 @@ func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 		changed = true
 	}
 	return changed, true, nil
+}
+
+// repairTrailerInfo replaces a trailer /Info that is not a document
+// information dictionary with an empty one. Files point it at their XMP
+// metadata stream, which is not document information and holds nothing to
+// carry over, so an empty dictionary loses none of it -- and an empty one
+// rather than no /Info at all because the model leaves the key's requirement
+// to a predicate it cannot evaluate, making removal the more presumptuous
+// repair. Its entries are then trivially consistent with the XMP (6.6.4).
+func repairTrailerInfo(trailer *pdf.PDFDict) bool {
+	v, present := trailer.Entries.Lookup("Info")
+	if !present || v == nil {
+		return false
+	}
+	if d, ok := v.(pdf.PDFDict); ok && !d.HasStream {
+		return false
+	}
+	trailer.Entries.Set("Info", pdf.NewPDFDict())
+	return true
+}
+
+// namesType reports whether any issue was raised against the named Arlington
+// type, so a repair specific to that type only runs for documents that have it.
+func namesType(issues []pdf.PDFError, typeName string) bool {
+	for _, iss := range issues {
+		if detail, ok := iss.ObjModelDetail(); ok && detail.TypeName == typeName {
+			return true
+		}
+	}
+	return false
+}
+
+// repairOutlineTree gives every outline item the two keys the model requires
+// and the tree itself can supply: /Parent, which is the node the item hangs
+// under, and /Title, which nothing can supply -- so it becomes empty rather
+// than invented. Both come up in bookmark trees PowerPoint exports leave
+// behind, where stub items carry a /Parent and nothing else.
+//
+// Empty titles rather than unlinking the stubs: they sit in the /Prev and
+// /Next chains beside real bookmarks, and some of them carry a /First of their
+// own, so cutting them out would take entries the reader can still use with
+// them.
+func repairOutlineTree(trailer pdf.PDFDict) bool {
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	outlines, ok := root.Entries.Get("Outlines").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+
+	changed := false
+	visited := map[uintptr]bool{}
+	// item is one node to repair together with the node it belongs to; the
+	// queue keeps the traversal iterative, since these chains run to hundreds
+	// of entries and can loop back on themselves.
+	type item struct{ node, parent pdf.PDFDict }
+	var queue []item
+	push := func(v pdf.PDFValue, parent pdf.PDFDict) {
+		d, ok := v.(pdf.PDFDict)
+		if !ok || visited[pdf.ValuePointer(d.Entries)] {
+			return
+		}
+		visited[pdf.ValuePointer(d.Entries)] = true
+		queue = append(queue, item{node: d, parent: parent})
+	}
+	push(outlines.Entries.Get("First"), outlines)
+	push(outlines.Entries.Get("Last"), outlines)
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		if _, has := cur.node.Entries.Lookup("Title"); !has {
+			cur.node.Entries.Set("Title", pdf.PDFString{})
+			changed = true
+		}
+		if _, has := cur.node.Entries.Lookup("Parent"); !has && cur.parent.Entries != nil {
+			cur.node.Entries.Set("Parent", cur.parent)
+			changed = true
+		}
+
+		// Siblings share this node's parent; children are parented here. /Prev
+		// as well as /Next: a producer can leave an item reachable only
+		// backwards, and it is as much part of the tree as its neighbour.
+		push(cur.node.Entries.Get("Next"), cur.parent)
+		push(cur.node.Entries.Get("Prev"), cur.parent)
+		push(cur.node.Entries.Get("First"), cur.node)
+		push(cur.node.Entries.Get("Last"), cur.node)
+	}
+	return changed
 }
 
 // isArrayIndexKey reports whether an ObjModelDetail key addresses an array element rather
@@ -543,6 +689,9 @@ func (wrongValueTypeFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 
 func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed := false
+	if namesType(issues, "FileTrailer") && repairTrailerInfo(p.trailer) {
+		changed = true
+	}
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
 		if !ok {
@@ -560,11 +709,7 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 			}
 			continue
 		}
-		ref, ok := iss.ObjectRef()
-		if !ok {
-			continue
-		}
-		d, ok := p.dictForRef(ref)
+		d, ok := p.dictForIssue(iss)
 		if !ok {
 			continue
 		}

@@ -54,6 +54,20 @@ func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	return d, true
 }
 
+// dictForIssue resolves the dict an issue is about. Findings against the file
+// trailer carry no object reference -- the trailer is not an indirect object --
+// so they are answered with the trailer itself, which is otherwise unreachable
+// to a targeted fixer.
+func (p *fixPass) dictForIssue(iss pdf.PDFError) (pdf.PDFDict, bool) {
+	if ref, ok := iss.ObjectRef(); ok {
+		return p.dictForRef(ref)
+	}
+	if detail, ok := iss.ObjModelDetail(); ok && detail.TypeName == "FileTrailer" && p != nil && p.trailer != nil {
+		return *p.trailer, true
+	}
+	return pdf.PDFDict{}, false
+}
+
 // dictsForIssues returns the distinct dicts the issues point at, sorted by
 // object number so targeted fixing stays deterministic despite nondeterministic
 // issue order. ok is false -- and the caller must fall back to its full-graph

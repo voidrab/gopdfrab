@@ -1267,3 +1267,129 @@ func TestConstraintHelperEdges(t *testing.T) {
 		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
 }
+
+// TestRepairOutlineTreeSuppliesParentAndTitle covers the bookmark trees real
+// exporters leave behind: stub items carrying nothing but a /Parent, sitting in
+// the /Prev chain beside real bookmarks. The tree itself says who each item
+// belongs to, so /Parent is filled in from the walk; nothing says what a stub
+// is called, so its /Title becomes empty rather than invented.
+func TestRepairOutlineTreeSuppliesParentAndTitle(t *testing.T) {
+	// second <- (Prev) - first, and second holds a child of its own.
+	child := pdf.NewPDFDict()
+	child.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+
+	second := pdf.NewPDFDict()
+	second.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	second.Entries.Set("First", child)
+
+	first := pdf.NewPDFDict()
+	first.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	first.Entries.Set("Title", pdf.PDFString{Value: "Abstract"})
+	first.Entries.Set("Prev", second)
+
+	outlines := pdf.NewPDFDict()
+	outlines.Entries.Set("First", first)
+	outlines.Entries.Set("Last", first)
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Outlines", outlines)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	if !repairOutlineTree(trailer) {
+		t.Fatal("repairOutlineTree reported no change")
+	}
+	if got, _ := second.Entries.Get("Title").(pdf.PDFString); got.Value != "" {
+		t.Errorf("stub Title = %q, want an empty string", got.Value)
+	}
+	// Identity, not EqualPDFValue: /Parent closes a cycle the deep comparison
+	// would follow forever.
+	if got, ok := second.Entries.Get("Parent").(pdf.PDFDict); !ok ||
+		pdf.ValuePointer(got.Entries) != pdf.ValuePointer(outlines.Entries) {
+		t.Error("a sibling reached backwards did not get the outline root as its parent")
+	}
+	if got, ok := child.Entries.Get("Parent").(pdf.PDFDict); !ok ||
+		pdf.ValuePointer(got.Entries) != pdf.ValuePointer(second.Entries) {
+		t.Error("a child did not get the item holding it as its parent")
+	}
+	if got, _ := first.Entries.Get("Title").(pdf.PDFString); got.Value != "Abstract" {
+		t.Errorf("existing Title = %q, want it untouched", got.Value)
+	}
+	if repairOutlineTree(trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}
+
+// TestPruneEmptyPageTreeNodes covers the intermediate node holding no kids:
+// the model requires one kid and a positive /Count, and the node describes no
+// pages, so it goes -- along with the parent it leaves empty.
+func TestPruneEmptyPageTreeNodes(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+
+	empty := pdf.NewPDFDict()
+	empty.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	empty.Entries.Set("Kids", pdf.PDFArray{})
+	empty.Entries.Set("Count", pdf.PDFInteger(0))
+
+	// A node whose only kid is the empty one is itself empty once it is gone.
+	hollow := pdf.NewPDFDict()
+	hollow.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	hollow.Entries.Set("Kids", pdf.PDFArray{empty})
+	hollow.Entries.Set("Count", pdf.PDFInteger(0))
+
+	root := pdf.NewPDFDict()
+	root.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	root.Entries.Set("Kids", pdf.PDFArray{page, hollow})
+	root.Entries.Set("Count", pdf.PDFInteger(1))
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Pages", root)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	if !pruneEmptyPageTreeNodes(trailer) {
+		t.Fatal("pruneEmptyPageTreeNodes reported no change")
+	}
+	kids, _ := root.Entries.Get("Kids").(pdf.PDFArray)
+	if len(kids) != 1 || !pdf.EqualPDFValue(kids[0], page) {
+		t.Errorf("root Kids = %v, want only the page", kids)
+	}
+	if got, _ := root.Entries.Get("Count").(pdf.PDFInteger); got != 1 {
+		t.Errorf("root Count = %v, want 1 (the pruned nodes held no pages)", got)
+	}
+	if pruneEmptyPageTreeNodes(trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}
+
+// TestRepairTrailerInfoReplacesStream covers the trailer /Info pointing at the
+// XMP metadata stream: it holds no document information, and the model cannot
+// say whether the key may be dropped, so it is replaced by an empty dictionary
+// rather than removed.
+func TestRepairTrailerInfoReplacesStream(t *testing.T) {
+	metadata := pdf.NewPDFDict()
+	metadata.HasStream = true
+	metadata.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Info", metadata)
+
+	if !repairTrailerInfo(&trailer) {
+		t.Fatal("repairTrailerInfo reported no change")
+	}
+	info, ok := trailer.Entries.Get("Info").(pdf.PDFDict)
+	if !ok || info.HasStream {
+		t.Fatalf("Info = %v, want a plain dictionary", trailer.Entries.Get("Info"))
+	}
+	if repairTrailerInfo(&trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+
+	// A real document information dictionary is left alone.
+	good := pdf.NewPDFDict()
+	good.Entries.Set("Producer", pdf.PDFString{Value: "gopdfrab"})
+	trailer.Entries.Set("Info", good)
+	if repairTrailerInfo(&trailer) {
+		t.Error("a valid Info dictionary was replaced")
+	}
+}
