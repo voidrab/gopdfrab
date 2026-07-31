@@ -83,9 +83,12 @@ func rescaleContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 func rescalePathsAndRewrite(data []byte, rewrite contentOpRewriter) ([]byte, bool) {
 	var cw writer.ContentStreamWriter
 	r := &pathRescaler{w: &cw, rewrite: rewrite, state: graphicsState{lineWidth: defaultLineWidth}}
-	pdf.NewContentScanner(data).Scan(r.op)
+	cs := pdf.NewContentScanner(data)
+	cs.Scan(r.op)
 	r.emitBuffered() // a path the stream ended without painting
-	if !r.changed || cw.Err() != nil {
+	// Only part of the stream was read, so only part of it was written back:
+	// see rewriteContentStreamDict.
+	if !r.changed || !cs.Complete() || cw.Err() != nil {
 		return nil, false
 	}
 	return cw.Bytes(), true

@@ -358,6 +358,47 @@ func TestContentScannerMalformedOperands(t *testing.T) {
 	}
 }
 
+// TestContentScannerQuoteOperators: ' and " show text, and neither is made of
+// letters, which is all a keyword is read as -- so before they were handled
+// here a stream stopped at its first one and everything after it, however much
+// of the page it drew, was never seen.
+func TestContentScannerQuoteOperators(t *testing.T) {
+	ops := TokenizeContent([]byte("(a) '\n1 2 (b) \"\n(c) Tj\n"))
+	if len(ops) != 3 {
+		t.Fatalf("ops = %+v, want three operators", ops)
+	}
+	if ops[0].Op != "'" || !reflect.DeepEqual(ops[0].Operands, []PDFValue{PDFString{Value: "a"}}) {
+		t.Errorf("ops[0] = %+v, want ' with one string", ops[0])
+	}
+	if ops[1].Op != `"` || len(ops[1].Operands) != 3 {
+		t.Errorf("ops[1] = %+v, want \" with three operands", ops[1])
+	}
+	if ops[2].Op != "Tj" {
+		t.Errorf("ops[2] = %+v, want the operator after the two, which used to be unreachable", ops[2])
+	}
+}
+
+// TestContentScannerComplete: a caller rewriting a stream has to know whether
+// the scan saw all of it, since it can only write back what it read.
+func TestContentScannerComplete(t *testing.T) {
+	cs := NewContentScanner([]byte("0 0 1 1 re f\n"))
+	cs.Scan(func(string, []PDFValue) {})
+	if !cs.Complete() {
+		t.Error("Complete() = false after reading a whole stream")
+	}
+
+	// A brace is not a content-stream token, so the scan stops there.
+	stopped := NewContentScanner([]byte("0 0 1 1 re f\n{ }\n1 0 0 rg\n"))
+	seen := 0
+	stopped.Scan(func(string, []PDFValue) { seen++ })
+	if stopped.Complete() {
+		t.Error("Complete() = true after stopping mid-stream")
+	}
+	if seen != 2 {
+		t.Errorf("saw %d operators before the stop, want 2", seen)
+	}
+}
+
 // TestContentScannerInlineImage covers scanInlineImage's parameter type
 // switch and the full BI...ID...EI span reported via InlineImageRaw.
 func TestContentScannerInlineImage(t *testing.T) {

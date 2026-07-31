@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -397,5 +398,27 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 		if ops[i] != want[i] {
 			t.Errorf("ops[%d] = %q, want %q (full: %v)", i, ops[i], want[i], ops)
 		}
+	}
+}
+
+// TestRewriteKeepsAStreamItCouldNotReadWhole: a rewriter emits as it reads, so
+// a stream it stops part way through has only been part written. Writing that
+// back would throw away the rest of the drawing, so the original bytes stay.
+func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
+	// An undefined operator to rewrite, then a brace, which is not a
+	// content-stream token at all and stops the read.
+	src := []byte("q XX 1 2\n{ }\n0 0 100 100 re f Q\n")
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = src
+
+	if _, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits); changed {
+		t.Error("a half-read stream was rewritten, want the original kept")
+	}
+	if _, changed := repairContentStream(dict); changed {
+		t.Error("a half-read stream was rescaled, want the original kept")
+	}
+	if !bytes.Equal(dict.RawStream, src) {
+		t.Errorf("stream = %q, want it untouched", dict.RawStream)
 	}
 }

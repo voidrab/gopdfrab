@@ -161,14 +161,17 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 	// discarded if rewrite changed nothing.
 	var cw writer.ContentStreamWriter
 	modified := false
-	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+	cs := pdf.NewContentScanner(data)
+	cs.Scan(func(op string, operands []pdf.PDFValue) {
 		newOp, keep := rewrite(op, operands, &modified)
 		if !keep {
 			return
 		}
 		_ = cw.WriteOp(newOp.Op, newOp.Operands)
 	})
-	if !modified || cw.Err() != nil {
+	// A scan that stopped early wrote out only the part of the stream it could
+	// read, so keeping it would drop the rest of the drawing.
+	if !modified || !cs.Complete() || cw.Err() != nil {
 		return dict, false
 	}
 

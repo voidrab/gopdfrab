@@ -316,10 +316,17 @@ type InlineImageRaw struct {
 // with its operands. It reuses the object Lexer for tokenising; bare operators
 // arrive as keyword tokens.
 type ContentScanner struct {
-	lex   *Lexer
-	stack []PDFValue
-	data  []byte
+	lex      *Lexer
+	stack    []PDFValue
+	data     []byte
+	complete bool
 }
+
+// Complete reports whether the last Scan read the stream to its end. A scan
+// that stopped early has not seen all of the content, so a caller rewriting
+// the stream must keep the original bytes rather than write back the part it
+// managed to read.
+func (cs *ContentScanner) Complete() bool { return cs.complete }
 
 func NewContentScanner(data []byte) *ContentScanner {
 	return &ContentScanner{lex: NewLexerBytes(data, 0), data: data}
@@ -356,13 +363,27 @@ func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 }
 
 // scan iterates the content stream, invoking fn for each operator with the
-// operands collected since the previous operator.
+// operands collected since the previous operator. It stops at the first thing
+// it cannot read, which Complete reports.
 func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 	defer cs.lex.Release()
+	cs.complete = false
 	for {
 		tok := cs.lex.NextToken()
 		switch tok.Type {
-		case TokenEOF, TokenError:
+		case TokenEOF:
+			cs.complete = true
+			return
+		case TokenError:
+			// ' and " show text (ISO 32000-1 table 107) but are not made of
+			// letters, which is all the lexer reads a keyword as, so they
+			// arrive here. Without this a stream stopped at its first one, and
+			// everything after it went unread.
+			if tok.Value == "'" || tok.Value == "\"" {
+				fn(tok.Value, cs.stack)
+				cs.stack = cs.stack[:0]
+				continue
+			}
 			return
 		case TokenInteger:
 			cs.stack = append(cs.stack, PDFInteger(tok.IntValue()))

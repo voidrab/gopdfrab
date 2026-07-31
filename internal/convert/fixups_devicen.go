@@ -141,7 +141,8 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	var cw writer.ContentStreamWriter
 	modified := false
 	var fillCS, strokeCS pdf.PDFValue
-	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+	cs := pdf.NewContentScanner(data)
+	cs.Scan(func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "cs":
 			fillCS = resolveOperandColorSpace(operands, resources)
@@ -176,7 +177,8 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 		}
 		_ = cw.WriteOp(op, operands)
 	})
-	if !modified || cw.Err() != nil {
+	// A stream only part of which could be read: see rewriteContentStreamDict.
+	if !modified || !cs.Complete() || cw.Err() != nil {
 		return dict, false
 	}
 

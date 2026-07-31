@@ -840,7 +840,8 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 	// in place, so the write must follow it and precede the callback's return.
 	var cw writer.ContentStreamWriter
 	modified := false
-	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+	cs := pdf.NewContentScanner(data)
+	cs.Scan(func(op string, operands []pdf.PDFValue) {
 		rewrite(op, operands, resources, &modified)
 		_ = cw.WriteOp(op, operands)
 
@@ -873,7 +874,8 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 			modified = true
 		}
 	})
-	if !modified || cw.Err() != nil {
+	// A stream only part of which could be read: see rewriteContentStreamDict.
+	if !modified || !cs.Complete() || cw.Err() != nil {
 		return dict, false
 	}
 
