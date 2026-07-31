@@ -80,6 +80,9 @@ First changelog entry; earlier history lives in the git log.
 - The concurrency contract of each public type is documented and race-tested.
 
 ### Fixed
+- An out-of-range coordinate (6.1.12) is rescaled into the CTM rather than
+  clamped, which emptied pages drawn at a small scale while still verifying
+  clean; `ConvertResult.BlankedPages` reports any page that comes out empty.
 - A cross-reference table with bare CR line endings was unparseable; CR, LF and
   CRLF are all accepted now, on both read paths.
 - An object listed in the xref but defined nowhere in the file is resolved to

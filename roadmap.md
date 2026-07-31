@@ -3,7 +3,7 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–29, 32 and 33 are done; each is one line under "Done", and the commit
+Items 1–29 and 32–34 are done; each is one line under "Done", and the commit
 history has the detail. What is still open is in "Open work".
 
 ## Where things stand
@@ -15,7 +15,8 @@ history has the detail. What is still open is in "Open work".
   binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
-  reach conformance with zero errors, panics or hangs.
+  reach conformance with zero errors, panics or hangs, and 16 of them still lose
+  a page's visible content (item 36).
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -26,7 +27,7 @@ history has the detail. What is still open is in "Open work".
   convergence).
 - Resource hardening: ~15 depth/size caps across the parser, settable decode and
   resident-cache budgets, no silent truncation anywhere.
-- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.3%,
+- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.2%,
   writer 94.1%, pdfgen 94.8%, root 92.5%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
@@ -36,7 +37,7 @@ history has the detail. What is still open is in "Open work".
 
 ### 30. Coverage to ~95%
 
-verify 94.3%, convert 94.3%, writer 94.1%, root 92.5% — the root package is now
+verify 94.3%, convert 94.2%, writer 94.1%, root 92.5% — the root package is now
 the widest gap. Per the standing decision, defensive parser guards are not
 chased; the remainder is CFF/Type1 fixtures.
 
@@ -49,26 +50,36 @@ dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
 every width off by exactly 2x) says it would work. Speculative until a file
 turns up where the skip actually hides something.
 
-### 34. Clamping large coordinates blanks pages
+### 35. A zero-opacity ExtGState is repaired into an opaque one
 
-`fixScalarLimitsValue` repairs a 6.1.12 violation by clamping a real to ±32767.
-For a number used as a coordinate that is destructive, not a repair: a page
-drawn at a 0.001968504 scale with `365760 0 l` becomes `32767 0 l`, and the
-artwork collapses to nothing. Measured on two real-world files —
-`zenodo-21258097` loses 35 of its 36 pages, `zenodo-20632795` one of 119 — and
-the outputs are conformant, so nothing currently reports it. Both predate the
-item 33 work (reproduced at `ed72563`). 862 of the 1580 corpus files carry a
-real outside the range, so the exposure is wide even though the damage rate is
-not yet measured.
+PDF/A-1 forbids transparency, and the fixer's repair for `/CA` and `/ca` is to
+set them to 1.0. That is right for `0.9` and destructive for `0`: content drawn
+at zero opacity is invisible, so making it opaque paints it over whatever is
+underneath. Proven with a four-line fixture — a `/ca 0` black rectangle comes
+out `/ca 1` — and reproduced identically at `e560d6d`, so it predates item 34
+and was only hidden by it. Two real files show the damage under Ghostscript:
+`zenodo-21258097` page 1 puts solid black rectangles over its title, and
+`zenodo-21249927` page 1 paints black over the photograph that fills it.
 
-The honest repair is to rescale the geometry — fold the offending magnitude into
-the CTM rather than truncate the operand — so the drawing lands where it did.
-Until then the fidelity gate should at least see it: the clamp runs before
-`CheckFidelity` compares pages, and `Blanked()` is exactly the signal for it.
+The honest repair is the opposite direction: drop content the file says is
+invisible, or hand the page to the raster backstop, which composites the alpha
+correctly. Both move a fixer the whole corpus goes through, so this wants its
+own measurement pass first.
 
-Start by measuring the corpus-wide blank rate with `Options{CheckFidelity: true}`
-over a sample; the two known files came out of the item 33 spot-checks, not a
-survey.
+### 36. The 38 pages that still blank
+
+After item 34 the corpus blanks 38 pages across 16 files, and none of them is a
+coordinate case: 13 of the 16 carry no out-of-range real at all, and in the
+other 3 every out-of-range path is rescaled rather than declined. So this is a
+separate cause, or several.
+
+One observation, recorded without a mechanism: 11 of the 16 carry a zero-alpha
+ExtGState (item 35) against 2 of 40 in an evenly spaced sample of files that do
+not blank. The association is strong and the explanation is not — item 35 *adds*
+ink where `Blanked()` measures ink lost, so either something else follows from
+it or the shared factor is simply the producer, since these are nearly all
+presentation exports from one toolchain. Do not assume item 35 fixes these until
+it is measured.
 
 ---
 
@@ -169,6 +180,39 @@ survey.
     harness never saw converted real-world output. Final run: 1580 of 1580
     conformant, 67 needing a rasterized page, 17 losing undrawable content;
     veraPDF rejected none of the sampled outputs.
+
+34. **A large coordinate is folded into the CTM, not truncated.** Clamping a
+    real to ±32767 is right for a dictionary value and wrong for a coordinate:
+    the limit constrains the number, but what the file means is a position.
+    `zenodo-21258097` opens every page with a full-page clip drawn at 1/508
+    scale, `0 0 m 365760.0 0 l … h W n`; clamped, that clip shrinks from
+    720x405 pt to 64.5x64.5 and takes 98% of the page with it. The output was
+    conformant, so nothing said a word.
+
+    The repair scales the path down by a power of two and folds the same factor
+    into the CTM, so the drawing lands where it did and every number written
+    stays in range. Powers of two because dividing a coordinate by one only
+    shifts its exponent — nothing is rounded away, and the inverse matrix
+    restores the CTM exactly. A `cm` pair rather than `q`/`Q`, since `Q` would
+    discard the clip that is the whole point. Line width and dash are user-space
+    lengths, so they scale with the path and are put back after it; a stroke
+    whose width an ExtGState may have set out of view, a magnitude past what a
+    matrix can carry, and a path too long to buffer are all left to the clamp.
+    None of those three fires anywhere in the corpus.
+
+    Measured with `Options{CheckFidelity: true}` over all 1580 files, which the
+    item asked for and nobody had done: **48 files blanking 485 pages before,
+    16 files blanking 38 pages after**, 32 files fixed outright, no regressions,
+    no output turned invalid. `zenodo-21258097` went from 35 blanked pages of 36
+    to none, and its output passes veraPDF and the BFO validator. What remains
+    is item 36.
+
+    Two of the item's own claims were false, in the way item 33's premise was:
+    `zenodo-20632795` is not a coordinate case — it holds no out-of-range real
+    anywhere — and the "862 of 1580 files carry a real outside the range"
+    exposure figure never mapped to damage. `ConvertResult.BlankedPages` and an
+    opt-in corpus survey (`GOPDFRAB_REALWORLD_FIDELITY`) exist now so the next
+    such claim can be checked instead of assumed.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on
