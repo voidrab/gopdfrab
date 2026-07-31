@@ -252,6 +252,35 @@ func TestRescaleLongPathSpills(t *testing.T) {
 	}
 }
 
+// TestRescaleIgnoresNonNumericOperands: a malformed stream can put anything
+// where a number belongs. Nothing that is not a number is scaled, and an
+// operator that sets state with the wrong operand leaves that state alone.
+func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
+	// A w whose operand is a name leaves the width at its default of 1.
+	got := rescaled(t, "/bogus w 0 0 m 65536.0 0 l S\n")
+	if !strings.Contains(got, "0.25 w") || !strings.HasSuffix(got, "1 w\n") {
+		t.Errorf("a w with a non-numeric operand should not change the width:\n%s", got)
+	}
+	// A dash array holding a name keeps the name and scales the rest.
+	dashed := rescaled(t, "[8 /x] 0 d 0 0 m 65536.0 0 l S\n")
+	if !strings.Contains(dashed, "[2 /x] 0 d") {
+		t.Errorf("a non-numeric dash entry should be left as it is:\n%s", dashed)
+	}
+}
+
+// TestRescaleContentStreamDictUndecodable: a stream nothing can decode is left
+// exactly as it is, rather than replaced with an empty one.
+func TestRescaleContentStreamDictUndecodable(t *testing.T) {
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = []byte("not flate data")
+	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+
+	if _, changed := rescaleContentStreamDict(dict, rewriteOperatorsAndLimits); changed {
+		t.Error("an undecodable stream was reported as rewritten")
+	}
+}
+
 // undefinedOpStream builds a minimal content stream carrying one undefined
 // operator ("XX"), for exercising walkContentStreams' various dispatch
 // branches: rewriteOperatorsAndLimits drops it, so a cleared stream proves
