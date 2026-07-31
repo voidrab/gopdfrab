@@ -18,6 +18,10 @@ import (
 // Check), so contentLimitsFixer runs a whole-graph scalar pass alongside
 // the content-stream rewrite.
 //
+// Clamping is the last resort, not the first: a number that is a coordinate
+// is repaired by rescaling the geometry (fixups_geometry.go), which runs in
+// the same pass and leaves the clamp only what it cannot move.
+//
 // GraphicsStateNesting (q/Q nesting depth, checks_content.go) is claimed here
 // only so it counts as fixer-addressable and triggers the rasterization
 // backstop; it is a structural defect, not a clampable operand, so the
@@ -59,17 +63,24 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 		return fixed, ok
 	})
 
-	if walkContentStreams(trailer, rewriteOperatorsAndLimits) {
+	if walkContentStreamDicts(trailer, repairContentStream) {
 		changed = true
 	}
 
 	return changed, nil
 }
 
+// repairContentStream is the whole repair one content stream gets from this
+// fixer: an out-of-range path is folded into the CTM (fixups_geometry.go) and
+// whatever is left over is clamped or dropped by rewriteOperatorsAndLimits.
+func repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	return rescaleContentStreamDict(d, rewriteOperatorsAndLimits)
+}
+
 // fixTargeted remediates only the objects the issues reference: each
 // target's owned scalars are clamped (the graph flavour, reported against
 // the owning dict), and targets that are genuinely content-bearing streams
-// get the content rewrite -- never any other stream, whose bytes the
+// get the content repair -- never any other stream, whose bytes the
 // content scanner would corrupt.
 func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
@@ -83,7 +94,7 @@ func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (change
 		if !d.HasStream || !p.isContentStream(d) {
 			continue
 		}
-		updated, ok := rewriteContentStreamDict(d, rewriteOperatorsAndLimits)
+		updated, ok := repairContentStream(d)
 		if !ok {
 			continue
 		}
@@ -168,11 +179,20 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 }
 
 // walkContentStreams calls rewrite (via rewriteContentStreamDict) for every
-// content-bearing stream reachable from trailer -- Page /Contents, tiling
-// Pattern, Form XObject, Type3 CharProcs -- the same dispatch
-// validateContentStreams (checks_content.go) uses, and reports whether
-// anything changed.
+// content-bearing stream reachable from trailer, and reports whether anything
+// changed.
 func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
+	return walkContentStreamDicts(trailer, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+		return rewriteContentStreamDict(d, rewrite)
+	})
+}
+
+// walkContentStreamDicts hands every content-bearing stream reachable from
+// trailer -- Page /Contents, tiling Pattern, Form XObject, Type3 CharProcs --
+// to rewrite, the same dispatch validateContentStreams (checks_content.go)
+// uses. Taking whole dicts rather than one operator at a time lets a rewrite
+// carry state across the stream, which rescaling a path needs.
+func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		switch {
@@ -180,7 +200,7 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
-					if fixed, ok := rewriteContentStreamDict(contents, rewrite); ok {
+					if fixed, ok := rewrite(contents); ok {
 						d.Entries.Set("Contents", fixed)
 						changed = true
 					}
@@ -191,7 +211,7 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 					if !ok || !cd.HasStream {
 						continue
 					}
-					if fixed, ok := rewriteContentStreamDict(cd, rewrite); ok {
+					if fixed, ok := rewrite(cd); ok {
 						contents[i] = fixed
 						changed = true
 					}
@@ -201,7 +221,7 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 
 		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.HasStream,
 			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.HasStream:
-			if fixed, ok := rewriteContentStreamDict(d, rewrite); ok {
+			if fixed, ok := rewrite(d); ok {
 				changed = true
 				return fixed, true
 			}
@@ -214,7 +234,7 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 					if !ok || !pd.HasStream {
 						continue
 					}
-					if fixed, ok := rewriteContentStreamDict(pd, rewrite); ok {
+					if fixed, ok := rewrite(pd); ok {
 						procs.Entries.Set(k, fixed)
 						changed = true
 					}

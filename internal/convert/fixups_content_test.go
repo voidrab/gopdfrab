@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -42,6 +43,11 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 			pdf.Checks.Structure.IntegerOutOfRange,
 		},
 		{
+			"RealOutOfRange",
+			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t02-fail-c.pdf",
+			pdf.Checks.Structure.RealOutOfRange,
+		},
+		{
 			"StringTooLong",
 			"../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.12 Implementation limits/veraPDF test suite 6-1-12-t03-fail-a.pdf",
 			pdf.Checks.Structure.StringTooLong,
@@ -71,6 +77,178 @@ func TestFixHexStringValue(t *testing.T) {
 		if got := fixHexStringValue(tt.in); got != tt.want {
 			t.Errorf("fixHexStringValue(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+// rescaled runs the path rescale over a content stream and returns what it
+// wrote, or "" if it left the stream alone.
+func rescaled(t *testing.T, src string) string {
+	t.Helper()
+	out, ok := rescalePathsAndRewrite([]byte(src), rewriteOperatorsAndLimits)
+	if !ok {
+		return ""
+	}
+	return string(out)
+}
+
+// TestRescalePathFoldsMagnitudeIntoCTM is the shape that prompted this repair,
+// taken from a real presentation: a full-page clip drawn at 1/508 scale, whose
+// corner is at 365760 units. Clamping that to 32767 kept the file conformant
+// and threw away 98% of every page. Folding 16 into the CTM instead leaves
+// every number inside the limit and the clip exactly where it was.
+func TestRescalePathFoldsMagnitudeIntoCTM(t *testing.T) {
+	got := rescaled(t, "q 0.001968504 0 0 0.001968504 0 0 cm\n"+
+		"0 0 m 365760.0 0 l 365760.0 205740.0 l 0 205740.0 l 0 0 l h W n\n")
+	want := "q\n" +
+		"0.001968504 0 0 0.001968504 0 0 cm\n" +
+		"16 0 0 16 0 0 cm\n" +
+		"0 0 m\n22860 0 l\n22860 12858.75 l\n0 12858.75 l\n0 0 l\nh\nW\nn\n" +
+		"0.0625 0 0 0.0625 0 0 cm\n"
+	if got != want {
+		t.Errorf("rescaled stream:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestRescaleFactorIsAPowerOfTwo pins scaleFor at its boundaries. Powers of two
+// are the point: dividing a coordinate by one only shifts its exponent, so
+// nothing is rounded away and the matrix that undoes the scale undoes it
+// exactly.
+func TestRescaleFactorIsAPowerOfTwo(t *testing.T) {
+	tests := []struct {
+		largest float64
+		want    float64
+	}{
+		{32767, 1},   // already inside the limit
+		{32768, 2},   // one past it
+		{365760, 16}, // the real-world case
+		{maxScale * realLimit, maxScale},
+		{maxScale*realLimit + 1, 0}, // past what a matrix can carry
+	}
+	for _, tt := range tests {
+		if got := scaleFor(tt.largest); got != tt.want {
+			t.Errorf("scaleFor(%g) = %g, want %g", tt.largest, got, tt.want)
+		}
+	}
+}
+
+// TestRescaleLeavesInRangePathsAlone: a path that breaks no limit must come
+// out byte for byte the same, so the pass costs nothing on the vast majority
+// of documents.
+func TestRescaleLeavesInRangePathsAlone(t *testing.T) {
+	if got := rescaled(t, "0 0 m 100 0 l 100 100 l h f\n"); got != "" {
+		t.Errorf("an in-range path was rewritten:\n%s", got)
+	}
+}
+
+// TestRescaleTooLargeForAMatrix: a coordinate no allowed matrix can carry is
+// left for the clamp, which is still better than a wrong answer.
+func TestRescaleTooLargeForAMatrix(t *testing.T) {
+	got := rescaled(t, "0 0 m 999999999.0 0 l f\n")
+	if strings.Contains(got, "cm") {
+		t.Errorf("a coordinate past the matrix range was rescaled:\n%s", got)
+	}
+	if !strings.Contains(got, "32767") {
+		t.Errorf("clamp did not take over:\n%s", got)
+	}
+}
+
+// TestRescaleStrokeKeepsLineWidth: line width is a length in user space, so a
+// stroke drawn under a scaled CTM would come out that many times thicker. The
+// width goes down with the path and is put back after it.
+func TestRescaleStrokeKeepsLineWidth(t *testing.T) {
+	got := rescaled(t, "3 w 0 0 m 65536.0 0 l S\n")
+	want := "3 w\n" +
+		"4 0 0 4 0 0 cm\n" +
+		"0.75 w\n" +
+		"0 0 m\n16384 0 l\nS\n" +
+		"0.25 0 0 0.25 0 0 cm\n" +
+		"3 w\n"
+	if got != want {
+		t.Errorf("rescaled stroke:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestRescaleStrokeKeepsDash: dash lengths are user-space too, and scale with
+// the path exactly as the line width does. With no w in the stream the width
+// restored is 1, the value a stream starts with -- restoring 0 would turn every
+// unset stroke into a hairline.
+func TestRescaleStrokeKeepsDash(t *testing.T) {
+	got := rescaled(t, "[8 4] 0 d 0 0 m 65536.0 0 l S\n")
+	want := "[8 4] 0 d\n" +
+		"4 0 0 4 0 0 cm\n" +
+		"0.25 w\n[2 1] 0 d\n" +
+		"0 0 m\n16384 0 l\nS\n" +
+		"0.25 0 0 0.25 0 0 cm\n" +
+		"1 w\n[8 4] 0 d\n"
+	if got != want {
+		t.Errorf("rescaled dashed stroke:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestRescaleStrokeAfterExtGState: an ExtGState can set the line width and the
+// dash to values the stream never names, so there is nothing to put back. The
+// path is left to the clamp rather than redrawn at a guessed thickness.
+func TestRescaleStrokeAfterExtGState(t *testing.T) {
+	got := rescaled(t, "/GS1 gs 0 0 m 65536.0 0 l S\n")
+	if strings.Contains(got, "cm") {
+		t.Errorf("a stroke was rescaled with the line width out of view:\n%s", got)
+	}
+	// A fill has no width to get wrong, so the same stream still rescales.
+	filled := rescaled(t, "/GS1 gs 0 0 m 65536.0 0 l f\n")
+	if !strings.Contains(filled, "4 0 0 4 0 0 cm") {
+		t.Errorf("a fill after gs should still rescale:\n%s", filled)
+	}
+}
+
+// TestRescaleTracksLineWidthThroughSave: q and Q save and restore the line
+// width, so a width set inside a q is not the one put back outside it.
+func TestRescaleTracksLineWidthThroughSave(t *testing.T) {
+	got := rescaled(t, "3 w q 8 w Q 0 0 m 65536.0 0 l S\n")
+	if !strings.Contains(got, "0.75 w") || !strings.HasSuffix(got, "3 w\n") {
+		t.Errorf("width restored by Q was not the one used:\n%s", got)
+	}
+	// An ExtGState inside the q is undone by the Q as well, so the stroke can
+	// still be rescaled afterwards.
+	cleared := rescaled(t, "3 w q /GS1 gs Q 0 0 m 65536.0 0 l S\n")
+	if !strings.Contains(cleared, "4 0 0 4 0 0 cm") {
+		t.Errorf("Q should have restored a known line width:\n%s", cleared)
+	}
+}
+
+// TestRescaleUnterminatedPath: a stream that ends mid-path, or puts an
+// operator where one cannot go, still has to come out as valid content. The
+// path is written back as it was scanned and the clamp handles it.
+func TestRescaleUnterminatedPath(t *testing.T) {
+	for _, src := range []string{
+		"0 0 m 65536.0 0 l\n",         // ends without painting
+		"0 0 m 65536.0 0 l BT ET f\n", // text object opened inside the path
+	} {
+		got := rescaled(t, src)
+		if strings.Contains(got, "16384") {
+			t.Errorf("a path that could not be closed was rescaled: %q ->\n%s", src, got)
+		}
+		if !strings.Contains(got, "32767") {
+			t.Errorf("clamp did not take over: %q ->\n%s", src, got)
+		}
+	}
+}
+
+// TestRescaleLongPathSpills: a path too long to hold is written out as it is
+// scanned, so a pathological stream cannot grow the heap without limit. It
+// gives up the rescale to do it.
+func TestRescaleLongPathSpills(t *testing.T) {
+	var src strings.Builder
+	src.WriteString("0 0 m\n")
+	for range maxBufferedPathOps + 2 {
+		src.WriteString("65536.0 0 l\n")
+	}
+	src.WriteString("f\n")
+	got := rescaled(t, src.String())
+	if strings.Contains(got, "cm") {
+		t.Errorf("an oversized path was rescaled instead of spilled")
+	}
+	if !strings.Contains(got, "32767") {
+		t.Errorf("clamp did not take over on a spilled path")
 	}
 }
 

@@ -311,6 +311,37 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 	return found
 }
 
+// clippedAtScale is the shape roadmap item 34 was written about, taken from a
+// real presentation: the page is drawn at 1/500 scale, so a full-page clip
+// needs coordinates in the hundreds of thousands. Clamping those to 32767
+// shrinks the clip to a corner and takes the whole page with it.
+const clippedAtScale = "q 0.002 0 0 0.002 0 0 cm\n" +
+	"0 0 m 100000.0 0 l 100000.0 100000.0 l 0 100000.0 l h W n\n" +
+	"0 0 0 rg\n10000 10000 80000 80000 re\nf\nQ\n"
+
+// TestConvertKeepsGeometryDrawnAtScale is item 34's regression: the conversion
+// must reach conformance -- no coordinate left over the limit -- without
+// emptying the page it was repairing.
+func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
+	cr, err := ConvertBytes(onePageDoc(clippedAtScale), pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("output not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.BlankedPages) != 0 {
+		t.Errorf("clamping blanked %v; the geometry should have been rescaled", cr.BlankedPages)
+	}
+	if len(cr.Fidelity) != 1 {
+		t.Fatalf("Fidelity = %+v, want one page report", cr.Fidelity)
+	}
+	if pf := cr.Fidelity[0]; pf.Similarity < 0.99 {
+		t.Errorf("rescaled page should render the same: %+v", pf)
+	}
+}
+
 // TestConvertReportsFidelity: with CheckFidelity set, a normal conversion
 // populates ConvertResult.Fidelity with a per-page report and reports no
 // blanked page; without it, Fidelity stays nil.
