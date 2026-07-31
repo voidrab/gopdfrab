@@ -782,6 +782,9 @@ type realWorldRecord struct {
 	Rasterized int      `json:"rasterizedPages,omitempty"`
 	Drops      []string `json:"rasterDrops,omitempty"`
 	Unstable   bool     `json:"unstable,omitempty"` // two converts, two different outputs
+	// BlankedPages lists the pages the conversion emptied of visible content.
+	// Only the fidelity survey fills it, since it has to render both sides.
+	BlankedPages []int `json:"blankedPages,omitempty"`
 	// CompletedMs is milliseconds from the start of the batch to this file's
 	// completion. Under a worker pool an individual duration is not observable,
 	// but a large gap between consecutive completions still identifies the slow
@@ -1087,6 +1090,85 @@ func (v *veraSample) crossCheck(t *testing.T) {
 		seen, v.failed, time.Since(start).Round(time.Second))
 }
 
+// surveyFidelity re-converts a sample of the corpus with the fidelity check on
+// and reports every page that came out blank. Conformance says nothing about
+// whether the drawing survived, so this is the only metric that catches a
+// repair which destroys the thing it was repairing -- and it is the metric that
+// was missing when clamping oversized coordinates emptied whole documents while
+// gopdfrab and veraPDF both called the output valid.
+//
+// Off unless GOPDFRAB_REALWORLD_FIDELITY names a sample size ("all", or a count
+// of files). Rendering both sides of every document costs several times a plain
+// conversion, so when it is set the default is a sample -- evenly spaced through
+// the sorted file list, never by map order, so two runs survey the same files.
+func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
+	t.Helper()
+	sample := fidelitySample(t, files)
+	if len(sample) == 0 {
+		return
+	}
+
+	blanked := map[string][]int{}
+	start := time.Now()
+	err := ConvertEachContext(context.Background(), sample, PDFA1B, Options{CheckFidelity: true},
+		func(fr FileResult[ConvertResult]) error {
+			// The callback is serialized, so the map needs no synchronization.
+			if fr.Err != nil {
+				return nil // already reported by the conversion pass
+			}
+			if pages := fr.Result.BlankedPages; len(pages) > 0 {
+				blanked[fr.Path] = pages
+				t.Errorf("%s: convert blanked %d page(s): %v", fr.Path, len(pages), pages)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Errorf("fidelity survey: %v", err)
+	}
+
+	pages := 0
+	for _, p := range blanked {
+		pages += len(p)
+	}
+	t.Logf("fidelity survey: %d of %d files blanked at least one page, %d pages in all (in %s)",
+		len(blanked), len(sample), pages, time.Since(start).Round(time.Second))
+
+	if rep.enabled() {
+		rep.mu.Lock()
+		for i := range rep.records {
+			rep.records[i].BlankedPages = blanked[rep.records[i].Path]
+		}
+		rep.mu.Unlock()
+	}
+}
+
+// fidelitySample picks the files to survey, or nil when the survey is off.
+func fidelitySample(t *testing.T, files []string) []string {
+	t.Helper()
+	spec := os.Getenv("GOPDFRAB_REALWORLD_FIDELITY")
+	if spec == "" || len(files) == 0 {
+		return nil
+	}
+	n := len(files)
+	if spec != "all" {
+		parsed, err := strconv.Atoi(spec)
+		if err != nil || parsed <= 0 {
+			t.Fatalf("GOPDFRAB_REALWORLD_FIDELITY = %q, want \"all\" or a positive count", spec)
+		}
+		n = min(parsed, len(files))
+	}
+	sorted := append([]string(nil), files...)
+	sort.Strings(sorted)
+	sample := make([]string, 0, n)
+	for i := range n {
+		// Evenly spaced rather than the first n: a corpus is grouped by source,
+		// and the first n would all come from one collection.
+		sample = append(sample, sorted[i*len(sorted)/n])
+	}
+	t.Logf("fidelity survey: %d of %d converted outputs", len(sample), len(files))
+	return sample
+}
+
 // sortedStrings returns a sorted copy with duplicates removed, so a clause
 // reported on dozens of objects is named once and in the same order every run.
 func sortedStrings(in []string) []string {
@@ -1121,6 +1203,7 @@ func checkShouldConvert(t *testing.T, files []string, rep *realWorldReporter) (c
 	sample := newVeraSample(t, files)
 	first, conformant, rasterized, dropped := convertCorpusPass(t, files, rep, sample)
 	sample.crossCheck(t)
+	surveyFidelity(t, files, rep)
 	if os.Getenv("GOPDFRAB_REALWORLD_DETERMINISM") == "" {
 		return conformant, rasterized, dropped
 	}
@@ -1223,6 +1306,10 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	conv := realWorldPDFs(t, convDir)
+	// The fidelity survey is off by default, so cover it here rather than only
+	// on a machine that has the corpus. A plain page must survive its own
+	// conversion, so it must report nothing blanked.
+	t.Setenv("GOPDFRAB_REALWORLD_FIDELITY", "all")
 	conformant, rasterized, dropped := checkShouldConvert(t, conv, rep)
 	if len(conv) != 1 || conformant != 1 {
 		t.Errorf("should-convert self-check: files=%d conformant=%d, want 1/1", len(conv), conformant)

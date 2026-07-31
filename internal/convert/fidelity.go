@@ -42,6 +42,19 @@ func (f PageFidelity) Blanked() bool {
 	return f.InputInk >= inkThreshold && f.OutputInk < f.InputInk*blankLossRate
 }
 
+// blankedPages returns the pages of report that came out blank, in ascending
+// order. comparePageRenders already walks the pages in order, so this only
+// filters. Nil when nothing was lost, so a caller can test it with len.
+func blankedPages(report []PageFidelity) []int {
+	var pages []int
+	for _, pf := range report {
+		if pf.Blanked() {
+			pages = append(pages, pf.Page)
+		}
+	}
+	return pages
+}
+
 // CompareFidelity renders input and output at dpi and returns a per-page
 // fidelity report for every page present in both. Pages the rasterizer cannot
 // draw on the input side (nil render) are skipped, since there is no baseline

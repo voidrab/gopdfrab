@@ -82,6 +82,12 @@ type ConvertResult struct {
 	// Fidelity is the per-page input-vs-output rendering comparison, populated
 	// only when Options.CheckFidelity was set. See PageFidelity.
 	Fidelity []PageFidelity
+	// BlankedPages lists, in ascending order, the 1-based pages that had visible
+	// content on the way in and almost none on the way out. It is the one loss a
+	// conformance verdict cannot see: the output is valid PDF/A, it is simply no
+	// longer the document. Populated only when Options.CheckFidelity was set,
+	// since finding it means rendering both sides.
+	BlankedPages []int
 	// RasterDrops records content the raster fallback could not render when it
 	// flattened a page or a transparency group (an unusable shading, an
 	// undecodable inline image, a missing Type 3 glyph, a tiling pattern), so a
@@ -486,6 +492,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	if o.CheckFidelity && cr.backing.len() > 0 {
 		if out, err := cr.backing.open(); err == nil {
 			cr.Fidelity = comparePageRenders(inputRenders, renderTrailerPagesOf(out))
+			cr.BlankedPages = blankedPages(cr.Fidelity)
 			out.Close()
 		}
 	}

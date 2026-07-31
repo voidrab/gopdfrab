@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -337,5 +338,27 @@ func TestConvertReportsFidelity(t *testing.T) {
 	}
 	if pf.InputInk < inkThreshold || pf.OutputInk < inkThreshold {
 		t.Errorf("both sides should carry ink: %+v", pf)
+	}
+	if len(on.BlankedPages) != 0 {
+		t.Errorf("BlankedPages = %v on a faithful conversion, want none", on.BlankedPages)
+	}
+	if off.BlankedPages != nil {
+		t.Errorf("BlankedPages = %v without CheckFidelity, want nil", off.BlankedPages)
+	}
+}
+
+// TestBlankedPages: the page list is the Blanked() reports in page order, and
+// stays nil when nothing was lost so len is enough to test it.
+func TestBlankedPages(t *testing.T) {
+	lost := PageFidelity{Page: 2, InputInk: 0.5, OutputInk: 0}
+	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
+	if got := blankedPages([]PageFidelity{kept, lost, {Page: 3, InputInk: 0.5, OutputInk: 0}}); !slices.Equal(got, []int{2, 3}) {
+		t.Errorf("blankedPages = %v, want [2 3]", got)
+	}
+	if got := blankedPages([]PageFidelity{kept}); got != nil {
+		t.Errorf("blankedPages with nothing lost = %v, want nil", got)
+	}
+	if got := blankedPages(nil); got != nil {
+		t.Errorf("blankedPages(nil) = %v, want nil", got)
 	}
 }
