@@ -782,9 +782,11 @@ type realWorldRecord struct {
 	Rasterized int      `json:"rasterizedPages,omitempty"`
 	Drops      []string `json:"rasterDrops,omitempty"`
 	Unstable   bool     `json:"unstable,omitempty"` // two converts, two different outputs
-	// BlankedPages lists the pages the conversion emptied of visible content.
-	// Only the fidelity survey fills it, since it has to render both sides.
-	BlankedPages []int `json:"blankedPages,omitempty"`
+	// BlankedPages lists the pages the conversion emptied of visible content,
+	// OverpaintedPages the pages it drew over. Only the fidelity survey fills
+	// them, since it has to render both sides.
+	BlankedPages     []int `json:"blankedPages,omitempty"`
+	OverpaintedPages []int `json:"overpaintedPages,omitempty"`
 	// CompletedMs is milliseconds from the start of the batch to this file's
 	// completion. Under a worker pool an individual duration is not observable,
 	// but a large gap between consecutive completions still identifies the slow
@@ -1091,11 +1093,12 @@ func (v *veraSample) crossCheck(t *testing.T) {
 }
 
 // surveyFidelity re-converts a sample of the corpus with the fidelity check on
-// and reports every page that came out blank. Conformance says nothing about
-// whether the drawing survived, so this is the only metric that catches a
-// repair which destroys the thing it was repairing -- and it is the metric that
-// was missing when clamping oversized coordinates emptied whole documents while
-// gopdfrab and veraPDF both called the output valid.
+// and reports every page that came out blank or came out drawn over.
+// Conformance says nothing about whether the drawing survived, so this is the
+// only metric that catches a repair which destroys the thing it was repairing
+// -- and it is the metric that was missing when clamping oversized coordinates
+// emptied whole documents while gopdfrab and veraPDF both called the output
+// valid.
 //
 // Off unless GOPDFRAB_REALWORLD_FIDELITY names a sample size ("all", or a count
 // of files). Rendering both sides of every document costs several times a plain
@@ -1104,10 +1107,20 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // What a full sweep of the real-world corpus still blanks, measured after
 // roadmap item 34 folded oversized coordinates into the CTM (it was 48 files
 // and 485 pages before). None of the remainder is a coordinate case; item 36
-// carries the investigation.
+// carries the investigation. The overpaint ceilings are the same idea for the
+// other direction, measured for roadmap item 35.
 const (
 	maxBlankedFiles = 16
 	maxBlankedPages = 38
+
+	maxOverpaintedFiles = 0
+	maxOverpaintedPages = 0
+
+	// fidelitySurveyWorkers bounds how many files are rendered at once. Every
+	// page of both sides of a document is held as an image while it is
+	// compared, so a few hundred-page books in flight together is gigabytes --
+	// one machine-wide worker per core ran a 16-core machine out of memory.
+	fidelitySurveyWorkers = 4
 )
 
 func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
@@ -1118,10 +1131,12 @@ func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 	}
 
 	blanked := map[string][]int{}
+	overpainted := map[string][]int{}
 	start := time.Now()
-	err := ConvertEachContext(context.Background(), sample, PDFA1B, Options{CheckFidelity: true},
+	err := ConvertEachContext(context.Background(), sample, PDFA1B,
+		Options{CheckFidelity: true, Workers: fidelitySurveyWorkers},
 		func(fr FileResult[ConvertResult]) error {
-			// The callback is serialized, so the map needs no synchronization.
+			// The callback is serialized, so the maps need no synchronization.
 			if fr.Err != nil {
 				return nil // already reported by the conversion pass
 			}
@@ -1129,34 +1144,53 @@ func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 				blanked[fr.Path] = pages
 				t.Logf("%s: convert blanked %d page(s): %v", fr.Path, len(pages), pages)
 			}
+			if pages := fr.Result.OverpaintedPages; len(pages) > 0 {
+				overpainted[fr.Path] = pages
+				t.Logf("%s: convert drew over %d page(s): %v", fr.Path, len(pages), pages)
+			}
 			return nil
 		})
 	if err != nil {
 		t.Errorf("fidelity survey: %v", err)
 	}
 
-	pages := 0
-	for _, p := range blanked {
-		pages += len(p)
-	}
-	t.Logf("fidelity survey: %d of %d files blanked at least one page, %d pages in all (in %s)",
-		len(blanked), len(sample), pages, time.Since(start).Round(time.Second))
+	blankedPages, overpaintedPages := countPages(blanked), countPages(overpainted)
+	t.Logf("fidelity survey of %d files: %d blanked at least one page (%d pages in all), "+
+		"%d drew over at least one page (%d pages in all) (in %s)",
+		len(sample), len(blanked), blankedPages, len(overpainted), overpaintedPages,
+		time.Since(start).Round(time.Second))
 	// A ceiling rather than zero, in the shape of the conformance floor: the
 	// pages that still blank are a known open item, and pinning the count is
 	// what tells a regression apart from what is already known. Only a full
 	// sweep is comparable to the recorded numbers.
-	if len(sample) == len(files) && (len(blanked) > maxBlankedFiles || pages > maxBlankedPages) {
-		t.Errorf("blanked %d files / %d pages, over the recorded %d / %d (see roadmap item 36)",
-			len(blanked), pages, maxBlankedFiles, maxBlankedPages)
+	if len(sample) == len(files) {
+		if len(blanked) > maxBlankedFiles || blankedPages > maxBlankedPages {
+			t.Errorf("blanked %d files / %d pages, over the recorded %d / %d (see roadmap item 36)",
+				len(blanked), blankedPages, maxBlankedFiles, maxBlankedPages)
+		}
+		if len(overpainted) > maxOverpaintedFiles || overpaintedPages > maxOverpaintedPages {
+			t.Errorf("drew over %d files / %d pages, over the recorded %d / %d",
+				len(overpainted), overpaintedPages, maxOverpaintedFiles, maxOverpaintedPages)
+		}
 	}
 
 	if rep.enabled() {
 		rep.mu.Lock()
 		for i := range rep.records {
 			rep.records[i].BlankedPages = blanked[rep.records[i].Path]
+			rep.records[i].OverpaintedPages = overpainted[rep.records[i].Path]
 		}
 		rep.mu.Unlock()
 	}
+}
+
+// countPages totals the pages listed per file.
+func countPages(perFile map[string][]int) int {
+	n := 0
+	for _, pages := range perFile {
+		n += len(pages)
+	}
+	return n
 }
 
 // fidelitySample picks the files to survey, or nil when the survey is off.

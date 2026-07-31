@@ -393,3 +393,46 @@ func TestBlankedPages(t *testing.T) {
 		t.Errorf("blankedPages(nil) = %v, want nil", got)
 	}
 }
+
+// TestOverpainted pins both halves of the ink-added test around their
+// thresholds: a page has to gain several times its ink AND a large part of the
+// page before it counts, so neither an almost-empty page whose few marks grow
+// nor a busy page that thickens a little is called overpainted.
+func TestOverpainted(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		in, out     float64
+		overpainted bool
+	}{
+		{"page painted over", 0.02, 0.9, true},
+		{"blank page painted over", 0, 0.5, true},
+		{"unchanged", 0.3, 0.3, false},
+		{"heavier over a large area, but nowhere near tripled", 0.3, 0.4, false},
+		{"tripled, but only a small part of the page", 0.02, 0.06, false},
+		{"tripled and a large part of the page", 0.02, 0.08, true},
+		{"content lost, not added", 0.5, 0.01, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pf := PageFidelity{Page: 1, InputInk: tc.in, OutputInk: tc.out}
+			if got := pf.Overpainted(); got != tc.overpainted {
+				t.Errorf("Overpainted() = %v for %+v, want %v", got, pf, tc.overpainted)
+			}
+		})
+	}
+}
+
+// TestOverpaintedPages: the page list mirrors blankedPages -- page order, and
+// nil when nothing was drawn over.
+func TestOverpaintedPages(t *testing.T) {
+	over := PageFidelity{Page: 2, InputInk: 0.01, OutputInk: 0.8}
+	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
+	if got := overpaintedPages([]PageFidelity{kept, over, {Page: 3, InputInk: 0, OutputInk: 0.9}}); !slices.Equal(got, []int{2, 3}) {
+		t.Errorf("overpaintedPages = %v, want [2 3]", got)
+	}
+	if got := overpaintedPages([]PageFidelity{kept}); got != nil {
+		t.Errorf("overpaintedPages with nothing added = %v, want nil", got)
+	}
+	if got := overpaintedPages(nil); got != nil {
+		t.Errorf("overpaintedPages(nil) = %v, want nil", got)
+	}
+}

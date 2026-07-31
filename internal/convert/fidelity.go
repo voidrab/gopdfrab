@@ -22,6 +22,12 @@ const (
 	fidelityGrid  = 48    // NxN sample grid for the similarity score
 	inkThreshold  = 0.004 // a page with < 0.4% non-white pixels counts as blank
 	blankLossRate = 0.10  // losing >90% of the input's ink is "blanked"
+	// A page counts as overpainted when it gains both several times the ink it
+	// came in with and a large share of the page. Two conditions rather than
+	// one, so neither a nearly empty page whose few marks grow nor a busy page
+	// that thickens slightly is mistaken for a page painted over.
+	overpaintGain = 3.0
+	overpaintArea = 0.05
 )
 
 // PageFidelity reports how a converted page's rendering compares to the input's.
@@ -42,13 +48,30 @@ func (f PageFidelity) Blanked() bool {
 	return f.InputInk >= inkThreshold && f.OutputInk < f.InputInk*blankLossRate
 }
 
+// Overpainted reports the opposite loss: the output carries ink the input did
+// not. Nothing a conversion does should add drawing, so this catches a repair
+// that turns something invisible into something that covers the page -- which
+// is what setting a zero opacity to 1 used to do.
+func (f PageFidelity) Overpainted() bool {
+	return f.OutputInk >= f.InputInk*overpaintGain && f.OutputInk-f.InputInk >= overpaintArea
+}
+
 // blankedPages returns the pages of report that came out blank, in ascending
 // order. comparePageRenders already walks the pages in order, so this only
 // filters. Nil when nothing was lost, so a caller can test it with len.
 func blankedPages(report []PageFidelity) []int {
+	return pagesWhere(report, PageFidelity.Blanked)
+}
+
+// overpaintedPages is blankedPages for the pages that gained ink.
+func overpaintedPages(report []PageFidelity) []int {
+	return pagesWhere(report, PageFidelity.Overpainted)
+}
+
+func pagesWhere(report []PageFidelity, match func(PageFidelity) bool) []int {
 	var pages []int
 	for _, pf := range report {
-		if pf.Blanked() {
+		if match(pf) {
 			pages = append(pages, pf.Page)
 		}
 	}

@@ -88,6 +88,12 @@ type ConvertResult struct {
 	// longer the document. Populated only when Options.CheckFidelity was set,
 	// since finding it means rendering both sides.
 	BlankedPages []int
+	// OverpaintedPages lists, in ascending order, the 1-based pages that came
+	// out carrying far more ink than they went in with. A conversion should
+	// never add drawing, so a page here has had something invisible made
+	// visible over the top of what was already there. Populated only when
+	// Options.CheckFidelity was set.
+	OverpaintedPages []int
 	// RasterDrops records content the raster fallback could not render when it
 	// flattened a page or a transparency group (an unusable shading, an
 	// undecodable inline image, a missing Type 3 glyph, a tiling pattern), so a
@@ -493,6 +499,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		if out, err := cr.backing.open(); err == nil {
 			cr.Fidelity = comparePageRenders(inputRenders, renderTrailerPagesOf(out))
 			cr.BlankedPages = blankedPages(cr.Fidelity)
+			cr.OverpaintedPages = overpaintedPages(cr.Fidelity)
 			out.Close()
 		}
 	}

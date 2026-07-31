@@ -26,13 +26,15 @@ type (
 	//
 	// A conformant result can still have lost content: LostObjects lists what
 	// the conversion could not carry over, RasterizedPages and RasterDrops what
-	// it had to redraw, and BlankedPages the pages that came out empty.
+	// it had to redraw, BlankedPages the pages that came out empty and
+	// OverpaintedPages the pages something was drawn over.
 	// Result.Valid answers only whether the file that was written meets the
 	// profile.
 	ConvertResult = convert.ConvertResult
 	// PageFidelity is one page's input-vs-output rendering comparison,
 	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
-	// ConvertResult.BlankedPages is the same report reduced to its worst case.
+	// ConvertResult.BlankedPages and OverpaintedPages are the same report
+	// reduced to its two worst cases: content lost, and content drawn over.
 	PageFidelity = convert.PageFidelity
 	// RasterDrop lists content the raster fallback could not render on a page
 	// (see ConvertResult.RasterDrops).
