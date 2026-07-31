@@ -33,6 +33,8 @@ notice.
 First changelog entry; earlier history lives in the git log.
 
 ### Added
+- `ConvertResult.LostObjects` reports content a conversion could not carry over
+  as its own fact, so a valid output is no longer reported as invalid for it.
 - `ICCBasedProfileInvalid` rejects an ICCBased colour space whose embedded ICC
   profile is a version or kind PDF/A-1 does not allow, and conversion replaces
   it; output-intent profiles are now held to the same clause's narrower set.

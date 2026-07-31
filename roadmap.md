@@ -3,7 +3,7 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–29 and 32 are done; each is one line under "Done", and the commit
+Items 1–29, 32 and 33 are done; each is one line under "Done", and the commit
 history has the detail. What is still open is in "Open work".
 
 ## Where things stand
@@ -14,8 +14,8 @@ history has the detail. What is still open is in "Open work".
   (263 pass + 306 fail) both fully green, cross-checked against the veraPDF
   binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
-  Committed-corpus floor 510/510. On the 1585-file real-world corpus, 1564 of
-  1580 reach conformance with zero errors, panics or hangs.
+  Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
+  reach conformance with zero errors, panics or hangs.
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -49,54 +49,26 @@ dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
 every width off by exactly 2x) says it would work. Speculative until a file
 turns up where the skip actually hides something.
 
-### 33. The last 16 files: 1564 of 1580 → 1580 of 1580
+### 34. Clamping large coordinates blanks pages
 
-Measured 2026-07-30 with the harness's own per-file report
-(`GOPDFRAB_REALWORLD_REPORT`), then re-measured per file: each of the 16 was
-converted on its own and its written output verified again, and the named object
-read out of that output.
+`fixScalarLimitsValue` repairs a 6.1.12 violation by clamping a real to ±32767.
+For a number used as a coordinate that is destructive, not a repair: a page
+drawn at a 0.001968504 scale with `365760 0 l` becomes `32767 0 l`, and the
+artwork collapses to nothing. Measured on two real-world files —
+`zenodo-21258097` loses 35 of its 36 pages, `zenodo-20632795` one of 119 — and
+the outputs are conformant, so nothing currently reports it. Both predate the
+item 33 work (reproduced at `ed72563`). 862 of the 1580 corpus files carry a
+real outside the range, so the exposure is wide even though the damage rate is
+not yet measured.
 
-An earlier reading of this item claimed the outputs verify clean on a fresh read,
-and made that contradiction the thing to chase. It does not hold. Fifteen of the
-16 reproduce their residual exactly on the written bytes; only the
-`GraphResolutionFailure`-only file verifies clean, which is the deliberate
-carry-over at `internal/convert/convert.go:458`. Every residual is a true
-finding, and each traces to one of ten causes:
+The honest repair is to rescale the geometry — fold the offending magnitude into
+the CTM rather than truncate the operand — so the drawing lands where it did.
+Until then the fidelity gate should at least see it: the clamp runs before
+`CheckFidelity` compares pages, and `Blanked()` is exactly the signal for it.
 
-| cause | files |
-| --- | --- |
-| `checkXRefSectionFormat` reads a fixed 8 KB window, so the leftover `"t"` of `trailer` after a 409-entry table is reported as a malformed subsection header — a false positive on our own output, and everything past 8 KB goes unchecked | 2 |
-| the `Default*` colour-space exemption is taken from the *page's* resources, so it excuses content inside a form XObject that has its own `/Resources`, and stops convert injecting `Default*` there | 1 |
-| undecodable streams: 19 zero-length `/FlateDecode` bodies, and a 74-byte junk Type 3 `CharProc` | 3 |
-| outline items with no `/Title` (producer stubs `<< /Parent N >>` whose parent is `<< >>`), and elsewhere items with no `/Parent` | 4 |
-| an empty page-tree node `<< /Count 0 /Kids [] >>` | 1 |
-| trailer `/Info` pointing at the `/Metadata` stream | 1 |
-| an `/SMask` image reachable only through `/PieceInfo`, which the transparency fixer's page-resource walk never visits | 1 |
-| image `/BitsPerComponent 16`, with no fixer for it | 1 |
-| a non-symbolic TrueType whose `/Encoding` dict carries `/Differences` but no `/BaseEncoding` | 1 |
-| reader-degraded objects force `Valid=false` although the output is clean | 1 |
-
-veraPDF fails 4 of the 16 outputs, and only two of those are ours to fix. The
-6.3.6-1 pair is the broken Type 3 `CharProc`: veraPDF reads the unreadable glyph
-as width 0 against `/Widths [1000]`, while `Type3GlyphWidth` skips a stream it
-cannot decode, so repairing the stream closes both. 6.2.3.3-2 is the `Default*`
-scope. The remaining 6.2.4-4 is the 16-bit image we already report, at our own
-subclause number.
-
-That the `Default*` exemption exists at all is settled by veraPDF's own suite:
-`6-2-3-3-t03-pass-b.pdf` uses DeviceRGB with no output intent and passes purely
-on `/DefaultRGB` in the page resources. Its *scope* is the resource dictionary in
-force for the content being executed, which `scanAnnotAppearances` already
-honours for appearance streams and nothing else does.
-
-Two of the 16 need the carry-over revisited as well: it makes "content was lost"
-and "the file is not conformant" the same signal, when they are different facts a
-caller would want separately.
-
-The real-world corpus is not in CI and so is not covered by the differential
-harness (item 11), which is why the two false negatives went unseen. A
-differential pass over converted real-world output, even a sampled one, would
-have caught them.
+Start by measuring the corpus-wide blank rate with `Options{CheckFidelity: true}`
+over a sample; the two known files came out of the item 33 spot-checks, not a
+survey.
 
 ---
 
@@ -110,7 +82,8 @@ have caught them.
    recovery at the resolution boundary: retry at the real `N G obj` header, else
    degrade to a cached null, both reported as 6.1.6.
 3. **Convert never returns empty output with a nil error.** `ErrUnresolvableGraph`;
-   reader-degraded objects are carried into the final result and force `Valid=false`.
+   reader-degraded objects are carried into the final result, as lost content
+   rather than as a conformance failure (item 33).
 4. **Whole-table xref recovery.** A missing or unparseable `startxref` rebuilds by
    full-file scan and synthesizes a trailer, reported as 6.1.4; linear time.
 5. **Encryption.** Standard security handler (RC4 40/128, AES-128, AES-256), user,
@@ -133,7 +106,8 @@ have caught them.
 11. **The differential harness runs.** veraPDF binary cross-check over both
     committed suites, in CI. Found two verifier false-negatives immediately.
 12. **Fidelity gate.** Symmetric-renderer input-vs-output comparison;
-    `Blanked()` finds 0 blanked pages across the corpus; `Options.CheckFidelity`.
+    `Options.CheckFidelity`. The "0 blanked pages" figure recorded here was from
+    a sample; two files that do blank have since turned up — see item 34.
 13. **CI.** `-race` on a 3-OS matrix, per-target fuzzing plus a nightly cron, wasm
     build, differential job.
 14. **Thread-safety is documented and enforced**, with five `-race` tests.
@@ -173,6 +147,28 @@ have caught them.
     profiles were narrowed to the same clause's stricter set in passing, and
     `sgray.icc` — committed but unused — was embedded so a one-component space
     is repaired in place instead of being dropped for `DeviceGray`.
+
+33. **The last 16 files: 1580 of 1580.** The item as written blamed most of the
+    16 on a contradiction — that the written outputs verify clean on a fresh
+    read. Re-measured file by file, that was false: 15 of the 16 reproduce their
+    residual exactly on the written bytes. Every residual was a true finding,
+    over ten separate causes, all fixed: the xref format check read a fixed 8 KB
+    window and reported the leftover `"t"` of `trailer` as a malformed header
+    (and left everything past 8 KB unchecked); the `Default*` colour-space
+    exemption was taken from the page's resources instead of the resource
+    dictionary actually in force, so it excused content inside a form XObject
+    with its own — the one veraPDF disagreement that was ours; zero-length
+    Flate bodies and a junk Type 3 `CharProc` had no fixer; outline items with
+    no `/Title` or no `/Parent`; an empty page-tree node; a trailer `/Info`
+    pointing at the metadata stream; an `/SMask` image reachable only through
+    `/PieceInfo`; a 16-bpc image; a non-symbolic TrueType `/Encoding` dict with
+    no `/BaseEncoding`. Lost content was split from non-conformance
+    (`ConvertResult.LostObjects`), so a clean output is no longer called invalid
+    because the reader degraded an object. `GOPDFRAB_REALWORLD_VERAPDF` closes
+    the gap that hid two of these: the corpus is not in CI, so the differential
+    harness never saw converted real-world output. Final run: 1580 of 1580
+    conformant, 67 needing a rasterized page, 17 losing undrawable content;
+    veraPDF rejected none of the sampled outputs.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on
