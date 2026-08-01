@@ -3,6 +3,8 @@ package convert
 import (
 	"bytes"
 	"image"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -646,5 +648,389 @@ func TestBakeStraySoftMasksReachesOutsideThePageTree(t *testing.T) {
 	}
 	if changed, _ := (transparencyFlattener{}).Fix(&trailer, nil); changed {
 		t.Error("second pass reported a change, want idempotent")
+	}
+}
+
+// --- zero opacity (roadmap item 35) ---
+
+// alphaStates is the resource dictionary the tests below draw with: /F0 puts
+// the fill opacity at zero, /S0 the stroke opacity, /B0 both, and /Half is a
+// legitimate partial opacity that must be left alone.
+func alphaStates() pdf.PDFDict {
+	state := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(entries)}
+	}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ExtGState": state(map[string]pdf.PDFValue{
+			"F0":   state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)}),
+			"S0":   state(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0)}),
+			"B0":   state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0), "CA": pdf.PDFReal(0)}),
+			"Half": state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)}),
+			"Back": state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(1), "CA": pdf.PDFReal(1)}),
+		}),
+	})}
+}
+
+// contentStream is an unfiltered stream dictionary holding content.
+func contentStream(content string) pdf.PDFDict {
+	return pdf.PDFDict{Entries: pdf.NewPDFDict().Entries, HasStream: true, RawStream: []byte(content)}
+}
+
+// streamText decodes a stream dictionary back to its operators.
+func streamText(t *testing.T, d pdf.PDFDict) string {
+	t.Helper()
+	data, err := pdf.DecodeStream(d)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	return string(data)
+}
+
+// onePageAlphaTrailer wraps one page's content and resources in the smallest
+// graph orderedPages will walk.
+func onePageAlphaTrailer(contents pdf.PDFValue, resources pdf.PDFDict) (trailer, page pdf.PDFDict) {
+	page = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+		"Contents":  contents,
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})}
+	trailer = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
+	return trailer, page
+}
+
+// dropFromPage runs the repair over a one-page document and returns the page's
+// content afterwards.
+func dropFromPage(t *testing.T, content string, resources pdf.PDFDict) (string, bool) {
+	t.Helper()
+	trailer, page := onePageAlphaTrailer(contentStream(content), resources)
+	changed := dropInvisibleDrawing(&trailer)
+	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
+	if !ok {
+		t.Fatalf("page /Contents is no longer a stream dict")
+	}
+	return streamText(t, contents), changed
+}
+
+// TestDropInvisiblePaintOperators walks every path-painting operator under
+// each combination of hidden opacities: what is still visible keeps being
+// painted, and what is not falls back to the operator that paints nothing.
+func TestDropInvisiblePaintOperators(t *testing.T) {
+	for _, tc := range []struct{ gs, op, want string }{
+		{"F0", "f", "n"},
+		{"F0", "F", "n"},
+		{"F0", "f*", "n"},
+		{"F0", "S", "S"}, // the stroke is still opaque
+		{"F0", "B", "S"},
+		{"F0", "B*", "S"},
+		{"F0", "b", "s"},
+		{"F0", "b*", "s"},
+		{"S0", "S", "n"},
+		{"S0", "s", "n"},
+		{"S0", "f", "f"},
+		{"S0", "B", "f"},
+		{"S0", "B*", "f*"},
+		{"S0", "b", "f"},
+		{"S0", "b*", "f*"},
+		{"B0", "f", "n"},
+		{"B0", "S", "n"},
+		{"B0", "B", "n"},
+		{"B0", "b*", "n"},
+		{"B0", "n", "n"},
+		{"Half", "f", "f"}, // a partial opacity is not this repair's business
+		{"Back", "f", "f"},
+	} {
+		t.Run(tc.gs+"-"+tc.op, func(t *testing.T) {
+			got, changed := dropFromPage(t, "/"+tc.gs+" gs\n0 0 10 10 re\n"+tc.op+"\n", alphaStates())
+			want := "/" + tc.gs + " gs\n0 0 10 10 re\n" + tc.want + "\n"
+			if tc.want == tc.op {
+				// Nothing to take out, so the stream is left exactly as written.
+				if changed {
+					t.Errorf("changed = true for a visible %s under /%s", tc.op, tc.gs)
+				}
+				return
+			}
+			if !changed {
+				t.Errorf("changed = false, want the %s taken out", tc.op)
+			}
+			if got != want {
+				t.Errorf("content = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestDropInvisibleKeepsClipping: the clip is set by the path, not by the
+// operator that paints it, so an invisible fill must still leave the clip --
+// dropping the whole path object would take the rest of the page with it.
+func TestDropInvisibleKeepsClipping(t *testing.T) {
+	got, changed := dropFromPage(t, "/F0 gs\n0 0 10 10 re\nW\nf\n1 0 0 rg\n0 0 5 5 re\nf\n", alphaStates())
+	if !changed {
+		t.Fatal("changed = false, want the invisible fill taken out")
+	}
+	want := "/F0 gs\n0 0 10 10 re\nW\nn\n1 0 0 rg\n0 0 5 5 re\nn\n"
+	if got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+}
+
+// TestDropInvisibleRestoresState: a hidden opacity lasts until the state that
+// set it is restored, and no longer -- Q puts back what q saved, and a later
+// graphics state can set the opacity back to 1 itself.
+func TestDropInvisibleRestoresState(t *testing.T) {
+	got, changed := dropFromPage(t,
+		"q\n/F0 gs\n0 0 1 1 re\nf\nQ\n0 0 2 2 re\nf\n/F0 gs\n0 0 3 3 re\nf\n/Back gs\n0 0 4 4 re\nf\n",
+		alphaStates())
+	if !changed {
+		t.Fatal("changed = false, want the two hidden fills taken out")
+	}
+	want := "q\n/F0 gs\n0 0 1 1 re\nn\nQ\n0 0 2 2 re\nf\n/F0 gs\n0 0 3 3 re\nn\n/Back gs\n0 0 4 4 re\nf\n"
+	if got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+
+	// An unbalanced Q is malformed content, and must not take the rewriter's
+	// state stack down with it.
+	if _, changed := dropFromPage(t, "Q\n/F0 gs\n0 0 1 1 re\nf\n", alphaStates()); !changed {
+		t.Error("changed = false after a stray Q, want the hidden fill still taken out")
+	}
+}
+
+// TestDropInvisibleText: text drawn at zero opacity keeps its characters and
+// its position and stops marking the page, so it is still there to be read,
+// copied and searched. The clipping render modes go to 7 rather than 3, since
+// text that clips is still clipping.
+func TestDropInvisibleText(t *testing.T) {
+	for _, tc := range []struct {
+		gs     string
+		mode   string
+		hidden bool
+		want   int
+	}{
+		{"F0", "0", true, 3},
+		{"F0", "2", false, 0}, // mode 2 also strokes, and the stroke is visible
+		{"F0", "4", true, 7},
+		{"F0", "3", false, 0}, // already marks nothing
+		{"F0", "7", false, 0},
+		{"S0", "1", true, 3},
+		{"S0", "0", false, 0},
+		{"S0", "5", true, 7},
+		{"B0", "2", true, 3},
+		{"B0", "6", true, 7},
+		{"Half", "0", false, 0},
+	} {
+		t.Run(tc.gs+"-Tr"+tc.mode, func(t *testing.T) {
+			content := "/" + tc.gs + " gs\nBT\n" + tc.mode + " Tr\n(hi) Tj\nET\n"
+			got, changed := dropFromPage(t, content, alphaStates())
+			if changed != tc.hidden {
+				t.Fatalf("changed = %v, want %v (content %q)", changed, tc.hidden, got)
+			}
+			if !tc.hidden {
+				return
+			}
+			want := "/" + tc.gs + " gs\nBT\n" + tc.mode + " Tr\n" +
+				strconv.Itoa(tc.want) + " Tr\n(hi) Tj\n" + tc.mode + " Tr\nET\n"
+			if got != want {
+				t.Errorf("content = %q, want %q", got, want)
+			}
+		})
+	}
+
+	// Every showing operator is covered, including the two that also move to
+	// the next line.
+	for _, op := range []string{"(hi) Tj", "[(hi)] TJ", "(hi) '", "1 2 (hi) \""} {
+		got, changed := dropFromPage(t, "/F0 gs\nBT\n"+op+"\nET\n", alphaStates())
+		if !changed {
+			t.Errorf("%s at zero opacity was left marking the page: %q", op, got)
+		}
+	}
+}
+
+// TestDropInvisibleImagesAndShadings: an image, a shading and an inline image
+// are painted with the fill opacity, so at zero they are dropped outright. A
+// form can fill and stroke, so it only goes when neither is visible.
+func TestDropInvisibleImagesAndShadings(t *testing.T) {
+	resources := alphaStates()
+	xobjects := pdf.DictOf(map[string]pdf.PDFValue{
+		"Im0": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}})},
+		"Fm0": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})},
+	})
+	resources.Entries.Set("XObject", pdf.PDFDict{Entries: xobjects})
+
+	inline := "BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI\n"
+	for _, tc := range []struct {
+		gs, draw string
+		dropped  bool
+	}{
+		{"F0", "/Sh0 sh\n", true},
+		{"F0", "/Im0 Do\n", true},
+		{"F0", inline, true},
+		{"F0", "/Fm0 Do\n", false}, // its strokes are still visible
+		{"B0", "/Fm0 Do\n", true},  // nothing it draws can be seen
+		{"B0", "/Miss Do\n", true}, // an unresolvable name is treated as a form
+		{"S0", "/Im0 Do\n", false}, // images do not stroke
+		{"S0", "/Sh0 sh\n", false},
+		{"Half", "/Im0 Do\n", false},
+	} {
+		t.Run(tc.gs+"-"+strings.TrimSpace(tc.draw), func(t *testing.T) {
+			got, changed := dropFromPage(t, "/"+tc.gs+" gs\n"+tc.draw, resources)
+			if changed != tc.dropped {
+				t.Fatalf("changed = %v, want %v (content %q)", changed, tc.dropped, got)
+			}
+			if tc.dropped && got != "/"+tc.gs+" gs\n" {
+				t.Errorf("content = %q, want only the gs left", got)
+			}
+		})
+	}
+}
+
+// TestDropInvisibleGate: a document that draws nothing at zero opacity is not
+// read at all, and one that does is left alone the second time round -- the
+// repair runs on every pass of the fix loop.
+func TestDropInvisibleGate(t *testing.T) {
+	trailer, page := onePageAlphaTrailer(contentStream("/Half gs\n0 0 10 10 re\nf\n"), alphaStates())
+	if dropInvisibleDrawing(&trailer) {
+		t.Error("changed = true for a document with no zero opacity")
+	}
+
+	trailer, page = onePageAlphaTrailer(contentStream("/F0 gs\n0 0 10 10 re\nf\n"), alphaStates())
+	if !dropInvisibleDrawing(&trailer) {
+		t.Fatal("changed = false, want the invisible fill taken out")
+	}
+	if dropInvisibleDrawing(&trailer) {
+		t.Error("second run reported a change, want nothing left to take out")
+	}
+	contents, _ := page.Entries.Get("Contents").(pdf.PDFDict)
+	if got := streamText(t, contents); got != "/F0 gs\n0 0 10 10 re\nn\n" {
+		t.Errorf("content = %q after two runs, want one rewrite", got)
+	}
+
+	// A stream nothing can decode is left as it is rather than emptied.
+	broken := pdf.PDFDict{
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}),
+		HasStream: true,
+		RawStream: []byte("not zlib"),
+	}
+	trailer, page = onePageAlphaTrailer(broken, alphaStates())
+	// The graphics state has to be reachable for the gate to open at all.
+	page.Entries.Set("Resources", alphaStates())
+	if dropInvisibleDrawing(&trailer) {
+		t.Error("changed = true for an undecodable content stream")
+	}
+}
+
+// TestDropInvisibleAcrossContentParts: a page's content can be written as
+// several streams, which are one stream split up -- an opacity set in the
+// first part is still in force in the second.
+func TestDropInvisibleAcrossContentParts(t *testing.T) {
+	first, second := contentStream("/F0 gs\n"), contentStream("0 0 10 10 re\nf\n")
+	trailer, page := onePageAlphaTrailer(pdf.PDFArray{first, second}, alphaStates())
+	if !dropInvisibleDrawing(&trailer) {
+		t.Fatal("changed = false, want the fill in the second part taken out")
+	}
+	parts, _ := page.Entries.Get("Contents").(pdf.PDFArray)
+	if len(parts) != 2 {
+		t.Fatalf("Contents = %v, want two parts", parts)
+	}
+	if got := streamText(t, parts[1].(pdf.PDFDict)); got != "0 0 10 10 re\nn\n" {
+		t.Errorf("second part = %q, want the fill taken out", got)
+	}
+}
+
+// TestDropInvisibleBeyondPageContents: everything else that draws is read the
+// same way, with the resources it names itself -- a form XObject (which is
+// also how an annotation's appearance is drawn), a tiling pattern and a Type 3
+// glyph.
+func TestDropInvisibleBeyondPageContents(t *testing.T) {
+	form := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype":   pdf.PDFName{Value: "Form"},
+			"Resources": alphaStates(),
+		}),
+		HasStream: true,
+		RawStream: []byte("/F0 gs\n0 0 10 10 re\nf\n"),
+	}
+	pattern := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"PatternType": pdf.PDFInteger(1),
+			"Resources":   alphaStates(),
+		}),
+		HasStream: true,
+		RawStream: []byte("/B0 gs\n0 0 10 10 re\nB\n"),
+	}
+	glyph := pdf.PDFDict{HasStream: true, RawStream: []byte("/S0 gs\n0 0 10 10 re\nS\n"), Entries: pdf.NewPDFDict().Entries}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Type3"},
+		"Resources": alphaStates(),
+		"CharProcs": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a": glyph})},
+	})}
+
+	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Annot"},
+		"AP":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": form})},
+	})}
+	trailer, page := onePageAlphaTrailer(contentStream("0 0 1 1 re\nf\n"), alphaStates())
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
+	page.Entries.Set("Pattern", pattern)
+	page.Entries.Set("Font", font)
+
+	if !dropInvisibleDrawing(&trailer) {
+		t.Fatal("changed = false, want all three streams rewritten")
+	}
+	ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
+	if got := streamText(t, ap.Entries.Get("N").(pdf.PDFDict)); got != "/F0 gs\n0 0 10 10 re\nn\n" {
+		t.Errorf("appearance stream = %q, want the fill taken out", got)
+	}
+	if got := streamText(t, page.Entries.Get("Pattern").(pdf.PDFDict)); got != "/B0 gs\n0 0 10 10 re\nn\n" {
+		t.Errorf("pattern = %q, want the fill and stroke taken out", got)
+	}
+	procs, _ := page.Entries.Get("Font").(pdf.PDFDict).Entries.Get("CharProcs").(pdf.PDFDict)
+	if got := streamText(t, procs.Entries.Get("a").(pdf.PDFDict)); got != "/S0 gs\n0 0 10 10 re\nn\n" {
+		t.Errorf("Type 3 glyph = %q, want the stroke taken out", got)
+	}
+	// The page's own content had nothing invisible in it and is untouched.
+	if got := streamText(t, page.Entries.Get("Contents").(pdf.PDFDict)); got != "0 0 1 1 re\nf\n" {
+		t.Errorf("page content = %q, want it unchanged", got)
+	}
+}
+
+// TestDropInvisibleMalformedOperands: the operands a real file carries are not
+// always the ones the operator takes, and none of them may crash the walk or
+// make it drop something visible.
+func TestDropInvisibleMalformedOperands(t *testing.T) {
+	resources := alphaStates()
+	// A graphics state with no name, a name that resolves to nothing, an
+	// opacity that is not a number, and a render mode that is not a number.
+	for _, content := range []string{
+		"gs\n0 0 1 1 re\nf\n",
+		"/Missing gs\n0 0 1 1 re\nf\n",
+		"/Text gs\nBT\n(hi) Tj\nET\n",
+		"/F0 gs\nBT\n/x Tr\n(hi) Tj\nET\n",
+	} {
+		if got, changed := dropFromPage(t, content, resources); changed && got == "" {
+			t.Errorf("content %q was emptied", content)
+		}
+	}
+
+	// A graphics state whose opacity is a string leaves the opacity as it was.
+	resources.Entries.Get("ExtGState").(pdf.PDFDict).Entries.Set("Text",
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFString{Value: "0"}})})
+	if got, changed := dropFromPage(t, "/Text gs\n0 0 1 1 re\nf\n", resources); changed {
+		t.Errorf("a non-numeric opacity took the fill out: %q", got)
+	}
+	// ... and an opacity of zero on something that is not a graphics state --
+	// an annotation carries its own /CA -- is not this repair's business.
+	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Annot"},
+		"CA":   pdf.PDFReal(0),
+	})}
+	trailer, _ := onePageAlphaTrailer(contentStream("0 0 1 1 re\nf\n"), pdf.NewPDFDict())
+	trailer.Entries.Set("Stray", annot)
+	if hasZeroAlphaExtGState(trailer) {
+		t.Error("an annotation opacity of zero opened the gate, want only graphics states")
 	}
 }

@@ -158,6 +158,11 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 // does not touch Checks.Transparency.TransparencyGroup or ImageWithSoftMask
 // (a different detection function, and a "harder" fix per the converter
 // plan: removing the key is easy but changes rendered appearance).
+//
+// An opacity of zero is a special case, and the one place this fixer touches
+// content: what is drawn at zero opacity is taken out of the content stream
+// first (fixups_alpha.go), because putting the opacity back to 1 would
+// otherwise paint it over the page.
 type extGStateFixer struct{}
 
 func (extGStateFixer) Applies(c pdf.Check) bool {
@@ -178,7 +183,12 @@ func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error
 	return runDictVisitor(trailer, f.prepare)
 }
 
-func (extGStateFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+	// Ahead of the dictionary pass below, which is what makes the opacities
+	// opaque: once they are, nothing says which drawing was invisible.
+	if dropInvisibleDrawing(trailer) {
+		*changed = true
+	}
 	return func(d pdf.PDFDict) {
 		if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 			return

@@ -139,6 +139,55 @@ func TestExtGStateFixer(t *testing.T) {
 	}
 }
 
+// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque is roadmap item
+// 35: the fixer's own repair for a zero opacity is to set it to 1, which on
+// its own would paint invisible content over the page. It has to take the
+// drawing out first, in the same pass, while the opacity still says it is
+// invisible.
+func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
+	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "ExtGState"},
+		"ca":   pdf.PDFReal(0),
+	})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": gs})},
+	})}
+	trailer, page := onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
+
+	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
+	}
+	if gs.Entries.Get("ca") != pdf.PDFReal(1.0) {
+		t.Errorf("ca = %v, want it made opaque for conformance", gs.Entries.Get("ca"))
+	}
+	contents, _ := page.Entries.Get("Contents").(pdf.PDFDict)
+	if got := streamText(t, contents); got != "/GS0 gs\n0 0 10 10 re\nn\n" {
+		t.Errorf("content = %q, want the invisible fill taken out", got)
+	}
+
+	// A partial opacity is a different case: it is made opaque and the drawing
+	// stays, since it was visible all along.
+	half := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "ExtGState"},
+		"ca":   pdf.PDFReal(0.5),
+	})}
+	resources = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": half})},
+	})}
+	trailer, page = onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
+	if changed, err := (extGStateFixer{}).Fix(&trailer, nil); err != nil || !changed {
+		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
+	}
+	if half.Entries.Get("ca") != pdf.PDFReal(1.0) {
+		t.Error("a partial opacity was not made opaque")
+	}
+	contents, _ = page.Entries.Get("Contents").(pdf.PDFDict)
+	if got := streamText(t, contents); got != "/GS0 gs\n0 0 10 10 re\nf\n" {
+		t.Errorf("content = %q, want the visible fill kept", got)
+	}
+}
+
 func TestAnnotationFlagsFixer(t *testing.T) {
 	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Annot"},

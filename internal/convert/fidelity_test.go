@@ -436,3 +436,52 @@ func TestOverpaintedPages(t *testing.T) {
 		t.Errorf("overpaintedPages(nil) = %v, want nil", got)
 	}
 }
+
+// drawnAtZeroOpacity is the shape roadmap item 35 was written about, taken
+// from two real presentations: a black rectangle the size of the page, drawn
+// at zero opacity over the content. It is invisible in the file as written,
+// and making it opaque -- which is how a conversion used to repair the
+// opacity -- puts it over everything underneath.
+const drawnAtZeroOpacity = "0 0 0 rg\n20 20 60 60 re\nf\n" +
+	"/GS0 gs\n0 0 0 rg\n0 0 200 200 re\nf\n"
+
+// onePageDocWithZeroAlpha is onePageDoc with a /GS0 graphics state that puts
+// the fill opacity at zero.
+func onePageDocWithZeroAlpha(content string) []byte {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 0 >> >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte(content))
+	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
+}
+
+// TestConvertDoesNotPaintOverInvisibleContent is item 35's regression: the
+// conversion must reach conformance -- no opacity left below 1 -- without
+// drawing what the file says cannot be seen.
+func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
+	cr, err := ConvertBytes(onePageDocWithZeroAlpha(drawnAtZeroOpacity), pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("output not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.OverpaintedPages) != 0 {
+		t.Errorf("conversion drew over %v; the invisible rectangle should have been taken out", cr.OverpaintedPages)
+	}
+	if len(cr.BlankedPages) != 0 {
+		t.Errorf("conversion blanked %v; the visible square should have been kept", cr.BlankedPages)
+	}
+	if len(cr.Fidelity) != 1 {
+		t.Fatalf("Fidelity = %+v, want one page report", cr.Fidelity)
+	}
+	if pf := cr.Fidelity[0]; pf.Similarity < 0.99 {
+		t.Errorf("page should render as it did before conversion: %+v", pf)
+	}
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("page %v was rasterized; the repair should keep it text and vectors", cr.RasterizedPages)
+	}
+}
