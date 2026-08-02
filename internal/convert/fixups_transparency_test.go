@@ -1034,3 +1034,63 @@ func TestDropInvisibleMalformedOperands(t *testing.T) {
 		t.Error("an annotation opacity of zero opened the gate, want only graphics states")
 	}
 }
+
+// TestDropInvisibleOddGraphShapes: the walk meets whatever a real file holds,
+// so every shape it can be handed has to leave it unmoved rather than in a
+// panic or with the drawing gone.
+func TestDropInvisibleOddGraphShapes(t *testing.T) {
+	// A page whose content is a dictionary with no stream, and an array whose
+	// entries are not streams either.
+	for _, contents := range []pdf.PDFValue{
+		pdf.PDFDict{Entries: pdf.NewPDFDict().Entries},
+		pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFDict{Entries: pdf.NewPDFDict().Entries}},
+		pdf.PDFName{Value: "not-content"},
+	} {
+		trailer, _ := onePageAlphaTrailer(contents, alphaStates())
+		if dropInvisibleDrawing(&trailer) {
+			t.Errorf("changed = true for contents %T with nothing to read", contents)
+		}
+	}
+
+	// A Type 3 font whose /CharProcs is missing, is not a dictionary, or holds
+	// something that is not a glyph stream.
+	for _, procs := range []pdf.PDFValue{
+		nil,
+		pdf.PDFInteger(1),
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"a": pdf.PDFInteger(1),
+			"b": pdf.PDFDict{Entries: pdf.NewPDFDict().Entries},
+		})},
+	} {
+		font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype":   pdf.PDFName{Value: "Type3"},
+			"Resources": alphaStates(),
+		})}
+		if procs != nil {
+			font.Entries.Set("CharProcs", procs)
+		}
+		trailer, page := onePageAlphaTrailer(contentStream("0 0 1 1 re\nf\n"), alphaStates())
+		page.Entries.Set("Font", font)
+		if dropInvisibleDrawing(&trailer) {
+			t.Errorf("changed = true for /CharProcs %T with no glyph to read", procs)
+		}
+	}
+}
+
+// TestDropInvisibleUnreadableNames: an operator that selects a resource can
+// carry the wrong operands, or none, and must then select nothing at all.
+func TestDropInvisibleUnreadableNames(t *testing.T) {
+	r := &alphaRewriter{resources: alphaStates()}
+	for _, operands := range [][]pdf.PDFValue{
+		nil,
+		{pdf.PDFInteger(1)},
+	} {
+		if _, ok := r.namedResource("ExtGState", operands); ok {
+			t.Errorf("operands %v selected a graphics state", operands)
+		}
+	}
+	// A category the resources do not have at all.
+	if _, ok := r.namedResource("XObject", []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}); ok {
+		t.Error("an absent resource category still selected something")
+	}
+}

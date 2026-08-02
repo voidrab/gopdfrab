@@ -459,7 +459,13 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 		t.Error("a matrix past what two can carry was split")
 	}
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}); ok {
-		t.Error("a malformed matrix was split")
+		t.Error("a matrix of the wrong length was split")
+	}
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
+		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1),
+		pdf.PDFName{Value: "x"}, pdf.PDFReal(0),
+	}); ok {
+		t.Error("a matrix with an operand that is not a number was split")
 	}
 }
 

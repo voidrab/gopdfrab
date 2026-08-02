@@ -27,7 +27,7 @@ history has the detail. What is still open is in "Open work".
   convergence).
 - Resource hardening: ~15 depth/size caps across the parser, settable decode and
   resident-cache budgets, no silent truncation anywhere.
-- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.2%,
+- Coverage: arlington 100%, cmd 95.7%, pdf 95.5%, verify 94.3%, convert 94.1%,
   writer 94.1%, pdfgen 94.8%, root 92.5%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
@@ -37,7 +37,7 @@ history has the detail. What is still open is in "Open work".
 
 ### 30. Coverage to ~95%
 
-verify 94.3%, convert 94.2%, writer 94.1%, root 92.5% — the root package is now
+verify 94.3%, convert 94.1%, writer 94.1%, root 92.5% — the root package is now
 the widest gap. Per the standing decision, defensive parser guards are not
 chased; the remainder is CFF/Type1 fixtures.
 
