@@ -422,3 +422,89 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 		t.Errorf("stream = %q, want it untouched", dict.RawStream)
 	}
 }
+
+// TestRescaleOversizedMatrix: a cm matrix that does not fit is written as two
+// that do, and the pair has to compose to exactly the matrix that was there --
+// this is what places an image, so getting it wrong moves the picture.
+func TestRescaleOversizedMatrix(t *testing.T) {
+	scale, divided, ok := splitOversizedMatrix([]pdf.PDFValue{
+		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(274320),
+		pdf.PDFReal(100000), pdf.PDFReal(-200000),
+	})
+	if !ok {
+		t.Fatal("splitOversizedMatrix declined a matrix it can write as two")
+	}
+	// cm scale, then cm divided, composes as divided x scale.
+	m := matrixOf(t, divided).Mul(matrixOf(t, scale))
+	want := Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
+	if m != want {
+		t.Errorf("the two matrices compose to %+v, want %+v", m, want)
+	}
+	for _, v := range append(append([]pdf.PDFValue{}, scale...), divided...) {
+		if f, _ := numericValue(v); f > realLimit || f < -realLimit {
+			t.Errorf("operand %v is still out of range", v)
+		}
+	}
+
+	// A matrix that fits is left alone, and one too far out to write as two is
+	// left to the clamp, as are operands that are not numbers.
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
+		pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
+	}); ok {
+		t.Error("a matrix that fits was split")
+	}
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
+		pdf.PDFReal(1e12), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
+	}); ok {
+		t.Error("a matrix past what two can carry was split")
+	}
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}); ok {
+		t.Error("a malformed matrix was split")
+	}
+}
+
+// matrixOf reads six operands back as a matrix.
+func matrixOf(t *testing.T, operands []pdf.PDFValue) Matrix {
+	t.Helper()
+	var f [6]float64
+	for i, v := range operands {
+		n, ok := numericValue(v)
+		if !ok {
+			t.Fatalf("operand %d = %v, want a number", i, v)
+		}
+		f[i] = n
+	}
+	return Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
+}
+
+// TestRescaleKeepsAnImageWhereItWasPlaced is the regression the corpus found:
+// a presentation drawn at 1/508 scale places its images with a cm whose
+// operands run to six figures. Clamping those put every picture in a 64.5pt
+// square in the corner, which is most of what the page had on it.
+func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
+	const placed = "q 0.001968504 0 0 0.001968504 0 0 cm\n" +
+		"q 487680 0 0 274320 0 0 cm\n0 0 0 rg\n0 0 1 1 re\nf\nQ\nQ\n"
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = []byte(placed)
+
+	fixed, changed := repairContentStream(dict)
+	if !changed {
+		t.Fatal("an out-of-range cm was left alone")
+	}
+	data, err := pdf.DecodeStream(fixed)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	// Follow the CTM to the fill and check it still covers the whole page.
+	scale := 1.0
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if op == "cm" && len(operands) == 6 {
+			a, _ := numericValue(operands[0])
+			scale *= a
+		}
+	})
+	if want := 487680 * 0.001968504; scale < want*0.999 || scale > want*1.001 {
+		t.Errorf("the unit square ends up %g wide, want %g", scale, want)
+	}
+}

@@ -50,6 +50,8 @@ func dropInvisibleDrawing(trailer *pdf.PDFDict) bool {
 	// streams of annotations), tiling patterns and Type 3 glyphs, each read
 	// with the resources it names itself. Page contents were done above and
 	// are not reachable here, since a content stream is none of these things.
+	// walkContentStreamDicts covers the same four shapes for the rewrites that
+	// do not need to know which resource a name selects.
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		switch {
 		case d.HasStream && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),

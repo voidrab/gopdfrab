@@ -134,8 +134,52 @@ func (r *pathRescaler) op(op string, operands []pdf.PDFValue) {
 		// is malformed and goes out as it was written.
 		r.emitBuffered()
 		r.track(op, operands)
+		if op == "cm" {
+			if scale, divided, ok := splitOversizedMatrix(operands); ok {
+				r.emit("cm", scale)
+				r.emit("cm", divided)
+				r.changed = true
+				return
+			}
+		}
 		r.emit(op, operands)
 	}
+}
+
+// splitOversizedMatrix writes a matrix that does not fit as two that do. A
+// matrix cannot be folded into the drawing the way a coordinate can, since it
+// is the drawing's placement itself -- but scaling up and then applying the
+// same matrix divided by that scale composes to exactly what was written, and
+// both halves are in range. It is what places an image, so clamping it instead
+// shrinks the picture to a corner of where it belongs.
+func splitOversizedMatrix(operands []pdf.PDFValue) (scale, divided []pdf.PDFValue, ok bool) {
+	if len(operands) != 6 {
+		return nil, nil, false
+	}
+	nums := make([]float64, 6)
+	largest := 0.0
+	for i, v := range operands {
+		f, isNum := numericValue(v)
+		if !isNum {
+			return nil, nil, false
+		}
+		nums[i] = f
+		if abs := math.Abs(f); abs > realLimit && abs > largest {
+			largest = abs
+		}
+	}
+	if largest == 0 {
+		return nil, nil, false
+	}
+	s := scaleFor(largest)
+	if s == 0 {
+		return nil, nil, false // too far out of range to write as two; the clamp takes it
+	}
+	divided = make([]pdf.PDFValue, 6)
+	for i, f := range nums {
+		divided[i] = pdf.PDFReal(f / s)
+	}
+	return scaleMatrix(s), divided, true
 }
 
 // collect holds one path-building operator, or writes it straight out once the

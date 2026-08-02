@@ -33,6 +33,8 @@ notice.
 First changelog entry; earlier history lives in the git log.
 
 ### Added
+- Content a file draws at zero opacity is taken out rather than repainted
+  opaque, and `ConvertResult.OverpaintedPages` reports any page drawn over.
 - `ConvertResult.LostObjects` reports content a conversion could not carry over
   as its own fact, so a valid output is no longer reported as invalid for it.
 - `ICCBasedProfileInvalid` rejects an ICCBased colour space whose embedded ICC
