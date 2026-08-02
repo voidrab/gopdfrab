@@ -3,7 +3,7 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–29 and 32–34 are done; each is one line under "Done", and the commit
+Items 1–29 and 32–35 are done; each is one line under "Done", and the commit
 history has the detail. What is still open is in "Open work".
 
 ## Where things stand
@@ -15,8 +15,8 @@ history has the detail. What is still open is in "Open work".
   binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
-  reach conformance with zero errors, panics or hangs, and 16 of them still lose
-  a page's visible content (item 36).
+  reach conformance with zero errors, panics or hangs; 20 of them still lose a
+  page's visible content and 27 still draw over one (item 36).
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -50,36 +50,35 @@ dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
 every width off by exactly 2x) says it would work. Speculative until a file
 turns up where the skip actually hides something.
 
-### 35. A zero-opacity ExtGState is repaired into an opaque one
+### 36. What the ink measurements still show
 
-PDF/A-1 forbids transparency, and the fixer's repair for `/CA` and `/ca` is to
-set them to 1.0. That is right for `0.9` and destructive for `0`: content drawn
-at zero opacity is invisible, so making it opaque paints it over whatever is
-underneath. Proven with a four-line fixture — a `/ca 0` black rectangle comes
-out `/ca 1` — and reproduced identically at `e560d6d`, so it predates item 34
-and was only hidden by it. Two real files show the damage under Ghostscript:
-`zenodo-21258097` page 1 puts solid black rectangles over its title, and
-`zenodo-21249927` page 1 paints black over the photograph that fills it.
+Two numbers over the 1580-file corpus, both pinned in `surveyFidelity`:
+**20 files blank 47 pages, and 27 files draw over 717.**
 
-The honest repair is the opposite direction: drop content the file says is
-invisible, or hand the page to the raster backstop, which composites the alpha
-correctly. Both move a fixer the whole corpus goes through, so this wants its
-own measurement pass first.
+Three causes are known, one of them fixed:
 
-### 36. The 38 pages that still blank
+- **An oversized `cm` was clamped** — fixed (see "Done"). It placed images, so
+  clamping it collapsed every picture on a page into a 64.5 pt square.
+- **The transparency flattener empties a page.** `zenodo-21164084` page 6 goes
+  from 0.129 ink to 0.009 under `transparencyFlattener.Fix` alone, with neither
+  the alpha nor the geometry pass touching it. `zenodo-21249927` blanks the same
+  11 pages before and after item 35 and carries no zero opacity at all, so it is
+  most likely the same cause. Not investigated further.
+- **717 pages still gain ink**, down from 1095. Item 35 took out what the file
+  itself draws at zero opacity; what is left is a different mechanism — the
+  candidates are a baked-out soft mask (`bakeSoftMaskOut` makes a masked image
+  fully opaque), a blend mode normalised to `/Normal`, and a zero opacity in a
+  stream the walk cannot reach because the form carries no `/Resources` of its
+  own. None of the three is measured yet.
 
-After item 34 the corpus blanks 38 pages across 16 files, and none of them is a
-coordinate case: 13 of the 16 carry no out-of-range real at all, and in the
-other 3 every out-of-range path is rescaled rather than declined. So this is a
-separate cause, or several.
+The blanked figure went *up* from item 34's 38 pages, and that is not a
+regression: a page covered in a black rectangle has plenty of ink, so
+`Blanked()` never fired on it. Every page in the increase was already losing
+its content before item 35; the overpaint was covering it.
 
-One observation, recorded without a mechanism: 11 of the 16 carry a zero-alpha
-ExtGState (item 35) against 2 of 40 in an evenly spaced sample of files that do
-not blank. The association is strong and the explanation is not — item 35 *adds*
-ink where `Blanked()` measures ink lost, so either something else follows from
-it or the shared factor is simply the producer, since these are nearly all
-presentation exports from one toolchain. Do not assume item 35 fixes these until
-it is measured.
+The association item 34 recorded — 11 of its 16 blanking files carrying a
+zero-alpha ExtGState — is now explained. It was the same overpaint, seen from
+the other side.
 
 ---
 
@@ -213,6 +212,57 @@ it is measured.
     exposure figure never mapped to damage. `ConvertResult.BlankedPages` and an
     opt-in corpus survey (`GOPDFRAB_REALWORLD_FIDELITY`) exist now so the next
     such claim can be checked instead of assumed.
+
+35. **Content drawn at zero opacity is taken out, not painted over.** PDF/A-1
+    forbids transparency and the repair for an opacity below 1 was to set it to
+    1, which is right for `0.9` and destructive for `0`: what a file draws at
+    zero opacity is not there, and making it opaque paints it over what it was
+    drawn on top of.
+
+    The item named two files, and as in items 33 and 34 one of its claims was
+    false: `zenodo-21249927` carries no zero-alpha graphics state anywhere, so
+    whatever blanks 11 of its pages is not this (it blanks the same 11 before
+    and after, and belongs to item 36). `zenodo-21258097` does carry them. The
+    damage is real either way, and much wider than two files — see the numbers
+    below.
+
+    So the drawing goes first, in the same pass, while the opacity still says
+    it is invisible: a fill stops filling, a stroke stops stroking, an image or
+    shading is dropped, and text switches to the render mode that marks nothing
+    — keeping its characters for anyone reading the file rather than looking at
+    it. Clipping survives all of it, since a clip is set by the path and not by
+    the operator that paints it. Every content stream is read on its own,
+    starting fully opaque, so only what that stream declares invisible is taken
+    out and a stream shared between two places comes out the same for both.
+    Nothing is read at all unless the document has a graphics state that sets
+    an opacity to zero.
+
+    The measurement the item asked for came first, and needed a metric that did
+    not exist: the fidelity gate reported ink *lost* and said nothing about ink
+    *added*. `PageFidelity.Overpainted` and `ConvertResult.OverpaintedPages` are
+    that other direction, and they found the problem to be far larger than the
+    two files the item named — **58 files drawing over 1095 pages, down to 27
+    files and 717 after**, with conformance unchanged at 1580 of 1580 and no
+    page newly rasterized. Both named files' outputs pass veraPDF and the BFO
+    validator. What remains is item 36.
+
+    Two defects turned up in the measuring, both fixed here:
+
+    - **The content scanner stopped at `'` and `"`.** Both show text, neither is
+      made of letters, and the lexer reads a keyword as letters only — so they
+      arrived as errors and the scan returned. Everything past the first one in
+      a stream went unread by the verifier and by every fixer that rewrites
+      content. Worse, the rewriters emit as they read, so a stream they stopped
+      part way through was written back with the rest of its drawing missing.
+      `ContentScanner.Complete` reports whether the scan reached the end, and
+      the five rewrite paths now keep the original bytes when it did not.
+    - **An oversized `cm` was still clamped.** Item 34 folds an out-of-range
+      path coordinate into the CTM, but a `cm` is the placement itself, and it
+      is what places an image: in a presentation drawn at 1/508 scale, clamping
+      it collapsed every picture from 610x291 pt into the same 64.5 pt square.
+      A matrix that does not fit is now written as two that do — a power-of-two
+      scale, then the same matrix divided by it, which composes to exactly what
+      was written.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on

@@ -1104,17 +1104,19 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // of files). Rendering both sides of every document costs several times a plain
 // conversion, so when it is set the default is a sample -- evenly spaced through
 // the sorted file list, never by map order, so two runs survey the same files.
-// What a full sweep of the real-world corpus still blanks, measured after
-// roadmap item 34 folded oversized coordinates into the CTM (it was 48 files
-// and 485 pages before). None of the remainder is a coordinate case; item 36
-// carries the investigation. The overpaint ceilings are the same idea for the
-// other direction, measured for roadmap item 35.
+// What a full sweep of the real-world corpus still blanks and still draws
+// over, measured after roadmap item 35 stopped painting invisible content over
+// the page (it was 58 files and 1095 pages drawn over before) and an oversized
+// placement matrix stopped being clamped. The blanked count went up over item
+// 34's 16 files and 38 pages because the overpaint had been hiding it: a page
+// covered in black has plenty of ink, so nothing said its own content had gone.
+// Item 36 carries what is left of both.
 const (
-	maxBlankedFiles = 16
-	maxBlankedPages = 38
+	maxBlankedFiles = 20
+	maxBlankedPages = 47
 
-	maxOverpaintedFiles = 0
-	maxOverpaintedPages = 0
+	maxOverpaintedFiles = 27
+	maxOverpaintedPages = 717
 
 	// fidelitySurveyWorkers bounds how many files are rendered at once. Every
 	// page of both sides of a document is held as an image while it is
@@ -1169,7 +1171,7 @@ func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 				len(blanked), blankedPages, maxBlankedFiles, maxBlankedPages)
 		}
 		if len(overpainted) > maxOverpaintedFiles || overpaintedPages > maxOverpaintedPages {
-			t.Errorf("drew over %d files / %d pages, over the recorded %d / %d",
+			t.Errorf("drew over %d files / %d pages, over the recorded %d / %d (see roadmap item 36)",
 				len(overpainted), overpaintedPages, maxOverpaintedFiles, maxOverpaintedPages)
 		}
 	}
