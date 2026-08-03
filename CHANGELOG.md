@@ -82,8 +82,11 @@ First changelog entry; earlier history lives in the git log.
 - The concurrency contract of each public type is documented and race-tested.
 
 ### Fixed
-- A transparency group was flattened against the wrong resources and a partial
-  opacity was made opaque, which emptied pages and drew over others (6.4).
+- Eight repairs that emptied a page or drew over one: a group form rasterized
+  against the wrong resources, in the wrong colour, or at a size nothing could
+  decode; a soft mask composited over white rather than turned into a stencil
+  `/Mask`; a partial opacity made opaque; and a drawing begun in no colour
+  space (6.4).
 - An out-of-range coordinate (6.1.12) is rescaled into the CTM rather than
   clamped, which emptied pages drawn at a small scale while still verifying
   clean; `ConvertResult.BlankedPages` reports any page that comes out empty.

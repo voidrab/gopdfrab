@@ -3,7 +3,7 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–29 and 32–35 are done; each is one line under "Done", and the commit
+Items 1–29 and 32–36 are done; each is one line under "Done", and the commit
 history has the detail. What is still open is in "Open work".
 
 ## Where things stand
@@ -15,8 +15,8 @@ history has the detail. What is still open is in "Open work".
   binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
-  reach conformance with zero errors, panics or hangs; 20 of them still lose a
-  page's visible content and 27 still draw over one (item 36).
+  reach conformance with zero errors, panics or hangs; 4 of them still lose a
+  page's visible content and 1 still draws over one (item 36).
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -52,33 +52,35 @@ turns up where the skip actually hides something.
 
 ### 36. What the ink measurements still show
 
-Two numbers over the 1580-file corpus, both pinned in `surveyFidelity`:
-**20 files blank 47 pages, and 27 files draw over 717.**
+Over the 1580-file corpus, pinned in `surveyFidelity`: **4 files blank 6 pages,
+and 1 file draws over 2.** It was 20 files and 47 pages blanked, 27 and 717
+drawn over, when the item was written. Along the way the conversion also stopped
+needing to rasterize 9 pages it used to (67 → 58) and stopped losing content in
+8 files (17 → 9), because most of what it was rasterizing or dropping was work
+it had made necessary itself.
 
-Three causes are known, one of them fixed:
+Eight causes were found by measuring one repair at a time
+(`GOPDFRAB_FIDELITY_ATTRIBUTE`, `fidelity_attribution_test.go`) rather than by
+ranking candidates. All eight are fixed; each is one line under "Done" (36).
 
-- **An oversized `cm` was clamped** — fixed (see "Done"). It placed images, so
-  clamping it collapsed every picture on a page into a 64.5 pt square.
-- **The transparency flattener empties a page.** `zenodo-21164084` page 6 goes
-  from 0.129 ink to 0.009 under `transparencyFlattener.Fix` alone, with neither
-  the alpha nor the geometry pass touching it. `zenodo-21249927` blanks the same
-  11 pages before and after item 35 and carries no zero opacity at all, so it is
-  most likely the same cause. Not investigated further.
-- **717 pages still gain ink**, down from 1095. Item 35 took out what the file
-  itself draws at zero opacity; what is left is a different mechanism — the
-  candidates are a baked-out soft mask (`bakeSoftMaskOut` makes a masked image
-  fully opaque), a blend mode normalised to `/Normal`, and a zero opacity in a
-  stream the walk cannot reach because the form carries no `/Resources` of its
-  own. None of the three is measured yet.
+Two remain, both with a mechanism and a file against them:
 
-The blanked figure went *up* from item 34's 38 pages, and that is not a
-regression: a page covered in a black rectangle has plenty of ink, so
-`Blanked()` never fired on it. Every page in the increase was already losing
-its content before item 35; the overpaint was covering it.
+- **Taking an ExtGState's soft mask off changes the page.** `zenodo-20632795`
+  page 5 goes from 0.989 ink to 0.045 under the graphics-state dictionary pass
+  alone, and its pages 33–37 come out covered. Setting `/SMask` to `/None` is
+  the same "make it opaque" mistake item 35 fixed for `/ca`, one level up: a
+  soft mask there applies to whatever is drawn under it, so there is no colour
+  to fold it into and no image to hang a stencil on. What is left is to
+  rasterize the content it masks, which is what the flattener does for a group.
+- **One flattener case is still empty.** `oapen-26d73842` page 4 goes from
+  0.064 ink to 0.000 under `transparencyFlattener.Fix` alone. Not investigated.
 
-The association item 34 recorded — 11 of its 16 blanking files carrying a
-zero-alpha ExtGState — is now explained. It was the same overpaint, seen from
-the other side.
+Recorded because it was a real trap: the blanked figure *went up* twice while
+the conversion was getting better, because a page covered in a black rectangle
+has plenty of ink, so `Blanked()` never fired on it. Every increase was damage
+that was already there, uncovered by the repair before it. The association item
+34 recorded — 11 of its 16 blanking files carrying a zero-alpha ExtGState — was
+this, seen from the other side.
 
 ---
 
@@ -263,6 +265,54 @@ the other side.
       A matrix that does not fit is now written as two that do — a power-of-two
       scale, then the same matrix divided by it, which composes to exactly what
       was written.
+
+36. **Eight repairs that emptied a page or drew over one.** Each was found by
+    measuring one repair at a time over a file, not by ranking candidates:
+    `GOPDFRAB_FIDELITY_ATTRIBUTE` runs the conversion's repairs singly and
+    reports the ink each page had before and after, with the survey's own
+    renderer and thresholds.
+
+    - **A group form was rasterized against the page's resources**, so every
+      image, font and colour inside it resolved to nothing and it came back
+      blank — and where a whole page is one group form, which is how a
+      presentation is exported, the page came out empty and conformant.
+    - **A group form was rasterized in the colour a page starts in.** A form
+      inherits the state of the stream that draws it and need never set a
+      colour of its own; `zenodo-21193482` fills its background under the
+      page's `1 g`, and from a page's black default that fill came out solid.
+      The colour in force at each `Do` is read off the invoking stream now.
+    - **A form is measured in points**, so an 8424-point one at 150 dpi came to
+      217 megapixels — 871 MB to hold, and past what any reader decodes once it
+      is written back, so the picture was there and nothing could draw it. A
+      pixel budget lowers the resolution instead, which also bounds what the
+      fidelity renderer holds.
+    - **A soft mask was composited over white**, which is right only where the
+      page behind the image is white. `zenodo-21227479` draws a photograph over
+      a dark background: five of its pages came out blank, where poppler
+      renders them at 98.6% ink. PDF/A-1 does allow two values of opacity —
+      a stencil `/Mask` is PDF 1.3 — so the mask is thresholded and the image
+      left alone, and what is behind it still shows. A soft edge becomes a hard
+      one, which is the price. The renderer reads a stencil `/Mask` back now.
+    - **A drawing began in no colour space at all**, so `sc` and `SC` did
+      nothing until the content named one and every fill relying on the state
+      it inherited was painted black. Twelve charts in one group came back as
+      twelve black rectangles.
+    - **A partial opacity was made opaque**, turning a shaded band over a chart
+      into a solid block. What a file draws at 0.4 over white paper is its
+      colour blended four parts in ten, so that is the colour the drawing is
+      given and the opacity can go to 1 unseen. A stroking colour has to go
+      back out as the operator it came in as, and a colour that blends to
+      itself is not written at all.
+    - **"Drew over" counted ink gained**, so it counted every page whose text a
+      conversion made drawable that the file's own fonts could not draw — 651
+      of the 717 pages, five books' worth of subset fonts missing the glyphs
+      they show. Painting over a page covers it, so `PageFidelity.Covered`
+      measures the share of it that was paper on the way in and is solid on the
+      way out.
+    - **The fidelity comparison held every rendered page of both sides**, which
+      is over a gigabyte a side for a long book and what ran a 30 GB machine
+      out of memory mid-sweep. It keeps 37 KB of measurements a page now and
+      lets each render go.
 
 Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
 (it was silently comparing against the wrong glyph, a false positive on

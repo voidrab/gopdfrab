@@ -1105,23 +1105,21 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // conversion, so when it is set the default is a sample -- evenly spaced through
 // the sorted file list, never by map order, so two runs survey the same files.
 // What a full sweep of the real-world corpus still blanks and still draws
-// over, measured after roadmap item 35 stopped painting invisible content over
-// the page (it was 58 files and 1095 pages drawn over before) and an oversized
-// placement matrix stopped being clamped. The blanked count went up over item
-// 34's 16 files and 38 pages because the overpaint had been hiding it: a page
-// covered in black has plenty of ink, so nothing said its own content had gone.
-// Item 36 carries what is left of both.
+// over, measured for roadmap item 36 (it was 20 files and 47 pages blanked, 27
+// files and 717 pages drawn over, before the eight repairs that item names).
+// Both remainders have a mechanism and a file against them; the item carries
+// them.
 const (
-	maxBlankedFiles = 20
-	maxBlankedPages = 47
+	maxBlankedFiles = 4
+	maxBlankedPages = 6
 
-	maxOverpaintedFiles = 27
-	maxOverpaintedPages = 717
+	maxOverpaintedFiles = 1
+	maxOverpaintedPages = 2
 
 	// fidelitySurveyWorkers bounds how many files are rendered at once. Every
-	// page of both sides of a document is held as an image while it is
-	// compared, so a few hundred-page books in flight together is gigabytes --
-	// one machine-wide worker per core ran a 16-core machine out of memory.
+	// page of both sides of a document is measured while it is compared, so a
+	// few hundred-page books in flight together is gigabytes -- one worker per
+	// core ran a 16-core machine out of memory.
 	fidelitySurveyWorkers = 4
 )
 
