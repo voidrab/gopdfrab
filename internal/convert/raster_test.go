@@ -500,3 +500,39 @@ func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
 		}
 	})
 }
+
+// TestRasterPixelBudget: a poster is written in points like anything else, and
+// one 8424 of them across at 150 dpi is 217 megapixels -- most of a gigabyte to
+// hold, and past what any reader will decode once it has been written back
+// into the file. The resolution drops instead, so the picture is coarser
+// rather than absent.
+func TestRasterPixelBudget(t *testing.T) {
+	if got := dpiWithin([4]float64{0, 0, 612, 792}, 150); got != 150 {
+		t.Errorf("an ordinary page dropped to %d dpi, want the 150 it asked for", got)
+	}
+	poster := [4]float64{0, 0, 8424, 5955}
+	lowered := dpiWithin(poster, 150)
+	if lowered >= 150 || lowered < 1 {
+		t.Fatalf("a poster rendered at %d dpi, want something lower and usable", lowered)
+	}
+	w := (poster[2] - poster[0]) * float64(lowered) / 72
+	h := (poster[3] - poster[1]) * float64(lowered) / 72
+	if w*h > maxRasterPixels {
+		t.Errorf("the lowered resolution still comes to %.0f pixels, over the %d budget", w*h, maxRasterPixels)
+	}
+	// Degenerate bounds are left to the caller's own guard.
+	if got := dpiWithin([4]float64{0, 0, 0, 0}, 150); got != 150 {
+		t.Errorf("empty bounds changed the resolution to %d", got)
+	}
+
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 0 0 8424 5955 re f")},
+	})}
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if px := canvas.Bounds().Dx() * canvas.Bounds().Dy(); px > maxRasterPixels {
+		t.Errorf("rendered %d pixels, over the %d budget", px, maxRasterPixels)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"image"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -96,7 +97,7 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 						continue
 					}
-					fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI())
+					fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
 					results[i] = result{fixed: fixed, ok: ok, drops: drops}
 				case "page":
 					_, had := t.dict.Entries.Lookup("Group")
@@ -191,7 +192,11 @@ func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
 // changes don't propagate through a value-type copy the way Entries-map
 // mutations do).
 type flaggedTarget struct {
-	kind      string // "image", "form", or "page"
+	kind string // "image", "form", or "page"
+	// inherited is the colour in force where a form is drawn, which its own
+	// content need never set: a wrapper form whose background is filled under
+	// the page's "1 g" comes out solid black rasterized on its own.
+	inherited inheritedPaint
 	dict      pdf.PDFDict
 	resources pdf.PDFDict
 	xobjects  pdf.PDFDict
@@ -235,7 +240,7 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
 				return
 			}
-			collectXObjectTargets(resources, visited, pageNum, &out)
+			collectXObjectTargets(resources, visited, pageNum, pagePaintAtDo(node, resources), &out)
 			collectAnnotationTargets(node, resources, visited, pageNum, &out)
 			return
 		}
@@ -298,13 +303,115 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	return out
 }
 
+// paintAtDo reads a content stream for the colour in force at each Do, which
+// is the colour the form it names inherits. First invocation wins: a form
+// drawn twice under two colours cannot be flattened to suit both, and the
+// first is what the rest of the flattening assumes.
+func paintAtDo(content []byte, resources pdf.PDFDict) map[string]inheritedPaint {
+	type paintState struct {
+		fill, stroke     [3]float64
+		fillCS, strokeCS pdf.PDFValue
+	}
+	// A drawing starts black in DeviceGray (ISO 32000-1 table 52).
+	cur := paintState{fillCS: pdf.PDFName{Value: "DeviceGray"}, strokeCS: pdf.PDFName{Value: "DeviceGray"}}
+	var stack []paintState
+	at := map[string]inheritedPaint{}
+
+	colour := func(space pdf.PDFValue, operands []pdf.PDFValue) ([3]float64, bool) {
+		comps := numericOperands(operands)
+		if len(comps) == 0 {
+			return [3]float64{}, false
+		}
+		r, g, b := pdf.ResolveColor(space, comps, resources)
+		return [3]float64{r, g, b}, true
+	}
+
+	pdf.NewContentScanner(content).Scan(func(op string, operands []pdf.PDFValue) {
+		switch op {
+		case "q":
+			stack = append(stack, cur)
+		case "Q":
+			if n := len(stack); n > 0 {
+				cur = stack[n-1]
+				stack = stack[:n-1]
+			}
+		case "g", "rg", "k", "sc", "scn":
+			space := cur.fillCS
+			if named, ok := deviceSpaces[op]; ok {
+				space = pdf.PDFName{Value: named}
+				cur.fillCS = space
+			}
+			if rgb, ok := colour(space, operands); ok {
+				cur.fill = rgb
+			}
+		case "G", "RG", "K", "SC", "SCN":
+			space := cur.strokeCS
+			if named, ok := deviceSpaces[strings.ToLower(op)]; ok {
+				space = pdf.PDFName{Value: named}
+				cur.strokeCS = space
+			}
+			if rgb, ok := colour(space, operands); ok {
+				cur.stroke = rgb
+			}
+		case "cs", "CS":
+			if len(operands) == 0 {
+				return
+			}
+			name, ok := operands[len(operands)-1].(pdf.PDFName)
+			if !ok {
+				return
+			}
+			space, ok := pdf.LookupNamedColorSpace(name.Value, resources)
+			if !ok {
+				space = name
+			}
+			if op == "cs" {
+				cur.fillCS = space
+			} else {
+				cur.strokeCS = space
+			}
+		case "Do":
+			if len(operands) == 0 {
+				return
+			}
+			name, ok := operands[len(operands)-1].(pdf.PDFName)
+			if !ok {
+				return
+			}
+			if _, seen := at[name.Value]; !seen {
+				at[name.Value] = inheritedPaint{set: true, fill: cur.fill, stroke: cur.stroke}
+			}
+		}
+	})
+	return at
+}
+
+// pagePaintAtDo and formPaintAtDo read a page's or a form's content for the
+// colour each Do it makes inherits. A stream nothing can read hands out
+// nothing, and every form under it is rendered from the default state.
+func pagePaintAtDo(page pdf.PDFDict, resources pdf.PDFDict) map[string]inheritedPaint {
+	content, err := pageContentBytes(page)
+	if err != nil {
+		return nil
+	}
+	return paintAtDo(content, resources)
+}
+
+func formPaintAtDo(form pdf.PDFDict, resources pdf.PDFDict) map[string]inheritedPaint {
+	content, err := pdf.DecodeStream(form)
+	if err != nil {
+		return nil
+	}
+	return paintAtDo(content, resources)
+}
+
 // collectXObjectTargets scans resources' /XObject subdictionary, flagging
 // Form XObjects carrying their own /Group and Image XObjects carrying a
 // non-/None /SMask, recursing into nested Forms via the same /Resources
 // fallback doXObject uses (raster.go). A flagged Form is not descended into
 // further: it's about to be wholly replaced, so anything inside it is moot.
 // visited guards against cyclic/shared XObject subdictionaries.
-func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page int, out *[]flaggedTarget) {
+func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page int, inherited map[string]inheritedPaint, out *[]flaggedTarget) {
 	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
 	if !ok {
 		return
@@ -332,10 +439,11 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 			// colour inside it resolves to nothing when it is rasterized.
 			formRes := resourcesOf(xobj, resources)
 			if hasTransparencyGroup(xobj) {
-				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: formRes, xobjects: xobjects, name: name, page: page})
+				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: formRes,
+					xobjects: xobjects, name: name, page: page, inherited: inherited[name]})
 				continue
 			}
-			collectXObjectTargets(formRes, visited, page, out)
+			collectXObjectTargets(formRes, visited, page, formPaintAtDo(xobj, formRes), out)
 		case "Image":
 			if hasSoftMask(xobj) {
 				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
@@ -393,10 +501,11 @@ func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]b
 func collectAppearanceForm(form, container pdf.PDFDict, name string, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	formRes := resourcesOf(form, resources)
 	if hasTransparencyGroup(form) {
-		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes, xobjects: container, name: name, page: pageNum})
+		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes,
+			xobjects: container, name: name, page: pageNum})
 		return
 	}
-	collectXObjectTargets(formRes, visited, pageNum, out)
+	collectXObjectTargets(formRes, visited, pageNum, formPaintAtDo(form, formRes), out)
 }
 
 // isFormXObject distinguishes an appearance stream from the sub-dictionary of
@@ -556,8 +665,8 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 // to it are untouched, so it keeps composing into the page exactly as
 // before -- it now just paints a flat image instead of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
-func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (pdf.PDFDict, []string, bool) {
-	canvas, bbox, drops, err := renderFormContent(form, resources, dpi)
+func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited inheritedPaint) (pdf.PDFDict, []string, bool) {
+	canvas, bbox, drops, err := renderFormContent(form, resources, dpi, inherited)
 	if err != nil {
 		return form, nil, false
 	}

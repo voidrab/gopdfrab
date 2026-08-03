@@ -24,7 +24,7 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(content, resources, mediaBox, dpi)
+	return renderContent(content, resources, mediaBox, dpi, inheritedPaint{})
 }
 
 // renderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -33,7 +33,7 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 // paints once flattened, since only its content is being replaced, not its
 // identity or placement. Returns the rendered buffer and the BBox it was
 // rendered against (needed to place the replacement image back into it).
-func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (*image.RGBA, [4]float64, []string, error) {
+func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited inheritedPaint) (*image.RGBA, [4]float64, []string, error) {
 	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
 	if err != nil || len(bbox) != 4 {
 		return nil, [4]float64{}, nil, fmt.Errorf("raster: missing or invalid Form /BBox")
@@ -43,14 +43,25 @@ func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int) (*image
 	if err != nil {
 		return nil, [4]float64{}, nil, err
 	}
-	canvas, drops, err := renderContent(content, resources, box, dpi)
+	canvas, drops, err := renderContent(content, resources, box, dpi, inherited)
 	return canvas, box, drops, err
+}
+
+// inheritedPaint is the part of the graphics state a form is drawn under that
+// its own content may never set. A page starts at black in DeviceGray, which
+// is what the zero value says; a form starts wherever the stream that draws it
+// had got to, and a page-sized wrapper form whose background is filled without
+// naming a colour comes out inverted if that is guessed wrong.
+type inheritedPaint struct {
+	set          bool
+	fill, stroke [3]float64
 }
 
 // renderContent is the shared core behind RenderPage and renderFormContent:
 // it rasterizes content into a fresh opaque-white canvas sized from bounds
 // (a user-space rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int) (*image.RGBA, []string, error) {
+func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited inheritedPaint) (*image.RGBA, []string, error) {
+	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
 	if width <= 0 || height <= 0 || width > 20000 || height > 20000 {
@@ -79,6 +90,9 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		// left the black to paint over it.
 		fillCS:   pdf.PDFName{Value: "DeviceGray"},
 		strokeCS: pdf.PDFName{Value: "DeviceGray"},
+	}
+	if inherited.set {
+		gs.fillRGB, gs.strokeRGB = inherited.fill, inherited.stroke
 	}
 	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
 	r.execContent(content, resources, gs)
@@ -691,6 +705,24 @@ func stencilAlpha(mask pdf.PDFDict, resources pdf.PDFDict) *image.RGBA {
 		decoded.Pix[i] = decoded.Pix[i+3]
 	}
 	return decoded
+}
+
+// maxRasterPixels bounds what one rasterized page or form comes to. A poster
+// is written in points like anything else, and one 8424 points across at 150
+// dpi is 217 megapixels -- most of a gigabyte to hold, and past what any
+// reader will decode once it has been written back into the file, so the
+// picture is there and nothing can draw it. Coarser is better than gone.
+const maxRasterPixels = 16 << 20
+
+// dpiWithin lowers dpi until the page or form fits the pixel budget. It only
+// ever lowers it: everything ordinary renders at the resolution it asked for.
+func dpiWithin(bounds [4]float64, dpi int) int {
+	w, h := (bounds[2]-bounds[0])*float64(dpi)/72, (bounds[3]-bounds[1])*float64(dpi)/72
+	if w <= 0 || h <= 0 || w*h <= maxRasterPixels {
+		return dpi
+	}
+	lowered := int(float64(dpi) * math.Sqrt(maxRasterPixels/(w*h)))
+	return max(lowered, 1)
 }
 
 // isImageMask reports whether an image dict is a stencil mask, whose samples

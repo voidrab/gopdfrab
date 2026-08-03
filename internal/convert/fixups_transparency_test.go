@@ -502,14 +502,14 @@ func TestCollectXObjectTargetsWalk(t *testing.T) {
 
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
-	collectXObjectTargets(resources, visited, 1, &out)
+	collectXObjectTargets(resources, visited, 1, nil, &out)
 	if len(out) != 1 || out[0].name != "Fm1" {
 		t.Fatalf("targets = %+v, want just Fm1", out)
 	}
 
 	// The same resources reached again must not re-flag: visited is what stops
 	// a cyclic or shared XObject dictionary from looping.
-	collectXObjectTargets(resources, visited, 1, &out)
+	collectXObjectTargets(resources, visited, 1, nil, &out)
 	if len(out) != 1 {
 		t.Errorf("revisiting the same /XObject dict produced %d targets, want 1", len(out))
 	}
@@ -708,7 +708,7 @@ func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
 		HasStream: true,
 		RawStream: []byte("q Q"),
 	}
-	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150); ok {
+	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150, inheritedPaint{}); ok {
 		t.Error("flattenFormToImage on a Form with no /BBox reported success")
 	}
 	if form.Entries.Get("Group") == nil {
@@ -1428,5 +1428,97 @@ func TestDropInvisibleUnreadableNames(t *testing.T) {
 	// A category the resources do not have at all.
 	if _, ok := r.namedResource("XObject", []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}); ok {
 		t.Error("an absent resource category still selected something")
+	}
+}
+
+// TestPaintAtDo: a form inherits the colour in force where it is drawn, and
+// its own content need never set one. Rasterizing it from the state a page
+// starts in -- black -- turns a wrapper form's white background solid.
+func TestPaintAtDo(t *testing.T) {
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Gray": pdf.PDFName{Value: "DeviceGray"},
+		})},
+	})}
+	at := paintAtDo([]byte(
+		"1 g\n/Wrapper Do\n"+ // white, as a page-sized wrapper is drawn under
+			"q 0 0 1 rg 1 0 0 RG /Inner Do Q\n"+ // saved and restored around
+			"/AfterRestore Do\n"+
+			"/Gray cs 0.5 sc /Named Do\n"+
+			"1 g /Wrapper Do\n"), // a second Do does not overwrite the first
+		resources)
+
+	for _, tc := range []struct {
+		name         string
+		fill, stroke [3]float64
+	}{
+		{"Wrapper", [3]float64{1, 1, 1}, [3]float64{0, 0, 0}},
+		{"Inner", [3]float64{0, 0, 1}, [3]float64{1, 0, 0}},
+		{"AfterRestore", [3]float64{1, 1, 1}, [3]float64{0, 0, 0}},
+		{"Named", [3]float64{0.5, 0.5, 0.5}, [3]float64{0, 0, 0}},
+	} {
+		got, ok := at[tc.name]
+		if !ok || !got.set {
+			t.Errorf("%s: no colour recorded", tc.name)
+			continue
+		}
+		if got.fill != tc.fill || got.stroke != tc.stroke {
+			t.Errorf("%s: fill %v stroke %v, want %v and %v", tc.name, got.fill, got.stroke, tc.fill, tc.stroke)
+		}
+	}
+
+	// Operands that are not a colour, and a Do with no name, leave no mark.
+	at = paintAtDo([]byte("g\nDo\n/P0 scn\n/Pattern Do\nQ\n"), resources)
+	if got := at["Pattern"]; got.fill != [3]float64{} {
+		t.Errorf("a pattern colour was recorded as %v, want the default", got.fill)
+	}
+}
+
+// TestFlattenFormKeepsTheColourItWasDrawnUnder is the page-sized wrapper shape
+// item 36 turned up: a form whose background fill names no colour, drawn under
+// the page's white. Rasterized from a page's own starting state it came back
+// solid black, which covered everything under it.
+func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
+	// A fresh one each time: flattening rewrites the form's own dictionary.
+	newForm := func() pdf.PDFDict {
+		return pdf.PDFDict{
+			Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Form"},
+				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+				"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+			}),
+			HasStream: true,
+			RawStream: []byte("0 0 10 10 re\nf\n"), // filled in whatever colour it inherits
+		}
+	}
+
+	white := inheritedPaint{set: true, fill: [3]float64{1, 1, 1}}
+	fixed, _, ok := flattenFormToImage(newForm(), pdf.PDFDict{}, 72, white)
+	if !ok {
+		t.Fatal("flattenFormToImage reported no change")
+	}
+	res, _ := fixed.Entries.Get("Resources").(pdf.PDFDict)
+	xo, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	img, err := DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("the flattened image does not decode: %v", err)
+	}
+	if ink := inkFraction(img); ink > 0.01 {
+		t.Errorf("a fill inherited from white came out %.3f inked, want none", ink)
+	}
+
+	// And the default state still paints the same fill black.
+	fixed, _, ok = flattenFormToImage(newForm(), pdf.PDFDict{}, 72, inheritedPaint{})
+	if !ok {
+		t.Fatal("flattenFormToImage reported no change")
+	}
+	res, _ = fixed.Entries.Get("Resources").(pdf.PDFDict)
+	xo, _ = res.Entries.Get("XObject").(pdf.PDFDict)
+	img, err = DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("the flattened image does not decode: %v", err)
+	}
+	if ink := inkFraction(img); ink < 0.99 {
+		t.Errorf("a fill with nothing inherited came out %.3f inked, want the default black", ink)
 	}
 }
