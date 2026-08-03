@@ -438,17 +438,21 @@ func hasSoftMask(img pdf.PDFDict) bool {
 	return !isName || name.Value != "None"
 }
 
-// bakeSoftMaskOut decodes img's base samples and its /SMask's luminosity
-// (DecodeImageRGBA for each), composites the two against an opaque white
-// backdrop -- gopdfrab has no way to know what the image was meant to be
-// composited over without rendering everything beneath it -- and rewrites
-// img in place as a flat, opaque DeviceRGB image with /SMask removed.
+// bakeSoftMaskOut takes a soft mask off an image, keeping what it said.
+//
+// A soft mask is an opacity per pixel, which PDF/A-1 does not allow. Two
+// values are allowed, though: a stencil /Mask is PDF 1.3, and what it says is
+// the same thing at one bit -- paint this pixel, or let the page show through.
+// So the mask is thresholded rather than composited away, and the base image's
+// own encoding is left alone.
+//
+// Compositing it over white instead is what this used to do, and it is only
+// right where the page behind is white. zenodo-21227479 draws a full-page
+// photograph over a dark background: composited over white, every one of those
+// pages came out blank, and the output was still conformant.
+//
 // Leaves img untouched (ok=false) if either decode fails.
 func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool) {
-	base, err := DecodeImageRGBA(img, resources)
-	if err != nil {
-		return img, false
-	}
 	smaskDict, ok := img.Entries.Get("SMask").(pdf.PDFDict)
 	if !ok {
 		return img, false
@@ -458,61 +462,53 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, false
 	}
 
-	// A uniformly-opaque mask composites to the base unchanged: drop the
-	// SMask and keep the original image encoding untouched.
+	// A uniformly-opaque mask hides nothing: drop it and keep the image as it
+	// is.
 	if smaskFullyOpaque(smask) {
 		img.Entries.Del("SMask")
 		return img, true
 	}
 
-	w, h := base.Bounds().Dx(), base.Bounds().Dy()
-	smW, smH := smask.Bounds().Dx(), smask.Bounds().Dy()
-	if w == 0 || h == 0 || smW == 0 || smH == 0 {
+	stencil, ok := stencilFromSoftMask(smask)
+	if !ok {
 		return img, false
 	}
-
-	// Composite at the higher of the two resolutions -- a base this small
-	// relative to its mask (e.g. a 2x2 colour tile under a full-res mask
-	// shape) would otherwise collapse the mask's shape into a solid block.
-	outW, outH := max(w, smW), max(h, smH)
-	out := image.NewRGBA(image.Rect(0, 0, outW, outH))
-
-	// bx/sx depend only on x, not y: precompute once instead of on every row.
-	bxTab := make([]int, outW)
-	sxTab := make([]int, outW)
-	for x := 0; x < outW; x++ {
-		bxTab[x] = pdf.ClampInt(x*w/outW, 0, w-1) * 4
-		sxTab[x] = pdf.ClampInt(x*smW/outW, 0, smW-1) * 4
-	}
-
-	for y := 0; y < outH; y++ {
-		by := pdf.ClampInt(y*h/outH, 0, h-1)
-		sy := pdf.ClampInt(y*smH/outH, 0, smH-1)
-		bp := base.PixOffset(0, by)
-		sp := smask.PixOffset(0, sy)
-		op := out.PixOffset(0, y)
-		for x := 0; x < outW; x++ {
-			a := uint32(smask.Pix[sp+sxTab[x]])
-			bo := bp + bxTab[x]
-
-			out.Pix[op] = uint8((uint32(base.Pix[bo])*a + 255*(255-a)) / 255)
-			out.Pix[op+1] = uint8((uint32(base.Pix[bo+1])*a + 255*(255-a)) / 255)
-			out.Pix[op+2] = uint8((uint32(base.Pix[bo+2])*a + 255*(255-a)) / 255)
-			out.Pix[op+3] = 255
-			op += 4
-		}
-	}
-	img.Entries.Set("Width", pdf.PDFInteger(outW))
-	img.Entries.Set("Height", pdf.PDFInteger(outH))
-	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
-	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+	img.Entries.Set("Mask", stencil)
 	img.Entries.Del("SMask")
-	img.Entries.Del("Decode")
-	img.Entries.Del("Mask")
-	if err := setStreamRGBFlate(&img, out); err != nil {
-		return img, false
-	}
 	return img, true
+}
+
+// stencilFromSoftMask builds the stencil that stands in for a soft mask: a bit
+// per pixel, set where the mask is more transparent than not, which is the
+// value that masks the pixel out under the default /Decode.
+func stencilFromSoftMask(smask *image.RGBA) (pdf.PDFDict, bool) {
+	w, h := smask.Bounds().Dx(), smask.Bounds().Dy()
+	if w == 0 || h == 0 {
+		return pdf.PDFDict{}, false
+	}
+	rowBytes := (w + 7) / 8
+	row := make([]byte, rowBytes)
+
+	stencil := pdf.NewPDFDict()
+	stencil.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	stencil.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	stencil.Entries.Set("Width", pdf.PDFInteger(w))
+	stencil.Entries.Set("Height", pdf.PDFInteger(h))
+	stencil.Entries.Set("BitsPerComponent", pdf.PDFInteger(1))
+	stencil.Entries.Set("ImageMask", pdf.PDFBoolean(true))
+	if err := writer.SetStreamFlateRows(&stencil, h, func(y int) []byte {
+		clear(row)
+		off := smask.PixOffset(smask.Bounds().Min.X, smask.Bounds().Min.Y+y)
+		for x := 0; x < w; x++ {
+			if smask.Pix[off+x*4] < 128 {
+				row[x/8] |= 0x80 >> (x % 8)
+			}
+		}
+		return row
+	}); err != nil {
+		return pdf.PDFDict{}, false
+	}
+	return stencil, true
 }
 
 // smaskFullyOpaque reports whether every alpha sample (the red channel the

@@ -338,18 +338,10 @@ func TestHasSoftMask(t *testing.T) {
 // to decode. When either does not, the image must be handed back untouched --
 // a half-composited rewrite would corrupt it.
 func TestBakeSoftMaskOutRefusals(t *testing.T) {
-	mask := grayImage(2, 2, []byte{0, 128, 128, 255})
-
 	tests := []struct {
 		name string
 		img  pdf.PDFDict
 	}{
-		{"undecodable base", func() pdf.PDFDict {
-			img := grayImage(2, 2, []byte{1, 2, 3, 4})
-			img.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-			img.Entries.Set("SMask", mask)
-			return img
-		}()},
 		{"SMask is not a stream dict", func() pdf.PDFDict {
 			img := grayImage(2, 2, []byte{1, 2, 3, 4})
 			img.Entries.Set("SMask", pdf.PDFName{Value: "Im1"})
@@ -399,34 +391,64 @@ func TestBakeSoftMaskOutFullyOpaque(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskOutComposites: a partially transparent mask is composited
-// against white and the image is rewritten flat and opaque.
-func TestBakeSoftMaskOutComposites(t *testing.T) {
-	img := grayImage(2, 1, []byte{0, 0})
-	// two black pixels
-	img.Entries.Set("SMask", grayImage(2, 1, []byte{255, 0}))
+// TestBakeSoftMaskOutStencils: a mask with anything but full opacity in it
+// becomes a stencil mask, which says the same thing at one bit and is allowed
+// where a soft mask is not. The image itself is not touched: compositing it
+// over white is only right where the page behind it is white, and where it is
+// not -- a photograph over a dark background -- that emptied the page.
+func TestBakeSoftMaskOutStencils(t *testing.T) {
+	samples := []byte{0, 0}
+	img := grayImage(2, 1, samples)
+	img.Entries.Set("SMask", grayImage(2, 1, []byte{255, 0})) // opaque, then not
 
 	got, ok := bakeSoftMaskOut(img, pdf.PDFDict{})
 	if !ok {
 		t.Fatal("bakeSoftMaskOut reported no change")
 	}
 	if _, still := got.Entries.Lookup("SMask"); still {
-		t.Error("/SMask survived the bake")
+		t.Error("/SMask survived")
 	}
-	if cs, _ := got.Entries.Get("ColorSpace").(pdf.PDFName); cs.Value != "DeviceRGB" {
-		t.Errorf("ColorSpace = %v, want DeviceRGB", got.Entries.Get("ColorSpace"))
+	if !bytes.Equal(got.RawStream, samples) {
+		t.Errorf("the image was re-encoded: % x, want the original % x", got.RawStream, samples)
 	}
 
-	baked, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	stencil, ok := got.Entries.Get("Mask").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("no stencil /Mask in place of the soft mask")
+	}
+	if stencil.Entries.Get("ImageMask") != pdf.PDFBoolean(true) ||
+		stencil.Entries.Get("BitsPerComponent") != pdf.PDFInteger(1) ||
+		stencil.Entries.Get("Width") != pdf.PDFInteger(2) ||
+		stencil.Entries.Get("Height") != pdf.PDFInteger(1) {
+		t.Errorf("stencil = %v, want a 2x1 one-bit image mask", stencil.Entries)
+	}
+	bits, err := pdf.DecodeStream(stencil)
 	if err != nil {
-		t.Fatalf("baked image does not decode: %v", err)
+		t.Fatalf("stencil does not decode: %v", err)
 	}
-	// Alpha 255 keeps the black base; alpha 0 shows the white backdrop.
-	if r := baked.Pix[0]; r > 20 {
-		t.Errorf("opaque pixel = %d, want near black", r)
+	// The opaque pixel is painted (0) and the transparent one is masked out
+	// (1), in the top two bits of the row's single byte.
+	if len(bits) != 1 || bits[0] != 0x40 {
+		t.Errorf("stencil bits = % x, want 0x40 (paint, then mask out)", bits)
 	}
-	if r := baked.Pix[4]; r < 235 {
-		t.Errorf("transparent pixel = %d, want the white backdrop", r)
+
+	// And the renderer reads it back as the opacity it stands for.
+	alpha := stencilAlpha(stencil, pdf.PDFDict{})
+	if alpha == nil {
+		t.Fatal("the stencil does not read back as an opacity")
+	}
+	if alpha.Pix[0] != 255 || alpha.Pix[4] != 0 {
+		t.Errorf("stencil opacities = %d, %d; want opaque then clear", alpha.Pix[0], alpha.Pix[4])
+	}
+	if stencilAlpha(pdf.PDFDict{}, pdf.PDFDict{}) != nil {
+		t.Error("a stencil that does not decode should read back as nothing")
+	}
+}
+
+// TestStencilFromSoftMaskRefusals: a mask with no pixels in it is not a mask.
+func TestStencilFromSoftMaskRefusals(t *testing.T) {
+	if _, ok := stencilFromSoftMask(image.NewRGBA(image.Rect(0, 0, 0, 0))); ok {
+		t.Error("a zero-size mask became a stencil")
 	}
 }
 

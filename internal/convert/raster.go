@@ -666,7 +666,31 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 			smask = decoded
 		}
 	}
+	// A stencil /Mask says the same thing with two values instead of 256:
+	// where it masks out, the page shows through. Only when there is no soft
+	// mask, which takes precedence (ISO 32000-1 8.9.6.4).
+	if smask == nil {
+		if m, ok := xobj.Entries.Get("Mask").(pdf.PDFDict); ok {
+			smask = stencilAlpha(m, resources)
+		}
+	}
 	r.compositeImage(img, smask, isImageMask(xobj), gs)
+}
+
+// stencilAlpha reads a stencil mask as the opacity it stands for, in the shape
+// compositeImage samples a soft mask in: the first channel is the opacity.
+func stencilAlpha(mask pdf.PDFDict, resources pdf.PDFDict) *image.RGBA {
+	decoded, err := DecodeImageRGBA(mask, resources)
+	if err != nil {
+		return nil
+	}
+	// A stencil decodes to black where it paints and transparent where it does
+	// not, so its own alpha channel is the opacity, and the first channel is
+	// where compositeImage looks for one.
+	for i := 0; i+3 < len(decoded.Pix); i += 4 {
+		decoded.Pix[i] = decoded.Pix[i+3]
+	}
+	return decoded
 }
 
 // isImageMask reports whether an image dict is a stencil mask, whose samples

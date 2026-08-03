@@ -130,6 +130,51 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 	}
 }
 
+// TestRenderPageImageWithStencilMask: a stencil /Mask says where the page
+// shows through, which is what a soft mask is turned into on the way to
+// PDF/A-1. The renderer is the yardstick a conversion is measured against, so
+// it has to read one back.
+func TestRenderPageImageWithStencilMask(t *testing.T) {
+	// One bit per pixel, one byte per row: paint the left pixel, mask out the
+	// right one.
+	mask := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"},
+			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+			"BitsPerComponent": pdf.PDFInteger(1), "ImageMask": pdf.PDFBoolean(true),
+		}),
+		HasStream: true,
+		RawStream: []byte{0x40},
+	}
+	img := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"},
+			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+			"BitsPerComponent": pdf.PDFInteger(8),
+			"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"}, "Mask": mask,
+		}),
+		HasStream: true,
+		RawStream: []byte{0, 0, 0, 0, 0, 0}, // both pixels black
+	}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
+	})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+	})}
+
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if painted := nrgbaAt(t, canvas, 5, 10); painted.R > 20 {
+		t.Errorf("the painted half = %d, want the black image", painted.R)
+	}
+	if through := nrgbaAt(t, canvas, 15, 10); through.R < 235 {
+		t.Errorf("the masked-out half = %d, want the page showing through", through.R)
+	}
+}
+
 func TestGlyphNameToWinAnsiCode(t *testing.T) {
 	if c, ok := glyphNameToWinAnsiCode("A"); !ok || c != 65 {
 		t.Errorf("glyphNameToWinAnsiCode(A) = %d, %v", c, ok)
