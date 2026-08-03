@@ -35,6 +35,36 @@ func TestRenderPageRectangleFill(t *testing.T) {
 	}
 }
 
+// TestRenderStartsInDeviceGray: a drawing starts in DeviceGray, so "1 sc"
+// fills white without naming a colour space first. Starting with no colour
+// space at all left the fill black -- which is how a chart drawn inside a
+// transparency group came out of the flattener as a black rectangle, with
+// more ink on the page than the file had ever drawn.
+func TestRenderStartsInDeviceGray(t *testing.T) {
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 sc 5 5 10 10 re f")},
+	})}
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if inside := nrgbaAt(t, canvas, 10, 10); inside.R != 255 || inside.G != 255 || inside.B != 255 {
+		t.Errorf("inside rect pixel = %+v, want white", inside)
+	}
+
+	// The stroking half of the same state.
+	page = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 SC 4 w 0 10 m 20 10 l S")},
+	})}
+	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if on := nrgbaAt(t, canvas, 10, 10); on.R != 255 || on.G != 255 || on.B != 255 {
+		t.Errorf("stroked pixel = %+v, want white", on)
+	}
+}
+
 func TestRenderPageImageXObject(t *testing.T) {
 	img := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{
