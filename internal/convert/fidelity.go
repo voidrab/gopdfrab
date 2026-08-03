@@ -88,38 +88,70 @@ func pagesWhere(report []PageFidelity, match func(PageFidelity) bool) []int {
 // draw on the input side (nil render) are skipped, since there is no baseline
 // to judge against.
 func CompareFidelity(input, output *pdf.Reader, dpi int) ([]PageFidelity, error) {
-	in, err := renderReaderPages(input, dpi)
+	in, err := summarizeReaderPages(input, dpi)
 	if err != nil {
 		return nil, fmt.Errorf("fidelity: render input: %w", err)
 	}
-	out, err := renderReaderPages(output, dpi)
+	out, err := summarizeReaderPages(output, dpi)
 	if err != nil {
 		return nil, fmt.Errorf("fidelity: render output: %w", err)
 	}
-	return comparePageRenders(in, out), nil
+	return comparePageSummaries(in, out), nil
 }
 
-// comparePageRenders builds the per-page report from two already-rendered page
-// lists. A nil input render is skipped (no baseline); a nil output render with
-// an inked input counts as fully lost.
-func comparePageRenders(in, out []*image.RGBA) []PageFidelity {
+// pageSummary is everything the comparison needs from one rendered page: how
+// much ink it carries, how dark each part of it is, and the samples the
+// similarity score is taken from. A few tens of kilobytes, where the page it
+// was measured from is a few megabytes -- and a document's worth of those is
+// what a comparison has to hold.
+type pageSummary struct {
+	rendered bool
+	ink      float64
+	cells    [fidelityGrid * fidelityGrid]float64
+	gray     [fidelityGrid * fidelityGrid]float64
+}
+
+// summarize measures a rendered page and lets go of it.
+func summarize(img *image.RGBA) pageSummary {
+	if img == nil {
+		return pageSummary{}
+	}
+	return pageSummary{rendered: true, ink: inkFraction(img), cells: cellMeans(img), gray: grayGrid(img)}
+}
+
+// comparePageSummaries builds the per-page report from two measured page
+// lists. An unrendered input page is skipped (no baseline); an unrendered
+// output page with an inked input counts as fully lost.
+func comparePageSummaries(in, out []pageSummary) []PageFidelity {
 	n := min(len(in), len(out))
 	var report []PageFidelity
 	for i := range n {
-		if in[i] == nil {
+		if !in[i].rendered {
 			continue
 		}
-		pf := PageFidelity{Page: i + 1, InputInk: inkFraction(in[i])}
-		if out[i] == nil {
+		pf := PageFidelity{Page: i + 1, InputInk: in[i].ink}
+		if !out[i].rendered {
 			pf.OutputInk, pf.Similarity = 0, 0
 		} else {
-			pf.OutputInk = inkFraction(out[i])
-			pf.Similarity = pageSimilarity(in[i], out[i])
-			pf.Covered = coveredFraction(cellMeans(in[i]), cellMeans(out[i]))
+			pf.OutputInk = out[i].ink
+			pf.Similarity = gridSimilarity(in[i].gray, out[i].gray)
+			pf.Covered = coveredFraction(in[i].cells, out[i].cells)
 		}
 		report = append(report, pf)
 	}
 	return report
+}
+
+// comparePageRenders is comparePageSummaries over pages still in hand.
+func comparePageRenders(in, out []*image.RGBA) []PageFidelity {
+	summaries := func(imgs []*image.RGBA) []pageSummary {
+		out := make([]pageSummary, len(imgs))
+		for i, img := range imgs {
+			out[i] = summarize(img)
+		}
+		return out
+	}
+	return comparePageSummaries(summaries(in), summaries(out))
 }
 
 // cellMeans divides img into a fidelityGrid x fidelityGrid grid and returns
@@ -164,8 +196,8 @@ func coveredFraction(before, after [fidelityGrid * fidelityGrid]float64) float64
 	return float64(covered) / float64(len(before))
 }
 
-// renderReaderPages resolves r's graph and rasterizes every page in order.
-func renderReaderPages(r *pdf.Reader, dpi int) ([]*image.RGBA, error) {
+// summarizeReaderPages resolves r's graph and measures every page in order.
+func summarizeReaderPages(r *pdf.Reader, dpi int) ([]pageSummary, error) {
 	graph, err := r.ResolveGraph()
 	if err != nil {
 		return nil, err
@@ -174,20 +206,22 @@ func renderReaderPages(r *pdf.Reader, dpi int) ([]*image.RGBA, error) {
 	if !ok {
 		return nil, fmt.Errorf("resolved graph is not a dictionary")
 	}
-	return renderTrailerPages(trailer, dpi), nil
+	return summarizeTrailerPages(trailer, dpi), nil
 }
 
-// renderTrailerPages rasterizes every page of an already-resolved trailer in
-// order. A page that fails to render is left nil rather than aborting.
-func renderTrailerPages(trailer pdf.PDFDict, dpi int) []*image.RGBA {
+// summarizeTrailerPages rasterizes every page of an already-resolved trailer
+// in order and keeps only the measurements, so one page is in memory at a time
+// rather than a whole document twice over. A page that fails to render is left
+// unrendered rather than aborting.
+func summarizeTrailerPages(trailer pdf.PDFDict, dpi int) []pageSummary {
 	pages := orderedPages(trailer)
-	imgs := make([]*image.RGBA, len(pages))
+	out := make([]pageSummary, len(pages))
 	for i, p := range pages {
 		if img, _, err := RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
-			imgs[i] = img
+			out[i] = summarize(img)
 		}
 	}
-	return imgs
+	return out
 }
 
 // inkFraction returns the fraction of pixels that are meaningfully non-white,
@@ -216,8 +250,11 @@ func inkFraction(img *image.RGBA) float64 {
 // dimensions are handled) and returns 1 minus the mean per-cell grayscale
 // difference, normalized to [0,1].
 func pageSimilarity(a, b *image.RGBA) float64 {
-	ga := grayGrid(a)
-	gb := grayGrid(b)
+	return gridSimilarity(grayGrid(a), grayGrid(b))
+}
+
+// gridSimilarity is pageSimilarity over samples already taken.
+func gridSimilarity(ga, gb [fidelityGrid * fidelityGrid]float64) float64 {
 	var sum float64
 	for i := range ga {
 		d := ga[i] - gb[i]
