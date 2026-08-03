@@ -810,19 +810,20 @@ func TestBakeStraySoftMasksReachesOutsideThePageTree(t *testing.T) {
 // --- zero opacity (roadmap item 35) ---
 
 // alphaStates is the resource dictionary the tests below draw with: /F0 puts
-// the fill opacity at zero, /S0 the stroke opacity, /B0 both, and /Half is a
-// legitimate partial opacity that must be left alone.
+// the fill opacity at zero, /S0 the stroke opacity, /B0 both, /Half puts the
+// fill opacity half way and /SHalf the stroke opacity.
 func alphaStates() pdf.PDFDict {
 	state := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(entries)}
 	}
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ExtGState": state(map[string]pdf.PDFValue{
-			"F0":   state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)}),
-			"S0":   state(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0)}),
-			"B0":   state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0), "CA": pdf.PDFReal(0)}),
-			"Half": state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)}),
-			"Back": state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(1), "CA": pdf.PDFReal(1)}),
+			"F0":    state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)}),
+			"S0":    state(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0)}),
+			"B0":    state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0), "CA": pdf.PDFReal(0)}),
+			"Half":  state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)}),
+			"SHalf": state(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0.5)}),
+			"Back":  state(map[string]pdf.PDFValue{"ca": pdf.PDFReal(1), "CA": pdf.PDFReal(1)}),
 		}),
 	})}
 }
@@ -864,7 +865,7 @@ func onePageAlphaTrailer(contents pdf.PDFValue, resources pdf.PDFDict) (trailer,
 func dropFromPage(t *testing.T, content string, resources pdf.PDFDict) (string, bool) {
 	t.Helper()
 	trailer, page := onePageAlphaTrailer(contentStream(content), resources)
-	changed := dropInvisibleDrawing(&trailer)
+	changed := repairOpacity(&trailer)
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("page /Contents is no longer a stream dict")
@@ -897,7 +898,7 @@ func TestDropInvisiblePaintOperators(t *testing.T) {
 		{"B0", "B", "n"},
 		{"B0", "b*", "n"},
 		{"B0", "n", "n"},
-		{"Half", "f", "f"}, // a partial opacity is not this repair's business
+		{"Half", "f", "f"}, // nothing set a colour here, so there is none to blend
 		{"Back", "f", "f"},
 	} {
 		t.Run(tc.gs+"-"+tc.op, func(t *testing.T) {
@@ -1049,15 +1050,15 @@ func TestDropInvisibleImagesAndShadings(t *testing.T) {
 // repair runs on every pass of the fix loop.
 func TestDropInvisibleGate(t *testing.T) {
 	trailer, page := onePageAlphaTrailer(contentStream("/Half gs\n0 0 10 10 re\nf\n"), alphaStates())
-	if dropInvisibleDrawing(&trailer) {
-		t.Error("changed = true for a document with no zero opacity")
+	if repairOpacity(&trailer) {
+		t.Error("changed = true for a fill in no colour at all")
 	}
 
 	trailer, page = onePageAlphaTrailer(contentStream("/F0 gs\n0 0 10 10 re\nf\n"), alphaStates())
-	if !dropInvisibleDrawing(&trailer) {
+	if !repairOpacity(&trailer) {
 		t.Fatal("changed = false, want the invisible fill taken out")
 	}
-	if dropInvisibleDrawing(&trailer) {
+	if repairOpacity(&trailer) {
 		t.Error("second run reported a change, want nothing left to take out")
 	}
 	contents, _ := page.Entries.Get("Contents").(pdf.PDFDict)
@@ -1074,7 +1075,7 @@ func TestDropInvisibleGate(t *testing.T) {
 	trailer, page = onePageAlphaTrailer(broken, alphaStates())
 	// The graphics state has to be reachable for the gate to open at all.
 	page.Entries.Set("Resources", alphaStates())
-	if dropInvisibleDrawing(&trailer) {
+	if repairOpacity(&trailer) {
 		t.Error("changed = true for an undecodable content stream")
 	}
 }
@@ -1085,7 +1086,7 @@ func TestDropInvisibleGate(t *testing.T) {
 func TestDropInvisibleAcrossContentParts(t *testing.T) {
 	first, second := contentStream("/F0 gs\n"), contentStream("0 0 10 10 re\nf\n")
 	trailer, page := onePageAlphaTrailer(pdf.PDFArray{first, second}, alphaStates())
-	if !dropInvisibleDrawing(&trailer) {
+	if !repairOpacity(&trailer) {
 		t.Fatal("changed = false, want the fill in the second part taken out")
 	}
 	parts, _ := page.Entries.Get("Contents").(pdf.PDFArray)
@@ -1094,6 +1095,93 @@ func TestDropInvisibleAcrossContentParts(t *testing.T) {
 	}
 	if got := streamText(t, parts[1].(pdf.PDFDict)); got != "0 0 10 10 re\nn\n" {
 		t.Errorf("second part = %q, want the fill taken out", got)
+	}
+}
+
+// --- partial opacity (roadmap item 36) ---
+
+// TestFadePartialOpacityColours: a drawing at a partial opacity keeps what it
+// looks like over white paper, in the space the file named its colour in --
+// blended towards white where a larger number is lighter, and towards nothing
+// where it is more ink. The colour goes back afterwards, since the rest of the
+// stream still paints in the one the file set.
+func TestFadePartialOpacityColours(t *testing.T) {
+	icc := func(n int) pdf.PDFValue {
+		return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"},
+			pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": pdf.PDFInteger(n)})}}
+	}
+	resources := alphaStates()
+	resources.Entries.Set("ColorSpace", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Rgb":     icc(3),
+		"Cmyk":    icc(4),
+		"Indexed": pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(1)},
+	})})
+
+	for _, tc := range []struct{ name, colour, faded string }{
+		{"grey", "0 g", "0.5 g"},
+		{"rgb", "0 0 0 rg", "0.5 0.5 0.5 rg"},
+		{"cmyk", "0 0 0 1 k", "0 0 0 0.5 k"},
+		{"icc rgb", "/Rgb cs\n1 0 0 sc", "1 0.5 0.5 sc"},
+		{"icc cmyk", "/Cmyk cs\n0 0 0 1 scn", "0 0 0 0.5 scn"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, changed := dropFromPage(t, "/Half gs\n"+tc.colour+"\n0 0 10 10 re\nf\n", resources)
+			if !changed {
+				t.Fatalf("changed = false, want the colour blended (content %q)", got)
+			}
+			last := tc.colour[strings.LastIndex(tc.colour, "\n")+1:]
+			want := "/Half gs\n" + tc.colour + "\n0 0 10 10 re\n" + tc.faded + "\nf\n" + last + "\n"
+			if got != want {
+				t.Errorf("content = %q, want %q", got, want)
+			}
+		})
+	}
+
+	// A colour this cannot work out is left as it is: an indexed space (the
+	// number is a position in a table, not an amount of anything) and a
+	// pattern (there is no number at all).
+	for _, colour := range []string{"/Indexed cs\n3 sc", "/P0 scn"} {
+		if got, changed := dropFromPage(t, "/Half gs\n"+colour+"\n0 0 10 10 re\nf\n", resources); changed {
+			t.Errorf("colour %q was blended: %q", colour, got)
+		}
+	}
+}
+
+// TestFadePartialOpacityStrokeAndText: the stroking opacity blends the
+// stroking colour, and text blends whichever of the two its render mode uses.
+func TestFadePartialOpacityStrokeAndText(t *testing.T) {
+	got, changed := dropFromPage(t, "/SHalf gs\n0 0 0 RG\n0 0 m 10 10 l\nS\n", alphaStates())
+	if !changed {
+		t.Fatalf("changed = false, want the stroke blended (content %q)", got)
+	}
+	if want := "/SHalf gs\n0 0 0 RG\n0 0 m\n10 10 l\n0.5 0.5 0.5 RG\nS\n0 0 0 RG\n"; got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+
+	// Mode 1 strokes its text and does not fill it, so the fill opacity leaves
+	// it alone; mode 0 fills it.
+	if got, changed := dropFromPage(t, "/Half gs\n0 0 0 rg\nBT\n1 Tr\n(hi) Tj\nET\n", alphaStates()); changed {
+		t.Errorf("stroked text was blended with the fill opacity: %q", got)
+	}
+	got, changed = dropFromPage(t, "/Half gs\n0 0 0 rg\nBT\n(hi) Tj\nET\n", alphaStates())
+	if !changed {
+		t.Fatalf("changed = false, want the filled text blended (content %q)", got)
+	}
+	if want := "/Half gs\n0 0 0 rg\nBT\n0.5 0.5 0.5 rg\n(hi) Tj\n0 0 0 rg\nET\n"; got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+}
+
+// TestFadePartialOpacityKeepsTheZeroCase: zero opacity is not a colour to
+// blend -- white paint over the page is as wrong as black -- so it stays the
+// drawing that is taken out.
+func TestFadePartialOpacityKeepsTheZeroCase(t *testing.T) {
+	got, changed := dropFromPage(t, "/F0 gs\n0 0 0 rg\n0 0 10 10 re\nf\n", alphaStates())
+	if !changed {
+		t.Fatal("changed = false, want the invisible fill taken out")
+	}
+	if want := "/F0 gs\n0 0 0 rg\n0 0 10 10 re\nn\n"; got != want {
+		t.Errorf("content = %q, want %q", got, want)
 	}
 }
 
@@ -1134,7 +1222,7 @@ func TestDropInvisibleBeyondPageContents(t *testing.T) {
 	page.Entries.Set("Pattern", pattern)
 	page.Entries.Set("Font", font)
 
-	if !dropInvisibleDrawing(&trailer) {
+	if !repairOpacity(&trailer) {
 		t.Fatal("changed = false, want all three streams rewritten")
 	}
 	ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
@@ -1186,7 +1274,7 @@ func TestDropInvisibleMalformedOperands(t *testing.T) {
 	})}
 	trailer, _ := onePageAlphaTrailer(contentStream("0 0 1 1 re\nf\n"), pdf.NewPDFDict())
 	trailer.Entries.Set("Stray", annot)
-	if hasZeroAlphaExtGState(trailer) {
+	if hasTransparentExtGState(trailer) {
 		t.Error("an annotation opacity of zero opened the gate, want only graphics states")
 	}
 }
@@ -1203,7 +1291,7 @@ func TestDropInvisibleOddGraphShapes(t *testing.T) {
 		pdf.PDFName{Value: "not-content"},
 	} {
 		trailer, _ := onePageAlphaTrailer(contents, alphaStates())
-		if dropInvisibleDrawing(&trailer) {
+		if repairOpacity(&trailer) {
 			t.Errorf("changed = true for contents %T with nothing to read", contents)
 		}
 	}
@@ -1227,7 +1315,7 @@ func TestDropInvisibleOddGraphShapes(t *testing.T) {
 		}
 		trailer, page := onePageAlphaTrailer(contentStream("0 0 1 1 re\nf\n"), alphaStates())
 		page.Entries.Set("Font", font)
-		if dropInvisibleDrawing(&trailer) {
+		if repairOpacity(&trailer) {
 			t.Errorf("changed = true for /CharProcs %T with no glyph to read", procs)
 		}
 	}

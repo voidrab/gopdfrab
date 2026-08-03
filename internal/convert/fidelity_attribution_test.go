@@ -35,8 +35,8 @@ type inkMechanism struct {
 // over from the one before.
 var oneAtATime = []inkMechanism{
 	{"preemptive", applyPreemptiveFixups},
-	{"invisible-drawing", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		dropInvisibleDrawing(trailer)
+	{"opacity", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
+		repairOpacity(trailer)
 		return nil
 	}},
 	{"extgstate-dicts", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
@@ -227,7 +227,7 @@ func TestFidelityAttributionSelfCheck(t *testing.T) {
 	if got := tally["extgstate-dicts"]; got.overpaintedPages != 1 || got.overpaintedFiles != 1 {
 		t.Errorf("making the opacity opaque drew over %+v, want one page of one file", got)
 	}
-	if got := tally["invisible-drawing"]; got.overpaintedPages != 0 || got.blankedPages != 0 {
+	if got := tally["opacity"]; got.overpaintedPages != 0 || got.blankedPages != 0 {
 		t.Errorf("taking the invisible drawing out changed %+v, want nothing", got)
 	}
 	if got := tally["all-of-them"]; got.overpaintedPages != 0 {

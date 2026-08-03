@@ -186,7 +186,7 @@ func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error
 func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	// Ahead of the dictionary pass below, which is what makes the opacities
 	// opaque: once they are, nothing says which drawing was invisible.
-	if dropInvisibleDrawing(trailer) {
+	if repairOpacity(trailer) {
 		*changed = true
 	}
 	return extGStateDictVisitor(changed), true
