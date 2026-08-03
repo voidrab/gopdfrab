@@ -1172,6 +1172,76 @@ func TestFadePartialOpacityStrokeAndText(t *testing.T) {
 	}
 }
 
+// TestWhiteComponent covers what each kind of colour space says white is, and
+// the ones that cannot say.
+func TestWhiteComponent(t *testing.T) {
+	array := func(items ...pdf.PDFValue) pdf.PDFArray { return pdf.PDFArray(items) }
+	name := func(v string) pdf.PDFName { return pdf.PDFName{Value: v} }
+	icc := func(n int) pdf.PDFValue {
+		return array(name("ICCBased"), pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": pdf.PDFInteger(n)})})
+	}
+	for _, tc := range []struct {
+		label string
+		space pdf.PDFValue
+		white float64
+		ok    bool
+	}{
+		{"grey", name("DeviceGray"), 1, true},
+		{"rgb", name("RGB"), 1, true},
+		{"cmyk", name("DeviceCMYK"), 0, true},
+		{"calibrated grey", array(name("CalGray")), 1, true},
+		{"separation", array(name("Separation"), name("Spot")), 0, true},
+		{"icc grey", icc(1), 1, true},
+		{"icc cmyk", icc(4), 0, true},
+		{"icc of no known size", icc(2), 0, false},
+		{"lab", array(name("Lab")), 0, false},
+		{"indexed", array(name("Indexed")), 0, false},
+		{"an empty array", array(), 0, false},
+		{"a name nobody knows", name("Fancy"), 0, false},
+		{"nothing at all", nil, 0, false},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			white, ok := whiteComponent(tc.space)
+			if ok != tc.ok || (ok && white != tc.white) {
+				t.Errorf("whiteComponent = %v, %v; want %v, %v", white, ok, tc.white, tc.ok)
+			}
+		})
+	}
+}
+
+// TestFadePartialOpacityOddColourOperators: a colour space named directly
+// rather than through the resources still blends, and an operator with nothing
+// to blend is left as it is.
+func TestFadePartialOpacityOddColourOperators(t *testing.T) {
+	got, changed := dropFromPage(t, "/Half gs\n/DeviceRGB cs\n0 0 0 sc\n0 0 10 10 re\nf\n", alphaStates())
+	if !changed {
+		t.Fatalf("changed = false, want a space named directly to blend (content %q)", got)
+	}
+	if want := "/Half gs\n/DeviceRGB cs\n0 0 0 sc\n0 0 10 10 re\n0.5 0.5 0.5 sc\nf\n0 0 0 sc\n"; got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+
+	// The stroking half names its space the same way.
+	got, changed = dropFromPage(t, "/SHalf gs\n/DeviceGray CS\n0 SC\n0 0 m 10 10 l\nS\n", alphaStates())
+	if !changed {
+		t.Fatalf("changed = false, want the stroking space to blend (content %q)", got)
+	}
+	if want := "/SHalf gs\n/DeviceGray CS\n0 SC\n0 0 m\n10 10 l\n0.5 SC\nS\n0 SC\n"; got != want {
+		t.Errorf("content = %q, want %q", got, want)
+	}
+
+	for _, content := range []string{
+		"cs\n0 0 10 10 re\nf\n",              // a space with no name
+		"1 cs\n0 0 10 10 re\nf\n",            // a name that is not a name
+		"/DeviceRGB cs\nsc\n0 0 1 1 re\nf\n", // a colour with no numbers
+		"1 1 1 rg\n0 0 10 10 re\nf\n",        // white already looks like itself
+	} {
+		if got, changed := dropFromPage(t, "/Half gs\n"+content, alphaStates()); changed {
+			t.Errorf("content %q was rewritten: %q", content, got)
+		}
+	}
+}
+
 // TestFadePartialOpacityKeepsTheZeroCase: zero opacity is not a colour to
 // blend -- white paint over the page is as wrong as black -- so it stays the
 // drawing that is taken out.
