@@ -189,6 +189,12 @@ func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDF
 	if dropInvisibleDrawing(trailer) {
 		*changed = true
 	}
+	return extGStateDictVisitor(changed), true
+}
+
+// extGStateDictVisitor is the dictionary half on its own, without the content
+// rewriting that has to come before it.
+func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
 	return func(d pdf.PDFDict) {
 		if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 			return
@@ -233,7 +239,7 @@ func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDF
 				*changed = true
 			}
 		}
-	}, true
+	}
 }
 
 // --- 6.5.3 Annotations ---
