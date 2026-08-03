@@ -394,26 +394,26 @@ func TestBlankedPages(t *testing.T) {
 	}
 }
 
-// TestOverpainted pins both halves of the ink-added test around their
-// thresholds: a page has to gain several times its ink AND a large part of the
-// page before it counts, so neither an almost-empty page whose few marks grow
-// nor a busy page that thickens a little is called overpainted.
+// TestOverpainted: what counts is the page being covered, not the ink going
+// up. A conversion that makes text drawable which the input's own fonts could
+// not draw adds a great deal of ink and covers nothing, and it is the
+// commonest thing a conversion does -- counting that as damage would bury the
+// real thing.
 func TestOverpainted(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		in, out     float64
+		covered     float64
 		overpainted bool
 	}{
-		{"page painted over", 0.02, 0.9, true},
-		{"blank page painted over", 0, 0.5, true},
-		{"unchanged", 0.3, 0.3, false},
-		{"heavier over a large area, but nowhere near tripled", 0.3, 0.4, false},
-		{"tripled, but only a small part of the page", 0.02, 0.06, false},
-		{"tripled and a large part of the page", 0.02, 0.08, true},
-		{"content lost, not added", 0.5, 0.01, false},
+		{"page painted over", 0.9, true},
+		{"a band across the page", 0.06, true},
+		{"just under the bar", 0.049, false},
+		{"nothing covered", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pf := PageFidelity{Page: 1, InputInk: tc.in, OutputInk: tc.out}
+			// The ink numbers say nothing either way: these are the figures a
+			// page of restored text carries, and it must not be flagged.
+			pf := PageFidelity{Page: 1, InputInk: 0.01, OutputInk: 0.07, Covered: tc.covered}
 			if got := pf.Overpainted(); got != tc.overpainted {
 				t.Errorf("Overpainted() = %v for %+v, want %v", got, pf, tc.overpainted)
 			}
@@ -421,12 +421,58 @@ func TestOverpainted(t *testing.T) {
 	}
 }
 
+// TestCoveredFraction: a cell counts as covered when it was paper and is now
+// solid. Text darkens a cell it falls in without covering it, which is exactly
+// what must not count.
+func TestCoveredFraction(t *testing.T) {
+	paper := onePageDoc("")
+	// A rectangle over the top half of the page, and a page of text-like marks
+	// spread across it: thin lines, one every few points.
+	covered := onePageDoc("0 0 0 rg\n0 100 200 100 re\nf\n")
+	var marks string
+	for y := 4; y < 200; y += 6 {
+		marks += fmt.Sprintf("0 0 0 rg\n10 %d 180 1 re\nf\n", y)
+	}
+	inked := onePageDoc(marks)
+
+	report, err := CompareFidelity(openReader(t, paper), openReader(t, covered), fidelityDPI)
+	if err != nil {
+		t.Fatalf("CompareFidelity: %v", err)
+	}
+	if got := report[0].Covered; got < 0.4 || got > 0.6 {
+		t.Errorf("half the page covered reported %.3f, want about 0.5", got)
+	}
+	if !report[0].Overpainted() {
+		t.Errorf("a rectangle over half the page was not reported: %+v", report[0])
+	}
+
+	report, err = CompareFidelity(openReader(t, paper), openReader(t, inked), fidelityDPI)
+	if err != nil {
+		t.Fatalf("CompareFidelity: %v", err)
+	}
+	pf := report[0]
+	if pf.OutputInk < inkThreshold {
+		t.Fatalf("the marks should carry ink: %+v", pf)
+	}
+	if pf.Overpainted() {
+		t.Errorf("marks spread over the page were reported as covering it: %+v", pf)
+	}
+}
+
+// TestCellMeansOnEmptyRender: the grid is fed straight from the rasterizer, so
+// it has to absorb a zero-sized image.
+func TestCellMeansOnEmptyRender(t *testing.T) {
+	if got := cellMeans(image.NewRGBA(image.Rect(0, 0, 0, 0))); got != [fidelityGrid * fidelityGrid]float64{} {
+		t.Error("cellMeans of an empty render returned non-zero cells")
+	}
+}
+
 // TestOverpaintedPages: the page list mirrors blankedPages -- page order, and
 // nil when nothing was drawn over.
 func TestOverpaintedPages(t *testing.T) {
-	over := PageFidelity{Page: 2, InputInk: 0.01, OutputInk: 0.8}
+	over := PageFidelity{Page: 2, Covered: 0.8}
 	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
-	if got := overpaintedPages([]PageFidelity{kept, over, {Page: 3, InputInk: 0, OutputInk: 0.9}}); !slices.Equal(got, []int{2, 3}) {
+	if got := overpaintedPages([]PageFidelity{kept, over, {Page: 3, Covered: 0.9}}); !slices.Equal(got, []int{2, 3}) {
 		t.Errorf("overpaintedPages = %v, want [2 3]", got)
 	}
 	if got := overpaintedPages([]PageFidelity{kept}); got != nil {

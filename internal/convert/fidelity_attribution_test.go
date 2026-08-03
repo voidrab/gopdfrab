@@ -138,7 +138,12 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 			}
 			blanked, overpainted := 0, 0
 			for i := range min(len(before), len(after)) {
-				page := PageFidelity{Page: i + 1, InputInk: before[i], OutputInk: after[i]}
+				page := PageFidelity{
+					Page:      i + 1,
+					InputInk:  before[i].ink,
+					OutputInk: after[i].ink,
+					Covered:   coveredFraction(before[i].cells, after[i].cells),
+				}
 				switch {
 				case page.Blanked():
 					blanked++
@@ -170,9 +175,16 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 	return tally
 }
 
+// pageInk is what one page looks like: how much ink it carries, and how dark
+// each part of it is, which is what says whether something was drawn over it.
+type pageInk struct {
+	ink   float64
+	cells [fidelityGrid * fidelityGrid]float64
+}
+
 // inkPerPage reads the file, runs one repair over it if given one, and returns
-// how much ink each page carries afterwards.
-func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]float64, error) {
+// how each page looks afterwards.
+func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageInk, error) {
 	doc, err := pdf.Open(path)
 	if err != nil {
 		return nil, err
@@ -192,9 +204,12 @@ func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]float
 		}
 	}
 	pages := renderTrailerPages(trailer, fidelityDPI)
-	ink := make([]float64, len(pages))
+	ink := make([]pageInk, len(pages))
 	for i, page := range pages {
-		ink[i] = inkFraction(page)
+		if page == nil {
+			continue
+		}
+		ink[i] = pageInk{ink: inkFraction(page), cells: cellMeans(page)}
 	}
 	return ink, nil
 }
