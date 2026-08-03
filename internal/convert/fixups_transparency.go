@@ -236,7 +236,7 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 				return
 			}
 			collectXObjectTargets(resources, visited, pageNum, &out)
-			collectAnnotationTargets(node, visited, pageNum, &out)
+			collectAnnotationTargets(node, resources, visited, pageNum, &out)
 			return
 		}
 		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
@@ -326,13 +326,14 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 		subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
 		switch subtype.Value {
 		case "Form":
+			// The form's own resources, and the ones around it only when it
+			// brings none: a form names what it draws from its own dictionary,
+			// and handing it the page's instead means every image, font and
+			// colour inside it resolves to nothing when it is rasterized.
+			formRes := resourcesOf(xobj, resources)
 			if hasTransparencyGroup(xobj) {
-				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
+				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: formRes, xobjects: xobjects, name: name, page: page})
 				continue
-			}
-			formRes, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
-			if formRes.Entries == nil {
-				formRes = resources
 			}
 			collectXObjectTargets(formRes, visited, page, out)
 		case "Image":
@@ -353,7 +354,7 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 // nested Form carries /Group /S /Transparency, which is exactly this shape, so
 // without this every digitally signed document reported a 6.4 violation that
 // convert could not reach and the verify/fix loop could never converge.
-func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
 		return
@@ -373,13 +374,13 @@ func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNu
 				continue
 			}
 			if isFormXObject(entry) {
-				collectAppearanceForm(entry, ap, state, visited, pageNum, out)
+				collectAppearanceForm(entry, ap, state, resources, visited, pageNum, out)
 				continue
 			}
 			// /AP /N << /Off ... /On ... >>: one appearance per state name.
 			for _, name := range sortedKeys(entry.Entries) {
 				if form, ok := entry.Entries.Get(name).(pdf.PDFDict); ok && isFormXObject(form) {
-					collectAppearanceForm(form, entry, name, visited, pageNum, out)
+					collectAppearanceForm(form, entry, name, resources, visited, pageNum, out)
 				}
 			}
 		}
@@ -389,15 +390,13 @@ func collectAnnotationTargets(page pdf.PDFDict, visited map[uintptr]bool, pageNu
 // collectAppearanceForm flags one appearance Form XObject, or descends into its
 // resources when it is itself clean. container+name address the slot the fixed
 // dict is written back into, exactly as an /XObject resource entry does.
-func collectAppearanceForm(form, container pdf.PDFDict, name string, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+func collectAppearanceForm(form, container pdf.PDFDict, name string, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+	formRes := resourcesOf(form, resources)
 	if hasTransparencyGroup(form) {
-		res, _ := form.Entries.Get("Resources").(pdf.PDFDict)
-		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: res, xobjects: container, name: name, page: pageNum})
+		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes, xobjects: container, name: name, page: pageNum})
 		return
 	}
-	if res, ok := form.Entries.Get("Resources").(pdf.PDFDict); ok {
-		collectXObjectTargets(res, visited, pageNum, out)
-	}
+	collectXObjectTargets(formRes, visited, pageNum, out)
 }
 
 // isFormXObject distinguishes an appearance stream from the sub-dictionary of

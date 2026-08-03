@@ -179,8 +179,10 @@ func dominantColourModel(usage map[string]int) string {
 	return best
 }
 
+// resourcesOf returns the resources dict names inside dict are looked up in:
+// its own, or the ones handed down to it when it has none of its own.
 func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
-	if res, ok := dict.Entries.Get("Resources").(pdf.PDFDict); ok {
+	if res, ok := dict.Entries.Get("Resources").(pdf.PDFDict); ok && res.Entries != nil {
 		return res
 	}
 	return fallback

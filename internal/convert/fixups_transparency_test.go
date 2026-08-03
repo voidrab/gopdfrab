@@ -493,6 +493,162 @@ func TestCollectXObjectTargetsWalk(t *testing.T) {
 	}
 }
 
+// groupFormDrawingIm0 builds a group Form XObject that paints /Im0 over its
+// whole BBox. The gs is there to keep canDropGroupSafely from dropping the
+// group without rasterizing, which is the path under test.
+func groupFormDrawingIm0(resources pdf.PDFValue) pdf.PDFDict {
+	entries := map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+	}
+	if resources != nil {
+		entries["Resources"] = resources
+	}
+	return pdf.PDFDict{
+		Entries:   pdf.DictOf(entries),
+		HasStream: true,
+		RawStream: []byte("q /GS0 gs 20 0 0 20 0 0 cm /Im0 Do Q"),
+	}
+}
+
+// flattenedInk rasterizes what a flattened form now paints and returns how
+// much of it is ink, so a form that came out empty can be told from one that
+// kept its picture.
+func flattenedInk(t *testing.T, form pdf.PDFDict) float64 {
+	t.Helper()
+	resources, ok := form.Entries.Get("Resources").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("flattened form has no /Resources")
+	}
+	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("flattened form's resources name no XObject")
+	}
+	img, ok := xobjects.Entries.Get("Im0").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("flattened form paints no image")
+	}
+	decoded, err := DecodeImageRGBA(img, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("decoding the flattened image: %v", err)
+	}
+	return inkFraction(decoded)
+}
+
+// TestFlattenFormUsesItsOwnResources is roadmap item 36's blanking cause: a
+// form names what it draws in its own /Resources, so rasterizing it against
+// the page's instead leaves every image, font and colour inside it
+// unresolvable and replaces the form with a blank picture. The page it stood
+// on then comes out empty, and conformance says nothing about it. Both files
+// the item named are this shape -- a whole page inside one group form.
+func TestFlattenFormUsesItsOwnResources(t *testing.T) {
+	black := grayImage(2, 2, []byte{0, 0, 0, 0})
+	own := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im0": black})},
+	})}
+	form := groupFormDrawingIm0(own)
+	// The page names the form and nothing else: /Im0 exists only inside it.
+	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"XObject": xobjects,
+		})},
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})},
+	})}
+
+	changed, err := (transparencyFlattener{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("changed = false, want true (the form carried a /Group)")
+	}
+	flattened, ok := xobjects.Entries.Get("Fm0").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("the form was not written back into the page's resources")
+	}
+	if ink := flattenedInk(t, flattened); ink < 0.9 {
+		t.Errorf("the flattened form carries %.3f ink, want the black image it drew", ink)
+	}
+}
+
+// TestFlattenFormWithoutOwnResourcesInherits is the other half: a form with no
+// /Resources of its own draws from the ones around it, as the renderer does.
+func TestFlattenFormWithoutOwnResourcesInherits(t *testing.T) {
+	black := grayImage(2, 2, []byte{0, 0, 0, 0})
+	form := groupFormDrawingIm0(nil)
+	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form, "Im0": black})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"XObject": xobjects,
+		})},
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})},
+	})}
+
+	if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	flattened, ok := xobjects.Entries.Get("Fm0").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("the form was not written back into the page's resources")
+	}
+	if ink := flattenedInk(t, flattened); ink < 0.9 {
+		t.Errorf("the flattened form carries %.3f ink, want the page's image it drew", ink)
+	}
+}
+
+// TestFlattenAppearanceFormUsesItsOwnResources: the same, for a form reached
+// through an annotation's appearance rather than the page's resources.
+func TestFlattenAppearanceFormUsesItsOwnResources(t *testing.T) {
+	black := grayImage(2, 2, []byte{0, 0, 0, 0})
+	own := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im0": black})},
+	})}
+	form := groupFormDrawingIm0(own)
+	ap := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": form})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Page"},
+		"Annots": pdf.PDFArray{pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Widget"},
+			"AP":      ap,
+		})}},
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})},
+	})}
+
+	if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	flattened, ok := ap.Entries.Get("N").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("the appearance was not written back")
+	}
+	if ink := flattenedInk(t, flattened); ink < 0.9 {
+		t.Errorf("the flattened appearance carries %.3f ink, want the image it drew", ink)
+	}
+}
+
 // TestCollectAnnotationTargetsSkipsMalformed: annotation entries that are not
 // dictionaries, or that carry no /AP, are stepped over rather than aborting
 // the walk of the rest of the array.
@@ -505,13 +661,13 @@ func TestCollectAnnotationTargetsSkipsMalformed(t *testing.T) {
 		},
 	})}
 	var out []flaggedTarget
-	collectAnnotationTargets(page, map[uintptr]bool{}, 1, &out)
+	collectAnnotationTargets(page, pdf.PDFDict{}, map[uintptr]bool{}, 1, &out)
 	if len(out) != 0 {
 		t.Errorf("targets = %+v, want none", out)
 	}
 
 	// A page with no /Annots at all is equally fine.
-	collectAnnotationTargets(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, map[uintptr]bool{}, 1, &out)
+	collectAnnotationTargets(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, pdf.PDFDict{}, map[uintptr]bool{}, 1, &out)
 	if len(out) != 0 {
 		t.Errorf("targets = %+v, want none", out)
 	}

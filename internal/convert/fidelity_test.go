@@ -457,6 +457,52 @@ func onePageDocWithZeroAlpha(content string) []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
+// groupFormDoc is the shape roadmap item 36's blanking came from, taken from
+// two real presentations: the whole page is one transparency group form, and
+// everything it draws -- here a black image -- is named in the form's own
+// resources rather than the page's.
+func groupFormDoc() []byte {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte("/Fm0 Do\n"))
+	// The gs keeps the group from being dropped without rasterizing, which is
+	// the path this is about.
+	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
+		"/Group << /S /Transparency >> /Resources << /XObject << /Im0 6 0 R >> "+
+		"/ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
+		[]byte("q /GS0 gs 160 0 0 160 20 20 cm /Im0 Do Q\n"))
+	b.StreamObj(6, "<< /Type /XObject /Subtype /Image /Width 2 /Height 2 "+
+		"/BitsPerComponent 8 /ColorSpace /DeviceGray", []byte{0, 0, 0, 0})
+	return b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
+}
+
+// TestConvertKeepsWhatAGroupFormDraws is item 36's blanking regression: PDF/A-1
+// forbids the transparency group, so the form is rasterized -- and rasterizing
+// it against the page's resources instead of its own leaves the page blank
+// while the output is still conformant.
+func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
+	cr, err := ConvertBytes(groupFormDoc(), pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("output not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.BlankedPages) != 0 {
+		t.Errorf("conversion blanked %v; the image the form draws should have been kept", cr.BlankedPages)
+	}
+	if len(cr.Fidelity) != 1 {
+		t.Fatalf("Fidelity = %+v, want one page report", cr.Fidelity)
+	}
+	if pf := cr.Fidelity[0]; pf.Similarity < 0.99 {
+		t.Errorf("page should render as it did before conversion: %+v", pf)
+	}
+}
+
 // TestConvertDoesNotPaintOverInvisibleContent is item 35's regression: the
 // conversion must reach conformance -- no opacity left below 1 -- without
 // drawing what the file says cannot be seen.
