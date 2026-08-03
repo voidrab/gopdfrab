@@ -33,6 +33,9 @@ notice.
 First changelog entry; earlier history lives in the git log.
 
 ### Added
+- `OpenBytes`/`OpenBytesWithPassword` open a `*Document` from an in-memory PDF,
+  so the document helpers (`PageCount`, `Version`, `ClaimedConformance`,
+  `Metadata`, `XMPMetadata`) are reachable without a file on disk.
 - Content a file draws at zero opacity is taken out rather than repainted
   opaque, and `ConvertResult.OverpaintedPages` reports any page drawn over.
 - `ConvertResult.LostObjects` reports content a conversion could not carry over

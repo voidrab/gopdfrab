@@ -272,6 +272,21 @@ func OpenWithPassword(path string, password []byte) (*Document, error) {
 	return &Document{r: r}, nil
 }
 
+// OpenBytes initializes a document from an in-memory PDF, parsing it the same
+// way Open does but without touching disk. Close it when done, as with Open.
+func OpenBytes(data []byte) (*Document, error) { return OpenBytesWithPassword(data, nil) }
+
+// OpenBytesWithPassword is OpenBytes with an explicit password for an encrypted
+// file. nil is the empty password. It returns an error matching
+// ErrPasswordRequired when the password is wrong or missing.
+func OpenBytesWithPassword(data, password []byte) (*Document, error) {
+	r, err := pdf.OpenBytesWithPassword(data, password)
+	if err != nil {
+		return nil, err
+	}
+	return &Document{r: r}, nil
+}
+
 // Close ensures the file handle is released.
 func (d *Document) Close() error { return d.r.Close() }
 
