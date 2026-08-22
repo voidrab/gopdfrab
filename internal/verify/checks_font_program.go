@@ -763,8 +763,9 @@ type CFFTopDict struct {
 	CharsetOffset int // Charset table offset, -1 if not found / predefined
 	PrivateOffset int // Private DICT offset, -1 if not found
 	PrivateSize   int
-	FDArrayOffset int // CID-keyed only, -1 if not found
-	FDSelect      int // CID-keyed only, -1 if not found
+	FDArrayOffset int        // CID-keyed only, -1 if not found
+	FDSelect      int        // CID-keyed only, -1 if not found
+	FontMatrix    [6]float64 // as declared; only meaningful when HasFontMatrix
 	HasFontMatrix bool
 	IsCIDKeyed    bool
 }
@@ -837,85 +838,44 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	}
 	topDict := cff[tdDataStart : tdDataStart+tdDataLen]
 
-	// Parse Top DICT DICT encoding to find CharStrings (17), Charset (15),
-	// and ROS (escape 12 30, present only on CID-keyed fonts).
-	var stack []int
-	for i := 0; i < len(topDict); {
-		b := int(topDict[i])
-		switch {
-		case b >= 32 && b <= 246:
-			stack = append(stack, b-139)
-			i++
-		case b >= 247 && b <= 250:
-			if i+1 >= len(topDict) {
-				return td, false
+	// Read the operators we need. cffDictNumbers decodes nibble reals, which
+	// is how FontMatrix is always written.
+	return td, cffDictNumbers(topDict, func(operator int, operands []float64) {
+		first := func() (int, bool) {
+			if len(operands) == 0 {
+				return 0, false
 			}
-			stack = append(stack, (b-247)*256+int(topDict[i+1])+108)
-			i += 2
-		case b >= 251 && b <= 254:
-			if i+1 >= len(topDict) {
-				return td, false
-			}
-			stack = append(stack, -(b-251)*256-int(topDict[i+1])-108)
-			i += 2
-		case b == 28:
-			if i+2 >= len(topDict) {
-				return td, false
-			}
-			v := int(int16(binary.BigEndian.Uint16(topDict[i+1 : i+3])))
-			stack = append(stack, v)
-			i += 3
-		case b == 29:
-			if i+4 >= len(topDict) {
-				return td, false
-			}
-			v := int(int32(binary.BigEndian.Uint32(topDict[i+1 : i+5])))
-			stack = append(stack, v)
-			i += 5
-		case b == 30: // real number — skip
-			i++
-			for i < len(topDict) {
-				nb := topDict[i]
-				i++
-				if nb&0x0F == 0x0F {
-					break
-				}
-			}
-		case b == 12: // two-byte escape operator
-			if i+1 >= len(topDict) {
-				return td, false
-			}
-			switch topDict[i+1] {
-			case 30: // ROS: marks a CID-keyed font
-				td.IsCIDKeyed = true
-			case 7: // FontMatrix: glyph space is not the default 1/1000 em
-				td.HasFontMatrix = true
-			case 36:
-				if len(stack) > 0 {
-					td.FDArrayOffset = stack[0]
-				}
-			case 37:
-				if len(stack) > 0 {
-					td.FDSelect = stack[0]
-				}
-			}
-			stack = nil
-			i += 2
-		default: // single-byte operator
-			switch {
-			case b == 17 && len(stack) > 0: // CharStrings
-				td.CSOffset = stack[0]
-			case b == 15 && len(stack) > 0: // charset
-				td.CharsetOffset = stack[0]
-			case b == 18 && len(stack) > 1: // Private: [size offset]
-				td.PrivateSize = stack[0]
-				td.PrivateOffset = stack[1]
-			}
-			stack = nil
-			i++
+			return int(operands[0]), true
 		}
-	}
-	return td, true
+		switch operator {
+		case 17: // CharStrings
+			if v, o := first(); o {
+				td.CSOffset = v
+			}
+		case 15: // charset
+			if v, o := first(); o {
+				td.CharsetOffset = v
+			}
+		case 18: // Private: [size offset]
+			if len(operands) > 1 {
+				td.PrivateSize = int(operands[0])
+				td.PrivateOffset = int(operands[1])
+			}
+		case 1207: // FontMatrix: glyph space is not the default 1/1000 em
+			td.HasFontMatrix = true
+			copy(td.FontMatrix[:], operands)
+		case 1230: // ROS: marks a CID-keyed font
+			td.IsCIDKeyed = true
+		case 1236: // FDArray
+			if v, o := first(); o {
+				td.FDArrayOffset = v
+			}
+		case 1237: // FDSelect
+			if v, o := first(); o {
+				td.FDSelect = v
+			}
+		}
+	})
 }
 
 // ParseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
