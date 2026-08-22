@@ -108,14 +108,28 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 	for _, key := range []string{"Title", "Author", "Subject", "Keywords", "Creator", "Producer"} {
 		switch info.Entries.Get(key).(type) {
 		case nil:
+			continue
 		case pdf.PDFString, pdf.PDFHexString:
 			if infoString(info, key) == "" {
 				info.Entries.Del(key)
+				continue
 			}
 		default:
 			info.Entries.Del(key)
+			continue
+		}
+		// The XMP packet is built from the decoded text, so a raw value that
+		// does not survive a decode/re-encode round trip -- UTF-16BE with an
+		// odd byte count, say -- leaves the two sides describing different
+		// strings, which a stricter reader than ours reports under 6.7.3.
+		// Write back what was decoded, leaving a well-formed value untouched.
+		v := info.Entries.Get(key)
+		canonical := string(pdf.EncodePDFTextString(pdf.DecodeInfoTextString(v)))
+		if raw, ok := v.(pdf.PDFString); !ok || raw.Value != canonical {
+			info.Entries.Set(key, pdf.PDFString{Value: canonical})
 		}
 	}
+
 	// checkInfoXMPSync compares Author against the XMP dc:creator value with
 	// the latter trimmed but not the former (checks_xmp.go); trimming here,
 	// the single source both Metadata and the regenerated XMP read from,

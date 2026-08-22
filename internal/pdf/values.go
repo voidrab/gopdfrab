@@ -135,6 +135,29 @@ func DecodePDFTextString(raw []byte) string {
 	return string(utf16.Decode(u16))
 }
 
+// EncodePDFTextString encodes s as a PDF text string, the inverse of
+// DecodePDFTextString: the bytes themselves when every one is printable ASCII,
+// which PDFDocEncoding leaves alone, and UTF-16BE with a BOM otherwise.
+func EncodePDFTextString(s string) []byte {
+	ascii := true
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] >= 0x7F {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return []byte(s)
+	}
+	u16 := utf16.Encode([]rune(s))
+	out := make([]byte, 0, 2+2*len(u16))
+	out = append(out, 0xFE, 0xFF)
+	for _, c := range u16 {
+		out = append(out, byte(c>>8), byte(c))
+	}
+	return out
+}
+
 // DecodeInfoTextString decodes a PDFString or PDFHexString Info-dictionary value
 // to Unicode: the bytes are interpreted as a PDF text string (UTF-16BE with
 // BOM, otherwise PDFDocEncoding). Returns "" for any other value type.

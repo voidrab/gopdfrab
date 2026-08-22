@@ -215,6 +215,38 @@ func TestIsAllDigits(t *testing.T) {
 // TestNormalizeInfoDictCustomKeys covers the custom-key branch: DocInfo's wildcard row
 // types every non-standard Info key as a text string, so non-string custom values are
 // dropped while string (and null) ones survive.
+// TestNormalizeInfoDictMalformedText covers the real-world 6.7.3 case: an
+// /Author in UTF-16BE with an odd byte count. We drop the dangling half code
+// unit when decoding, a stricter reader keeps it as U+FFFD, and the XMP built
+// from the decoded text then no longer matches the raw Info value.
+func TestNormalizeInfoDictMalformedText(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	info := pdf.NewPDFDict()
+	// BOM, then "Abu" with an umlaut, then a dangling high byte.
+	info.Entries.Set("Author", pdf.PDFString{Value: "\xfe\xff\x00A\x00b\x00\xfc\x00"})
+	// Non-ASCII is not the trigger on its own: an even byte count round trips.
+	info.Entries.Set("Subject", pdf.PDFString{Value: "\xfe\xff\x00A\x00\xfc"})
+	info.Entries.Set("Title", pdf.PDFString{Value: "Plain ASCII"})
+	trailer.Entries.Set("Info", info)
+
+	normalizeInfoDict(&trailer)
+
+	author, _ := info.Entries.Get("Author").(pdf.PDFString)
+	if want := "\xfe\xff\x00A\x00b\x00\xfc"; author.Value != want {
+		t.Errorf("Author = %q, want %q (the dangling byte gone)", author.Value, want)
+	}
+	if got := pdf.DecodeInfoTextString(info.Entries.Get("Author")); got != "Ab\u00fc" {
+		t.Errorf("decoded Author = %q, want %q", got, "Ab\u00fc")
+	}
+	if sub, _ := info.Entries.Get("Subject").(pdf.PDFString); sub.Value != "\xfe\xff\x00A\x00\xfc" {
+		t.Errorf("Subject = %q, want it untouched", sub.Value)
+	}
+	// A well-formed value is left exactly as it was, bytes and type.
+	if title, _ := info.Entries.Get("Title").(pdf.PDFString); title.Value != "Plain ASCII" {
+		t.Errorf("Title = %q, want it untouched", title.Value)
+	}
+}
+
 func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("SPDF", pdf.PDFInteger(1153))

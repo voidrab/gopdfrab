@@ -200,3 +200,21 @@ func TestArrayPointerDoesNotAllocate(t *testing.T) {
 	}
 	_ = sink
 }
+
+func TestEncodePDFTextString(t *testing.T) {
+	cases := []struct{ text, want string }{
+		{"", ""},
+		{"Plain ASCII", "Plain ASCII"},
+		{"Ab\u00fc", "\xfe\xff\x00A\x00b\x00\xfc"},
+		{"line\nbreak", "\xfe\xff\x00l\x00i\x00n\x00e\x00\n\x00b\x00r\x00e\x00a\x00k"},
+	}
+	for _, c := range cases {
+		got := string(EncodePDFTextString(c.text))
+		if got != c.want {
+			t.Errorf("EncodePDFTextString(%q) = %q, want %q", c.text, got, c.want)
+		}
+		if back := DecodePDFTextString([]byte(got)); back != c.text {
+			t.Errorf("round trip of %q gave %q", c.text, back)
+		}
+	}
+}
