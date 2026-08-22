@@ -913,6 +913,14 @@ var crossCheckDeviations = map[string]string{
 	// and (3,0), no (3,1); both map the code to glyph 113, present with advance
 	// 399.90 against a /Widths entry of 400.
 	"ab40e70c9de7092f015d0b50495f22863211a1bee561946d7dfd650a4182c527": "veraPDF false positive: (1,0) cmap fallback ignored, ISO 32000-1 9.6.6.4 (6.3.5/6.3.6)",
+
+	// zenodo 21261940: SJXMLS+AlegreyaSans-Italic, code 102 (/f), a Type1
+	// program with no cmap in it. veraPDF reports a program width of 0 against
+	// a /Widths entry of 280, and calls the glyph absent. The charstring is
+	// subroutinized: it pushes 0 and 280 and calls subr 2171, which begins with
+	// hsbw. gopdfrab follows the call and reads the width as 280, so the glyph
+	// is present and consistent -- veraPDF's scan stops at callsubr.
+	"8d7f376c991ead1a0446b8c90a99eb5a88635b209816521273489de7ffa46604": "veraPDF false positive: hsbw reached through callsubr not followed (6.3.5/6.3.6)",
 }
 
 // checkShouldPass verifies each file against PDF/A-1b and returns the paths
