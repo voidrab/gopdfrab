@@ -3,9 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 are done except for the tail of 36; each is one line under "Done",
-and the commit history has the detail. Four things stand between here and a
-tagged 1.0: items 30, 36, 37 and 38.
+Items 1–36 and 38 are done except for the tail of 36; each is one line under
+"Done", and the commit history has the detail. Three things stand between here
+and a tagged 1.0: items 30, 36 and 37.
 
 ## Where things stand
 
@@ -17,8 +17,9 @@ tagged 1.0: items 30, 36, 37 and 38.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
   reach conformance with zero errors, panics or hangs; 4 of them still lose a
-  page's visible content and 1 still draws over one (item 36), and veraPDF
-  rejects 5 of the outputs gopdfrab passes (item 38), plus 2 it rejects wrongly.
+  page's visible content and 1 still draws over one (item 36). veraPDF accepts
+  every output bar 3, each of those a defect of its own listed with the evidence
+  against it in `crossCheckDeviations`.
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -76,83 +77,8 @@ uncovered by the repair before it.
 
 The goal is a frozen API, and nothing declares it frozen yet: `CHANGELOG.md`
 still says "Pre-1.0: the API is not stable", its entries are under
-`[Unreleased]`, and the README's Status section says pre-1.0. Once 30, 36 and 38
+`[Unreleased]`, and the README's Status section says pre-1.0. Once 30 and 36
 close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
-
-### 38. The five outputs veraPDF still rejects
-
-`GOPDFRAB_REALWORLD_VERAPDF=all` converts all 1580 files to something gopdfrab
-calls conformant, and veraPDF rejects **5 of those outputs**. This gate is not
-part of `go test ./...`, so it was failing unnoticed: it stood at 17 when the
-item opened. Ten were fixed by finding one cause at a time, and two are veraPDF
-false positives now listed in `crossCheckDeviations`:
-
-- **An annotation with no `/Type` never reached 6.5.3.** `/Type` is optional on
-  an annotation dictionary (ISO 32000-1 12.5.2) and a viewer reaches one through
-  a page's `/Annots`. Check and fixer both demanded `/Type /Annot` (2 files).
-- **A forbidden action was emptied in place**, leaving the `/A` pointing at a
-  dictionary with no `/S` — an action of no known type. The entry has to go, not
-  just the contents (1 file).
-- **An Info text string that does not survive a decode/re-encode round trip.**
-  The XMP packet is built from the decoded text, so a `/Author` in UTF-16BE with
-  an odd byte count leaves Info and XMP describing different strings (2 files).
-- **A Type1 program's own `/Encoding` array was unreadable.** Only a *named*
-  encoding was recognised; subset TeX fonts build the array themselves. Over the
-  real-world corpus the encoding bail drops **4322 → 354** font dictionaries, and
-  the programs reaching a live width comparison go **2877 → 6780** (3 files).
-- **An advance width was rounded before it was compared**, quietly widening the
-  ±1 tolerance to ±1.5 (1 file).
-- **A code no cmap maps was skipped when the descriptor said "symbolic"**, though
-  a viewer renders .notdef either way (1 file).
-
-Two traps worth keeping. The sample of 17 could not validate the work: fixing
-the Info strings **introduced** an eighth rejection on a file that was never in
-the 17 (`arxiv-1911.06742`), because the pre-existing `TrimSpace` ran on the raw
-bytes and took the low half off a trailing space — reproducing the exact
-malformed value the repair exists to remove. Only the full 1580-file gate caught
-it. And chasing the width cases meant verifying the *output*, not the source:
-the converter substitutes fonts, so the dictionary veraPDF complains about is
-often one gopdfrab created.
-
-The two excluded ones are the same defect: a non-symbolic TrueType font whose
-(3,1) cmap does not carry the code, where ISO 32000-1 9.6.6.4 has a viewer fall
-back to the (1,0) Macintosh cmap. gopdfrab follows that and finds a real glyph;
-veraPDF renders .notdef and reports 6.3.5, with 6.3.6 following from notdef's
-width. Checked by hand against the cmap tables: `ZXWDID+Helvetica` in
-`oapen-0806b1b0` has no (3,1) subtable at all and (1,0) maps code 176 to a
-present glyph, and `BCEAEE+SymbolMT` in `zenodo-21262729` resolves the same code
-through (1,0) as well as (3,0). veraPDF's own issue [#1575][] is this defect in
-its u-level .notdef check (6.2.11.8), closed 2026-04-22 and root-caused to
-assigning .notdef "without consulting the font program's cmap, violating ISO
-32000-1:2008 section 9.6.6.4" — our reading, accepted upstream. That fix is
-already in the bundled 1.30.2 (the issue's own test file passes there) but did
-not reach the PDF/A-1 6.3.5 path: against the newest dev build, 1.31.158 of
-2026-08-20, both files are still rejected, so waiting for a release does not
-help.
-
-What is left is genuinely ours, one clause pair, 6.3.5 with 6.3.6 following
-from it, in two shapes:
-
-- **No cmap maps the code, and `/Widths` says 0** (`arxiv-1102.5670`, the three
-  `usgov-02-*` scans). Neither the (3,1) nor the (1,0)/(3,0) cmap carries the
-  drawn code, so the glyph really is absent and veraPDF is right. Two things
-  hide it: those files carry several font dictionaries sharing one BaseFont and
-  some have no entry in `UsedCharCodes`, so `ValidateSimpleTrueTypeSubset` falls
-  back to iterating non-zero `/Widths` — and the drawn code's width is `0`.
-  Checking all 256 codes instead would report every unmapped code in every
-  subset font, so the fix is to work out why usage attribution misses those
-  dictionaries.
-- **A Type1 subset** (`zenodo-21261940`). `SJXMLS+AlegreyaSans-Italic` is a
-  `FontFile` program, so no cmap is involved at all; veraPDF reports code 102
-  with a program width of 0 against a `/Widths` entry of 280. Not investigated.
-
-A grouping trap worth keeping: these were first sorted by their veraPDF message
-and clause pair, which put four files in the cmap bucket. Checking each against
-its actual cmap tables moved two of them out — one had no cmap mapping at all
-and one was not a TrueType font. Excluding on the message alone would have
-whitelisted two real defects.
-
-[#1575]: https://github.com/veraPDF/veraPDF-library/issues/1575
 
 ---
 
@@ -278,6 +204,29 @@ whitelisted two real defects.
     opaque instead of blended into the colour; "drew over" counting ink gained
     rather than paper covered (`PageFidelity.Covered`); and the fidelity comparison
     holding every rendered page of both sides, which cost gigabytes.
+
+38. **The five outputs veraPDF still rejected, at 1580 of 1580.** Four were one
+    defect, and it was not in a font check: a page's `/Contents` array is a
+    single stream split at token boundaries, so a `Tf` at the end of one part
+    still selects the font for text shown at the start of the next. Usage
+    attribution reset its text state per part, so those codes were attributed to
+    no font — and a font with no usage entry falls back to iterating non-zero
+    `/Widths`, where the drawn code's width is `0` and nothing is checked at
+    all. The fifth is veraPDF's own: a subroutinized Type1 charstring pushes the
+    `hsbw` operands and keeps the command in a subr, which its scan does not
+    follow, so it reads a program width of 0 against a `/Widths` entry of 280.
+    Making that case cost two hardcoded defaults of ours in the same place —
+    the charstring decrypt always dropped 4 bytes though the Private dict's
+    `/lenIV` says how many there are, and only `RD` was recognised as the
+    charstring operator, not `-|` — which between them made a 37-glyph program
+    read as having no glyphs and no widths. Widths now follow `callsubr`; the
+    rasterizer's charstring interpreter still drops subr calls, which costs
+    fidelity rather than conformance.
+
+    The trap from the ten before it held again: the sample cannot validate the
+    work, only the full gate can, and the dictionary veraPDF names is usually
+    one gopdfrab created, so the output is what has to be verified, never the
+    source.
 
 Also closed along the way: the Type1 `FontFile` width path honours
 `/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
