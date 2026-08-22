@@ -241,7 +241,7 @@ func fixFontMetricsDict(d pdf.PDFDict) bool {
 		}
 	case "Type1", "MMType1":
 		if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
-			return fixType1Widths(d, ff, d.Entries.Get("Encoding"))
+			return fixType1Widths(d, desc, ff, d.Entries.Get("Encoding"))
 		} else if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 			return fixType1CWidths(d, ff)
 		}
@@ -325,7 +325,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // fixType1Widths rewrites mismatched /Widths entries to the embedded Type1
 // program's advance width, mirroring validateType1Metrics
 // (checks_font_program.go).
-func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
+func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
 	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
 	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
 	if !fcOK || !wOK {
@@ -365,7 +365,58 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
 		widths[i] = pdf.PDFInteger(math.Round(csWidth))
 		changed = true
 	}
-	return changed
+	return growType1Widths(v, desc, enc, glyphWidths, int(firstChar), widths) || changed
+}
+
+// growType1Widths extends /Widths over the codes outside it whose width would
+// come from a declared /MissingWidth that the program disagrees with. Only a
+// non-zero /MissingWidth is repaired: an absent one is 0, which the width check
+// reads as "no width declared" and never compares.
+func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidths map[string]float64, firstChar int, widths pdf.PDFArray) bool {
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	if missing == 0 || len(widths) == 0 {
+		return false
+	}
+	programWidth := func(cc int) (float64, bool) {
+		if enc[cc] == "" {
+			return 0, false
+		}
+		w, ok := glyphWidths[enc[cc]]
+		return w, ok
+	}
+
+	lo, hi := firstChar, firstChar+len(widths)-1
+	newLo, newHi := lo, hi
+	for cc := 0; cc < 256; cc++ {
+		if cc >= lo && cc <= hi {
+			continue
+		}
+		w, ok := programWidth(cc)
+		if !ok || math.Abs(float64(missing)-w) <= 1 {
+			continue
+		}
+		newLo = min(newLo, cc)
+		newHi = max(newHi, cc)
+	}
+	if newLo == lo && newHi == hi {
+		return false
+	}
+
+	grown := make(pdf.PDFArray, newHi-newLo+1)
+	for cc := newLo; cc <= newHi; cc++ {
+		switch w, ok := programWidth(cc); {
+		case cc >= lo && cc <= hi:
+			grown[cc-newLo] = widths[cc-lo]
+		case ok:
+			grown[cc-newLo] = pdf.PDFInteger(math.Round(w))
+		default:
+			grown[cc-newLo] = pdf.PDFInteger(missing)
+		}
+	}
+	v.Entries.Set("FirstChar", pdf.PDFInteger(newLo))
+	v.Entries.Set("LastChar", pdf.PDFInteger(newHi))
+	v.Entries.Set("Widths", grown)
+	return true
 }
 
 // fixType1CWidths rewrites mismatched /Widths entries to the embedded CFF
