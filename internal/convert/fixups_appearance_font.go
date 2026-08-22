@@ -3,6 +3,7 @@ package convert
 import (
 	_ "embed"
 	"encoding/binary"
+	"math"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -65,7 +66,7 @@ func buildAppearanceFont() pdf.PDFDict {
 		if unicode := verify.WinAnsiToUnicode[cc]; unicode != 0 {
 			if gid, ok := cmap[unicode]; ok {
 				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
-					w = aw
+					w = int(math.Round(aw))
 				}
 			}
 		}

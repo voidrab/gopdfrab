@@ -52,7 +52,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 		t.Fatalf("code %d has no glyph via 0xF0xx alias", code)
 	}
 	if aw := verify.TTAdvanceWidth(tables, int(gid)); aw <= 0 {
-		t.Errorf("glyph for code %d has advance %d, want > 0", code, aw)
+		t.Errorf("glyph for code %v has advance %v, want > 0", code, aw)
 	}
 
 	toUni, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict)

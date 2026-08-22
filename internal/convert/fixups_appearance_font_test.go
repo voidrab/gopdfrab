@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"math"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -84,7 +85,7 @@ func TestAppearanceFontWidthsMatchHmtx(t *testing.T) {
 		if !ok {
 			t.Fatalf("code %d has no glyph in the embedded font's cmap", cc)
 		}
-		want := verify.TTAdvanceWidth(tables, int(gid))
+		want := int(math.Round(verify.TTAdvanceWidth(tables, int(gid))))
 		got := int(widths[cc-firstChar].(pdf.PDFInteger))
 		if got != want {
 			t.Errorf("Widths[%d] (code %d) = %d, want %d (hmtx)", cc-firstChar, cc, got, want)

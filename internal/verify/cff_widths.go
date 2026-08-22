@@ -305,15 +305,15 @@ func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 
 // cffCharstringWidth extracts one glyph's advance width given the width
 // defaults and subrs in effect for it, or -1 when it cannot be followed.
-func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) int {
+func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
 	w, hasWidth, ok := type2CharstringWidth(cs, gsubrs, lsubrs)
 	if !ok {
 		return -1
 	}
 	if hasWidth {
-		return int(nominalWidthX + w + 0.5)
+		return nominalWidthX + w
 	}
-	return int(defaultWidthX + 0.5)
+	return defaultWidthX
 }
 
 // WidthSkip names why an advance-width extraction gave up. The width paths bail
@@ -370,26 +370,27 @@ func cffWidthScale(td CFFTopDict) (scale float64, ok bool) {
 	return fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1])
 }
 
-// scaleWidth applies a fontMatrixWidthScale factor, rounding as TTAdvanceWidth
-// does for unitsPerEm.
-func scaleWidth(w int, scale float64) int {
+// scaleWidth applies a fontMatrixWidthScale factor. The result stays a real
+// number: /Widths holds integers, but a program's advance width need not be
+// one, and rounding here would widen the comparison's tolerance by half a unit.
+func scaleWidth(w, scale float64) float64 {
 	if scale == 1 {
 		return w
 	}
-	return int(math.Round(float64(w) * scale))
+	return w * scale
 }
 
 // CFFAdvanceWidths returns glyph-name -> advance width (in 1/1000 em) for a
 // name-keyed CFF program, or nil when the program is CID-keyed or cannot be
 // parsed. A declared FontMatrix is folded into the widths. Unparseable glyphs
 // are omitted.
-func CFFAdvanceWidths(cff []byte) map[string]int {
+func CFFAdvanceWidths(cff []byte) map[string]float64 {
 	w, _ := CFFAdvanceWidthsStats(cff)
 	return w
 }
 
 // CFFAdvanceWidthsStats is CFFAdvanceWidths reporting why it gave up.
-func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
+func CFFAdvanceWidthsStats(cff []byte) (map[string]float64, WidthStats) {
 	td, tdOK := ParseCFFTopDict(cff)
 	scale, scaleOK := cffWidthScale(td)
 	switch {
@@ -423,7 +424,7 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
 	gsubrs := cffGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings) - 1}
-	widths := make(map[string]int, len(names))
+	widths := make(map[string]float64, len(names))
 	for gid := 1; gid < len(charStrings); gid++ {
 		if w := cffCharstringWidth(charStrings[gid], gsubrs, lsubrs, defaultWidthX, nominalWidthX); w >= 0 {
 			widths[names[gid]] = scaleWidth(w, scale)
@@ -438,13 +439,13 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
 // CID-keyed CFF program, or nil when it cannot be parsed safely. A Top DICT
 // FontMatrix is folded into the widths; a Font DICT that declares one of its
 // own still has its glyphs skipped.
-func CFFCIDAdvanceWidths(cff []byte) map[int]int {
+func CFFCIDAdvanceWidths(cff []byte) map[int]float64 {
 	w, _ := CFFCIDAdvanceWidthsStats(cff)
 	return w
 }
 
 // CFFCIDAdvanceWidthsStats is CFFCIDAdvanceWidths reporting why it gave up.
-func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]int, WidthStats) {
+func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	td, tdOK := ParseCFFTopDict(cff)
 	scale, scaleOK := cffWidthScale(td)
 	switch {
@@ -506,7 +507,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]int, WidthStats) {
 	gsubrs := cffGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings)}
-	widths := make(map[int]int, len(charStrings))
+	widths := make(map[int]float64, len(charStrings))
 	for gid := 0; gid < len(charStrings); gid++ {
 		fd := fdIndex[gid]
 		if fd < 0 || fd >= len(infos) || !infos[fd].ok {

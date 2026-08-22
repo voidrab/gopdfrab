@@ -66,7 +66,7 @@ func TestSubsetTrueTypeRoundTrips(t *testing.T) {
 		wantWidth := verify.TTAdvanceWidth(srcTables, int(srcGID))
 		gotWidth := verify.TTAdvanceWidth(tables, int(gid))
 		if wantWidth != gotWidth {
-			t.Errorf("unicode %q: advance width = %d, want %d (source)", rune(u), gotWidth, wantWidth)
+			t.Errorf("unicode %q: advance width = %v, want %v (source)", rune(u), gotWidth, wantWidth)
 		}
 	}
 

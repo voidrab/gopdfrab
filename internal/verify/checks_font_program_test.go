@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"os"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestTrueTypeTableParsers(t *testing.T) {
 		t.Error("TTGlyphPresent false for a real glyph")
 	}
 	if w := TTAdvanceWidth(tables, int(gidA)); w <= 0 {
-		t.Errorf("TTAdvanceWidth('A') = %d", w)
+		t.Errorf("TTAdvanceWidth('A') = %v", w)
 	}
 	if m := ParseCmapSubtable(cmap); m == nil {
 		t.Error("ParseCmapSubtable(format4) returned nil")
@@ -470,7 +471,7 @@ func buildCIDTrueTypeFont(t *testing.T) (desc pdf.PDFDict, ff pdf.PDFDict, gidA 
 	ff.RawStream = ttf
 
 	desc = pdf.NewPDFDict()
-	return desc, ff, int(gid), TTAdvanceWidth(tables, int(gid))
+	return desc, ff, int(gid), int(math.Round(TTAdvanceWidth(tables, int(gid))))
 }
 
 func TestCIDTrueTypeSubsetAndMetrics(t *testing.T) {
@@ -690,7 +691,7 @@ func TestType1WidthScale(t *testing.T) {
 func TestType1MetricsFontMatrix(t *testing.T) {
 	font := buildType1FontHeader("/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n")
 	if w := Type1GlyphWidths(font)["A"]; w != 250 {
-		t.Fatalf("Type1GlyphWidths[A] = %d, want 250 (500 glyph units at 1/2000 em)", w)
+		t.Fatalf("Type1GlyphWidths[A] = %v, want 250 (500 glyph units at 1/2000 em)", w)
 	}
 
 	ff := pdf.NewPDFDict()
@@ -747,7 +748,7 @@ func TestType1EexecRoundTrip(t *testing.T) {
 
 	widths := Type1GlyphWidths(font)
 	if widths["A"] != 500 {
-		t.Fatalf("Type1GlyphWidths[A] = %d, want 500", widths["A"])
+		t.Fatalf("Type1GlyphWidths[A] = %v, want 500", widths["A"])
 	}
 
 	enc, ok := Type1EncodingTable(font, "")
@@ -769,7 +770,7 @@ func TestParseType1AdvanceWidth(t *testing.T) {
 	// sbw: sbx sby wx wy -> advance is the 3rd operand.
 	sbw := []byte{139, 139, byte(139 + 10), 139, 12, 8} // 0,0,10,0, escape 12 8 (sbw)
 	if w, ok := parseType1AdvanceWidth(sbw); !ok || w != 10 {
-		t.Errorf("parseType1AdvanceWidth(sbw) = %d, %v, want 10, true", w, ok)
+		t.Errorf("parseType1AdvanceWidth(sbw) = %v, %v, want 10, true", w, ok)
 	}
 	if _, ok := parseType1AdvanceWidth([]byte{14}); ok {
 		t.Error("parseType1AdvanceWidth(endchar only) should be ok=false")
@@ -1046,11 +1047,11 @@ func TestTrueTypeTableGuards(t *testing.T) {
 	hhea[34], hhea[35] = 0x00, 0x01                                                     // numberOfHMetrics = 1
 	tables := map[string][]byte{"head": head, "hhea": hhea, "hmtx": {0x01, 0xF4, 0, 0}} // aw=500
 	if w := TTAdvanceWidth(tables, 0); w != 500 {
-		t.Errorf("TTAdvanceWidth = %d, want 500", w)
+		t.Errorf("TTAdvanceWidth = %v, want 500", w)
 	}
 	// gid beyond numberOfHMetrics falls back to the last entry.
 	if w := TTAdvanceWidth(tables, 5); w != 500 {
-		t.Errorf("TTAdvanceWidth(beyond nHM) = %d, want 500 (fallback)", w)
+		t.Errorf("TTAdvanceWidth(beyond nHM) = %v, want 500 (fallback)", w)
 	}
 	headZeroUPM := make([]byte, 20) // unitsPerEm = 0
 	if TTAdvanceWidth(map[string][]byte{"head": headZeroUPM, "hhea": hhea, "hmtx": {0, 0}}, 0) != -1 {
@@ -1204,25 +1205,25 @@ func TestParseType1AdvanceWidthMoreOperators(t *testing.T) {
 	// Negative number via the 251-254 range, then hsbw.
 	cs := []byte{byte(251), 0, 139, 13} // push -108, push 0, hsbw -> wx = stack[1] = 0
 	if w, ok := parseType1AdvanceWidth(cs); !ok || w != 0 {
-		t.Errorf("parseType1AdvanceWidth(251-254 range) = %d, %v", w, ok)
+		t.Errorf("parseType1AdvanceWidth(251-254 range) = %v, %v", w, ok)
 	}
 
 	// 2-byte integer (op 28) then hsbw.
 	cs28 := []byte{28, 0x01, 0x2C, 139, 13} // push 300, push 0, hsbw -> wx=0
 	if w, ok := parseType1AdvanceWidth(cs28); !ok || w != 0 {
-		t.Errorf("parseType1AdvanceWidth(op28) = %d, %v", w, ok)
+		t.Errorf("parseType1AdvanceWidth(op28) = %v, %v", w, ok)
 	}
 
 	// 4-byte integer (op 29) then hsbw, using the pushed value as wx.
 	cs29 := []byte{139, 29, 0x00, 0x00, 0x01, 0x2C, 13} // push 0 (sbx), push 300 (wx), hsbw
 	if w, ok := parseType1AdvanceWidth(cs29); !ok || w != 300 {
-		t.Errorf("parseType1AdvanceWidth(op29) = %d, %v", w, ok)
+		t.Errorf("parseType1AdvanceWidth(op29) = %v, %v", w, ok)
 	}
 
 	// A non-hsbw/sbw/endchar operator clears the stack and parsing continues.
 	csClear := []byte{139, 9, 139, byte(139 + 5), 13} // push 0, closepath(9,clears), push 0, push 5, hsbw
 	if w, ok := parseType1AdvanceWidth(csClear); !ok || w != 5 {
-		t.Errorf("parseType1AdvanceWidth(stack-clear op) = %d, %v", w, ok)
+		t.Errorf("parseType1AdvanceWidth(stack-clear op) = %v, %v", w, ok)
 	}
 
 	// Truncated operand encodings should fail cleanly rather than panic.

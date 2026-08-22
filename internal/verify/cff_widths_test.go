@@ -42,13 +42,13 @@ func TestCFFAdvanceWidthsFontMatrix(t *testing.T) {
 	if stats.Skip != WidthSkipNone {
 		t.Fatalf("skip = %q, want none", stats.Skip)
 	}
-	if widths["A"] != 244 { // 500 * 0.00048828125 * 1000, rounded
-		t.Errorf("widths[A] = %d, want 244", widths["A"])
+	if widths["A"] != 244.140625 { // 500 * 0.00048828125 * 1000, unrounded
+		t.Errorf("widths[A] = %v, want 244.140625", widths["A"])
 	}
 
 	// The same program without the matrix keeps the raw glyph-space width.
 	if widths, _ := CFFAdvanceWidthsStats(buildMinimalCFFWith(nil, private)); widths["A"] != 500 {
-		t.Errorf("unscaled widths[A] = %d, want 500", widths["A"])
+		t.Errorf("unscaled widths[A] = %v, want 500", widths["A"])
 	}
 }
 
@@ -391,11 +391,11 @@ func TestWidthSkipReasons(t *testing.T) {
 	type1 := []struct {
 		name     string
 		encoding string
-		widths   map[string]int
+		widths   map[string]float64
 		want     WidthSkip
 	}{
-		{"ok", "WinAnsiEncoding", map[string]int{"A": 600}, WidthSkipNone},
-		{"unmodelled encoding", "MacExpertEncoding", map[string]int{"A": 600}, WidthSkipEncoding},
+		{"ok", "WinAnsiEncoding", map[string]float64{"A": 600}, WidthSkipNone},
+		{"unmodelled encoding", "MacExpertEncoding", map[string]float64{"A": 600}, WidthSkipEncoding},
 		{"no widths", "StandardEncoding", nil, WidthSkipNoWidths},
 	}
 	for _, c := range type1 {

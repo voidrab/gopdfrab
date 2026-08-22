@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -378,7 +379,7 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 			if u := codeToUnicode[cc]; u != 0 {
 				if gid, ok := cmap[u]; ok {
 					if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
-						w = aw
+						w = int(math.Round(aw))
 					}
 				}
 			}
@@ -495,7 +496,7 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		if cc := minCode + i; codeUnicode[cc] != 0 {
 			if gid, ok := gidOf[0xF000|uint16(cc)]; ok {
 				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
-					w = aw
+					w = int(math.Round(aw))
 				}
 			}
 		}
@@ -792,7 +793,7 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	for _, cidList := range targetCIDs {
 		for _, c := range cidList {
 			if aw := verify.TTAdvanceWidth(tables, c); aw >= 0 {
-				widthPairs = append(widthPairs, [2]int{c, aw})
+				widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
 			}
 		}
 	}

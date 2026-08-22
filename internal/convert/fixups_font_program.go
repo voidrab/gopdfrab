@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/binary"
+	"math"
 	"sort"
 	"strings"
 
@@ -312,10 +313,10 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		fontWidth := verify.TTAdvanceWidth(tables, gid)
-		if fontWidth < 0 || pdf.AbsInt(fontWidth-pdfWidth) <= 1 {
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(fontWidth)
+		widths[i] = pdf.PDFInteger(math.Round(fontWidth))
 		changed = true
 	}
 	return changed
@@ -358,10 +359,10 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
 			continue
 		}
 		csWidth, found := glyphWidths[glyph]
-		if !found || pdf.AbsInt(pdfWidth-csWidth) <= 1 {
+		if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(csWidth)
+		widths[i] = pdf.PDFInteger(math.Round(csWidth))
 		changed = true
 	}
 	return changed
@@ -404,10 +405,10 @@ func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		csWidth, found := glyphWidths[glyph]
-		if !found || pdf.AbsInt(pdfWidth-csWidth) <= 1 {
+		if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(csWidth)
+		widths[i] = pdf.PDFInteger(math.Round(csWidth))
 		changed = true
 	}
 	return changed
@@ -434,10 +435,10 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	changed := false
 	for i, pair := range pairs {
 		csWidth, found := cidWidths[pair[0]]
-		if !found || pdf.AbsInt(csWidth-pair[1]) <= 1 {
+		if !found || math.Abs(csWidth-float64(pair[1])) <= 1 {
 			continue
 		}
-		pairs[i][1] = csWidth
+		pairs[i][1] = int(math.Round(csWidth))
 		changed = true
 	}
 	if !changed {
@@ -468,10 +469,10 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	changed := false
 	for i, pair := range pairs {
 		fontWidth := verify.TTAdvanceWidth(tables, pair[0])
-		if fontWidth < 0 || pdf.AbsInt(fontWidth-pair[1]) <= 1 {
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}
-		pairs[i][1] = fontWidth
+		pairs[i][1] = int(math.Round(fontWidth))
 		changed = true
 	}
 	if !changed {

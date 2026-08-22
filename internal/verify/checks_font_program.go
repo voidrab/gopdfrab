@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -84,8 +85,12 @@ func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 }
 
 // TTAdvanceWidth returns the advance width for glyph gid from the hmtx table,
-// scaled to PDF units (1/1000 of em). Returns -1 if unavailable.
-func TTAdvanceWidth(tables map[string][]byte, gid int) int {
+// scaled to PDF units (1/1000 of em). Returns -1 if unavailable. The result
+// stays a real number: at a unitsPerEm that is not 1000 the scaled width is
+// rarely a whole one, and rounding it here would widen the 6.3.6 comparison's
+// tolerance by half a unit -- enough to miss a mismatch a stricter reader
+// catches.
+func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	hmtx := tables["hmtx"]
 	hhea := tables["hhea"]
 	head := tables["head"]
@@ -109,7 +114,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) int {
 		}
 		aw = int(binary.BigEndian.Uint16(hmtx[(nHM-1)*4:]))
 	}
-	return (aw*1000 + upm/2) / upm
+	return float64(aw) * 1000 / float64(upm)
 }
 
 // TTWindowsBMPCmap finds the platform 3 encoding 1 cmap subtable, or nil.
@@ -633,9 +638,9 @@ func validateType1CMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, firs
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pdfWidth-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ CFF advance width %d",
-				cc, glyph, pdfWidth, csWidth))
+		if math.Abs(float64(pdfWidth)-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ CFF advance width %s",
+				cc, glyph, pdfWidth, formatWidth(csWidth)))
 			return
 		}
 	}
@@ -662,9 +667,9 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pair[1]-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ CFF advance width %d",
-				pair[0], pair[1], csWidth))
+		if math.Abs(float64(pair[1])-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ CFF advance width %s",
+				pair[0], pair[1], formatWidth(csWidth)))
 			return
 		}
 	}
@@ -1357,11 +1362,11 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 		}
 		fontWidth := TTAdvanceWidth(tables, cid)
 		// Allow ±1 rounding tolerance.
-		return fontWidth >= 0 && pdf.AbsInt(fontWidth-pdfWidth) > 1
+		return fontWidth >= 0 && math.Abs(fontWidth-float64(pdfWidth)) > 1
 	}
-	report := func(cid, pdfWidth, fontWidth int) {
-		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
-			cid, pdfWidth, fontWidth))
+	report := func(cid, pdfWidth int, fontWidth float64) {
+		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %s",
+			cid, pdfWidth, formatWidth(fontWidth)))
 	}
 
 	widthOf := map[int]int{}
@@ -1591,9 +1596,9 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		if fontWidth < 0 {
 			continue
 		}
-		if pdf.AbsInt(fontWidth-pdfWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %d",
-				firstChar+i, pdfWidth, fontWidth))
+		if math.Abs(fontWidth-float64(pdfWidth)) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
+				firstChar+i, pdfWidth, formatWidth(fontWidth)))
 			return
 		}
 	}
@@ -1832,7 +1837,7 @@ func Type1CharStringsSection(fontData []byte, binStart int) []byte {
 // advance width for each charstring whose width parses (6.3.6).
 type type1Program struct {
 	names  []string
-	widths map[string]int
+	widths map[string]float64
 }
 
 // extractType1Program decrypts the eexec binary section of a Type1 font
@@ -1847,7 +1852,7 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 	// CharSet (6.3.5), but there is no width to compare against (6.3.6).
 	scale, scaleOK := type1WidthScale(fontData)
 	var p type1Program
-	p.widths = map[string]int{}
+	p.widths = map[string]float64{}
 	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
 		name := string(cs[m[2]:m[3]])
 		p.names = append(p.names, name)
@@ -1857,7 +1862,7 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 		}
 		dec := DecryptType1Block(cs[m[1]:m[1]+n], 4330)
 		if w, ok := parseType1AdvanceWidth(dec); ok && scaleOK {
-			p.widths[name] = scaleWidth(w, scale)
+			p.widths[name] = scaleWidth(float64(w), scale)
 		}
 	}
 	return p
@@ -1980,9 +1985,9 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pdfWidth-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %d",
-				cc, glyph, pdfWidth, csWidth))
+		if math.Abs(float64(pdfWidth)-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %s",
+				cc, glyph, pdfWidth, formatWidth(csWidth)))
 			return
 		}
 	}
@@ -2029,7 +2034,7 @@ func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [25
 // comparison needs and reports why it gave up when it did. widths is the
 // program's glyph-name -> advance width map (Type1GlyphWidths); encoding is the
 // font dict's raw /Encoding entry.
-func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]int) ([256]string, WidthStats) {
+func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]float64) ([256]string, WidthStats) {
 	enc, ok := Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return enc, WidthStats{Skip: WidthSkipEncoding}
@@ -2089,10 +2094,17 @@ func Type1EexecBinStart(fontData []byte) int {
 	return binStart
 }
 
+// formatWidth renders an advance width for a message: a program's width need
+// not be a whole number, and printing it rounded would make a real mismatch
+// look like an off-by-one.
+func formatWidth(w float64) string {
+	return strconv.FormatFloat(w, 'g', -1, 64)
+}
+
 // Type1GlyphWidths locates the eexec-encrypted section of a Type1 font
 // program and returns its glyph name -> advance width map (in 1/1000 em; a
 // declared FontMatrix is folded in, and an unreadable one yields no widths).
-func Type1GlyphWidths(fontData []byte) map[string]int {
+func Type1GlyphWidths(fontData []byte) map[string]float64 {
 	return extractType1Program(fontData, Type1EexecBinStart(fontData)).widths
 }
 
