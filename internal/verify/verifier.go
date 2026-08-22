@@ -1164,21 +1164,38 @@ func collectContentUsage(
 	fu *fontUsage,
 ) bool {
 	complete := true
+	// One state across the whole /Contents: an array is a single stream split
+	// at token boundaries (ISO 32000-1 7.8.2), so a Tf at the end of one part
+	// still selects the font for text shown at the start of the next.
+	st := &usageState{}
 	switch v := contents.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu)
+			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu, st)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
 			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
-				if !collectUsageFromBytes(ctx, d, resources, reachable, fu) {
+				if !collectUsageFromBytes(ctx, d, resources, reachable, fu, st) {
 					complete = false
 				}
 			}
 		}
 	}
 	return complete
+}
+
+// usageState is the text state a content stream carries from operator to
+// operator: the rendering mode and the font Tf selected. Held outside
+// collectUsageFromBytes so a /Contents array can be scanned as one stream.
+type usageState struct {
+	renderMode        int
+	modeStack         []int
+	currentFontPtrs   []uintptr
+	simpleFontPtr     uintptr
+	haveSimpleFont    bool
+	compositeFontPtr  uintptr
+	haveCompositeFont bool
 }
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
@@ -1192,84 +1209,77 @@ type fontUsage struct {
 	scannedPatterns map[uintptr]bool
 }
 
-func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) (ok bool) {
+func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage, st *usageState) (ok bool) {
 	complete := true
 	fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
 	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-	renderMode := 0
-	var modeStack []int
-	var currentFontPtrs []uintptr
-	var simpleFontPtr uintptr
-	haveSimpleFont := false
-	var compositeFontPtr uintptr
-	haveCompositeFont := false
 	err := ctx.scanStream(dict, func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "q":
-			modeStack = append(modeStack, renderMode)
+			st.modeStack = append(st.modeStack, st.renderMode)
 		case "Q":
-			if len(modeStack) > 0 {
-				renderMode = modeStack[len(modeStack)-1]
-				modeStack = modeStack[:len(modeStack)-1]
+			if len(st.modeStack) > 0 {
+				st.renderMode = st.modeStack[len(st.modeStack)-1]
+				st.modeStack = st.modeStack[:len(st.modeStack)-1]
 			}
 		case "Tr":
 			if len(operands) > 0 {
 				if n, ok := operands[len(operands)-1].(pdf.PDFInteger); ok {
-					renderMode = int(n)
+					st.renderMode = int(n)
 				}
 			}
 		case "Tf":
-			currentFontPtrs = nil
-			haveSimpleFont = false
-			haveCompositeFont = false
+			st.currentFontPtrs = nil
+			st.haveSimpleFont = false
+			st.haveCompositeFont = false
 			if len(operands) >= 2 && fonts.Entries != nil {
 				if name, ok := operands[len(operands)-2].(pdf.PDFName); ok {
 					if fd, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict); ok {
-						currentFontPtrs = append(currentFontPtrs, pdf.ValuePointer(fd.Entries))
+						st.currentFontPtrs = append(st.currentFontPtrs, pdf.ValuePointer(fd.Entries))
 						// 6.3.3.2/6.3.5/6.3.6 checks run on the descendant
 						// CIDFont dict, not the Type0 font selected by Tf.
 						if df, ok := fd.Entries.Get("DescendantFonts").(pdf.PDFArray); ok && len(df) > 0 {
 							if desc, ok := df[0].(pdf.PDFDict); ok {
-								currentFontPtrs = append(currentFontPtrs, pdf.ValuePointer(desc.Entries))
+								st.currentFontPtrs = append(st.currentFontPtrs, pdf.ValuePointer(desc.Entries))
 								// Only Identity-H/V map codes directly to CIDs;
 								// other CMaps leave usage unknown for the font.
 								if enc, ok := fd.Entries.Get("Encoding").(pdf.PDFName); ok &&
 									(enc.Value == "Identity-H" || enc.Value == "Identity-V") {
-									compositeFontPtr = pdf.ValuePointer(desc.Entries)
-									haveCompositeFont = true
+									st.compositeFontPtr = pdf.ValuePointer(desc.Entries)
+									st.haveCompositeFont = true
 								}
 							}
 						} else {
 							// Simple font: codes shown via Tj/TJ are single bytes.
-							simpleFontPtr = pdf.ValuePointer(fd.Entries)
-							haveSimpleFont = true
+							st.simpleFontPtr = pdf.ValuePointer(fd.Entries)
+							st.haveSimpleFont = true
 						}
 					}
 				}
 			}
 		case "Tj", "TJ", "'", "\"":
-			for _, ptr := range currentFontPtrs {
-				if renderMode == 3 || renderMode == 7 {
+			for _, ptr := range st.currentFontPtrs {
+				if st.renderMode == 3 || st.renderMode == 7 {
 					fu.invisible[ptr] = true
 				} else {
 					fu.visible[ptr] = true
 				}
 			}
-			if haveSimpleFont {
-				set := fu.usedCodes[simpleFontPtr]
+			if st.haveSimpleFont {
+				set := fu.usedCodes[st.simpleFontPtr]
 				if set == nil {
 					set = map[int]bool{}
-					fu.usedCodes[simpleFontPtr] = set
+					fu.usedCodes[st.simpleFontPtr] = set
 				}
 				for _, b := range ShownStringBytes(op, operands) {
 					set[int(b)] = true
 				}
 			}
-			if haveCompositeFont {
-				set := fu.usedCIDs[compositeFontPtr]
+			if st.haveCompositeFont {
+				set := fu.usedCIDs[st.compositeFontPtr]
 				if set == nil {
 					set = map[int]bool{}
-					fu.usedCIDs[compositeFontPtr] = set
+					fu.usedCIDs[st.compositeFontPtr] = set
 				}
 				shown := ShownStringBytes(op, operands)
 				for i := 0; i+1 < len(shown); i += 2 {
@@ -1304,7 +1314,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if !collectUsageFromBytes(ctx, pat, subResources, reachable, fu) {
+			if !collectUsageFromBytes(ctx, pat, subResources, reachable, fu, &usageState{}) {
 				complete = false
 			}
 		case "Do":
@@ -1329,7 +1339,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu) {
+			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu, &usageState{}) {
 				complete = false
 			}
 		}

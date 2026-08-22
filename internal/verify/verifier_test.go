@@ -1606,6 +1606,46 @@ func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	}
 }
 
+// TestComputeContentUsageAcrossASplitContents: a /Contents array is one stream
+// split at token boundaries, so a Tf in one part selects the font for text
+// shown in the next. Attributing per part left the font unused, and an unused
+// font's codes are never checked for glyph coverage.
+func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F1", font)
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("Font", fonts)
+
+	stream := func(ops []writer.ContentOp) pdf.PDFDict {
+		t.Helper()
+		data, err := writer.WriteContentStream(ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pdf.PDFDict{HasStream: true, RawStream: data, Entries: pdf.NewPDFDict().Entries}
+	}
+	first := stream([]writer.ContentOp{
+		{Op: "BT", Operands: nil},
+		{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: "F1"}, pdf.PDFInteger(12)}},
+	})
+	second := stream([]writer.ContentOp{
+		{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: "A"}}},
+		{Op: "ET", Operands: nil},
+	})
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", pdf.PDFArray{first, second})
+
+	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{})
+	if !usedCodes[pdf.ValuePointer(font.Entries)][int('A')] {
+		t.Errorf("code 'A' shown after a stream boundary not attributed: got %v", usedCodes[pdf.ValuePointer(font.Entries)])
+	}
+}
+
 // TestInheritedResourcesStopsOnACycle: a /Parent chain that points back at
 // itself must not spin.
 func TestInheritedResourcesStopsOnACycle(t *testing.T) {
