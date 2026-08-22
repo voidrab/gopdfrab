@@ -1443,14 +1443,6 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	}
 	symGIDMap := ParseCmapSubtable(TTSymbolicCmap(tables))
 	numGlyphs := TTNumGlyphs(tables)
-	symbolic := false
-	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		if desc, ok3 := fontDict.Entries.Get("FontDescriptor").(pdf.PDFDict); ok3 {
-			if f, ok4 := desc.Entries.Get("Flags").(pdf.PDFInteger); ok4 {
-				symbolic = f&4 != 0
-			}
-		}
-	}
 
 	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
 	codeToGID := func(cc int) (int, bool) {
@@ -1473,12 +1465,11 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 				}
 			}
 		}
-		// A non-symbolic font resolves codes only through its encoding and
-		// cmaps; a code neither can map renders .notdef.
-		if !symbolic {
-			return 0, true
-		}
-		return 0, false // Cannot determine GID — skip.
+		// Neither cmap maps the code, so whatever the font's flags say, the
+		// viewer has nothing left to resolve it with and renders .notdef.
+		// Skipping the symbolic case here meant a code shown from a symbolic
+		// subset whose cmaps do not carry it went unreported.
+		return 0, true
 	}
 
 	checkCode := func(cc int) bool {
