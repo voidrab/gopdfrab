@@ -8,7 +8,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 echo "=== Microbenchmark: Open+Verify, small/median/large samples ==="
 echo "(go test -bench, -count=10 so benchstat can report mean ± stddev)"
 
-( cd "$REPO_DIR" && go test -run=^$ -bench=. -benchmem -count=10 ./benchmarks/micro/... ) \
+( cd "$BENCH_DIR" && go test -run=^$ -bench=. -benchmem -count=10 ./micro/... ) \
     | tee "$RESULTS_DIR/micro_raw.txt"
 
 if command -v benchstat >/dev/null 2>&1; then
@@ -30,12 +30,26 @@ add_row() {
 
 # gopdfrab: a static Go binary, both as normally built and stripped. The
 # module has zero external dependencies (see go.mod).
+#
+# Two binaries are measured and they are not interchangeable. `cli_*` is
+# cmd/gopdfrab — the binary a user actually downloads and ships, and the only
+# one any public footprint claim may cite. `bench_*` is the benchmark runner
+# from this module; it is what the other metrics time, kept here so the
+# footprint table and the timing table describe the same artifact.
+cli_plain="$(mktemp -u)"
+cli_stripped="$(mktemp -u)"
+( cd "$REPO_DIR" && go build -o "$cli_plain" ./cmd/gopdfrab )
+( cd "$REPO_DIR" && go build -ldflags="-s -w" -o "$cli_stripped" ./cmd/gopdfrab )
+add_row gopdfrab cli_plain "$(stat -c%s "$cli_plain")" "cmd/gopdfrab, go build; static; zero deps"
+add_row gopdfrab cli_stripped "$(stat -c%s "$cli_stripped")" "cmd/gopdfrab, go build -ldflags '-s -w'"
+rm -f "$cli_plain" "$cli_stripped"
+
 go_plain="$(mktemp -u)"
 go_stripped="$(mktemp -u)"
-( cd "$REPO_DIR" && go build -o "$go_plain" ./benchmarks/cmd/gopdfrab-bench )
-( cd "$REPO_DIR" && go build -ldflags="-s -w" -o "$go_stripped" ./benchmarks/cmd/gopdfrab-bench )
-add_row gopdfrab binary_plain "$(stat -c%s "$go_plain")" "go build; static; zero deps"
-add_row gopdfrab binary_stripped "$(stat -c%s "$go_stripped")" "go build -ldflags '-s -w'"
+( cd "$BENCH_DIR" && go build -o "$go_plain" ./cmd/gopdfrab-bench )
+( cd "$BENCH_DIR" && go build -ldflags="-s -w" -o "$go_stripped" ./cmd/gopdfrab-bench )
+add_row gopdfrab bench_plain "$(stat -c%s "$go_plain")" "benchmark runner, go build; static; zero deps"
+add_row gopdfrab bench_stripped "$(stat -c%s "$go_stripped")" "benchmark runner, go build -ldflags '-s -w'"
 rm -f "$go_plain" "$go_stripped"
 
 # veraPDF: full greenfield install (GUI + CLI + docs + bundled libs).
