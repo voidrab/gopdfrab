@@ -1893,6 +1893,30 @@ func Type1GlyphNames(fontData []byte) []string {
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
 var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
+// type1EncodingArrayRe matches one entry of a Type1 program's own /Encoding
+// array, the "dup <code> /<name> put" form a font with a custom encoding uses
+// instead of naming a standard one.
+var type1EncodingArrayRe = regexp.MustCompile(`dup\s+(\d+)\s*/([^\s/(\[{]+)\s+put`)
+
+// type1BuiltinEncodingArray reads a Type1 program's own /Encoding array from
+// the clear-text section. ok is false when the program declares no array,
+// which is the case for one naming a standard encoding instead.
+func type1BuiltinEncodingArray(textPart []byte) (enc [256]string, ok bool) {
+	start := bytes.Index(textPart, []byte("/Encoding"))
+	if start < 0 {
+		return enc, false
+	}
+	for _, m := range type1EncodingArrayRe.FindAllSubmatch(textPart[start:], -1) {
+		code, err := strconv.Atoi(string(m[1]))
+		if err != nil || code < 0 || code > 255 {
+			continue
+		}
+		enc[code] = string(m[2])
+		ok = true
+	}
+	return enc, ok
+}
+
 // type1FontMatrixRe captures a Type1 /FontMatrix's first two elements, the
 // x-scale and the term that would tilt an advance off the horizontal.
 var type1FontMatrixRe = regexp.MustCompile(`/FontMatrix\s*\[\s*([0-9.eE+-]+)\s+([0-9.eE+-]+)`)
@@ -2033,6 +2057,11 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 		}
 		if m := type1EncodingRe.FindSubmatch(textPart); m != nil {
 			encName = string(m[1])
+		} else if enc, ok := type1BuiltinEncodingArray(textPart); ok {
+			// A program with a custom encoding builds the array itself rather
+			// than naming a standard one. Subset TeX fonts nearly all do, which
+			// is most of what used to reach WidthSkipEncoding.
+			return enc, true
 		}
 	}
 	switch encName {

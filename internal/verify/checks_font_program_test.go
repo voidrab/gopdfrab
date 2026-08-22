@@ -611,6 +611,12 @@ func buildType1Font() []byte {
 // buildType1FontHeader is buildType1Font with an extra clear-text header line,
 // for the /FontMatrix cases.
 func buildType1FontHeader(extra string) []byte {
+	return buildType1FontHeaderRaw("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\n" + extra)
+}
+
+// buildType1FontHeaderRaw is buildType1Font with the whole clear-text header
+// replaced, for the /Encoding cases.
+func buildType1FontHeaderRaw(header string) []byte {
 	csPlain := []byte{139, 248, 136, 13} // sbx=0 wx=500, hsbw
 	csCipher := encryptType1(csPlain, 4330)
 
@@ -621,9 +627,38 @@ func buildType1FontHeader(extra string) []byte {
 	eexecCipher := encryptType1(binPlain, 55665)
 
 	var font []byte
-	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\n"+extra+"currentfile eexec\n")...)
+	font = append(font, []byte(header+"currentfile eexec\n")...)
 	font = append(font, eexecCipher...)
 	return font
+}
+
+// TestType1BuiltinEncodingArray covers the biggest of the width bails: a
+// program that builds its own /Encoding array instead of naming a standard
+// encoding. Subset TeX fonts nearly all do, and four real-world files reached
+// veraPDF's 6.3.6 through this hole.
+func TestType1BuiltinEncodingArray(t *testing.T) {
+	custom := "/Encoding 256 array\n" +
+		"0 1 255 {1 index exch /.notdef put} for\n" +
+		"dup 62 /braceex put\n" +
+		"dup 122 /bracehtipdownleft put\n" +
+		"readonly def\n"
+	font := buildType1FontHeaderRaw("%!PS-AdobeFont-1.0: Test\n" + custom)
+
+	enc, ok := Type1EncodingTable(font, "")
+	if !ok {
+		t.Fatal("Type1EncodingTable should resolve a program's own /Encoding array")
+	}
+	if enc[62] != "braceex" || enc[122] != "bracehtipdownleft" {
+		t.Errorf("enc[62]=%q enc[122]=%q, want braceex and bracehtipdownleft", enc[62], enc[122])
+	}
+	if enc[63] != "" {
+		t.Errorf("enc[63] = %q, want a code the array never sets to be empty", enc[63])
+	}
+
+	// A program naming a standard encoding still resolves to that, not an array.
+	if enc, ok := Type1EncodingTable(buildType1Font(), ""); !ok || enc[65] != "A" {
+		t.Errorf("named StandardEncoding regressed: ok=%v enc[65]=%q", ok, enc[65])
+	}
 }
 
 func TestType1WidthScale(t *testing.T) {
