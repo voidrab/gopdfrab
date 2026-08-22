@@ -155,6 +155,13 @@ close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
     in 1585 files. `ParseCFFTopDict` now runs through `cffDictNumbers` to get
     there, which is where the matrix operands were being thrown away.
 
+    What the newly-live checks found: nothing. 6.3.6 reports 687 findings across
+    176 real-world files both before and after, so the skip was hiding no
+    verdict — a wrong scale would have flooded that number instead. The check is
+    live rather than silently dropped, which is item 29's principle, and the
+    convert-side defect it uncovered is the part that was actually writing
+    wrong output.
+
 32. **An ICCBased colour space's own profile is checked.** `ICCBasedProfileInvalid`
     (6.2.3.2/2) rejects a profile whose version, device class or colour space
     PDF/A-1 does not allow, and the ICCBased fixer replaces it. Not speculative:
