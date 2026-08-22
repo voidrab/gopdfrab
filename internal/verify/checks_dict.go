@@ -64,8 +64,35 @@ var AllowedNamedActions = map[string]bool{
 	"NextPage": true, "PrevPage": true, "FirstPage": true, "LastPage": true,
 }
 
+// ActionOwnerKey returns the entry of d whose value is an action dictionary,
+// or "" when d owns no action. The key alone does not settle it: /A on a
+// structure element is an attribute dictionary and /Next on an outline item is
+// a sibling, so only an annotation's /A and the catalogue's /OpenAction count.
+// Exported for the fixer.
+func ActionOwnerKey(d pdf.PDFDict) string {
+	switch {
+	case IsAnnotationDict(d):
+		return "A"
+	case d.Entries.Get("Type") == (pdf.PDFName{Value: "Catalog"}):
+		return "OpenAction"
+	}
+	return ""
+}
+
 // validateActions checks an action dictionary for forbidden action types (6.6.1).
 func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
+	// /S is required in an action dictionary (ISO 32000-1 Table 193), so a
+	// target without one names an action of no known type, which 6.6.1 does not
+	// permit either.
+	if key := ActionOwnerKey(v); key != "" {
+		if target, ok := v.Entries.Get(key).(pdf.PDFDict); ok {
+			if _, hasS := target.Entries.Get("S").(pdf.PDFName); !hasS {
+				ctx.Report(pdf.Checks.Action.ForbiddenActionType, v,
+					fmt.Sprintf("/%s names an action dictionary with no /S", key))
+			}
+		}
+	}
+
 	s, ok := v.Entries.Get("S").(pdf.PDFName)
 	if !ok || !ActionTypes[s.Value] {
 		return

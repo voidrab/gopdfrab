@@ -20,6 +20,32 @@ func TestAsFloat(t *testing.T) {
 	}
 }
 
+// TestValidateActionsOwnerWithoutS covers what emptying a forbidden action in
+// place used to leave behind: an /A naming a dictionary with no /S, which is
+// an action of no known type.
+func TestValidateActionsOwnerWithoutS(t *testing.T) {
+	owner := pdf.NewPDFDict()
+	owner.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	owner.Entries.Set("Subtype", pdf.PDFName{Value: "Link"})
+	owner.Entries.Set("A", pdf.NewPDFDict())
+	ctx := &ValidationContext{}
+	validateActions(owner, ctx)
+	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
+		t.Error("expected ForbiddenActionType for an /A with no /S")
+	}
+
+	// On a structure element /A is an attribute dictionary, not an action, and
+	// it legitimately has no /S. Two veraPDF pass files rely on that.
+	elem := pdf.NewPDFDict()
+	elem.Entries.Set("Type", pdf.PDFName{Value: "StructElem"})
+	elem.Entries.Set("A", pdf.NewPDFDict())
+	ctx2 := &ValidationContext{}
+	validateActions(elem, ctx2)
+	if hasCheck(ctx2, pdf.Checks.Action.ForbiddenActionType) {
+		t.Error("a structure element's /A must not be read as an action")
+	}
+}
+
 func TestValidateActions(t *testing.T) {
 	forbidden := pdf.NewPDFDict()
 	forbidden.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})

@@ -98,6 +98,20 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool) {
 	}
 }
 
+// deadAction reports whether v is an action dictionary that can no longer be
+// used -- a forbidden type, or one already emptied by this pass. /S is
+// required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
+// at a dict without one reads as an action of unknown type, which is what
+// clearing the action in place used to leave behind.
+func deadAction(v pdf.PDFValue) bool {
+	d, ok := v.(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	s, ok := d.Entries.Get("S").(pdf.PDFName)
+	return !ok || verify.ForbiddenActions[s.Value]
+}
+
 // --- 6.6 Actions ---
 
 // actionFixer remediates Checks.Action.ForbiddenActionType,
@@ -130,6 +144,15 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 			clearJSNameTree(jsTree, changed)
 			d.Entries.Del("JavaScript")
 			*changed = true
+		}
+
+		// Take a dead action off whatever points at it. Emptying the action
+		// dictionary is not enough on its own: the owner still names it.
+		if key := verify.ActionOwnerKey(d); key != "" {
+			if v, ok := d.Entries.Lookup(key); ok && deadAction(v) {
+				d.Entries.Del(key)
+				*changed = true
+			}
 		}
 
 		s, ok := d.Entries.Get("S").(pdf.PDFName)
