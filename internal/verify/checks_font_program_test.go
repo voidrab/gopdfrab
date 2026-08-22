@@ -666,6 +666,33 @@ func TestType1LenIVZero(t *testing.T) {
 	}
 }
 
+// TestType1MetricsSkipsUnusedCodes: a /Widths entry for a code the document
+// never draws says nothing about what gets rendered, and the base encoding can
+// still put a real glyph name on it. Comparing it reported a mismatch on a
+// font whose drawn codes are all consistent.
+func TestType1MetricsSkipsUnusedCodes(t *testing.T) {
+	ff := pdf.PDFDict{HasStream: true, RawStream: buildType1Font(), Entries: pdf.NewPDFDict().Entries}
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "StandardEncoding"})
+	widths := pdf.PDFArray{pdf.PDFInteger(400)} // /A is 500 in the program
+
+	ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{
+		pdf.ValuePointer(v.Entries): {66: true},
+	}}
+	validateType1Metrics(v, ff, 65, widths, v.Entries.Get("Encoding"), ctx)
+	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("width of a code that is never shown should not be compared")
+	}
+
+	shown := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{
+		pdf.ValuePointer(v.Entries): {65: true},
+	}}
+	validateType1Metrics(v, ff, 65, widths, v.Entries.Get("Encoding"), shown)
+	if !hasCheck(shown, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("width of a shown code should still be compared")
+	}
+}
+
 // TestType1SubroutinizedWidth: a subroutinized program pushes the hsbw
 // operands and keeps hsbw itself in a subr, so a scan that gives up at
 // callsubr finds no width for the glyph and 6.3.6 never compares it.

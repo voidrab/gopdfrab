@@ -2059,6 +2059,15 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		return
 	}
 
+	// Only codes actually shown, as on the Type1C path: a /Widths entry for a
+	// code the document never draws says nothing about what gets rendered, and
+	// the base encoding can put a real glyph name on one.
+	var usedCodes map[int]bool
+	knownUsage := false
+	if fontDict, ok := obj.(pdf.PDFDict); ok {
+		usedCodes, knownUsage = ctx.usedCodesFor(fontDict)
+	}
+
 	for i, w := range widths {
 		var pdfWidth int
 		switch wv := w.(type) {
@@ -2074,6 +2083,9 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		}
 		cc := firstChar + i
 		if cc < 0 || cc > 255 {
+			continue
+		}
+		if knownUsage && !usedCodes[cc] {
 			continue
 		}
 		glyph := enc[cc]
