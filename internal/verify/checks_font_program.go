@@ -1776,65 +1776,96 @@ func type1LenIV(plain []byte) int {
 
 // parseType1AdvanceWidth parses a decrypted Type1 CharString and returns the
 // advance width (wx) from the hsbw (op 13) or sbw (escape op 8) command.
-func parseType1AdvanceWidth(cs []byte) (int, bool) {
-	stack := make([]int, 0, 8)
+// subrs are the program's decrypted Subrs: a subroutinized program pushes the
+// hsbw operands and leaves the command itself in a subr, so a scan that stops
+// at callsubr finds no width at all.
+func parseType1AdvanceWidth(cs []byte, subrs [][]byte) (int, bool) {
+	var stack []int
+	w, found, _ := scanType1Width(cs, subrs, &stack, 0)
+	return w, found
+}
+
+// scanType1Width walks one charstring, sharing the operand stack with any
+// subrs it calls. stop reports that the scan is over (endchar, or bytes that
+// do not decode) rather than that this charstring merely returned.
+func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, found, stop bool) {
+	push := func(v int) { *stack = append(*stack, v) }
 	i := 0
 	for i < len(cs) {
 		b := cs[i]
 		switch {
 		case b >= 32 && b <= 246:
-			stack = append(stack, int(b)-139)
+			push(int(b) - 139)
 			i++
 		case b >= 247 && b <= 250:
 			if i+1 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			stack = append(stack, (int(b)-247)*256+int(cs[i+1])+108)
+			push((int(b)-247)*256 + int(cs[i+1]) + 108)
 			i += 2
 		case b >= 251 && b <= 254:
 			if i+1 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			stack = append(stack, -((int(b)-251)*256 + int(cs[i+1]) + 108))
+			push(-((int(b)-251)*256 + int(cs[i+1]) + 108))
 			i += 2
 		case b == 28:
 			if i+2 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			v := int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2])))
-			stack = append(stack, v)
+			push(int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2]))))
 			i += 3
-		case b == 29:
+		case b == 29 || b == 255: // 32-bit integer: 29 in Type 2, 255 in Type 1
 			if i+4 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			v := int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4])))
-			stack = append(stack, v)
+			push(int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4]))))
 			i += 5
+		case b == 10: // callsubr
+			n := len(*stack)
+			if n == 0 {
+				return 0, false, true
+			}
+			idx := (*stack)[n-1]
+			*stack = (*stack)[:n-1]
+			if depth >= type1SubrDepth || idx < 0 || idx >= len(subrs) {
+				return 0, false, true
+			}
+			w, found, stop = scanType1Width(subrs[idx], subrs, stack, depth+1)
+			if found || stop {
+				return w, found, stop
+			}
+			i++
+		case b == 11: // return
+			return 0, false, false
 		case b == 12: // 2-byte escape
 			i++
 			if i >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			if cs[i] == 8 && len(stack) >= 4 { // sbw: sbx sby wx wy
-				return stack[2], true
+			if cs[i] == 8 && len(*stack) >= 4 { // sbw: sbx sby wx wy
+				return (*stack)[2], true, true
 			}
-			stack = stack[:0]
+			*stack = (*stack)[:0]
 			i++
-		case b == 13: // hsbw: sbx wx → wx is advance width
-			if len(stack) >= 2 {
-				return stack[1], true
+		case b == 13: // hsbw: sbx wx -> wx is advance width
+			if len(*stack) >= 2 {
+				return (*stack)[1], true, true
 			}
-			return 0, false
+			return 0, false, true
 		case b == 14: // endchar
-			return 0, false
+			return 0, false, true
 		default:
-			stack = stack[:0]
+			*stack = (*stack)[:0]
 			i++
 		}
 	}
-	return 0, false
+	return 0, false, true
 }
+
+// type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
+// other in a cycle cannot spin.
+const type1SubrDepth = 10
 
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 // The operator that introduces the charstring bytes is whatever the Private
@@ -1847,18 +1878,57 @@ var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
 // together with the /lenIV each charstring in it is padded with. binStart is
 // the byte offset of the first encrypted byte after "eexec".
 func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
+	section, lenIV, _ = type1Sections(fontData, binStart)
+	return section, lenIV
+}
+
+// type1SubrRe matches one entry of a decrypted Type1 Subrs array.
+var type1SubrRe = regexp.MustCompile(`dup (\d+) (\d+) (?:RD|-\|) `)
+
+// type1Sections decrypts a Type1 program's eexec section once and returns the
+// bytes from "/CharStrings" on, the /lenIV its charstrings are padded with,
+// and the decrypted Subrs indexed by subr number.
+func type1Sections(fontData []byte, binStart int) (section []byte, lenIV int, subrs [][]byte) {
 	if binStart <= 0 || binStart >= len(fontData) {
-		return nil, 4
+		return nil, 4, nil
 	}
 	plain := DecryptType1Block(fontData[binStart:], 55665)
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
-		return nil, 4
+		return nil, 4, nil
 	}
-	// lenIV sits in the Private dict, ahead of /CharStrings, so it has to be
-	// read before the section is cut.
-	return plain[csIdx:], type1LenIV(plain[:csIdx])
+	// Both live in the Private dict, ahead of /CharStrings.
+	private := plain[:csIdx]
+	lenIV = type1LenIV(private)
+	return plain[csIdx:], lenIV, type1SubrArray(private, lenIV)
 }
+
+// type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
+// Numbers are as the program writes them, so a sparse or out-of-order array
+// leaves the gaps nil rather than shifting the rest.
+func type1SubrArray(private []byte, lenIV int) [][]byte {
+	start := bytes.Index(private, []byte("/Subrs"))
+	if start < 0 {
+		return nil
+	}
+	var subrs [][]byte
+	for _, m := range type1SubrRe.FindAllSubmatchIndex(private[start:], -1) {
+		idx, err := strconv.Atoi(string(private[start+m[2] : start+m[3]]))
+		n, err2 := strconv.Atoi(string(private[start+m[4] : start+m[5]]))
+		if err != nil || err2 != nil || idx < 0 || idx > maxType1Subrs || n <= 0 || start+m[1]+n > len(private) {
+			continue
+		}
+		for len(subrs) <= idx {
+			subrs = append(subrs, nil)
+		}
+		subrs[idx] = DecryptType1CharString(private[start+m[1]:start+m[1]+n], lenIV)
+	}
+	return subrs
+}
+
+// maxType1Subrs bounds the array a program can claim, so a bogus subr number
+// cannot make it allocate without limit.
+const maxType1Subrs = 65535
 
 // type1Program is the result of one combined CharStrings scan of a Type1
 // font program: every defined glyph name (a glyph with an unparseable width
@@ -1873,7 +1943,7 @@ type type1Program struct {
 // program once and extracts names and widths in a single CharStrings scan.
 // binStart is the byte offset of the first encrypted byte after "eexec".
 func extractType1Program(fontData []byte, binStart int) type1Program {
-	cs, lenIV := Type1CharStringsSection(fontData, binStart)
+	cs, lenIV, subrs := type1Sections(fontData, binStart)
 	if cs == nil {
 		return type1Program{}
 	}
@@ -1890,7 +1960,7 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 			continue
 		}
 		dec := DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
-		if w, ok := parseType1AdvanceWidth(dec); ok && scaleOK {
+		if w, ok := parseType1AdvanceWidth(dec, subrs); ok && scaleOK {
 			p.widths[name] = scaleWidth(float64(w), scale)
 		}
 	}

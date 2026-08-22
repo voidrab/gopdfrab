@@ -666,6 +666,30 @@ func TestType1LenIVZero(t *testing.T) {
 	}
 }
 
+// TestType1SubroutinizedWidth: a subroutinized program pushes the hsbw
+// operands and keeps hsbw itself in a subr, so a scan that gives up at
+// callsubr finds no width for the glyph and 6.3.6 never compares it.
+func TestType1SubroutinizedWidth(t *testing.T) {
+	subr := encryptType1([]byte{13, 11}, 4330) // hsbw, return
+	glyph := encryptType1([]byte{139, 248, 136, 255, 0, 0, 0, 7, 10, 14}, 4330)
+
+	var binPlain []byte
+	binPlain = append(binPlain, []byte("dup /Private 2 dict dup begin\n/Subrs 8 array\ndup 7 6 RD ")...)
+	binPlain = append(binPlain, subr...)
+	binPlain = append(binPlain, []byte(" NP\nND\n")...)
+	binPlain = append(binPlain, []byte("dup /CharStrings 1 dict dup begin\n/A 14 RD ")...)
+	binPlain = append(binPlain, glyph...)
+	binPlain = append(binPlain, []byte(" ND\nend\n")...)
+
+	var font []byte
+	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
+	font = append(font, encryptType1(binPlain, 55665)...)
+
+	if got := Type1GlyphWidths(font)["A"]; got != 500 {
+		t.Errorf("width of a subroutinized /A = %v, want 500", got)
+	}
+}
+
 // TestType1BuiltinEncodingArray covers the biggest of the width bails: a
 // program that builds its own /Encoding array instead of naming a standard
 // encoding. Subset TeX fonts nearly all do, and four real-world files reached
@@ -805,13 +829,13 @@ func TestType1EexecRoundTrip(t *testing.T) {
 func TestParseType1AdvanceWidth(t *testing.T) {
 	// sbw: sbx sby wx wy -> advance is the 3rd operand.
 	sbw := []byte{139, 139, byte(139 + 10), 139, 12, 8} // 0,0,10,0, escape 12 8 (sbw)
-	if w, ok := parseType1AdvanceWidth(sbw); !ok || w != 10 {
-		t.Errorf("parseType1AdvanceWidth(sbw) = %v, %v, want 10, true", w, ok)
+	if w, ok := parseType1AdvanceWidth(sbw, nil); !ok || w != 10 {
+		t.Errorf("parseType1AdvanceWidth(sbw, nil) = %v, %v, want 10, true", w, ok)
 	}
-	if _, ok := parseType1AdvanceWidth([]byte{14}); ok {
+	if _, ok := parseType1AdvanceWidth([]byte{14}, nil); ok {
 		t.Error("parseType1AdvanceWidth(endchar only) should be ok=false")
 	}
-	if _, ok := parseType1AdvanceWidth(nil); ok {
+	if _, ok := parseType1AdvanceWidth(nil, nil); ok {
 		t.Error("parseType1AdvanceWidth(empty) should be ok=false")
 	}
 }
@@ -1240,25 +1264,25 @@ func TestParseCFFTopDictMalformed(t *testing.T) {
 func TestParseType1AdvanceWidthMoreOperators(t *testing.T) {
 	// Negative number via the 251-254 range, then hsbw.
 	cs := []byte{byte(251), 0, 139, 13} // push -108, push 0, hsbw -> wx = stack[1] = 0
-	if w, ok := parseType1AdvanceWidth(cs); !ok || w != 0 {
+	if w, ok := parseType1AdvanceWidth(cs, nil); !ok || w != 0 {
 		t.Errorf("parseType1AdvanceWidth(251-254 range) = %v, %v", w, ok)
 	}
 
 	// 2-byte integer (op 28) then hsbw.
 	cs28 := []byte{28, 0x01, 0x2C, 139, 13} // push 300, push 0, hsbw -> wx=0
-	if w, ok := parseType1AdvanceWidth(cs28); !ok || w != 0 {
+	if w, ok := parseType1AdvanceWidth(cs28, nil); !ok || w != 0 {
 		t.Errorf("parseType1AdvanceWidth(op28) = %v, %v", w, ok)
 	}
 
 	// 4-byte integer (op 29) then hsbw, using the pushed value as wx.
 	cs29 := []byte{139, 29, 0x00, 0x00, 0x01, 0x2C, 13} // push 0 (sbx), push 300 (wx), hsbw
-	if w, ok := parseType1AdvanceWidth(cs29); !ok || w != 300 {
+	if w, ok := parseType1AdvanceWidth(cs29, nil); !ok || w != 300 {
 		t.Errorf("parseType1AdvanceWidth(op29) = %v, %v", w, ok)
 	}
 
 	// A non-hsbw/sbw/endchar operator clears the stack and parsing continues.
 	csClear := []byte{139, 9, 139, byte(139 + 5), 13} // push 0, closepath(9,clears), push 0, push 5, hsbw
-	if w, ok := parseType1AdvanceWidth(csClear); !ok || w != 5 {
+	if w, ok := parseType1AdvanceWidth(csClear, nil); !ok || w != 5 {
 		t.Errorf("parseType1AdvanceWidth(stack-clear op) = %v, %v", w, ok)
 	}
 
@@ -1270,7 +1294,7 @@ func TestParseType1AdvanceWidthMoreOperators(t *testing.T) {
 		{29, 0, 0}, // op29 missing bytes
 		{12},       // escape missing 2nd byte
 	} {
-		if _, ok := parseType1AdvanceWidth(bad); ok {
+		if _, ok := parseType1AdvanceWidth(bad, nil); ok {
 			t.Errorf("parseType1AdvanceWidth(%v) should fail on truncated input", bad)
 		}
 	}
