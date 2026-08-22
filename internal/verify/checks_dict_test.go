@@ -470,6 +470,39 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 	}
 }
 
+// TestIsAnnotationDict pins how an annotation is recognised: /Type is optional
+// on one, and the real-world files that reached veraPDF's 6.5.3 without ever
+// reaching ours omitted it.
+func TestIsAnnotationDict(t *testing.T) {
+	link := pdf.NewPDFDict()
+	link.Entries.Set("Subtype", pdf.PDFName{Value: "Link"})
+	link.Entries.Set("Rect", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(9), pdf.PDFInteger(9)})
+	if !IsAnnotationDict(link) {
+		t.Error("a /Subtype + /Rect dict with no /Type is an annotation")
+	}
+	ctx := &ValidationContext{}
+	validateAnnotation(link, ctx)
+	if !hasCheck(ctx, pdf.Checks.Annotation.PrintFlagNotSet) {
+		t.Error("expected PrintFlagNotSet: the annotation carries no /F at all")
+	}
+
+	// A dict claiming another /Type is not one, whatever else it carries.
+	xobj := pdf.NewPDFDict()
+	xobj.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	xobj.Entries.Set("Rect", pdf.PDFArray{})
+	if IsAnnotationDict(xobj) {
+		t.Error("a dict declaring /Type /XObject is not an annotation")
+	}
+
+	// /Subtype without /Rect is not enough.
+	bare := pdf.NewPDFDict()
+	bare.Entries.Set("Subtype", pdf.PDFName{Value: "Link"})
+	if IsAnnotationDict(bare) {
+		t.Error("/Subtype alone is not an annotation")
+	}
+}
+
 func TestValidateAnnotationBranches(t *testing.T) {
 	disallowed := pdf.NewPDFDict()
 	disallowed.Entries.Set("Type", pdf.PDFName{Value: "Annot"})

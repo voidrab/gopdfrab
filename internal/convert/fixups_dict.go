@@ -267,7 +267,7 @@ func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 
 func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+		if !verify.IsAnnotationDict(d) {
 			return
 		}
 

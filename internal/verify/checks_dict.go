@@ -296,10 +296,24 @@ const (
 	AnnotFlagNoView    = 1 << 5
 )
 
+// IsAnnotationDict reports whether d is an annotation dictionary. /Type is
+// optional on one (ISO 32000-1 12.5.2), and a viewer reaches an annotation
+// through a page's /Annots rather than by its /Type, so a dict that declares
+// no /Type counts when it carries /Subtype and /Rect, which every annotation
+// is required to have. A dict declaring some other /Type is not one.
+func IsAnnotationDict(d pdf.PDFDict) bool {
+	if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok {
+		return t.Value == "Annot"
+	}
+	_, hasSubtype := d.Entries.Get("Subtype").(pdf.PDFName)
+	_, hasRect := d.Entries.Get("Rect").(pdf.PDFArray)
+	return hasSubtype && hasRect
+}
+
 // validateAnnotation checks annotation types (6.5.2) and annotation
 // dictionaries (6.5.3).
 func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
-	if (v.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
+	if !IsAnnotationDict(v) {
 		return
 	}
 
