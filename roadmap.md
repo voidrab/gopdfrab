@@ -18,7 +18,7 @@ tagged 1.0: items 30, 36, 37 and 38.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
   reach conformance with zero errors, panics or hangs; 4 of them still lose a
   page's visible content and 1 still draws over one (item 36), and veraPDF
-  rejects 7 of the outputs gopdfrab passes (item 38).
+  rejects 5 of the outputs gopdfrab passes (item 38), plus 2 it rejects wrongly.
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
   stencil masks), all seven shading types, shading patterns, Type 3 glyphs. What
   it cannot draw is reported per page, never dropped in silence.
@@ -79,13 +79,13 @@ still says "Pre-1.0: the API is not stable", its entries are under
 `[Unreleased]`, and the README's Status section says pre-1.0. Once 30, 36 and 38
 close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
 
-### 38. The seven outputs veraPDF still rejects
+### 38. The five outputs veraPDF still rejects
 
 `GOPDFRAB_REALWORLD_VERAPDF=all` converts all 1580 files to something gopdfrab
-calls conformant, and veraPDF rejects **7 of those outputs**. This gate is not
+calls conformant, and veraPDF rejects **5 of those outputs**. This gate is not
 part of `go test ./...`, so it was failing unnoticed: it stood at 17 when the
-item opened, and every one of the 17 was a gopdfrab false negative, not a
-matter of interpretation. Ten were fixed by finding one cause at a time:
+item opened. Ten were fixed by finding one cause at a time, and two are veraPDF
+false positives now listed in `crossCheckDeviations`:
 
 - **An annotation with no `/Type` never reached 6.5.3.** `/Type` is optional on
   an annotation dictionary (ISO 32000-1 12.5.2) and a viewer reaches one through
@@ -114,30 +114,43 @@ it. And chasing the width cases meant verifying the *output*, not the source:
 the converter substitutes fonts, so the dictionary veraPDF complains about is
 often one gopdfrab created.
 
-What is left is one clause pair, 6.3.5 with 6.3.6 following from it, in two
-shapes:
+The two excluded ones are the same defect: a non-symbolic TrueType font whose
+(3,1) cmap does not carry the code, where ISO 32000-1 9.6.6.4 has a viewer fall
+back to the (1,0) Macintosh cmap. gopdfrab follows that and finds a real glyph;
+veraPDF renders .notdef and reports 6.3.5, with 6.3.6 following from notdef's
+width. Checked by hand against the cmap tables: `ZXWDID+Helvetica` in
+`oapen-0806b1b0` has no (3,1) subtable at all and (1,0) maps code 176 to a
+present glyph, and `BCEAEE+SymbolMT` in `zenodo-21262729` resolves the same code
+through (1,0) as well as (3,0). veraPDF's own issue [#1575][] is this defect in
+its u-level .notdef check (6.2.11.8), closed 2026-04-22 and root-caused to
+assigning .notdef "without consulting the font program's cmap, violating ISO
+32000-1:2008 section 9.6.6.4" — our reading, accepted upstream. That fix is
+already in the bundled 1.30.2 (the issue's own test file passes there) but did
+not reach the PDF/A-1 6.3.5 path: against the newest dev build, 1.31.158 of
+2026-08-20, both files are still rejected, so waiting for a release does not
+help.
 
-- **Usage unknown, width zero (3 usgov scans).** These carry three font
-  dictionaries sharing `KVHOAI+LiberationSans`; two have no entry in
-  `UsedCharCodes`, so `ValidateSimpleTrueTypeSubset` falls back to iterating
-  non-zero `/Widths` and skips the drawn code because its width is `0`. Not
-  investigated past that point. Checking all 256 codes instead would report every
-  unmapped code in every subset font, so the fix is to work out why usage
-  attribution misses those dictionaries.
-- **cmap precedence (`arxiv-1102.5670`, 2 zenodo, `oapen-0806b1b0`).** A
-  non-symbolic font whose (3,1) cmap misses a code: gopdfrab falls back to the
-  (3,0)/(1,0) cmap and finds the glyph, veraPDF renders .notdef and reports it
-  missing. **Do not change this to match.** The fallback is deliberate — the
-  comment in `codeToGID` records that treating a (3,1) miss as definitive
-  rejected real PDF/A — and ISO 32000-1 9.6.6.4 describes it. veraPDF's own
-  issue [#1575][] is the same defect in its `u`-level .notdef check: closed
-  2026-04-22, milestone 1.30, root-caused to `GFGlyph.java` assigning .notdef
-  "without consulting the font program's cmap, violating ISO 32000-1:2008
-  section 9.6.6.4" — our reading, accepted upstream. The fix is already in the
-  bundled 1.30.2 (its own test file passes there), but it was applied only to
-  6.2.11.8, not to the PDF/A-1 6.3.5 path. Checked against the newest dev build,
-  1.31.158 of 2026-08-20: **identical verdicts on all 17 files**, so waiting for
-  a release does not close these four.
+What is left is genuinely ours, one clause pair, 6.3.5 with 6.3.6 following
+from it, in two shapes:
+
+- **No cmap maps the code, and `/Widths` says 0** (`arxiv-1102.5670`, the three
+  `usgov-02-*` scans). Neither the (3,1) nor the (1,0)/(3,0) cmap carries the
+  drawn code, so the glyph really is absent and veraPDF is right. Two things
+  hide it: those files carry several font dictionaries sharing one BaseFont and
+  some have no entry in `UsedCharCodes`, so `ValidateSimpleTrueTypeSubset` falls
+  back to iterating non-zero `/Widths` — and the drawn code's width is `0`.
+  Checking all 256 codes instead would report every unmapped code in every
+  subset font, so the fix is to work out why usage attribution misses those
+  dictionaries.
+- **A Type1 subset** (`zenodo-21261940`). `SJXMLS+AlegreyaSans-Italic` is a
+  `FontFile` program, so no cmap is involved at all; veraPDF reports code 102
+  with a program width of 0 against a `/Widths` entry of 280. Not investigated.
+
+A grouping trap worth keeping: these were first sorted by their veraPDF message
+and clause pair, which put four files in the cmap bucket. Checking each against
+its actual cmap tables moved two of them out — one had no cmap mapping at all
+and one was not a TrueType font. Excluding on the message alone would have
+whitelisted two real defects.
 
 [#1575]: https://github.com/veraPDF/veraPDF-library/issues/1575
 

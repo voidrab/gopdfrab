@@ -877,6 +877,44 @@ var shouldPassDeviations = map[string]string{
 	"0e1ac7d3fec6acb516bec480c4b9f9d6021b1cd3d018f4900cfc69369b2d6d57": "veraPDF false negative: shown glyph absent from the embedded subset (6.3.5)",
 }
 
+// crossCheckDeviations lists should-convert corpus files whose converted output
+// veraPDF rejects and gopdfrab is right to pass, keyed by the source's sha256
+// with the reason as the value.
+//
+// A rejection in the cross-check is normally a gopdfrab false negative and a
+// bug: gopdfrab converted the file to something it calls conformant, so veraPDF
+// disagreeing means a rule we do not enforce or enforce too leniently. The
+// exception is a veraPDF *false positive*, and each entry has to make that
+// case. A listed file whose output stops being rejected fails the test, so a
+// deviation cannot outlive the reason for it.
+var crossCheckDeviations = map[string]string{
+	// Both are the same defect: a non-symbolic TrueType font whose (3,1) cmap
+	// does not carry the code, where ISO 32000-1 9.6.6.4 has a viewer fall back
+	// to the (1,0) Macintosh cmap. gopdfrab follows that fallback and finds a
+	// real glyph; veraPDF renders .notdef and reports 6.3.5, with 6.3.6 coming
+	// after it from notdef's width. Verified by hand against the cmap tables --
+	// in each case the glyph is present and the (1,0) lookup, not the (3,0)
+	// one, is what resolves it.
+	//
+	// veraPDF-library issue 1575 is the same defect in its u-level .notdef
+	// check (6.2.11.8), closed 2026-04-22 and root-caused to assigning .notdef
+	// "without consulting the font program's cmap, violating ISO 32000-1:2008
+	// section 9.6.6.4". That fix did not reach the PDF/A-1 6.3.5 path: checked
+	// against the 1.31.158 dev build of 2026-08-20, both files are still
+	// rejected.
+
+	// oapen 0806b1b0: ZXWDID+Helvetica, code 176 (U+00B0). The program has no
+	// (3,1) subtable at all -- (0,3), seven (1,0), (1,7), (1,29) -- and (1,0)
+	// maps 0x00B0 to glyph 146, which is present with advance 712.89 against a
+	// /Widths entry of 713.
+	"d479a8b64c39e66ffaed26c95c6d961b7aec82fa9d9f82859f7ec9ce5ecfc994": "veraPDF false positive: (1,0) cmap fallback ignored, ISO 32000-1 9.6.6.4 (6.3.5/6.3.6)",
+
+	// zenodo 21262729: BCEAEE+SymbolMT, code 176 (U+00B0). Subtables are (1,0)
+	// and (3,0), no (3,1); both map the code to glyph 113, present with advance
+	// 399.90 against a /Widths entry of 400.
+	"ab40e70c9de7092f015d0b50495f22863211a1bee561946d7dfd650a4182c527": "veraPDF false positive: (1,0) cmap fallback ignored, ISO 32000-1 9.6.6.4 (6.3.5/6.3.6)",
+}
+
 // checkShouldPass verifies each file against PDF/A-1b and returns the paths
 // gopdfrab wrongly rejected. These are real files a tool and veraPDF both call
 // PDF/A-1b, so any rejection is a false positive unless
@@ -1066,6 +1104,7 @@ func (v *veraSample) crossCheck(t *testing.T) {
 		return
 	}
 	seen := 0
+	deviated := map[string]bool{}
 	for _, job := range rep.Jobs.Job {
 		source, ok := v.kept[job.Item.Name]
 		if !ok {
@@ -1079,17 +1118,32 @@ func (v *veraSample) crossCheck(t *testing.T) {
 		if job.Report.IsCompliant {
 			continue
 		}
-		v.failed++
 		var clauses []string
 		for _, r := range job.Report.Details.Rules {
 			if r.Status == "failed" {
 				clauses = append(clauses, r.Clause)
 			}
 		}
+		sum, _ := sha256File(source)
+		if why, ok := crossCheckDeviations[sum]; ok {
+			deviated[sum] = true
+			t.Logf("known deviation: veraPDF rejects the output of %s (%v) -- %s", source, sortedStrings(clauses), why)
+			continue
+		}
+		v.failed++
 		t.Errorf("veraPDF rejects the converted output of %s: %v", source, sortedStrings(clauses))
 	}
-	t.Logf("veraPDF cross-check: %d outputs checked, %d rejected (in %s)",
-		seen, v.failed, time.Since(start).Round(time.Second))
+	// A deviation that no longer happens has outlived its reason. Only over the
+	// whole corpus: a sample need not contain the file.
+	if os.Getenv("GOPDFRAB_REALWORLD_VERAPDF") == "all" {
+		for sum, why := range crossCheckDeviations {
+			if !deviated[sum] {
+				t.Errorf("crossCheckDeviations lists %s (%s) but its output is no longer rejected; remove the entry", sum, why)
+			}
+		}
+	}
+	t.Logf("veraPDF cross-check: %d outputs checked, %d rejected, %d known deviations (in %s)",
+		seen, v.failed, len(deviated), time.Since(start).Round(time.Second))
 }
 
 // surveyFidelity re-converts a sample of the corpus with the fidelity check on
