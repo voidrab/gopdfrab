@@ -22,6 +22,36 @@ func TestCFFAdvanceWidths(t *testing.T) {
 	}
 }
 
+// TestCFFAdvanceWidthsFontMatrix covers the case the skip used to drop: a
+// 1/2048 em program, whose charstring widths are 2.048x what /Widths says.
+func TestCFFAdvanceWidthsFontMatrix(t *testing.T) {
+	// FontMatrix [0.00048828125 0 0 0.00048828125 0 0], the commonest
+	// non-default matrix in the real-world corpus, and defaultWidthX 500.
+	var matrix []byte
+	for i, v := range []string{"0.00048828125", "0", "0", "0.00048828125", "0", "0"} {
+		if i == 1 || i == 2 || i == 4 || i == 5 {
+			matrix = append(matrix, 0x8b) // integer 0
+			continue
+		}
+		matrix = append(matrix, cffReal(v)...)
+	}
+	matrix = append(matrix, 12, 7)
+	private := []byte{248, 136, 20, 0x8b, 21} // defaultWidthX 500, nominalWidthX 0
+
+	widths, stats := CFFAdvanceWidthsStats(buildMinimalCFFWith(matrix, private))
+	if stats.Skip != WidthSkipNone {
+		t.Fatalf("skip = %q, want none", stats.Skip)
+	}
+	if widths["A"] != 244 { // 500 * 0.00048828125 * 1000, rounded
+		t.Errorf("widths[A] = %d, want 244", widths["A"])
+	}
+
+	// The same program without the matrix keeps the raw glyph-space width.
+	if widths, _ := CFFAdvanceWidthsStats(buildMinimalCFFWith(nil, private)); widths["A"] != 500 {
+		t.Errorf("unscaled widths[A] = %d, want 500", widths["A"])
+	}
+}
+
 func TestCFFCIDAdvanceWidthsAndFDSelect(t *testing.T) {
 	cff := buildMinimalCIDCFF()
 	widths := CFFCIDAdvanceWidths(cff)
@@ -429,17 +459,17 @@ func TestWidthSkipGlyphCounts(t *testing.T) {
 // bails give up across the committed corpora. These are measured numbers, not
 // targets: a diff here means a width path started or stopped following a class
 // of font program, which is worth a deliberate look before re-pinning.
-// Measured 2026-07-26 over the 773 committed corpus files: of the 30 embedded
-// programs that reach a width path, 8 are given up on -- 5 bare-CFF programs
-// declaring a FontMatrix, and 3 Type1 programs whose eexec section yields no
-// charstring widths. No corpus file hits the Type1 encoding bail, so that
-// asymmetry with the Type1C path costs nothing measurable here.
+// Measured 2026-08-22 over the 773 committed corpus files: of the 30 embedded
+// programs that reach a width path, 3 are given up on, all Type1 programs whose
+// eexec section yields no charstring widths. The 5 bare-CFF programs that used
+// to be dropped for declaring a FontMatrix are now scaled by it and checked.
+// No corpus file hits the Type1 encoding bail, so that asymmetry with the
+// Type1C path costs nothing measurable here.
 var widthSkipBudget = map[string]int{
-	"cidcff/none":        14,
-	"type1/no-widths":    3,
-	"type1/none":         4,
-	"type1c/font-matrix": 5,
-	"type1c/none":        4,
+	"cidcff/none":     14,
+	"type1/no-widths": 3,
+	"type1/none":      4,
+	"type1c/none":     9,
 }
 
 // TestWidthSkipCorpusBudget tallies every width-path skip across both

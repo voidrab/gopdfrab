@@ -4,8 +4,8 @@ Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
 Items 1–36 are done except for the tail of 36; each is one line under "Done",
-and the commit history has the detail. Four things stand between here and a
-tagged 1.0: items 30, 31, 36 and 37.
+and the commit history has the detail. Three things stand between here and a
+tagged 1.0: items 30, 36 and 37.
 
 ## Where things stand
 
@@ -45,15 +45,6 @@ added `OpenBytes`/`OpenBytesWithPassword` — public API shipped untested. That 
 cheap and worth doing before the surface is frozen. Everything else sits at
 94–100%; per the standing decision, defensive parser guards are not chased, and
 what remains there is CFF/Type1 fixtures.
-
-### 31. Scale Type1 widths instead of skipping them
-
-`Type1WidthTable` skips the 6.3.6 comparison when the program declares a
-non-default `/FontMatrix`, matching what the CFF path does. Scaling the
-charstring widths by the declared matrix would keep the check live instead of
-dropping it, and the real-world case that prompted the guard (a 1/2000 em font,
-every width off by exactly 2x) says it would work. Speculative until a file
-turns up where the skip actually hides something.
 
 ### 36. The last two fidelity cases
 
@@ -147,6 +138,23 @@ close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
     `XMPNoCorrespondingType`, `ICCBasedComponentsMismatch` and `FontBaseFont` were
     declared but never reported or had no fixer; all four now do what the catalogue
     says, with fixers that keep the document's own content.
+31. **A declared FontMatrix is scaled into the widths, not skipped over.** Both
+    width paths gave up on 6.3.6 when a program declared one, because charstring
+    widths are in glyph space and `/Widths` is in 1/1000 em text space. Only the
+    matrix's `a` term is needed — an advance is a pure x displacement, so shear
+    and translation leave it alone and a nonzero `b` is the one form with no
+    single width left to compare. Folding `a` into the widths where they are
+    extracted fixes verify and convert at once, including a latent defect in
+    `fixType1Widths`, which had no matrix guard at all and would have written raw
+    glyph-space numbers into `/Widths`. Measured over the 1585 real-world files:
+    of 2378 CFF programs declaring a FontMatrix, **2248 declare the default
+    `[0.001 0 0 0.001 0 0]` and were being dropped for nothing**, 103 are 1/2048
+    em, 24 are the default scale with a shear, 3 are other scales. On the
+    committed corpora `type1c/font-matrix: 5` became `type1c/none: 9`. The Type1
+    half stays speculative on measurement: `type1/font-matrix` does not fire once
+    in 1585 files. `ParseCFFTopDict` now runs through `cffDictNumbers` to get
+    there, which is where the matrix operands were being thrown away.
+
 32. **An ICCBased colour space's own profile is checked.** `ICCBasedProfileInvalid`
     (6.2.3.2/2) rejects a profile whose version, device class or colour space
     PDF/A-1 does not allow, and the ICCBased fixer replaces it. Not speculative:
@@ -188,10 +196,10 @@ close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
     rather than paper covered (`PageFidelity.Covered`); and the fidelity comparison
     holding every rendered page of both sides, which cost gigabytes.
 
-Also closed along the way: the Type1 `FontFile` width path honours `/Differences`
-and skips on a non-default `/FontMatrix`; an unresolved `PDFRef` in the verify
-walk is reported rather than silently unverified; the DeviceN and resource-rename
-content rewriters no longer retain the scanner's reused operand stack.
+Also closed along the way: the Type1 `FontFile` width path honours
+`/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
+than silently unverified; the DeviceN and resource-rename content rewriters no
+longer retain the scanner's reused operand stack.
 
 ---
 

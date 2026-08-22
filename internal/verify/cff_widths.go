@@ -2,6 +2,7 @@ package verify
 
 import (
 	"encoding/binary"
+	"math"
 )
 
 // This file reads advance widths out of CFF (Type1C / CIDFontType0C) font
@@ -347,9 +348,41 @@ type WidthStats struct {
 	GlyphsSkipped int
 }
 
+// fontMatrixWidthScale returns the factor that takes an advance width out of
+// the glyph space a FontMatrix declares and into the 1/1000 em text space
+// /Widths uses. Only a and b matter: an advance is a pure x displacement, so
+// shear and translation leave it where it is, but a nonzero b would tilt it off
+// the horizontal and there would be no single width left to compare. ok is
+// false for a matrix that is not a plain horizontal scale.
+func fontMatrixWidthScale(a, b float64) (scale float64, ok bool) {
+	if b != 0 || !(a > 0) || math.IsInf(a, 0) { // !(a > 0) also rejects NaN
+		return 0, false
+	}
+	return a * 1000, true
+}
+
+// cffWidthScale is fontMatrixWidthScale for a parsed Top DICT, defaulting to
+// the 1/1000 em glyph space a program that declares no FontMatrix is in.
+func cffWidthScale(td CFFTopDict) (scale float64, ok bool) {
+	if !td.HasFontMatrix {
+		return 1, true
+	}
+	return fontMatrixWidthScale(td.FontMatrix[0], td.FontMatrix[1])
+}
+
+// scaleWidth applies a fontMatrixWidthScale factor, rounding as TTAdvanceWidth
+// does for unitsPerEm.
+func scaleWidth(w int, scale float64) int {
+	if scale == 1 {
+		return w
+	}
+	return int(math.Round(float64(w) * scale))
+}
+
 // CFFAdvanceWidths returns glyph-name -> advance width (in 1/1000 em) for a
-// name-keyed CFF program, or nil when the program is CID-keyed, declares a
-// non-default FontMatrix, or cannot be parsed. Unparseable glyphs are omitted.
+// name-keyed CFF program, or nil when the program is CID-keyed or cannot be
+// parsed. A declared FontMatrix is folded into the widths. Unparseable glyphs
+// are omitted.
 func CFFAdvanceWidths(cff []byte) map[string]int {
 	w, _ := CFFAdvanceWidthsStats(cff)
 	return w
@@ -357,13 +390,14 @@ func CFFAdvanceWidths(cff []byte) map[string]int {
 
 // CFFAdvanceWidthsStats is CFFAdvanceWidths reporting why it gave up.
 func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
-	td, ok := ParseCFFTopDict(cff)
+	td, tdOK := ParseCFFTopDict(cff)
+	scale, scaleOK := cffWidthScale(td)
 	switch {
-	case !ok:
+	case !tdOK:
 		return nil, WidthStats{Skip: WidthSkipTopDict}
 	case td.IsCIDKeyed:
 		return nil, WidthStats{Skip: WidthSkipCIDKeyed}
-	case td.HasFontMatrix:
+	case !scaleOK:
 		return nil, WidthStats{Skip: WidthSkipFontMatrix}
 	case td.CSOffset < 0:
 		return nil, WidthStats{Skip: WidthSkipCharStrings}
@@ -392,7 +426,7 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
 	widths := make(map[string]int, len(names))
 	for gid := 1; gid < len(charStrings); gid++ {
 		if w := cffCharstringWidth(charStrings[gid], gsubrs, lsubrs, defaultWidthX, nominalWidthX); w >= 0 {
-			widths[names[gid]] = w
+			widths[names[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++
 		}
@@ -401,7 +435,9 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]int, WidthStats) {
 }
 
 // CFFCIDAdvanceWidths returns CID -> advance width (in 1/1000 em) for a
-// CID-keyed CFF program, or nil when it cannot be parsed safely.
+// CID-keyed CFF program, or nil when it cannot be parsed safely. A Top DICT
+// FontMatrix is folded into the widths; a Font DICT that declares one of its
+// own still has its glyphs skipped.
 func CFFCIDAdvanceWidths(cff []byte) map[int]int {
 	w, _ := CFFCIDAdvanceWidthsStats(cff)
 	return w
@@ -409,13 +445,14 @@ func CFFCIDAdvanceWidths(cff []byte) map[int]int {
 
 // CFFCIDAdvanceWidthsStats is CFFCIDAdvanceWidths reporting why it gave up.
 func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]int, WidthStats) {
-	td, ok := ParseCFFTopDict(cff)
+	td, tdOK := ParseCFFTopDict(cff)
+	scale, scaleOK := cffWidthScale(td)
 	switch {
-	case !ok:
+	case !tdOK:
 		return nil, WidthStats{Skip: WidthSkipTopDict}
 	case !td.IsCIDKeyed:
 		return nil, WidthStats{Skip: WidthSkipNotCIDKeyed}
-	case td.HasFontMatrix:
+	case !scaleOK:
 		return nil, WidthStats{Skip: WidthSkipFontMatrix}
 	case td.CSOffset < 0:
 		return nil, WidthStats{Skip: WidthSkipCharStrings}
@@ -478,7 +515,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]int, WidthStats) {
 		}
 		info := infos[fd]
 		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.lsubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
-			widths[cids[gid]] = w
+			widths[cids[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++
 		}

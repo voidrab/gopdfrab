@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1844,6 +1843,9 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 	if cs == nil {
 		return type1Program{}
 	}
+	// A matrix we cannot read leaves the widths out: the names still belong in
+	// CharSet (6.3.5), but there is no width to compare against (6.3.6).
+	scale, scaleOK := type1WidthScale(fontData)
 	var p type1Program
 	p.widths = map[string]int{}
 	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
@@ -1854,8 +1856,8 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 			continue
 		}
 		dec := DecryptType1Block(cs[m[1]:m[1]+n], 4330)
-		if w, ok := parseType1AdvanceWidth(dec); ok {
-			p.widths[name] = w
+		if w, ok := parseType1AdvanceWidth(dec); ok && scaleOK {
+			p.widths[name] = scaleWidth(w, scale)
 		}
 	}
 	return p
@@ -1891,29 +1893,28 @@ func Type1GlyphNames(fontData []byte) []string {
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
 var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
-// type1FontMatrixRe captures a Type1 /FontMatrix's first (x-scale) element.
-var type1FontMatrixRe = regexp.MustCompile(`/FontMatrix\s*\[\s*([0-9.eE+-]+)`)
+// type1FontMatrixRe captures a Type1 /FontMatrix's first two elements, the
+// x-scale and the term that would tilt an advance off the horizontal.
+var type1FontMatrixRe = regexp.MustCompile(`/FontMatrix\s*\[\s*([0-9.eE+-]+)\s+([0-9.eE+-]+)`)
 
-// type1HasNonDefaultFontMatrix reports whether the program declares a
-// /FontMatrix whose scale is not the default 1/1000. Charstring widths are in
-// glyph space, /Widths in 1000-unit text space, so the two are not comparable
-// when they differ -- the same reason CFFAdvanceWidthsStats skips on
-// HasFontMatrix.
-func type1HasNonDefaultFontMatrix(fontData []byte) bool {
-	eexecIdx := bytes.Index(fontData, []byte("eexec"))
+// type1WidthScale is cffWidthScale for a Type1 program, reading the FontMatrix
+// out of the clear-text section before "eexec". A program declaring none is in
+// the default 1/1000 em glyph space.
+func type1WidthScale(fontData []byte) (scale float64, ok bool) {
 	textPart := fontData
-	if eexecIdx > 0 {
-		textPart = fontData[:eexecIdx]
+	if i := bytes.Index(fontData, []byte("eexec")); i > 0 {
+		textPart = fontData[:i]
 	}
 	m := type1FontMatrixRe.FindSubmatch(textPart)
 	if m == nil {
-		return false
+		return 1, true
 	}
-	scale, err := strconv.ParseFloat(string(m[1]), 64)
-	if err != nil {
-		return true
+	a, aErr := strconv.ParseFloat(string(m[1]), 64)
+	b, bErr := strconv.ParseFloat(string(m[2]), 64)
+	if aErr != nil || bErr != nil {
+		return 0, false
 	}
-	return math.Abs(scale-0.001) > 1e-9
+	return fontMatrixWidthScale(a, b)
 }
 
 // validateType1Metrics checks that PDF Widths entries match advance widths in
@@ -2009,7 +2010,7 @@ func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]i
 	if !ok {
 		return enc, WidthStats{Skip: WidthSkipEncoding}
 	}
-	if type1HasNonDefaultFontMatrix(fontData) {
+	if _, ok := type1WidthScale(fontData); !ok {
 		return enc, WidthStats{Skip: WidthSkipFontMatrix}
 	}
 	if len(widths) == 0 {
@@ -2060,7 +2061,8 @@ func Type1EexecBinStart(fontData []byte) int {
 }
 
 // Type1GlyphWidths locates the eexec-encrypted section of a Type1 font
-// program and returns its glyph name -> advance width map (in 1/1000 em).
+// program and returns its glyph name -> advance width map (in 1/1000 em; a
+// declared FontMatrix is folded in, and an unreadable one yields no widths).
 func Type1GlyphWidths(fontData []byte) map[string]int {
 	return extractType1Program(fontData, Type1EexecBinStart(fontData)).widths
 }

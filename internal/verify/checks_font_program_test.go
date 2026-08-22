@@ -150,6 +150,12 @@ func TestValidateEmbeddedTrueTypeFont(t *testing.T) {
 // DICT operands use the 5-byte int32 encoding (operator 29) so section offsets
 // are fixed regardless of their magnitude.
 func buildMinimalCFF() []byte {
+	return buildMinimalCFFWith(nil, []byte{0x8b, 20, 0x8b, 21})
+}
+
+// buildMinimalCFFWith is buildMinimalCFF with extra operators prepended to the
+// Top DICT and its own Private DICT, for the FontMatrix and width cases.
+func buildMinimalCFFWith(extraTop, private []byte) []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte
 		b[0] = 29
@@ -157,11 +163,9 @@ func buildMinimalCFF() []byte {
 		return b[:]
 	}
 	// Fixed layout offsets (see the section comments below).
-	const (
-		charsetOff     = 45
-		charStringsOff = 48
-		privateOff     = 56
-	)
+	charsetOff := 45 + len(extraTop)
+	charStringsOff := charsetOff + 3
+	privateOff := charStringsOff + 8
 
 	var cff []byte
 	// Header: major=1 minor=0 hdrSize=4 offSize=1.
@@ -169,7 +173,7 @@ func buildMinimalCFF() []byte {
 	// Name INDEX: 1 entry "Font".
 	cff = append(cff, 0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't')
 	// Top DICT INDEX: 1 entry (23-byte dict).
-	var top []byte
+	top := append([]byte(nil), extraTop...)
 	top = append(top, i32(charStringsOff)...)
 	top = append(top, 17) // CharStrings
 	top = append(top, i32(charsetOff)...)
@@ -187,9 +191,33 @@ func buildMinimalCFF() []byte {
 	cff = append(cff, 0x00, 0x00, 0x22)
 	// CharStrings INDEX (offset 48): two glyphs, each a lone endchar (0x0e).
 	cff = append(cff, 0x00, 0x02, 0x01, 0x01, 0x02, 0x03, 0x0e, 0x0e)
-	// Private DICT (offset 56): defaultWidthX 0 (op 20), nominalWidthX 0 (op 21).
-	cff = append(cff, 0x8b, 20, 0x8b, 21)
+	// Private DICT: defaultWidthX (op 20) and nominalWidthX (op 21).
+	cff = append(cff, private...)
 	return cff
+}
+
+// cffReal nibble-encodes a decimal string as a CFF DICT real operand.
+func cffReal(s string) []byte {
+	nibbles := []byte{}
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+			nibbles = append(nibbles, c-'0')
+		case c == '.':
+			nibbles = append(nibbles, 0xA)
+		case c == '-':
+			nibbles = append(nibbles, 0xE)
+		}
+	}
+	nibbles = append(nibbles, 0xF)
+	if len(nibbles)%2 == 1 {
+		nibbles = append(nibbles, 0xF)
+	}
+	out := []byte{30}
+	for i := 0; i < len(nibbles); i += 2 {
+		out = append(out, nibbles[i]<<4|nibbles[i+1])
+	}
+	return out
 }
 
 func TestParseMinimalCFF(t *testing.T) {
@@ -577,6 +605,12 @@ func encryptType1(plain []byte, seedKey uint16) []byte {
 // buildType1Font assembles a minimal clear-text + eexec-encrypted Type1
 // font program with a single glyph "A" (StandardEncoding, hsbw width 500).
 func buildType1Font() []byte {
+	return buildType1FontHeader("")
+}
+
+// buildType1FontHeader is buildType1Font with an extra clear-text header line,
+// for the /FontMatrix cases.
+func buildType1FontHeader(extra string) []byte {
 	csPlain := []byte{139, 248, 136, 13} // sbx=0 wx=500, hsbw
 	csCipher := encryptType1(csPlain, 4330)
 
@@ -587,9 +621,75 @@ func buildType1Font() []byte {
 	eexecCipher := encryptType1(binPlain, 55665)
 
 	var font []byte
-	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
+	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\n"+extra+"currentfile eexec\n")...)
 	font = append(font, eexecCipher...)
 	return font
+}
+
+func TestType1WidthScale(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra string
+		scale float64
+		ok    bool
+	}{
+		{"none declared", "", 1, true},
+		{"default", "/FontMatrix [0.001 0 0 0.001 0 0] readonly def\n", 1, true},
+		{"half em", "/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n", 0.5, true},
+		{"shear leaves the advance alone", "/FontMatrix [0.001 0 0.0002 0.001 0 0] def\n", 1, true},
+		{"rotated", "/FontMatrix [0 0.001 -0.001 0 0 0] def\n", 0, false},
+		{"degenerate", "/FontMatrix [0 0 0 0 0 0] def\n", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scale, ok := type1WidthScale(buildType1FontHeader(tc.extra))
+			if scale != tc.scale || ok != tc.ok {
+				t.Errorf("type1WidthScale = %v, %v; want %v, %v", scale, ok, tc.scale, tc.ok)
+			}
+		})
+	}
+}
+
+// TestType1MetricsFontMatrix covers the case the skip used to drop: a 1/2000 em
+// program, whose charstring widths are twice what /Widths says.
+func TestType1MetricsFontMatrix(t *testing.T) {
+	font := buildType1FontHeader("/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n")
+	if w := Type1GlyphWidths(font)["A"]; w != 250 {
+		t.Fatalf("Type1GlyphWidths[A] = %d, want 250 (500 glyph units at 1/2000 em)", w)
+	}
+
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.RawStream = font
+
+	ctx := &ValidationContext{}
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(250)}, nil, ctx)
+	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("unexpected AdvanceWidthMismatch for a width matching the scaled advance")
+	}
+
+	ctx2 := &ValidationContext{}
+	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, nil, ctx2)
+	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("expected AdvanceWidthMismatch: 500 is the unscaled charstring width")
+	}
+}
+
+// TestType1MetricsUnusableFontMatrix keeps the bail measurable: a matrix that is
+// not a plain horizontal scale still gives up, and yields no widths for the
+// convert-side fixer to write.
+func TestType1MetricsUnusableFontMatrix(t *testing.T) {
+	font := buildType1FontHeader("/FontMatrix [0 0.001 -0.001 0 0 0] def\n")
+	if w := Type1GlyphWidths(font); len(w) != 0 {
+		t.Errorf("Type1GlyphWidths = %v, want none", w)
+	}
+	if names := Type1GlyphNames(font); len(names) != 1 {
+		t.Errorf("Type1GlyphNames = %v, want the glyph to still be named", names)
+	}
+	_, stats := Type1WidthTable(font, nil, nil)
+	if stats.Skip != WidthSkipFontMatrix {
+		t.Errorf("skip = %q, want %q", stats.Skip, WidthSkipFontMatrix)
+	}
 }
 
 func TestType1EexecRoundTrip(t *testing.T) {
