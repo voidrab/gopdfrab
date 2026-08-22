@@ -247,6 +247,28 @@ func TestNormalizeInfoDictMalformedText(t *testing.T) {
 	}
 }
 
+// TestNormalizeInfoDictAuthorTrimIsTextual pins the order the Author trim has
+// to happen in. Trimming the raw bytes of a UTF-16BE string takes the low half
+// off a trailing space and leaves an odd byte count -- which is the very thing
+// the canonicalisation removes. arxiv-1911.06742 caught it: a non-ASCII author
+// with a trailing space came out one byte short and veraPDF rejected it.
+func TestNormalizeInfoDictAuthorTrimIsTextual(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	info := pdf.NewPDFDict()
+	info.Entries.Set("Author", pdf.PDFString{Value: "C\xe9cilia Majenz, "}) // PDFDocEncoded, trailing space
+	trailer.Entries.Set("Info", info)
+
+	normalizeInfoDict(&trailer)
+
+	author, _ := info.Entries.Get("Author").(pdf.PDFString)
+	if len(author.Value)%2 != 0 {
+		t.Errorf("Author = %q, want an even byte count (UTF-16BE code units)", author.Value)
+	}
+	if got := pdf.DecodeInfoTextString(author); got != "C\u00e9cilia Majenz," {
+		t.Errorf("decoded Author = %q, want the trailing space gone and nothing else", got)
+	}
+}
+
 func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("SPDF", pdf.PDFInteger(1153))

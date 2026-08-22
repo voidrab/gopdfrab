@@ -123,20 +123,24 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 		// odd byte count, say -- leaves the two sides describing different
 		// strings, which a stricter reader than ours reports under 6.7.3.
 		// Write back what was decoded, leaving a well-formed value untouched.
+		//
+		// checkInfoXMPSync compares Author against the XMP dc:creator value
+		// with the latter trimmed but not the former (checks_xmp.go), so the
+		// trim happens here, on the single source both sides read from. It has
+		// to happen on the decoded text: trimming the raw bytes of a UTF-16BE
+		// string takes the low half off a trailing space and leaves exactly
+		// the malformed odd-length value this loop exists to remove.
 		v := info.Entries.Get(key)
-		canonical := string(pdf.EncodePDFTextString(pdf.DecodeInfoTextString(v)))
+		text := pdf.DecodeInfoTextString(v)
+		if key == "Author" {
+			text = strings.TrimSpace(text)
+		}
+		canonical := string(pdf.EncodePDFTextString(text))
 		if raw, ok := v.(pdf.PDFString); !ok || raw.Value != canonical {
 			info.Entries.Set(key, pdf.PDFString{Value: canonical})
 		}
 	}
 
-	// checkInfoXMPSync compares Author against the XMP dc:creator value with
-	// the latter trimmed but not the former (checks_xmp.go); trimming here,
-	// the single source both Metadata and the regenerated XMP read from,
-	// keeps the two sides in sync instead of requiring matching surgery there.
-	if s, ok := info.Entries.Get("Author").(pdf.PDFString); ok {
-		info.Entries.Set("Author", pdf.PDFString{Value: strings.TrimSpace(s.Value)})
-	}
 	if v, ok := info.Entries.Lookup("Trapped"); ok {
 		if _, isName := v.(pdf.PDFName); !isName {
 			info.Entries.Del("Trapped")
