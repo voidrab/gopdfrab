@@ -2047,7 +2047,7 @@ func type1WidthScale(fontData []byte) (scale float64, ok bool) {
 
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
-func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, encoding pdf.PDFValue, ctx *ValidationContext) {
+func validateType1Metrics(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, encoding pdf.PDFValue, ctx *ValidationContext) {
 	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return
@@ -2066,6 +2066,26 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 	knownUsage := false
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
 		usedCodes, knownUsage = ctx.usedCodesFor(fontDict)
+	}
+
+	// A code outside /Widths takes its width from /MissingWidth, so a font
+	// whose FirstChar starts past a code it shows is checked there rather than
+	// not at all -- which is where the Isartor 6.3.6 case lives.
+	if knownUsage {
+		missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+		codes := make([]int, 0, len(usedCodes))
+		for cc := range usedCodes {
+			codes = append(codes, cc)
+		}
+		sort.Ints(codes)
+		for _, cc := range codes {
+			if cc >= firstChar && cc < firstChar+len(widths) {
+				continue
+			}
+			if !reportType1WidthMismatch(obj, cc, missing, enc, glyphWidths, ctx) {
+				return
+			}
+		}
 	}
 
 	for i, w := range widths {
@@ -2102,6 +2122,26 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 			return
 		}
 	}
+}
+
+// reportType1WidthMismatch compares one code's width against the program and
+// reports the first disagreement. It returns false once it has reported, so
+// the caller stops at one finding per font.
+func reportType1WidthMismatch(obj pdf.PDFValue, cc, pdfWidth int, enc [256]string, glyphWidths map[string]float64, ctx *ValidationContext) bool {
+	if cc < 0 || cc > 255 || pdfWidth == 0 {
+		return true
+	}
+	glyph := enc[cc]
+	if glyph == "" {
+		return true
+	}
+	csWidth, found := glyphWidths[glyph]
+	if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
+		return true
+	}
+	ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %s",
+		cc, glyph, pdfWidth, formatWidth(csWidth)))
+	return false
 }
 
 // Type1GlyphNameTable resolves the code->glyph-name table for a Type1

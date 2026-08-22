@@ -130,7 +130,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 			if !renderingMode3 && haveWidths {
 				if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
-					validateType1Metrics(v, ff, int(firstChar), widths, v.Entries.Get("Encoding"), ctx)
+					validateType1Metrics(v, desc, ff, int(firstChar), widths, v.Entries.Get("Encoding"), ctx)
 				} else if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 					validateType1CMetrics(v, v, ff, int(firstChar), widths, ctx)
 				}

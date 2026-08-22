@@ -679,7 +679,7 @@ func TestType1MetricsSkipsUnusedCodes(t *testing.T) {
 	ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{
 		pdf.ValuePointer(v.Entries): {66: true},
 	}}
-	validateType1Metrics(v, ff, 65, widths, v.Entries.Get("Encoding"), ctx)
+	validateType1Metrics(v, pdf.PDFDict{}, ff, 65, widths, v.Entries.Get("Encoding"), ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("width of a code that is never shown should not be compared")
 	}
@@ -687,9 +687,28 @@ func TestType1MetricsSkipsUnusedCodes(t *testing.T) {
 	shown := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{
 		pdf.ValuePointer(v.Entries): {65: true},
 	}}
-	validateType1Metrics(v, ff, 65, widths, v.Entries.Get("Encoding"), shown)
+	validateType1Metrics(v, pdf.PDFDict{}, ff, 65, widths, v.Entries.Get("Encoding"), shown)
 	if !hasCheck(shown, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("width of a shown code should still be compared")
+	}
+}
+
+// TestType1MetricsMissingWidth: a shown code below FirstChar takes its width
+// from the descriptor's /MissingWidth, so it is compared there instead of
+// going unchecked.
+func TestType1MetricsMissingWidth(t *testing.T) {
+	ff := pdf.PDFDict{HasStream: true, RawStream: buildType1Font(), Entries: pdf.NewPDFDict().Entries}
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("MissingWidth", pdf.PDFInteger(78))
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "StandardEncoding"})
+
+	ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{
+		pdf.ValuePointer(v.Entries): {65: true}, // /A, 500 in the program
+	}}
+	validateType1Metrics(v, desc, ff, 70, pdf.PDFArray{pdf.PDFInteger(500)}, v.Entries.Get("Encoding"), ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("a shown code outside /Widths should be compared against /MissingWidth")
 	}
 }
 
@@ -783,13 +802,13 @@ func TestType1MetricsFontMatrix(t *testing.T) {
 	ff.RawStream = font
 
 	ctx := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(250)}, nil, ctx)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(250)}, nil, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("unexpected AdvanceWidthMismatch for a width matching the scaled advance")
 	}
 
 	ctx2 := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, nil, ctx2)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, nil, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch: 500 is the unscaled charstring width")
 	}
@@ -875,14 +894,14 @@ func TestValidateType1Metrics(t *testing.T) {
 
 	widths := pdf.PDFArray{pdf.PDFInteger(500)}
 	ctx := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, widths, nil, ctx)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, widths, nil, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("unexpected AdvanceWidthMismatch for matching Type1 width")
 	}
 
 	widthsBad := pdf.PDFArray{pdf.PDFInteger(520)}
 	ctx2 := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, widthsBad, nil, ctx2)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, widthsBad, nil, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch for mismatched Type1 width")
 	}
@@ -1423,7 +1442,7 @@ func TestFontProgramCheckersDecodeFailureGuards(t *testing.T) {
 	ValidateSimpleTrueTypeSubset(v, garbage, 0, 0, nil, ctx)
 	validateSimpleTrueTypeMetrics(v, noStream, 0, nil, ctx)
 	validateSimpleTrueTypeMetrics(v, garbage, 0, nil, ctx)
-	validateType1Metrics(v, noStream, 0, nil, nil, ctx)
+	validateType1Metrics(v, pdf.PDFDict{}, noStream, 0, nil, nil, ctx)
 	validateCMapWMode(v, pdf.NewPDFDict(), ctx) // no stream
 	if _, ok := trueTypeCmapSubtables(ctx, desc); ok {
 		t.Error("trueTypeCmapSubtables should be ok=false without a FontFile2")
@@ -1733,7 +1752,7 @@ func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 	ff.RawStream = font
 
 	ctx := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(700)}, encoding, ctx)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(700)}, encoding, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("AdvanceWidthMismatch reported for a font whose /Widths match its /Differences remapping")
 	}
@@ -1741,7 +1760,7 @@ func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 	// The remapping must still catch a genuine mismatch: 500 is /A's width,
 	// which is exactly the wrong answer the old code accepted.
 	ctx2 := &ValidationContext{}
-	validateType1Metrics(pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, encoding, ctx2)
+	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, encoding, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch when /Widths ignores the /Differences remapping")
 	}
