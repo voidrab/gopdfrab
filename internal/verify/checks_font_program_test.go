@@ -592,7 +592,12 @@ func TestValidateCIDSetTrueType(t *testing.T) {
 // conventional 4 zero lenIV bytes and encrypts plain so that
 // DecryptType1Block(result, seedKey) reproduces plain exactly.
 func encryptType1(plain []byte, seedKey uint16) []byte {
-	padded := append([]byte{0, 0, 0, 0}, plain...)
+	return encryptType1Pad(plain, seedKey, 4)
+}
+
+// encryptType1Pad is encryptType1 with the lenIV padding length spelled out.
+func encryptType1Pad(plain []byte, seedKey uint16, lenIV int) []byte {
+	padded := append(make([]byte, lenIV), plain...)
 	r := seedKey
 	out := make([]byte, len(padded))
 	for i, p := range padded {
@@ -631,6 +636,34 @@ func buildType1FontHeaderRaw(header string) []byte {
 	font = append(font, []byte(header+"currentfile eexec\n")...)
 	font = append(font, eexecCipher...)
 	return font
+}
+
+// TestType1LenIVZero: a program declaring /lenIV 0 pads its charstrings with
+// nothing, and it names the charstring operator "-|" rather than "RD". Reading
+// either the way the default prescribes left the program with no glyphs and no
+// widths, so 6.3.5 and 6.3.6 both went quiet on it.
+func TestType1LenIVZero(t *testing.T) {
+	csCipher := encryptType1Pad([]byte{139, 248, 136, 13}, 4330, 0) // sbx=0 wx=500, hsbw
+
+	var binPlain []byte
+	binPlain = append(binPlain, []byte("dup /Private 2 dict dup begin\n/lenIV 0 def\n")...)
+	binPlain = append(binPlain, []byte("dup /CharStrings 1 dict dup begin\n/A 4 -| ")...)
+	binPlain = append(binPlain, csCipher...)
+	binPlain = append(binPlain, []byte(" |-\nend\n")...)
+
+	var font []byte
+	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
+	font = append(font, encryptType1(binPlain, 55665)...)
+
+	if _, lenIV := Type1CharStringsSection(font, Type1EexecBinStart(font)); lenIV != 0 {
+		t.Errorf("lenIV = %d, want 0", lenIV)
+	}
+	if names := Type1GlyphNames(font); len(names) != 1 || names[0] != "A" {
+		t.Errorf("Type1GlyphNames = %v, want [A]", names)
+	}
+	if got := Type1GlyphWidths(font)["A"]; got != 500 {
+		t.Errorf("width of /A = %v, want 500", got)
+	}
 }
 
 // TestType1BuiltinEncodingArray covers the biggest of the width bails: a
@@ -736,9 +769,12 @@ func TestType1EexecRoundTrip(t *testing.T) {
 		t.Fatalf("Type1EexecBinStart = %d, want > 0", binStart)
 	}
 
-	cs := Type1CharStringsSection(font, binStart)
+	cs, lenIV := Type1CharStringsSection(font, binStart)
 	if cs == nil || !bytes.HasPrefix(cs, []byte("/CharStrings")) {
 		t.Fatalf("Type1CharStringsSection = %q", cs)
+	}
+	if lenIV != 4 {
+		t.Errorf("lenIV = %d, want the default 4", lenIV)
 	}
 
 	names := Type1GlyphNames(font)

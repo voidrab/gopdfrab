@@ -460,15 +460,17 @@ func TestWidthSkipGlyphCounts(t *testing.T) {
 // targets: a diff here means a width path started or stopped following a class
 // of font program, which is worth a deliberate look before re-pinning.
 // Measured 2026-08-22 over the 773 committed corpus files: of the 30 embedded
-// programs that reach a width path, 3 are given up on, all Type1 programs whose
-// eexec section yields no charstring widths. The 5 bare-CFF programs that used
+// programs that reach a width path, 1 is given up on, a Type1 program whose
+// eexec section yields no charstring widths. Two more used to join it, from
+// declaring /lenIV 0: the charstring decrypt dropped the default 4 bytes
+// anyway and ate the hsbw carrying the width. The 5 bare-CFF programs that used
 // to be dropped for declaring a FontMatrix are now scaled by it and checked.
 // No corpus file hits the Type1 encoding bail, so that asymmetry with the
 // Type1C path costs nothing measurable here.
 var widthSkipBudget = map[string]int{
 	"cidcff/none":     14,
-	"type1/no-widths": 3,
-	"type1/none":      4,
+	"type1/no-widths": 1,
+	"type1/none":      6,
 	"type1c/none":     9,
 }
 

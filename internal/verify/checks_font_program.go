@@ -1730,16 +1730,48 @@ var StandardEncoding = [256]string{
 // DecryptType1Block decrypts a Type1 font binary block using the given seed key.
 // It skips the first 4 bytes (random seed) and returns the plaintext.
 func DecryptType1Block(data []byte, seedKey uint16) []byte {
+	return decryptType1(data, seedKey, 4)
+}
+
+// DecryptType1CharString decrypts one charstring, dropping the lenIV leading
+// random bytes the program declares (Type 1 spec 7.1). Everything before them
+// is padding; taking the default 4 from a program declaring 0 ate the hsbw
+// that carries the advance width, and the glyph then had no width at all.
+func DecryptType1CharString(data []byte, lenIV int) []byte {
+	return decryptType1(data, 4330, lenIV)
+}
+
+// decryptType1 runs the eexec cipher, discarding the first skip plaintext
+// bytes.
+func decryptType1(data []byte, seedKey uint16, skip int) []byte {
 	R := seedKey
 	out := make([]byte, 0, len(data))
 	for i, c := range data {
 		p := byte(uint16(c) ^ (R >> 8))
 		R = (uint16(c)+R)*52845 + 22719
-		if i >= 4 {
+		if i >= skip {
 			out = append(out, p)
 		}
 	}
 	return out
+}
+
+// type1LenIVRe captures a Private dict's /lenIV, the number of random bytes
+// prepended to every charstring.
+var type1LenIVRe = regexp.MustCompile(`/lenIV\s+(\d+)\s+def`)
+
+// type1LenIV reads /lenIV from a decrypted private section, defaulting to the
+// 4 the spec prescribes when the program declares none.
+func type1LenIV(plain []byte) int {
+	m := type1LenIVRe.FindSubmatch(plain)
+	if m == nil {
+		return 4
+	}
+	n, err := strconv.Atoi(string(m[1]))
+	if err != nil || n < 0 {
+		return 4
+	}
+	return n
 }
 
 // parseType1AdvanceWidth parses a decrypted Type1 CharString and returns the
@@ -1805,21 +1837,27 @@ func parseType1AdvanceWidth(cs []byte) (int, bool) {
 }
 
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
-var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) RD `)
+// The operator that introduces the charstring bytes is whatever the Private
+// dict named it: "RD" and "-|" are the two in use, and a program using "-|"
+// used to read as having no glyphs at all.
+var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
 
 // Type1CharStringsSection decrypts a Type1 program's eexec section and
-// returns the decrypted bytes starting at "/CharStrings", or nil if absent.
-// binStart is the byte offset of the first encrypted byte after "eexec".
-func Type1CharStringsSection(fontData []byte, binStart int) []byte {
+// returns the decrypted bytes starting at "/CharStrings", or nil if absent,
+// together with the /lenIV each charstring in it is padded with. binStart is
+// the byte offset of the first encrypted byte after "eexec".
+func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
 	if binStart <= 0 || binStart >= len(fontData) {
-		return nil
+		return nil, 4
 	}
 	plain := DecryptType1Block(fontData[binStart:], 55665)
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
-		return nil
+		return nil, 4
 	}
-	return plain[csIdx:]
+	// lenIV sits in the Private dict, ahead of /CharStrings, so it has to be
+	// read before the section is cut.
+	return plain[csIdx:], type1LenIV(plain[:csIdx])
 }
 
 // type1Program is the result of one combined CharStrings scan of a Type1
@@ -1835,7 +1873,7 @@ type type1Program struct {
 // program once and extracts names and widths in a single CharStrings scan.
 // binStart is the byte offset of the first encrypted byte after "eexec".
 func extractType1Program(fontData []byte, binStart int) type1Program {
-	cs := Type1CharStringsSection(fontData, binStart)
+	cs, lenIV := Type1CharStringsSection(fontData, binStart)
 	if cs == nil {
 		return type1Program{}
 	}
@@ -1851,7 +1889,7 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 		if n <= 0 || m[1]+n > len(cs) {
 			continue
 		}
-		dec := DecryptType1Block(cs[m[1]:m[1]+n], 4330)
+		dec := DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
 		if w, ok := parseType1AdvanceWidth(dec); ok && scaleOK {
 			p.widths[name] = scaleWidth(float64(w), scale)
 		}

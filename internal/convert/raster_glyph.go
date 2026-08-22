@@ -614,7 +614,7 @@ func readType2Number(b []byte) (float64, int) {
 // subset (hint operators are parsed and discarded).
 func glyphOutlineFromType1(fontData []byte, glyphName string) (GlyphPath, bool) {
 	binStart := verify.Type1EexecBinStart(fontData)
-	cs := verify.Type1CharStringsSection(fontData, binStart)
+	cs, lenIV := verify.Type1CharStringsSection(fontData, binStart)
 	if cs == nil {
 		return GlyphPath{}, false
 	}
@@ -627,7 +627,7 @@ func glyphOutlineFromType1(fontData []byte, glyphName string) (GlyphPath, bool) 
 		if n <= 0 || m[1]+n > len(cs) {
 			return GlyphPath{}, false
 		}
-		dec := verify.DecryptType1Block(cs[m[1]:m[1]+n], 4330)
+		dec := verify.DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
 		contours := interpretType1Charstring(dec)
 		return GlyphPath{Contours: contours}, true
 	}
