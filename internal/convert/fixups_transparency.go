@@ -578,13 +578,119 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, true
 	}
 
-	stencil, ok := stencilFromCoverage(smask, maskChannel)
+	// A mask with nothing opaque enough to survive the threshold is not a
+	// shape, and a stencil can only say it by masking the whole picture out.
+	if maskIsFaint(smask) {
+		return fadeSoftMaskIntoImage(img, smaskDict, smask, resources)
+	}
+
+	stencil, ok := stencilFromCoverage(smask, maskChannel, shapeCutoff)
 	if !ok {
 		return img, false
 	}
 	img.Entries.Set("Mask", stencil)
 	img.Entries.Del("SMask")
 	return img, true
+}
+
+// maskIsFaint reports a soft mask no stencil can carry: every sample of it is
+// more transparent than not, so thresholding masks every pixel out.
+func maskIsFaint(smask *image.RGBA) bool {
+	if smask.Bounds().Dx() == 0 || smask.Bounds().Dy() == 0 {
+		return false
+	}
+	for i := maskChannel; i < len(smask.Pix); i += 4 {
+		if int(smask.Pix[i]) >= shapeCutoff {
+			return false
+		}
+	}
+	return true
+}
+
+// hasClearPixels reports whether a soft mask leaves any pixel showing nothing
+// at all, which is a shape rather than a level.
+func hasClearPixels(smask *image.RGBA) bool {
+	for i := maskChannel; i < len(smask.Pix); i += 4 {
+		if int(smask.Pix[i]) < clearCutoff {
+			return true
+		}
+	}
+	return false
+}
+
+// fadeSoftMaskIntoImage blends a faint soft mask into the image's own samples,
+// which is what item 35 does with a partial opacity: what a picture looks like
+// at 20% over the page is a pale picture, and that can be stored as samples
+// where it cannot be stored as a stencil. The page is taken as white, the same
+// assumption the opacity repair makes and for the same reason -- a pale
+// picture is much less wrong than none at all.
+//
+// A mask carrying /Matte holds the image premultiplied against that colour, so
+// the stored samples are undone by it before they are blended.
+func fadeSoftMaskIntoImage(img, smaskDict pdf.PDFDict, smask *image.RGBA, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	base, err := DecodeImageRGBA(img, resources)
+	if err != nil {
+		return img, false
+	}
+	w, h := base.Bounds().Dx(), base.Bounds().Dy()
+	mw, mh := smask.Bounds().Dx(), smask.Bounds().Dy()
+	if w == 0 || h == 0 || mw == 0 || mh == 0 {
+		return img, false
+	}
+	matte, premultiplied := matteColour(smaskDict)
+
+	for y := 0; y < h; y++ {
+		// Sampled by proportion, since the mask need not share the image's size.
+		srow := pdf.ClampInt(y*mh/h, 0, mh-1)
+		for x := 0; x < w; x++ {
+			scol := pdf.ClampInt(x*mw/w, 0, mw-1)
+			alpha := float64(smask.Pix[smask.PixOffset(scol, srow)+maskChannel]) / 255
+			off := base.PixOffset(x, y)
+			for c := 0; c < 3; c++ {
+				v := float64(base.Pix[off+c]) / 255
+				if premultiplied && alpha > 0 {
+					v = matte[c] + (v-matte[c])/alpha
+				}
+				base.Pix[off+c] = byte(pdf.ClampInt(int((alpha*v+(1-alpha))*255+0.5), 0, 255))
+			}
+			base.Pix[off+3] = 255
+		}
+	}
+
+	// Blending kept the mask's level but not its shape: where the mask was
+	// clear the picture is not pale, it is absent, and an opaque sample there
+	// would paint over whatever the image was laid on. That part still needs a
+	// stencil.
+	img.Entries.Del("Mask")
+	if hasClearPixels(smask) {
+		stencil, ok := stencilFromCoverage(smask, maskChannel, clearCutoff)
+		if !ok {
+			return img, false
+		}
+		img.Entries.Set("Mask", stencil)
+	}
+
+	if err := setStreamRGBFlate(&img, base); err != nil {
+		return img, false
+	}
+	img.Entries.Set("Width", pdf.PDFInteger(w))
+	img.Entries.Set("Height", pdf.PDFInteger(h))
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+	img.Entries.Del("Decode")
+	img.Entries.Del("SMask")
+	return img, true
+}
+
+// matteColour reads a soft mask's /Matte: the colour the image it masks was
+// premultiplied against. Only a three-component matte is used, since the
+// samples are blended as RGB.
+func matteColour(smaskDict pdf.PDFDict) ([3]float64, bool) {
+	values, err := pdf.FloatArray(smaskDict.Entries.Get("Matte"))
+	if err != nil || len(values) != 3 {
+		return [3]float64{}, false
+	}
+	return [3]float64{values[0], values[1], values[2]}, true
 }
 
 // Where the coverage of a stencil is read from: a decoded soft mask carries
@@ -595,10 +701,18 @@ const (
 	alphaChannel = 3
 )
 
+// How opaque a sample has to be to survive a stencil: half way for a mask
+// standing in for a shape, and merely not clear for one whose level has
+// already been blended into the samples.
+const (
+	shapeCutoff = 128
+	clearCutoff = 8
+)
+
 // stencilFromCoverage builds the stencil that stands in for per-pixel opacity:
-// a bit per pixel, set where the image is more transparent than not in channel,
+// a bit per pixel, set where the image is less opaque than cutoff in channel,
 // which is the value that masks the pixel out under the default /Decode.
-func stencilFromCoverage(smask *image.RGBA, channel int) (pdf.PDFDict, bool) {
+func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) (pdf.PDFDict, bool) {
 	w, h := smask.Bounds().Dx(), smask.Bounds().Dy()
 	if w == 0 || h == 0 {
 		return pdf.PDFDict{}, false
@@ -617,7 +731,7 @@ func stencilFromCoverage(smask *image.RGBA, channel int) (pdf.PDFDict, bool) {
 		clear(row)
 		off := smask.PixOffset(smask.Bounds().Min.X, smask.Bounds().Min.Y+y)
 		for x := 0; x < w; x++ {
-			if smask.Pix[off+x*4+channel] < 128 {
+			if int(smask.Pix[off+x*4+channel]) < cutoff {
 				row[x/8] |= 0x80 >> (x % 8)
 			}
 		}
@@ -702,7 +816,7 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
 	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
 	if !coverageIsOpaque(canvas) {
-		stencil, ok := stencilFromCoverage(canvas, alphaChannel)
+		stencil, ok := stencilFromCoverage(canvas, alphaChannel, shapeCutoff)
 		if !ok {
 			return form, nil, false
 		}

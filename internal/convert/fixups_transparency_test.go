@@ -447,7 +447,7 @@ func TestBakeSoftMaskOutStencils(t *testing.T) {
 
 // TestStencilFromSoftMaskRefusals: a mask with no pixels in it is not a mask.
 func TestStencilFromSoftMaskRefusals(t *testing.T) {
-	if _, ok := stencilFromCoverage(image.NewRGBA(image.Rect(0, 0, 0, 0)), maskChannel); ok {
+	if _, ok := stencilFromCoverage(image.NewRGBA(image.Rect(0, 0, 0, 0)), maskChannel, shapeCutoff); ok {
 		t.Error("a zero-size mask became a stencil")
 	}
 }
@@ -1591,5 +1591,87 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 	if _, ok := flattenedImage(t, full).Entries.Lookup("Mask"); ok {
 		t.Error("a form that painted its whole BBox got a /Mask anyway")
+	}
+}
+
+// TestBakeSoftMaskFadesAMaskAStencilCannotSay is the last of roadmap item 36's
+// blanking causes. A stencil says "paint this pixel" or "do not", so a mask
+// with nothing in it opaque enough to survive the threshold masks the whole
+// picture out: zenodo-21226384 page 72 is a photograph behind its text at a
+// flat 20%, and thresholding it emptied the page. A mask like that is not a
+// shape, it is a faintness, so it goes into the samples the way item 35 puts a
+// partial opacity into a colour.
+func TestBakeSoftMaskFadesAMaskAStencilCannotSay(t *testing.T) {
+	// Black pixels behind a flat 20% mask: pale grey, and nothing masked out.
+	img := grayImage(2, 1, []byte{0, 0})
+	img.Entries.Set("SMask", grayImage(2, 1, []byte{51, 51}))
+
+	got, ok := bakeSoftMaskOut(img, pdf.PDFDict{})
+	if !ok {
+		t.Fatal("bakeSoftMaskOut reported no change")
+	}
+	if _, still := got.Entries.Lookup("SMask"); still {
+		t.Error("/SMask survived")
+	}
+	if _, masked := got.Entries.Lookup("Mask"); masked {
+		t.Error("a mask that hides nothing got a stencil, which would mask the picture out")
+	}
+	if got.Entries.Get("ColorSpace") != (pdf.PDFName{Value: "DeviceRGB"}) {
+		t.Errorf("faded image colour space = %v, want DeviceRGB", got.Entries.Get("ColorSpace"))
+	}
+	faded, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("the faded image does not decode: %v", err)
+	}
+	// Black at 20% over white paper is 80% of the way to white.
+	if v := faded.Pix[0]; v < 200 || v > 210 {
+		t.Errorf("black at 20%% came out %d, want about 204", v)
+	}
+
+	// A mask that is faint where it paints but clear elsewhere is both: the
+	// level goes into the samples and the shape stays a stencil, or the pale
+	// picture would paint over whatever it was laid on.
+	shaped := grayImage(2, 1, []byte{0, 0})
+	shaped.Entries.Set("SMask", grayImage(2, 1, []byte{97, 0}))
+	got, ok = bakeSoftMaskOut(shaped, pdf.PDFDict{})
+	if !ok {
+		t.Fatal("bakeSoftMaskOut reported no change")
+	}
+	stencil, ok := got.Entries.Get("Mask").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("a mask with a clear part kept no stencil")
+	}
+	bits, err := pdf.DecodeStream(stencil)
+	if err != nil {
+		t.Fatalf("stencil does not decode: %v", err)
+	}
+	// The faint pixel is still painted (0), the clear one masked out (1).
+	if len(bits) != 1 || bits[0] != 0x40 {
+		t.Errorf("stencil bits = % x, want 0x40 (paint, then mask out)", bits)
+	}
+}
+
+// TestBakeSoftMaskUndoesTheMatte: a mask carrying /Matte says the image it
+// masks was stored premultiplied against that colour, so the samples have to
+// be undone by it before they are faded, or the picture comes out too dark.
+// zenodo-21226384's background photograph is stored this way.
+func TestBakeSoftMaskUndoesTheMatte(t *testing.T) {
+	// Mid grey premultiplied against black at 20% is stored as 0.2*128 = 26.
+	img := grayImage(1, 1, []byte{26})
+	smask := grayImage(1, 1, []byte{51})
+	smask.Entries.Set("Matte", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)})
+	img.Entries.Set("SMask", smask)
+
+	got, ok := bakeSoftMaskOut(img, pdf.PDFDict{})
+	if !ok {
+		t.Fatal("bakeSoftMaskOut reported no change")
+	}
+	faded, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("the faded image does not decode: %v", err)
+	}
+	// Undone to mid grey, then faded to 20% over white: 0.2*128 + 0.8*255.
+	if v := faded.Pix[0]; v < 224 || v > 234 {
+		t.Errorf("premultiplied grey came out %d, want about 229", v)
 	}
 }
