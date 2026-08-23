@@ -3,9 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38 are done except for the tail of 36; each is one line under
-"Done", and the commit history has the detail. Two things stand between here
-and a tagged 1.0: items 36 and 37.
+Items 1–36 and 38 are done; each is one line under "Done", and the commit
+history has the detail. One thing stands between here and a tagged 1.0: item
+37.
 
 ## Where things stand
 
@@ -16,8 +16,8 @@ and a tagged 1.0: items 36 and 37.
   binary itself in CI, not just against filename expectations.
 - Convert pipeline: pre-emptive fixups, verify/fix loop, raster last resort.
   Committed-corpus floor 510/510. On the 1585-file real-world corpus, all 1580
-  reach conformance with zero errors, panics or hangs; 4 of them still lose a
-  page's visible content and 1 still draws over one (item 36). veraPDF accepts
+  reach conformance with zero errors, panics or hangs; 1 of them still loses a
+  page's visible content and 1 still draws over two (item 36). veraPDF accepts
   every output bar 3, each of those a defect of its own listed with the evidence
   against it in `crossCheckDeviations`.
 - The rasterizer draws what a PDF/A conversion actually meets: images (inline and
@@ -38,37 +38,12 @@ and a tagged 1.0: items 36 and 37.
 
 ## Open work
 
-### 36. The last two fidelity cases
-
-Pinned in `surveyFidelity` over the 1580-file corpus: **4 files blank 6 pages,
-and 1 file draws over 2** (from 20 files/47 pages and 27 files/717 pages when
-the item opened). Eight causes were found and fixed by measuring one repair at a
-time (`GOPDFRAB_FIDELITY_ATTRIBUTE`, `fidelity_attribution_test.go`) rather than
-by ranking candidates. Two remain, both with a mechanism and a file against
-them:
-
-- **Taking an ExtGState's soft mask off changes the page.** `zenodo-20632795`
-  page 5 goes from 0.989 ink to 0.045 under the graphics-state dictionary pass
-  alone, and its pages 33–37 come out covered. Setting `/SMask` to `/None`
-  (`internal/convert/fixups_dict.go`) is the same "make it opaque" mistake item
-  35 fixed for `/ca`, one level up: a soft mask there applies to whatever is
-  drawn under it, so there is no colour to fold it into and no image to hang a
-  stencil on. What is left is to rasterize the content it masks, which is what
-  the flattener does for a group.
-- **One flattener case is still empty.** `oapen-26d73842` page 4 goes from
-  0.064 ink to 0.000 under `transparencyFlattener.Fix` alone. Not investigated.
-
-A trap worth keeping: the blanked figure *went up* twice while the conversion
-was getting better, because a page covered in a black rectangle has plenty of
-ink, so `Blanked()` never fired on it. Every increase was damage already there,
-uncovered by the repair before it.
-
 ### 37. Cut the release
 
 The goal is a frozen API, and nothing declares it frozen yet: `CHANGELOG.md`
 still says "Pre-1.0: the API is not stable", its entries are under
-`[Unreleased]`, and the README's Status section says pre-1.0. Once 36
-close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
+`[Unreleased]`, and the README's Status section says pre-1.0. That is a
+changelog roll to `[1.0.0]`, a README edit, and a tag.
 
 ---
 
@@ -201,6 +176,38 @@ close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
     opaque instead of blended into the colour; "drew over" counting ink gained
     rather than paper covered (`PageFidelity.Covered`); and the fidelity comparison
     holding every rendered page of both sides, which cost gigabytes.
+
+    Its tail was two more, found the same way. A form is drawn onto whatever the
+    page already has, but the flattener rendered it on paper and wrote back one
+    flat image, so the part of the BBox the form never painted covered the page:
+    a page-covering group drawn last emptied the page under it. A form now
+    renders on nothing and keeps what it did not paint as a stencil. And a soft
+    mask with nothing in it opaque enough to survive a threshold is not a shape
+    but a faintness — a photograph behind text at a flat 20% — so thresholding it
+    masked the whole picture out; it now goes into the samples the way item 35
+    puts a partial opacity into a colour, `/Matte` undone first, keeping a
+    stencil only where the mask is genuinely clear. Fading without that shape
+    turned one page from blanked into drawn over, which is this item's own trap
+    met head on: the blanked figure went *up* twice while the conversion was
+    getting better, because a page covered in a black rectangle has plenty of
+    ink and `Blanked()` never fires on it. Every increase was damage already
+    there, uncovered by the repair before it. Measured over all 1580 files:
+    **4 files blanking 6 pages before, 1 file blanking 1 page after**; drawn
+    over unchanged at 1 file and 2 pages.
+
+    What the item recorded as its last two cases was half wrong, and measuring
+    beat reasoning about it. Taking an ExtGState's soft mask off was blamed for
+    `zenodo-20632795`, but that file's damaged pages carry `/ca` and no soft
+    mask at all: pages 33–37 come out covered only under the attribution
+    harness,
+    which deliberately runs the dictionary pass without `repairOpacity` and so
+    measures pre-item-35 behaviour. Its page 5 is real, and is item 35's own
+    white-paper assumption — a near-white full-page wash at `ca 0.8` over a
+    photograph blends to 0.9968 and erases the page. That page, and the two
+    `zenodo-21284637` still draws over, are what the ceilings in
+    `surveyFidelity` now pin. Whether an ExtGState soft mask costs any fidelity
+    is unmeasured: nothing in 1580 files loses content to it, and the renderer
+    still does not apply one.
 
 38. **The five outputs veraPDF still rejected, at 1580 of 1580.** Four were one
     defect, and it was not in a font check: a page's `/Contents` array is a

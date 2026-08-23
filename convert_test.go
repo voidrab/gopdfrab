@@ -1168,12 +1168,11 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // the sorted file list, never by map order, so two runs survey the same files.
 // What a full sweep of the real-world corpus still blanks and still draws
 // over, measured for roadmap item 36 (it was 20 files and 47 pages blanked, 27
-// files and 717 pages drawn over, before the eight repairs that item names).
-// Both remainders have a mechanism and a file against them; the item carries
-// them.
+// files and 717 pages drawn over, when the item opened). Both remainders have
+// a mechanism and a file against them; the item carries them.
 const (
-	maxBlankedFiles = 4
-	maxBlankedPages = 6
+	maxBlankedFiles = 1
+	maxBlankedPages = 1
 
 	maxOverpaintedFiles = 1
 	maxOverpaintedPages = 2
