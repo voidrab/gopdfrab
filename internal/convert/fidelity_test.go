@@ -577,3 +577,45 @@ func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 		t.Errorf("page %v was rasterized; the repair should keep it text and vectors", cr.RasterizedPages)
 	}
 }
+
+// coveringGroupFormDoc is oapen-26d73842 page 4's shape: the page draws its own
+// content, then a page-covering transparency group that paints one small mark
+// over it. Flattening that group to a flat image is what covered the page.
+func coveringGroupFormDoc() []byte {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
+		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte(filledPage+"/Fm0 Do\n"))
+	// The gs keeps the group from being dropped without rasterizing.
+	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
+		"/Group << /S /Transparency >> "+
+		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
+		[]byte("q /GS0 gs 1 0 0 rg 0 0 10 10 re f Q\n"))
+	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
+}
+
+// TestConvertKeepsPageUnderAFlattenedGroup is the last of roadmap item 36's
+// blanking causes: a flattened group becomes one flat image, and a flat image
+// covers everything the page drew before it. What the group did not paint has
+// to keep showing what is underneath.
+func TestConvertKeepsPageUnderAFlattenedGroup(t *testing.T) {
+	cr, err := ConvertBytes(coveringGroupFormDoc(), pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("output not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.BlankedPages) != 0 {
+		t.Errorf("conversion blanked %v; the group covers the page it is drawn on", cr.BlankedPages)
+	}
+	if len(cr.Fidelity) != 1 {
+		t.Fatalf("Fidelity = %+v, want one page report", cr.Fidelity)
+	}
+	if pf := cr.Fidelity[0]; pf.OutputInk < pf.InputInk*0.9 {
+		t.Errorf("the page lost ink under the flattened group: %+v", pf)
+	}
+}

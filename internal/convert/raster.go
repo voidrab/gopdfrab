@@ -24,7 +24,7 @@ func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dp
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(content, resources, mediaBox, dpi, inheritedPaint{})
+	return renderContent(content, resources, mediaBox, dpi, inheritedPaint{}, paperBackdrop)
 }
 
 // renderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -43,7 +43,10 @@ func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 	if err != nil {
 		return nil, [4]float64{}, nil, err
 	}
-	canvas, drops, err := renderContent(content, resources, box, dpi, inherited)
+	// A form is drawn onto whatever the page already has, so it renders on
+	// nothing: what its content does not paint stays unpainted, and the caller
+	// keeps that as the mask of what it may cover.
+	canvas, drops, err := renderContent(content, resources, box, dpi, inherited, clearBackdrop)
 	return canvas, box, drops, err
 }
 
@@ -57,10 +60,18 @@ type inheritedPaint struct {
 	fill, stroke [3]float64
 }
 
+// backdrop is what a render starts on: a page is paper, a form is nothing.
+type backdrop int
+
+const (
+	paperBackdrop backdrop = iota // opaque white
+	clearBackdrop                 // transparent, so unpainted stays unpainted
+)
+
 // renderContent is the shared core behind RenderPage and renderFormContent:
-// it rasterizes content into a fresh opaque-white canvas sized from bounds
-// (a user-space rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited inheritedPaint) (*image.RGBA, []string, error) {
+// it rasterizes content into a fresh canvas sized from bounds (a user-space
+// rect) at dpi, then runs the graphics-state machine over it.
+func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited inheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
 	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
@@ -70,8 +81,8 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	// Opaque white backdrop via doubling copies (memmove) instead of a
 	// per-byte loop -- the canvas fill was a measurable share of small
-	// flatten renders.
-	if pix := canvas.Pix; len(pix) > 0 {
+	// flatten renders. A clear backdrop is the zero value already.
+	if pix := canvas.Pix; bd == paperBackdrop && len(pix) > 0 {
 		pix[0] = 0xFF
 		for filled := 1; filled < len(pix); filled *= 2 {
 			copy(pix[filled:], pix[:filled])

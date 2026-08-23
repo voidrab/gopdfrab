@@ -578,7 +578,7 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return img, true
 	}
 
-	stencil, ok := stencilFromSoftMask(smask)
+	stencil, ok := stencilFromCoverage(smask, maskChannel)
 	if !ok {
 		return img, false
 	}
@@ -587,10 +587,18 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 	return img, true
 }
 
-// stencilFromSoftMask builds the stencil that stands in for a soft mask: a bit
-// per pixel, set where the mask is more transparent than not, which is the
-// value that masks the pixel out under the default /Decode.
-func stencilFromSoftMask(smask *image.RGBA) (pdf.PDFDict, bool) {
+// Where the coverage of a stencil is read from: a decoded soft mask carries
+// the opacity in its first channel (DecodeImageRGBA's grey), a rendered canvas
+// in its alpha.
+const (
+	maskChannel  = 0
+	alphaChannel = 3
+)
+
+// stencilFromCoverage builds the stencil that stands in for per-pixel opacity:
+// a bit per pixel, set where the image is more transparent than not in channel,
+// which is the value that masks the pixel out under the default /Decode.
+func stencilFromCoverage(smask *image.RGBA, channel int) (pdf.PDFDict, bool) {
 	w, h := smask.Bounds().Dx(), smask.Bounds().Dy()
 	if w == 0 || h == 0 {
 		return pdf.PDFDict{}, false
@@ -609,7 +617,7 @@ func stencilFromSoftMask(smask *image.RGBA) (pdf.PDFDict, bool) {
 		clear(row)
 		off := smask.PixOffset(smask.Bounds().Min.X, smask.Bounds().Min.Y+y)
 		for x := 0; x < w; x++ {
-			if smask.Pix[off+x*4] < 128 {
+			if smask.Pix[off+x*4+channel] < 128 {
 				row[x/8] |= 0x80 >> (x % 8)
 			}
 		}
@@ -618,6 +626,17 @@ func stencilFromSoftMask(smask *image.RGBA) (pdf.PDFDict, bool) {
 		return pdf.PDFDict{}, false
 	}
 	return stencil, true
+}
+
+// coverageIsOpaque reports whether a rendered canvas painted everywhere, so it
+// needs no stencil and comes out exactly as it did before there was one.
+func coverageIsOpaque(canvas *image.RGBA) bool {
+	for i := alphaChannel; i < len(canvas.Pix); i += 4 {
+		if canvas.Pix[i] != 255 {
+			return false
+		}
+	}
+	return true
 }
 
 // smaskFullyOpaque reports whether every alpha sample (the red channel the
@@ -678,6 +697,17 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
+	// The render kept what the form did not paint. A flat image is opaque
+	// everywhere, so without this the unpainted part covers the page the form
+	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
+	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
+	if !coverageIsOpaque(canvas) {
+		stencil, ok := stencilFromCoverage(canvas, alphaChannel)
+		if !ok {
+			return form, nil, false
+		}
+		img.Entries.Set("Mask", stencil)
+	}
 	if err := setStreamRGBFlate(&img, canvas); err != nil {
 		return form, nil, false
 	}

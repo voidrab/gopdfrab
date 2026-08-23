@@ -536,3 +536,51 @@ func TestRasterPixelBudget(t *testing.T) {
 		t.Errorf("rendered %d pixels, over the %d budget", px, maxRasterPixels)
 	}
 }
+
+// TestRenderFormRendersOnNothing is roadmap item 36's second blanking cause:
+// a form is drawn onto what the page already has, so rendering it on paper
+// makes everything it did not paint opaque white. oapen-26d73842 page 4 ends
+// with a page-covering group, and flattened against paper it covered the page.
+// What the form did not paint has to come back as unpainted.
+func TestRenderFormRendersOnNothing(t *testing.T) {
+	formWith := func(content string) pdf.PDFDict {
+		return pdf.PDFDict{
+			Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"BBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			}),
+			HasStream: true,
+			RawStream: []byte(content),
+		}
+	}
+
+	empty, _, _, err := renderFormContent(formWith(""), pdf.PDFDict{}, 72, inheritedPaint{})
+	if err != nil {
+		t.Fatalf("renderFormContent: %v", err)
+	}
+	if a := nrgbaAt(t, empty, 10, 10).A; a != 0 {
+		t.Errorf("a form that painted nothing has alpha %d at its centre, want 0", a)
+	}
+
+	filled, _, _, err := renderFormContent(formWith("1 0 0 rg 5 5 10 10 re f"), pdf.PDFDict{}, 72, inheritedPaint{})
+	if err != nil {
+		t.Fatalf("renderFormContent: %v", err)
+	}
+	if inside := nrgbaAt(t, filled, 10, 10); inside.A != 255 || inside.R != 255 || inside.G != 0 {
+		t.Errorf("inside the fill = %+v, want opaque red", inside)
+	}
+	if a := nrgbaAt(t, filled, 1, 1).A; a != 0 {
+		t.Errorf("beside the fill has alpha %d, want 0", a)
+	}
+
+	// A page still renders on paper: only a form composites onto something.
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("")},
+	})}
+	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	if err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+	if px := nrgbaAt(t, blank, 10, 10); px.A != 255 || px.R != 255 {
+		t.Errorf("an empty page renders %+v, want opaque white", px)
+	}
+}

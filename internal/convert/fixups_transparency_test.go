@@ -447,7 +447,7 @@ func TestBakeSoftMaskOutStencils(t *testing.T) {
 
 // TestStencilFromSoftMaskRefusals: a mask with no pixels in it is not a mask.
 func TestStencilFromSoftMaskRefusals(t *testing.T) {
-	if _, ok := stencilFromSoftMask(image.NewRGBA(image.Rect(0, 0, 0, 0))); ok {
+	if _, ok := stencilFromCoverage(image.NewRGBA(image.Rect(0, 0, 0, 0)), maskChannel); ok {
 		t.Error("a zero-size mask became a stencil")
 	}
 }
@@ -1520,5 +1520,76 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	}
 	if ink := inkFraction(img); ink < 0.99 {
 		t.Errorf("a fill with nothing inherited came out %.3f inked, want the default black", ink)
+	}
+}
+
+// TestFlattenFormMasksWhatItDidNotPaint is roadmap item 36's last blanking
+// cause: a flattened form becomes one flat image, and a flat image is opaque
+// everywhere, so the part of the BBox the form never painted covers the page
+// it is drawn on. oapen-26d73842 page 4 is a page-covering group drawn last,
+// and it blanked the page under it. The coverage comes back as a stencil.
+func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
+	formWith := func(content string) pdf.PDFDict {
+		return pdf.PDFDict{
+			Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Form"},
+				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+				"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+			}),
+			HasStream: true,
+			RawStream: []byte(content),
+		}
+	}
+	flattenedImage := func(t *testing.T, form pdf.PDFDict) pdf.PDFDict {
+		t.Helper()
+		resources, ok := form.Entries.Get("Resources").(pdf.PDFDict)
+		if !ok {
+			t.Fatal("flattened form has no /Resources")
+		}
+		xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
+		img, ok := xobjects.Entries.Get("Im0").(pdf.PDFDict)
+		if !ok {
+			t.Fatal("flattened form paints no image")
+		}
+		return img
+	}
+
+	// Painting a corner of the BBox leaves the rest to be masked out.
+	part, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 10 10 re f"), pdf.PDFDict{}, 72, inheritedPaint{})
+	if !ok {
+		t.Fatal("flattenFormToImage on a renderable form reported failure")
+	}
+	stencil, ok := flattenedImage(t, part).Entries.Get("Mask").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("a form that painted only part of its BBox has no /Mask")
+	}
+	if stencil.Entries.Get("ImageMask") != pdf.PDFBoolean(true) {
+		t.Error("the mask is not a stencil")
+	}
+	bits, err := pdf.DecodeStream(stencil)
+	if err != nil {
+		t.Fatalf("decoding the stencil: %v", err)
+	}
+	// One bit per pixel, row-padded to a byte; a set bit masks the pixel out.
+	w := int(stencil.Entries.Get("Width").(pdf.PDFInteger))
+	h := int(stencil.Entries.Get("Height").(pdf.PDFInteger))
+	rowBytes := (w + 7) / 8
+	bitAt := func(x, y int) bool { return bits[y*rowBytes+x/8]&(0x80>>(x%8)) != 0 }
+	// The fill is at the bottom-left of the form, which is the bottom-left of
+	// the rendered image too (renderContent flips Y).
+	if bitAt(w/4, h-1-h/4) {
+		t.Error("the painted quarter is masked out")
+	}
+	if !bitAt(3*w/4, h/4) {
+		t.Error("the unpainted quarter is not masked out")
+	}
+
+	// A form that paints its whole BBox needs no mask and stays as it was.
+	full, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 20 20 re f"), pdf.PDFDict{}, 72, inheritedPaint{})
+	if !ok {
+		t.Fatal("flattenFormToImage on a fully painted form reported failure")
+	}
+	if _, ok := flattenedImage(t, full).Entries.Lookup("Mask"); ok {
+		t.Error("a form that painted its whole BBox got a /Mask anyway")
 	}
 }
