@@ -4,8 +4,8 @@ Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
 Items 1–36 and 38 are done except for the tail of 36; each is one line under
-"Done", and the commit history has the detail. Three things stand between here
-and a tagged 1.0: items 30, 36 and 37.
+"Done", and the commit history has the detail. Two things stand between here
+and a tagged 1.0: items 36 and 37.
 
 ## Where things stand
 
@@ -31,22 +31,12 @@ and a tagged 1.0: items 30, 36 and 37.
 - Resource hardening: ~15 depth/size caps across the parser, settable decode and
   resident-cache budgets, no silent truncation anywhere.
 - Coverage (`go test ./... -cover`): arlington 100%, cmd 95.8%, pdf 95.6%,
-  verify 94.4%, pdfgen 94.8%, convert 94.1%, writer 94.1%, root 84.5%.
+  verify 94.4%, pdfgen 94.8%, convert 94.1%, writer 94.1%, root 100%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
 ---
 
 ## Open work
-
-### 30. Coverage to ~95%
-
-The root package is the outlier at 84.5%, and its whole shortfall is six thin
-wrappers with no test at all: `VerifyContext` and `ConvertAllContext`,
-`(*Document).VerifyContext` and `(*Document).ConvertContext`, and the newly
-added `OpenBytes`/`OpenBytesWithPassword` — public API shipped untested. That is
-cheap and worth doing before the surface is frozen. Everything else sits at
-94–100%; per the standing decision, defensive parser guards are not chased, and
-what remains there is CFF/Type1 fixtures.
 
 ### 36. The last two fidelity cases
 
@@ -77,7 +67,7 @@ uncovered by the repair before it.
 
 The goal is a frozen API, and nothing declares it frozen yet: `CHANGELOG.md`
 still says "Pre-1.0: the API is not stable", its entries are under
-`[Unreleased]`, and the README's Status section says pre-1.0. Once 30 and 36
+`[Unreleased]`, and the README's Status section says pre-1.0. Once 36
 close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
 
 ---
@@ -140,6 +130,13 @@ close, that is a changelog roll to `[1.0.0]`, a README edit, and a tag.
     `XMPNoCorrespondingType`, `ICCBasedComponentsMismatch` and `FontBaseFont` were
     declared but never reported or had no fixer; all four now do what the catalogue
     says, with fixers that keep the document's own content.
+30. **The root package's untested wrappers.** Its whole shortfall was six public
+    functions with no test at all — `VerifyContext`, `ConvertAllContext`,
+    `OpenBytes`, `OpenBytesWithPassword`, `(*Document).VerifyContext` and
+    `(*Document).ConvertContext`. Each is now pinned in both directions: a
+    cancelled context returns `context.Canceled`, a live one agrees with the
+    non-context sibling, and the two password forms reach the decryption step.
+    **84.5% to 100%**, every function in the package covered.
 31. **A declared FontMatrix is scaled into the widths, not skipped over.** Both
     width paths gave up on 6.3.6 when a program declared one, because charstring
     widths are in glyph space and `/Widths` is in 1/1000 em text space. Only the
