@@ -225,6 +225,80 @@ func TestDocumentAccessors(t *testing.T) {
 	}
 }
 
+// TestOpenBytes confirms OpenBytes parses in-memory bytes the way Open parses
+// the same file, and reports a non-PDF rather than returning a broken document.
+func TestOpenBytes(t *testing.T) {
+	data := []byte(plainPDF)
+
+	path := filepath.Join(t.TempDir(), "plain.pdf")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	fromFile, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer fromFile.Close()
+
+	doc, err := OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+
+	gotPages, err := doc.PageCount()
+	if err != nil {
+		t.Fatalf("PageCount: %v", err)
+	}
+	wantPages, err := fromFile.PageCount()
+	if err != nil {
+		t.Fatalf("Open PageCount: %v", err)
+	}
+	if gotPages != wantPages {
+		t.Errorf("PageCount = %d, want %d", gotPages, wantPages)
+	}
+
+	gotVer, err := doc.Version()
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	wantVer, err := fromFile.Version()
+	if err != nil {
+		t.Fatalf("Open Version: %v", err)
+	}
+	if gotVer != wantVer {
+		t.Errorf("Version = %q, want %q", gotVer, wantVer)
+	}
+
+	if _, err := OpenBytes([]byte("not a pdf")); !errors.Is(err, ErrNotPDF) {
+		t.Errorf("OpenBytes of non-PDF bytes: err=%v, want ErrNotPDF", err)
+	}
+}
+
+// TestOpenBytesWithPassword confirms the password reaches the decryption step:
+// without it the encrypted fixture reports ErrPasswordRequired, with it the
+// document opens and is usable.
+func TestOpenBytesWithPassword(t *testing.T) {
+	data, err := os.ReadFile("internal/pdf/testdata/crypt/enc_aesv2_pw.pdf")
+	if err != nil {
+		t.Skipf("encrypted fixture absent: %v", err)
+	}
+
+	if _, err := OpenBytesWithPassword(data, nil); !errors.Is(err, ErrPasswordRequired) {
+		t.Fatalf("OpenBytesWithPassword(nil): err=%v, want ErrPasswordRequired", err)
+	}
+
+	doc, err := OpenBytesWithPassword(data, []byte("ownerpw"))
+	if err != nil {
+		t.Fatalf("OpenBytesWithPassword: %v", err)
+	}
+	defer doc.Close()
+
+	if _, err := doc.Verify(PDFA1B); err != nil {
+		t.Errorf("Verify on the decrypted document: %v", err)
+	}
+}
+
 // TestResultMarshalsToJSON confirms the public Result/PDFError/Check aliases
 // serialize to a populated, stable JSON shape rather than the empty objects
 // their unexported fields used to produce (roadmap item 17).
