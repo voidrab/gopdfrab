@@ -7,13 +7,20 @@ zip.
 internal/convert/assets/fonts/
 ------------------------------
 
-Liberation Sans, Liberation Serif, Liberation Mono (12 faces, version 2.1.5)
+Liberation Sans, Liberation Serif, Liberation Mono, version 2.1.5
+    LiberationSans-Regular.ttf, LiberationSans-Bold.ttf,
+    LiberationSans-Italic.ttf, LiberationSans-BoldItalic.ttf,
+    LiberationSerif-Regular.ttf, LiberationSerif-Bold.ttf,
+    LiberationSerif-Italic.ttf, LiberationSerif-BoldItalic.ttf,
+    LiberationMono-Regular.ttf, LiberationMono-Bold.ttf,
+    LiberationMono-Italic.ttf, LiberationMono-BoldItalic.ttf
     https://github.com/liberationfonts/liberation-fonts
     SIL Open Font License 1.1 (assets/fonts/OFL.txt).
     Digitized data copyright (c) 2010 Google Corporation.
     Copyright (c) 2012 Red Hat, Inc., with Reserved Font Name Liberation.
 
-Noto Sans Symbols (version 2.003) and Noto Sans Symbols 2 (version 2.008)
+Noto Sans Symbols, version 2.003, and Noto Sans Symbols 2, version 2.008
+    NotoSansSymbols-VariableFont_wght.ttf, NotoSansSymbols2-Regular.ttf
     https://github.com/notofonts/symbols
     SIL Open Font License 1.1 (assets/fonts/OFL.txt).
     Copyright 2022 The Noto Project Authors.

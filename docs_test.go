@@ -5,7 +5,9 @@ import (
 	"go/doc"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -169,5 +171,29 @@ func TestNoUnnameableInternalTypes(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestNoticeCoversBundledAssets fails when a bundled asset is not named in
+// NOTICE. Those files ship in the module zip and go:embed writes them into
+// converted output, so each one needs its origin and licence recorded; a
+// hand-written list drifts unless something reads it.
+func TestNoticeCoversBundledAssets(t *testing.T) {
+	notice, err := os.ReadFile("NOTICE")
+	if err != nil {
+		t.Fatalf("read NOTICE: %v", err)
+	}
+	err = filepath.WalkDir("internal/convert/assets", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		// README.md documents the directory rather than shipping in output.
+		if name := d.Name(); name != "README.md" && !strings.Contains(string(notice), name) {
+			t.Errorf("NOTICE does not name %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk assets: %v", err)
 	}
 }

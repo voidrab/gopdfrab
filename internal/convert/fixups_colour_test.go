@@ -538,3 +538,30 @@ func TestSeparationAlternateFixerSwapsUncoveredAlternate(t *testing.T) {
 		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
 	}
 }
+
+// TestBundledProfilesAreUsable pins the embedded profiles against the rules
+// that pick them: PDF/A-1 takes ICC v2 only, and an OutputIntent profile must
+// be a printer or display profile. Licence trouble is a reason to swap one of
+// these files out (see NOTICE), and a swap must not ship something PDF/A-1
+// rejects.
+func TestBundledProfilesAreUsable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		n       int
+		profile []byte
+	}{
+		{"rgb", 3, srgbICCProfile},
+		{"cmyk", 4, cmykICCProfile},
+		{"gray", 1, grayICCProfile},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := iccBasedColourSpace(tc.n, tc.profile)[1].(pdf.PDFDict)
+			if err := verify.ValidateICCProfileStream(stream); err != nil {
+				t.Errorf("not usable as an OutputIntent profile: %v", err)
+			}
+			if msg := verify.ICCInputProfileDefect(tc.profile); msg != "" {
+				t.Errorf("not usable in an ICCBased colour space: %s", msg)
+			}
+		})
+	}
+}
