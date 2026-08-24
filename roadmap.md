@@ -3,9 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36, 38 and 39 are done; each is one line under "Done", and the commit
+Items 1–36 and 38–40 are done; each is one line under "Done", and the commit
 history has the detail. What stands between here and a tagged 1.0 is items
-37 and 40–43: none of them is a verifier or converter defect. The conformance
+37 and 41–43: none of them is a verifier or converter defect. The conformance
 work is finished — what is left is the release itself, and the things a library
 has to settle *before* its API is frozen rather than after.
 
@@ -40,11 +40,10 @@ has to settle *before* its API is frozen rather than after.
 
 ## Open work
 
-Item 37 is the release. The other four are what has to be true before it, and
+Item 37 is the release. The other three are what has to be true before it, and
 they are not equally urgent: **42 changes the consumer's build, so deciding it
-after 1.0 costs a major version.** 40 is a licensing obligation that ships in
-the module zip and in every converted file. 41 and 43 are hygiene and can land
-in the same commit as the tag.
+after 1.0 costs a major version.** 41 and 43 are hygiene and can land in the
+same commit as the tag.
 
 ### 37. Cut the release
 
@@ -61,29 +60,6 @@ the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
 test in CI — they have only been through the local run. Merge first, let CI go
 green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
 the first one that makes the stability promise in `CHANGELOG.md` binding.
-
-### 40. The bundled third-party assets carry no attribution
-
-`internal/convert/assets/` ships in the module zip and its contents are embedded
-by `go:embed` into converted output — a substituted font is written into the
-reader's PDF, and `sRGB2014.icc` is written into every output intent. That is
-redistribution, twice over, and the licences are not in order:
-
-- `assets/fonts/OFL.txt` is **the unfilled SIL OFL 1.1 template**. Its first
-  lines are literally `Copyright (c) <dates>, <Copyright Holder> (<URL|email>),
-  with Reserved Font Name <Reserved Font Name>`. The OFL's own condition is that
-  the copyright notice travel with the font software; a placeholder is not one.
-  The 12 Liberation faces (Red Hat) and the 2 Noto Symbols faces (Google) need
-  their real notices, and they are two separate copyright holders under the same
-  licence.
-- `assets/profiles/` has no licence file at all — `sRGB2014.icc`, `sgray.icc`
-  and `Small-footprint_FOGRA39v2.icc`. The first two are ICC "free to use"
-  profiles whose terms still have to be stated; the FOGRA39 characterisation
-  data has its own provenance and is the one to check rather than assume.
-
-A `NOTICE` file naming each bundled asset, where it came from, and its licence,
-plus a filled `OFL.txt`. This is the one open item with a consequence outside
-the repo.
 
 ### 41. The lint that is configured is never run
 
@@ -339,10 +315,45 @@ public surface.
     `TestNoUnnameableInternalTypes` fails when a public signature reaches an
     internal type with no alias — the check that would have caught `PDFRef`.
 
+40. **The bundled assets say where they come from, and one of them had to be
+    replaced first.** `internal/convert/assets/` ships in the module zip and
+    `go:embed` writes it into converted output, so a substituted font and an ICC
+    profile are redistributed twice over. `assets/fonts/OFL.txt` was the unfilled
+    SIL template, down to `Copyright (c) <dates>, <Copyright Holder>`, when the
+    OFL's own condition is that the notice travel with the font; the two real
+    notices were in the fonts' own name tables all along. `assets/profiles/` had
+    no licence file at all, and tracing its three files turned up more than
+    missing paperwork: `sgray.icc` was **byte-identical to Ghostscript's
+    `iccprofiles/sgray.icc`**, which that project's LICENSE puts inside GPL
+    Ghostscript, so every repaired one-component ICCBased space carried a
+    copyleft asset into the reader's file and out through the commercial
+    licence. It is now the CC0 sGrey v2 profile — same shape, 336 bytes instead
+    of 416, and it costs nothing: all 1580 real-world files still convert to
+    conformance and veraPDF still rejects none of the outputs, the same three
+    known deviations aside.
+
+    The CMYK half has no such exit, which is worth recording so nobody repeats
+    the search. The one compact CC0 CMYK profile published is device class
+    `scnr`, an input profile its own documentation says cannot be used for
+    conversion *to* CMYK, so PDF/A-1 and `ValidateICCProfileStream` both refuse
+    it as an OutputIntent; every clearly-licensed CMYK output profile is 2–8.6 MB
+    against the 49 KB reduction bundled here, which would land in every
+    CMYK-dominant output. So the profile stays, under the ICC's own terms, with
+    what it declares recorded next to it.
+
+    `NOTICE` names every bundled file — the 14 faces, the 3 profiles, and the
+    vendored Arlington model, which ships in the zip too. A hand-written list
+    drifts, so `TestNoticeCoversBundledAssets` fails when a file under `assets/`
+    is not in it, and `TestBundledProfilesAreUsable` runs each embedded profile
+    through the rules that pick it, since a licence problem is a reason to swap
+    one out and a swap must not ship something PDF/A-1 rejects.
+
 Also closed along the way: the Type1 `FontFile` width path honours
 `/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
 than silently unverified; the DeviceN and resource-rename content rewriters no
-longer retain the scanner's reused operand stack.
+longer retain the scanner's reused operand stack; and the corpus harness
+self-check no longer fails when `GOPDFRAB_REALWORLD_VERAPDF=all` is set, which
+made it sweep the whole deviation list against one generated file.
 
 ---
 
