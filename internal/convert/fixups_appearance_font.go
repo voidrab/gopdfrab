@@ -15,7 +15,7 @@ import (
 // liberationSansTTF is the Liberation Sans (SIL OFL 1.1) regular face,
 // metric-compatible with Helvetica/Arial, used to render text into
 // synthesized form-field appearance streams (fixups_appearance.go). See
-// assets/fonts/LICENSE.
+// assets/fonts/OFL.txt.
 //
 //go:embed assets/fonts/LiberationSans-Regular.ttf
 var liberationSansTTF []byte

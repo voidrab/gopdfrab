@@ -12,15 +12,16 @@ import (
 )
 
 // srgbICCProfile is the ICC's official sRGB v2 profile (color.org), embedded
-// for any RGB OutputIntent/DefaultRGB colour space this package injects.
+// for any RGB OutputIntent/DefaultRGB colour space this package injects. See
+// NOTICE for where it comes from.
 //
 //go:embed assets/profiles/sRGB2014.icc
 var srgbICCProfile []byte
 
-// cmykICCProfile is a small-footprint FOGRA39 v2 CMYK profile, embedded for
-// any CMYK OutputIntent/DefaultCMYK colour space this package injects. PDF/A-1
-// requires ICC profiles no newer than v2.x (validateICCProfileStream); the
-// "fogra39.icc" asset alongside it is v4 and therefore unusable here.
+// cmykICCProfile is a small-footprint FOGRA39 CMYK profile, reduced to ICC v2
+// because PDF/A-1 takes nothing newer (verify.ValidateICCProfileStream),
+// embedded for any CMYK OutputIntent/DefaultCMYK colour space this package
+// injects. See NOTICE for where it comes from.
 //
 //go:embed assets/profiles/Small-footprint_FOGRA39v2.icc
 var cmykICCProfile []byte
