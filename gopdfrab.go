@@ -11,15 +11,81 @@ import (
 type (
 	// Result is a verification verdict and its issues. It is immutable once
 	// returned, so any number of goroutines may read one concurrently.
-	Result            = pdf.Result
+	//
+	// Fields:
+	//
+	//	Type   the conformance level verified against
+	//	Valid  whether the file meets that level
+	//	Issues every violation found, each a PDFError
+	//
+	// Methods: Count, Checks, IssuesByCheck, IssuesForCheck, IssuesOnPage,
+	// Summary, MarshalJSON.
+	Result = pdf.Result
+
+	// FileResult is one path's outcome from a batch operation (VerifyAll,
+	// ConvertAll, ConvertEach), where T is Result or ConvertResult.
+	//
+	// Fields:
+	//
+	//	Path   the file this entry reports on
+	//	Result that file's outcome, zero if Err is set
+	//	Err    why the file could not be processed, nil on success
 	FileResult[T any] = pdf.FileResult[T]
+
 	// Profile is the set of checks a Verify or Convert applies. A profile is
 	// immutable -- AddCheck, RemoveCheck and Clear each return a clone -- so one
-	// profile may be shared by concurrent Verify or Convert calls.
-	Profile   = pdf.Profile
+	// profile may be shared by concurrent Verify or Convert calls. PDFA1B,
+	// Legacy1B and PDF are the ready-made ones; NewProfile returns an empty one.
+	//
+	// Fields:
+	//
+	//	Level                   the conformance level this profile verifies
+	//	SkipUnreachableXObjects skip Form XObjects no content stream invokes
+	//	SkipUnusedSimpleFonts   only report embedding for fonts actually drawn
+	//
+	// Methods: Clone, Clear, AddCheck, RemoveCheck, Checks, Has,
+	// OnlyObjectModelChecks, Allows, String.
+	Profile = pdf.Profile
+
+	// LevelType is a conformance level: A1B for PDF/A-1b, ObjectModel for the
+	// generic ISO 32000 checks, Undefined for neither. It is Profile.Level and
+	// Result.Type.
 	LevelType = pdf.LevelType
-	Check     = pdf.Check
-	PDFError  = pdf.PDFError
+
+	// Check is one named, selectable validation rule, identified by the ISO
+	// clause it enforces. The Checks registry names every check; AllChecks,
+	// CheckByClause and ChecksForClause look them up. All fields are
+	// unexported, so a Check is only ever obtained, not built.
+	//
+	// Methods: Name, Description, Clause, Subclause, ID, MarshalJSON.
+	Check = pdf.Check
+
+	// PDFError is one violation: the check that failed, what was wrong, and
+	// where. It implements error. All fields are unexported; read it through
+	// its methods.
+	//
+	// Methods: Check, Messages, Page, IsDocumentLevel, ObjectRef,
+	// ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
+	PDFError = pdf.PDFError
+
+	// PDFRef is an indirect object reference, returned by PDFError.ObjectRef.
+	//
+	// Fields:
+	//
+	//	ObjNum the object number
+	//	GenNum the generation number
+	PDFRef = pdf.PDFRef
+
+	// ObjModelDetail locates an object-model finding in the Arlington schema,
+	// returned by PDFError.ObjModelDetail.
+	//
+	// Fields:
+	//
+	//	TypeName the schema type of the reported container
+	//	Key      the key, or decimal array index, that was violated
+	//	Entry    for an array finding, the owner dict key holding the array
+	ObjModelDetail = pdf.ObjModelDetail
+
 	// ConvertResult is a conversion's output and its residual issues. Reading it
 	// (Output, WriteTo, Save, Residual) is safe from multiple goroutines; Close
 	// must not run concurrently with those, since it releases what they read.
@@ -30,14 +96,44 @@ type (
 	// OverpaintedPages the pages something was drawn over.
 	// Result.Valid answers only whether the file that was written meets the
 	// profile.
+	//
+	// Fields:
+	//
+	//	Result           the verdict on the output
+	//	Iterations       how many verify-and-fix rounds it took
+	//	Fidelity         per-page input-vs-output comparison, with CheckFidelity
+	//	BlankedPages     pages that came out empty, with CheckFidelity
+	//	OverpaintedPages pages something was drawn over, with CheckFidelity
+	//	RasterizedPages  pages rebuilt as a flat image
+	//	RasterDrops      content the raster fallback could not draw
+	//	LostObjects      content the conversion could not carry over
+	//
+	// Methods: Output, WriteTo, Save, Close, Residual.
 	ConvertResult = convert.ConvertResult
+
 	// PageFidelity is one page's input-vs-output rendering comparison,
 	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
 	// ConvertResult.BlankedPages and OverpaintedPages are the same report
 	// reduced to its two worst cases: content lost, and content drawn over.
+	//
+	// Fields:
+	//
+	//	Page       the 1-based page number
+	//	Similarity 1.0 for identical renders, towards 0.0 as they diverge
+	//	InputInk   fraction of non-white pixels in the input render
+	//	OutputInk  fraction of non-white pixels in the output render
+	//	Covered    fraction that was paper going in and is solid coming out
+	//
+	// Methods: Blanked, Overpainted.
 	PageFidelity = convert.PageFidelity
+
 	// RasterDrop lists content the raster fallback could not render on a page
 	// (see ConvertResult.RasterDrops).
+	//
+	// Fields:
+	//
+	//	Page     the 1-based page it was dropped from
+	//	Features what could not be drawn, one entry each
 	RasterDrop = convert.RasterDrop
 )
 
