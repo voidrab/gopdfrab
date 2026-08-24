@@ -1,0 +1,50 @@
+gopdfrab bundles third-party files. Each is listed here with where it came
+from and under what licence. The fonts and ICC profiles are also embedded into
+converted output, so they travel into the reader's PDF as well as in the module
+zip.
+
+
+internal/convert/assets/fonts/
+------------------------------
+
+Liberation Sans, Liberation Serif, Liberation Mono (12 faces, version 2.1.5)
+    https://github.com/liberationfonts/liberation-fonts
+    SIL Open Font License 1.1 (assets/fonts/OFL.txt).
+    Digitized data copyright (c) 2010 Google Corporation.
+    Copyright (c) 2012 Red Hat, Inc., with Reserved Font Name Liberation.
+
+Noto Sans Symbols (version 2.003) and Noto Sans Symbols 2 (version 2.008)
+    https://github.com/notofonts/symbols
+    SIL Open Font License 1.1 (assets/fonts/OFL.txt).
+    Copyright 2022 The Noto Project Authors.
+
+
+internal/convert/assets/profiles/
+---------------------------------
+
+sRGB2014.icc
+    https://www.color.org/srgbprofiles.xalter
+    Copyright International Color Consortium, 2015. Made available by the
+    ICC and may be copied, distributed, embedded, made, used and sold
+    without restriction. An altered version must have the original
+    identification and copyright information removed and must not be
+    misrepresented as the original profile.
+
+sGrey-v2-micro.icc
+    https://github.com/saucecontrol/Compact-ICC-Profiles
+    CC0 1.0 Universal (public domain dedication).
+
+Small-footprint_FOGRA39v2.icc
+    A size-reduced FOGRA39 CMYK profile, converted to ICC v2 because PDF/A-1
+    takes nothing newer. Distributed under the ICC's standard profile terms,
+    as sRGB2014.icc above. Its own copyright tag reads "Copyright Hassan
+    Askary".
+
+
+internal/arlington/testdata/tsv/
+--------------------------------
+
+Arlington PDF Model
+    https://github.com/pdf-association/arlington-pdf-model
+    Apache License 2.0 (internal/arlington/testdata/LICENSE).
+    Copyright PDF Association, Inc.

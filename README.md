@@ -515,6 +515,10 @@ public issue for one.
 This work is dual-licensed under GNU AGPL 3.0 and our commercial license.
 [Get in touch](mailto:contact@voidrab.com) for more information about our commercial licensing options.
 
+gopdfrab bundles third-party fonts and ICC profiles, and embeds them into
+converted files. [NOTICE](NOTICE) says where each one comes from and under what
+licence.
+
 ## Contributing
 
 Contributions are welcome! Whether it's a bug report, a failing test file, a new check, or a performance improvement — all of it helps.
