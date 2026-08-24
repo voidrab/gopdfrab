@@ -32,8 +32,8 @@ func heapRetainedBy(build func() any) uint64 {
 	obj := build()
 	runtime.GC()
 	runtime.ReadMemStats(&before)
+	// obj is dead after this, which is what the second GC collects.
 	runtime.KeepAlive(obj)
-	obj = nil
 	runtime.GC()
 	runtime.ReadMemStats(&after)
 	if before.HeapAlloc < after.HeapAlloc {
