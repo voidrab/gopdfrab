@@ -7,17 +7,24 @@ import (
 	"strings"
 )
 
+// Result is a verification verdict and the issues behind it.
 type Result struct {
-	Type   LevelType
-	Valid  bool
+	// Type is the conformance level verified against.
+	Type LevelType
+	// Valid reports whether the file meets that level.
+	Valid bool
+	// Issues holds every violation found, in the order the walk found them.
 	Issues []PDFError
 }
 
 // FileResult is one path's outcome from a batch operation.
 type FileResult[T any] struct {
-	Path   string
+	// Path is the file this entry reports on.
+	Path string
+	// Result is that file's outcome, zero if Err is set.
 	Result T
-	Err    error
+	// Err is why the file could not be processed, nil on success.
+	Err error
 }
 
 // Count returns the number of issues found.
@@ -68,7 +75,7 @@ func ClauseLess(a, b string) bool {
 	return len(as) < len(bs)
 }
 
-// IssuesByCheck groups r.Issues by their violated
+// IssuesByCheck groups r.Issues by the Check each one violated.
 func (r Result) IssuesByCheck() map[Check][]PDFError {
 	out := make(map[Check][]PDFError)
 	for _, issue := range r.Issues {
@@ -89,7 +96,7 @@ func (r Result) IssuesOnPage(page int) []PDFError {
 	return out
 }
 
-// IssuesForCheck returns the issues that correspond to the given registered
+// IssuesForCheck returns the issues that violated the given check.
 func (r Result) IssuesForCheck(c Check) []PDFError {
 	var out []PDFError
 	for _, issue := range r.Issues {

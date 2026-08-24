@@ -5,20 +5,24 @@ import (
 	"maps"
 )
 
+// LevelType is a conformance level a profile verifies against.
 type LevelType string
 
 const (
+	// Undefined is the zero level: no conformance level was chosen.
 	Undefined LevelType = "undefined"
-	A1B       LevelType = "A-1b"
+	// A1B is PDF/A-1b, ISO 19005-1 Level B.
+	A1B LevelType = "A-1b"
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
 	ObjectModel LevelType = "ObjectModel"
 )
 
-// Profile is a mutable set of enabled PDF/A checks for a conformance level,
-// used by VerifyProfile. Mutators (Clear, AddCheck, RemoveCheck) return a new
-// *Profile, leaving the receiver unchanged.
+// Profile is the set of enabled PDF/A checks for a conformance level, used by
+// VerifyProfile. A profile is immutable: Clone, Clear, AddCheck and RemoveCheck
+// each return a new *Profile and leave the receiver unchanged.
 type Profile struct {
+	// Level is the conformance level this profile verifies against.
 	Level   LevelType
 	enabled map[int]bool // set of enabled check IDs
 
@@ -107,6 +111,7 @@ func NewFullProfile(level LevelType) *Profile {
 	return p
 }
 
+// Clone returns a copy of p that can be modified without disturbing it.
 func (p *Profile) Clone() *Profile {
 	out := &Profile{
 		Level:                   p.Level,
@@ -178,6 +183,8 @@ func (p *Profile) OnlyObjectModelChecks() bool {
 	return true
 }
 
+// Allows reports whether the check registered for the given clause and
+// subclause is enabled. A clause not in the catalog is allowed.
 func (p *Profile) Allows(clause string, subclause int) bool {
 	c, inCatalog := CheckByClause(clause, subclause)
 	if !inCatalog {

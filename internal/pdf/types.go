@@ -35,6 +35,8 @@ func NewPDFDict() PDFDict {
 	}
 }
 
+// PDFRef is an indirect object reference: an object number and a generation
+// number.
 type PDFRef struct {
 	ObjNum int
 	GenNum int

@@ -70,13 +70,18 @@ func (o Options) workers() int {
 	return runtime.NumCPU()
 }
 
+// ConvertResult is a conversion's output, the verdict on that output, and what
+// the conversion could not carry over.
 type ConvertResult struct {
 	// backing holds the converted PDF -- in memory when small, in a temp file
 	// when large (see spillWriter). It is a pointer so value copies of a
 	// ConvertResult (as FileResult stores) share one backing and a single
 	// idempotent Close. Read it via Output/WriteTo/Save.
-	backing    *outputBacking
-	Result     pdf.Result
+	backing *outputBacking
+	// Result is the verdict on the output, from a final verify pass against
+	// the profile that was converted to.
+	Result pdf.Result
+	// Iterations is how many verify-and-fix rounds the conversion took.
 	Iterations int
 	// Fidelity is the per-page input-vs-output rendering comparison, populated
 	// only when Options.CheckFidelity was set. See PageFidelity.
@@ -131,7 +136,9 @@ func (r *ConvertResult) addRasterizedPages(pages []int) {
 
 // RasterDrop lists the content features the raster fallback dropped on one page.
 type RasterDrop struct {
-	Page     int
+	// Page is the 1-based page the content was dropped from.
+	Page int
+	// Features names what could not be drawn, one entry per feature.
 	Features []string
 }
 
