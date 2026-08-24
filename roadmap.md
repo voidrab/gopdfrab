@@ -3,9 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38–40 are done; each is one line under "Done", and the commit
+Items 1–36 and 38–41 are done; each is one line under "Done", and the commit
 history has the detail. What stands between here and a tagged 1.0 is items
-37 and 41–43: none of them is a verifier or converter defect. The conformance
+37, 42 and 43: none of them is a verifier or converter defect. The conformance
 work is finished — what is left is the release itself, and the things a library
 has to settle *before* its API is frozen rather than after.
 
@@ -40,10 +40,10 @@ has to settle *before* its API is frozen rather than after.
 
 ## Open work
 
-Item 37 is the release. The other three are what has to be true before it, and
+Item 37 is the release. The other two are what has to be true before it, and
 they are not equally urgent: **42 changes the consumer's build, so deciding it
-after 1.0 costs a major version.** 41 and 43 are hygiene and can land in the
-same commit as the tag.
+after 1.0 costs a major version.** 43 is hygiene and can land in the same
+commit as the tag.
 
 ### 37. Cut the release
 
@@ -60,21 +60,6 @@ the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
 test in CI — they have only been through the local run. Merge first, let CI go
 green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
 the first one that makes the stability promise in `CHANGELOG.md` binding.
-
-### 41. The lint that is configured is never run
-
-`.golangci.yml` selects govet, staticcheck (SA\* only), ineffassign and unused,
-and no CI job invokes it. Running it now finds one live violation
-(`internal/convert/memory_test.go:36`, an ineffectual `obj = nil`). `go vet
-./...` is clean, and CI runs `go vet` implicitly through `go test`, so the
-configured-but-unenforced part is staticcheck, ineffassign and unused. Either
-add the job or delete the config; a config file that nothing reads is item 29's
-principle applied to the repo instead of the catalogue.
-
-Neither sub-module is in CI either: `tests/` (a marker module, no Go code) is
-harmless, but `benchmarks/` has real code behind a `replace` directive against
-the root, and nothing builds it, so it can rot against an API change without
-anyone noticing until the next benchmark round.
 
 ### 42. The minimum Go version is the newest patch release
 
@@ -370,6 +355,17 @@ Recorded so nobody re-investigates:
   stays an image-only filter**. Confirmed across all three corpora.
 - **The real-world corpus stays local.** Multi-gigabyte and gitignored;
   `manifest.json` keeps it reproducible on any machine.
+
+41. **The lint that is configured now runs.** `.golangci.yml` had been selecting
+    staticcheck (SA\* only), ineffassign and unused with no CI job invoking it,
+    so only `govet` was enforced — implicitly, through `go test`. The whole tree
+    held exactly one violation, an ineffectual `obj = nil` in
+    `heapRetainedBy` after the `runtime.KeepAlive` that already pinned the
+    value. The new `lint` job runs the linter at a pinned version, and builds,
+    vets and lints `benchmarks/` too: it is a separate module behind a `replace`
+    directive against the root, so no other job would have noticed it rotting
+    against an API change. `tests/` stays out — it is a marker module with no Go
+    code.
 
 ---
 
