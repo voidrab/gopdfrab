@@ -25,11 +25,11 @@ var srgbICCProfile []byte
 //go:embed assets/profiles/Small-footprint_FOGRA39v2.icc
 var cmykICCProfile []byte
 
-// grayICCProfile is Artifex Software's sGray v2 profile, embedded so a
-// one-component ICCBased colour space can be repaired in place rather than
-// dropped for a device colour space.
+// grayICCProfile is the CC0 sGrey v2 profile, embedded so a one-component
+// ICCBased colour space can be repaired in place rather than dropped for a
+// device colour space. See NOTICE for where it comes from.
 //
-//go:embed assets/profiles/sgray.icc
+//go:embed assets/profiles/sGrey-v2-micro.icc
 var grayICCProfile []byte
 
 func init() {
