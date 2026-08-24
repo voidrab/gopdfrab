@@ -56,6 +56,39 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+    # .golangci.yml selects govet, staticcheck (SA* only), ineffassign and
+    # unused. go vet already runs via go test; the other three only run here.
+    # The version is pinned because a newer linter can report new issues on
+    # unchanged code.
+    - name: Lint
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.12.2
+
+    # benchmarks/ is a separate module with a replace directive against the
+    # root, so a change to our own API can break it without failing any other
+    # job. go vet compiles the test files too, so the micro benchmarks are
+    # covered without running one.
+    - name: Build and vet benchmarks
+      working-directory: benchmarks
+      run: |
+        go build ./...
+        go vet ./...
+
+    - name: Lint benchmarks
+      uses: golangci/golangci-lint-action@v8
+      with:
+        version: v2.12.2
+        working-directory: benchmarks
+
   wasm:
     runs-on: ubuntu-latest
     steps:
