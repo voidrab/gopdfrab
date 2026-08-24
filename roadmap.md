@@ -40,7 +40,7 @@ has to settle *before* its API is frozen rather than after.
 
 ## Open work
 
-Item 37 is the release. The other three are what has to be true before it, and
+Item 37 is the release. The other four are what has to be true before it, and
 they are not equally urgent: **42 changes the consumer's build, so deciding it
 after 1.0 costs a major version.** 40 is a licensing obligation that ships in
 the module zip and in every converted file. 41 and 43 are hygiene and can land
