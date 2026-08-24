@@ -3,9 +3,11 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38 are done; each is one line under "Done", and the commit
-history has the detail. One thing stands between here and a tagged 1.0: item
-37.
+Items 1–36, 38 and 39 are done; each is one line under "Done", and the commit
+history has the detail. What stands between here and a tagged 1.0 is items
+37 and 40–43: none of them is a verifier or converter defect. The conformance
+work is finished — what is left is the release itself, and the things a library
+has to settle *before* its API is frozen rather than after.
 
 ## Where things stand
 
@@ -31,12 +33,18 @@ history has the detail. One thing stands between here and a tagged 1.0: item
 - Resource hardening: ~15 depth/size caps across the parser, settable decode and
   resident-cache budgets, no silent truncation anywhere.
 - Coverage (`go test ./... -cover`): arlington 100%, cmd 95.8%, pdf 95.6%,
-  verify 94.4%, pdfgen 94.8%, convert 94.1%, writer 94.1%, root 100%.
+  verify 94.3%, pdfgen 94.8%, convert 94.1%, writer 94.1%, root 100%.
 - 15–160x faster than veraPDF and PDFBox Preflight depending on metric.
 
 ---
 
 ## Open work
+
+Item 37 is the release. The other three are what has to be true before it, and
+they are not equally urgent: **42 changes the consumer's build, so deciding it
+after 1.0 costs a major version.** 40 is a licensing obligation that ships in
+the module zip and in every converted file. 41 and 43 are hygiene and can land
+in the same commit as the tag.
 
 ### 37. Cut the release
 
@@ -44,6 +52,87 @@ The goal is a frozen API, and nothing declares it frozen yet: `CHANGELOG.md`
 still says "Pre-1.0: the API is not stable", its entries are under
 `[Unreleased]`, and the README's Status section says pre-1.0. That is a
 changelog roll to `[1.0.0]`, a README edit, and a tag.
+
+It is also a merge. The work lives on `feature/roadmap`, **152 commits ahead of
+`main`**, and everything a reader of the repo sees points at `main`: the codecov
+badge, the pkg.go.dev badge, and the CI workflow, which triggers only on pushes
+and pull requests to `main`. So none of the last 152 commits have been through
+the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
+test in CI — they have only been through the local run. Merge first, let CI go
+green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
+the first one that makes the stability promise in `CHANGELOG.md` binding.
+
+### 40. The bundled third-party assets carry no attribution
+
+`internal/convert/assets/` ships in the module zip and its contents are embedded
+by `go:embed` into converted output — a substituted font is written into the
+reader's PDF, and `sRGB2014.icc` is written into every output intent. That is
+redistribution, twice over, and the licences are not in order:
+
+- `assets/fonts/OFL.txt` is **the unfilled SIL OFL 1.1 template**. Its first
+  lines are literally `Copyright (c) <dates>, <Copyright Holder> (<URL|email>),
+  with Reserved Font Name <Reserved Font Name>`. The OFL's own condition is that
+  the copyright notice travel with the font software; a placeholder is not one.
+  The 12 Liberation faces (Red Hat) and the 2 Noto Symbols faces (Google) need
+  their real notices, and they are two separate copyright holders under the same
+  licence.
+- `assets/profiles/` has no licence file at all — `sRGB2014.icc`, `sgray.icc`
+  and `Small-footprint_FOGRA39v2.icc`. The first two are ICC "free to use"
+  profiles whose terms still have to be stated; the FOGRA39 characterisation
+  data has its own provenance and is the one to check rather than assume.
+
+A `NOTICE` file naming each bundled asset, where it came from, and its licence,
+plus a filled `OFL.txt`. This is the one open item with a consequence outside
+the repo.
+
+### 41. The lint that is configured is never run
+
+`.golangci.yml` selects govet, staticcheck (SA\* only), ineffassign and unused,
+and no CI job invokes it. Running it now finds one live violation
+(`internal/convert/memory_test.go:36`, an ineffectual `obj = nil`). `go vet
+./...` is clean, and CI runs `go vet` implicitly through `go test`, so the
+configured-but-unenforced part is staticcheck, ineffassign and unused. Either
+add the job or delete the config; a config file that nothing reads is item 29's
+principle applied to the repo instead of the catalogue.
+
+Neither sub-module is in CI either: `tests/` (a marker module, no Go code) is
+harmless, but `benchmarks/` has real code behind a `replace` directive against
+the root, and nothing builds it, so it can rot against an API change without
+anyone noticing until the next benchmark round.
+
+### 42. The minimum Go version is the newest patch release
+
+All three `go.mod` files say `go 1.26.4`. A patch-level directive makes 1.26.4
+the floor, so anyone on 1.26.0–1.26.3 gets a toolchain download, and anyone with
+`GOTOOLCHAIN=local` gets a build failure — for a library with one dependency
+(`github.com/klauspost/compress`) that is a lot of adoption cost for nothing
+stated. **Measured: the tree builds clean at `go 1.24` and `go 1.25`**; only
+`go 1.23` fails, and on the dependency, not on our own code.
+
+Pick the floor deliberately and write it down. A 1.0 that requires the newest
+patch of the newest Go is a version-support policy nobody has stated, and
+raising the floor later is a minor release while lowering it is free.
+
+### 43. The README has drifted from the surface it documents
+
+The godoc is the reference now (item 39), but the README is still where a
+reader starts, which makes its gaps count. Five public functions appear nowhere in it: `VerifyBytesContext`,
+`ConvertBytesContext`, `ConvertEachContext`, `OpenBytesWithPassword` and
+`NewProfile`. The CLI section says both subcommands accept "`--profile`,
+`--password`, `--max-decoded-mb`, and `--json`" and omits `--max-resident-mb`,
+`convert`'s `--dpi`, `--max-iterations` and `-o`, and the `version` and `help`
+subcommands. `wasm/` builds a real `syscall/js` wrapper exposing
+`gopdfrab.wasm` — it has a CI job and is not mentioned once. `doc.go` names the
+`PDF` profile where the README names `ObjectModelOnly()`; they are the same
+thing (`PDF = ObjectModelOnly()`), which is two spellings of one concept to
+settle before the freeze rather than two places to keep in sync forever.
+
+One more for the freeze review while the surface is open: `PDF`, `PDFA1B` and
+`Legacy1B` are exported `*Profile` **variables**. The profiles themselves are
+immutable — every mutator clones — but the variables are not, and a consumer
+can reassign `gopdfrab.PDFA1B` and change the default for the whole process.
+Also worth one decision: `Checks.Colour` is the only British spelling on the
+public surface.
 
 ---
 
@@ -231,6 +320,24 @@ changelog roll to `[1.0.0]`, a README edit, and a tag.
     work, only the full gate can, and the dictionary veraPDF names is usually
     one gopdfrab created, so the output is what has to be verified, never the
     source.
+
+39. **The public data model documents itself.** Every public type is an alias
+    into `internal/`, and an alias carries none of the aliased type's fields or
+    methods into the aliasing package's documentation, so `go doc . Check`
+    printed no `Clause`, `Name` or `Description` and `ConvertResult` hid eleven
+    members. Of the three ways out — declare the types in the root package,
+    re-export a thin surface, or make the root package's own comments the
+    reference — the last is the only one that costs no API change, and moving
+    `ConvertResult` would have meant exporting the spill backing it holds. So
+    each alias now carries its own field and method reference, which is exactly
+    the text `go doc` and pkg.go.dev print. Two internal types were escaping
+    through it as well: `PDFError.ObjectRef` and `PDFError.ObjModelDetail`
+    returned `pdf.PDFRef` and `pdf.ObjModelDetail`, values a consumer could
+    receive and not name; both are aliased now. A hand-written reference drifts,
+    so it is pinned: `TestPublicTypesDocumented` fails when an exported field or
+    method is not named in its type's doc comment, and
+    `TestNoUnnameableInternalTypes` fails when a public signature reaches an
+    internal type with no alias — the check that would have caught `PDFRef`.
 
 Also closed along the way: the Type1 `FontFile` width path honours
 `/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
