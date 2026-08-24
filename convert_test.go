@@ -1422,6 +1422,10 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	// on a machine that has the corpus. A plain page must survive its own
 	// conversion, so it must report nothing blanked.
 	t.Setenv("GOPDFRAB_REALWORLD_FIDELITY", "all")
+	// The veraPDF cross-check belongs to the corpus, not to one generated
+	// fixture: with "all" set it would sweep crossCheckDeviations for entries
+	// this single file cannot possibly hit and call every one of them stale.
+	t.Setenv("GOPDFRAB_REALWORLD_VERAPDF", "")
 	conformant, rasterized, dropped := checkShouldConvert(t, conv, rep)
 	if len(conv) != 1 || conformant != 1 {
 		t.Errorf("should-convert self-check: files=%d conformant=%d, want 1/1", len(conv), conformant)
