@@ -67,6 +67,24 @@ Both subcommands take:
 | `--max-iterations` | verify/fix loop bound (0 = default 4) |
 | `-o` | output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
 
+## WebAssembly
+
+`wasm/` is a `syscall/js` wrapper that runs verification and conversion in the
+browser, with no server involved:
+
+```bash
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
+```
+
+It registers two globals, both taking a `Uint8Array` and returning a Promise:
+
+- `gopdfrabVerify(bytes)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
+- `gopdfrabConvert(bytes)` resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, where `output` is the converted PDF as a `Uint8Array`.
+
+Each issue carries `{clause, subclause, name, description, group, page, documentLevel, messages}`; `doc` reports what the file says about itself (`pageCount`, `version`, `claimedPart`, `claimedLevel`, `title`, `author`), each field best-effort. The doc comments in `wasm/main.go` are the full reference.
+
+On js/wasm there is no filesystem, so only the `*Bytes` entry points apply.
+
 ## Getting Started
 
 ### Add gopdfrab
