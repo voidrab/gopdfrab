@@ -5,4 +5,4 @@
 // available in git checkouts.
 module github.com/voidrab/gopdfrab/internal/arlington/testdata
 
-go 1.26.4
+go 1.24

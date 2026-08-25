@@ -2,7 +2,7 @@
 // results stay out of the published github.com/voidrab/gopdfrab module zip.
 module github.com/voidrab/gopdfrab/benchmarks
 
-go 1.26.4
+go 1.24
 
 require github.com/voidrab/gopdfrab v0.0.0
 
