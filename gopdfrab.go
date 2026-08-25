@@ -146,7 +146,9 @@ const (
 	ObjectModel = pdf.ObjectModel
 )
 
-// PDF profiles.
+// PDF profiles. A profile is immutable -- AddCheck, RemoveCheck and Clear each
+// return a clone -- but these variables are not: reassigning one changes the
+// default every later Verify or Convert uses, for the whole process.
 var (
 	// PDF is the default profile for generic ISO 32000 object-model checks.
 	PDF = pdf.PDF
@@ -156,7 +158,8 @@ var (
 	Legacy1B = pdf.Legacy1B
 )
 
-// Checks is the registry of every selectable PDF/A check, grouped by area.
+// Checks is the registry of every selectable PDF/A check, grouped by area. The
+// Colour group keeps the ISO spelling, as ISO 19005 and ISO 32000 use it.
 var Checks = pdf.Checks
 
 // Errors callers can match with errors.Is on the result of Open/Verify/Convert.
@@ -217,9 +220,10 @@ func (o Options) convert() convert.Options {
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
-// ObjectModelOnly returns a profile enabling only the generic ISO 32000
-// object-model checks, independent of any PDF/A conformance level -- useful
-// for asking "is this even valid PDF" on its own.
+// ObjectModelOnly returns a fresh profile equal to [PDF]: only the generic ISO
+// 32000 object-model checks, independent of any PDF/A conformance level --
+// useful for asking "is this even valid PDF" on its own. Use PDF unless the
+// caller wants a profile nothing else shares.
 func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 
 // AllChecks returns every registered check with its name, description, and

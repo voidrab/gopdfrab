@@ -39,10 +39,12 @@
 // # Profiles
 //
 // A [Profile] is the set of checks a Verify or Convert applies. [PDFA1B] is the
-// full PDF/A-1b profile; [PDF] runs only the generic ISO 32000 object-model
-// checks. Profiles are immutable — AddCheck, RemoveCheck and Clear each return a
-// clone — so a caller can narrow the rule set without disturbing the shared
-// defaults. The [Checks] registry names every selectable check.
+// full PDF/A-1b profile, [Legacy1B] the stricter one matching the original
+// Isartor suite, and [PDF] runs only the generic ISO 32000 object-model checks.
+// Profiles are immutable — AddCheck, RemoveCheck and Clear each return a clone
+// — so a caller can narrow the rule set without disturbing the shared defaults.
+// [NewProfile] starts from an empty one. The [Checks] registry names every
+// selectable check.
 //
 // # Options, limits, and cancellation
 //
