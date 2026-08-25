@@ -110,6 +110,8 @@ if err != nil {
 }
 ```
 
+`OpenBytes` does the same for a PDF already in memory.
+
 ### Encrypted PDFs
 
 Encrypted documents are decrypted transparently on open when they use the empty

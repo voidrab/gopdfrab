@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -231,6 +232,114 @@ func TestGoDirectivesAgree(t *testing.T) {
 			want = got
 		case got != want:
 			t.Errorf("%s says go %s, %s says go %s", mod, got, mods[0], want)
+		}
+	}
+}
+
+// exportedFuncs returns the package-level exported function names declared in
+// this package's non-test sources.
+func exportedFuncs(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package directory: %v", err)
+	}
+	fset := token.NewFileSet()
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if ok && fd.Recv == nil && fd.Name.IsExported() {
+				out = append(out, fd.Name.Name)
+			}
+		}
+	}
+	return out
+}
+
+// TestREADMENamesPublicAPI fails when a package-level exported function is not
+// named in README.md. The godoc is the reference, but the README is where a
+// reader starts, so a function missing from it is a function they never meet.
+func TestREADMENamesPublicAPI(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	words := docWords(string(readme))
+	for _, name := range exportedFuncs(t) {
+		if !words[name] {
+			t.Errorf("README.md does not name %s", name)
+		}
+	}
+}
+
+// cliFlags returns the flag names cmd/gopdfrab registers, taken from the string
+// literal each fs.String/fs.Bool/fs.Int call names it with.
+func cliFlags(t *testing.T) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, "cmd/gopdfrab", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing cmd/gopdfrab: %v", err)
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, pkg := range pkgs {
+		for name, file := range pkg.Files {
+			if strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) == 0 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				switch sel.Sel.Name {
+				case "String", "Bool", "Int":
+				default:
+					return true
+				}
+				// Both subcommands register some of the same flags.
+				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					if v, err := strconv.Unquote(lit.Value); err == nil && !seen[v] {
+						seen[v] = true
+						out = append(out, v)
+					}
+				}
+				return true
+			})
+		}
+	}
+	return out
+}
+
+// TestREADMEDocumentsCLIFlags fails when a registered CLI flag is not spelled
+// out in README.md. The section listed four of the eight once.
+func TestREADMEDocumentsCLIFlags(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	flags := cliFlags(t)
+	if len(flags) == 0 {
+		t.Fatal("no CLI flags found; the parse is broken, not the README")
+	}
+	for _, name := range flags {
+		if !strings.Contains(string(readme), "`--"+name+"`") &&
+			!strings.Contains(string(readme), "`-"+name+"`") {
+			t.Errorf("README.md does not document the %s flag", name)
 		}
 	}
 }
