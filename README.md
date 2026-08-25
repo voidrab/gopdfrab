@@ -45,9 +45,27 @@ gopdfrab convert --dpi 300 in.pdf         # tune the raster fallback
 gopdfrab verify --max-decoded-mb 64 x.pdf # cap decoded stream output at 64 MB
 ```
 
-Exit codes are `0` conformant, `1` non-conformant, `2` error, so it drops into
-scripts and CI directly. `verify` walks directories recursively; both
-subcommands accept `--profile`, `--password`, `--max-decoded-mb`, and `--json`.
+Subcommands are `verify`, `convert`, `version` and `help`. Exit codes are `0`
+conformant, `1` non-conformant, `2` error, so it drops into scripts and CI
+directly. `verify` walks directories recursively.
+
+Both subcommands take:
+
+| Flag | Meaning |
+|---|---|
+| `--profile` | `pdfa1b` (default), `legacy1b`, or `pdf` |
+| `--password` | password for an encrypted input |
+| `--max-decoded-mb` | cap a single stream's decoded output in MB (0 = default 256) |
+| `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64) |
+| `--json` | emit machine-readable JSON |
+
+`convert` also takes:
+
+| Flag | Meaning |
+|---|---|
+| `--dpi` | raster fallback resolution (0 = default 150) |
+| `--max-iterations` | verify/fix loop bound (0 = default 4) |
+| `-o` | output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
 
 ## Getting Started
 
