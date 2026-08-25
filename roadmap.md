@@ -3,9 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38–41 are done; each is one line under "Done", and the commit
+Items 1–36 and 38–42 are done; each is one line under "Done", and the commit
 history has the detail. What stands between here and a tagged 1.0 is items
-37, 42 and 43: none of them is a verifier or converter defect. The conformance
+37 and 43: neither is a verifier or converter defect. The conformance
 work is finished — what is left is the release itself, and the things a library
 has to settle *before* its API is frozen rather than after.
 
@@ -40,10 +40,8 @@ has to settle *before* its API is frozen rather than after.
 
 ## Open work
 
-Item 37 is the release. The other two are what has to be true before it, and
-they are not equally urgent: **42 changes the consumer's build, so deciding it
-after 1.0 costs a major version.** 43 is hygiene and can land in the same
-commit as the tag.
+Item 37 is the release. 43 is hygiene and can land in the same commit as the
+tag.
 
 ### 37. Cut the release
 
@@ -60,19 +58,6 @@ the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
 test in CI — they have only been through the local run. Merge first, let CI go
 green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
 the first one that makes the stability promise in `CHANGELOG.md` binding.
-
-### 42. The minimum Go version is the newest patch release
-
-All three `go.mod` files say `go 1.26.4`. A patch-level directive makes 1.26.4
-the floor, so anyone on 1.26.0–1.26.3 gets a toolchain download, and anyone with
-`GOTOOLCHAIN=local` gets a build failure — for a library with one dependency
-(`github.com/klauspost/compress`) that is a lot of adoption cost for nothing
-stated. **Measured: the tree builds clean at `go 1.24` and `go 1.25`**; only
-`go 1.23` fails, and on the dependency, not on our own code.
-
-Pick the floor deliberately and write it down. A 1.0 that requires the newest
-patch of the newest Go is a version-support policy nobody has stated, and
-raising the floor later is a minor release while lowering it is free.
 
 ### 43. The README has drifted from the surface it documents
 
@@ -333,6 +318,26 @@ public surface.
     through the rules that pick it, since a licence problem is a reason to swap
     one out and a swap must not ship something PDF/A-1 rejects.
 
+41. **The lint that is configured now runs.** `.golangci.yml` had been selecting
+    staticcheck (SA\* only), ineffassign and unused with no CI job invoking it,
+    so only `govet` was enforced — implicitly, through `go test`. The whole tree
+    held exactly one violation, an ineffectual `obj = nil` in
+    `heapRetainedBy` after the `runtime.KeepAlive` that already pinned the
+    value. The new `lint` job runs the linter at a pinned version, and builds,
+    vets and lints `benchmarks/` too: it is a separate module behind a `replace`
+    directive against the root, so no other job would have noticed it rotting
+    against an API change. `tests/` stays out — it is a marker module with no Go
+    code.
+
+42. **The minimum Go version is a decision now, not the newest patch.** All four
+    `go.mod` files said `go 1.26.4`, which made that exact patch the floor:
+    1.26.0–1.26.3 gets a toolchain download and `GOTOOLCHAIN=local` fails
+    outright. The floor is `go 1.24`, the oldest that can work — the one
+    dependency, `klauspost/compress`, declares `go 1.24` itself. A `floor` CI
+    job builds and tests at 1.24.x so the real minimum cannot drift up
+    unnoticed, and `TestGoDirectivesAgree` holds the four files to one another
+    and rejects a patch-level directive.
+
 Also closed along the way: the Type1 `FontFile` width path honours
 `/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
 than silently unverified; the DeviceN and resource-rename content rewriters no
@@ -355,17 +360,6 @@ Recorded so nobody re-investigates:
   stays an image-only filter**. Confirmed across all three corpora.
 - **The real-world corpus stays local.** Multi-gigabyte and gitignored;
   `manifest.json` keeps it reproducible on any machine.
-
-41. **The lint that is configured now runs.** `.golangci.yml` had been selecting
-    staticcheck (SA\* only), ineffassign and unused with no CI job invoking it,
-    so only `govet` was enforced — implicitly, through `go test`. The whole tree
-    held exactly one violation, an ineffectual `obj = nil` in
-    `heapRetainedBy` after the `runtime.KeepAlive` that already pinned the
-    value. The new `lint` job runs the linter at a pinned version, and builds,
-    vets and lints `benchmarks/` too: it is a separate module behind a `replace`
-    directive against the root, so no other job would have noticed it rotting
-    against an API change. `tests/` stays out — it is a marker module with no Go
-    code.
 
 ---
 
