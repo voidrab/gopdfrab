@@ -3,11 +3,10 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38–42 are done; each is one line under "Done", and the commit
-history has the detail. What stands between here and a tagged 1.0 is items
-37 and 43: neither is a verifier or converter defect. The conformance
-work is finished — what is left is the release itself, and the things a library
-has to settle *before* its API is frozen rather than after.
+Items 1–36 and 38–43 are done; each is one line under "Done", and the commit
+history has the detail. What stands between here and a tagged 1.0 is item 37,
+which is not a verifier or converter defect. The conformance work is finished —
+what is left is the release itself.
 
 ## Where things stand
 
@@ -40,8 +39,7 @@ has to settle *before* its API is frozen rather than after.
 
 ## Open work
 
-Item 37 is the release. 43 is hygiene and can land in the same commit as the
-tag.
+Item 37 is the release.
 
 ### 37. Cut the release
 
@@ -58,27 +56,6 @@ the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
 test in CI — they have only been through the local run. Merge first, let CI go
 green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
 the first one that makes the stability promise in `CHANGELOG.md` binding.
-
-### 43. The README has drifted from the surface it documents
-
-The godoc is the reference now (item 39), but the README is still where a
-reader starts, which makes its gaps count. Five public functions appear nowhere in it: `VerifyBytesContext`,
-`ConvertBytesContext`, `ConvertEachContext`, `OpenBytesWithPassword` and
-`NewProfile`. The CLI section says both subcommands accept "`--profile`,
-`--password`, `--max-decoded-mb`, and `--json`" and omits `--max-resident-mb`,
-`convert`'s `--dpi`, `--max-iterations` and `-o`, and the `version` and `help`
-subcommands. `wasm/` builds a real `syscall/js` wrapper exposing
-`gopdfrab.wasm` — it has a CI job and is not mentioned once. `doc.go` names the
-`PDF` profile where the README names `ObjectModelOnly()`; they are the same
-thing (`PDF = ObjectModelOnly()`), which is two spellings of one concept to
-settle before the freeze rather than two places to keep in sync forever.
-
-One more for the freeze review while the surface is open: `PDF`, `PDFA1B` and
-`Legacy1B` are exported `*Profile` **variables**. The profiles themselves are
-immutable — every mutator clones — but the variables are not, and a consumer
-can reassign `gopdfrab.PDFA1B` and change the default for the whole process.
-Also worth one decision: `Checks.Colour` is the only British spelling on the
-public surface.
 
 ---
 
@@ -337,6 +314,35 @@ public surface.
     job builds and tests at 1.24.x so the real minimum cannot drift up
     unnoticed, and `TestGoDirectivesAgree` holds the four files to one another
     and rejects a patch-level directive.
+
+43. **The README documents the surface that exists.** The godoc has been the
+    reference since item 39, but the README is where a reader starts, and five
+    public functions appeared nowhere in it — `VerifyBytesContext`,
+    `ConvertBytesContext`, `ConvertEachContext`, `OpenBytesWithPassword` and
+    `NewProfile`, plus `OpenBytes`, found by the guard rather than by reading.
+    The CLI section listed four flags for both subcommands when there are five,
+    and none of `convert`'s own three, nor the `version` and `help`
+    subcommands. `wasm/` builds a real `syscall/js` wrapper with its own CI job
+    and was not mentioned once; it now has a section naming the two globals it
+    registers and the shapes they resolve to.
+
+    Three things the freeze had to settle rather than inherit. The object-model
+    profile had two spellings, `PDF` in `doc.go` and `ObjectModelOnly()` in the
+    README: `PDF` is the one spelling now, with `ObjectModelOnly()` documented
+    as the way to get a profile nothing else shares. `PDF`, `PDFA1B` and
+    `Legacy1B` stay exported **variables** — that is how a Go package carries a
+    default, and the profiles themselves are immutable — so what reassigning
+    one costs is written next to them instead of engineered away.
+    `Checks.Colour` keeps the ISO spelling, which ISO 19005 and ISO 32000 both
+    use, recorded so the question is closed rather than reopened after the
+    freeze.
+
+    A hand-written reference drifts, which is how it got here, so it is pinned
+    the way items 39 and 40 pinned theirs: `TestREADMENamesPublicAPI` fails
+    when a package-level exported function is not named in the README, and
+    `TestREADMEDocumentsCLIFlags` reads the flag names out of `cmd/gopdfrab`
+    itself rather than trusting a second list. Both were checked by breaking
+    them.
 
 Also closed along the way: the Type1 `FontFile` width path honours
 `/Differences`; an unresolved `PDFRef` in the verify walk is reported rather
