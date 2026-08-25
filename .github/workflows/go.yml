@@ -56,6 +56,23 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
 
+  # The floor declared in go.mod. The jobs above run the newest Go; this one
+  # fails when new code needs something older toolchains do not have.
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.x'
+    - name: Build
+      run: go build -v ./...
+    - name: Test
+      run: |
+        PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
+        go test -short $PKGS
+
   lint:
     runs-on: ubuntu-latest
     steps:
