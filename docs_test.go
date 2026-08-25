@@ -197,3 +197,40 @@ func TestNoticeCoversBundledAssets(t *testing.T) {
 		t.Fatalf("walk assets: %v", err)
 	}
 }
+
+// TestGoDirectivesAgree fails when the modules disagree on the minimum Go
+// version, or when one names a patch release. A patch-level directive makes
+// that exact patch the floor -- consumers on an earlier patch download a
+// toolchain, and GOTOOLCHAIN=local cannot build at all.
+func TestGoDirectivesAgree(t *testing.T) {
+	mods := []string{
+		"go.mod",
+		"benchmarks/go.mod",
+		"tests/go.mod",
+		"internal/arlington/testdata/go.mod",
+	}
+	want := ""
+	for _, mod := range mods {
+		b, err := os.ReadFile(mod)
+		if err != nil {
+			t.Fatalf("read %s: %v", mod, err)
+		}
+		got := ""
+		for _, line := range strings.Split(string(b), "\n") {
+			if v, ok := strings.CutPrefix(strings.TrimSpace(line), "go "); ok {
+				got = strings.TrimSpace(v)
+				break
+			}
+		}
+		switch {
+		case got == "":
+			t.Errorf("%s has no go directive", mod)
+		case strings.Count(got, ".") != 1:
+			t.Errorf("%s says go %s; drop the patch component", mod, got)
+		case want == "":
+			want = got
+		case got != want:
+			t.Errorf("%s says go %s, %s says go %s", mod, got, mods[0], want)
+		}
+	}
+}
