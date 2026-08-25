@@ -87,6 +87,8 @@ if errors.Is(err, gopdfrab.ErrPasswordRequired) {
 }
 ```
 
+`OpenBytesWithPassword` is the same for in-memory data.
+
 `Verify` and `Convert` decrypt the same way. A file that needs a
 password is reported with `ErrPasswordRequired` rather than
 producing a broken result.
@@ -252,7 +254,7 @@ _, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer
 
 ### Options and cancellation
 
-The two-argument forms (`Convert(path, profile)`, `Verify(path, profile)`, and their `Bytes`/`All` variants) cover the common case. Each has a `…Context` counterpart that adds a `context.Context` for cancellation and an `Options` struct for tuning. The zero `Options` value is the default behavior.
+The two-argument forms (`Convert(path, profile)`, `Verify(path, profile)`, and their `Bytes`/`All` variants) cover the common case. Each has a `…Context` counterpart that adds a `context.Context` for cancellation and an `Options` struct for tuning — `VerifyContext`, `VerifyBytesContext`, `VerifyAllContext`, `ConvertContext`, `ConvertBytesContext`, `ConvertAllContext`. The zero `Options` value is the default behavior.
 
 ```go
 cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
@@ -320,7 +322,7 @@ err := gopdfrab.ConvertEach(paths, gopdfrab.PDFA1B, gopdfrab.Options{Workers: 4}
     })
 ```
 
-Returning a non-nil error from the callback stops the batch and is returned from `ConvertEach`.
+Returning a non-nil error from the callback stops the batch and is returned from `ConvertEach`. `ConvertEachContext` is the same with a `context.Context`.
 
 ### Inspecting Residuals
 
@@ -370,6 +372,11 @@ first question.
 
 Verification can be narrowed to a specific set of rules using `Verify`.
 
+`PDFA1B`, `Legacy1B` and `PDF` are package variables holding the ready-made
+profiles. A profile is immutable — `AddCheck`, `RemoveCheck` and `Clear` each
+return a clone — but the variables are not: reassigning one changes the default
+for the whole process.
+
 ### Start from the full profile and remove checks
 
 ```go
@@ -388,6 +395,18 @@ p := gopdfrab.PDFA1B.Clear().
         gopdfrab.Checks.Transparency.ImageWithSoftMask,
         gopdfrab.Checks.Metadata.PDFAIdentifierMissing,
     )
+
+res, err := doc.Verify(p)
+```
+
+### Start from nothing
+
+`NewProfile` returns an empty profile for a conformance level, for building a
+rule set up from scratch:
+
+```go
+p := gopdfrab.NewProfile(gopdfrab.A1B).
+    AddCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
 
 res, err := doc.Verify(p)
 ```
@@ -424,11 +443,14 @@ res, err := gopdfrab.VerifyObjectModelBytes(data)
 res, err := doc.VerifyObjectModel()
 ```
 
-These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.ObjectModelOnly()`, a profile enabling only the six checks above:
+These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.PDF`, the profile enabling only the six checks above:
 
 ```go
-res, err := doc.Verify(gopdfrab.ObjectModelOnly())
+res, err := doc.Verify(gopdfrab.PDF)
 ```
+
+`ObjectModelOnly()` builds a fresh profile equal to `PDF`, for a caller who wants
+one that nothing else shares.
 
 `ConvertObjectModel` is the conversion counterpart: it produces a rewrite repaired against the object-model checks only, applying every fix that is safe and semantics-preserving and reporting anything else as a residual.
 
