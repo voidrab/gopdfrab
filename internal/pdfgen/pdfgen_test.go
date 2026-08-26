@@ -21,7 +21,7 @@ func TestSeedsAreValid(t *testing.T) {
 		if _, err := r.ResolveGraph(); err != nil {
 			t.Errorf("seed %d graph does not resolve: %v", i, err)
 		}
-		if n, err := r.GetPageCount(); err != nil || n < 1 {
+		if n, err := r.PageCount(); err != nil || n < 1 {
 			t.Errorf("seed %d page count = %d, err = %v; want >=1, nil", i, n, err)
 		}
 		r.Close()

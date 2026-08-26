@@ -64,6 +64,7 @@ type structureChecks struct {
 	EndstreamEOL            Check
 	StreamLengthIncludesEOL Check
 	StreamLengthMismatch    Check
+	StreamUndecodable       Check
 	// 6.1.8 Object framing
 	ObjectFraming Check
 	// 6.1.10 LZW compression
@@ -103,7 +104,8 @@ type colourChecks struct {
 	OutputIntentInvalidN          Check
 	OutputIntentICCVersion        Check // contains profile and components mismatch checks
 	// 6.2.3.2 ICCBased colour spaces
-	ICCBasedComponentsMismatch Check // TODO add convert
+	ICCBasedComponentsMismatch Check
+	ICCBasedProfileInvalid     Check
 	// 6.2.3.3 Device colour spaces
 	DeviceColourSpaceUsage    Check
 	DeviceColourContentStream Check
@@ -150,13 +152,13 @@ type transparencyChecks struct {
 
 type fontChecks struct {
 	// 6.3.2 Font dictionary and program validity
-	FontType            Check // unused, wontdo
+	FontType            Check // left to the object model, which requires /Type
 	InvalidSubtype      Check
-	FontBaseFont        Check // TODO add convert
-	SimpleFontFirstChar Check // unused, wontdo
-	SimpleFontLastChar  Check // unused, wontdo
-	SimpleFontWidths    Check // unused, wontdo
-	FontFileSubtype     Check // TODO add check
+	FontBaseFont        Check
+	SimpleFontFirstChar Check // left to the object model, which requires /FirstChar
+	SimpleFontLastChar  Check // left to the object model, which requires /LastChar
+	SimpleFontWidths    Check // left to the object model, which requires /Widths
+	FontFileSubtype     Check
 	InvalidProgram      Check
 	// 6.3.3.1 CIDSystemInfo consistency
 	CIDSystemInfoMismatch Check
@@ -169,7 +171,7 @@ type fontChecks struct {
 	SimpleNotEmbedded Check
 	CIDNotEmbedded    Check
 	// 6.3.8 ToUnicode (Level A)
-	ToUnicodeMissing Check // TODO level A
+	ToUnicodeMissing Check // PDF/A-1a only; out of scope for 1b
 	// 6.3.5 Subset coverage
 	SubsetGlyphCoverage Check
 	Type1SubsetCharSet  Check
@@ -232,7 +234,7 @@ type metadataChecks struct {
 	// 6.7.9 XMP well-formedness
 	XMPStreamUnreadable    Check
 	XMPNotWellFormed       Check
-	XMPNoCorrespondingType Check // TODO add check
+	XMPNoCorrespondingType Check
 	// 6.7.11 PDF/A identifier
 	PDFAIdentifierMissing           Check
 	PDFAIdentifierNamespace         Check
@@ -243,14 +245,14 @@ type metadataChecks struct {
 
 type logicalStructureChecks struct {
 	// 6.8.2.2 Tagged PDF
-	TaggedMarkInfo Check // TODO level A
+	TaggedMarkInfo Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.3.3 Structure tree
-	StructTreeRoot Check // TODO level A
+	StructTreeRoot Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.3.4 Role map
-	RoleMapStandardType Check // TODO level A
-	RoleMapCircular     Check // TODO level A
+	RoleMapStandardType Check // PDF/A-1a only; out of scope for 1b
+	RoleMapCircular     Check // PDF/A-1a only; out of scope for 1b
 	// 6.8.4 Natural language
-	LangIdentifier Check // TODO level A
+	LangIdentifier Check // PDF/A-1a only; out of scope for 1b
 }
 
 type formChecks struct {
@@ -461,6 +463,10 @@ func init() {
 				"StreamLengthMismatch",
 				"The stream Length value must match the actual number of bytes between stream and endstream",
 				"6.1.7", 7),
+			StreamUndecodable: newCheck(
+				"StreamUndecodable",
+				"A stream object's filter chain must decode; a stream whose data cannot be read cannot be verified",
+				"6.1.7", 8),
 			ObjectFraming: newCheck(
 				"ObjectFraming",
 				"Objects must follow the 'N G obj … endobj' framing syntax",
@@ -580,6 +586,10 @@ func init() {
 				"ICCBasedComponentsMismatch",
 				"An ICCBased colour space N entry must be 1, 3, or 4 and match the component count of the embedded ICC profile",
 				"6.2.3.2", 1),
+			ICCBasedProfileInvalid: newCheck(
+				"ICCBasedProfileInvalid",
+				"An ICCBased colour space's embedded ICC profile must be version 2.x with a device class and colour space PDF/A-1 permits",
+				"6.2.3.2", 2),
 			DeviceColourSpaceUsage: newCheck(
 				"DeviceColourSpaceUsage",
 				"Device colour spaces used in image or shading XObjects require a matching OutputIntent",

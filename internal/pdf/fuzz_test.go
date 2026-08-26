@@ -40,9 +40,9 @@ func FuzzOpenBytes(f *testing.F) {
 		defer r.Close()
 		// Exercise the resolution / accessor paths; ignore their errors.
 		r.ResolveGraph()
-		r.GetPageCount()
-		r.GetVersion()
-		r.GetMetadata()
+		r.PageCount()
+		r.Version()
+		r.Metadata()
 		r.XMPMetadata()
 		r.ClaimedConformance()
 	})

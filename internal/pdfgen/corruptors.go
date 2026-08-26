@@ -2,6 +2,7 @@ package pdfgen
 
 import (
 	"bytes"
+	"fmt"
 	"math/rand"
 	"strconv"
 )
@@ -59,6 +60,54 @@ func Corruptors() []Corruptor {
 		{"nul-bytes", sprinkleNUL},
 		{"bit-flips", bitFlips},
 	}
+}
+
+// BreakXrefOffset returns a copy of a classic-xref document with object
+// objNum's 10-digit cross-reference offset replaced by newOffset, leaving
+// every other byte untouched. The document must use a single classic table
+// whose first entry is the standard "0000000000 65535 f" free entry (as
+// Builder.FinishClassic emits). Deterministic, for offset-recovery tests.
+func BreakXrefOffset(in []byte, objNum int, newOffset int64) []byte {
+	out := cp(in)
+	i := bytes.Index(out, []byte(" 65535 f"))
+	if i < 10 {
+		return out
+	}
+	start := i - 10 + 20*objNum
+	if start+10 > len(out) {
+		return out
+	}
+	copy(out[start:start+10], []byte(fmt.Sprintf("%010d", newOffset)))
+	return out
+}
+
+// BreakStartxref returns a copy of a document with its startxref offset
+// replaced by an unusable value, so the cross-reference section can no longer
+// be located and must be rebuilt by a full-file object scan. It targets the
+// digits after the last "startxref" keyword. Deterministic, for whole-table
+// xref-recovery tests.
+func BreakStartxref(in []byte) []byte {
+	out := cp(in)
+	i := bytes.LastIndex(out, []byte("startxref"))
+	if i < 0 {
+		return out
+	}
+	j := i + len("startxref")
+	for j < len(out) && (out[j] == '\r' || out[j] == '\n' || out[j] == ' ') {
+		j++
+	}
+	k := j
+	for k < len(out) && out[k] >= '0' && out[k] <= '9' {
+		k++
+	}
+	if k == j {
+		return out
+	}
+	repl := []byte("999999999")
+	for d := 0; d < k-j; d++ {
+		out[j+d] = repl[d%len(repl)]
+	}
+	return out
 }
 
 // --- structural corruptors -------------------------------------------------

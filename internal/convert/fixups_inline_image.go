@@ -1,8 +1,6 @@
 package convert
 
 import (
-	"fmt"
-
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -91,28 +89,6 @@ func removeInlineImageKeys(params []pdf.PDFValue, keys ...string) []pdf.PDFValue
 		out = append(out, params[i], params[i+1])
 	}
 	return out
-}
-
-// undoInlineImagePredictor reverses any PNG/TIFF predictor recorded in an
-// inline image's decode params, mirroring decodeStreamPredicted's tail. Data
-// is returned unchanged when no predictor applies.
-func undoInlineImagePredictor(data []byte, params []pdf.PDFValue) ([]byte, error) {
-	parms := inlineImageDecodeParms(params)
-	predictor := pdf.DictInt(parms, "Predictor", 1)
-	if predictor == 1 {
-		return data, nil
-	}
-	columns := pdf.DictInt(parms, "Columns", 1)
-	colors := pdf.DictInt(parms, "Colors", 1)
-	bpc := pdf.DictInt(parms, "BitsPerComponent", 8)
-	switch {
-	case predictor == 2:
-		return pdf.UndoTIFFPredictor(data, columns, colors, bpc)
-	case predictor >= 10:
-		return pdf.UndoPNGPredictor(data, columns, colors, bpc)
-	default:
-		return nil, fmt.Errorf("unsupported predictor %d", predictor)
-	}
 }
 
 // fixInlineImageRenderingIntent flips a non-standard inline-image /Intent
@@ -218,7 +194,10 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 			continue
 		}
 		name, ok := fixedParams[i+1].(pdf.PDFName)
-		if !ok || (name.Value != "LZW" && name.Value != "LZWDecode") {
+		if !ok {
+			continue
+		}
+		if info, known := pdf.LookupFilter(name.Value); !known || info.Kind != pdf.FilterLZW {
 			continue
 		}
 		fixedParams[i+1] = pdf.PDFName{Value: "Fl"}
@@ -232,7 +211,7 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 	if err != nil {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}
-	plain, err = undoInlineImagePredictor(plain, fixedParams)
+	plain, err = pdf.UndoStreamPredictor(plain, inlineImageDecodeParms(fixedParams), pdf.DecodeOptions{})
 	if err != nil {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}

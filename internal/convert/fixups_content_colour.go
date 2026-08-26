@@ -78,8 +78,8 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if !ok {
 				return
 			}
-			xobjects, _ := resources.Entries["XObject"].(pdf.PDFDict)
-			if xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && xobj.HasStream {
+			xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
+			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
 				scanContentColour(xobj, resourcesOf(xobj, resources), claim, decode, emit)
 			}
 		case "scn", "SCN":
@@ -90,8 +90,8 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if !ok {
 				return
 			}
-			patterns, _ := resources.Entries["Pattern"].(pdf.PDFDict)
-			if pat, ok := patterns.Entries[name.Value].(pdf.PDFDict); ok && pat.HasStream {
+			patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
+			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.HasStream {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
 		}
@@ -127,58 +127,74 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	var sharedRGB, sharedCMYK pdf.PDFArray
 
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Page"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
 			return
 		}
-		resources, _ := d.Entries["Resources"].(pdf.PDFDict)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
 		used := pageDeviceColourModels(d, resources, f.decode)
 
 		needRGB := used["rgb"] && !rgbCovered && !verify.DefaultColorSpaceDefined("rgb", resources)
 		needCMYK := used["cmyk"] && !cmykCovered && !verify.DefaultColorSpaceDefined("cmyk", resources)
-		// Appearance streams are checked in their own resource scope by strict
-		// verifiers; inject Default* regardless of whether the page already has it.
-		apNeedRGB := used["rgb"] && !rgbCovered
-		apNeedCMYK := used["cmyk"] && !cmykCovered
-		if !needRGB && !needCMYK && !apNeedRGB && !apNeedCMYK {
+		// Anything with its own resource dict -- an appearance stream, a form
+		// XObject -- is checked in that scope, so the page's Default* never
+		// reaches it. Those need the entry regardless of what the page carries.
+		nestedRGB := used["rgb"] && !rgbCovered
+		nestedCMYK := used["cmyk"] && !cmykCovered
+		if !needRGB && !needCMYK && !nestedRGB && !nestedCMYK {
 			return
 		}
 
-		if (needRGB || apNeedRGB) && sharedRGB == nil {
+		if (needRGB || nestedRGB) && sharedRGB == nil {
 			sharedRGB = iccBasedColourSpace(3, srgbICCProfile)
 		}
-		if (needCMYK || apNeedCMYK) && sharedCMYK == nil {
+		if (needCMYK || nestedCMYK) && sharedCMYK == nil {
 			sharedCMYK = iccBasedColourSpace(4, cmykICCProfile)
 		}
 
 		if needRGB || needCMYK {
-			csDict, ok := resources.Entries["ColorSpace"].(pdf.PDFDict)
+			csDict, ok := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
 			if !ok {
 				csDict = pdf.NewPDFDict()
 			}
 			if needRGB {
-				csDict.Entries["DefaultRGB"] = sharedRGB
+				csDict.Entries.Set("DefaultRGB", sharedRGB)
 			}
 			if needCMYK {
-				csDict.Entries["DefaultCMYK"] = sharedCMYK
+				csDict.Entries.Set("DefaultCMYK", sharedCMYK)
 			}
-			resources.Entries["ColorSpace"] = csDict
-			d.Entries["Resources"] = resources
+			resources.Entries.Set("ColorSpace", csDict)
+			d.Entries.Set("Resources", resources)
 			changed = true
+		}
+
+		// Form XObjects the page draws carry their own resources, and the
+		// page's Default* does not apply inside them.
+		if nestedRGB || nestedCMYK {
+			in := defaultCSInjection{
+				needRGB: nestedRGB, needCMYK: nestedCMYK,
+				rgb: sharedRGB, cmyk: sharedCMYK,
+				decode: f.decode, visited: map[uintptr]bool{},
+			}
+			forEachContentStream(d, func(cs pdf.PDFDict) {
+				if in.run(cs, resources) {
+					changed = true
+				}
+			})
 		}
 
 		// Appearance streams have their own resource dicts and are checked
 		// independently by strict verifiers, so also inject Default* there.
-		if annots, ok := d.Entries["Annots"].(pdf.PDFArray); ok {
+		if annots, ok := d.Entries.Get("Annots").(pdf.PDFArray); ok {
 			for _, item := range annots {
 				annot, ok := item.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+				ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				if fixAPColour(ap.Entries["N"], apNeedRGB, apNeedCMYK, sharedRGB, sharedCMYK, f.decode) {
+				if fixAPColour(ap.Entries.Get("N"), nestedRGB, nestedCMYK, sharedRGB, sharedCMYK, f.decode) {
 					changed = true
 				}
 			}
@@ -190,19 +206,26 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 // fixAPColour injects Default* colour spaces into the resource dict of each
 // appearance stream under an /AP /N entry, including nested form XObjects.
 func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, decode decodeFunc) bool {
-	visited := map[uintptr]bool{}
+	in := defaultCSInjection{
+		needRGB: needRGB, needCMYK: needCMYK,
+		rgb: sharedRGB, cmyk: sharedCMYK,
+		decode: decode, visited: map[uintptr]bool{},
+		// An appearance stream stands on its own resources, so it can be given
+		// a resource dict it did not have.
+		create: true,
+	}
 	changed := false
 	switch v := n.(type) {
 	case pdf.PDFDict:
 		if v.HasStream {
-			changed = injectDefaultCSRecursive(v, needRGB, needCMYK, sharedRGB, sharedCMYK, visited, decode) || changed
+			changed = in.run(v, resourcesOf(v, pdf.PDFDict{})) || changed
 		} else {
-			for k, sv := range v.Entries {
+			for k, sv := range v.Entries.All() {
 				if k == "_ref" {
 					continue
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
-					changed = injectDefaultCSRecursive(sd, needRGB, needCMYK, sharedRGB, sharedCMYK, visited, decode) || changed
+					changed = in.run(sd, resourcesOf(sd, pdf.PDFDict{})) || changed
 				}
 			}
 		}
@@ -210,19 +233,57 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 	return changed
 }
 
-// injectDefaultCSRecursive injects Default* into a stream and any form XObjects
-// it invokes via Do, so verifiers that don't use parent-resource inheritance
-// (e.g. veraPDF) see the Default* in each XObject's own resource dict.
-func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray, visited map[uintptr]bool, decode decodeFunc) bool {
+// forEachContentStream calls fn for each of a page's content streams, which
+// /Contents holds either as one stream or as an array of them.
+func forEachContentStream(page pdf.PDFDict, fn func(pdf.PDFDict)) {
+	switch contents := page.Entries.Get("Contents").(type) {
+	case pdf.PDFDict:
+		if contents.HasStream {
+			fn(contents)
+		}
+	case pdf.PDFArray:
+		for _, item := range contents {
+			if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+				fn(cd)
+			}
+		}
+	}
+}
+
+// defaultCSInjection carries one Default* injection down a content stream and
+// the form XObjects it invokes, so verifiers that read Default* from the
+// resource dict in force -- rather than from the page above it -- see the
+// entry where they look for it.
+type defaultCSInjection struct {
+	needRGB, needCMYK bool
+	rgb, cmyk         pdf.PDFArray
+	decode            decodeFunc
+	visited           map[uintptr]bool
+	// create allows a stream that has no /Resources of its own to be given
+	// one. A form XObject inside a page must not be: it reads the page's
+	// resources for every name it uses, so handing it a resource dict holding
+	// nothing but a colour space would cut it off from all of them. Its
+	// content is read in the page's scope anyway, which is where the page-level
+	// injection put the same entry.
+	create bool
+}
+
+// run injects into stream's own resources and follows every form XObject it
+// draws, resolving names in scope -- the stream's own /Resources when it has
+// them, the enclosing dict's otherwise.
+func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	ptr := pdf.ValuePointer(stream.Entries)
-	if visited[ptr] {
+	if in.visited[ptr] {
 		return false
 	}
-	visited[ptr] = true
+	in.visited[ptr] = true
 
-	changed := injectDefaultCS(stream, needRGB, needCMYK, sharedRGB, sharedCMYK)
+	changed := false
+	if _, own := stream.Entries.Get("Resources").(pdf.PDFDict); own || in.create {
+		changed = injectDefaultCS(stream, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	}
 
-	res, _ := stream.Entries["Resources"].(pdf.PDFDict)
+	decode := in.decode
 	if decode == nil {
 		decode = pdf.DecodeStream
 	}
@@ -238,9 +299,9 @@ func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, shared
 		if !ok {
 			return
 		}
-		xobjects, _ := res.Entries["XObject"].(pdf.PDFDict)
-		if xobj, ok := xobjects.Entries[name.Value].(pdf.PDFDict); ok && xobj.HasStream {
-			if injectDefaultCSRecursive(xobj, needRGB, needCMYK, sharedRGB, sharedCMYK, visited, decode) {
+		xobjects, _ := scope.Entries.Get("XObject").(pdf.PDFDict)
+		if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
+			if in.run(xobj, resourcesOf(xobj, scope)) {
 				changed = true
 			}
 		}
@@ -251,26 +312,26 @@ func injectDefaultCSRecursive(stream pdf.PDFDict, needRGB, needCMYK bool, shared
 // injectDefaultCS injects missing Default* colour-space entries into the
 // /Resources/ColorSpace dict of a stream dictionary.
 func injectDefaultCS(stream pdf.PDFDict, needRGB, needCMYK bool, sharedRGB, sharedCMYK pdf.PDFArray) bool {
-	res, _ := stream.Entries["Resources"].(pdf.PDFDict)
+	res, _ := stream.Entries.Get("Resources").(pdf.PDFDict)
 	if res.Entries == nil {
 		res = pdf.NewPDFDict()
 	}
-	cs, _ := res.Entries["ColorSpace"].(pdf.PDFDict)
+	cs, _ := res.Entries.Get("ColorSpace").(pdf.PDFDict)
 	if cs.Entries == nil {
 		cs = pdf.NewPDFDict()
 	}
 	changed := false
 	if needRGB && !verify.DefaultColorSpaceDefined("rgb", res) {
-		cs.Entries["DefaultRGB"] = sharedRGB
+		cs.Entries.Set("DefaultRGB", sharedRGB)
 		changed = true
 	}
 	if needCMYK && !verify.DefaultColorSpaceDefined("cmyk", res) {
-		cs.Entries["DefaultCMYK"] = sharedCMYK
+		cs.Entries.Set("DefaultCMYK", sharedCMYK)
 		changed = true
 	}
 	if changed {
-		res.Entries["ColorSpace"] = cs
-		stream.Entries["Resources"] = res
+		res.Entries.Set("ColorSpace", cs)
+		stream.Entries.Set("Resources", res)
 	}
 	return changed
 }
@@ -299,7 +360,7 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 	}
 	emit := func(model string, _ pdf.PDFDict) { addModel(model) }
 
-	switch contents := page.Entries["Contents"].(type) {
+	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		if contents.HasStream {
 			scanContentColour(contents, resources, claim, decode, emit)
@@ -321,35 +382,35 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 		}
 		dictVisited[ptr] = true
 
-		if xobjects, ok := res.Entries["XObject"].(pdf.PDFDict); ok {
-			for _, v := range xobjects.Entries {
+		if xobjects, ok := res.Entries.Get("XObject").(pdf.PDFDict); ok {
+			for _, v := range xobjects.Entries.All() {
 				xobj, ok := v.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				switch xobj.Entries["Subtype"] {
+				switch xobj.Entries.Get("Subtype") {
 				case pdf.PDFName{Value: "Image"}:
-					addModel(verify.DeviceColourModel(xobj.Entries["ColorSpace"]))
+					addModel(verify.DeviceColourModel(xobj.Entries.Get("ColorSpace")))
 				case pdf.PDFName{Value: "Form"}:
 					scanResourceColour(resourcesOf(xobj, res))
 				}
 			}
 		}
-		if shadings, ok := res.Entries["Shading"].(pdf.PDFDict); ok {
-			for _, v := range shadings.Entries {
+		if shadings, ok := res.Entries.Get("Shading").(pdf.PDFDict); ok {
+			for _, v := range shadings.Entries.All() {
 				if sh, ok := v.(pdf.PDFDict); ok {
-					addModel(verify.DeviceColourModel(sh.Entries["ColorSpace"]))
+					addModel(verify.DeviceColourModel(sh.Entries.Get("ColorSpace")))
 				}
 			}
 		}
-		if patterns, ok := res.Entries["Pattern"].(pdf.PDFDict); ok {
-			for _, v := range patterns.Entries {
+		if patterns, ok := res.Entries.Get("Pattern").(pdf.PDFDict); ok {
+			for _, v := range patterns.Entries.All() {
 				pat, ok := v.(pdf.PDFDict)
 				if !ok {
 					continue
 				}
-				if sh, ok := pat.Entries["Shading"].(pdf.PDFDict); ok {
-					addModel(verify.DeviceColourModel(sh.Entries["ColorSpace"]))
+				if sh, ok := pat.Entries.Get("Shading").(pdf.PDFDict); ok {
+					addModel(verify.DeviceColourModel(sh.Entries.Get("ColorSpace")))
 				}
 				scanResourceColour(resourcesOf(pat, res))
 			}
@@ -359,17 +420,17 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 
 	// Appearance streams (reached via /AP/N, not via Do from page content)
 	// are rendered as part of the page and must also be colour-clean.
-	if annots, ok := page.Entries["Annots"].(pdf.PDFArray); ok {
+	if annots, ok := page.Entries.Get("Annots").(pdf.PDFArray); ok {
 		for _, item := range annots {
 			annot, ok := item.(pdf.PDFDict)
 			if !ok {
 				continue
 			}
-			ap, ok := annot.Entries["AP"].(pdf.PDFDict)
+			ap, ok := annot.Entries.Get("AP").(pdf.PDFDict)
 			if !ok {
 				continue
 			}
-			scanAPAppearance(ap.Entries["N"], claim, decode, emit)
+			scanAPAppearance(ap.Entries.Get("N"), claim, decode, emit)
 		}
 	}
 
@@ -384,16 +445,16 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 		return
 	}
 	if v.HasStream {
-		apRes, _ := v.Entries["Resources"].(pdf.PDFDict)
+		apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 		scanContentColour(v, apRes, claim, decode, emit)
 		return
 	}
-	for k, sv := range v.Entries {
+	for k, sv := range v.Entries.All() {
 		if k == "_ref" {
 			continue
 		}
 		if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
-			apRes, _ := sd.Entries["Resources"].(pdf.PDFDict)
+			apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}
 	}

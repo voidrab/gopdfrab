@@ -10,7 +10,7 @@ import (
 
 func TestValidateAgainstSchema_MissingRequiredKey(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	// Pages omitted: Catalog.Pages is required and not inheritable.
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -21,10 +21,10 @@ func TestValidateAgainstSchema_MissingRequiredKey(t *testing.T) {
 
 func TestValidateAgainstSchema_InheritableKeyNotFlagged(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	parent := pdf.NewPDFDict()
-	parent.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
-	page.Entries["Parent"] = parent
+	parent.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	page.Entries.Set("Parent", parent)
 	// Resources/MediaBox omitted: both are Inheritable on PageObject, so their
 	// absence here is not itself a violation.
 	ctx := &ValidationContext{}
@@ -36,10 +36,10 @@ func TestValidateAgainstSchema_InheritableKeyNotFlagged(t *testing.T) {
 
 func TestValidateAgainstSchema_WrongValueType(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFInteger(1) // Catalog.Type must be a name
+	catalog.Entries.Set("Type", pdf.PDFInteger(1)) // Catalog.Type must be a name
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	catalog.Entries["Pages"] = pages
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -50,10 +50,10 @@ func TestValidateAgainstSchema_WrongValueType(t *testing.T) {
 
 func TestValidateAgainstSchema_CorrectTypeNotFlagged(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	catalog.Entries["Pages"] = pages
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -67,7 +67,7 @@ func TestValidateAgainstSchema_NullValueNotFlagged(t *testing.T) {
 	// null object -- is structurally equivalent to the key being absent
 	// (ISO 32000 7.3.9), so it must never trigger WrongValueType.
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = nil
+	info.Entries.Set("Title", nil)
 	ctx := &ValidationContext{}
 	validateAgainstSchema(info, "DocInfo", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
@@ -77,12 +77,12 @@ func TestValidateAgainstSchema_NullValueNotFlagged(t *testing.T) {
 
 func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
-	catalog.Entries["Pages"] = pages
-	catalog.Entries["ACustomVendorKey"] = pdf.PDFInteger(42)
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	catalog.Entries.Set("Pages", pages)
+	catalog.Entries.Set("ACustomVendorKey", pdf.PDFInteger(42))
 
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -94,8 +94,8 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 func TestValidateAgainstSchema_LengthSkippedOnStream(t *testing.T) {
 	meta := pdf.NewPDFDict()
 	meta.HasStream = true
-	meta.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
-	meta.Entries["Subtype"] = pdf.PDFName{Value: "XML"}
+	meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
 	// Length omitted: the writer always recomputes it from RawStream at
 	// serialization time, so its in-memory absence must not be flagged.
 	ctx := &ValidationContext{}
@@ -107,7 +107,7 @@ func TestValidateAgainstSchema_LengthSkippedOnStream(t *testing.T) {
 
 func TestValidateAgainstSchema_DisallowedValue(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["NonFullScreenPageMode"] = pdf.PDFName{Value: "Bogus"}
+	vp.Entries.Set("NonFullScreenPageMode", pdf.PDFName{Value: "Bogus"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(vp, "ViewerPreferences", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -117,7 +117,7 @@ func TestValidateAgainstSchema_DisallowedValue(t *testing.T) {
 
 func TestValidateAgainstSchema_AllowedValueNotFlagged(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["NonFullScreenPageMode"] = pdf.PDFName{Value: "UseOutlines"}
+	vp.Entries.Set("NonFullScreenPageMode", pdf.PDFName{Value: "UseOutlines"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(vp, "ViewerPreferences", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -129,7 +129,7 @@ func TestValidateAgainstSchema_DisallowedValueSkipsNonScalar(t *testing.T) {
 	// PossibleValues enforcement only covers name/integer scalars; an array
 	// value must never be flagged even though it can't match a string enum.
 	vp := pdf.NewPDFDict()
-	vp.Entries["NonFullScreenPageMode"] = pdf.PDFArray{}
+	vp.Entries.Set("NonFullScreenPageMode", pdf.PDFArray{})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(vp, "ViewerPreferences", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -160,10 +160,11 @@ func TestScalarEnumString(t *testing.T) {
 
 func TestValidateAgainstSchema_IndirectRequired(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	pages := pdf.NewPDFDict() // no _ref: inlined directly rather than referenced
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	catalog.Entries["Pages"] = pages
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	pages := pdf.NewPDFDict()
+	// no _ref: inlined directly rather than referenced
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -174,11 +175,11 @@ func TestValidateAgainstSchema_IndirectRequired(t *testing.T) {
 
 func TestValidateAgainstSchema_IndirectRequiredSatisfied(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
-	catalog.Entries["Pages"] = pages
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{}
 	validateAgainstSchema(catalog, "Catalog", ctx)
@@ -189,7 +190,7 @@ func TestValidateAgainstSchema_IndirectRequiredSatisfied(t *testing.T) {
 
 func TestValidateAgainstSchema_KeyIntroducedAfterPDF14(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["PrintScaling"] = pdf.PDFName{Value: "AppDefault"}
+	vp.Entries.Set("PrintScaling", pdf.PDFName{Value: "AppDefault"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(vp, "ViewerPreferences", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
@@ -199,7 +200,7 @@ func TestValidateAgainstSchema_KeyIntroducedAfterPDF14(t *testing.T) {
 
 func TestValidateAgainstSchema_CustomKeyNotPost14(t *testing.T) {
 	vp := pdf.NewPDFDict()
-	vp.Entries["ACustomVendorKey"] = pdf.PDFInteger(1)
+	vp.Entries.Set("ACustomVendorKey", pdf.PDFInteger(1))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(vp, "ViewerPreferences", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
@@ -211,7 +212,7 @@ func TestValidateAgainstSchema_WildcardTypeSkipsKeyIntroducedAfterPDF14(t *testi
 	// RoleMap has a "*" wildcard entry, so it accepts arbitrary keys; the
 	// post-1.4 check must not run against it at all.
 	rm := pdf.NewPDFDict()
-	rm.Entries["AnyRoleName"] = pdf.PDFName{Value: "Note"}
+	rm.Entries.Set("AnyRoleName", pdf.PDFName{Value: "Note"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(rm, "RoleMap", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14) {
@@ -221,7 +222,7 @@ func TestValidateAgainstSchema_WildcardTypeSkipsKeyIntroducedAfterPDF14(t *testi
 
 func TestIsIndirect(t *testing.T) {
 	ref := pdf.NewPDFDict()
-	ref.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	ref.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 	if !isIndirect(ref) {
 		t.Error("a dict carrying _ref must be indirect")
 	}
@@ -289,17 +290,17 @@ func TestArlingtonChildType(t *testing.T) {
 	// OpenAction's dict alternative resolves via its S discriminator, including the
 	// JavaScript -> ActionECMAScript case (not a naive "Action"+S concatenation).
 	goTo := pdf.NewPDFDict()
-	goTo.Entries["S"] = pdf.PDFName{Value: "GoTo"}
+	goTo.Entries.Set("S", pdf.PDFName{Value: "GoTo"})
 	if got := arlingtonChildType("Catalog", "OpenAction", goTo); got != "ActionGoTo" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=GoTo) = %q, want ActionGoTo", got)
 	}
 	js := pdf.NewPDFDict()
-	js.Entries["S"] = pdf.PDFName{Value: "JavaScript"}
+	js.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
 	if got := arlingtonChildType("Catalog", "OpenAction", js); got != "ActionECMAScript" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=JavaScript) = %q, want ActionECMAScript", got)
 	}
 	unknownAction := pdf.NewPDFDict()
-	unknownAction.Entries["S"] = pdf.PDFName{Value: "NotARealActionType"}
+	unknownAction.Entries.Set("S", pdf.PDFName{Value: "NotARealActionType"})
 	if got := arlingtonChildType("Catalog", "OpenAction", unknownAction); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, unrecognized S) = %q, want \"\" (no guess)", got)
 	}
@@ -327,7 +328,7 @@ func TestArlingtonElementType(t *testing.T) {
 
 	// ArrayOfAnnots' wildcard resolves each element via its own Subtype.
 	widget := pdf.NewPDFDict()
-	widget.Entries["Subtype"] = pdf.PDFName{Value: "Widget"}
+	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
 	if got := arlingtonElementType("ArrayOfAnnots", widget); got != "AnnotWidget" {
 		t.Errorf("arlingtonElementType(ArrayOfAnnots, Subtype=Widget) = %q, want AnnotWidget", got)
 	}
@@ -420,13 +421,13 @@ func TestSchemaCheckAfterUntypedFirstVisit(t *testing.T) {
 	shared := pdf.NewPDFDict() // empty: missing PageTreeNodeRoot's required Type/Kids/Count
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = shared
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", shared)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["AAACustom"] = shared
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Size"] = pdf.PDFInteger(3)
+	trailer.Entries.Set("AAACustom", shared)
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(3))
 
 	ctx := &ValidationContext{}
 	verifyDocument(trailer, ctx)
@@ -442,13 +443,14 @@ func TestSchemaCheckUnderEveryReachableType(t *testing.T) {
 	shared := pdf.NewPDFDict()
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["AcroForm"] = shared // InteractiveForm requires Fields
-	catalog.Entries["Pages"] = shared    // PageTreeNodeRoot requires Type/Kids/Count
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("AcroForm", shared)
+	// InteractiveForm requires Fields
+	catalog.Entries.Set("Pages", shared) // PageTreeNodeRoot requires Type/Kids/Count
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Size"] = pdf.PDFInteger(3)
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(3))
 
 	ctx := &ValidationContext{}
 	verifyDocument(trailer, ctx)
@@ -478,18 +480,19 @@ func TestSchemaCheckOncePerType(t *testing.T) {
 	form := pdf.NewPDFDict() // InteractiveForm missing required Fields
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["AcroForm"] = form
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("AcroForm", form)
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{}
-	pages.Entries["Count"] = pdf.PDFInteger(0)
-	catalog.Entries["Pages"] = pages
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{})
+	pages.Entries.Set("Count", pdf.PDFInteger(0))
+	catalog.Entries.Set("Pages", pages)
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["AAAAlias"] = catalog // second, untyped route to the same catalog
-	trailer.Entries["Size"] = pdf.PDFInteger(3)
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("AAAAlias", catalog)
+	// second, untyped route to the same catalog
+	trailer.Entries.Set("Size", pdf.PDFInteger(3))
 
 	ctx := &ValidationContext{}
 	verifyDocument(trailer, ctx)
@@ -555,7 +558,7 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	}
 
 	direct := pdf.NewPDFDict()
-	direct.Entries["Type"] = pdf.PDFName{Value: "Pages"}
+	direct.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	ctx = &ValidationContext{}
 	validateArrayAgainstSchema(pdf.PDFArray{direct}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
@@ -563,10 +566,10 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	}
 
 	indirect := pdf.NewPDFDict()
-	indirect.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	indirect.Entries["Kids"] = pdf.PDFArray{}
-	indirect.Entries["Count"] = pdf.PDFInteger(0)
-	indirect.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	indirect.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	indirect.Entries.Set("Kids", pdf.PDFArray{})
+	indirect.Entries.Set("Count", pdf.PDFInteger(0))
+	indirect.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
 	ctx = &ValidationContext{}
 	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
@@ -578,22 +581,22 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 // through Link edges: a direct (non-indirect) kid inside Pages.Kids must be flagged.
 func TestArraySchemaCheckedInWalk(t *testing.T) {
 	kid := pdf.NewPDFDict()
-	kid.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	kid.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Kids"] = pdf.PDFArray{kid}
-	pages.Entries["Count"] = pdf.PDFInteger(1)
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{kid})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = pages
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
-	trailer.Entries["Size"] = pdf.PDFInteger(3)
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(3))
 
 	ctx := &ValidationContext{}
 	verifyDocument(trailer, ctx)
@@ -616,7 +619,7 @@ func TestArraySchemaCheckedInWalk(t *testing.T) {
 func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	// XObjectMap's wildcard requires every value to be an indirect stream.
 	m := pdf.NewPDFDict()
-	m.Entries["Im1"] = pdf.PDFName{Value: "NotAStream"}
+	m.Entries.Set("Im1", pdf.PDFName{Value: "NotAStream"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(m, "XObjectMap", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.WrongValueType) {
@@ -626,7 +629,7 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	direct := pdf.NewPDFDict()
 	direct.HasStream = true
 	m = pdf.NewPDFDict()
-	m.Entries["Im1"] = direct
+	m.Entries.Set("Im1", direct)
 	ctx = &ValidationContext{}
 	validateAgainstSchema(m, "XObjectMap", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.IndirectRequired) {
@@ -635,9 +638,9 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 
 	indirect := pdf.NewPDFDict()
 	indirect.HasStream = true
-	indirect.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	indirect.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
 	m = pdf.NewPDFDict()
-	m.Entries["Im1"] = indirect
+	m.Entries.Set("Im1", indirect)
 	ctx = &ValidationContext{}
 	validateAgainstSchema(m, "XObjectMap", ctx)
 	if len(ctx.errs) != 0 {
@@ -649,8 +652,8 @@ func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
 	// DocInfo's wildcard types custom keys as string-text; named rows (Trapped
 	// is a name) must stay governed by their own row, not the wildcard.
 	info := pdf.NewPDFDict()
-	info.Entries["Trapped"] = pdf.PDFName{Value: "True"}
-	info.Entries["Custom"] = pdf.PDFInteger(7)
+	info.Entries.Set("Trapped", pdf.PDFName{Value: "True"})
+	info.Entries.Set("Custom", pdf.PDFInteger(7))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(info, "DocInfo", ctx)
 	count := 0
@@ -700,10 +703,10 @@ func TestValidateArrayAgainstSchema_WildcardEnum(t *testing.T) {
 
 func TestEvalCond(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["R"] = pdf.PDFInteger(5)
-	d.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	d.Entries["Null"] = nil
-	d.Entries["Dict"] = pdf.NewPDFDict()
+	d.Entries.Set("R", pdf.PDFInteger(5))
+	d.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	d.Entries.Set("Null", nil)
+	d.Entries.Set("Dict", pdf.NewPDFDict())
 
 	cases := []struct {
 		name    string
@@ -739,10 +742,10 @@ func TestEvalCond(t *testing.T) {
 
 func TestEvalCondModAndUnknown(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["Rotate"] = pdf.PDFInteger(270)
-	d.Entries["Skew"] = pdf.PDFInteger(45)
-	d.Entries["Neg"] = pdf.PDFInteger(-90)
-	d.Entries["Real"] = pdf.PDFReal(90)
+	d.Entries.Set("Rotate", pdf.PDFInteger(270))
+	d.Entries.Set("Skew", pdf.PDFInteger(45))
+	d.Entries.Set("Neg", pdf.PDFInteger(-90))
+	d.Entries.Set("Real", pdf.PDFReal(90))
 
 	cases := []struct {
 		name    string
@@ -772,14 +775,14 @@ func TestEvalCondModAndUnknown(t *testing.T) {
 
 func TestEvalCondOperandsAndContains(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["TI"] = pdf.PDFInteger(2)
-	d.Entries["Opt"] = pdf.PDFArray{pdf.PDFName{Value: "a"}, pdf.PDFName{Value: "b"}, pdf.PDFName{Value: "c"}}
-	d.Entries["S"] = pdf.PDFString{Value: "12345678"}
-	d.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "JPXDecode"}}
-	d.Entries["One"] = pdf.PDFName{Value: "DCTDecode"}
-	d.Entries["Mask"] = pdf.PDFBoolean(true)
-	d.Entries["Unmask"] = pdf.PDFBoolean(false)
-	d.Entries["Mixed"] = pdf.PDFArray{pdf.NewPDFDict()}
+	d.Entries.Set("TI", pdf.PDFInteger(2))
+	d.Entries.Set("Opt", pdf.PDFArray{pdf.PDFName{Value: "a"}, pdf.PDFName{Value: "b"}, pdf.PDFName{Value: "c"}})
+	d.Entries.Set("S", pdf.PDFString{Value: "12345678"})
+	d.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "JPXDecode"}})
+	d.Entries.Set("One", pdf.PDFName{Value: "DCTDecode"})
+	d.Entries.Set("Mask", pdf.PDFBoolean(true))
+	d.Entries.Set("Unmask", pdf.PDFBoolean(false))
+	d.Entries.Set("Mixed", pdf.PDFArray{pdf.NewPDFDict()})
 
 	cases := []struct {
 		name    string
@@ -806,7 +809,7 @@ func TestEvalCondOperandsAndContains(t *testing.T) {
 		{"malformed not fails closed", arlington.Cond{Op: arlington.CondNot}, false, false},
 		{"unrecognized op fails closed", arlington.Cond{Op: arlington.CondOp(99)}, false, false},
 	}
-	d.Entries["Sparse"] = pdf.PDFArray{nil, pdf.PDFName{Value: "X"}}
+	d.Entries.Set("Sparse", pdf.PDFArray{nil, pdf.PDFName{Value: "X"}})
 	for _, tc := range cases {
 		val, ok := evalCond(&tc.cond, d)
 		if val != tc.val || ok != tc.ok {
@@ -828,14 +831,14 @@ func TestEvalCondOperandsAndContains(t *testing.T) {
 
 func TestEvalCondAffineRHS(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["FirstChar"] = pdf.PDFInteger(32)
-	d.Entries["LastChar"] = pdf.PDFInteger(35)
-	d.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
-	d.Entries["N"] = pdf.PDFInteger(3)
-	d.Entries["Range"] = pdf.PDFArray{nil, nil, nil, nil, nil, nil}
-	d.Entries["Bounds"] = pdf.PDFArray{pdf.PDFInteger(1)}
-	d.Entries["Functions"] = pdf.PDFArray{nil, nil}
-	d.Entries["Name"] = pdf.PDFName{Value: "x"}
+	d.Entries.Set("FirstChar", pdf.PDFInteger(32))
+	d.Entries.Set("LastChar", pdf.PDFInteger(35))
+	d.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)})
+	d.Entries.Set("N", pdf.PDFInteger(3))
+	d.Entries.Set("Range", pdf.PDFArray{nil, nil, nil, nil, nil, nil})
+	d.Entries.Set("Bounds", pdf.PDFArray{pdf.PDFInteger(1)})
+	d.Entries.Set("Functions", pdf.PDFArray{nil, nil})
+	d.Entries.Set("Name", pdf.PDFName{Value: "x"})
 
 	widths := arlington.Cond{Op: arlington.CondEq, Key: "Widths", Fn: arlington.FnArrayLength,
 		RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"}
@@ -855,13 +858,13 @@ func TestEvalCondAffineRHS(t *testing.T) {
 		val, ok bool
 	}{
 		{"widths coupling holds", widths, nil, true, true},
-		{"widths coupling violated", widths, func() { d.Entries["LastChar"] = pdf.PDFInteger(40) }, false, true},
+		{"widths coupling violated", widths, func() { d.Entries.Set("LastChar", pdf.PDFInteger(40)) }, false, true},
 		{"non-numeric subtrahend fails closed", badKey2, nil, false, false},
 		{"absent subtrahend fails closed", absentKey2, nil, false, false},
 		{"scaled sibling holds", scaled, nil, true, true},
-		{"scaled sibling violated", scaled, func() { d.Entries["N"] = pdf.PDFInteger(4) }, false, true},
+		{"scaled sibling violated", scaled, func() { d.Entries.Set("N", pdf.PDFInteger(4)) }, false, true},
 		{"offset sibling length holds", offset, nil, true, true},
-		{"offset non-array fails closed", offset, func() { d.Entries["Bounds"] = pdf.PDFInteger(1) }, false, false},
+		{"offset non-array fails closed", offset, func() { d.Entries.Set("Bounds", pdf.PDFInteger(1)) }, false, false},
 	}
 	for _, tc := range cases {
 		if tc.mutate != nil {
@@ -876,19 +879,18 @@ func TestEvalCondAffineRHS(t *testing.T) {
 
 func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+NotStandard"}
-	font.Entries["FirstChar"] = pdf.PDFInteger(32)
-	font.Entries["LastChar"] = pdf.PDFInteger(34)
-	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)} // needs 3 entries
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+NotStandard"})
+	font.Entries.Set("FirstChar", pdf.PDFInteger(32))
+	font.Entries.Set("LastChar", pdf.PDFInteger(34))
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500)}) // needs 3 entries
 	ctx := &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
 		t.Error("expected ConstraintViolated for a Widths/FirstChar/LastChar count mismatch")
 	}
-
-	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)}
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -897,8 +899,8 @@ func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
 
 	// An absent FirstChar leaves the coupling unknown: no flag (its own absence is
 	// MissingRequiredKey's business).
-	delete(font.Entries, "FirstChar")
-	font.Entries["Widths"] = pdf.PDFArray{pdf.PDFInteger(500)}
+	font.Entries.Del("FirstChar")
+	font.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500)})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -910,17 +912,16 @@ func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	// A plain (non-JPX, non-mask) image stream must carry ColorSpace and BitsPerComponent.
 	img := pdf.NewPDFDict()
 	img.HasStream = true
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Width"] = pdf.PDFInteger(1)
-	img.Entries["Height"] = pdf.PDFInteger(1)
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Width", pdf.PDFInteger(1))
+	img.Entries.Set("Height", pdf.PDFInteger(1))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
 		t.Error("expected MissingRequiredKey for an image without ColorSpace/BitsPerComponent")
 	}
-
 	// An image mask needs neither.
-	img.Entries["ImageMask"] = pdf.PDFBoolean(true)
+	img.Entries.Set("ImageMask", pdf.PDFBoolean(true))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
@@ -928,8 +929,8 @@ func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	}
 
 	// A JPX-encoded image self-describes both.
-	delete(img.Entries, "ImageMask")
-	img.Entries["Filter"] = pdf.PDFName{Value: "JPXDecode"}
+	img.Entries.Del("ImageMask")
+	img.Entries.Set("Filter", pdf.PDFName{Value: "JPXDecode"})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
@@ -940,19 +941,18 @@ func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	// EncryptionStandard.R must be 3 when V is 2.
 	enc := pdf.NewPDFDict()
-	enc.Entries["Filter"] = pdf.PDFName{Value: "Standard"}
-	enc.Entries["V"] = pdf.PDFInteger(2)
-	enc.Entries["R"] = pdf.PDFInteger(2)
-	enc.Entries["O"] = pdf.PDFString{Value: "o"}
-	enc.Entries["U"] = pdf.PDFString{Value: "u"}
-	enc.Entries["P"] = pdf.PDFInteger(-4)
+	enc.Entries.Set("Filter", pdf.PDFName{Value: "Standard"})
+	enc.Entries.Set("V", pdf.PDFInteger(2))
+	enc.Entries.Set("R", pdf.PDFInteger(2))
+	enc.Entries.Set("O", pdf.PDFString{Value: "o"})
+	enc.Entries.Set("U", pdf.PDFString{Value: "u"})
+	enc.Entries.Set("P", pdf.PDFInteger(-4))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(enc, "EncryptionStandard", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for R=2 with V=2")
 	}
-
-	enc.Entries["R"] = pdf.PDFInteger(3)
+	enc.Entries.Set("R", pdf.PDFInteger(3))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(enc, "EncryptionStandard", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -963,28 +963,26 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	// outside the (now unpredicated) enum regardless of filter.
 	img := pdf.NewPDFDict()
 	img.HasStream = true
-	img.Entries["Subtype"] = pdf.PDFName{Value: "Image"}
-	img.Entries["Width"] = pdf.PDFInteger(1)
-	img.Entries["Height"] = pdf.PDFInteger(1)
-	img.Entries["ColorSpace"] = pdf.PDFName{Value: "DeviceGray"}
-	img.Entries["Filter"] = pdf.PDFName{Value: "DCTDecode"}
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(4)
+	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	img.Entries.Set("Width", pdf.PDFInteger(1))
+	img.Entries.Set("Height", pdf.PDFInteger(1))
+	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceGray"})
+	img.Entries.Set("Filter", pdf.PDFName{Value: "DCTDecode"})
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(4))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for a 4-bit DCT image")
 	}
-
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(8)
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Errorf("an 8-bit DCT image must not be flagged, got %v", ctx.errs)
 	}
-
 	// An unresolvable pin condition (Filter as an array makes @Filter== unknown) never flags.
-	img.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "DCTDecode"}}
-	img.Entries["BitsPerComponent"] = pdf.PDFInteger(4)
+	img.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "DCTDecode"}})
+	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(4))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(img, "XObjectImage", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -996,24 +994,22 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// A stream's DecodeParms array must be as long as its Filter array.
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
-	stream.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}}
-	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
+	stream.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
+	stream.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(stream, "Stream", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
 		t.Error("expected ConstraintViolated for mismatched DecodeParms/Filter lengths")
 	}
-
-	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict(), nil}
+	stream.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict(), nil})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(stream, "Stream", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
 		t.Errorf("matched lengths must not be flagged, got %v", ctx.errs)
 	}
-
 	// A single name Filter makes ArrayLength(Filter) unknown: no flag either way.
-	stream.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
-	stream.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
+	stream.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	stream.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(stream, "Stream", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -1024,8 +1020,8 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// flag; annotation F bits are only constrained through version gates, which are dropped
 	// (real files carry post-1.4 flag bits harmlessly -- the KeyIntroducedAfterPDF14 stance).
 	desc := pdf.NewPDFDict()
-	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	desc.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14) // Nonsymbolic + reserved bit 15
+	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	desc.Entries.Set("Flags", pdf.PDFInteger(32+1<<14)) // Nonsymbolic + reserved bit 15
 	ctx = &ValidationContext{}
 	validateAgainstSchema(desc, "FontDescriptorType1", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -1033,9 +1029,9 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	}
 
 	annot := pdf.NewPDFDict()
-	annot.Entries["Subtype"] = pdf.PDFName{Value: "Text"}
-	annot.Entries["Rect"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}
-	annot.Entries["F"] = pdf.PDFInteger(1 << 9) // bit 10, LockedContents (PDF 1.7)
+	annot.Entries.Set("Subtype", pdf.PDFName{Value: "Text"})
+	annot.Entries.Set("Rect", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)})
+	annot.Entries.Set("F", pdf.PDFInteger(1<<9)) // bit 10, LockedContents (PDF 1.7)
 	ctx = &ValidationContext{}
 	validateAgainstSchema(annot, "AnnotText", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -1045,7 +1041,7 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// A negative flag word keeps its two's-complement pattern: bits 13..32 of a standard
 	// permissions value like -44 are set, so CondBitsSet on them holds.
 	perms := pdf.NewPDFDict()
-	perms.Entries["P"] = pdf.PDFInteger(-44)
+	perms.Entries.Set("P", pdf.PDFInteger(-44))
 	set, ok := evalCond(&arlington.Cond{Op: arlington.CondBitsSet, Key: "P", BitLo: 13, BitHi: 32}, perms)
 	if !set || !ok {
 		t.Errorf("bits 13..32 of -44 must read as set, got (%v, %v)", set, ok)
@@ -1074,11 +1070,11 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// An odd-length function Domain violates the mod-2 coupling.
 	fn := pdf.NewPDFDict()
 	fn.HasStream = true
-	fn.Entries["FunctionType"] = pdf.PDFInteger(0)
-	fn.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(2)}
-	fn.Entries["Range"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	fn.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2)}
-	fn.Entries["BitsPerSample"] = pdf.PDFInteger(8)
+	fn.Entries.Set("FunctionType", pdf.PDFInteger(0))
+	fn.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(2)})
+	fn.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	fn.Entries.Set("Size", pdf.PDFArray{pdf.PDFInteger(2)})
+	fn.Entries.Set("BitsPerSample", pdf.PDFInteger(8))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(fn, "FunctionType0", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.ConstraintViolated) {
@@ -1088,17 +1084,16 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 
 func TestValidateAgainstSchema_NotStandard14Font(t *testing.T) {
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "ABCDEF+SomeFont"}
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+SomeFont"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
 		t.Error("expected MissingRequiredKey for a non-standard Type1 font without Widths")
 	}
-
 	// A standard-14 base font carries its own metrics; nothing further is required.
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "Helvetica"}
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
@@ -1107,7 +1102,7 @@ func TestValidateAgainstSchema_NotStandard14Font(t *testing.T) {
 
 	// Without BaseFont the standard-14 test is unknowable: the conditional requirements are
 	// skipped, only BaseFont's own absence is flagged.
-	delete(font.Entries, "BaseFont")
+	font.Entries.Del("BaseFont")
 	ctx = &ValidationContext{}
 	validateAgainstSchema(font, "FontType1", ctx)
 	count := 0
@@ -1139,16 +1134,15 @@ func TestValidateArrayAgainstSchema_ElementComparison(t *testing.T) {
 
 func TestValidateAgainstSchema_RotateMod90(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Parent"] = pdf.PDFRef{ObjNum: 2}
-	page.Entries["Rotate"] = pdf.PDFInteger(45)
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Parent", pdf.PDFRef{ObjNum: 2})
+	page.Entries.Set("Rotate", pdf.PDFInteger(45))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(page, "PageObject", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
 		t.Error("expected DisallowedValue for /Rotate 45")
 	}
-
-	page.Entries["Rotate"] = pdf.PDFInteger(-270)
+	page.Entries.Set("Rotate", pdf.PDFInteger(-270))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(page, "PageObject", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1158,10 +1152,10 @@ func TestValidateAgainstSchema_RotateMod90(t *testing.T) {
 
 func TestEvalCondOrdering(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["CA"] = pdf.PDFReal(0.5)
-	d.Entries["CA1"] = pdf.PDFReal(1.0000001)
-	d.Entries["LC"] = pdf.PDFInteger(2)
-	d.Entries["Name"] = pdf.PDFName{Value: "X"}
+	d.Entries.Set("CA", pdf.PDFReal(0.5))
+	d.Entries.Set("CA1", pdf.PDFReal(1.0000001))
+	d.Entries.Set("LC", pdf.PDFInteger(2))
+	d.Entries.Set("Name", pdf.PDFName{Value: "X"})
 
 	cases := []struct {
 		name    string
@@ -1189,7 +1183,7 @@ func TestEvalCondOrdering(t *testing.T) {
 func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 	// GraphicsStateParameter.CA must satisfy 0 <= CA <= 1.
 	gs := pdf.NewPDFDict()
-	gs.Entries["CA"] = pdf.PDFReal(1.5)
+	gs.Entries.Set("CA", pdf.PDFReal(1.5))
 	ctx := &ValidationContext{}
 	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1197,7 +1191,7 @@ func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 	}
 
 	gs = pdf.NewPDFDict()
-	gs.Entries["CA"] = pdf.PDFReal(0.5)
+	gs.Entries.Set("CA", pdf.PDFReal(0.5))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1206,7 +1200,7 @@ func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 
 	// Real files carry rounded values like 1.0000001; validators accept them as 1.0.
 	gs = pdf.NewPDFDict()
-	gs.Entries["CA"] = pdf.PDFReal(1.0000001)
+	gs.Entries.Set("CA", pdf.PDFReal(1.0000001))
 	ctx = &ValidationContext{}
 	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1215,7 +1209,7 @@ func TestValidateAgainstSchema_ValueCondRange(t *testing.T) {
 
 	// A value of the wrong shape is the type check's business, not the range check's.
 	gs = pdf.NewPDFDict()
-	gs.Entries["CA"] = pdf.PDFName{Value: "NotANumber"}
+	gs.Entries.Set("CA", pdf.PDFName{Value: "NotANumber"})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(gs, "GraphicsStateParameter", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1274,7 +1268,7 @@ func TestValidateArrayAgainstSchema_ValueCondRange(t *testing.T) {
 func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// PageObject.Parent is required when @Type!=Template.
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(page, "PageObject", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
@@ -1282,7 +1276,7 @@ func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	}
 
 	tmpl := pdf.NewPDFDict()
-	tmpl.Entries["Type"] = pdf.PDFName{Value: "Template"}
+	tmpl.Entries.Set("Type", pdf.PDFName{Value: "Template"})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(tmpl, "PageObject", ctx)
 	if hasCheck(ctx, pdf.Checks.ObjectModel.MissingRequiredKey) {
@@ -1292,8 +1286,8 @@ func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// FileTrailer.ID is required when Encrypt is present.
 	trailer := pdf.NewPDFDict()
 	enc := pdf.NewPDFDict()
-	enc.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
-	trailer.Entries["Encrypt"] = enc
+	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	trailer.Entries.Set("Encrypt", enc)
 	ctx = &ValidationContext{}
 	validateAgainstSchema(trailer, "FileTrailer", ctx)
 	found := false
@@ -1310,7 +1304,7 @@ func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 func TestValidateAgainstSchema_WildcardDictEnum(t *testing.T) {
 	// ColorSpaceMap's wildcard enumerates the legal name-valued entries.
 	m := pdf.NewPDFDict()
-	m.Entries["CS0"] = pdf.PDFName{Value: "BogusColorSpace"}
+	m.Entries.Set("CS0", pdf.PDFName{Value: "BogusColorSpace"})
 	ctx := &ValidationContext{}
 	validateAgainstSchema(m, "ColorSpaceMap", ctx)
 	if !hasCheck(ctx, pdf.Checks.ObjectModel.DisallowedValue) {
@@ -1318,7 +1312,7 @@ func TestValidateAgainstSchema_WildcardDictEnum(t *testing.T) {
 	}
 
 	m = pdf.NewPDFDict()
-	m.Entries["CS0"] = pdf.PDFName{Value: "DeviceRGB"}
+	m.Entries.Set("CS0", pdf.PDFName{Value: "DeviceRGB"})
 	ctx = &ValidationContext{}
 	validateAgainstSchema(m, "ColorSpaceMap", ctx)
 	if len(ctx.errs) != 0 {
@@ -1332,10 +1326,10 @@ func TestSelfIdentifiedType(t *testing.T) {
 	mk := func(typ, sub string) pdf.PDFDict {
 		d := pdf.NewPDFDict()
 		if typ != "" {
-			d.Entries["Type"] = pdf.PDFName{Value: typ}
+			d.Entries.Set("Type", pdf.PDFName{Value: typ})
 		}
 		if sub != "" {
-			d.Entries["Subtype"] = pdf.PDFName{Value: sub}
+			d.Entries.Set("Subtype", pdf.PDFName{Value: sub})
 		}
 		return d
 	}
@@ -1356,7 +1350,7 @@ func TestSelfIdentifiedType(t *testing.T) {
 
 	// A non-name /Type never re-anchors.
 	d := pdf.NewPDFDict()
-	d.Entries["Type"] = pdf.PDFInteger(3)
+	d.Entries.Set("Type", pdf.PDFInteger(3))
 	if got := selfIdentifiedType(d); got != "" {
 		t.Errorf("selfIdentifiedType(non-name Type) = %q, want \"\"", got)
 	}
@@ -1366,11 +1360,11 @@ func TestSelfIdentifiedType(t *testing.T) {
 // custom trailer key: the walk must re-anchor it as PageObject and flag its missing Parent.
 func TestWalkReanchorsSelfIdentifyingDict(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["XOrphan"] = page
-	trailer.Entries["Size"] = pdf.PDFInteger(2)
+	trailer.Entries.Set("XOrphan", page)
+	trailer.Entries.Set("Size", pdf.PDFInteger(2))
 
 	ctx := &ValidationContext{}
 	verifyDocument(trailer, ctx)
@@ -1435,7 +1429,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 	dict := func(kv map[string]pdf.PDFValue) pdf.PDFDict {
 		d := pdf.NewPDFDict()
 		for k, v := range kv {
-			d.Entries[k] = v
+			d.Entries.Set(k, v)
 		}
 		return d
 	}
@@ -1534,7 +1528,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 // TestExportedFixerHelpers covers the wrappers convert's objmodel fixers use.
 func TestExportedFixerHelpers(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["V"] = pdf.PDFInteger(1)
+	d.Entries.Set("V", pdf.PDFInteger(1))
 	if holds, ok := EvalCond(&arlington.Cond{Op: arlington.CondPresent, Key: "V"}, d); !holds || !ok {
 		t.Errorf("EvalCond(Present V) = (%v, %v), want (true, true)", holds, ok)
 	}

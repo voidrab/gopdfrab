@@ -208,7 +208,7 @@ func buildXRefStreamWithObjStmPDF(t *testing.T) []byte {
 // TestXRefStreamOnly verifies a PDF/1.5+ file using only a cross-reference
 // stream (no classic "xref" table, no literal "trailer" keyword) is fully
 // readable: page count, page resolution and content all resolve correctly.
-// As an additional end-to-end smoke test, Verify(A_1B) must run to
+// As an additional end-to-end smoke test, Verify(A1B) must run to
 // completion and correctly flag the file non-conformant (PDF/A-1b is based
 // on PDF 1.4 and does not permit cross-reference streams), without losing
 // the ability to resolve the rest of the graph.
@@ -221,8 +221,8 @@ func TestXRefStreamOnly(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Fatalf("GetPageCount() = %d, %v; want 1, nil", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
 	}
 
 	graph, err := doc.ResolveGraph()
@@ -232,7 +232,7 @@ func TestXRefStreamOnly(t *testing.T) {
 	page := assertOnePageGraph(t, graph)
 	assertContentStream(t, doc, page, "q\nQ\n")
 
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -263,8 +263,8 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Fatalf("GetPageCount() = %d, %v; want 1, nil", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
 	}
 
 	graph, err := doc.ResolveGraph()
@@ -277,11 +277,11 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	// The graph-resolved Page dict (from inside the ObjStm) must carry the
 	// synthetic _ref stamp like any classically-stored object, since
 	// buildPageIndex and every checker key off it.
-	if ref, ok := page.Entries["_ref"].(pdf.PDFRef); !ok || ref.ObjNum != 3 {
+	if ref, ok := page.Entries.Get("_ref").(pdf.PDFRef); !ok || ref.ObjNum != 3 {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
-	res, err := verify.Verify(doc, pdf.PDFA_1B)
+	res, err := verify.Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -294,28 +294,28 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 // Page dict, failing the test on any structural mismatch.
 func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 	t.Helper()
-	root, ok := graph.(pdf.PDFDict).Entries["Root"].(pdf.PDFDict)
+	root, ok := graph.(pdf.PDFDict).Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(root.Entries["Type"], pdf.PDFName{Value: "Catalog"}) {
-		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries["Type"])
+	if !pdf.EqualPDFValue(root.Entries.Get("Type"), pdf.PDFName{Value: "Catalog"}) {
+		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries.Get("Type"))
 	}
 
-	pages, ok := root.Entries["Pages"].(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root/Pages did not resolve to a dict")
 	}
-	kids, ok := pages.Entries["Kids"].(pdf.PDFArray)
+	kids, ok := pages.Entries.Get("Kids").(pdf.PDFArray)
 	if !ok || len(kids) != 1 {
-		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries["Kids"])
+		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries.Get("Kids"))
 	}
 	page, ok := kids[0].(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Kids[0] did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(page.Entries["Type"], pdf.PDFName{Value: "Page"}) {
-		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries["Type"])
+	if !pdf.EqualPDFValue(page.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries.Get("Type"))
 	}
 	return page
 }
@@ -323,7 +323,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 // assertContentStream decodes page's /Contents stream and checks it matches want.
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
-	contents, ok := page.Entries["Contents"].(pdf.PDFDict)
+	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
 	if !ok || !contents.HasStream {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
@@ -387,11 +387,11 @@ func TestOpenXRefStreamPDF(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Errorf("GetPageCount = %d, %v; want 1", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Errorf("PageCount = %d, %v; want 1", n, err)
 	}
-	if v, err := doc.GetVersion(); err != nil || v != "1.5" {
-		t.Errorf("GetVersion = %q, %v; want 1.5", v, err)
+	if v, err := doc.Version(); err != nil || v != "1.5" {
+		t.Errorf("Version = %q, %v; want 1.5", v, err)
 	}
 }
 
@@ -452,7 +452,7 @@ func TestOpenObjStmPDF(t *testing.T) {
 		t.Fatalf("OpenBytes(objstm PDF): %v", err)
 	}
 	defer doc.Close()
-	if n, err := doc.GetPageCount(); err != nil || n != 1 {
-		t.Errorf("GetPageCount = %d, %v; want 1 (resolved from an object stream)", n, err)
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Errorf("PageCount = %d, %v; want 1 (resolved from an object stream)", n, err)
 	}
 }

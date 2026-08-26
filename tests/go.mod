@@ -4,4 +4,4 @@
 // every test that reads them skips when they are absent.
 module github.com/voidrab/gopdfrab/tests
 
-go 1.26.4
+go 1.24

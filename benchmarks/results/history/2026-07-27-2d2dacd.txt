@@ -1,0 +1,102 @@
+goos: linux
+goarch: amd64
+pkg: github.com/voidrab/gopdfrab/benchmarks/micro
+cpu: Intel(R) Core(TM) Ultra 7 255H
+BenchmarkOpenVerify/p90-16         	     572	   1927678 ns/op	  239724 B/op	    1905 allocs/op
+BenchmarkOpenVerify/p90-16         	     626	   1942921 ns/op	  241237 B/op	    1906 allocs/op
+BenchmarkOpenVerify/p90-16         	     540	   1872887 ns/op	  240651 B/op	    1906 allocs/op
+BenchmarkOpenVerify/p90-16         	     564	   1924172 ns/op	  242524 B/op	    1907 allocs/op
+BenchmarkOpenVerify/p90-16         	     618	   1829089 ns/op	  243026 B/op	    1907 allocs/op
+BenchmarkOpenVerify/p90-16         	     638	   2002051 ns/op	  243366 B/op	    1907 allocs/op
+BenchmarkOpenVerify/fonts-16       	     214	   5686925 ns/op	  693642 B/op	    1670 allocs/op
+BenchmarkOpenVerify/fonts-16       	     256	   5075617 ns/op	  688037 B/op	    1672 allocs/op
+BenchmarkOpenVerify/fonts-16       	     211	   5662271 ns/op	  708671 B/op	    1674 allocs/op
+BenchmarkOpenVerify/fonts-16       	     216	   5879556 ns/op	  693946 B/op	    1673 allocs/op
+BenchmarkOpenVerify/fonts-16       	     213	   5191596 ns/op	  645564 B/op	    1665 allocs/op
+BenchmarkOpenVerify/fonts-16       	     229	   5680192 ns/op	  717086 B/op	    1677 allocs/op
+BenchmarkOpenVerify/large_color-16 	     189	   6288291 ns/op	 1079283 B/op	    1221 allocs/op
+BenchmarkOpenVerify/large_color-16 	     192	   6498988 ns/op	 1148095 B/op	    1224 allocs/op
+BenchmarkOpenVerify/large_color-16 	     169	   6245979 ns/op	 1213895 B/op	    1233 allocs/op
+BenchmarkOpenVerify/large_color-16 	     186	   6370666 ns/op	 1126824 B/op	    1226 allocs/op
+BenchmarkOpenVerify/large_color-16 	     190	   6128898 ns/op	 1172981 B/op	    1230 allocs/op
+BenchmarkOpenVerify/large_color-16 	     189	   6321449 ns/op	 1184986 B/op	    1228 allocs/op
+BenchmarkOpenVerify/large-16       	       4	 265199737 ns/op	61860430 B/op	 1033462 allocs/op
+BenchmarkOpenVerify/large-16       	       4	 258064158 ns/op	61861446 B/op	 1033461 allocs/op
+BenchmarkOpenVerify/large-16       	       5	 259566412 ns/op	61859105 B/op	 1033460 allocs/op
+BenchmarkOpenVerify/large-16       	       5	 250071396 ns/op	61874897 B/op	 1033464 allocs/op
+BenchmarkOpenVerify/large-16       	       4	 258220498 ns/op	61917844 B/op	 1033476 allocs/op
+BenchmarkOpenVerify/large-16       	       4	 255691898 ns/op	61851642 B/op	 1033458 allocs/op
+BenchmarkOpenVerify/raster-16      	     901	   1470650 ns/op	  198886 B/op	    1204 allocs/op
+BenchmarkOpenVerify/raster-16      	     835	   1418994 ns/op	  197114 B/op	    1203 allocs/op
+BenchmarkOpenVerify/raster-16      	     796	   1426821 ns/op	  198369 B/op	    1204 allocs/op
+BenchmarkOpenVerify/raster-16      	     817	   1499214 ns/op	  198217 B/op	    1203 allocs/op
+BenchmarkOpenVerify/raster-16      	     811	   1455677 ns/op	  196997 B/op	    1203 allocs/op
+BenchmarkOpenVerify/raster-16      	     836	   1453214 ns/op	  197648 B/op	    1203 allocs/op
+BenchmarkOpenVerify/small-16       	    3142	    390615 ns/op	   92916 B/op	     723 allocs/op
+BenchmarkOpenVerify/small-16       	    2635	    387904 ns/op	   92968 B/op	     723 allocs/op
+BenchmarkOpenVerify/small-16       	    3270	    384875 ns/op	   92881 B/op	     723 allocs/op
+BenchmarkOpenVerify/small-16       	    3141	    390723 ns/op	   92817 B/op	     723 allocs/op
+BenchmarkOpenVerify/small-16       	    3260	    371790 ns/op	   93037 B/op	     723 allocs/op
+BenchmarkOpenVerify/small-16       	    2587	    389081 ns/op	   92978 B/op	     723 allocs/op
+BenchmarkOpenVerify/median-16      	    2006	    633712 ns/op	  111007 B/op	    1001 allocs/op
+BenchmarkOpenVerify/median-16      	    2028	    640544 ns/op	  111883 B/op	    1001 allocs/op
+BenchmarkOpenVerify/median-16      	    1929	    603526 ns/op	  111399 B/op	    1001 allocs/op
+BenchmarkOpenVerify/median-16      	    1617	    652357 ns/op	  112065 B/op	    1001 allocs/op
+BenchmarkOpenVerify/median-16      	    1670	    639891 ns/op	  111603 B/op	    1001 allocs/op
+BenchmarkOpenVerify/median-16      	    1968	    663331 ns/op	  111554 B/op	    1001 allocs/op
+BenchmarkConvert/large_color-16    	      82	  15612414 ns/op	 3281467 B/op	    1639 allocs/op
+BenchmarkConvert/large_color-16    	      79	  15200141 ns/op	 3008795 B/op	    1595 allocs/op
+BenchmarkConvert/large_color-16    	      96	  13958511 ns/op	 3143508 B/op	    1616 allocs/op
+BenchmarkConvert/large_color-16    	      87	  14325209 ns/op	 3078476 B/op	    1613 allocs/op
+BenchmarkConvert/large_color-16    	      75	  15895821 ns/op	 3430306 B/op	    1644 allocs/op
+BenchmarkConvert/large_color-16    	     100	  13555049 ns/op	 3008337 B/op	    1606 allocs/op
+BenchmarkConvert/large-16          	       3	 501502546 ns/op	130367552 B/op	 1794040 allocs/op
+BenchmarkConvert/large-16          	       2	 500063882 ns/op	130323024 B/op	 1794035 allocs/op
+BenchmarkConvert/large-16          	       3	 427905376 ns/op	130488930 B/op	 1794064 allocs/op
+BenchmarkConvert/large-16          	       3	 488124041 ns/op	130512432 B/op	 1794070 allocs/op
+BenchmarkConvert/large-16          	       3	 487227011 ns/op	130338885 B/op	 1794019 allocs/op
+BenchmarkConvert/large-16          	       3	 454327019 ns/op	130548733 B/op	 1794076 allocs/op
+BenchmarkConvert/raster-16         	      79	  13327116 ns/op	 6886060 B/op	    3231 allocs/op
+BenchmarkConvert/raster-16         	      75	  13730220 ns/op	 6854173 B/op	    3206 allocs/op
+BenchmarkConvert/raster-16         	      86	  13408619 ns/op	 6876685 B/op	    3224 allocs/op
+BenchmarkConvert/raster-16         	      93	  12082676 ns/op	 6864635 B/op	    3214 allocs/op
+BenchmarkConvert/raster-16         	      80	  13632550 ns/op	 6856463 B/op	    3207 allocs/op
+BenchmarkConvert/raster-16         	      92	  12956125 ns/op	 6870331 B/op	    3219 allocs/op
+BenchmarkConvert/small-16          	    1106	   1120911 ns/op	  289139 B/op	    1422 allocs/op
+BenchmarkConvert/small-16          	    1034	   1104902 ns/op	  290014 B/op	    1422 allocs/op
+BenchmarkConvert/small-16          	    1254	   1149024 ns/op	  289203 B/op	    1422 allocs/op
+BenchmarkConvert/small-16          	    1033	   1198895 ns/op	  290936 B/op	    1422 allocs/op
+BenchmarkConvert/small-16          	     976	   1185675 ns/op	  290028 B/op	    1422 allocs/op
+BenchmarkConvert/small-16          	    1014	   1180844 ns/op	  290185 B/op	    1422 allocs/op
+BenchmarkConvert/median-16         	    1208	    998007 ns/op	  275058 B/op	    1207 allocs/op
+BenchmarkConvert/median-16         	    1099	   1055804 ns/op	  274564 B/op	    1207 allocs/op
+BenchmarkConvert/median-16         	    1098	   1050426 ns/op	  276342 B/op	    1208 allocs/op
+BenchmarkConvert/median-16         	    1143	   1043370 ns/op	  276062 B/op	    1208 allocs/op
+BenchmarkConvert/median-16         	    1092	   1005078 ns/op	  273657 B/op	    1207 allocs/op
+BenchmarkConvert/median-16         	    1279	   1014364 ns/op	  274973 B/op	    1207 allocs/op
+BenchmarkConvert/p90-16            	     259	   4505398 ns/op	  669583 B/op	    3360 allocs/op
+BenchmarkConvert/p90-16            	     253	   4428525 ns/op	  670587 B/op	    3361 allocs/op
+BenchmarkConvert/p90-16            	     292	   4477321 ns/op	  667911 B/op	    3359 allocs/op
+BenchmarkConvert/p90-16            	     270	   4439483 ns/op	  670641 B/op	    3360 allocs/op
+BenchmarkConvert/p90-16            	     286	   4446975 ns/op	  672156 B/op	    3361 allocs/op
+BenchmarkConvert/p90-16            	     247	   4697103 ns/op	  669937 B/op	    3360 allocs/op
+BenchmarkConvert/fonts-16          	      84	  14512430 ns/op	 2399625 B/op	    3252 allocs/op
+BenchmarkConvert/fonts-16          	      86	  13434841 ns/op	 2401261 B/op	    3258 allocs/op
+BenchmarkConvert/fonts-16          	      80	  13299453 ns/op	 2401219 B/op	    3252 allocs/op
+BenchmarkConvert/fonts-16          	      94	  13968032 ns/op	 2407436 B/op	    3248 allocs/op
+BenchmarkConvert/fonts-16          	      85	  13515122 ns/op	 2397524 B/op	    3257 allocs/op
+BenchmarkConvert/fonts-16          	      86	  13136480 ns/op	 2436797 B/op	    3254 allocs/op
+PASS
+ok  	github.com/voidrab/gopdfrab/benchmarks/micro	141.341s
+goos: linux
+goarch: amd64
+pkg: github.com/voidrab/gopdfrab/internal/convert
+cpu: Intel(R) Core(TM) Ultra 7 255H
+BenchmarkConvertMemory-16    	       2	 544077669 ns/op	         4.356 output_MB	        62.82 peak_heap_MB	130771524 B/op	 1794921 allocs/op
+BenchmarkConvertMemory-16    	       3	 494870844 ns/op	         4.356 output_MB	        67.27 peak_heap_MB	130610213 B/op	 1794719 allocs/op
+BenchmarkConvertMemory-16    	       3	 482157427 ns/op	         4.356 output_MB	        63.89 peak_heap_MB	130676130 B/op	 1794739 allocs/op
+BenchmarkConvertMemory-16    	       3	 479929468 ns/op	         4.356 output_MB	        63.12 peak_heap_MB	130611533 B/op	 1794719 allocs/op
+BenchmarkConvertMemory-16    	       2	 512781264 ns/op	         4.356 output_MB	        63.29 peak_heap_MB	130752952 B/op	 1794793 allocs/op
+BenchmarkConvertMemory-16    	       3	 484743718 ns/op	         4.356 output_MB	        62.09 peak_heap_MB	130930584 B/op	 1794792 allocs/op
+PASS
+ok  	github.com/voidrab/gopdfrab/internal/convert	8.030s

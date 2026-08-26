@@ -12,13 +12,13 @@ func almostEqual(a, b, tol float64) bool {
 }
 
 func TestExponentialFunctionLinear(t *testing.T) {
-	d := PDFDict{Entries: map[string]PDFValue{
+	d := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2),
 		"Domain":       PDFArray{PDFInteger(0), PDFInteger(1)},
 		"C0":           PDFArray{PDFReal(0)},
 		"C1":           PDFArray{PDFReal(1)},
 		"N":            PDFInteger(1),
-	}}
+	})}
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -32,13 +32,13 @@ func TestExponentialFunctionLinear(t *testing.T) {
 }
 
 func TestExponentialFunctionDomainClamp(t *testing.T) {
-	d := PDFDict{Entries: map[string]PDFValue{
+	d := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2),
 		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 		"C0":           PDFArray{PDFReal(10)},
 		"C1":           PDFArray{PDFReal(20)},
 		"N":            PDFInteger(1),
-	}}
+	})}
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -51,27 +51,27 @@ func TestExponentialFunctionDomainClamp(t *testing.T) {
 
 func TestStitchingFunctionDispatch(t *testing.T) {
 	// Two sub-functions: f1 maps [0,1] -> 0 constant, f2 maps [0,1] -> 1 constant.
-	f1 := PDFDict{Entries: map[string]PDFValue{
+	f1 := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2),
 		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 		"C0":           PDFArray{PDFReal(0)},
 		"C1":           PDFArray{PDFReal(0)},
 		"N":            PDFInteger(1),
-	}}
-	f2 := PDFDict{Entries: map[string]PDFValue{
+	})}
+	f2 := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(2),
 		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 		"C0":           PDFArray{PDFReal(1)},
 		"C1":           PDFArray{PDFReal(1)},
 		"N":            PDFInteger(1),
-	}}
-	stitch := PDFDict{Entries: map[string]PDFValue{
+	})}
+	stitch := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"FunctionType": PDFInteger(3),
 		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 		"Functions":    PDFArray{f1, f2},
 		"Bounds":       PDFArray{PDFReal(0.5)},
 		"Encode":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
-	}}
+	})}
 	fn, err := ParseFunction(stitch)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -93,14 +93,14 @@ func TestSampledFunctionInterpolation(t *testing.T) {
 	zw.Close()
 
 	d := PDFDict{
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"FunctionType":  PDFInteger(0),
 			"Domain":        PDFArray{PDFReal(0), PDFReal(1)},
 			"Range":         PDFArray{PDFReal(0), PDFReal(1)},
 			"Size":          PDFArray{PDFInteger(2)},
 			"BitsPerSample": PDFInteger(8),
 			"Filter":        PDFName{Value: "FlateDecode"},
-		},
+		}),
 		HasStream: true,
 		RawStream: buf.Bytes(),
 	}
@@ -122,11 +122,11 @@ func TestSampledFunctionInterpolation(t *testing.T) {
 
 func TestPostScriptFunctionArithmetic(t *testing.T) {
 	d := PDFDict{
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"FunctionType": PDFInteger(4),
 			"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
 			"Range":        PDFArray{PDFReal(0), PDFReal(1)},
-		},
+		}),
 		HasStream: true,
 		RawStream: []byte("{ add 2 div }"),
 	}
@@ -142,11 +142,11 @@ func TestPostScriptFunctionArithmetic(t *testing.T) {
 
 func TestPostScriptFunctionIfElse(t *testing.T) {
 	d := PDFDict{
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"FunctionType": PDFInteger(4),
 			"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 			"Range":        PDFArray{PDFReal(0), PDFReal(1)},
-		},
+		}),
 		HasStream: true,
 		RawStream: []byte("{ dup 0.5 gt { pop 1 } { pop 0 } ifelse }"),
 	}
@@ -164,11 +164,11 @@ func TestPostScriptFunctionIfElse(t *testing.T) {
 
 func TestPostScriptFunctionStackOps(t *testing.T) {
 	d := PDFDict{
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"FunctionType": PDFInteger(4),
 			"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
 			"Range":        PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
-		},
+		}),
 		HasStream: true,
 		RawStream: []byte("{ exch }"),
 	}

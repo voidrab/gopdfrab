@@ -1,5 +1,15 @@
 package pdf
 
+// PDFValue is any PDF object. The null object (ISO 32000-1 7.3.10) is a nil
+// PDFValue -- there is no PDFNull type. Three sites depend on it: a reference
+// with no target resolves to nil, the 'null' keyword parses to nil, and the
+// writer emits nil as "null".
+//
+// The trap this creates: a dictionary entry that is present but null is
+// Entries[k] == nil, indistinguishable from an absent entry. That is correct
+// PDF semantics -- the spec says the two are equivalent -- but it means
+// `if _, ok := Entries[k]; ok` does not mean "has a value". Test the value, not
+// the key's presence.
 type PDFValue any
 
 type PDFHexString struct{ Value string }
@@ -11,7 +21,7 @@ type PDFName struct{ Value string }
 type PDFArray []PDFValue
 
 type PDFDict struct {
-	Entries   map[string]PDFValue
+	Entries   Dict
 	HasStream bool
 	// RawStream holds the undecoded stream bytes. The slice may alias a
 	// read-only memory-map; always assign a new slice, never mutate in place.
@@ -20,11 +30,13 @@ type PDFDict struct {
 
 func NewPDFDict() PDFDict {
 	return PDFDict{
-		Entries:   map[string]PDFValue{},
+		Entries:   NewDict(),
 		HasStream: false,
 	}
 }
 
+// PDFRef is an indirect object reference: an object number and a generation
+// number.
 type PDFRef struct {
 	ObjNum int
 	GenNum int
@@ -81,11 +93,11 @@ func EqualPDFValue(a, b PDFValue) bool {
 
 	case PDFDict:
 		vb, ok := b.(PDFDict)
-		if !ok || len(va.Entries) != len(vb.Entries) || va.HasStream != vb.HasStream {
+		if !ok || va.Entries.Len() != vb.Entries.Len() || va.HasStream != vb.HasStream {
 			return false
 		}
-		for k, vaVal := range va.Entries {
-			vbVal, ok := vb.Entries[k]
+		for k, vaVal := range va.Entries.All() {
+			vbVal, ok := vb.Entries.Lookup(k)
 			if !ok {
 				return false
 			}

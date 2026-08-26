@@ -31,9 +31,9 @@ func parseFunction(v PDFValue, depth int) (Function, error) {
 	if !ok {
 		return nil, fmt.Errorf("pdffunc: function value is not a dictionary")
 	}
-	ft, _ := PDFNumberToInt(d.Entries["FunctionType"])
+	ft, _ := PDFNumberToInt(d.Entries.Get("FunctionType"))
 
-	domain, err := FloatArray(d.Entries["Domain"])
+	domain, err := FloatArray(d.Entries.Get("Domain"))
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Domain: %w", err)
 	}
@@ -119,19 +119,19 @@ type exponentialFunction struct {
 func newExponentialFunction(d PDFDict, domain []float64) (*exponentialFunction, error) {
 	c0 := []float64{0}
 	c1 := []float64{1}
-	if v, ok := d.Entries["C0"]; ok {
+	if v, ok := d.Entries.Lookup("C0"); ok {
 		var err error
 		if c0, err = FloatArray(v); err != nil {
 			return nil, fmt.Errorf("pdffunc: C0: %w", err)
 		}
 	}
-	if v, ok := d.Entries["C1"]; ok {
+	if v, ok := d.Entries.Lookup("C1"); ok {
 		var err error
 		if c1, err = FloatArray(v); err != nil {
 			return nil, fmt.Errorf("pdffunc: C1: %w", err)
 		}
 	}
-	n, _ := PDFNumberToFloat(d.Entries["N"])
+	n, _ := PDFNumberToFloat(d.Entries.Get("N"))
 	return &exponentialFunction{domain: domain, c0: c0, c1: c1, n: n}, nil
 }
 
@@ -155,7 +155,7 @@ type stitchingFunction struct {
 }
 
 func newStitchingFunction(d PDFDict, domain []float64, depth int) (*stitchingFunction, error) {
-	fnsArr, ok := d.Entries["Functions"].(PDFArray)
+	fnsArr, ok := d.Entries.Get("Functions").(PDFArray)
 	if !ok {
 		return nil, fmt.Errorf("pdffunc: Functions: expected an array")
 	}
@@ -170,11 +170,11 @@ func newStitchingFunction(d PDFDict, domain []float64, depth int) (*stitchingFun
 		}
 		fns[i] = fn
 	}
-	bounds, err := FloatArray(d.Entries["Bounds"])
+	bounds, err := FloatArray(d.Entries.Get("Bounds"))
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Bounds: %w", err)
 	}
-	encode, err := FloatArray(d.Entries["Encode"])
+	encode, err := FloatArray(d.Entries.Get("Encode"))
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Encode: %w", err)
 	}
@@ -232,7 +232,7 @@ type sampledFunction struct {
 }
 
 func newSampledFunction(d PDFDict, domain []float64) (*sampledFunction, error) {
-	sizeArr, err := FloatArray(d.Entries["Size"])
+	sizeArr, err := FloatArray(d.Entries.Get("Size"))
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Size: %w", err)
 	}
@@ -241,22 +241,22 @@ func newSampledFunction(d PDFDict, domain []float64) (*sampledFunction, error) {
 		size[i] = int(s)
 	}
 
-	bps, _ := PDFNumberToInt(d.Entries["BitsPerSample"])
+	bps, _ := PDFNumberToInt(d.Entries.Get("BitsPerSample"))
 
-	rangeArr, err := FloatArray(d.Entries["Range"])
+	rangeArr, err := FloatArray(d.Entries.Get("Range"))
 	if err != nil {
 		return nil, fmt.Errorf("pdffunc: Range: %w", err)
 	}
 	numOutputs := len(rangeArr) / 2
 
 	encode := defaultSampledEncode(size)
-	if v, ok := d.Entries["Encode"]; ok {
+	if v, ok := d.Entries.Lookup("Encode"); ok {
 		if encode, err = FloatArray(v); err != nil {
 			return nil, fmt.Errorf("pdffunc: Encode: %w", err)
 		}
 	}
 	decode := rangeArr
-	if v, ok := d.Entries["Decode"]; ok {
+	if v, ok := d.Entries.Lookup("Decode"); ok {
 		if decode, err = FloatArray(v); err != nil {
 			return nil, fmt.Errorf("pdffunc: Decode: %w", err)
 		}

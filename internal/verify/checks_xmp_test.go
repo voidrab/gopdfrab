@@ -492,15 +492,15 @@ func TestCheckInfoXMPSyncCorpus(t *testing.T) {
 func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	otherMeta := pdf.NewPDFDict()
 	otherMeta.HasStream = true
-	otherMeta.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	otherMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 	otherMeta.RawStream = []byte("no xpacket wrapper here")
 
 	root := pdf.NewPDFDict()
-	root.Entries["Other"] = otherMeta
+	root.Entries.Set("Other", otherMeta)
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = root
+	trailer.Entries.Set("Root", root)
 
-	errs := checkNonCatalogXMPStreams(trailer)
+	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -508,18 +508,18 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	// A non-catalog Metadata stream that *is* xpacket-wrapped is fine.
 	wrapped := pdf.NewPDFDict()
 	wrapped.HasStream = true
-	wrapped.Entries["Type"] = pdf.PDFName{Value: "Metadata"}
+	wrapped.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 	wrapped.RawStream = []byte("<?xpacket begin=\"\"?><x:xmpmeta/><?xpacket end=\"w\"?>")
 	root2 := pdf.NewPDFDict()
-	root2.Entries["Other"] = wrapped
+	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
-	trailer2.Entries["Root"] = root2
-	if errs := checkNonCatalogXMPStreams(trailer2); len(errs) != 0 {
+	trailer2.Entries.Set("Root", root2)
+	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -552,6 +552,61 @@ func TestCheckPDFAIdentifier(t *testing.T) {
 	errs := checkPDFAIdentifier(wrongNS)
 	if len(errs) != 3 {
 		t.Fatalf("checkPDFAIdentifier(wrong ns/part/conformance) = %d errs, want 3: %v", len(errs), errs)
+	}
+}
+
+// TestCheckPDFAIdentifierQuoteStyles pins that the identifier is recognised in
+// every shape XMP legitimately writes it: as attributes in either quote
+// character, and as child elements.
+//
+// Ghostscript -- which produces a large share of the real PDF/A in existence --
+// writes single-quoted attributes, and reading only double quotes made every
+// file it produces report a missing PDF/A identifier while veraPDF passed it.
+func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
+	const ns = "http://www.aiim.org/pdfa/ns/id/"
+	cases := []struct {
+		name string
+		xmp  string
+	}{
+		{"double-quoted attributes", `<x xmlns:pdfaid="` + ns + `" pdfaid:part="1" pdfaid:conformance="B"/>`},
+		{"single-quoted attributes", `<x xmlns:pdfaid='` + ns + `' pdfaid:part='1' pdfaid:conformance='B'/>`},
+		{"child elements", `<rdf:Description xmlns:pdfaid="` + ns + `">` +
+			`<pdfaid:part>1</pdfaid:part><pdfaid:conformance>B</pdfaid:conformance></rdf:Description>`},
+		{"mixed quoting", `<x xmlns:pdfaid='` + ns + `' pdfaid:part="1" pdfaid:conformance='B'/>`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if errs := checkPDFAIdentifier(c.xmp); len(errs) != 0 {
+				t.Errorf("valid PDF/A identifier reported as a violation: %v", errs)
+			}
+			part, ok := pdf.FirstRegexpGroup(pdf.PDFAPartRe, c.xmp)
+			if !ok || part != "1" {
+				t.Errorf("PDFAPartRe = %q, %v; want \"1\", true", part, ok)
+			}
+			conf, ok := pdf.FirstRegexpGroup(pdf.PDFAConfRe, c.xmp)
+			if !ok || conf != "B" {
+				t.Errorf("PDFAConfRe = %q, %v; want \"B\", true", conf, ok)
+			}
+		})
+	}
+}
+
+// TestXMPNamespaceBindingQuoteStyles covers the same quoting rule on the
+// prefix->URI binding scan, whose capture groups the fix reshuffled.
+func TestXMPNamespaceBindingQuoteStyles(t *testing.T) {
+	xmp := `<rdf:Description xmlns:pdf="http://ns.adobe.com/pdf/1.3/" xmlns:dc='http://purl.org/dc/elements/1.1/'/>`
+	got := map[string]string{}
+	for _, m := range xmpNSBindRe.FindAllStringSubmatch(xmp, -1) {
+		got[m[1]] = m[2] + m[3]
+	}
+	want := map[string]string{
+		"pdf": "http://ns.adobe.com/pdf/1.3/",
+		"dc":  "http://purl.org/dc/elements/1.1/",
+	}
+	for prefix, uri := range want {
+		if got[prefix] != uri {
+			t.Errorf("xmlns:%s bound to %q, want %q", prefix, got[prefix], uri)
+		}
 	}
 }
 
@@ -651,5 +706,303 @@ func TestXmpIsIntegerAndContainerOK(t *testing.T) {
 	}
 	if xmpContainerOK(xmpContainerKind(99), xmpKindScalar) {
 		t.Error("xmpContainerOK should be false for an unknown expected kind")
+	}
+}
+
+// TestNonCatalogXMPUndecodableIsNotMisattributed covers the re-attribution: a
+// metadata stream that will not decode is a structural defect, not evidence
+// that the xpacket wrapper is missing. Conflating the two told the user to fix
+// the wrong thing.
+func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	broken.RawStream = []byte("not a zlib stream")
+
+	root := pdf.NewPDFDict()
+	root.Entries.Set("Other", broken)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", root)
+
+	ctx := &ValidationContext{}
+	errs := checkNonCatalogXMPStreams(trailer, ctx)
+	for _, e := range errs {
+		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
+			t.Error("an undecodable metadata stream was reported as a missing xpacket wrapper")
+		}
+	}
+	if !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Error("expected StreamUndecodable for a metadata stream that will not decode")
+	}
+
+	// A stream that decodes but genuinely lacks the wrapper still reports.
+	plain := pdf.NewPDFDict()
+	plain.HasStream = true
+	plain.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+	plain.RawStream = []byte("<x:xmpmeta/>")
+
+	root2 := pdf.NewPDFDict()
+	root2.Entries.Set("Other", plain)
+	trailer2 := pdf.NewPDFDict()
+	trailer2.Entries.Set("Root", root2)
+	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{})
+	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
+		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
+	}
+}
+
+// TestCheckInfoXMPSyncAuthorEquivalence pins that the Author/dc:creator
+// comparison treats the two sides the same way the Title/Subject one does:
+// XML entities decoded, whitespace trimmed on both sides.
+//
+// Neither held before. An author name containing an "&" compared decoded text
+// against raw markup, and a value with leading whitespace was compared against
+// the checker's own trimmed copy of itself -- so two identical values were
+// reported out of sync. Both shapes are ordinary in real documents (arXiv
+// papers carry author lists with "&" and stray padding), and both survived
+// conversion, since convert builds the XMP from the very Info value being
+// compared.
+func TestCheckInfoXMPSyncAuthorEquivalence(t *testing.T) {
+	cases := []struct {
+		name    string
+		author  string
+		creator string
+		wantErr bool
+	}{
+		{"identical", "John Doe", "John Doe", false},
+		{"ampersand entity", "Alice & Bob", "Alice &amp; Bob", false},
+		{"angle brackets", "a<b>c", "a&lt;b&gt;c", false},
+		{"leading and trailing space both sides", " John Doe ", " John Doe ", false},
+		// veraPDF treats a whitespace-only difference as a real mismatch
+		// (6-1-5-t01-fail-b), so neither side is trimmed.
+		{"space only on the Info side", " John Doe ", "John Doe", true},
+		{"genuinely different", "John Doe", "Jane Roe", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := t.TempDir() + "/info.pdf"
+			if err := createPDFWithInfo(f, map[string]string{"Author": c.author}); err != nil {
+				t.Fatalf("createPDFWithInfo: %v", err)
+			}
+			doc, err := pdf.Open(f)
+			if err != nil {
+				t.Fatalf("pdf.Open: %v", err)
+			}
+			defer doc.Close()
+
+			xmp := "<dc:creator><rdf:Seq><rdf:li>" + c.creator + "</rdf:li></rdf:Seq></dc:creator>"
+			errs := checkInfoXMPSync(doc, xmp)
+			if got := len(errs) > 0; got != c.wantErr {
+				t.Errorf("mismatch reported = %v, want %v (errs: %v)", got, c.wantErr, errs)
+			}
+		})
+	}
+}
+
+// extValueTypeXMP builds an extension schema declaring one property of the
+// given value type, plus the XMP body that actually uses it, so a single
+// fixture can drive every declared-versus-actual combination.
+func extValueTypeXMP(valueType, usage string) string {
+	return `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"
+  xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"
+  xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#"
+  xmlns:custom="http://example.com/valuetypes/">
+<rdf:Description rdf:about="">
+  <pdfaExtension:schemas>
+    <rdf:Bag>
+      <rdf:li rdf:parseType="Resource">
+        <pdfaSchema:schema>Value Types</pdfaSchema:schema>
+        <pdfaSchema:namespaceURI>http://example.com/valuetypes/</pdfaSchema:namespaceURI>
+        <pdfaSchema:prefix>custom</pdfaSchema:prefix>
+        <pdfaSchema:property>
+          <rdf:Seq>
+            <rdf:li rdf:parseType="Resource">
+              <pdfaProperty:name>myProp</pdfaProperty:name>
+              <pdfaProperty:valueType>` + valueType + `</pdfaProperty:valueType>
+              <pdfaProperty:category>external</pdfaProperty:category>
+              <pdfaProperty:description>a property</pdfaProperty:description>
+            </rdf:li>
+          </rdf:Seq>
+        </pdfaSchema:property>
+      </rdf:li>
+    </rdf:Bag>
+  </pdfaExtension:schemas>
+  ` + usage + `
+</rdf:Description>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`
+}
+
+// hasXMPCheck reports whether errs contains a violation of c.
+func hasXMPCheck(errs []pdf.PDFError, c pdf.Check) bool {
+	for _, e := range errs {
+		if e.Check() == c {
+			return true
+		}
+	}
+	return false
+}
+
+// TestXMPNoCorrespondingType covers 6.7.9: a property declared in an extension
+// schema must be used with a value matching the type it declares.
+func TestXMPNoCorrespondingType(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		valueType string
+		usage     string
+		want      bool
+	}{
+		{"integer holds text", "Integer", `<custom:myProp>not a number</custom:myProp>`, true},
+		{"integer holds an integer", "Integer", `<custom:myProp>42</custom:myProp>`, false},
+		{"real holds text", "Real", `<custom:myProp>1.2.3</custom:myProp>`, true},
+		{"real holds a real", "Real", `<custom:myProp>-1.5</custom:myProp>`, false},
+		{"real holds a hex float", "Real", `<custom:myProp>0x1p2</custom:myProp>`, true},
+		{"boolean holds a lowercase word", "Boolean", `<custom:myProp>true</custom:myProp>`, true},
+		{"boolean holds a boolean", "Boolean", `<custom:myProp>True</custom:myProp>`, false},
+		{"date holds junk", "Date", `<custom:myProp>last tuesday</custom:myProp>`, true},
+		{"date holds a date", "Date", `<custom:myProp>2026-07-29</custom:myProp>`, false},
+		{"text holds text", "Text", `<custom:myProp>anything at all</custom:myProp>`, false},
+		{"empty value is not judged", "Integer", `<custom:myProp></custom:myProp>`, false},
+
+		{"bag serialized as a scalar", "Bag",
+			`<custom:myProp>plain</custom:myProp>`, true},
+		{"bag serialized as a bag", "Bag",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, false},
+		{"seq serialized as a bag", "Seq",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, true},
+		{"qualified bag declaration", "Bag Text",
+			`<custom:myProp><rdf:Bag><rdf:li>one</rdf:li></rdf:Bag></custom:myProp>`, false},
+
+		{"langalt entry without xml:lang", "LangAlt",
+			`<custom:myProp><rdf:Alt><rdf:li>hello</rdf:li></rdf:Alt></custom:myProp>`, true},
+		{"langalt entry with xml:lang", "LangAlt",
+			`<custom:myProp><rdf:Alt><rdf:li xml:lang="x-default">hello</rdf:li></rdf:Alt></custom:myProp>`, false},
+		{"plain alt needs no xml:lang", "Alt",
+			`<custom:myProp><rdf:Alt><rdf:li>hello</rdf:li></rdf:Alt></custom:myProp>`, false},
+
+		{"struct type used as a scalar", "ResourceRef",
+			`<custom:myProp>plain</custom:myProp>`, true},
+		{"struct type used as a struct", "ResourceRef",
+			`<custom:myProp rdf:parseType="Resource"><custom:inner>x</custom:inner></custom:myProp>`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := checkExtensionSchemas(extValueTypeXMP(tc.valueType, tc.usage))
+			got := hasXMPCheck(errs, pdf.Checks.Metadata.XMPNoCorrespondingType)
+			if got != tc.want {
+				t.Errorf("XMPNoCorrespondingType reported = %v, want %v (errs: %v)", got, tc.want, errs)
+			}
+		})
+	}
+}
+
+// TestXMPNoCorrespondingTypeAttributeStyle covers the other serialization: a
+// property written as an rdf:Description attribute is always a plain scalar.
+func TestXMPNoCorrespondingTypeAttributeStyle(t *testing.T) {
+	xmp := strings.Replace(extValueTypeXMP("Integer", ""),
+		`<rdf:Description rdf:about="">`,
+		`<rdf:Description rdf:about="" custom:myProp="not a number">`, 1)
+	if !hasXMPCheck(checkExtensionSchemas(xmp), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("expected XMPNoCorrespondingType for an attribute-style property holding the wrong type")
+	}
+
+	ok := strings.Replace(extValueTypeXMP("Integer", ""),
+		`<rdf:Description rdf:about="">`,
+		`<rdf:Description rdf:about="" custom:myProp="42">`, 1)
+	if hasXMPCheck(checkExtensionSchemas(ok), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("an attribute-style integer property was reported despite holding an integer")
+	}
+}
+
+// TestXMPNoCorrespondingTypeLeavesCustomTypes covers the division of labour: a
+// property declared with a custom (non-builtin) type stays a 6.7.8 report,
+// never a 6.7.9 one, so the two checks do not both fire on the same defect.
+func TestXMPNoCorrespondingTypeLeavesCustomTypes(t *testing.T) {
+	errs := checkExtensionSchemas(extValueTypeXMP("MyCustomType", `<custom:myProp>plain</custom:myProp>`))
+	if hasXMPCheck(errs, pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("a custom-typed property was reported under 6.7.9, want 6.7.8 only")
+	}
+	if !hasXMPCheck(errs, pdf.Checks.Metadata.ExtPropertyComplexAsSimple) {
+		t.Errorf("expected ExtPropertyComplexAsSimple for a custom type used as a simple value, got %v", errs)
+	}
+}
+
+// TestXMPNoCorrespondingTypeIgnoresPredefinedSchemas covers the other half of
+// that division: dc: and friends are checked against XMP 2004 under 6.7.2, and
+// this check must not also claim them.
+func TestXMPNoCorrespondingTypeIgnoresPredefinedSchemas(t *testing.T) {
+	errs := checkExtPropertyValueTypes([]byte(extensionSchemaXMP), []extSchema{{
+		namespaceURI: "http://purl.org/dc/elements/1.1/",
+		properties:   []extProperty{{name: "title", valueType: "Integer"}},
+	}})
+	if len(errs) != 0 {
+		t.Errorf("errs = %v, want none: the fixture uses no dc: properties", errs)
+	}
+}
+
+// TestExtDeclaredType covers the qualified-declaration reduction on its own.
+func TestExtDeclaredType(t *testing.T) {
+	for in, want := range map[string]string{
+		"Bag":       "Bag",
+		"Bag Text":  "Bag",
+		"Seq\tText": "Seq",
+		"":          "",
+		" Text":     " Text",
+	} {
+		if got := extDeclaredType(in); got != want {
+			t.Errorf("extDeclaredType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestCheckExtPropertyValueTypesNoDeclarations covers the early exit: nothing
+// to compare against means no parse and no findings.
+func TestCheckExtPropertyValueTypesNoDeclarations(t *testing.T) {
+	for _, schemas := range [][]extSchema{
+		nil,
+		{{namespaceURI: ""}},
+		{{namespaceURI: "http://example.com/x/", properties: []extProperty{{name: ""}}}},
+		{{namespaceURI: "http://example.com/x/", properties: []extProperty{{name: "p", valueType: "Custom"}}}},
+	} {
+		if errs := checkExtPropertyValueTypes([]byte(extensionSchemaXMP), schemas); len(errs) != 0 {
+			t.Errorf("schemas %+v: errs = %v, want none", schemas, errs)
+		}
+	}
+}
+
+// TestExtBuiltinKindsCoversEveryBuiltinType pins the two tables together: a
+// value type XMP defines but extBuiltinKinds does not name would silently go
+// unchecked, since the property collection skips what it cannot compare.
+func TestExtBuiltinKindsCoversEveryBuiltinType(t *testing.T) {
+	for name := range xmpBuiltinTypes {
+		if _, ok := extBuiltinKinds[name]; !ok {
+			t.Errorf("value type %q is in xmpBuiltinTypes but has no shape in extBuiltinKinds", name)
+		}
+	}
+	for name := range extBuiltinKinds {
+		if !xmpBuiltinTypes[name] {
+			t.Errorf("value type %q is in extBuiltinKinds but is not a builtin XMP type", name)
+		}
+	}
+}
+
+// TestExtValueTypeErrsUnknownType covers the guard for a type with no known
+// shape: nothing is claimed about a property the check cannot judge.
+func TestExtValueTypeErrsUnknownType(t *testing.T) {
+	if errs := extValueTypeErrs("p", "SomeTypeNobodyDefined", xmpKindScalar, "x", nil); len(errs) != 0 {
+		t.Errorf("errs = %v, want none for a type with no known shape", errs)
+	}
+}
+
+// TestXMPNoCorrespondingTypeSkipsBOM covers the leading-bytes strip: real XMP
+// packets often start with a BOM or white space before the first element.
+func TestXMPNoCorrespondingTypeSkipsBOM(t *testing.T) {
+	xmp := "\xef\xbb\xbf\n  " + extValueTypeXMP("Integer", `<custom:myProp>not a number</custom:myProp>`)
+	if !hasXMPCheck(checkExtensionSchemas(xmp), pdf.Checks.Metadata.XMPNoCorrespondingType) {
+		t.Error("expected XMPNoCorrespondingType in a packet with leading bytes before the XML")
 	}
 }

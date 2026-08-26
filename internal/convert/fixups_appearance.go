@@ -81,17 +81,17 @@ func (f appearanceFixer) appearanceFont() *appearanceFontSource {
 // of this Fixer's checks; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
 func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) bool {
-	if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 		return false
 	}
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	if !verify.AllowedAnnotationTypes[subtype.Value] {
 		return false
 	}
 	if !annotationNeedsAppearanceFix(d) {
 		return false
 	}
-	d.Entries["AP"] = rebuiltAppearanceDict(trailer, d, fontSrc)
+	d.Entries.Set("AP", rebuiltAppearanceDict(trailer, d, fontSrc))
 	return true
 }
 
@@ -100,17 +100,17 @@ func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appear
 // (checks_dict.go) so the Fixer only ever touches what that check would
 // actually flag.
 func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-	ap, hasAP := d.Entries["AP"].(pdf.PDFDict)
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	ap, hasAP := d.Entries.Get("AP").(pdf.PDFDict)
 	if !hasAP {
 		return subtype.Value != "Popup" && subtype.Value != "Link"
 	}
 
-	n, hasN := ap.Entries["N"]
+	n, hasN := ap.Entries.Lookup("N")
 	if !hasN {
 		return true
 	}
-	for k := range ap.Entries {
+	for k := range ap.Entries.All() {
 		if k != "N" && k != "_ref" {
 			return true
 		}
@@ -130,10 +130,10 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 // the Parent chain if not set directly on the widget.
 func isBtnField(d pdf.PDFDict) bool {
 	for depth := 0; depth < 20; depth++ {
-		if ft, ok := d.Entries["FT"].(pdf.PDFName); ok {
+		if ft, ok := d.Entries.Get("FT").(pdf.PDFName); ok {
 			return ft.Value == "Btn"
 		}
-		parent, ok := d.Entries["Parent"].(pdf.PDFDict)
+		parent, ok := d.Entries.Get("Parent").(pdf.PDFDict)
 		if !ok {
 			return false
 		}
@@ -151,8 +151,8 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 	isBtn := isBtnField(d)
 	var newN pdf.PDFValue
 
-	if ap, ok := d.Entries["AP"].(pdf.PDFDict); ok {
-		if n, ok := ap.Entries["N"]; ok {
+	if ap, ok := d.Entries.Get("AP").(pdf.PDFDict); ok {
+		if n, ok := ap.Entries.Lookup("N"); ok {
 			if nd, ok := n.(pdf.PDFDict); ok {
 				switch {
 				case isBtn && !nd.HasStream:
@@ -160,7 +160,7 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 				case !isBtn && nd.HasStream:
 					newN = nd
 				case isBtn && nd.HasStream:
-					newN = pdf.PDFDict{Entries: map[string]pdf.PDFValue{buttonState(d): nd}}
+					newN = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{buttonState(d): nd})}
 				}
 			}
 		}
@@ -169,22 +169,22 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 	if newN == nil {
 		box := buildAppearanceXObject(trailer, d, isBtn, fontSrc)
 		if isBtn {
-			newN = pdf.PDFDict{Entries: map[string]pdf.PDFValue{buttonState(d): box}}
+			newN = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{buttonState(d): box})}
 		} else {
 			newN = box
 		}
 	}
-	return pdf.PDFDict{Entries: map[string]pdf.PDFValue{"N": newN}}
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": newN})}
 }
 
 // buttonState returns d's current /AS appearance-state name, defaulting to
 // (and recording) "Off" if absent -- a button's /N subdictionary needs some
 // state key, and /AS should name one of them.
 func buttonState(d pdf.PDFDict) string {
-	if as, ok := d.Entries["AS"].(pdf.PDFName); ok && as.Value != "" {
+	if as, ok := d.Entries.Get("AS").(pdf.PDFName); ok && as.Value != "" {
 		return as.Value
 	}
-	d.Entries["AS"] = pdf.PDFName{Value: "Off"}
+	d.Entries.Set("AS", pdf.PDFName{Value: "Off"})
 	return "Off"
 }
 
@@ -196,10 +196,10 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool, fon
 	w, h := annotBBox(d)
 
 	xobj := pdf.NewPDFDict()
-	xobj.Entries["Type"] = pdf.PDFName{Value: "XObject"}
-	xobj.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
-	xobj.Entries["FormType"] = pdf.PDFInteger(1)
-	xobj.Entries["BBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFReal(float32(w)), pdf.PDFReal(float32(h))}
+	xobj.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	xobj.Entries.Set("FormType", pdf.PDFInteger(1))
+	xobj.Entries.Set("BBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFReal(float32(w)), pdf.PDFReal(float32(h))})
 
 	var content []byte
 	resources := pdf.NewPDFDict()
@@ -208,8 +208,7 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool, fon
 			content, resources = buildTextAppearanceContent(trailer, d, text, w, h, fontSrc)
 		}
 	}
-
-	xobj.Entries["Resources"] = resources
+	xobj.Entries.Set("Resources", resources)
 	if err := writer.SetStreamFlate(&xobj, content); err != nil {
 		return xobj
 	}
@@ -225,7 +224,7 @@ func isTextLikeField(d pdf.PDFDict) bool {
 // annotBBox returns the width/height of d's /Rect, or 0,0 if absent or
 // malformed -- a zero-area BBox is still a structurally valid Form XObject.
 func annotBBox(d pdf.PDFDict) (w, h float64) {
-	arr, ok := d.Entries["Rect"].(pdf.PDFArray)
+	arr, ok := d.Entries.Get("Rect").(pdf.PDFArray)
 	if !ok || len(arr) != 4 {
 		return 0, 0
 	}
@@ -247,10 +246,10 @@ func annotBBox(d pdf.PDFDict) (w, h float64) {
 func climbField(d pdf.PDFDict, key string) (pdf.PDFValue, bool) {
 	visited := map[uintptr]bool{}
 	for {
-		if v, ok := d.Entries[key]; ok {
+		if v, ok := d.Entries.Lookup(key); ok {
 			return v, true
 		}
-		parent, ok := d.Entries["Parent"].(pdf.PDFDict)
+		parent, ok := d.Entries.Get("Parent").(pdf.PDFDict)
 		if !ok {
 			return nil, false
 		}
@@ -365,15 +364,15 @@ func parseDA(da string) (size float64, colorOps []writer.ContentOp) {
 // formLevelDA returns the AcroForm's default /DA string, the fallback a
 // field uses when it specifies no /DA of its own.
 func formLevelDA(trailer *pdf.PDFDict) string {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return ""
 	}
-	form, ok := root.Entries["AcroForm"].(pdf.PDFDict)
+	form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict)
 	if !ok {
 		return ""
 	}
-	da, ok := form.Entries["DA"].(pdf.PDFString)
+	da, ok := form.Entries.Get("DA").(pdf.PDFString)
 	if !ok {
 		return ""
 	}
@@ -432,7 +431,7 @@ func buildTextAppearanceContent(trailer *pdf.PDFDict, d pdf.PDFDict, text string
 
 	resources := pdf.NewPDFDict()
 	fontRes := pdf.NewPDFDict()
-	fontRes.Entries["F0"] = fontSrc.font()
-	resources.Entries["Font"] = fontRes
+	fontRes.Entries.Set("F0", fontSrc.font())
+	resources.Entries.Set("Font", fontRes)
 	return content, resources
 }

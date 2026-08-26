@@ -2,6 +2,8 @@ package convert
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,7 +39,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// Sanity check: the corrupted input really is reported non-conformant
 	// (and specifically structurally, not by some unrelated quirk of the
 	// corruption), so the rest of this test is actually exercising recovery.
-	corruptedRes, err := verify.VerifyBytes(corrupted, pdf.PDFA_1B)
+	corruptedRes, err := verify.VerifyBytes(corrupted, pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("verify.VerifyBytes(corrupted): %v", err)
 	}
@@ -45,7 +47,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 		t.Fatalf("prepending garbage bytes did not make the fixture non-conformant; test no longer exercises anything")
 	}
 
-	cr, err := ConvertBytes(corrupted, pdf.PDFA_1B)
+	cr, err := ConvertBytes(corrupted, pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	// The output itself must independently verify as conformant, not just
 	// cr.Result (which is already derived from verifying cr.Output, but
 	// re-checking via a fresh Open guards against a bug in that wiring).
-	finalRes, err := verify.VerifyBytes(cr.Output, pdf.PDFA_1B)
+	finalRes, err := verify.VerifyBytes(mustOutput(t, cr), pdf.PDFA1B, nil)
 	if err != nil {
 		t.Fatalf("verify.VerifyBytes(cr.Output): %v", err)
 	}
@@ -71,11 +73,11 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 // TestConvertDegradesGracefullyOnUnresolvableGraph checks that Convert
 // behaves like Verify (which reports a GraphResolutionFailure issue rather
 // than erroring, see verifyPdfA1b) when the object graph cannot be fully
-// resolved, instead of failing outright: no rewrite is possible, but a
-// Result should still come back. The input is a fixture whose object 2 body
-// is mangled into an unparseable dictionary; a reference to a missing object
-// resolves to null (ISO 32000-1 7.3.10), but a present-yet-unparseable one
-// still fails resolution.
+// resolved: the unparseable object degrades to null, the rewrite proceeds, and
+// the content it held is reported as lost -- separately from the verdict on
+// the bytes, which really are conformant. The input is a fixture whose object 2 body is mangled into
+// an unparseable dictionary with no intact copy elsewhere in the file, so
+// offset recovery cannot repair it.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
@@ -90,18 +92,21 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 		t.Fatalf("fixture no longer contains object 2's /First entry; test input needs updating")
 	}
 
-	cr, err := ConvertBytes(mangled, pdf.PDFA_1B)
+	cr, err := ConvertBytes(mangled, pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
-	if cr.Result.Valid {
-		t.Fatalf("expected a non-conformant Result for an unresolvable graph, got Valid=true")
+	if len(mustOutput(t, cr)) == 0 {
+		t.Errorf("Output is empty, want a best-effort rewrite with the degraded object as null")
 	}
-	if len(cr.Output) != 0 {
-		t.Errorf("Output = %d bytes, want empty (no rewrite is possible without a resolved graph)", len(cr.Output))
+	found := false
+	for _, e := range cr.LostObjects {
+		if e.Check() == pdf.Checks.Structure.GraphResolutionFailure {
+			found = true
+		}
 	}
-	if len(cr.Residual()) == 0 {
-		t.Errorf("Residual() is empty, want at least a GraphResolutionFailure-derived issue")
+	if !found {
+		t.Errorf("LostObjects = %v, want a GraphResolutionFailure record for the degraded object", cr.LostObjects)
 	}
 }
 
@@ -163,7 +168,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA_1B)
+			return verify.Verify(doc, pdf.PDFA1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -181,7 +186,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path, pdf.PDFA_1B)
+			cr, err := Convert(path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -238,7 +243,7 @@ func cidSubstitutionPossible(t *testing.T, path string) bool {
 	}
 	possible := false
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if possible || (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) || (d.Entries["Subtype"] != pdf.PDFName{Value: "Type0"}) {
+		if possible || (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) || (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Type0"}) {
 			return
 		}
 		if _, ok := cidFontSubstitutionEligible(d); ok {
@@ -298,7 +303,7 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA_1B)
+			return verify.Verify(doc, pdf.PDFA1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -316,7 +321,7 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path, pdf.PDFA_1B)
+			cr, err := Convert(path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -389,7 +394,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA_1B)
+			return verify.Verify(doc, pdf.PDFA1B)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -425,7 +430,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 				doc.Close()
 			}
 
-			cr, err := Convert(path, pdf.PDFA_1B)
+			cr, err := Convert(path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -461,7 +466,7 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path, pdf.PDFA_1B)
+			cr, err := Convert(path, pdf.PDFA1B, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -486,7 +491,7 @@ func TestConvertIsDeterministic(t *testing.T) {
 	var firstValid bool
 	var firstCounts map[pdf.Check]int
 	for i := range 5 {
-		cr, err := Convert(path, pdf.PDFA_1B)
+		cr, err := Convert(path, pdf.PDFA1B, Options{})
 		if err != nil {
 			t.Fatalf("Convert (run %d): %v", i, err)
 		}
@@ -506,9 +511,13 @@ func TestConvertIsDeterministic(t *testing.T) {
 }
 
 // minConvertedFully is a regression floor on how many of both corpora's
-// "fail" fixtures Convert turns fully conformant: all 510, since brute-force
-// recovery of unparseable /Prev xref sections cleared the last hold-out.
-// A drop means something regressed.
+// "fail" fixtures Convert turns fully conformant. A drop means something
+// regressed.
+//
+// 510: every "fail" fixture converts fully. The former hold-out,
+// isartor-6-1-3-t02-fail-a.pdf (the only encrypted fixture in either corpus),
+// now decrypts through the Standard security handler (empty user password),
+// so its RC4 streams re-encode as real content and the output is conformant.
 const minConvertedFully = 510
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
@@ -521,7 +530,7 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 
 	var fullyValid, otherResidual, errored int
 	for path := range fixtures {
-		cr, err := Convert(path, pdf.PDFA_1B)
+		cr, err := Convert(path, pdf.PDFA1B, Options{})
 		if err != nil {
 			t.Errorf("Convert(%s): %v", path, err)
 			errored++
@@ -548,7 +557,7 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 
 func TestConvertResultSave(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.pdf")
-	if err := (ConvertResult{Output: []byte("%PDF-1.7\n")}).Save(path); err != nil {
+	if err := inMemoryResult([]byte("%PDF-1.7\n")).Save(path); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "%PDF-1.7\n" {
@@ -559,11 +568,31 @@ func TestConvertResultSave(t *testing.T) {
 	}
 }
 
+func TestConvertResultWriteTo(t *testing.T) {
+	out := []byte("%PDF-1.7\nbody")
+	var buf bytes.Buffer
+	n, err := inMemoryResult(out).WriteTo(&buf)
+	if err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if n != int64(len(out)) || !bytes.Equal(buf.Bytes(), out) {
+		t.Errorf("WriteTo wrote n=%d %q, want %d %q", n, buf.Bytes(), len(out), out)
+	}
+
+	n, err = (ConvertResult{}).WriteTo(&bytes.Buffer{})
+	if err == nil {
+		t.Error("WriteTo with empty Output should error")
+	}
+	if n != 0 {
+		t.Errorf("WriteTo with empty Output wrote n=%d, want 0", n)
+	}
+}
+
 // TestConvertBytesOpenError covers the pdf.OpenBytes error path: data too
 // short to even hold a header must surface as an error, not a panic or a
 // silently empty ConvertResult.
 func TestConvertBytesOpenError(t *testing.T) {
-	_, err := ConvertBytes([]byte("tiny"), pdf.PDFA_1B)
+	_, err := ConvertBytes([]byte("tiny"), pdf.PDFA1B, Options{})
 	if err == nil {
 		t.Error("ConvertBytes on unparseable data returned a nil error, want non-nil")
 	}
@@ -585,7 +614,7 @@ func TestConvertAll(t *testing.T) {
 	corrupted := writeTempPDF(t, "corrupted.pdf", append([]byte("XXXXX"), clean...))
 	missing := filepath.Join(t.TempDir(), "does-not-exist.pdf")
 
-	results, err := ConvertAll([]string{paths[0], corrupted, missing}, pdf.PDFA_1B)
+	results, err := ConvertAll([]string{paths[0], corrupted, missing}, pdf.PDFA1B, Options{})
 	if err != nil {
 		t.Fatalf("ConvertAll: %v", err)
 	}
@@ -604,11 +633,98 @@ func TestConvertAll(t *testing.T) {
 	}
 }
 
-// TestConvertAllEmpty checks the workers<1 short-circuit for an empty batch.
+// TestConvertAllEmpty checks the empty-batch short-circuit.
 func TestConvertAllEmpty(t *testing.T) {
-	results, err := ConvertAll(nil, pdf.PDFA_1B)
+	results, err := ConvertAll(nil, pdf.PDFA1B, Options{})
 	if err != nil || len(results) != 0 {
 		t.Errorf("ConvertAll(nil) = (%v, %v), want (empty, nil)", results, err)
+	}
+}
+
+// TestConvertEach streams a batch through a callback and checks it delivers the
+// same per-file outcomes as ConvertAll, exactly once per file.
+func TestConvertEach(t *testing.T) {
+	paths := passFixtures(t)
+	if len(paths) == 0 {
+		t.Skip("veraPDF suite not present")
+	}
+	batch := paths[:min(3, len(paths))]
+
+	want, err := ConvertAll(batch, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertAll: %v", err)
+	}
+	wantValid := map[string]bool{}
+	for _, r := range want {
+		wantValid[r.Path] = r.Result.Result.Valid
+	}
+
+	// The engine serializes fn, so plain map access here is race-free.
+	got := map[string]bool{}
+	err = ConvertEach(batch, pdf.PDFA1B, Options{}, func(fr pdf.FileResult[ConvertResult]) error {
+		if _, dup := got[fr.Path]; dup {
+			t.Errorf("path %s delivered twice", fr.Path)
+		}
+		got[fr.Path] = fr.Result.Result.Valid
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ConvertEach: %v", err)
+	}
+	if len(got) != len(batch) {
+		t.Fatalf("ConvertEach delivered %d results, want %d", len(got), len(batch))
+	}
+	for path, valid := range wantValid {
+		if got[path] != valid {
+			t.Errorf("%s: ConvertEach valid=%v, ConvertAll valid=%v", path, got[path], valid)
+		}
+	}
+}
+
+// TestConvertEachAbort checks fn's error stops the batch and is returned, with
+// no further deliveries (deterministic at Workers=1).
+func TestConvertEachAbort(t *testing.T) {
+	paths := []string{
+		filepath.Join(t.TempDir(), "a.pdf"),
+		filepath.Join(t.TempDir(), "b.pdf"),
+		filepath.Join(t.TempDir(), "c.pdf"),
+	}
+	sentinel := errors.New("stop")
+	calls := 0
+	err := ConvertEach(paths, pdf.PDFA1B, Options{Workers: 1}, func(fr pdf.FileResult[ConvertResult]) error {
+		calls++
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ConvertEach err = %v, want sentinel", err)
+	}
+	if calls != 1 {
+		t.Errorf("fn called %d times after abort, want 1 (Workers=1)", calls)
+	}
+}
+
+// TestConvertEachCancelled checks a cancelled ctx delivers ctx.Err() for every
+// file and returns nil.
+func TestConvertEachCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	paths := []string{
+		filepath.Join(t.TempDir(), "a.pdf"),
+		filepath.Join(t.TempDir(), "b.pdf"),
+	}
+	delivered := 0
+	err := ConvertEachContext(ctx, paths, pdf.PDFA1B, Options{}, func(fr pdf.FileResult[ConvertResult]) error {
+		delivered++
+		if fr.Err == nil {
+			t.Errorf("cancelled batch delivered %s with nil Err", fr.Path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("ConvertEachContext err = %v, want nil", err)
+	}
+	if delivered != len(paths) {
+		t.Errorf("delivered %d results, want %d", delivered, len(paths))
 	}
 }
 
@@ -616,40 +732,40 @@ func TestConvertAllEmpty(t *testing.T) {
 // trigger it) and asserts the page's Contents/Resources are replaced with a
 // single flattened Image XObject.
 func TestFlattenAllPages(t *testing.T) {
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-	}}
-	pages := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"},
 		"Kids": pdf.PDFArray{page},
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":  pdf.PDFName{Value: "Catalog"},
 		"Pages": pages,
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	if !flattenAllPages(&trailer) {
+	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); !changed {
 		t.Fatalf("flattenAllPages returned false, want true (a renderable page was present)")
 	}
 
 	got := assertOnePageGraph(t, trailer)
-	resources, ok := got.Entries["Resources"].(pdf.PDFDict)
+	resources, ok := got.Entries.Get("Resources").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Page/Resources did not resolve to a dict after flattening")
 	}
-	xobjects, ok := resources.Entries["XObject"].(pdf.PDFDict)
-	if !ok || xobjects.Entries["Im0"] == nil {
-		t.Errorf("Page/Resources/XObject/Im0 missing after flattening: %v", resources.Entries["XObject"])
+	xobjects, ok := resources.Entries.Get("XObject").(pdf.PDFDict)
+	if !ok || xobjects.Entries.Get("Im0") == nil {
+		t.Errorf("Page/Resources/XObject/Im0 missing after flattening: %v", resources.Entries.Get("XObject"))
 	}
 }
 
 // TestFlattenAllPagesNoPages checks the no-pages-resolved short-circuit.
 func TestFlattenAllPagesNoPages(t *testing.T) {
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
-	if flattenAllPages(&trailer) {
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
+	if _, _, changed := flattenAllPages(&trailer, defaultRasterDPI); changed {
 		t.Error("flattenAllPages on a trailer with no Root/Pages returned true, want false")
 	}
 }
@@ -671,5 +787,120 @@ func TestSameMultiset(t *testing.T) {
 	diffCount := map[pdf.Check]int{pdf.Checks.Colour.OutputIntentNotArray: 3, pdf.Checks.Colour.OutputIntentNotDict: 1}
 	if sameMultiset(a, diffCount) {
 		t.Error("sameMultiset(a, diffCount) = true, want false (differing count)")
+	}
+}
+
+const cryptDir = "../pdf/testdata/crypt"
+
+// TestConvertDecryptsEmptyPasswordFile confirms an empty-password encrypted
+// document is decrypted and converted to conformant output -- the case that
+// raised the corpus floor to 510.
+func TestConvertDecryptsEmptyPasswordFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptDir, "enc_aesv3.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if len(mustOutput(t, cr)) == 0 {
+		t.Fatal("no output produced")
+	}
+	if !cr.Result.Valid {
+		t.Errorf("converted output not conformant: %v", cr.Result.Issues)
+	}
+}
+
+// TestConvertRefusesPasswordProtectedFile confirms Convert fails fast with
+// ErrPasswordRequired rather than emitting a document with encrypted streams.
+func TestConvertRefusesPasswordProtectedFile(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(cryptDir, "enc_aesv2_pw.pdf"))
+	if err != nil {
+		t.Skipf("fixture absent: %v", err)
+	}
+	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+	if !errors.Is(err, pdf.ErrPasswordRequired) {
+		t.Fatalf("err=%v, want ErrPasswordRequired", err)
+	}
+	if b, _ := cr.Output(); len(b) != 0 {
+		t.Error("no output should be produced for a password-protected file")
+	}
+}
+
+// TestAddRasterizedPages: pages merge sorted and deduped, since the page-level
+// fallback and the whole-document one can both rebuild the same page.
+func TestAddRasterizedPages(t *testing.T) {
+	tests := []struct {
+		name  string
+		start []int
+		add   []int
+		want  []int
+	}{
+		{"into empty", nil, []int{3, 1}, []int{1, 3}},
+		{"merges and sorts", []int{4, 1}, []int{2}, []int{1, 2, 4}},
+		{"dedupes across calls", []int{1, 2}, []int{2, 3}, []int{1, 2, 3}},
+		{"dedupes within one call", nil, []int{5, 5, 2}, []int{2, 5}},
+		{"nothing to add", []int{2}, nil, []int{2}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := ConvertResult{RasterizedPages: tc.start}
+			cr.addRasterizedPages(tc.add)
+			if !slices.Equal(cr.RasterizedPages, tc.want) {
+				t.Errorf("RasterizedPages = %v, want %v", cr.RasterizedPages, tc.want)
+			}
+		})
+	}
+}
+
+// TestConvertReportsRasterizedPages: a conversion needing no raster fallback
+// reports none, so the signal distinguishes "was rasterized" from "lost
+// content the rasterizer could not draw" -- which RasterDrops alone cannot.
+func TestConvertReportsRasterizedPages(t *testing.T) {
+	cr, err := ConvertBytes(onePageDoc(filledPage), pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("setup: conversion not conformant: %v", cr.Result.Issues)
+	}
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("RasterizedPages = %v, want none for a vector page", cr.RasterizedPages)
+	}
+	if len(cr.RasterDrops) != 0 {
+		t.Errorf("RasterDrops = %v, want none", cr.RasterDrops)
+	}
+}
+
+// TestRasterFallbackRecordsRasterizedPages: flattening records every page it
+// rebuilt, whether or not anything was dropped doing it.
+func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
+	page := func() pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type":     pdf.PDFName{Value: "Page"},
+			"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 2 2 5 5 re f")},
+		})}
+	}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"},
+		"Kids": pdf.PDFArray{page(), page()},
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
+
+	drops, rasterized, changed := flattenAllPages(&trailer, defaultRasterDPI)
+	if !changed {
+		t.Fatal("flattenAllPages returned false, want true")
+	}
+	if !slices.Equal(rasterized, []int{1, 2}) {
+		t.Errorf("rasterized = %v, want [1 2]", rasterized)
+	}
+	// Nothing on these pages is undrawable, so the loss report stays empty --
+	// which is exactly why RasterDrops cannot stand in for this signal.
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
 	}
 }

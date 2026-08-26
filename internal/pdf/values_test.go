@@ -166,3 +166,55 @@ func TestDecodePDFName(t *testing.T) {
 		})
 	}
 }
+
+// TestArrayPointerMatchesValuePointer: ArrayPointer exists only to avoid boxing
+// a slice into an interface, so it must agree with ValuePointer exactly --
+// same array same answer, different arrays different answers, and a subslice
+// sharing the backing array reads as the same identity.
+func TestArrayPointerMatchesValuePointer(t *testing.T) {
+	a := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}
+	b := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}
+
+	if got, want := ArrayPointer(a), ValuePointer(a); got != want {
+		t.Errorf("ArrayPointer(a) = %d, ValuePointer(a) = %d", got, want)
+	}
+	if ArrayPointer(a) == ArrayPointer(b) {
+		t.Error("distinct arrays share an identity")
+	}
+	if ArrayPointer(a) != ArrayPointer(a[:1]) {
+		t.Error("a subslice of the same backing array should share its identity")
+	}
+	if ArrayPointer(nil) != 0 {
+		t.Errorf("ArrayPointer(nil) = %d, want 0", ArrayPointer(nil))
+	}
+}
+
+// TestArrayPointerDoesNotAllocate is the whole reason the function exists:
+// passing a PDFArray to ValuePointer's interface parameter heap-allocates,
+// once per array per graph walk.
+func TestArrayPointerDoesNotAllocate(t *testing.T) {
+	a := PDFArray{PDFInteger(1), PDFInteger(2)}
+	var sink uintptr
+	if n := testing.AllocsPerRun(100, func() { sink = ArrayPointer(a) }); n != 0 {
+		t.Errorf("ArrayPointer allocated %v times per run, want 0", n)
+	}
+	_ = sink
+}
+
+func TestEncodePDFTextString(t *testing.T) {
+	cases := []struct{ text, want string }{
+		{"", ""},
+		{"Plain ASCII", "Plain ASCII"},
+		{"Ab\u00fc", "\xfe\xff\x00A\x00b\x00\xfc"},
+		{"line\nbreak", "\xfe\xff\x00l\x00i\x00n\x00e\x00\n\x00b\x00r\x00e\x00a\x00k"},
+	}
+	for _, c := range cases {
+		got := string(EncodePDFTextString(c.text))
+		if got != c.want {
+			t.Errorf("EncodePDFTextString(%q) = %q, want %q", c.text, got, c.want)
+		}
+		if back := DecodePDFTextString([]byte(got)); back != c.text {
+			t.Errorf("round trip of %q gave %q", c.text, back)
+		}
+	}
+}

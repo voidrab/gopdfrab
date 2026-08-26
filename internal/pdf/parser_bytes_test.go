@@ -114,8 +114,8 @@ func TestParseXRefSectionAtBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseXRefSectionAt: %v", err)
 	}
-	if dict.Entries["Size"] != PDFInteger(2) {
-		t.Errorf("trailer Size = %v, want 2", dict.Entries["Size"])
+	if dict.Entries.Get("Size") != PDFInteger(2) {
+		t.Errorf("trailer Size = %v, want 2", dict.Entries.Get("Size"))
 	}
 	if got := d.xrefTable[1]; got != 17 {
 		t.Errorf("xrefTable[1] = %d, want 17", got)
@@ -134,14 +134,14 @@ func TestParseXRefSectionAtBytes(t *testing.T) {
 	// A malformed subsection header ends the walk; when the trailer happens
 	// to follow, it still parses.
 	d3 := newDoc("xref\n1 2 3\ntrailer\n<< /Size 1 >>\n")
-	if dict, err := d3.ParseXRefSectionAt(0, false); err != nil || dict.Entries["Size"] != PDFInteger(1) {
+	if dict, err := d3.ParseXRefSectionAt(0, false); err != nil || dict.Entries.Get("Size") != PDFInteger(1) {
 		t.Errorf("bad header then trailer: dict = %v, err = %v", dict.Entries, err)
 	}
 
 	// The trailer window is capped at 8192 bytes, like the reader path's
 	// LimitReader; trailing junk beyond it is never touched.
 	d4 := newDoc("xref\n0 0\ntrailer\n<< /Size 1 >>\n" + strings.Repeat(" ", 9000))
-	if dict, err := d4.ParseXRefSectionAt(0, false); err != nil || dict.Entries["Size"] != PDFInteger(1) {
+	if dict, err := d4.ParseXRefSectionAt(0, false); err != nil || dict.Entries.Get("Size") != PDFInteger(1) {
 		t.Errorf("oversized window: dict = %v, err = %v", dict.Entries, err)
 	}
 }

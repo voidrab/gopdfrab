@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/binary"
+	"math"
 	"sort"
 	"strings"
 
@@ -21,6 +22,7 @@ import (
 func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
+	registerFixer(fontFileSubtypeFixer{})
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return promoteEmptyGlyphsInFont
 	})
@@ -36,14 +38,14 @@ func promoteEmptyGlyphsInFonts(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 }
 
 func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
-	if (d.Entries["Subtype"] != pdf.PDFName{Value: "CIDFontType2"}) {
+	if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "CIDFontType2"}) {
 		return
 	}
-	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	if !ok {
 		return
 	}
-	ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok || !ff.HasStream {
 		return
 	}
@@ -55,11 +57,136 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 	if !changed {
 		return
 	}
-	ff.Entries["Length1"] = pdf.PDFInteger(len(repaired))
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
 	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
 		return
 	}
-	desc.Entries["FontFile2"] = ff
+	desc.Entries.Set("FontFile2", ff)
+}
+
+// fontFileSubtypeFixer remediates Checks.Font.FontFileSubtype by unwrapping an
+// embedded font file whose declared format PDF 1.4 does not define -- almost
+// always an OpenType wrapper. The glyphs inside are kept: an OpenType file is
+// a container, and the CFF or TrueType program it carries is exactly what a
+// PDF 1.4 font file holds directly. Substituting a bundled face instead would
+// throw away the document's own glyphs, so anything this cannot unwrap is left
+// alone for the substitution fixer to pick up as an unusable program.
+type fontFileSubtypeFixer struct{}
+
+func (fontFileSubtypeFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Font.FontFileSubtype
+}
+
+func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, f.prepare)
+}
+
+// fixTargeted repairs only the fonts the issues reference; the verifier reports
+// every offending font per pass, so this covers all violations.
+func (fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+	targets, ok := p.dictsForIssues(issues)
+	if !ok {
+		return false, false, nil
+	}
+	for _, d := range targets {
+		if fixFontFileSubtypeDict(d) {
+			changed = true
+		}
+	}
+	return changed, true, nil
+}
+
+func (fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+	return func(d pdf.PDFDict) {
+		if fixFontFileSubtypeDict(d) {
+			*changed = true
+		}
+	}, true
+}
+
+// fixFontFileSubtypeDict repairs the embedded font files of one font dict; it
+// re-checks the predicate so a stale or already-fixed target is a no-op.
+func fixFontFileSubtypeDict(d pdf.PDFDict) bool {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
+		return false
+	}
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	if !ok || desc.Entries == nil {
+		return false
+	}
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+
+	changed := false
+	// FontFile and FontFile2 have no Subtype key at all, so one there is
+	// spurious and simply goes away.
+	for _, key := range []string{"FontFile", "FontFile2"} {
+		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
+		if !ok || !badFontFileSubtype(ff) {
+			continue
+		}
+		ff.Entries.Del("Subtype")
+		changed = true
+	}
+	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok && badFontFileSubtype(ff) {
+		if unwrapFontFile3(desc, ff, subtype.Value) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// badFontFileSubtype reports whether ff declares a font file format PDF 1.4
+// does not define, mirroring the detection in ValidateFontProgram.
+func badFontFileSubtype(ff pdf.PDFDict) bool {
+	st, ok := ff.Entries.Get("Subtype").(pdf.PDFName)
+	return ok && st.Value != "Type1C" && st.Value != "CIDFontType0C"
+}
+
+// unwrapFontFile3 replaces a wrongly-typed FontFile3 with the program it
+// actually holds: the CFF table becomes the stream itself, and a TrueType
+// program moves to FontFile2 where it belongs. fontSubtype is the owning font
+// dictionary's Subtype.
+func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
+	data, err := pdf.DecodeStream(ff)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+
+	if cff := extractCFFBytes(data); cff != nil {
+		want := "Type1C"
+		td, ok := verify.ParseCFFTopDict(cff)
+		if fontSubtype == "CIDFontType0" || (ok && td.IsCIDKeyed) {
+			want = "CIDFontType0C"
+		}
+		// A bare CFF that only misnames itself needs no re-encoding.
+		if len(cff) != len(data) {
+			if err := writer.SetStreamFlate(&ff, cff); err != nil {
+				return false
+			}
+		}
+		ff.Entries.Set("Subtype", pdf.PDFName{Value: want})
+		desc.Entries.Set("FontFile3", ff)
+		return true
+	}
+
+	// A TrueType-flavoured wrapper is only worth moving when the font is one
+	// that reads TrueType glyphs; under any other font it would stop counting
+	// as embedded, which the substitution fixer handles better.
+	if fontSubtype != "TrueType" && fontSubtype != "CIDFontType2" {
+		return false
+	}
+	tables, ok := verify.ParseSfnt(data)
+	if !ok || tables["glyf"] == nil {
+		return false
+	}
+	ff.Entries.Del("Subtype")
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(data)))
+	if err := writer.SetStreamFlate(&ff, data); err != nil {
+		return false
+	}
+	desc.Entries.Set("FontFile2", ff)
+	desc.Entries.Del("FontFile3")
+	return true
 }
 
 // fontMetricFixer remediates Checks.Font.AdvanceWidthMismatch by recomputing
@@ -101,30 +228,29 @@ func (fontMetricFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, 
 // program if d is a font dict; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
 func fixFontMetricsDict(d pdf.PDFDict) bool {
-	if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
-	desc, _ := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 
 	switch subtype.Value {
 	case "TrueType":
-		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 			return fixSimpleTrueTypeWidths(d, ff)
 		}
 	case "Type1", "MMType1":
-		if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
-			pdfEnc, _ := d.Entries["Encoding"].(pdf.PDFName)
-			return fixType1Widths(d, ff, pdfEnc.Value)
-		} else if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
+			return fixType1Widths(d, desc, ff, d.Entries.Get("Encoding"))
+		} else if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 			return fixType1CWidths(d, ff)
 		}
 	case "CIDFontType2":
-		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 			return fixCIDTrueTypeWidths(d, ff)
 		}
 	case "CIDFontType0":
-		if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 			return fixCIDCFFWidths(d, ff)
 		}
 	case "Type3":
@@ -137,8 +263,8 @@ func fixFontMetricsDict(d pdf.PDFDict) bool {
 // embedded TrueType program's hmtx advance width, mirroring
 // validateSimpleTrueTypeMetrics (checks_font_program.go).
 func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
-	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
 	if !fcOK || !wOK {
 		return false
 	}
@@ -151,7 +277,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	codeToUnicode := verify.SimpleFontCodeToUnicode(v.Entries["Encoding"])
+	codeToUnicode := verify.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
 	winGIDMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
 	symGIDMap := verify.ParseCmapSubtable(verify.TTSymbolicCmap(tables))
 
@@ -187,10 +313,10 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		fontWidth := verify.TTAdvanceWidth(tables, gid)
-		if fontWidth < 0 || pdf.AbsInt(fontWidth-pdfWidth) <= 1 {
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(fontWidth)
+		widths[i] = pdf.PDFInteger(math.Round(fontWidth))
 		changed = true
 	}
 	return changed
@@ -199,9 +325,9 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // fixType1Widths rewrites mismatched /Widths entries to the embedded Type1
 // program's advance width, mirroring validateType1Metrics
 // (checks_font_program.go).
-func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
-	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
+func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pdf.PDFValue) bool {
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
 	if !fcOK || !wOK {
 		return false
 	}
@@ -209,7 +335,7 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
 	if err != nil || len(fontData) == 0 {
 		return false
 	}
-	enc, ok := verify.Type1EncodingTable(fontData, pdfEncoding)
+	enc, ok := verify.Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return false
 	}
@@ -233,21 +359,72 @@ func fixType1Widths(v pdf.PDFDict, ff pdf.PDFDict, pdfEncoding string) bool {
 			continue
 		}
 		csWidth, found := glyphWidths[glyph]
-		if !found || pdf.AbsInt(pdfWidth-csWidth) <= 1 {
+		if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(csWidth)
+		widths[i] = pdf.PDFInteger(math.Round(csWidth))
 		changed = true
 	}
-	return changed
+	return growType1Widths(v, desc, enc, glyphWidths, int(firstChar), widths) || changed
+}
+
+// growType1Widths extends /Widths over the codes outside it whose width would
+// come from a declared /MissingWidth that the program disagrees with. Only a
+// non-zero /MissingWidth is repaired: an absent one is 0, which the width check
+// reads as "no width declared" and never compares.
+func growType1Widths(v pdf.PDFDict, desc pdf.PDFDict, enc [256]string, glyphWidths map[string]float64, firstChar int, widths pdf.PDFArray) bool {
+	missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+	if missing == 0 || len(widths) == 0 {
+		return false
+	}
+	programWidth := func(cc int) (float64, bool) {
+		if enc[cc] == "" {
+			return 0, false
+		}
+		w, ok := glyphWidths[enc[cc]]
+		return w, ok
+	}
+
+	lo, hi := firstChar, firstChar+len(widths)-1
+	newLo, newHi := lo, hi
+	for cc := 0; cc < 256; cc++ {
+		if cc >= lo && cc <= hi {
+			continue
+		}
+		w, ok := programWidth(cc)
+		if !ok || math.Abs(float64(missing)-w) <= 1 {
+			continue
+		}
+		newLo = min(newLo, cc)
+		newHi = max(newHi, cc)
+	}
+	if newLo == lo && newHi == hi {
+		return false
+	}
+
+	grown := make(pdf.PDFArray, newHi-newLo+1)
+	for cc := newLo; cc <= newHi; cc++ {
+		switch w, ok := programWidth(cc); {
+		case cc >= lo && cc <= hi:
+			grown[cc-newLo] = widths[cc-lo]
+		case ok:
+			grown[cc-newLo] = pdf.PDFInteger(math.Round(w))
+		default:
+			grown[cc-newLo] = pdf.PDFInteger(missing)
+		}
+	}
+	v.Entries.Set("FirstChar", pdf.PDFInteger(newLo))
+	v.Entries.Set("LastChar", pdf.PDFInteger(newHi))
+	v.Entries.Set("Widths", grown)
+	return true
 }
 
 // fixType1CWidths rewrites mismatched /Widths entries to the embedded CFF
 // program's charstring advance width, mirroring validateType1CMetrics
 // (checks_font_program.go).
 func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
-	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
 	if !fcOK || !wOK {
 		return false
 	}
@@ -279,10 +456,10 @@ func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		csWidth, found := glyphWidths[glyph]
-		if !found || pdf.AbsInt(pdfWidth-csWidth) <= 1 {
+		if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
 			continue
 		}
-		widths[i] = pdf.PDFInteger(csWidth)
+		widths[i] = pdf.PDFInteger(math.Round(csWidth))
 		changed = true
 	}
 	return changed
@@ -292,7 +469,7 @@ func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // CFF program's charstring advance width, mirroring validateCIDCFFMetrics
 // (checks_font_program.go).
 func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
-	w, ok := v.Entries["W"].(pdf.PDFArray)
+	w, ok := v.Entries.Get("W").(pdf.PDFArray)
 	if !ok {
 		return false
 	}
@@ -309,16 +486,16 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	changed := false
 	for i, pair := range pairs {
 		csWidth, found := cidWidths[pair[0]]
-		if !found || pdf.AbsInt(csWidth-pair[1]) <= 1 {
+		if !found || math.Abs(csWidth-float64(pair[1])) <= 1 {
 			continue
 		}
-		pairs[i][1] = csWidth
+		pairs[i][1] = int(math.Round(csWidth))
 		changed = true
 	}
 	if !changed {
 		return false
 	}
-	v.Entries["W"] = buildCIDWidthsArray(pairs)
+	v.Entries.Set("W", buildCIDWidthsArray(pairs))
 	return true
 }
 
@@ -326,7 +503,7 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 // TrueType program's hmtx advance width, mirroring validateCIDTrueTypeMetrics
 // (checks_font_program.go).
 func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
-	w, ok := v.Entries["W"].(pdf.PDFArray)
+	w, ok := v.Entries.Get("W").(pdf.PDFArray)
 	if !ok {
 		return false
 	}
@@ -343,16 +520,16 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	changed := false
 	for i, pair := range pairs {
 		fontWidth := verify.TTAdvanceWidth(tables, pair[0])
-		if fontWidth < 0 || pdf.AbsInt(fontWidth-pair[1]) <= 1 {
+		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}
-		pairs[i][1] = fontWidth
+		pairs[i][1] = int(math.Round(fontWidth))
 		changed = true
 	}
 	if !changed {
 		return false
 	}
-	v.Entries["W"] = buildCIDWidthsArray(pairs)
+	v.Entries.Set("W", buildCIDWidthsArray(pairs))
 	return true
 }
 
@@ -380,14 +557,14 @@ func buildCIDWidthsArray(pairs [][2]int) pdf.PDFArray {
 // procedure's own d0/d1 width, mirroring validateType3Metrics
 // (checks_font.go).
 func fixType3Widths(v pdf.PDFDict) bool {
-	firstChar, fcOK := v.Entries["FirstChar"].(pdf.PDFInteger)
-	widths, wOK := v.Entries["Widths"].(pdf.PDFArray)
-	charProcs, cpOK := v.Entries["CharProcs"].(pdf.PDFDict)
-	enc, encOK := v.Entries["Encoding"].(pdf.PDFDict)
+	firstChar, fcOK := v.Entries.Get("FirstChar").(pdf.PDFInteger)
+	widths, wOK := v.Entries.Get("Widths").(pdf.PDFArray)
+	charProcs, cpOK := v.Entries.Get("CharProcs").(pdf.PDFDict)
+	enc, encOK := v.Entries.Get("Encoding").(pdf.PDFDict)
 	if !fcOK || !wOK || !cpOK || !encOK {
 		return false
 	}
-	diffs, _ := enc.Entries["Differences"].(pdf.PDFArray)
+	diffs, _ := enc.Entries.Get("Differences").(pdf.PDFArray)
 	if diffs == nil {
 		return false
 	}
@@ -419,7 +596,7 @@ func fixType3Widths(v pdf.PDFDict) bool {
 		if glyphName == "" {
 			continue
 		}
-		proc, ok := charProcs.Entries[glyphName].(pdf.PDFDict)
+		proc, ok := charProcs.Entries.Get(glyphName).(pdf.PDFDict)
 		if !ok || !proc.HasStream {
 			continue
 		}
@@ -485,28 +662,28 @@ func (fontSubsetMetaFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chang
 // dict; it re-checks the predicate so a stale or already-fixed target is a
 // no-op.
 func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
-	if (d.Entries["Type"] != pdf.PDFName{Value: "Font"}) {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
-	baseFont, _ := d.Entries["BaseFont"].(pdf.PDFName)
+	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
 	if !verify.SubsetTagRe.MatchString(baseFont.Value) {
 		return false
 	}
-	desc, ok := d.Entries["FontDescriptor"].(pdf.PDFDict)
+	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	if !ok || desc.Entries == nil {
 		return false
 	}
 
-	subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 	switch subtype.Value {
 	case "Type1", "MMType1":
 		return fixType1CharSet(desc)
 	case "CIDFontType0":
-		if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 			return fixCFFCIDSet(desc, ff)
 		}
 	case "CIDFontType2":
-		if ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict); ok {
+		if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 			return fixTrueTypeCIDSet(d, desc, ff)
 		}
 	}
@@ -521,15 +698,15 @@ func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
 func fixType1CharSet(desc pdf.PDFDict) bool {
 	var names []string
 	switch {
-	case desc.Entries["FontFile"] != nil:
-		ff := desc.Entries["FontFile"].(pdf.PDFDict)
+	case desc.Entries.Get("FontFile") != nil:
+		ff := desc.Entries.Get("FontFile").(pdf.PDFDict)
 		fontData, err := pdf.DecodeStream(ff)
 		if err != nil || len(fontData) == 0 {
 			return false
 		}
 		names = verify.Type1GlyphNames(fontData)
-	case desc.Entries["FontFile3"] != nil:
-		ff := desc.Entries["FontFile3"].(pdf.PDFDict)
+	case desc.Entries.Get("FontFile3") != nil:
+		ff := desc.Entries.Get("FontFile3").(pdf.PDFDict)
 		data, err := pdf.DecodeStream(ff)
 		if err != nil {
 			return false
@@ -541,7 +718,7 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 	if len(names) == 0 {
 		return false
 	}
-	if current, ok := desc.Entries["CharSet"].(pdf.PDFString); ok && current.Value != "" && charSetConsistent(current.Value, names) {
+	if current, ok := desc.Entries.Get("CharSet").(pdf.PDFString); ok && current.Value != "" && charSetConsistent(current.Value, names) {
 		return false
 	}
 	sort.Strings(names)
@@ -550,7 +727,7 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 		b.WriteByte('/')
 		b.WriteString(n)
 	}
-	desc.Entries["CharSet"] = pdf.PDFString{Value: b.String()}
+	desc.Entries.Set("CharSet", pdf.PDFString{Value: b.String()})
 	return true
 }
 
@@ -615,7 +792,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	if current, ok := desc.Entries["CIDSet"].(pdf.PDFDict); ok && current.HasStream {
+	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
 		if existing, err := pdf.DecodeStream(current); err == nil && cidSetComplete(existing, cids) {
 			return false
 		}
@@ -625,7 +802,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
 		return false
 	}
-	desc.Entries["CIDSet"] = stream
+	desc.Entries.Set("CIDSet", stream)
 	return true
 }
 
@@ -635,7 +812,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means
 	// CIDs don't correspond to GIDs directly.
-	if c2g := d.Entries["CIDToGIDMap"]; c2g != nil && c2g != (pdf.PDFName{Value: "Identity"}) {
+	if c2g := d.Entries.Get("CIDToGIDMap"); c2g != nil && c2g != (pdf.PDFName{Value: "Identity"}) {
 		return false
 	}
 	data, err := pdf.DecodeStream(ff)
@@ -661,7 +838,7 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	if current, ok := desc.Entries["CIDSet"].(pdf.PDFDict); ok && current.HasStream {
+	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
 		if existing, err := pdf.DecodeStream(current); err == nil && cidSetComplete(existing, cids) {
 			return false
 		}
@@ -671,6 +848,6 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
 		return false
 	}
-	desc.Entries["CIDSet"] = stream
+	desc.Entries.Set("CIDSet", stream)
 	return true
 }

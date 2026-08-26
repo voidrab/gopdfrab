@@ -33,10 +33,10 @@ func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 
 func (disallowedAnnotFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 			return
 		}
-		subtype, _ := d.Entries["Subtype"].(pdf.PDFName)
+		subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 		if !verify.AllowedAnnotationTypes[subtype.Value] {
 			clearDict(d)
 			*changed = true
@@ -75,11 +75,11 @@ func (annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.P
 	}
 
 	return func(d pdf.PDFDict) {
-		if (d.Entries["Type"] != pdf.PDFName{Value: "Annot"}) {
+		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 			return
 		}
 		for _, key := range []string{"C", "IC"} {
-			arr, ok := d.Entries[key].(pdf.PDFArray)
+			arr, ok := d.Entries.Get(key).(pdf.PDFArray)
 			if !ok {
 				continue
 			}
@@ -95,7 +95,7 @@ func (annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.P
 				continue
 			}
 			if !allowed(model) {
-				delete(d.Entries, key)
+				d.Entries.Del(key)
 				*changed = true
 			}
 		}
@@ -107,11 +107,11 @@ func (annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.P
 // operate on a resolved graph that was never opened as a *Document, so the
 // ValidationContext-based helper isn't available here.
 func outputIntentCoverage(trailer pdf.PDFDict) (hasOutputIntent, rgbCovered, cmykCovered bool) {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false, false, false
 	}
-	intents, ok := root.Entries["OutputIntents"].(pdf.PDFArray)
+	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {
 		return false, false, false
 	}
@@ -120,15 +120,15 @@ func outputIntentCoverage(trailer pdf.PDFDict) (hasOutputIntent, rgbCovered, cmy
 		if !ok {
 			continue
 		}
-		if (intent.Entries["S"] != pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if (intent.Entries.Get("S") != pdf.PDFName{Value: "GTS_PDFA1"}) {
 			continue
 		}
 		hasOutputIntent = true
-		profile, ok := intent.Entries["DestOutputProfile"].(pdf.PDFDict)
+		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
 		if !ok {
 			continue
 		}
-		switch n, _ := profile.Entries["N"].(pdf.PDFInteger); int(n) {
+		switch n, _ := profile.Entries.Get("N").(pdf.PDFInteger); int(n) {
 		case 3:
 			rgbCovered = true
 		case 4:

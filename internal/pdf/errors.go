@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+// PDFError is one violation: the check that failed, the messages describing it,
+// and where in the document it was found. It implements error.
 type PDFError struct {
 	check Check
 	errs  []error
@@ -39,6 +41,8 @@ func (e PDFError) WithObjModelDetail(d ObjModelDetail) PDFError {
 	return e
 }
 
+// String renders the violation as a line naming the clause, the check and the
+// object or page it was found on.
 func (e PDFError) String() string {
 	var b strings.Builder
 
@@ -76,6 +80,7 @@ func (e PDFError) String() string {
 	return b.String()
 }
 
+// Error returns the same text as String.
 func (e PDFError) Error() string {
 	return e.String()
 }

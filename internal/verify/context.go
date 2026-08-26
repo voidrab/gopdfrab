@@ -2,6 +2,7 @@ package verify
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -70,10 +71,18 @@ type ValidationContext struct {
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
 	schemaOnly bool
 
-	// pageResources is the Resources dict of the current page. Default* colour
-	// spaces defined at page level are inherited by patterns and Form XObjects
-	// that do not define their own Default*.
-	pageResources pdf.PDFDict
+	// resourceScope is the resource dictionary in force where the walk
+	// currently is: the nearest /Resources at or above it. Default* colour
+	// spaces (6.2.3.3) are looked up there, so content in a form XObject with
+	// its own /Resources is not excused by the page's Default*, while a form
+	// without any inherits the enclosing one.
+	resourceScope pdf.PDFDict
+
+	// undecodable is the set of streams already reported as
+	// Structure.StreamUndecodable, so a stream several checks read is flagged
+	// once per verify pass rather than once per read. Lives here rather than
+	// on the Reader because throwaway contexts have no reader at all.
+	undecodable map[pdf.StreamKey]bool
 
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
 	// cache, so unchanged content streams stay decoded at most once across
@@ -90,27 +99,69 @@ func NewContext(d *pdf.Reader) *ValidationContext {
 }
 
 // decodeStreamCached decodes dict's stream, caching the result via ctx.reader
-// (see pdf.Reader.DecodeStreamCached) when available.
+// (see pdf.Reader.DecodeStreamCached) when available, and reporting
+// Structure.StreamUndecodable when the filter chain is broken. A check that
+// cannot read its input must never look like a check that passed.
 func (ctx *ValidationContext) decodeStreamCached(dict pdf.PDFDict) ([]byte, error) {
+	var data []byte
+	var err error
 	if ctx.reader == nil {
-		return pdf.DecodeStream(dict)
+		data, err = pdf.DecodeStream(dict)
+	} else {
+		data, err = ctx.reader.DecodeStreamCached(dict)
 	}
-	return ctx.reader.DecodeStreamCached(dict)
+	if err != nil {
+		ctx.reportUndecodable(dict, err)
+	}
+	return data, err
 }
 
-// scanStreamCached tokenizes dict's content stream, caching the token list via
-// ctx.reader (see pdf.Reader.ScanStreamCached) when available, so repeated
-// scans of the same unchanged stream -- within one verify pass or across
-// convert's fixer iterations -- lex/parse it at most once.
-func (ctx *ValidationContext) scanStreamCached(dict pdf.PDFDict) ([]pdf.ScannedOp, error) {
+// reportUndecodable records a broken stream, once per ValidationContext.
+//
+// Two outcomes are deliberately not reported. A chain ending in an image codec
+// is well-formed rather than broken -- it just has no byte representation --
+// and without that exemption every DCT-encoded image would be flagged. A dict
+// that carries no stream at all is not a stream object, so 6.1.7 does not
+// apply; the callers that hit this are defensive guards against a mistyped
+// entry, which the object-model checks report against the schema instead.
+func (ctx *ValidationContext) reportUndecodable(dict pdf.PDFDict, err error) {
+	if errors.Is(err, pdf.ErrEncodedImage) || errors.Is(err, pdf.ErrNotAStream) {
+		return
+	}
+	if key, ok := pdf.StreamKeyOf(dict); ok {
+		if ctx.undecodable[key] {
+			return
+		}
+		if ctx.undecodable == nil {
+			ctx.undecodable = map[pdf.StreamKey]bool{}
+		}
+		ctx.undecodable[key] = true
+	}
+	ctx.Report(pdf.Checks.Structure.StreamUndecodable, dict,
+		fmt.Sprintf("stream could not be decoded: %v", err))
+}
+
+// scanStream reports dict's content-stream operators to fn, going through
+// ctx.reader (see pdf.Reader.ScanStreamFunc) when there is one so an unchanged
+// stream is lexed at most once across a verify pass and convert's fixer
+// iterations, and streamed rather than materialized once past the budget.
+//
+// Operands are valid only for the duration of the call; see ScanStreamFunc.
+func (ctx *ValidationContext) scanStream(dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
 	if ctx.reader == nil {
 		data, err := pdf.DecodeStream(dict)
 		if err != nil {
-			return nil, err
+			ctx.reportUndecodable(dict, err)
+			return err
 		}
-		return pdf.TokenizeContent(data), nil
+		pdf.NewContentScanner(data).Scan(fn)
+		return nil
 	}
-	return ctx.reader.ScanStreamCached(dict)
+	if err := ctx.reader.ScanStreamFunc(dict, fn); err != nil {
+		ctx.reportUndecodable(dict, err)
+		return err
+	}
+	return nil
 }
 
 // isReachableXObject reports whether v is a Form XObject reachable from page
@@ -210,7 +261,7 @@ func (ctx *ValidationContext) ReportObjModelElem(c pdf.Check, obj pdf.PDFValue, 
 func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
 	var ref *pdf.PDFRef
 	if dict, ok := obj.(pdf.PDFDict); ok {
-		if r, ok := dict.Entries["_ref"].(pdf.PDFRef); ok {
+		if r, ok := dict.Entries.Get("_ref").(pdf.PDFRef); ok {
 			ref = &r
 		}
 	}

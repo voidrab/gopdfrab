@@ -51,7 +51,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		return nil, fmt.Errorf("object %d is not an object stream", streamObjNum)
 	}
 
-	data, err := decodeStreamPredicted(dict)
+	data, err := DecodeStream(dict)
 	if err != nil {
 		return nil, fmt.Errorf("object stream %d: %w", streamObjNum, err)
 	}
@@ -106,7 +106,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		// same as resolver.go's parseClassicReference does for
 		// classically-stored objects.
 		if dictVal, ok := val.(PDFDict); ok {
-			dictVal.Entries["_ref"] = PDFRef{ObjNum: p.objNum}
+			dictVal.Entries.Set("_ref", PDFRef{ObjNum: p.objNum})
 			val = dictVal
 		}
 

@@ -8,13 +8,13 @@ import (
 
 func TestFileSpecFixer(t *testing.T) {
 	fs := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
-			"EF":            pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-			"EmbeddedFiles": pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"EF":            pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+			"EmbeddedFiles": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
 			"F":             pdf.PDFString{Value: "x"},
 			"FFilter":       pdf.PDFName{Value: "Fl"},
-			"FDecodeParms":  pdf.PDFDict{Entries: map[string]pdf.PDFValue{}},
-		},
+			"FDecodeParms":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		}),
 		HasStream: true, RawStream: []byte("data"),
 	}
 	trailer := trailerWith("FS", fs)
@@ -23,7 +23,7 @@ func TestFileSpecFixer(t *testing.T) {
 		t.Fatalf("fileSpecFixer.Fix = %v, %v", changed, err)
 	}
 	for _, k := range []string{"EF", "EmbeddedFiles", "F", "FFilter", "FDecodeParms"} {
-		if _, ok := fs.Entries[k]; ok {
+		if _, ok := fs.Entries.Lookup(k); ok {
 			t.Errorf("filespec key %q not removed", k)
 		}
 	}

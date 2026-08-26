@@ -189,9 +189,11 @@ func (l *Lexer) UnreadToken(t Token) {
 	l.pushed = append(l.pushed, t)
 }
 
-// validateObjectStart validates the "N G obj" header framing required by 6.1.8.
-// Advances past the header even on violations, so resolution can continue.
-func (l *Lexer) validateObjectStart() []error {
+// validateObjectStart validates the "N G obj" header framing required by 6.1.8
+// and returns the header's declared object number, or -1 when the header is not
+// a well-formed int/int/obj triple. Advances past the header even on
+// violations, so resolution can continue.
+func (l *Lexer) validateObjectStart() (int, []error) {
 	var errs []error
 
 	// The object shall begin at the cross-reference offset with no leading
@@ -202,7 +204,7 @@ func (l *Lexer) validateObjectStart() []error {
 
 	objTok := l.NextToken()
 	if objTok.Type != TokenInteger {
-		return append(errs, fmt.Errorf("invalid object number: %q", objTok.Value))
+		return -1, append(errs, fmt.Errorf("invalid object number: %q", objTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
@@ -211,7 +213,7 @@ func (l *Lexer) validateObjectStart() []error {
 
 	genTok := l.NextToken()
 	if genTok.Type != TokenInteger {
-		return append(errs, fmt.Errorf("invalid generation number: %q", genTok.Value))
+		return -1, append(errs, fmt.Errorf("invalid generation number: %q", genTok.Value))
 	}
 
 	if err := l.requireSingleSpace(); err != nil {
@@ -220,14 +222,14 @@ func (l *Lexer) validateObjectStart() []error {
 
 	objKw := l.NextToken()
 	if objKw.Type != TokenObjectStart {
-		return append(errs, fmt.Errorf("expected 'obj' keyword, got %q", objKw.Value))
+		return -1, append(errs, fmt.Errorf("expected 'obj' keyword, got %q", objKw.Value))
 	}
 
 	if err := l.requireEOL(); err != nil {
 		errs = append(errs, fmt.Errorf("'obj' keyword not followed by single EOL: %v", err))
 	}
 
-	return errs
+	return objTok.IntValue(), errs
 }
 
 // validateEndObj validates the framing around an unconsumed endobj keyword (6.1.8).
@@ -646,4 +648,24 @@ func internBytes(m map[string]string, b []byte) string {
 // backing when s is a common PDF name.
 func internName(b []byte) string {
 	return internBytes(internedNames, b)
+}
+
+// internedNameValues pre-boxes internedNames into PDFValues. Interning the
+// string stops readName allocating; boxing the PDFName allocates again, and a
+// 40,000-object document boxes /Type and /Subtype tens of thousands of times.
+// Sound because PDFName is an immutable value type.
+var internedNameValues = func() map[string]PDFValue {
+	m := make(map[string]PDFValue, len(internedNames))
+	for n := range internedNames {
+		m[n] = PDFName{Value: n}
+	}
+	return m
+}()
+
+// boxName returns a shared box for a common name, else a fresh one.
+func boxName(s string) PDFValue {
+	if v, ok := internedNameValues[s]; ok {
+		return v
+	}
+	return PDFName{Value: s}
 }

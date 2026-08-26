@@ -1,50 +1,229 @@
-// Convert and verify PDF files for PDF/A conformance.
 package gopdfrab
 
 import (
+	"context"
+
 	"github.com/voidrab/gopdfrab/internal/convert"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 type (
-	Result            = pdf.Result
+	// Result is a verification verdict and its issues. It is immutable once
+	// returned, so any number of goroutines may read one concurrently.
+	//
+	// Fields:
+	//
+	//	Type   the conformance level verified against
+	//	Valid  whether the file meets that level
+	//	Issues every violation found, each a PDFError
+	//
+	// Methods: Count, Checks, IssuesByCheck, IssuesForCheck, IssuesOnPage,
+	// Summary, MarshalJSON.
+	Result = pdf.Result
+
+	// FileResult is one path's outcome from a batch operation (VerifyAll,
+	// ConvertAll, ConvertEach), where T is Result or ConvertResult.
+	//
+	// Fields:
+	//
+	//	Path   the file this entry reports on
+	//	Result that file's outcome, zero if Err is set
+	//	Err    why the file could not be processed, nil on success
 	FileResult[T any] = pdf.FileResult[T]
-	Profile           = pdf.Profile
-	LevelType         = pdf.LevelType
-	Check             = pdf.Check
-	PDFError          = pdf.PDFError
-	ConvertResult     = convert.ConvertResult
+
+	// Profile is the set of checks a Verify or Convert applies. A profile is
+	// immutable -- AddCheck, RemoveCheck and Clear each return a clone -- so one
+	// profile may be shared by concurrent Verify or Convert calls. PDFA1B,
+	// Legacy1B and PDF are the ready-made ones; NewProfile returns an empty one.
+	//
+	// Fields:
+	//
+	//	Level                   the conformance level this profile verifies
+	//	SkipUnreachableXObjects skip Form XObjects no content stream invokes
+	//	SkipUnusedSimpleFonts   only report embedding for fonts actually drawn
+	//
+	// Methods: Clone, Clear, AddCheck, RemoveCheck, Checks, Has,
+	// OnlyObjectModelChecks, Allows, String.
+	Profile = pdf.Profile
+
+	// LevelType is a conformance level: A1B for PDF/A-1b, ObjectModel for the
+	// generic ISO 32000 checks, Undefined for neither. It is Profile.Level and
+	// Result.Type.
+	LevelType = pdf.LevelType
+
+	// Check is one named, selectable validation rule, identified by the ISO
+	// clause it enforces. The Checks registry names every check; AllChecks,
+	// CheckByClause and ChecksForClause look them up. All fields are
+	// unexported, so a Check is only ever obtained, not built.
+	//
+	// Methods: Name, Description, Clause, Subclause, ID, MarshalJSON.
+	Check = pdf.Check
+
+	// PDFError is one violation: the check that failed, what was wrong, and
+	// where. It implements error. All fields are unexported; read it through
+	// its methods.
+	//
+	// Methods: Check, Messages, Page, IsDocumentLevel, ObjectRef,
+	// ObjModelDetail, WithObjModelDetail, String, Error, MarshalJSON.
+	PDFError = pdf.PDFError
+
+	// PDFRef is an indirect object reference, returned by PDFError.ObjectRef.
+	//
+	// Fields:
+	//
+	//	ObjNum the object number
+	//	GenNum the generation number
+	PDFRef = pdf.PDFRef
+
+	// ObjModelDetail locates an object-model finding in the Arlington schema,
+	// returned by PDFError.ObjModelDetail.
+	//
+	// Fields:
+	//
+	//	TypeName the schema type of the reported container
+	//	Key      the key, or decimal array index, that was violated
+	//	Entry    for an array finding, the owner dict key holding the array
+	ObjModelDetail = pdf.ObjModelDetail
+
+	// ConvertResult is a conversion's output and its residual issues. Reading it
+	// (Output, WriteTo, Save, Residual) is safe from multiple goroutines; Close
+	// must not run concurrently with those, since it releases what they read.
+	//
+	// A conformant result can still have lost content: LostObjects lists what
+	// the conversion could not carry over, RasterizedPages and RasterDrops what
+	// it had to redraw, BlankedPages the pages that came out empty and
+	// OverpaintedPages the pages something was drawn over.
+	// Result.Valid answers only whether the file that was written meets the
+	// profile.
+	//
+	// Fields:
+	//
+	//	Result           the verdict on the output
+	//	Iterations       how many verify-and-fix rounds it took
+	//	Fidelity         per-page input-vs-output comparison, with CheckFidelity
+	//	BlankedPages     pages that came out empty, with CheckFidelity
+	//	OverpaintedPages pages something was drawn over, with CheckFidelity
+	//	RasterizedPages  pages rebuilt as a flat image
+	//	RasterDrops      content the raster fallback could not draw
+	//	LostObjects      content the conversion could not carry over
+	//
+	// Methods: Output, WriteTo, Save, Close, Residual.
+	ConvertResult = convert.ConvertResult
+
+	// PageFidelity is one page's input-vs-output rendering comparison,
+	// populated in ConvertResult.Fidelity when Options.CheckFidelity is set.
+	// ConvertResult.BlankedPages and OverpaintedPages are the same report
+	// reduced to its two worst cases: content lost, and content drawn over.
+	//
+	// Fields:
+	//
+	//	Page       the 1-based page number
+	//	Similarity 1.0 for identical renders, towards 0.0 as they diverge
+	//	InputInk   fraction of non-white pixels in the input render
+	//	OutputInk  fraction of non-white pixels in the output render
+	//	Covered    fraction that was paper going in and is solid coming out
+	//
+	// Methods: Blanked, Overpainted.
+	PageFidelity = convert.PageFidelity
+
+	// RasterDrop lists content the raster fallback could not render on a page
+	// (see ConvertResult.RasterDrops).
+	//
+	// Fields:
+	//
+	//	Page     the 1-based page it was dropped from
+	//	Features what could not be drawn, one entry each
+	RasterDrop = convert.RasterDrop
 )
 
 // PDF conformance levels.
 const (
-	A_1B      = pdf.A_1B
+	A1B       = pdf.A1B
 	Undefined = pdf.Undefined
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks.
 	ObjectModel = pdf.ObjectModel
 )
 
-// PDF profiles.
+// PDF profiles. A profile is immutable -- AddCheck, RemoveCheck and Clear each
+// return a clone -- but these variables are not: reassigning one changes the
+// default every later Verify or Convert uses, for the whole process.
 var (
 	// PDF is the default profile for generic ISO 32000 object-model checks.
 	PDF = pdf.PDF
-	// PDFA_1B is the canonical PDF/A-1b profile
-	PDFA_1B = pdf.PDFA_1B
-	// Legacy_1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
-	Legacy_1B = pdf.Legacy_1B
+	// PDFA1B is the canonical PDF/A-1b profile
+	PDFA1B = pdf.PDFA1B
+	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
+	Legacy1B = pdf.Legacy1B
 )
 
-// Checks is the registry of every selectable PDF/A check, grouped by area.
+// Checks is the registry of every selectable PDF/A check, grouped by area. The
+// Colour group keeps the ISO spelling, as ISO 19005 and ISO 32000 use it.
 var Checks = pdf.Checks
+
+// Errors callers can match with errors.Is on the result of Open/Verify/Convert.
+// ErrNotPDF: the input is not a PDF. ErrDamaged: a PDF whose cross-reference or
+// trailer structure could not be parsed. ErrEncrypted: an encryption scheme
+// gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
+// ErrUnresolvableGraph: Convert could not resolve the object graph even with
+// per-object degradation, so no output could be produced (the ConvertResult
+// still carries the best-effort verify Result).
+var (
+	ErrNotPDF            = pdf.ErrNotPDF
+	ErrDamaged           = pdf.ErrDamaged
+	ErrEncrypted         = pdf.ErrEncrypted
+	ErrPasswordRequired  = pdf.ErrPasswordRequired
+	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
+)
+
+// Options configures a Verify or Convert call. The zero value is the default
+// behavior, so callers set only the fields they need. The *Context entry points
+// take an Options; the two-argument forms use the zero value.
+//
+// Fields not relevant to an operation are ignored: Verify uses only Password;
+// RasterDPI and MaxIterations apply to Convert; Workers applies to the batch
+// convert entry points (ConvertAll, ConvertEach). Password applies at the open
+// step, so it has no effect on the *Document methods, whose file is already
+// open (use OpenWithPassword for those).
+//
+// An Options value is only read, never written, so one may be passed to
+// concurrent calls.
+type Options struct {
+	// Password is the user or owner password for an encrypted input. nil is the
+	// empty password.
+	Password []byte
+	// RasterDPI is the resolution at which Convert rasterizes a page or form as
+	// a last resort or to flatten transparency. 0 selects the default (150).
+	RasterDPI int
+	// MaxIterations bounds Convert's verify/fix loop. 0 selects the default (4).
+	MaxIterations int
+	// CheckFidelity makes Convert render the input and its output and populate
+	// ConvertResult.Fidelity with a per-page comparison. Off by default (it
+	// roughly doubles the work). Verify ignores it.
+	CheckFidelity bool
+	// Workers bounds the concurrency of the batch convert entry points ConvertAll
+	// and ConvertEach. 0 selects the default (runtime.NumCPU).
+	Workers int
+}
+
+func (o Options) convert() convert.Options {
+	return convert.Options{
+		Password:      o.Password,
+		RasterDPI:     o.RasterDPI,
+		MaxIterations: o.MaxIterations,
+		CheckFidelity: o.CheckFidelity,
+		Workers:       o.Workers,
+	}
+}
 
 // NewProfile returns an empty profile for the given conformance level.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
-// ObjectModelOnly returns a profile enabling only the generic ISO 32000
-// object-model checks, independent of any PDF/A conformance level -- useful
-// for asking "is this even valid PDF" on its own.
+// ObjectModelOnly returns a fresh profile equal to [PDF]: only the generic ISO
+// 32000 object-model checks, independent of any PDF/A conformance level --
+// useful for asking "is this even valid PDF" on its own. Use PDF unless the
+// caller wants a profile nothing else shares.
 func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 
 // AllChecks returns every registered check with its name, description, and
@@ -61,57 +240,147 @@ func CheckByClause(clause string, subclause int) (Check, bool) {
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
 
 // Verify opens, verifies, and closes a single file.
-func Verify(path string, p *Profile) (Result, error) { return verify.VerifyFile(path, p) }
+func Verify(path string, p *Profile) (Result, error) {
+	return verify.VerifyFile(path, p, nil)
+}
+
+// VerifyContext is Verify honouring ctx cancellation, with o (Options.Password
+// is the only field Verify uses).
+func VerifyContext(ctx context.Context, path string, p *Profile, o Options) (Result, error) {
+	return verify.VerifyFileContext(ctx, path, p, o.Password)
+}
 
 // VerifyBytes is Verify for an in-memory PDF.
-func VerifyBytes(data []byte, p *Profile) (Result, error) { return verify.VerifyBytes(data, p) }
+func VerifyBytes(data []byte, p *Profile) (Result, error) {
+	return verify.VerifyBytes(data, p, nil)
+}
 
-// VerifyAll opens, verifies, and closes a batch of files concurrently.
+// VerifyBytesContext is VerifyBytes honouring ctx cancellation, with o.
+func VerifyBytesContext(ctx context.Context, data []byte, p *Profile, o Options) (Result, error) {
+	return verify.VerifyBytesContext(ctx, data, p, o.Password)
+}
+
+// VerifyAll opens, verifies, and closes a batch of files concurrently. It runs
+// its own workers, each with its own document, so call it from one goroutine
+// rather than fanning it out further.
 func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
-	return verify.VerifyAll(paths, p)
+	return verify.VerifyAll(paths, p, nil)
+}
+
+// VerifyAllContext is VerifyAll honouring ctx cancellation; a cancelled ctx
+// records ctx.Err() for files not yet started.
+func VerifyAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[Result], error) {
+	return verify.VerifyAllContext(ctx, paths, p, o.Password)
 }
 
 // VerifyObjectModel opens, checks, and closes a single file against the
 // generic ISO 32000 object-model checks only, independent of any PDF/A
 // conformance level.
-func VerifyObjectModel(path string) (Result, error) { return verify.VerifyFile(path, PDF) }
+func VerifyObjectModel(path string) (Result, error) {
+	return verify.VerifyFile(path, PDF, nil)
+}
 
 // VerifyObjectModelBytes is VerifyObjectModel for an in-memory PDF.
-func VerifyObjectModelBytes(data []byte) (Result, error) { return verify.VerifyBytes(data, PDF) }
+func VerifyObjectModelBytes(data []byte) (Result, error) {
+	return verify.VerifyBytes(data, PDF, nil)
+}
 
 // Convert reads the PDF at path and attempts to produce a PDF/A-1b
 // conformant rewrite.
-func Convert(path string, p *Profile) (ConvertResult, error) { return convert.Convert(path, p) }
+func Convert(path string, p *Profile) (ConvertResult, error) {
+	return convert.Convert(path, p, convert.Options{})
+}
+
+// ConvertContext is Convert honouring ctx cancellation (checked before each
+// verify/fix iteration and each raster pass) and o.
+func ConvertContext(ctx context.Context, path string, p *Profile, o Options) (ConvertResult, error) {
+	return convert.ConvertContext(ctx, path, p, o.convert())
+}
 
 // ConvertBytes is Convert for an in-memory PDF.
 func ConvertBytes(data []byte, p *Profile) (ConvertResult, error) {
-	return convert.ConvertBytes(data, p)
+	return convert.ConvertBytes(data, p, convert.Options{})
 }
 
-// ConvertAll opens, converts, and closes a batch of files concurrently.
+// ConvertBytesContext is ConvertBytes honouring ctx cancellation and o.
+func ConvertBytesContext(ctx context.Context, data []byte, p *Profile, o Options) (ConvertResult, error) {
+	return convert.ConvertBytesContext(ctx, data, p, o.convert())
+}
+
+// ConvertAll opens, converts, and closes a batch of files concurrently, with
+// Options.Workers workers. Like VerifyAll, call it from one goroutine.
 func ConvertAll(paths []string, p *Profile) ([]FileResult[ConvertResult], error) {
-	return convert.ConvertAll(paths, p)
+	return convert.ConvertAll(paths, p, convert.Options{})
+}
+
+// ConvertAllContext is ConvertAll honouring ctx cancellation (a cancelled ctx
+// records ctx.Err() for files not yet started) and o.
+func ConvertAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[ConvertResult], error) {
+	return convert.ConvertAllContext(ctx, paths, p, o.convert())
+}
+
+// ConvertEach converts a batch of files concurrently, invoking fn on each
+// result as it completes rather than retaining them all, so a large batch need
+// not hold every output PDF in memory at once. fn is called once per file,
+// serialized but in completion order (the FileResult's Path identifies it); if
+// fn returns an error the batch stops and that error is returned.
+func ConvertEach(paths []string, p *Profile, o Options, fn func(FileResult[ConvertResult]) error) error {
+	return convert.ConvertEach(paths, p, o.convert(), fn)
+}
+
+// ConvertEachContext is ConvertEach honouring ctx cancellation (a cancelled ctx
+// delivers ctx.Err() for files not yet started).
+func ConvertEachContext(ctx context.Context, paths []string, p *Profile, o Options, fn func(FileResult[ConvertResult]) error) error {
+	return convert.ConvertEachContext(ctx, paths, p, o.convert(), fn)
 }
 
 // ConvertObjectModel reads the PDF at path and attempts to produce a rewrite
 // conformant with the generic ISO 32000 object-model checks only, independent
 // of any PDF/A conformance level -- the conversion counterpart to
 // VerifyObjectModel.
-func ConvertObjectModel(path string) (ConvertResult, error) { return convert.Convert(path, PDF) }
+func ConvertObjectModel(path string) (ConvertResult, error) {
+	return convert.Convert(path, PDF, convert.Options{})
+}
 
 // ConvertObjectModelBytes is ConvertObjectModel for an in-memory PDF.
 func ConvertObjectModelBytes(data []byte) (ConvertResult, error) {
-	return convert.ConvertBytes(data, PDF)
+	return convert.ConvertBytes(data, PDF, convert.Options{})
 }
 
 // Document represents an open PDF file.
+//
+// A Document is not safe for concurrent use: it holds parse and stream-decode
+// caches that its methods fill without synchronization. Open one per goroutine
+// rather than sharing one. The package-level Verify and Convert functions each
+// open their own document, so those are safe to call concurrently.
 type Document struct {
 	r *pdf.Reader
 }
 
-// Open initializes the PDF document at path.
-func Open(path string) (*Document, error) {
-	r, err := pdf.Open(path)
+// Open initializes the PDF document at path, decrypting an encrypted file with
+// the empty password.
+func Open(path string) (*Document, error) { return OpenWithPassword(path, nil) }
+
+// OpenWithPassword is Open with an explicit password for an encrypted file.
+// nil is the empty password. It returns an error matching ErrPasswordRequired
+// when the password is wrong or missing.
+func OpenWithPassword(path string, password []byte) (*Document, error) {
+	r, err := pdf.OpenWithPassword(path, password)
+	if err != nil {
+		return nil, err
+	}
+	return &Document{r: r}, nil
+}
+
+// OpenBytes initializes a document from an in-memory PDF, parsing it the same
+// way Open does but without touching disk. Close it when done, as with Open.
+func OpenBytes(data []byte) (*Document, error) { return OpenBytesWithPassword(data, nil) }
+
+// OpenBytesWithPassword is OpenBytes with an explicit password for an encrypted
+// file. nil is the empty password. It returns an error matching
+// ErrPasswordRequired when the password is wrong or missing.
+func OpenBytesWithPassword(data, password []byte) (*Document, error) {
+	r, err := pdf.OpenBytesWithPassword(data, password)
 	if err != nil {
 		return nil, err
 	}
@@ -124,14 +393,19 @@ func (d *Document) Close() error { return d.r.Close() }
 // Verify verifies d against the checks enabled in profile p.
 func (d *Document) Verify(p *Profile) (Result, error) { return verify.Verify(d.r, p) }
 
+// VerifyContext is Verify honouring ctx cancellation.
+func (d *Document) VerifyContext(ctx context.Context, p *Profile) (Result, error) {
+	return verify.VerifyContext(ctx, d.r, p)
+}
+
 // VerifyObjectModel checks d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
 func (d *Document) VerifyObjectModel() (Result, error) { return d.Verify(PDF) }
 
 // IsPDFA reports whether the document is valid PDF/A-1b. It is equivalent to
-// calling Verify(PDFA_1B) and checking the result's Valid field.
+// calling Verify(PDFA1B) and checking the result's Valid field.
 func (d *Document) IsPDFA() (bool, error) {
-	res, err := d.Verify(PDFA_1B)
+	res, err := d.Verify(PDFA1B)
 	if err != nil {
 		return false, err
 	}
@@ -152,11 +426,22 @@ func (d *Document) IsPDF() (bool, error) {
 
 // Convert converts d, an already-open document, attempting to produce a
 // PDF/A-1b conformant rewrite.
-func (d *Document) Convert(p *Profile) (ConvertResult, error) { return convert.Run(d.r, p) }
+func (d *Document) Convert(p *Profile) (ConvertResult, error) {
+	return convert.Run(d.r, p, convert.Options{})
+}
+
+// ConvertContext is Convert honouring ctx cancellation (checked before each
+// verify/fix iteration and each raster pass) and o. Options.Password is ignored
+// (the file is already open); RasterDPI and MaxIterations apply.
+func (d *Document) ConvertContext(ctx context.Context, p *Profile, o Options) (ConvertResult, error) {
+	return convert.RunContext(ctx, d.r, p, o.convert())
+}
 
 // ConvertObjectModel converts d against the generic ISO 32000 object-model
 // checks only, independent of any PDF/A conformance level.
-func (d *Document) ConvertObjectModel() (ConvertResult, error) { return convert.Run(d.r, PDF) }
+func (d *Document) ConvertObjectModel() (ConvertResult, error) {
+	return convert.Run(d.r, PDF, convert.Options{})
+}
 
 // XMPMetadata returns the document's raw XMP metadata packet (Root/Metadata),
 // decoded and normalised to UTF-8. It returns an error if the document has no
@@ -171,11 +456,11 @@ func (d *Document) ClaimedConformance() (part, conformance string, err error) {
 	return d.r.ClaimedConformance()
 }
 
-// GetPageCount retrieves the page count.
-func (d *Document) GetPageCount() (int, error) { return d.r.GetPageCount() }
+// PageCount retrieves the page count.
+func (d *Document) PageCount() (int, error) { return d.r.PageCount() }
 
-// GetVersion extracts the PDF version from the document header.
-func (d *Document) GetVersion() (string, error) { return d.r.GetVersion() }
+// Version extracts the PDF version from the document header.
+func (d *Document) Version() (string, error) { return d.r.Version() }
 
-// GetMetadata extracts info from the Info dictionary.
-func (d *Document) GetMetadata() (map[string]string, error) { return d.r.GetMetadata() }
+// Metadata extracts info from the Info dictionary.
+func (d *Document) Metadata() (map[string]string, error) { return d.r.Metadata() }

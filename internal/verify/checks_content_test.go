@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"bytes"
+	"compress/zlib"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -21,23 +23,23 @@ func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 	apStream := pdf.NewPDFDict()
 	apStream.HasStream = true
 	apStream.RawStream = apContent
-	apStream.Entries["Resources"] = pdf.NewPDFDict() // no DefaultRGB here
+	apStream.Entries.Set("Resources", pdf.NewPDFDict()) // no DefaultRGB here
 
 	ap := pdf.NewPDFDict()
-	ap.Entries["N"] = apStream
+	ap.Entries.Set("N", apStream)
 
 	annot := pdf.NewPDFDict()
-	annot.Entries["AP"] = ap
+	annot.Entries.Set("AP", ap)
 
 	page = pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Annots"] = pdf.PDFArray{annot}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
 	// Page resources carry DefaultRGB — the soundness bug made this excuse the AP.
 	cs := pdf.NewPDFDict()
-	cs.Entries["DefaultRGB"] = pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}
+	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
 	pageRes = pdf.NewPDFDict()
-	pageRes.Entries["ColorSpace"] = cs
+	pageRes.Entries.Set("ColorSpace", cs)
 	return page, pageRes
 }
 
@@ -48,7 +50,7 @@ func TestScanAnnotAppearancesRejectsPageDefaultRGB(t *testing.T) {
 	page, pageRes := buildAPWithRGB(t)
 
 	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
-	ctx.pageResources = pageRes
+	ctx.resourceScope = pageRes
 
 	scanAnnotAppearances(page, ctx)
 
@@ -69,13 +71,13 @@ func TestScanAnnotAppearancesHonoursOwnDefaultRGB(t *testing.T) {
 	page, _ := buildAPWithRGB(t)
 
 	// Inject DefaultRGB into the appearance stream's own resources.
-	annot := page.Entries["Annots"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	apStream := annot.Entries["AP"].(pdf.PDFDict).Entries["N"].(pdf.PDFDict)
+	annot := page.Entries.Get("Annots").(pdf.PDFArray)[0].(pdf.PDFDict)
+	apStream := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
 	cs := pdf.NewPDFDict()
-	cs.Entries["DefaultRGB"] = pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}
+	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
 	apRes := pdf.NewPDFDict()
-	apRes.Entries["ColorSpace"] = cs
-	apStream.Entries["Resources"] = apRes
+	apRes.Entries.Set("ColorSpace", cs)
+	apStream.Entries.Set("Resources", apRes)
 
 	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
 	scanAnnotAppearances(page, ctx)
@@ -87,10 +89,9 @@ func TestScanAnnotAppearancesHonoursOwnDefaultRGB(t *testing.T) {
 	}
 }
 
-// scanRaw tokenizes raw content-stream bytes and runs scanContent over them.
+// scanRaw runs the content checks over raw content-stream bytes.
 func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
-	ops := pdf.TokenizeContent(data)
-	scanContent(ops, pdf.PDFDict{}, resources, ctx)
+	pdf.NewContentScanner(data).Scan(contentChecker(pdf.PDFDict{}, resources, ctx))
 }
 
 func TestScanContentValue(t *testing.T) {
@@ -143,8 +144,8 @@ func TestScanContentInlineImage(t *testing.T) {
 func TestCheckInlineImageColourNamedResource(t *testing.T) {
 	resources := pdf.NewPDFDict()
 	cs := pdf.NewPDFDict()
-	cs.Entries["MyCS"] = pdf.PDFName{Value: "DeviceCMYK"}
-	resources.Entries["ColorSpace"] = cs
+	cs.Entries.Set("MyCS", pdf.PDFName{Value: "DeviceCMYK"})
+	resources.Entries.Set("ColorSpace", cs)
 
 	params := []pdf.PDFValue{pdf.PDFName{Value: "CS"}, pdf.PDFName{Value: "MyCS"}}
 	ctx := &ValidationContext{hasOutputIntent: true, rgbCovered: true}
@@ -228,8 +229,8 @@ func TestNamedColourModel(t *testing.T) {
 	}
 	resources := pdf.NewPDFDict()
 	cs := pdf.NewPDFDict()
-	cs.Entries["Custom"] = pdf.PDFName{Value: "DeviceCMYK"}
-	resources.Entries["ColorSpace"] = cs
+	cs.Entries.Set("Custom", pdf.PDFName{Value: "DeviceCMYK"})
+	resources.Entries.Set("ColorSpace", cs)
 	if got := NamedColourModel(pdf.PDFName{Value: "Custom"}, resources); got != "cmyk" {
 		t.Errorf("NamedColourModel(Custom) = %q, want cmyk", got)
 	}
@@ -241,7 +242,7 @@ func TestNamedColourModel(t *testing.T) {
 func TestValidateContentStreamsDispatch(t *testing.T) {
 	// Tiling pattern: always scanned.
 	pattern := pdf.NewPDFDict()
-	pattern.Entries["PatternType"] = pdf.PDFInteger(1)
+	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
 	pattern.HasStream = true
 	pattern.RawStream = []byte("ZzBadOp\n")
 	ctx := &ValidationContext{}
@@ -252,7 +253,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 
 	// Unreachable Form XObject: skipped.
 	form := pdf.NewPDFDict()
-	form.Entries["Subtype"] = pdf.PDFName{Value: "Form"}
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	form.HasStream = true
 	form.RawStream = []byte("ZzBadOp\n")
 	ctx2 := &ValidationContext{ReachableXObjectPtrs: map[uintptr]bool{}} // non-nil, form's ptr absent
@@ -266,10 +267,10 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	proc.HasStream = true
 	proc.RawStream = []byte("ZzBadOp\n")
 	charProcs := pdf.NewPDFDict()
-	charProcs.Entries["g1"] = proc
+	charProcs.Entries.Set("g1", proc)
 	t3 := pdf.NewPDFDict()
-	t3.Entries["Subtype"] = pdf.PDFName{Value: "Type3"}
-	t3.Entries["CharProcs"] = charProcs
+	t3.Entries.Set("Subtype", pdf.PDFName{Value: "Type3"})
+	t3.Entries.Set("CharProcs", charProcs)
 	ctx3 := &ValidationContext{}
 	validateContentStreams(t3, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Colour.UndefinedOperator) {
@@ -282,8 +283,8 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	onState.HasStream = true
 	onState.RawStream = []byte("ZzBadOp\n")
 	states := pdf.NewPDFDict()
-	states.Entries["On"] = onState
-	states.Entries["Off"] = pdf.NewPDFDict() // no stream: skipped
+	states.Entries.Set("On", onState)
+	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
 
 	ctx := &ValidationContext{}
 	scanAPEntry(states, ctx)
@@ -292,9 +293,57 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	}
 }
 
+// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB pins the resource scope
+// the walk sets: a form XObject bringing its own /Resources is checked in that
+// dict, so the page's /DefaultRGB no longer excuses the DeviceRGB inside it.
+// Real files hide uncovered device colour exactly there.
+func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := pdf.NewPDFDict()
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	form.Entries.Set("Resources", pdf.NewPDFDict()) // its own, and empty
+	form.HasStream = true
+	form.RawStream = content
+
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("Fx0", form)
+	cs := pdf.NewPDFDict()
+	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
+	pageRes := pdf.NewPDFDict()
+	pageRes.Entries.Set("ColorSpace", cs)
+	pageRes.Entries.Set("XObject", xobjects)
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", pageRes)
+
+	pages := pdf.NewPDFDict()
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+	trailer.Entries.Set("Size", pdf.PDFInteger(5))
+
+	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	verifyDocument(trailer, ctx)
+
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("expected DeviceColourContentStream for rg inside a form with its own resources")
+	}
+}
+
 // TestPageContentFormXObjectStillInheritsPageDefaultRGB confirms the existing
 // behaviour: a Form XObject invoked from page content (via Do) is excused by the
-// page's /DefaultRGB via the ctx.pageResources fallback — unaffected by Fix A.
+// page's /DefaultRGB via the ctx.resourceScope fallback — unaffected by Fix A.
 func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	// Form XObject with DeviceRGB usage, no own resources.
 	fContent, err := writer.WriteContentStream([]writer.ContentOp{
@@ -304,18 +353,18 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 		t.Fatal(err)
 	}
 	// scanContentDict is called with the XObject's own (empty) resources and the
-	// page resources as ctx.pageResources — reportContentColour should not fire.
+	// page resources as ctx.resourceScope — reportContentColour should not fire.
 	xobj := pdf.NewPDFDict()
 	xobj.HasStream = true
 	xobj.RawStream = fContent
 
 	cs := pdf.NewPDFDict()
-	cs.Entries["DefaultRGB"] = pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}
+	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
 	pageRes := pdf.NewPDFDict()
-	pageRes.Entries["ColorSpace"] = cs
+	pageRes.Entries.Set("ColorSpace", cs)
 
 	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
-	ctx.pageResources = pageRes
+	ctx.resourceScope = pageRes
 
 	scanContentDict(xobj, pdf.NewPDFDict(), ctx)
 
@@ -323,5 +372,49 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 		if iss.Check() == pdf.Checks.Colour.DeviceColourContentStream {
 			t.Errorf("page-content Form XObject should be excused by page DefaultRGB: %v", iss.Error())
 		}
+	}
+}
+
+// TestScanContentDictPredictorEncoded covers a content stream carrying a
+// PNG predictor. Predictors were only ever undone for xref and object
+// streams, so such a page decoded to garbage and its violations vanished --
+// the content-stream half of the missing-filter gap.
+func TestScanContentDictPredictorEncoded(t *testing.T) {
+	content, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrap each row in a PNG "None" filter tag, then Flate it, exactly as a
+	// producer emitting /Predictor 12 would.
+	const columns = 8
+	var predicted []byte
+	for i := 0; i < len(content); i += columns {
+		predicted = append(predicted, 0)
+		predicted = append(predicted, content[i:min(i+columns, len(content))]...)
+	}
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(predicted); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	stream.RawStream = buf.Bytes()
+	stream.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	stream.Entries.Set("DecodeParms", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(columns), "Colors": pdf.PDFInteger(1),
+	})})
+
+	ctx := &ValidationContext{}
+	scanContentDict(stream, pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("predictor-encoded content stream: expected the rg device-colour violation to be reported")
 	}
 }

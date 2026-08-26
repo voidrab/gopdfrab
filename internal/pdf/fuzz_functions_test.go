@@ -38,25 +38,25 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 	ps := pdf.NewPDFDict()
 	ps.HasStream = true
 	ps.RawStream = data
-	ps.Entries["FunctionType"] = pdf.PDFInteger(4)
-	ps.Entries["Domain"] = unit
-	ps.Entries["Range"] = unit
-	ps.Entries["Length"] = pdf.PDFInteger(len(data))
+	ps.Entries.Set("FunctionType", pdf.PDFInteger(4))
+	ps.Entries.Set("Domain", unit)
+	ps.Entries.Set("Range", unit)
+	ps.Entries.Set("Length", pdf.PDFInteger(len(data)))
 
 	sampled := pdf.NewPDFDict()
 	sampled.HasStream = true
 	sampled.RawStream = data
-	sampled.Entries["FunctionType"] = pdf.PDFInteger(0)
-	sampled.Entries["Domain"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)}
-	sampled.Entries["Range"] = unit
-	sampled.Entries["Size"] = pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFInteger(2)}
-	sampled.Entries["BitsPerSample"] = pdf.PDFInteger(8)
-	sampled.Entries["Length"] = pdf.PDFInteger(len(data))
+	sampled.Entries.Set("FunctionType", pdf.PDFInteger(0))
+	sampled.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
+	sampled.Entries.Set("Range", unit)
+	sampled.Entries.Set("Size", pdf.PDFArray{pdf.PDFInteger(2), pdf.PDFInteger(2)})
+	sampled.Entries.Set("BitsPerSample", pdf.PDFInteger(8))
+	sampled.Entries.Set("Length", pdf.PDFInteger(len(data)))
 
 	exp := pdf.NewPDFDict()
-	exp.Entries["FunctionType"] = pdf.PDFInteger(2)
-	exp.Entries["Domain"] = unit
-	exp.Entries["N"] = pdf.PDFInteger(1)
+	exp.Entries.Set("FunctionType", pdf.PDFInteger(2))
+	exp.Entries.Set("Domain", unit)
+	exp.Entries.Set("N", pdf.PDFInteger(1))
 
 	return []pdf.PDFValue{ps, sampled, exp}
 }
@@ -81,16 +81,16 @@ func FuzzResolveColor(f *testing.F) {
 		inner := pdf.NewPDFDict()
 		switch shape % 4 {
 		case 0:
-			inner.Entries[csName] = pdf.PDFName{Value: csName} // direct self-cycle
+			inner.Entries.Set(csName, pdf.PDFName{Value: csName}) // direct self-cycle
 		case 1:
-			inner.Entries[csName] = pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: csName}, pdf.PDFInteger(1), pdf.PDFString{Value: "\x00\x01"}}
+			inner.Entries.Set(csName, pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: csName}, pdf.PDFInteger(1), pdf.PDFString{Value: "\x00\x01"}})
 		case 2:
-			inner.Entries[csName] = pdf.PDFArray{pdf.PDFName{Value: "Separation"}, pdf.PDFName{Value: "All"}, pdf.PDFName{Value: csName}, pdf.PDFInteger(0)}
+			inner.Entries.Set(csName, pdf.PDFArray{pdf.PDFName{Value: "Separation"}, pdf.PDFName{Value: "All"}, pdf.PDFName{Value: csName}, pdf.PDFInteger(0)})
 		default:
-			inner.Entries[csName] = pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.NewPDFDict()}
+			inner.Entries.Set(csName, pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.NewPDFDict()})
 		}
 		resources := pdf.NewPDFDict()
-		resources.Entries["ColorSpace"] = inner
+		resources.Entries.Set("ColorSpace", inner)
 
 		pdf.ResolveColor(pdf.PDFName{Value: csName}, []float64{0, 0.5, 1}, resources)
 	})

@@ -27,7 +27,7 @@ SAMPLE_LARGE="$ISARTOR_DIR/6.1 File structure/6.1.12 Implementation Limits/isart
 
 build_gopdfrab_bench() {
     echo "building gopdfrab-bench..." >&2
-    ( cd "$REPO_DIR" && go build -o "$GOPDFRAB_BIN" ./benchmarks/cmd/gopdfrab-bench )
+    ( cd "$BENCH_DIR" && go build -o "$GOPDFRAB_BIN" ./cmd/gopdfrab-bench )
 }
 
 # require_tool exits with a clear message if a prerequisite from setup.sh is

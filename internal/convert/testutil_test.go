@@ -79,6 +79,23 @@ func passFixtures(t *testing.T) []string {
 	return found
 }
 
+// mustOutput returns cr's converted bytes, failing the test on error. Use it
+// where a conversion is expected to have produced output.
+func mustOutput(t *testing.T, cr ConvertResult) []byte {
+	t.Helper()
+	b, err := cr.Output()
+	if err != nil {
+		t.Fatalf("Output(): %v", err)
+	}
+	return b
+}
+
+// inMemoryResult builds a ConvertResult holding data in memory, for tests that
+// construct a result directly rather than via a conversion.
+func inMemoryResult(data []byte) ConvertResult {
+	return ConvertResult{backing: &outputBacking{mem: data}}
+}
+
 // writeTempPDF writes data to a temp file named name and returns its path.
 func writeTempPDF(t *testing.T, name string, data []byte) string {
 	t.Helper()
@@ -94,28 +111,28 @@ func writeTempPDF(t *testing.T, name string, data []byte) string {
 // Page dict, failing the test on any structural mismatch.
 func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 	t.Helper()
-	root, ok := graph.(pdf.PDFDict).Entries["Root"].(pdf.PDFDict)
+	root, ok := graph.(pdf.PDFDict).Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(root.Entries["Type"], pdf.PDFName{Value: "Catalog"}) {
-		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries["Type"])
+	if !pdf.EqualPDFValue(root.Entries.Get("Type"), pdf.PDFName{Value: "Catalog"}) {
+		t.Fatalf("Root/Type = %v, want /Catalog", root.Entries.Get("Type"))
 	}
 
-	pages, ok := root.Entries["Pages"].(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Root/Pages did not resolve to a dict")
 	}
-	kids, ok := pages.Entries["Kids"].(pdf.PDFArray)
+	kids, ok := pages.Entries.Get("Kids").(pdf.PDFArray)
 	if !ok || len(kids) != 1 {
-		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries["Kids"])
+		t.Fatalf("Pages/Kids = %v, want a 1-element array", pages.Entries.Get("Kids"))
 	}
 	page, ok := kids[0].(pdf.PDFDict)
 	if !ok {
 		t.Fatalf("Kids[0] did not resolve to a dict")
 	}
-	if !pdf.EqualPDFValue(page.Entries["Type"], pdf.PDFName{Value: "Page"}) {
-		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries["Type"])
+	if !pdf.EqualPDFValue(page.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+		t.Fatalf("Kids[0]/Type = %v, want /Page", page.Entries.Get("Type"))
 	}
 	return page
 }
@@ -123,7 +140,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 // assertContentStream decodes page's /Contents stream and checks it matches want.
 func assertContentStream(t *testing.T, page pdf.PDFDict, want string) {
 	t.Helper()
-	contents, ok := page.Entries["Contents"].(pdf.PDFDict)
+	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
 	if !ok || !contents.HasStream {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}

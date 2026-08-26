@@ -50,6 +50,19 @@ Each `run_*.sh` is independent and writes its own `results/*.json|csv|txt`;
 `report.py` notes what's missing if run partially. Re-running a script
 overwrites only its own files.
 
+All of that output is gitignored scratch. The one exception is the committed
+performance history:
+
+```sh
+bash scripts/record-history.sh   # one dated round into results/history/
+```
+
+Record a round per release, and after any change meant to move performance; it
+prints a benchstat comparison against the previous round. See
+`results/history/README.md` for how to read the numbers (short version:
+`allocs/op` is deterministic and trustworthy, wall-clock on a dev machine is
+±15% noise).
+
 ## What's measured
 
 1. **Startup overhead** — cheapest possible invocation (version/usage/module
@@ -111,4 +124,5 @@ micro/                in-process Go microbenchmark (testing.B)
 tools/                downloaded/compiled competitors (gitignored; PreflightBatch.java is checked in)
 scripts/              setup + one script per metric group + report.py
 results/              generated output (gitignored)
+results/history/      committed per-round benchstat history (not gitignored)
 ```

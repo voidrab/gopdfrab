@@ -26,12 +26,12 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		if !ok {
 			continue
 		}
-		if (intent.Entries["S"] != pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if (intent.Entries.Get("S") != pdf.PDFName{Value: "GTS_PDFA1"}) {
 			continue
 		}
 		ctx.hasOutputIntent = true
 
-		destRef := intent.Entries["DestOutputProfile"]
+		destRef := intent.Entries.Get("DestOutputProfile")
 		if destRef == nil {
 			continue
 		}
@@ -43,7 +43,7 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		if !ok {
 			continue
 		}
-		n, ok := profile.Entries["N"].(pdf.PDFInteger)
+		n, ok := profile.Entries.Get("N").(pdf.PDFInteger)
 		if !ok {
 			continue
 		}
@@ -98,17 +98,17 @@ func DeviceColourModel(cs pdf.PDFValue) string {
 // DefaultColorSpaceDefined reports whether a Default* colour space is present in
 // resources/ColorSpace, substituting the device space and avoiding a 6.2.3.3 violation.
 func DefaultColorSpaceDefined(model string, resources pdf.PDFDict) bool {
-	cs, ok := resources.Entries["ColorSpace"].(pdf.PDFDict)
+	cs, ok := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
 	switch model {
 	case "rgb":
-		return cs.Entries["DefaultRGB"] != nil
+		return cs.Entries.Get("DefaultRGB") != nil
 	case "cmyk":
-		return cs.Entries["DefaultCMYK"] != nil
+		return cs.Entries.Get("DefaultCMYK") != nil
 	case "gray":
-		return cs.Entries["DefaultGray"] != nil
+		return cs.Entries.Get("DefaultGray") != nil
 	}
 	return false
 }
@@ -121,7 +121,7 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	if DefaultColorSpaceDefined(model, ctx.pageResources) {
+	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
 	ctx.Report(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
@@ -130,14 +130,14 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
 // shading colour spaces (6.2.3.3) and Separation/DeviceN alternate spaces (6.2.3.4).
 func validateColourSpaceUsage(v pdf.PDFDict, ctx *ValidationContext) {
-	if (v.Entries["Subtype"] == pdf.PDFName{Value: "Image"}) {
-		if cs := v.Entries["ColorSpace"]; cs != nil {
+	if (v.Entries.Get("Subtype") == pdf.PDFName{Value: "Image"}) {
+		if cs := v.Entries.Get("ColorSpace"); cs != nil {
 			checkDeviceColour(v, cs, ctx, "image")
 		}
 	}
 
-	if v.Entries["ShadingType"] != nil {
-		if cs := v.Entries["ColorSpace"]; cs != nil {
+	if v.Entries.Get("ShadingType") != nil {
+		if cs := v.Entries.Get("ColorSpace"); cs != nil {
 			checkDeviceColour(v, cs, ctx, "shading")
 		}
 	}
@@ -146,11 +146,18 @@ func validateColourSpaceUsage(v pdf.PDFDict, ctx *ValidationContext) {
 // validateColourSpaceArray checks a colour-space array for Separation/DeviceN
 // alternate spaces that reduce to an uncovered device space (6.2.3.4).
 func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
-	if len(arr) < 3 {
+	if len(arr) < 2 {
 		return
 	}
 	head, ok := arr[0].(pdf.PDFName)
-	if !ok || (head.Value != "Separation" && head.Value != "DeviceN") {
+	if !ok {
+		return
+	}
+	if head.Value == "ICCBased" {
+		validateICCBasedColourSpace(arr, ctx)
+		return
+	}
+	if len(arr) < 3 || (head.Value != "Separation" && head.Value != "DeviceN") {
 		return
 	}
 	// [/Separation name alternateSpace tintTransform]
@@ -167,4 +174,27 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 		return
 	}
 	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+}
+
+// validateICCBasedColourSpace checks an [/ICCBased stream] colour space against
+// both halves of 6.2.3.2: the embedded profile must be one PDF/A-1 allows, and
+// the space must declare the number of components that profile actually has.
+// The two are separate defects, so a space can be reported for either or both.
+// A profile too damaged to read a header from is a stream defect, reported at
+// the decode chokepoint as 6.1.7, not as anything about its contents.
+func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
+	stream, ok := arr[1].(pdf.PDFDict)
+	if !ok || !stream.HasStream {
+		return
+	}
+	data, err := ctx.decodeStreamCached(stream)
+	if err != nil || len(data) < 128 {
+		return
+	}
+	if msg := ICCInputProfileDefect(data); msg != "" {
+		ctx.Report(pdf.Checks.Colour.ICCBasedProfileInvalid, arr, msg)
+	}
+	if msg := ICCComponentsMismatch(stream, data); msg != "" {
+		ctx.Report(pdf.Checks.Colour.ICCBasedComponentsMismatch, arr, msg)
+	}
 }

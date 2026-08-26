@@ -260,20 +260,26 @@ func TestValidateObjectStart(t *testing.T) {
 		name     string
 		data     string
 		wantErrs int
+		wantNum  int
 	}{
-		{"well-formed", "1 0 obj\n", 0},
-		{"leading whitespace", " 1 0 obj\n", 1},
-		{"invalid object number", "X 0 obj\n", 1},
-		{"invalid generation number", "1 X obj\n", 1},
-		{"missing obj keyword", "1 0 foo\n", 1},
-		{"obj not followed by EOL", "1 0 obj X", 1},
+		{"well-formed", "1 0 obj\n", 0, 1},
+		{"leading whitespace", " 1 0 obj\n", 1, 1},
+		{"invalid object number", "X 0 obj\n", 1, -1},
+		{"invalid generation number", "1 X obj\n", 1, -1},
+		{"missing obj keyword", "1 0 foo\n", 1, -1},
+		{"obj not followed by EOL", "1 0 obj X", 1, 1},
+		{"other object number", "42 0 obj\n", 0, 42},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
 			defer l.Release()
-			if errs := l.validateObjectStart(); len(errs) != tc.wantErrs {
+			num, errs := l.validateObjectStart()
+			if len(errs) != tc.wantErrs {
 				t.Errorf("validateObjectStart(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
+			}
+			if num != tc.wantNum {
+				t.Errorf("validateObjectStart(%q) num = %d, want %d", tc.data, num, tc.wantNum)
 			}
 		})
 	}

@@ -1,0 +1,18 @@
+[
+  {
+    "path": "should-pass/libreoffice-pdfa1b.pdf",
+    "url": "",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "license": "self-generated",
+    "producer": "LibreOffice 7 (Export as PDF/A-1b)",
+    "note": "veraPDF confirms PDF/A-1b; local file, no url"
+  },
+  {
+    "path": "should-convert/arxiv-paper.pdf",
+    "url": "https://arxiv.org/pdf/0000.00000",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "license": "arXiv-1.0 / CC-BY-4.0",
+    "producer": "pdfTeX",
+    "note": "publicly hosted; fetchable by hash"
+  }
+]

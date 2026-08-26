@@ -59,7 +59,7 @@ var sampleFiles = map[string]string{
 		"veraPDF test suite 6-1-12-t08-fail-a.pdf"),
 }
 
-// BenchmarkOpenVerify measures Open+Verify(A_1B) for each representative
+// BenchmarkOpenVerify measures Open+Verify(A1B) for each representative
 // file size. Run with: go test -bench=. -benchmem ./benchmarks/micro/...
 func BenchmarkOpenVerify(b *testing.B) {
 	root := repoRoot()
@@ -72,7 +72,7 @@ func BenchmarkOpenVerify(b *testing.B) {
 				if err != nil {
 					b.Fatalf("Open(%s): %v", path, err)
 				}
-				if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
+				if _, err := doc.Verify(gopdfrab.PDFA1B); err != nil {
 					doc.Close()
 					b.Fatalf("Verify(%s): %v", path, err)
 				}
@@ -97,7 +97,7 @@ func BenchmarkConvert(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
+				if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
 					b.Fatalf("ConvertBytes(%s): %v", name, err)
 				}
 			}
@@ -106,7 +106,7 @@ func BenchmarkConvert(b *testing.B) {
 }
 
 // maxLargeFileAllocs is a regression ceiling on allocations for one
-// Open+Verify(A_1B) pass over the "large" sample (the 6.1.12 torture test
+// Open+Verify(A1B) pass over the "large" sample (the 6.1.12 torture test
 // with 40,015 indirect objects). It guards against reintroducing the
 // per-object re-parsing and re-decoding blowup this count used to track:
 // ~4.64M allocs/op before resolveReference/decodeStream results were
@@ -136,10 +136,17 @@ func BenchmarkConvert(b *testing.B) {
 // The byte-path xref parser (no per-entry buffer), the ValidationContext
 // key-scratch stack for the walk's sorted key iteration, and the O(1)
 // Arlington row index cut it to ~1.01M.
+// Sharing one pre-boxed PDFValue per common name (lexer.go's
+// internedNameValues) removed the interface box that every /Type, /Subtype
+// and /Filter value used to allocate: ~20k fewer, to ~923k.
+// Backing PDFDict with a slice instead of a map (dict.go) raised this to
+// ~993k -- a dict is two allocations where a small map was one -- while
+// cutting the resolved graph from 23.5 MB to 16.7 MB. This is the one entry
+// in this list that trades count for bytes; see the commit.
 // Allocs/op is deterministic and environment-independent, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_035_000
+const maxLargeFileAllocs = 1_025_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -156,7 +163,7 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 			t.Fatalf("Open(%s): %v", path, err)
 		}
 		defer doc.Close()
-		if _, err := doc.Verify(gopdfrab.PDFA_1B); err != nil {
+		if _, err := doc.Verify(gopdfrab.PDFA1B); err != nil {
 			t.Fatalf("Verify(%s): %v", path, err)
 		}
 	})
@@ -195,8 +202,12 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // verification when the graph is clean (serializeAndVerify's merged path;
 // only the byte-level structural checks re-run against the output) plus the
 // single shared pre-emptive fixup walk cut it to ~1.78M.
+// Sharing one pre-boxed PDFValue per common name (lexer.go's
+// internedNameValues) cut another ~25k, to ~1.53M.
+// The slice-backed PDFDict raised it to ~1.63M in exchange for bytes; see
+// maxLargeFileAllocs.
 // Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 1_810_000
+const maxConvertLargeAllocs = 1_680_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
@@ -209,7 +220,7 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(3, func() {
-		if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B); err != nil {
+		if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
 			t.Fatalf("ConvertBytes(large): %v", err)
 		}
 	})
@@ -218,6 +229,62 @@ func TestConvertLargeAllocationsBounded(t *testing.T) {
 		t.Errorf("ConvertBytes(large) allocated %.0f times per run, want <= %d; "+
 			"likely regained a verify pass or reintroduced per-object re-parsing",
 			allocs, maxConvertLargeAllocs)
+	}
+}
+
+// allocCase is one guarded cost path: VerifyBytes or ConvertBytes over a
+// representative sample, with a regression ceiling on allocs/op.
+type allocCase struct {
+	sample  string
+	convert bool // false = VerifyBytes, true = ConvertBytes
+	ceiling float64
+}
+
+// costPathAllocCeilings extends the "large" torture-test guards above to the
+// other distinct cost paths, so a regression in embedded font-program parsing,
+// Separation/DeviceN colour handling, or the raster fallback is caught too. Each
+// ceiling is a regression ceiling set with headroom over the measured value, not
+// a tight target; allocs/op is deterministic and environment-independent, so the
+// checks are not flaky. Lower a ceiling if optimization reduces it.
+var costPathAllocCeilings = []allocCase{
+	{sample: "fonts", convert: false, ceiling: 1_800},       // measured ~1629
+	{sample: "fonts", convert: true, ceiling: 3_500},        // measured ~3175
+	{sample: "large_color", convert: false, ceiling: 1_300}, // measured ~1170
+	{sample: "raster", convert: true, ceiling: 3_500},       // measured ~3168
+}
+
+// TestCostPathAllocationsBounded guards the font, colour, and raster cost paths
+// against reintroducing per-object re-parsing/re-decoding. See
+// costPathAllocCeilings.
+func TestCostPathAllocationsBounded(t *testing.T) {
+	root := repoRoot()
+	for _, c := range costPathAllocCeilings {
+		name := "verify/" + c.sample
+		if c.convert {
+			name = "convert/" + c.sample
+		}
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, sampleFiles[c.sample]))
+			if err != nil {
+				t.Skipf("%s sample not present", c.sample)
+			}
+			allocs := testing.AllocsPerRun(3, func() {
+				if c.convert {
+					if _, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B); err != nil {
+						t.Fatalf("ConvertBytes(%s): %v", c.sample, err)
+					}
+				} else {
+					if _, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B); err != nil {
+						t.Fatalf("VerifyBytes(%s): %v", c.sample, err)
+					}
+				}
+			})
+			t.Logf("%s: %.0f allocs/run (ceiling %.0f)", name, allocs, c.ceiling)
+			if allocs > c.ceiling {
+				t.Errorf("%s allocated %.0f times per run, want <= %.0f; "+
+					"likely reintroduced per-object re-parsing or re-decoding", name, allocs, c.ceiling)
+			}
+		})
 	}
 }
 
@@ -235,13 +302,18 @@ func TestConvertSeededVerifyMatchesFreshVerify(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA_1B)
+			cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
 			if err != nil {
 				t.Fatalf("ConvertBytes: %v", err)
 			}
+			defer cr.Close()
+			out, err := cr.Output()
+			if err != nil {
+				t.Fatalf("Output: %v", err)
+			}
 
 			// Independent fresh verify of the same output bytes.
-			fresh, err := gopdfrab.VerifyBytes(cr.Output, gopdfrab.PDFA_1B)
+			fresh, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
 			if err != nil {
 				t.Fatalf("VerifyBytes: %v", err)
 			}

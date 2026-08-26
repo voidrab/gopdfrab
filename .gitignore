@@ -41,6 +41,9 @@ benchmarks/tools/pdfbox/*.jar
 benchmarks/tools/pdfbox/*.class
 benchmarks/results/*
 !benchmarks/results/report.md
+# Per-round benchstat history is committed on purpose, so
+# regressions across releases stay visible. Written by record-history.sh.
+!benchmarks/results/history/
 
 # Python cache (benchmarks/scripts/report.py)
 __pycache__/
@@ -49,8 +52,14 @@ __pycache__/
 # Local test documents
 tests/regression/
 
+# Real-world corpus PDFs: populated out of band from a manifest of hashes
+# (see tests/realworld/README.md); the README, manifest example, and .gitkeep
+# stay tracked.
+tests/realworld/**/*.pdf
+
 # Fuzzing crashers written by `go test -fuzz` (reproduce locally via the
 # reported seed; never commit machine-specific corpus entries)
 testdata/fuzz/
 
-TODO.md
+# CLI binary if built without -o from the repo root
+/gopdfrab

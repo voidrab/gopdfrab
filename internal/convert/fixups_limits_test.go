@@ -1,6 +1,9 @@
 package convert
 
 import (
+	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -20,6 +23,55 @@ func TestResourceOperatorTarget(t *testing.T) {
 	}
 }
 
+// TestPruneUnusedResourceEntriesIsDeterministic: an oversized resource dict
+// normally has more prunable entries than excess to shed, so the choice must
+// not come from map order -- two identical documents would otherwise convert to
+// different bytes.
+func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
+	build := func() pdf.PDFDict {
+		d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
+		for i := range maxDictEntries + 10 {
+			d.Entries.Set(fmt.Sprintf("C%04d", i), pdf.PDFInteger(i))
+		}
+		return d
+	}
+	used := map[string]bool{"C0000": true, "C0001": true}
+
+	var first []string
+	for run := range 3 {
+		sub := build()
+		if !pruneUnusedResourceEntries(sub, used) {
+			t.Fatal("oversized dict was not pruned")
+		}
+		if got := dictRealEntryCount(sub); got != maxDictEntries {
+			t.Errorf("pruned to %d entries, want %d", got, maxDictEntries)
+		}
+		for k := range used {
+			if _, ok := sub.Entries.Lookup(k); !ok {
+				t.Errorf("pruned the used entry %q", k)
+			}
+		}
+		keys := make([]string, 0, sub.Entries.Len())
+		for k := range sub.Entries.All() {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		if run == 0 {
+			first = keys
+			continue
+		}
+		if !slices.Equal(keys, first) {
+			t.Fatalf("run %d pruned a different set: %v vs %v", run, keys[:5], first[:5])
+		}
+	}
+
+	// Nothing to shed: a dict at the limit is left alone.
+	small := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"A": pdf.PDFInteger(1)})}
+	if pruneUnusedResourceEntries(small, nil) {
+		t.Error("a dict under the limit was pruned")
+	}
+}
+
 func TestTruncateOverlongName(t *testing.T) {
 	if _, ok := truncateOverlongName(pdf.PDFName{Value: "short"}); ok {
 		t.Error("short name should not be truncated")
@@ -36,13 +88,13 @@ func TestTruncateOverlongName(t *testing.T) {
 
 func TestShortenDictKey(t *testing.T) {
 	long := strings.Repeat("k", 200)
-	d := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	first := shortenDictKey(d, long)
 	if len(first) > maxNameLength {
 		t.Errorf("shortened key len %d exceeds max", len(first))
 	}
 	// Force a collision so the numeric-suffix path runs.
-	d.Entries[first] = pdf.PDFInteger(1)
+	d.Entries.Set(first, pdf.PDFInteger(1))
 	second := shortenDictKey(d, long)
 	if second == first {
 		t.Error("colliding key should get a unique suffix")
@@ -54,7 +106,7 @@ func TestHasOversizedArray(t *testing.T) {
 	if !hasOversizedArray(big, map[uintptr]bool{}) {
 		t.Error("oversized array not detected")
 	}
-	nested := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"K": big}}
+	nested := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": big})}
 	if !hasOversizedArray(nested, map[uintptr]bool{}) {
 		t.Error("oversized array nested in a dict not detected")
 	}
@@ -69,43 +121,43 @@ func TestHasOversizedArray(t *testing.T) {
 // short-circuits: no Root, and a structure tree within the array limit.
 func TestDropOversizedStructure(t *testing.T) {
 	big := make(pdf.PDFArray, maxPDFArrayElements+1)
-	st := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"K": big}}
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	st := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": big})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Page"}, "StructParents": pdf.PDFInteger(0),
-	}}
-	root := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	})}
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"StructTreeRoot": st,
-		"MarkInfo":       pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Marked": pdf.PDFBoolean(true)}},
-		"Pages":          pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": root}}
+		"MarkInfo":       pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Marked": pdf.PDFBoolean(true)})},
+		"Pages":          pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
 	if !dropOversizedStructure(&trailer) {
 		t.Fatalf("dropOversizedStructure = false, want true (StructTreeRoot holds an oversized array)")
 	}
-	gotRoot := trailer.Entries["Root"].(pdf.PDFDict)
-	if gotRoot.Entries["StructTreeRoot"] != nil {
+	gotRoot := trailer.Entries.Get("Root").(pdf.PDFDict)
+	if gotRoot.Entries.Get("StructTreeRoot") != nil {
 		t.Error("StructTreeRoot not removed")
 	}
-	if gotRoot.Entries["MarkInfo"] != nil {
+	if gotRoot.Entries.Get("MarkInfo") != nil {
 		t.Error("MarkInfo not removed")
 	}
-	gotPage := gotRoot.Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	if gotPage.Entries["StructParents"] != nil {
+	gotPage := gotRoot.Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	if gotPage.Entries.Get("StructParents") != nil {
 		t.Error("StructParents not removed from page")
 	}
 }
 
 func TestDropOversizedStructureNoOp(t *testing.T) {
-	noRoot := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}}
+	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	if dropOversizedStructure(&noRoot) {
 		t.Error("dropOversizedStructure with no Root = true, want false")
 	}
 
-	small := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"StructTreeRoot": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"K": pdf.PDFArray{pdf.PDFInteger(1)}}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Root": small}}
+	small := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"StructTreeRoot": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": pdf.PDFArray{pdf.PDFInteger(1)}})},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": small})}
 	if dropOversizedStructure(&trailer) {
 		t.Error("dropOversizedStructure with a within-limit structure tree = true, want false")
 	}
@@ -113,10 +165,10 @@ func TestDropOversizedStructureNoOp(t *testing.T) {
 
 func TestCountPageLeaves(t *testing.T) {
 	items := pdf.PDFArray{
-		pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Page"}}},
-		pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Page"}})},
+		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Pages"}, "Count": pdf.PDFInteger(4),
-		}},
+		})},
 		pdf.PDFInteger(9), // non-dict, ignored
 	}
 	if got := countPageLeaves(items); got != 5 {
@@ -140,39 +192,39 @@ func TestClampCMapCIDs(t *testing.T) {
 // category plus a nested Form XObject with its own resources.
 func TestComputeResourceUsage(t *testing.T) {
 	form := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"F2": pdf.PDFInteger(1)}}}},
-		},
+			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F2": pdf.PDFInteger(1)})}})},
+		}),
 		HasStream: true, RawStream: []byte("/F2 12 Tf"),
 	}
-	fontSub := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"F1": pdf.PDFInteger(1)}}
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"XObject":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Im1": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}}, "Fm1": form}},
+	fontSub := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": pdf.PDFInteger(1)})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"XObject":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}})}, "Fm1": form})},
 		"Font":       fontSub,
-		"ExtGState":  pdf.PDFDict{Entries: map[string]pdf.PDFValue{"GS1": pdf.PDFInteger(1)}},
-		"ColorSpace": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"CS1": pdf.PDFInteger(1)}},
-		"Pattern":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"P1": pdf.PDFInteger(1)}},
-		"Shading":    pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Sh1": pdf.PDFInteger(1)}},
-		"Properties": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"MC1": pdf.PDFInteger(1)}},
-	}}
+		"ExtGState":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS1": pdf.PDFInteger(1)})},
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CS1": pdf.PDFInteger(1)})},
+		"Pattern":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pdf.PDFInteger(1)})},
+		"Shading":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Sh1": pdf.PDFInteger(1)})},
+		"Properties": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"MC1": pdf.PDFInteger(1)})},
+	})}
 	content := "/Im1 Do /F1 12 Tf /GS1 gs /CS1 cs /P1 scn /Sh1 sh /Tag /MC1 BDC /Fm1 Do"
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
 		"Contents":  pdf.PDFArray{pdf.PDFDict{HasStream: true, RawStream: []byte(content)}},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
-		}},
-	}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
 
 	used := computeResourceUsage(trailer)
 	if set := used[pdf.ValuePointer(fontSub.Entries)]; set == nil || !set["F1"] {
 		t.Errorf("Font F1 not marked used: %v", used[pdf.ValuePointer(fontSub.Entries)])
 	}
-	formFont := form.Entries["Resources"].(pdf.PDFDict).Entries["Font"].(pdf.PDFDict)
+	formFont := form.Entries.Get("Resources").(pdf.PDFDict).Entries.Get("Font").(pdf.PDFDict)
 	if set := used[pdf.ValuePointer(formFont.Entries)]; set == nil || !set["F2"] {
 		t.Error("nested Form Font F2 not marked used")
 	}
@@ -185,33 +237,33 @@ func TestComputeResourceUsage(t *testing.T) {
 // recursed Form XObject sharing the same overlong-keyed /Font resource dict.
 func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing.T) {
 	longKey := strings.Repeat("k", 200)
-	fontsDict := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		longKey: pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}},
-	}}
+	fontsDict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		longKey: pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}})},
+	})}
 
 	form := pdf.PDFDict{
-		Entries: map[string]pdf.PDFValue{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Font": fontsDict}},
-		},
+			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": fontsDict})},
+		}),
 		HasStream: true, RawStream: []byte("/" + longKey + " 12 Tf"),
 	}
-	resources := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font":    fontsDict,
-		"XObject": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Fm1": form}},
-	}}
-	streamA := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("/" + longKey + " 10 Tf")}
-	streamB := pdf.PDFDict{Entries: map[string]pdf.PDFValue{}, HasStream: true, RawStream: []byte("/Fm1 Do")}
-	page := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
+		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form})},
+	})}
+	streamA := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("/" + longKey + " 10 Tf")}
+	streamB := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("/Fm1 Do")}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
 		"Contents":  pdf.PDFArray{streamA, streamB},
-	}}
-	trailer := pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: map[string]pdf.PDFValue{
-			"Pages": pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}}},
-		}},
-	}}
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
 
 	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
 	if err != nil {
@@ -222,15 +274,15 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 	}
 
 	var newKey string
-	for k := range fontsDict.Entries {
+	for k := range fontsDict.Entries.All() {
 		newKey = k
 	}
 	if newKey == longKey || len(newKey) > maxNameLength {
 		t.Fatalf("resource key not shortened: %q", newKey)
 	}
 
-	gotPage := trailer.Entries["Root"].(pdf.PDFDict).Entries["Pages"].(pdf.PDFDict).Entries["Kids"].(pdf.PDFArray)[0].(pdf.PDFDict)
-	contents := gotPage.Entries["Contents"].(pdf.PDFArray)
+	gotPage := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	contents := gotPage.Entries.Get("Contents").(pdf.PDFArray)
 
 	decodedA, err := pdf.DecodeStream(contents[0].(pdf.PDFDict))
 	if err != nil {
@@ -244,7 +296,7 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 	if err != nil {
 		t.Fatalf("DecodeStream(Contents[1]): %v", err)
 	}
-	gotForm := gotPage.Entries["Resources"].(pdf.PDFDict).Entries["XObject"].(pdf.PDFDict).Entries["Fm1"].(pdf.PDFDict)
+	gotForm := gotPage.Entries.Get("Resources").(pdf.PDFDict).Entries.Get("XObject").(pdf.PDFDict).Entries.Get("Fm1").(pdf.PDFDict)
 	decodedForm, err := pdf.DecodeStream(gotForm)
 	if err != nil {
 		t.Fatalf("DecodeStream(Form): %v", err)
@@ -257,11 +309,11 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 // TestClampCMapStreamDictSkipsNonCMap covers the type/stream guard: a dict
 // that isn't a stream-bearing /Type /CMap must be left untouched.
 func TestClampCMapStreamDictSkipsNonCMap(t *testing.T) {
-	notCMap := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}, HasStream: true, RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n")}
+	notCMap := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}), HasStream: true, RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n")}
 	if _, ok := clampCMapStreamDict(notCMap); ok {
 		t.Error("clampCMapStreamDict on a non-CMap dict = true, want false")
 	}
-	noStream := pdf.PDFDict{Entries: map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}}}
+	noStream := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}})}
 	if _, ok := clampCMapStreamDict(noStream); ok {
 		t.Error("clampCMapStreamDict on a streamless CMap dict = true, want false")
 	}
@@ -271,7 +323,7 @@ func TestClampCMapStreamDictSkipsNonCMap(t *testing.T) {
 // CMap stream containing an out-of-range CID.
 func TestCMapCIDClampFixer(t *testing.T) {
 	cmap := pdf.PDFDict{
-		Entries:   map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}},
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}}),
 		HasStream: true,
 		RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n"),
 	}
@@ -281,12 +333,68 @@ func TestCMapCIDClampFixer(t *testing.T) {
 		t.Fatalf("cmapCIDClampFixer.Fix = %v, %v; want changed", changed, err)
 	}
 	// The clamped stream is re-flated; decode it back and confirm the CID was capped.
-	fixed := trailer.Entries["Root"].(pdf.PDFDict).Entries["Enc"].(pdf.PDFDict)
+	fixed := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Enc").(pdf.PDFDict)
 	data, derr := pdf.DecodeStream(fixed)
 	if derr != nil {
 		t.Fatalf("DecodeStream: %v", derr)
 	}
 	if strings.Contains(string(data), "70000") || !strings.Contains(string(data), "65535") {
 		t.Errorf("CID not clamped in output: %q", data)
+	}
+}
+
+// TestResourceAwareRewritePreservesUntouchedOperators is the
+// rewriteResourceAwareStream counterpart of
+// TestDeviceNRewritePreservesUntouchedOperators: operators the rename does
+// not touch must keep their own operands. Both rewriters used to retain the
+// content scanner's reused operand stack, which only shows up on a stream
+// holding more than one operator with operands.
+func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
+	longKey := strings.Repeat("k", 200)
+	fontsDict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		longKey: pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}})},
+	})}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": fontsDict})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+		"Contents": pdf.PDFDict{
+			Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
+			HasStream: true,
+			RawStream: []byte("1 0 0 RG 5 w BT /" + longKey + " 12 Tf (hi) Tj ET 10 20 m 30 40 l S"),
+		},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Kids": pdf.PDFArray{page}})},
+		})},
+	})}
+
+	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected the overlong resource key to trigger a change")
+	}
+
+	var newKey string
+	for k := range fontsDict.Entries.All() {
+		newKey = k
+	}
+	gotPage := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+	decoded, err := pdf.DecodeStream(gotPage.Entries.Get("Contents").(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	got := string(decoded)
+
+	for _, want := range []string{"1 0 0 RG", "5 w", "(hi) Tj", "10 20 m", "30 40 l", "/" + newKey + " 12 Tf"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rewritten stream lost or corrupted %q\ngot: %s", want, got)
+		}
+	}
+	if strings.Contains(got, longKey) {
+		t.Errorf("overlong key survived\ngot: %s", got)
 	}
 }

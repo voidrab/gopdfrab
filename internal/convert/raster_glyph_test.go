@@ -413,3 +413,51 @@ func TestAtoiSafe(t *testing.T) {
 		t.Error("atoiSafe(non-digit) should be -1")
 	}
 }
+
+// TestTTSimpleGlyphContoursDescendingEndPoints covers a glyph whose contour
+// endpoints do not climb. The point arrays are sized from the last endpoint
+// but indexed by every one of them, so a font claiming a huge early contour
+// and a tiny last one used to read past the end of them -- a panic in a
+// rasterizer worker goroutine, where nothing recovers it and the whole process
+// goes down. Such a glyph is rejected instead.
+func TestTTSimpleGlyphContoursDescendingEndPoints(t *testing.T) {
+	build := func(endPts ...uint16) []byte {
+		var rec []byte
+		put := func(v uint16) { rec = binary.BigEndian.AppendUint16(rec, v) }
+		put(uint16(len(endPts))) // numberOfContours
+		put(0)
+		put(0)
+		put(0)
+		put(0) // bbox, unused
+		for _, e := range endPts {
+			put(e)
+		}
+		put(0) // instructionLength
+		// Point data for the two points the last endpoint claims, which is
+		// all a well-formed reader would ever look at.
+		rec = append(rec, 0x07, 0x07)
+		return append(rec, 0, 0, 0, 0)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		endPts []uint16
+	}{
+		{"first contour ends past the last", []uint16{60000, 1}},
+		{"endpoints descend by one", []uint16{2, 1}},
+		{"repeated then smaller", []uint16{5, 5, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The point is that this returns rather than panicking.
+			if _, ok := ttSimpleGlyphContours(build(tc.endPts...)); ok {
+				t.Error("a glyph with non-climbing contour endpoints was accepted")
+			}
+		})
+	}
+
+	// Equal consecutive endpoints are legal (an empty contour) and must still
+	// be accepted, so the guard cannot just reject any non-increase.
+	if _, ok := ttSimpleGlyphContours(build(0, 1)); !ok {
+		t.Error("a glyph with climbing endpoints was rejected")
+	}
+}

@@ -12,21 +12,31 @@ import (
 )
 
 // srgbICCProfile is the ICC's official sRGB v2 profile (color.org), embedded
-// for any RGB OutputIntent/DefaultRGB colour space this package injects.
+// for any RGB OutputIntent/DefaultRGB colour space this package injects. See
+// NOTICE for where it comes from.
 //
 //go:embed assets/profiles/sRGB2014.icc
 var srgbICCProfile []byte
 
-// cmykICCProfile is a small-footprint FOGRA39 v2 CMYK profile, embedded for
-// any CMYK OutputIntent/DefaultCMYK colour space this package injects. PDF/A-1
-// requires ICC profiles no newer than v2.x (validateICCProfileStream); the
-// "fogra39.icc" asset alongside it is v4 and therefore unusable here.
+// cmykICCProfile is a small-footprint FOGRA39 CMYK profile, reduced to ICC v2
+// because PDF/A-1 takes nothing newer (verify.ValidateICCProfileStream),
+// embedded for any CMYK OutputIntent/DefaultCMYK colour space this package
+// injects. See NOTICE for where it comes from.
 //
 //go:embed assets/profiles/Small-footprint_FOGRA39v2.icc
 var cmykICCProfile []byte
 
+// grayICCProfile is the CC0 sGrey v2 profile, embedded so a one-component
+// ICCBased colour space can be repaired in place rather than dropped for a
+// device colour space. See NOTICE for where it comes from.
+//
+//go:embed assets/profiles/sGrey-v2-micro.icc
+var grayICCProfile []byte
+
 func init() {
 	registerPreemptiveFixup(injectOutputIntent)
+	registerFixer(iccBasedProfileFixer{})
+	registerFixer(separationAlternateFixer{})
 }
 
 // colourModelN maps dominantColourModel's "rgb"/"cmyk" result to the /N an
@@ -37,7 +47,7 @@ var colourModelN = map[string]int{"rgb": 3, "cmyk": 4}
 // injectOutputIntent ensures the document's catalog has a PDF/A OutputIntent
 // backed by an embedded ICC profile.
 func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("injectOutputIntent: Root is not a dictionary")
 	}
@@ -55,21 +65,95 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 	}
 
 	profile := pdf.NewPDFDict()
-	profile.Entries["N"] = pdf.PDFInteger(wantN)
-	profile.Entries["Alternate"] = pdf.PDFName{Value: alternate}
+	profile.Entries.Set("N", pdf.PDFInteger(wantN))
+	profile.Entries.Set("Alternate", pdf.PDFName{Value: alternate})
 	profile.HasStream = true
 	profile.RawStream = iccBytes
 
 	intent := pdf.NewPDFDict()
-	intent.Entries["Type"] = pdf.PDFName{Value: "OutputIntent"}
-	intent.Entries["S"] = pdf.PDFName{Value: "GTS_PDFA1"}
-	intent.Entries["OutputConditionIdentifier"] = pdf.PDFString{Value: identifier}
-	intent.Entries["Info"] = pdf.PDFString{Value: identifier + " ICC profile injected by gopdfrab"}
-	intent.Entries["DestOutputProfile"] = profile
-
-	root.Entries["OutputIntents"] = pdf.PDFArray{intent}
-	trailer.Entries["Root"] = root
+	intent.Entries.Set("Type", pdf.PDFName{Value: "OutputIntent"})
+	intent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	intent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: identifier})
+	intent.Entries.Set("Info", pdf.PDFString{Value: identifier + " ICC profile injected by gopdfrab"})
+	intent.Entries.Set("DestOutputProfile", profile)
+	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
+	trailer.Entries.Set("Root", root)
 	return nil
+}
+
+// separationAlternateFixer remediates 6.2.3.4: a Separation or DeviceN whose
+// alternate space is a device space no OutputIntent covers. The alternate is
+// swapped for an ICCBased space with the same number of components, so the
+// tint transform feeding it needs no change and the colourant still resolves
+// to the colour the document asked for -- where dropping the space or
+// rasterizing the page would lose the colourant or the text on top of it.
+type separationAlternateFixer struct{}
+
+func (separationAlternateFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Colour.SeparationAlternateColour
+}
+
+func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
+	covered := map[string]bool{"rgb": rgbCovered, "cmyk": cmykCovered, "gray": hasIntent}
+
+	// One shared space per model, so the writer emits a single ICC stream
+	// however many colourants the document defines.
+	shared := map[string]pdf.PDFArray{}
+	spaceFor := func(model string) (pdf.PDFArray, bool) {
+		if cs, ok := shared[model]; ok {
+			return cs, true
+		}
+		var cs pdf.PDFArray
+		switch model {
+		case "rgb":
+			cs = iccBasedColourSpace(3, srgbICCProfile)
+		case "cmyk":
+			cs = iccBasedColourSpace(4, cmykICCProfile)
+		case "gray":
+			cs = iccBasedColourSpace(1, grayICCProfile)
+		default:
+			return nil, false
+		}
+		shared[model] = cs
+		return cs, true
+	}
+
+	changed := false
+	visit := func(v pdf.PDFValue) {
+		arr, ok := v.(pdf.PDFArray)
+		if !ok || len(arr) < 4 {
+			return
+		}
+		head, ok := arr[0].(pdf.PDFName)
+		if !ok || (head.Value != "Separation" && head.Value != "DeviceN") {
+			return
+		}
+		model := verify.DeviceColourModel(arr[2])
+		if model == "" || covered[model] {
+			return
+		}
+		if cs, ok := spaceFor(model); ok {
+			arr[2] = cs
+			changed = true
+		}
+	}
+	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+		for k, v := range d.Entries.All() {
+			if k == "_ref" {
+				continue
+			}
+			visit(v)
+			// A colour space also appears as the base of an Indexed space and
+			// as an element of a /ColorSpace array elsewhere.
+			if arr, ok := v.(pdf.PDFArray); ok {
+				for _, item := range arr {
+					visit(item)
+				}
+			}
+		}
+	})
+	return changed, nil
 }
 
 // iccBasedColourSpace builds a "[/ICCBased <stream>]" colour-space array
@@ -77,7 +161,7 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 // for a /DefaultRGB or /DefaultCMYK resource entry.
 func iccBasedColourSpace(n int, profile []byte) pdf.PDFArray {
 	stream := pdf.NewPDFDict()
-	stream.Entries["N"] = pdf.PDFInteger(n)
+	stream.Entries.Set("N", pdf.PDFInteger(n))
 	stream.HasStream = true
 	stream.RawStream = profile
 	return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
@@ -96,8 +180,10 @@ func dominantColourModel(usage map[string]int) string {
 	return best
 }
 
+// resourcesOf returns the resources dict names inside dict are looked up in:
+// its own, or the ones handed down to it when it has none of its own.
 func resourcesOf(dict, fallback pdf.PDFDict) pdf.PDFDict {
-	if res, ok := dict.Entries["Resources"].(pdf.PDFDict); ok {
+	if res, ok := dict.Entries.Get("Resources").(pdf.PDFDict); ok && res.Entries != nil {
 		return res
 	}
 	return fallback
@@ -144,11 +230,11 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 
 	var jobs []scanJob
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if model := verify.DeviceColourModel(d.Entries["ColorSpace"]); model != "" {
+		if model := verify.DeviceColourModel(d.Entries.Get("ColorSpace")); model != "" {
 			counts[model]++
 		}
 
-		for _, v := range d.Entries {
+		for _, v := range d.Entries.All() {
 			arr, ok := v.(pdf.PDFArray)
 			if !ok || len(arr) < 3 {
 				continue
@@ -162,10 +248,10 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 			}
 		}
 
-		resources, _ := d.Entries["Resources"].(pdf.PDFDict)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
 
-		if pdf.EqualPDFValue(d.Entries["Type"], pdf.PDFName{Value: "Page"}) {
-			switch contents := d.Entries["Contents"].(type) {
+		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.HasStream {
 					jobs = append(jobs, scanJob{contents, resources})
@@ -179,10 +265,10 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 			}
 			return
 		}
-		if pdf.EqualPDFValue(d.Entries["Type"], pdf.PDFName{Value: "Font"}) &&
-			pdf.EqualPDFValue(d.Entries["Subtype"], pdf.PDFName{Value: "Type3"}) {
-			if procs, ok := d.Entries["CharProcs"].(pdf.PDFDict); ok {
-				for _, proc := range procs.Entries {
+		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Font"}) &&
+			pdf.EqualPDFValue(d.Entries.Get("Subtype"), pdf.PDFName{Value: "Type3"}) {
+			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
+				for _, proc := range procs.Entries.All() {
 					if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
 						jobs = append(jobs, scanJob{pd, resources})
 					}
@@ -231,7 +317,7 @@ type scanJob struct {
 // validPDFAOutputIntentN returns the /N value of the first OutputIntent that meets all PDF/A-1 and ICC profile checks.
 // If multiple intents exist, they must use the same profile object, or the entire array is treated as invalid.
 func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
-	intents, ok := root.Entries["OutputIntents"].(pdf.PDFArray)
+	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {
 		return 0, false
 	}
@@ -242,7 +328,7 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 		if !ok {
 			continue
 		}
-		profile := intent.Entries["DestOutputProfile"]
+		profile := intent.Entries.Get("DestOutputProfile")
 		if profile == nil {
 			continue
 		}
@@ -258,17 +344,17 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 		if !ok {
 			continue
 		}
-		if !pdf.EqualPDFValue(intent.Entries["S"], pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if !pdf.EqualPDFValue(intent.Entries.Get("S"), pdf.PDFName{Value: "GTS_PDFA1"}) {
 			continue
 		}
-		if intent.Entries["OutputConditionIdentifier"] == nil {
+		if intent.Entries.Get("OutputConditionIdentifier") == nil {
 			continue
 		}
-		profile, ok := intent.Entries["DestOutputProfile"].(pdf.PDFDict)
+		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
 		if !ok || !profile.HasStream {
 			continue
 		}
-		nVal, ok := profile.Entries["N"].(pdf.PDFInteger)
+		nVal, ok := profile.Entries.Get("N").(pdf.PDFInteger)
 		if !ok {
 			continue
 		}
@@ -283,4 +369,129 @@ func validPDFAOutputIntentN(root pdf.PDFDict) (n int, ok bool) {
 		return int(nVal), true
 	}
 	return 0, false
+}
+
+// iccBasedProfileFixer remediates both halves of 6.2.3.2: an ICCBased colour
+// space whose embedded profile disagrees with the /N it declares, and one whose
+// profile is a kind PDF/A does not allow. Both are the same repair -- swap in a
+// profile that fits -- so one fixer covers them.
+//
+// The repair goes that way round, never the other: /N is how many operands the
+// content streams pass to sc and scn, so changing it would turn every colour
+// operator in the document into a malformed one. The profile is the part
+// nothing else depends on, so the profile is what gets replaced.
+type iccBasedProfileFixer struct{}
+
+func (iccBasedProfileFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Colour.ICCBasedComponentsMismatch ||
+		c == pdf.Checks.Colour.ICCBasedProfileInvalid
+}
+
+func (iccBasedProfileFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	changed := false
+	for _, arr := range collectICCBasedSpaces(*trailer) {
+		if fixICCBasedSpace(arr) {
+			changed = true
+		}
+	}
+	return changed, nil
+}
+
+// collectICCBasedSpaces finds every ICCBased colour space in the graph. It
+// collects before editing so nothing is rewritten mid-walk.
+func collectICCBasedSpaces(trailer pdf.PDFDict) []pdf.PDFArray {
+	var out []pdf.PDFArray
+	visited := map[uintptr]bool{}
+
+	var walk func(v pdf.PDFValue)
+	consider := func(child pdf.PDFValue) {
+		if arr, ok := child.(pdf.PDFArray); ok && isICCBasedSpace(arr) {
+			out = append(out, arr)
+		}
+	}
+	walk = func(v pdf.PDFValue) {
+		switch val := v.(type) {
+		case pdf.PDFDict:
+			ptr := pdf.ValuePointer(val.Entries)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			for k, child := range val.Entries.All() {
+				if k == "_ref" || k == "_dirty" {
+					continue
+				}
+				consider(child)
+				walk(child)
+			}
+		case pdf.PDFArray:
+			ptr := pdf.ArrayPointer(val)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			for _, child := range val {
+				consider(child)
+				walk(child)
+			}
+		}
+	}
+	walk(trailer)
+	return out
+}
+
+// isICCBasedSpace reports whether arr is an [/ICCBased stream] colour space.
+func isICCBasedSpace(arr pdf.PDFArray) bool {
+	if len(arr) < 2 {
+		return false
+	}
+	head, ok := arr[0].(pdf.PDFName)
+	if !ok || head.Value != "ICCBased" {
+		return false
+	}
+	stream, ok := arr[1].(pdf.PDFDict)
+	return ok && stream.HasStream
+}
+
+// fixICCBasedSpace repairs one ICCBased colour space, re-checking the
+// predicate so an already-fixed space is a no-op.
+func fixICCBasedSpace(arr pdf.PDFArray) bool {
+	stream := arr[1].(pdf.PDFDict)
+	data, err := pdf.DecodeStream(stream)
+	usable := err == nil && len(data) >= 128 && verify.ICCInputProfileDefect(data) == ""
+	if usable && verify.ICCComponentsMismatch(stream, data) == "" {
+		return false
+	}
+
+	// When the profile itself is fine, /N can simply be made to say what that
+	// profile holds -- nothing in the file depends on a missing or out-of-range
+	// /N. A usable profile always has a component count, since that is part of
+	// what makes it usable.
+	n, ok := stream.Entries.Get("N").(pdf.PDFInteger)
+	if !ok || (n != 1 && n != 3 && n != 4) {
+		if usable {
+			want, _ := verify.ICCColourSpaceComponents(string(data[16:20]))
+			stream.Entries.Set("N", pdf.PDFInteger(want))
+			return true
+		}
+		n = 3
+	}
+
+	// Otherwise the profile goes, and a bundled one of the right size takes its
+	// place. /N stays as it was, so every sc and scn in the file keeps passing
+	// the number of operands it always did.
+	profile := srgbICCProfile
+	switch n {
+	case 1:
+		profile = grayICCProfile
+	case 4:
+		profile = cmykICCProfile
+	}
+	stream.Entries.Set("N", pdf.PDFInteger(n))
+	stream.Entries.Del("Filter")
+	stream.Entries.Del("DecodeParms")
+	stream.HasStream = true
+	stream.RawStream = profile
+	arr[1] = stream
+	return true
 }

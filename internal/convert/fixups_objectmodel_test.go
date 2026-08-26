@@ -11,19 +11,19 @@ import (
 func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()
-	info.Entries["Title"] = pdf.PDFString{Value: "T"}
-	trailer.Entries["Info"] = info
+	info.Entries.Set("Title", pdf.PDFString{Value: "T"})
+	trailer.Entries.Set("Info", info)
 	custom := pdf.NewPDFDict()
-	trailer.Entries["Custom"] = custom
+	trailer.Entries.Set("Custom", custom)
 
 	changed, err := indirectRequiredFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
-	if _, ok := info.Entries["_ref"].(pdf.PDFRef); !ok {
+	if _, ok := info.Entries.Get("_ref").(pdf.PDFRef); !ok {
 		t.Error("direct trailer Info was not promoted to an indirect object")
 	}
-	if _, ok := custom.Entries["_ref"]; ok {
+	if _, ok := custom.Entries.Lookup("_ref"); ok {
 		t.Error("a key outside the indirect-required set must stay direct")
 	}
 
@@ -37,26 +37,27 @@ func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	owner := pdf.NewPDFDict()
 	direct := pdf.NewPDFDict()
-	direct.Entries["Type"] = pdf.PDFName{Value: "Page"}
+	direct.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	already := pdf.NewPDFDict()
-	already.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
-	owner.Entries["Kids"] = pdf.PDFArray{direct, already, pdf.PDFInteger(1), pdf.PDFDict{}}
+	already.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	owner.Entries.Set("Kids", pdf.PDFArray{direct, already, pdf.PDFInteger(1), pdf.PDFDict{}})
 	unlisted := pdf.NewPDFDict()
-	owner.Entries["ZZ"] = pdf.PDFArray{unlisted}
-	owner.Entries["Count"] = pdf.PDFInteger(2) // non-array under a non-listed key
-	trailer.Entries["P"] = owner
+	owner.Entries.Set("ZZ", pdf.PDFArray{unlisted})
+	owner.Entries.Set("Count", pdf.PDFInteger(2))
+	// non-array under a non-listed key
+	trailer.Entries.Set("P", owner)
 
 	changed, err := indirectRequiredFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
-	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
 		t.Error("a direct dict inside an indirect-required array was not promoted")
 	}
-	if got := already.Entries["_ref"]; got != (pdf.PDFRef{ObjNum: 3}) {
+	if got := already.Entries.Get("_ref"); got != (pdf.PDFRef{ObjNum: 3}) {
 		t.Errorf("an already-indirect element's ref = %v, want untouched 3", got)
 	}
-	if _, ok := unlisted.Entries["_ref"]; ok {
+	if _, ok := unlisted.Entries.Lookup("_ref"); ok {
 		t.Error("an array under a key outside the element-indirect set must stay direct")
 	}
 
@@ -71,10 +72,10 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 	// names the whole-graph tables can never cover.
 	xmap := pdf.NewPDFDict()
 	direct := pdf.NewPDFDict()
-	xmap.Entries["Fx0"] = direct
-	xmap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	xmap.Entries.Set("Fx0", direct)
+	xmap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["XMap"] = xmap
+	trailer.Entries.Set("XMap", xmap)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: xmap}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.IndirectRequired, &ref, "XObjectMap", "Fx0")}
@@ -83,7 +84,7 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
 		t.Error("the wildcard-keyed direct dict was not promoted")
 	}
 
@@ -95,14 +96,14 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 
 func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 	xmap := pdf.NewPDFDict()
-	xmap.Entries["Scalar"] = pdf.PDFInteger(1)
-	xmap.Entries["NilDict"] = pdf.PDFDict{}
+	xmap.Entries.Set("Scalar", pdf.PDFInteger(1))
+	xmap.Entries.Set("NilDict", pdf.PDFDict{})
 	already := pdf.NewPDFDict()
-	already.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
-	xmap.Entries["Already"] = already
-	xmap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	already.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	xmap.Entries.Set("Already", already)
+	xmap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["XMap"] = xmap
+	trailer.Entries.Set("XMap", xmap)
 	ref := pdf.PDFRef{ObjNum: 5}
 	dead := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: xmap}}
@@ -123,7 +124,7 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
-	if got := already.Entries["_ref"]; got != (pdf.PDFRef{ObjNum: 7}) {
+	if got := already.Entries.Get("_ref"); got != (pdf.PDFRef{ObjNum: 7}) {
 		t.Errorf("Already ref = %v, want untouched 7", got)
 	}
 }
@@ -133,10 +134,10 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 // a fully valid rewrite.
 func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
-		delete(page.Entries, "_ref")
+		page.Entries.Del("_ref")
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 		t.Fatalf("fixture must fail with IndirectRequired, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -155,11 +156,11 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 
 func TestArrayElemTargetFailsClosed(t *testing.T) {
 	owner := pdf.NewPDFDict()
-	owner.Entries["Arr"] = pdf.PDFArray{pdf.PDFInteger(1)}
-	owner.Entries["NotArr"] = pdf.PDFInteger(1)
-	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	owner.Entries.Set("Arr", pdf.PDFArray{pdf.PDFInteger(1)})
+	owner.Entries.Set("NotArr", pdf.PDFInteger(1))
+	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["O"] = owner
+	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
 	dead := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
@@ -185,10 +186,10 @@ func TestArrayElemTargetFailsClosed(t *testing.T) {
 
 func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["MediaBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "0"}, pdf.PDFInteger(612), pdf.NewPDFDict()}
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "0"}, pdf.PDFInteger(612), pdf.NewPDFDict()})
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["P"] = page
+	trailer.Entries.Set("P", page)
 	ref := pdf.PDFRef{ObjNum: 3}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: page}}
 	c := pdf.Checks.ObjectModel.WrongValueType
@@ -202,7 +203,7 @@ func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	arr := page.Entries["MediaBox"].(pdf.PDFArray)
+	arr := page.Entries.Get("MediaBox").(pdf.PDFArray)
 	if !pdf.EqualPDFValue(arr[1], pdf.PDFReal(0)) {
 		t.Errorf("element 1 = %v, want coerced 0", arr[1])
 	}
@@ -221,12 +222,12 @@ func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 
 func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
 	owner := pdf.NewPDFDict()
-	owner.Entries["CS"] = pdf.PDFArray{pdf.PDFName{Value: "Bogus"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(300), pdf.PDFString{Value: "x"}}
-	owner.Entries["Gamma"] = pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFReal(1), pdf.PDFReal(1)}
-	owner.Entries["WP"] = pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(2), pdf.PDFReal(1.089), nil}
-	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	owner.Entries.Set("CS", pdf.PDFArray{pdf.PDFName{Value: "Bogus"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(300), pdf.PDFString{Value: "x"}})
+	owner.Entries.Set("Gamma", pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFReal(1), pdf.PDFReal(1)})
+	owner.Entries.Set("WP", pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(2), pdf.PDFReal(1.089), nil})
+	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["O"] = owner
+	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
 	c := pdf.Checks.ObjectModel.DisallowedValue
@@ -244,18 +245,18 @@ func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	cs := owner.Entries["CS"].(pdf.PDFArray)
+	cs := owner.Entries.Get("CS").(pdf.PDFArray)
 	if !pdf.EqualPDFValue(cs[0], pdf.PDFName{Value: "Indexed"}) {
 		t.Errorf("CS[0] = %v, want /Indexed", cs[0])
 	}
 	if cs[2] != pdf.PDFInteger(255) {
 		t.Errorf("CS[2] = %v, want clamped 255", cs[2])
 	}
-	gamma := owner.Entries["Gamma"].(pdf.PDFArray)
+	gamma := owner.Entries.Get("Gamma").(pdf.PDFArray)
 	if gamma[0] != pdf.PDFReal(0) {
 		t.Errorf("Gamma[0] = %v, want clamped 0", gamma[0])
 	}
-	wp := owner.Entries["WP"].(pdf.PDFArray)
+	wp := owner.Entries.Get("WP").(pdf.PDFArray)
 	if wp[0] != pdf.PDFReal(-1) || wp[1] != pdf.PDFInteger(2) || wp[3] != nil {
 		t.Errorf("WP = %v, want untouched residuals", wp)
 	}
@@ -271,11 +272,11 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 	// whole-graph name table cannot see it, only the targeted element path.
 	owner := pdf.NewPDFDict()
 	direct := pdf.NewPDFDict()
-	owner.Entries["MyArr"] = pdf.PDFArray{direct, pdf.PDFInteger(1)}
-	owner.Entries["Nums"] = pdf.PDFArray{pdf.PDFInteger(1)}
-	owner.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	owner.Entries.Set("MyArr", pdf.PDFArray{direct, pdf.PDFInteger(1)})
+	owner.Entries.Set("Nums", pdf.PDFArray{pdf.PDFInteger(1)})
+	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["O"] = owner
+	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: owner}}
 	c := pdf.Checks.ObjectModel.IndirectRequired
@@ -290,7 +291,7 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := direct.Entries["_ref"].(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
 		t.Error("the direct array element was not promoted")
 	}
 
@@ -308,17 +309,17 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		csMap := pdf.NewPDFDict()
-		csMap.Entries["CS0"] = pdf.PDFArray{
+		csMap.Entries.Set("CS0", pdf.PDFArray{
 			pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"},
 			pdf.PDFInteger(300), pdf.PDFString{Value: "lookup"},
-		}
-		csMap.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+		})
+		csMap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 		resources := pdf.NewPDFDict()
-		resources.Entries["ColorSpace"] = csMap
-		page.Entries["Resources"] = resources
+		resources.Entries.Set("ColorSpace", csMap)
+		page.Entries.Set("Resources", resources)
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -326,7 +327,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 		t.Fatalf("fixture must fail with DisallowedValue, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -334,7 +335,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
 
-	out, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("OpenBytes(output): %v", err)
 	}
@@ -344,7 +345,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 		t.Fatalf("ResolveGraph(output): %v", err)
 	}
 	page := assertOnePageGraph(t, graph)
-	cs := page.Entries["Resources"].(pdf.PDFDict).Entries["ColorSpace"].(pdf.PDFDict).Entries["CS0"].(pdf.PDFArray)
+	cs := page.Entries.Get("Resources").(pdf.PDFDict).Entries.Get("ColorSpace").(pdf.PDFDict).Entries.Get("CS0").(pdf.PDFArray)
 	if cs[2] != pdf.PDFInteger(255) {
 		t.Errorf("hival = %v, want clamped 255", cs[2])
 	}
@@ -363,11 +364,11 @@ func TestPost14KeyFixerAppliesExclusively(t *testing.T) {
 
 func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["UserUnit"] = pdf.PDFReal(2)
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("UserUnit", pdf.PDFReal(2))
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["P"] = page
+	trailer.Entries.Set("P", page)
 	ref := pdf.PDFRef{ObjNum: 3}
 	dead := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: page}}
@@ -388,10 +389,10 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := page.Entries["UserUnit"]; ok {
+	if _, ok := page.Entries.Lookup("UserUnit"); ok {
 		t.Error("the reported post-1.4 key must be deleted")
 	}
-	if _, ok := page.Entries["_ref"].(pdf.PDFRef); !ok {
+	if _, ok := page.Entries.Get("_ref").(pdf.PDFRef); !ok {
 		t.Error("_ref must never be deleted")
 	}
 
@@ -409,10 +410,10 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 // rewrite with the key removed and the page content untouched.
 func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
-		page.Entries["UserUnit"] = pdf.PDFReal(2)
+		page.Entries.Set("UserUnit", pdf.PDFReal(2))
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -420,7 +421,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 		t.Fatalf("fixture must fail with KeyIntroducedAfterPDF14, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -428,7 +429,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
 
-	out, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("OpenBytes(output): %v", err)
 	}
@@ -438,7 +439,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 		t.Fatalf("ResolveGraph(output): %v", err)
 	}
 	page := assertOnePageGraph(t, graph)
-	if _, still := page.Entries["UserUnit"]; still {
+	if _, still := page.Entries.Lookup("UserUnit"); still {
 		t.Error("UserUnit must be deleted from the output page")
 	}
 	assertContentStream(t, page, onePageContent)
@@ -447,28 +448,29 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 func TestDescentSignFixerNegatesPositiveDescent(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	fd := pdf.NewPDFDict()
-	fd.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	fd.Entries["Descent"] = pdf.PDFInteger(205)
-	trailer.Entries["FD"] = fd
+	fd.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	fd.Entries.Set("Descent", pdf.PDFInteger(205))
+	trailer.Entries.Set("FD", fd)
 	fdReal := pdf.NewPDFDict()
-	fdReal.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	fdReal.Entries["Descent"] = pdf.PDFReal(12.5)
-	trailer.Entries["FDReal"] = fdReal
+	fdReal.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	fdReal.Entries.Set("Descent", pdf.PDFReal(12.5))
+	trailer.Entries.Set("FDReal", fdReal)
 	other := pdf.NewPDFDict()
-	other.Entries["Descent"] = pdf.PDFInteger(300) // not a FontDescriptor
-	trailer.Entries["Other"] = other
+	other.Entries.Set("Descent", pdf.PDFInteger(300))
+	// not a FontDescriptor
+	trailer.Entries.Set("Other", other)
 
 	changed, err := disallowedValueFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
-	if got := fd.Entries["Descent"]; got != pdf.PDFInteger(-205) {
+	if got := fd.Entries.Get("Descent"); got != pdf.PDFInteger(-205) {
 		t.Errorf("integer Descent = %v, want -205", got)
 	}
-	if got := fdReal.Entries["Descent"]; got != pdf.PDFReal(-12.5) {
+	if got := fdReal.Entries.Get("Descent"); got != pdf.PDFReal(-12.5) {
 		t.Errorf("real Descent = %v, want -12.5", got)
 	}
-	if got := other.Entries["Descent"]; got != pdf.PDFInteger(300) {
+	if got := other.Entries.Get("Descent"); got != pdf.PDFInteger(300) {
 		t.Errorf("non-descriptor Descent = %v, want untouched 300", got)
 	}
 
@@ -494,9 +496,9 @@ func objModelElemIssue(c pdf.Check, ref *pdf.PDFRef, typeName, entry, key string
 
 func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
+	trailer.Entries.Set("Root", catalog)
 	ref := pdf.PDFRef{ObjNum: 1}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{1: catalog}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref, "Catalog", "Type")}
@@ -505,7 +507,7 @@ func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if got := catalog.Entries["Type"]; !pdf.EqualPDFValue(got, pdf.PDFName{Value: "Catalog"}) {
+	if got := catalog.Entries.Get("Type"); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "Catalog"}) {
 		t.Errorf("Type = %v, want /Catalog", got)
 	}
 
@@ -518,11 +520,12 @@ func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 func TestMissingRequiredKeyFixerInjectsPinnedValue(t *testing.T) {
 	// EncryptionStandard.R is pinned to 2 when V < 2.
 	enc := pdf.NewPDFDict()
-	enc.Entries["V"] = pdf.PDFInteger(1)
-	enc.Entries["R"] = nil // an explicit null is equivalent to absent and must be overwritten
-	enc.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
+	enc.Entries.Set("V", pdf.PDFInteger(1))
+	enc.Entries.Set("R", nil)
+	// an explicit null is equivalent to absent and must be overwritten
+	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Encrypt"] = enc
+	trailer.Entries.Set("Encrypt", enc)
 	ref := pdf.PDFRef{ObjNum: 3}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{3: enc}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, &ref, "EncryptionStandard", "R")}
@@ -531,17 +534,17 @@ func TestMissingRequiredKeyFixerInjectsPinnedValue(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if got := enc.Entries["R"]; got != pdf.PDFInteger(2) {
+	if got := enc.Entries.Get("R"); got != pdf.PDFInteger(2) {
 		t.Errorf("R = %v, want 2 (pinned for V=1)", got)
 	}
 }
 
 func TestMissingRequiredKeyFixerSkipsUnsynthesizable(t *testing.T) {
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["P"] = page
+	trailer.Entries.Set("P", page)
 	pageRef := pdf.PDFRef{ObjNum: 2}
 	staleRef := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{2: page}}
@@ -567,10 +570,10 @@ func TestMissingRequiredKeyFixerSkipsUnsynthesizable(t *testing.T) {
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
-	if _, ok := page.Entries["Parent"]; ok {
+	if _, ok := page.Entries.Lookup("Parent"); ok {
 		t.Error("Parent must not be synthesized")
 	}
-	if _, ok := page.Entries["3"]; ok {
+	if _, ok := page.Entries.Lookup("3"); ok {
 		t.Error("an array-element key must never be injected into the owner dict")
 	}
 
@@ -608,10 +611,10 @@ func TestScalarFromEnum(t *testing.T) {
 // catalog without /Type converts to a fully valid object-model rewrite.
 func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, catalog, _ pdf.PDFDict) {
-		delete(catalog.Entries, "Type")
+		catalog.Entries.Del("Type")
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -619,7 +622,7 @@ func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 		t.Fatalf("fixture must fail with MissingRequiredKey, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -665,12 +668,15 @@ func TestCoerceScalar(t *testing.T) {
 
 func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Trapped"] = pdf.PDFString{Value: "True"} // named row: name
-	info.Entries["CustomName"] = pdf.PDFName{Value: "V"}   // wildcard row: text string
-	info.Entries["CustomDict"] = pdf.NewPDFDict()          // uncoercible optional: delete
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	info.Entries.Set("Trapped", pdf.PDFString{Value: "True"})
+	// named row: name
+	info.Entries.Set("CustomName", pdf.PDFName{Value: "V"})
+	// wildcard row: text string
+	info.Entries.Set("CustomDict", pdf.NewPDFDict())
+	// uncoercible optional: delete
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
 	issues := []pdf.PDFError{
@@ -683,13 +689,13 @@ func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if got := info.Entries["Trapped"]; !pdf.EqualPDFValue(got, pdf.PDFName{Value: "True"}) {
+	if got := info.Entries.Get("Trapped"); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "True"}) {
 		t.Errorf("Trapped = %v, want /True", got)
 	}
-	if got := info.Entries["CustomName"]; !pdf.EqualPDFValue(got, pdf.PDFString{Value: "V"}) {
+	if got := info.Entries.Get("CustomName"); !pdf.EqualPDFValue(got, pdf.PDFString{Value: "V"}) {
 		t.Errorf("CustomName = %v, want (V)", got)
 	}
-	if _, ok := info.Entries["CustomDict"]; ok {
+	if _, ok := info.Entries.Lookup("CustomDict"); ok {
 		t.Error("uncoercible optional key must be deleted")
 	}
 
@@ -701,13 +707,15 @@ func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 
 func TestWrongValueTypeFixerNeverDeletesRequiredOrConditional(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = pdf.PDFInteger(3) // required, uncoercible
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pdf.PDFInteger(3))
+	// required, uncoercible
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 	tr := pdf.NewPDFDict()
-	tr.Entries["Root"] = catalog
-	tr.Entries["ID"] = pdf.PDFInteger(4) // FileTrailer.ID: required-when-Encrypt, uncoercible
-	tr.Entries["_ref"] = pdf.PDFRef{ObjNum: 8}
+	tr.Entries.Set("Root", catalog)
+	tr.Entries.Set("ID", pdf.PDFInteger(4))
+	// FileTrailer.ID: required-when-Encrypt, uncoercible
+	tr.Entries.Set("_ref", pdf.PDFRef{ObjNum: 8})
 	cref := pdf.PDFRef{ObjNum: 1}
 	tref := pdf.PDFRef{ObjNum: 8}
 	pass := &fixPass{trailer: &tr, objs: map[int]pdf.PDFValue{1: catalog, 8: tr}}
@@ -722,23 +730,24 @@ func TestWrongValueTypeFixerNeverDeletesRequiredOrConditional(t *testing.T) {
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
-	if _, ok := catalog.Entries["Pages"]; !ok {
+	if _, ok := catalog.Entries.Lookup("Pages"); !ok {
 		t.Error("a required key must never be deleted")
 	}
 	if changed, _, _ := (wrongValueTypeFixer{}).fixTargeted(pass, tissues); changed {
 		t.Error("a conditionally-required key must never be deleted")
 	}
-	if _, ok := tr.Entries["ID"]; !ok {
+	if _, ok := tr.Entries.Lookup("ID"); !ok {
 		t.Error("FileTrailer.ID must survive")
 	}
 }
 
 func TestWrongValueTypeFixerSkipsStaleAndUntargetable(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Trapped"] = pdf.PDFName{Value: "True"} // already conformant
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	info.Entries.Set("Trapped", pdf.PDFName{Value: "True"})
+	// already conformant
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
 	stale := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
@@ -766,10 +775,10 @@ func TestWrongValueTypeFixerSkipsStaleAndUntargetable(t *testing.T) {
 // whose /Rotate is stored as a string converts to a fully valid rewrite.
 func TestConvertObjectModelCoercesRotate(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
-		page.Entries["Rotate"] = pdf.PDFString{Value: "90"}
+		page.Entries.Set("Rotate", pdf.PDFString{Value: "90"})
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -777,7 +786,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 		t.Fatalf("fixture must fail with WrongValueType, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -789,11 +798,12 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 	meta := pdf.NewPDFDict()
 	meta.HasStream = true
-	meta.Entries["Type"] = pdf.PDFName{Value: "Bogus"} // Metadata.Type has the single legal value /Metadata
-	meta.Entries["Subtype"] = pdf.PDFName{Value: "XML"}
-	meta.Entries["_ref"] = pdf.PDFRef{ObjNum: 6}
+	meta.Entries.Set("Type", pdf.PDFName{Value: "Bogus"})
+	// Metadata.Type has the single legal value /Metadata
+	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
+	meta.Entries.Set("_ref", pdf.PDFRef{ObjNum: 6})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["M"] = meta
+	trailer.Entries.Set("M", meta)
 	ref := pdf.PDFRef{ObjNum: 6}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{6: meta}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "Metadata", "Type")}
@@ -802,7 +812,7 @@ func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if got := meta.Entries["Type"]; !pdf.EqualPDFValue(got, pdf.PDFName{Value: "Metadata"}) {
+	if got := meta.Entries.Get("Type"); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "Metadata"}) {
 		t.Errorf("Type = %v, want /Metadata", got)
 	}
 
@@ -815,11 +825,11 @@ func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	// EncryptionStandard.R must be 3 when V is 2.
 	enc := pdf.NewPDFDict()
-	enc.Entries["V"] = pdf.PDFInteger(2)
-	enc.Entries["R"] = pdf.PDFInteger(2)
-	enc.Entries["_ref"] = pdf.PDFRef{ObjNum: 7}
+	enc.Entries.Set("V", pdf.PDFInteger(2))
+	enc.Entries.Set("R", pdf.PDFInteger(2))
+	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Encrypt"] = enc
+	trailer.Entries.Set("Encrypt", enc)
 	ref := pdf.PDFRef{ObjNum: 7}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{7: enc}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "EncryptionStandard", "R")}
@@ -828,15 +838,15 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if got := enc.Entries["R"]; got != pdf.PDFInteger(3) {
+	if got := enc.Entries.Get("R"); got != pdf.PDFInteger(3) {
 		t.Errorf("R = %v, want pinned 3", got)
 	}
 
 	// R=9 with V absent: pins undecidable, the multi-value enum has no single
 	// replacement, and R is required -- must stay a residual.
 	enc2 := pdf.NewPDFDict()
-	enc2.Entries["R"] = pdf.PDFInteger(9)
-	enc2.Entries["_ref"] = pdf.PDFRef{ObjNum: 8}
+	enc2.Entries.Set("R", pdf.PDFInteger(9))
+	enc2.Entries.Set("_ref", pdf.PDFRef{ObjNum: 8})
 	pass = &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{8: enc2}}
 	ref2 := pdf.PDFRef{ObjNum: 8}
 	issues = []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref2, "EncryptionStandard", "R")}
@@ -844,18 +854,18 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	if err != nil || changed {
 		t.Errorf("fixTargeted changed=%v err=%v, want required key left as residual", changed, err)
 	}
-	if got := enc2.Entries["R"]; got != pdf.PDFInteger(9) {
+	if got := enc2.Entries.Get("R"); got != pdf.PDFInteger(9) {
 		t.Errorf("R = %v, want untouched 9", got)
 	}
 }
 
 func TestDisallowedValueFixerClampsRanges(t *testing.T) {
 	gs := pdf.NewPDFDict()
-	gs.Entries["CA"] = pdf.PDFReal(1.5)
-	gs.Entries["ca"] = pdf.PDFReal(-0.25)
-	gs.Entries["_ref"] = pdf.PDFRef{ObjNum: 9}
+	gs.Entries.Set("CA", pdf.PDFReal(1.5))
+	gs.Entries.Set("ca", pdf.PDFReal(-0.25))
+	gs.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["G"] = gs
+	trailer.Entries.Set("G", gs)
 	ref := pdf.PDFRef{ObjNum: 9}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{9: gs}}
 	issues := []pdf.PDFError{
@@ -867,10 +877,10 @@ func TestDisallowedValueFixerClampsRanges(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if got := gs.Entries["CA"]; got != pdf.PDFReal(1) {
+	if got := gs.Entries.Get("CA"); got != pdf.PDFReal(1) {
 		t.Errorf("CA = %v, want clamped 1", got)
 	}
-	if got := gs.Entries["ca"]; got != pdf.PDFReal(0) {
+	if got := gs.Entries.Get("ca"); got != pdf.PDFReal(0) {
 		t.Errorf("ca = %v, want clamped 0", got)
 	}
 }
@@ -879,10 +889,10 @@ func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
 	// A descriptor without /Type is invisible to the whole-graph pass; the
 	// targeted path must still prefer negation over clamping to zero.
 	fd := pdf.NewPDFDict()
-	fd.Entries["Descent"] = pdf.PDFInteger(205)
-	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	fd.Entries.Set("Descent", pdf.PDFInteger(205))
+	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["FD"] = fd
+	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref, "FontDescriptorType1", "Descent")}
@@ -891,17 +901,17 @@ func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if got := fd.Entries["Descent"]; got != pdf.PDFInteger(-205) {
+	if got := fd.Entries.Get("Descent"); got != pdf.PDFInteger(-205) {
 		t.Errorf("Descent = %v, want -205 (negated, not clamped)", got)
 	}
 }
 
 func TestDisallowedValueFixerDeletesOptionalEnum(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Trapped"] = pdf.PDFName{Value: "Maybe"}
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
 	issues := []pdf.PDFError{
@@ -918,7 +928,7 @@ func TestDisallowedValueFixerDeletesOptionalEnum(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := info.Entries["Trapped"]; ok {
+	if _, ok := info.Entries.Lookup("Trapped"); ok {
 		t.Error("an optional multi-enum violation must be deleted")
 	}
 }
@@ -960,8 +970,8 @@ func TestCondBoundsAndClamp(t *testing.T) {
 // model row reaches: an uncoercible pin value and an unclampable range.
 func TestRepairDisallowedValueFallbacks(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.Entries["X"] = pdf.PDFInteger(1)
-	d.Entries["K"] = pdf.PDFInteger(5)
+	d.Entries.Set("X", pdf.PDFInteger(1))
+	d.Entries.Set("K", pdf.PDFInteger(5))
 	kd := &arlington.KeyDef{
 		Name:  "K",
 		Types: []arlington.ValueType{arlington.Integer},
@@ -973,11 +983,10 @@ func TestRepairDisallowedValueFallbacks(t *testing.T) {
 	if !repairDisallowedValue(d, "K", kd) {
 		t.Fatal("an uncoercible pin on an optional key must fall back to deletion")
 	}
-	if _, ok := d.Entries["K"]; ok {
+	if _, ok := d.Entries.Lookup("K"); ok {
 		t.Error("K must be deleted")
 	}
-
-	d.Entries["K"] = pdf.PDFInteger(-1)
+	d.Entries.Set("K", pdf.PDFInteger(-1))
 	kd = &arlington.KeyDef{
 		Name:      "K",
 		Types:     []arlington.ValueType{arlington.Integer},
@@ -986,7 +995,7 @@ func TestRepairDisallowedValueFallbacks(t *testing.T) {
 	if !repairDisallowedValue(d, "K", kd) {
 		t.Fatal("a strict, unclampable range on an optional key must fall back to deletion")
 	}
-	if _, ok := d.Entries["K"]; ok {
+	if _, ok := d.Entries.Lookup("K"); ok {
 		t.Error("K must be deleted after the range fallback")
 	}
 }
@@ -995,10 +1004,10 @@ func TestRepairDisallowedValueFallbacks(t *testing.T) {
 // targeted loop.
 func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
 	info := pdf.NewPDFDict()
-	info.Entries["Trapped"] = nil
-	info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	info.Entries.Set("Trapped", nil)
+	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Info"] = info
+	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{5: info}}
 	dead := pdf.PDFRef{ObjNum: 9}
@@ -1016,10 +1025,11 @@ func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
 func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 	// No /Type: invisible to the whole-graph flag pass, only targeting finds it.
 	fd := pdf.NewPDFDict()
-	fd.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14) // Nonsymbolic + reserved bit 15
-	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	fd.Entries.Set("Flags", pdf.PDFInteger(32+1<<14))
+	// Nonsymbolic + reserved bit 15
+	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["FD"] = fd
+	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorType1", "Flags")}
@@ -1028,7 +1038,7 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if got := fd.Entries["Flags"]; got != pdf.PDFInteger(32) {
+	if got := fd.Entries.Get("Flags"); got != pdf.PDFInteger(32) {
 		t.Errorf("Flags = %v, want 32 (reserved bit cleared)", got)
 	}
 
@@ -1041,17 +1051,17 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 	pad := pdf.NewPDFDict()
 	pad.HasStream = true
-	pad.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}}
-	pad.Entries["DecodeParms"] = pdf.PDFArray{pdf.NewPDFDict()}
-	pad.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	pad.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
+	pad.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
+	pad.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trim := pdf.NewPDFDict()
 	trim.HasStream = true
-	trim.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}}
-	trim.Entries["DecodeParms"] = pdf.PDFArray{nil, nil, nil}
-	trim.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
+	trim.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}})
+	trim.Entries.Set("DecodeParms", pdf.PDFArray{nil, nil, nil})
+	trim.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["A"] = pad
-	trailer.Entries["B"] = trim
+	trailer.Entries.Set("A", pad)
+	trailer.Entries.Set("B", trim)
 	refPad := pdf.PDFRef{ObjNum: 4}
 	refTrim := pdf.PDFRef{ObjNum: 5}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: pad, 5: trim}}
@@ -1064,11 +1074,11 @@ func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	padded, _ := pad.Entries["DecodeParms"].(pdf.PDFArray)
+	padded, _ := pad.Entries.Get("DecodeParms").(pdf.PDFArray)
 	if len(padded) != 2 || padded[1] != nil {
 		t.Errorf("DecodeParms = %v, want padded to [parms null]", padded)
 	}
-	trimmed, _ := trim.Entries["DecodeParms"].(pdf.PDFArray)
+	trimmed, _ := trim.Entries.Get("DecodeParms").(pdf.PDFArray)
 	if len(trimmed) != 1 {
 		t.Errorf("DecodeParms = %v, want trimmed to 1 element", trimmed)
 	}
@@ -1080,11 +1090,11 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 	ff.HasStream = true
 	ff2 := pdf.NewPDFDict()
 	ff2.HasStream = true
-	fd.Entries["FontFile"] = ff
-	fd.Entries["FontFile2"] = ff2
-	fd.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	fd.Entries.Set("FontFile", ff)
+	fd.Entries.Set("FontFile2", ff2)
+	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["FD"] = fd
+	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: fd}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontDescriptorTrueType", "FontFile2")}
@@ -1093,10 +1103,10 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if _, ok := fd.Entries["FontFile2"]; !ok {
+	if _, ok := fd.Entries.Lookup("FontFile2"); !ok {
 		t.Error("a TrueType descriptor must keep FontFile2")
 	}
-	if _, ok := fd.Entries["FontFile"]; ok {
+	if _, ok := fd.Entries.Lookup("FontFile"); ok {
 		t.Error("the surplus FontFile must be deleted")
 	}
 
@@ -1109,10 +1119,10 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 func TestConstraintFixerClampsLength1(t *testing.T) {
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
-	ff.Entries["Length1"] = pdf.PDFInteger(-5)
-	ff.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	ff.Entries.Set("Length1", pdf.PDFInteger(-5))
+	ff.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["FF"] = ff
+	trailer.Entries.Set("FF", ff)
 	ref := pdf.PDFRef{ObjNum: 4}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: ff}}
 	issues := []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.ConstraintViolated, &ref, "FontFile", "Length1")}
@@ -1121,7 +1131,7 @@ func TestConstraintFixerClampsLength1(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("fixTargeted = (%v, _, %v), want changed", changed, err)
 	}
-	if got := ff.Entries["Length1"]; got != pdf.PDFInteger(0) {
+	if got := ff.Entries.Get("Length1"); got != pdf.PDFInteger(0) {
 		t.Errorf("Length1 = %v, want clamped 0", got)
 	}
 }
@@ -1130,11 +1140,11 @@ func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
 	// A pushbutton's Ff must have bit 17 set; setting a semantic bit is never
 	// neutral, so the violation stays.
 	btn := pdf.NewPDFDict()
-	btn.Entries["FT"] = pdf.PDFName{Value: "Btn"}
-	btn.Entries["Ff"] = pdf.PDFInteger(0)
-	btn.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	btn.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
+	btn.Entries.Set("Ff", pdf.PDFInteger(0))
+	btn.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["F"] = btn
+	trailer.Entries.Set("F", btn)
 	ref := pdf.PDFRef{ObjNum: 4}
 	pass := &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{4: btn}}
 	issues := []pdf.PDFError{
@@ -1151,7 +1161,7 @@ func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
-	if got := btn.Entries["Ff"]; got != pdf.PDFInteger(0) {
+	if got := btn.Entries.Get("Ff"); got != pdf.PDFInteger(0) {
 		t.Errorf("Ff = %v, want untouched 0", got)
 	}
 }
@@ -1161,14 +1171,14 @@ func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
 // converts to a fully valid rewrite.
 func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
-		contents := page.Entries["Contents"].(pdf.PDFDict)
+		contents := page.Entries.Get("Contents").(pdf.PDFDict)
 		hexed := []byte("30203020313030203130302072652066>") // "0 0 100 100 re f" hex-encoded
 		contents.RawStream = hexed
-		contents.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}}
-		contents.Entries["DecodeParms"] = pdf.PDFArray{nil, nil}
+		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}})
+		contents.Entries.Set("DecodeParms", pdf.PDFArray{nil, nil})
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -1176,7 +1186,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 		t.Fatalf("fixture must fail with ConstraintViolated, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -1190,15 +1200,15 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 // nested couplings, and single-variant descriptors.
 func TestConstraintHelperEdges(t *testing.T) {
 	fd := pdf.NewPDFDict()
-	fd.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	fd.Entries["Flags"] = pdf.PDFInteger(32 + 1<<14)
+	fd.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	fd.Entries.Set("Flags", pdf.PDFInteger(32+1<<14))
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["FD"] = fd
+	trailer.Entries.Set("FD", fd)
 	changed, err := constraintFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = (%v, %v), want the typed descriptor's reserved bit cleared", changed, err)
 	}
-	if got := fd.Entries["Flags"]; got != pdf.PDFInteger(32) {
+	if got := fd.Entries.Get("Flags"); got != pdf.PDFInteger(32) {
 		t.Errorf("Flags = %v, want 32", got)
 	}
 
@@ -1225,16 +1235,16 @@ func TestConstraintHelperEdges(t *testing.T) {
 	}
 
 	d := pdf.NewPDFDict()
-	d.Entries["DecodeParms"] = pdf.PDFName{Value: "NotAnArray"}
-	d.Entries["Filter"] = pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}}
+	d.Entries.Set("DecodeParms", pdf.PDFName{Value: "NotAnArray"})
+	d.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}})
 	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
 		t.Error("a non-array key must not resize")
 	}
-	d.Entries["DecodeParms"] = pdf.PDFArray{nil}
+	d.Entries.Set("DecodeParms", pdf.PDFArray{nil})
 	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
 		t.Error("equal lengths must not resize")
 	}
-	d.Entries["Filter"] = pdf.PDFName{Value: "FlateDecode"}
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	if resizeToSiblingLength(d, "DecodeParms", "Filter") {
 		t.Error("a non-array sibling must not resize")
 	}
@@ -1242,7 +1252,7 @@ func TestConstraintHelperEdges(t *testing.T) {
 	single := pdf.NewPDFDict()
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
-	single.Entries["FontFile"] = ff
+	single.Entries.Set("FontFile", ff)
 	if pruneFontFiles(single, "FontDescriptorType1") {
 		t.Error("a single present variant must not prune")
 	}
@@ -1255,5 +1265,131 @@ func TestConstraintHelperEdges(t *testing.T) {
 	})
 	if err != nil || changed || !handled {
 		t.Errorf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
+	}
+}
+
+// TestRepairOutlineTreeSuppliesParentAndTitle covers the bookmark trees real
+// exporters leave behind: stub items carrying nothing but a /Parent, sitting in
+// the /Prev chain beside real bookmarks. The tree itself says who each item
+// belongs to, so /Parent is filled in from the walk; nothing says what a stub
+// is called, so its /Title becomes empty rather than invented.
+func TestRepairOutlineTreeSuppliesParentAndTitle(t *testing.T) {
+	// second <- (Prev) - first, and second holds a child of its own.
+	child := pdf.NewPDFDict()
+	child.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+
+	second := pdf.NewPDFDict()
+	second.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	second.Entries.Set("First", child)
+
+	first := pdf.NewPDFDict()
+	first.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	first.Entries.Set("Title", pdf.PDFString{Value: "Abstract"})
+	first.Entries.Set("Prev", second)
+
+	outlines := pdf.NewPDFDict()
+	outlines.Entries.Set("First", first)
+	outlines.Entries.Set("Last", first)
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Outlines", outlines)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	if !repairOutlineTree(trailer) {
+		t.Fatal("repairOutlineTree reported no change")
+	}
+	if got, _ := second.Entries.Get("Title").(pdf.PDFString); got.Value != "" {
+		t.Errorf("stub Title = %q, want an empty string", got.Value)
+	}
+	// Identity, not EqualPDFValue: /Parent closes a cycle the deep comparison
+	// would follow forever.
+	if got, ok := second.Entries.Get("Parent").(pdf.PDFDict); !ok ||
+		pdf.ValuePointer(got.Entries) != pdf.ValuePointer(outlines.Entries) {
+		t.Error("a sibling reached backwards did not get the outline root as its parent")
+	}
+	if got, ok := child.Entries.Get("Parent").(pdf.PDFDict); !ok ||
+		pdf.ValuePointer(got.Entries) != pdf.ValuePointer(second.Entries) {
+		t.Error("a child did not get the item holding it as its parent")
+	}
+	if got, _ := first.Entries.Get("Title").(pdf.PDFString); got.Value != "Abstract" {
+		t.Errorf("existing Title = %q, want it untouched", got.Value)
+	}
+	if repairOutlineTree(trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}
+
+// TestPruneEmptyPageTreeNodes covers the intermediate node holding no kids:
+// the model requires one kid and a positive /Count, and the node describes no
+// pages, so it goes -- along with the parent it leaves empty.
+func TestPruneEmptyPageTreeNodes(t *testing.T) {
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+
+	empty := pdf.NewPDFDict()
+	empty.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	empty.Entries.Set("Kids", pdf.PDFArray{})
+	empty.Entries.Set("Count", pdf.PDFInteger(0))
+
+	// A node whose only kid is the empty one is itself empty once it is gone.
+	hollow := pdf.NewPDFDict()
+	hollow.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	hollow.Entries.Set("Kids", pdf.PDFArray{empty})
+	hollow.Entries.Set("Count", pdf.PDFInteger(0))
+
+	root := pdf.NewPDFDict()
+	root.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	root.Entries.Set("Kids", pdf.PDFArray{page, hollow})
+	root.Entries.Set("Count", pdf.PDFInteger(1))
+
+	catalog := pdf.NewPDFDict()
+	catalog.Entries.Set("Pages", root)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+
+	if !pruneEmptyPageTreeNodes(trailer) {
+		t.Fatal("pruneEmptyPageTreeNodes reported no change")
+	}
+	kids, _ := root.Entries.Get("Kids").(pdf.PDFArray)
+	if len(kids) != 1 || !pdf.EqualPDFValue(kids[0], page) {
+		t.Errorf("root Kids = %v, want only the page", kids)
+	}
+	if got, _ := root.Entries.Get("Count").(pdf.PDFInteger); got != 1 {
+		t.Errorf("root Count = %v, want 1 (the pruned nodes held no pages)", got)
+	}
+	if pruneEmptyPageTreeNodes(trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+}
+
+// TestRepairTrailerInfoReplacesStream covers the trailer /Info pointing at the
+// XMP metadata stream: it holds no document information, and the model cannot
+// say whether the key may be dropped, so it is replaced by an empty dictionary
+// rather than removed.
+func TestRepairTrailerInfoReplacesStream(t *testing.T) {
+	metadata := pdf.NewPDFDict()
+	metadata.HasStream = true
+	metadata.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Info", metadata)
+
+	if !repairTrailerInfo(&trailer) {
+		t.Fatal("repairTrailerInfo reported no change")
+	}
+	info, ok := trailer.Entries.Get("Info").(pdf.PDFDict)
+	if !ok || info.HasStream {
+		t.Fatalf("Info = %v, want a plain dictionary", trailer.Entries.Get("Info"))
+	}
+	if repairTrailerInfo(&trailer) {
+		t.Error("second pass reported a change, want idempotent")
+	}
+
+	// A real document information dictionary is left alone.
+	good := pdf.NewPDFDict()
+	good.Entries.Set("Producer", pdf.PDFString{Value: "gopdfrab"})
+	trailer.Entries.Set("Info", good)
+	if repairTrailerInfo(&trailer) {
+		t.Error("a valid Info dictionary was replaced")
 	}
 }

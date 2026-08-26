@@ -39,7 +39,7 @@ func TestPDFErrorAccessorsAndCheck(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := Verify(doc, pdf.Legacy_1B)
+	res, err := Verify(doc, pdf.Legacy1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestResultAggregation(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := Verify(doc, pdf.Legacy_1B)
+	res, err := Verify(doc, pdf.Legacy1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestDocumentPDFAInspection(t *testing.T) {
 	}
 	defer doc.Close()
 
-	res, err := Verify(doc, pdf.PDFA_1B)
+	res, err := Verify(doc, pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

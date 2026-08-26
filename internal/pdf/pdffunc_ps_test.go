@@ -14,11 +14,11 @@ func evalPS(t *testing.T, prog string, nOut int, in ...float64) []float64 {
 		rng = append(rng, PDFReal(-1e6), PDFReal(1e6))
 	}
 	d := PDFDict{
-		Entries: map[string]PDFValue{
+		Entries: DictOf(map[string]PDFValue{
 			"FunctionType": PDFInteger(4),
 			"Domain":       dom,
 			"Range":        rng,
-		},
+		}),
 		HasStream: true,
 		RawStream: []byte(prog),
 	}
@@ -85,13 +85,13 @@ func TestPostScriptOperators(t *testing.T) {
 // the unsupported-operator branch (surfaced inside execPostScript).
 func TestPostScriptErrors(t *testing.T) {
 	mk := func(raw string, extra map[string]PDFValue) PDFDict {
-		e := map[string]PDFValue{
+		e := DictOf(map[string]PDFValue{
 			"FunctionType": PDFInteger(4),
 			"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
 			"Range":        PDFArray{PDFReal(0), PDFReal(1)},
-		}
+		})
 		for k, v := range extra {
-			e[k] = v
+			e.Set(k, v)
 		}
 		return PDFDict{Entries: e, HasStream: true, RawStream: []byte(raw)}
 	}

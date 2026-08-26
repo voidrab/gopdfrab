@@ -23,8 +23,8 @@ func TestParseXRefSectionAt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseXRefSectionAt: %v", err)
 		}
-		if !EqualPDFValue(dict.Entries["Root"], PDFRef{ObjNum: 1, GenNum: 0}) {
-			t.Errorf("trailer Root = %v, want 1 0 R", dict.Entries["Root"])
+		if !EqualPDFValue(dict.Entries.Get("Root"), PDFRef{ObjNum: 1, GenNum: 0}) {
+			t.Errorf("trailer Root = %v, want 1 0 R", dict.Entries.Get("Root"))
 		}
 		if r.xrefTable[1] != 10 {
 			t.Errorf("xrefTable[1] = %d, want 10", r.xrefTable[1])
@@ -33,6 +33,39 @@ func TestParseXRefSectionAt(t *testing.T) {
 			t.Error("free entry (object 0) should not be recorded")
 		}
 	})
+
+	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3). A
+	// CR-terminated xref used to be wholly unparseable -- the reader swallowed
+	// every following line into the first one -- which sent real documents
+	// (a dvips-produced arXiv paper) down the brute-force recovery path and,
+	// when their trailer carried no /Root, left the graph unresolvable.
+	for _, eol := range []struct{ name, sep string }{
+		{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"},
+	} {
+		t.Run("line endings "+eol.name, func(t *testing.T) {
+			data := []byte("xref" + eol.sep + "0 2" + eol.sep +
+				"0000000000 65535 f \n0000000010 00000 n \n" +
+				"trailer" + eol.sep + "<< /Size 2 /Root 1 0 R >>" + eol.sep)
+			for _, tc := range []struct {
+				name string
+				r    *Reader
+			}{
+				{"bytes", &Reader{data: data, xrefTable: map[int]int64{}}},
+				{"seek", newTestFileReader(data)},
+			} {
+				dict, err := tc.r.ParseXRefSectionAt(0, false)
+				if err != nil {
+					t.Fatalf("%s path: ParseXRefSectionAt: %v", tc.name, err)
+				}
+				if !EqualPDFValue(dict.Entries.Get("Root"), PDFRef{ObjNum: 1, GenNum: 0}) {
+					t.Errorf("%s path: trailer Root = %v, want 1 0 R", tc.name, dict.Entries.Get("Root"))
+				}
+				if tc.r.xrefTable[1] != 10 {
+					t.Errorf("%s path: xrefTable[1] = %d, want 10", tc.name, tc.r.xrefTable[1])
+				}
+			}
+		})
+	}
 
 	t.Run("bad offset past EOF", func(t *testing.T) {
 		data := []byte("xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n")
@@ -155,20 +188,20 @@ func TestParseObjectValueTypes(t *testing.T) {
 		t.Fatalf("parseDictionary: %v", err)
 	}
 
-	if dict.Entries["A"] != nil {
-		t.Errorf("A (null) should be nil, got %#v", dict.Entries["A"])
+	if dict.Entries.Get("A") != nil {
+		t.Errorf("A (null) should be nil, got %#v", dict.Entries.Get("A"))
 	}
-	if !EqualPDFValue(dict.Entries["B"], PDFName{Value: "keywordX"}) {
-		t.Errorf("B = %#v, want PDFName(keywordX)", dict.Entries["B"])
+	if !EqualPDFValue(dict.Entries.Get("B"), PDFName{Value: "keywordX"}) {
+		t.Errorf("B = %#v, want PDFName(keywordX)", dict.Entries.Get("B"))
 	}
-	if dict.Entries["C"] != PDFBoolean(true) {
-		t.Errorf("C = %#v, want true", dict.Entries["C"])
+	if dict.Entries.Get("C") != PDFBoolean(true) {
+		t.Errorf("C = %#v, want true", dict.Entries.Get("C"))
 	}
-	if dict.Entries["D"] != PDFReal(1.5) {
-		t.Errorf("D = %#v, want 1.5", dict.Entries["D"])
+	if dict.Entries.Get("D") != PDFReal(1.5) {
+		t.Errorf("D = %#v, want 1.5", dict.Entries.Get("D"))
 	}
-	if !EqualPDFValue(dict.Entries["E"], PDFHexString{Value: "48656C6C6F"}) {
-		t.Errorf("E = %#v, want hex string", dict.Entries["E"])
+	if !EqualPDFValue(dict.Entries.Get("E"), PDFHexString{Value: "48656C6C6F"}) {
+		t.Errorf("E = %#v, want hex string", dict.Entries.Get("E"))
 	}
 }
 
@@ -199,5 +232,69 @@ func TestParseDictionaryValueError(t *testing.T) {
 	defer l.Release()
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error propagated from a malformed nested array value")
+	}
+}
+
+// TestScalarDispatchAgreesAcrossParsers is the regression gate for the shared
+// parseScalarToken: the two token dispatchers -- parseObject, for a value inside
+// a containing object, and parseClassicAt, for an indirect object's body -- must
+// agree on every scalar. They were separate copies once and silently diverged on
+// scalars and null.
+func TestScalarDispatchAgreesAcrossParsers(t *testing.T) {
+	cases := []struct {
+		name    string
+		literal string
+	}{
+		{"null", "null"},
+		{"true", "true"},
+		{"false", "false"},
+		{"name", "/Foo"},
+		{"literal string", "(hi there)"},
+		{"hex string", "<48656C6C6F>"},
+		{"real", "3.5"},
+		{"negative real", "-0.25"},
+		{"integer", "42"},
+		{"bare keyword", "wibble"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			l := NewLexerBytes([]byte(c.literal), 0)
+			want, wantErr := parseObject(l, l.NextToken())
+
+			d := &Reader{data: []byte("1 0 obj " + c.literal + " endobj")}
+			got, gotErr := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
+
+			if (wantErr == nil) != (gotErr == nil) {
+				t.Fatalf("errors differ: parseObject=%v, object body=%v", wantErr, gotErr)
+			}
+			if !EqualPDFValue(got, want) {
+				t.Errorf("object body = %#v, parseObject = %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestObjectBodyIntegerIsNotAReference pins the one legitimate difference
+// between the two dispatchers: "1 0 R" inside a containing object is a
+// reference, but as an object's whole body it is just the integer 1 -- an
+// object body is a value, not a reference chain.
+func TestObjectBodyIntegerIsNotAReference(t *testing.T) {
+	l := NewLexerBytes([]byte("1 0 R"), 0)
+	inside, err := parseObject(l, l.NextToken())
+	if err != nil {
+		t.Fatalf("parseObject: %v", err)
+	}
+	if ref, ok := inside.(PDFRef); !ok || ref.ObjNum != 1 {
+		t.Fatalf("inside an object, 1 0 R = %#v, want PDFRef{1,0}", inside)
+	}
+
+	d := &Reader{data: []byte("1 0 obj 1 0 R endobj")}
+	body, err := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
+	if err != nil {
+		t.Fatalf("parseClassicAt: %v", err)
+	}
+	if body != PDFInteger(1) {
+		t.Errorf("as an object body, 1 0 R = %#v, want PDFInteger(1)", body)
 	}
 }

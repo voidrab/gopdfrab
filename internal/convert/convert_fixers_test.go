@@ -51,3 +51,29 @@ func TestApplyPreemptiveFixupsPropagatesError(t *testing.T) {
 		t.Error("second fixup ran despite the first returning an error")
 	}
 }
+
+// TestStreamUndecodableFixerLeavesRealContentAlone records the limit of the
+// remediation: only a stream whose own bytes say what it should have been is
+// repaired. Bytes nobody can decode cannot be re-encoded into anything
+// truthful, so that stream stays a residual rather than being silently
+// emptied.
+func TestStreamUndecodableFixerLeavesRealContentAlone(t *testing.T) {
+	broken := pdf.NewPDFDict()
+	broken.HasStream = true
+	broken.RawStream = []byte("not deflate data at all")
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Junk", broken)
+
+	changed, err := (undecodableStreamFixer{}).Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if changed {
+		t.Error("Fix reported a change for a stream it cannot honestly repair")
+	}
+	if broken.Entries.Get("Filter") == nil {
+		t.Error("the filter was dropped, which would present undecodable bytes as content")
+	}
+}

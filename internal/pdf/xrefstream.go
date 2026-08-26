@@ -57,7 +57,7 @@ func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFD
 	}
 	dict.HasStream = true
 
-	lengthVal, ok := dict.Entries["Length"].(PDFInteger)
+	lengthVal, ok := dict.Entries.Get("Length").(PDFInteger)
 	if !ok {
 		return 0, PDFDict{}, fmt.Errorf("object %d: stream /Length must be a direct integer for bootstrap parsing", objNum)
 	}
@@ -101,11 +101,11 @@ func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) 
 	if !dict.HasStream {
 		return PDFDict{}, fmt.Errorf("object at offset %d has no stream body", offset)
 	}
-	if !EqualPDFValue(dict.Entries["Type"], PDFName{Value: "XRef"}) {
+	if !EqualPDFValue(dict.Entries.Get("Type"), PDFName{Value: "XRef"}) {
 		return PDFDict{}, fmt.Errorf("object at offset %d is not a cross-reference stream", offset)
 	}
 
-	data, err := decodeStreamPredicted(dict)
+	data, err := DecodeStream(dict)
 	if err != nil {
 		return PDFDict{}, fmt.Errorf("cross-reference stream: %w", err)
 	}
@@ -178,7 +178,7 @@ func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) 
 
 // xrefFieldWidths reads /W [w1 w2 w3] from a cross-reference stream dict.
 func xrefFieldWidths(dict PDFDict) ([3]int, error) {
-	arr, ok := dict.Entries["W"].(PDFArray)
+	arr, ok := dict.Entries.Get("W").(PDFArray)
 	if !ok || len(arr) != 3 {
 		return [3]int{}, fmt.Errorf("cross-reference stream: missing or malformed /W")
 	}
@@ -197,9 +197,9 @@ func xrefFieldWidths(dict PDFDict) ([3]int, error) {
 // xrefIndexRanges reads /Index [start1 count1 start2 count2 ...], defaulting
 // to the single range [0, Size) when /Index is absent (ISO 32000-1 7.5.8.2).
 func xrefIndexRanges(dict PDFDict) ([]xrefRange, error) {
-	arr, ok := dict.Entries["Index"].(PDFArray)
+	arr, ok := dict.Entries.Get("Index").(PDFArray)
 	if !ok {
-		size, ok := dict.Entries["Size"].(PDFInteger)
+		size, ok := dict.Entries.Get("Size").(PDFInteger)
 		if !ok {
 			return nil, fmt.Errorf("cross-reference stream: missing /Size")
 		}

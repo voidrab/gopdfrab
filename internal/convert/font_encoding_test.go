@@ -8,13 +8,13 @@ import (
 
 func simpleFontDict(baseFont string, flags int) pdf.PDFDict {
 	d := pdf.NewPDFDict()
-	d.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	d.Entries["Subtype"] = pdf.PDFName{Value: "Type1"}
-	d.Entries["BaseFont"] = pdf.PDFName{Value: baseFont}
+	d.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	d.Entries.Set("BaseFont", pdf.PDFName{Value: baseFont})
 	if flags != 0 {
 		desc := pdf.NewPDFDict()
-		desc.Entries["Flags"] = pdf.PDFInteger(flags)
-		d.Entries["FontDescriptor"] = desc
+		desc.Entries.Set("Flags", pdf.PDFInteger(flags))
+		d.Entries.Set("FontDescriptor", desc)
 	}
 	return d
 }
@@ -36,11 +36,11 @@ func TestOriginalCodeToUnicodeStandardSymbolFonts(t *testing.T) {
 func TestOriginalCodeToUnicodeDifferencesWithDingbatNames(t *testing.T) {
 	d := simpleFontDict("ZapfDingbats", 4)
 	enc := pdf.NewPDFDict()
-	enc.Entries["Differences"] = pdf.PDFArray{
+	enc.Entries.Set("Differences", pdf.PDFArray{
 		pdf.PDFInteger(52), pdf.PDFName{Value: "a20"},
 		pdf.PDFName{Value: "a19"},
-	}
-	d.Entries["Encoding"] = enc
+	})
+	d.Entries.Set("Encoding", enc)
 
 	table := mustTable(d)
 	if table[52] != 0x2714 {
@@ -75,8 +75,8 @@ func TestOriginalCodeToUnicodeNonSymbolicDefaults(t *testing.T) {
 
 	// Encoding dict without BaseEncoding: the implicit standard base.
 	enc := pdf.NewPDFDict()
-	enc.Entries["Differences"] = pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "eacute"}}
-	d.Entries["Encoding"] = enc
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "eacute"}})
+	d.Entries.Set("Encoding", enc)
 	table = mustTable(d)
 	if table[65] != 0x00E9 {
 		t.Errorf("Differences code 65 = %04X, want 00E9 (eacute)", table[65])
@@ -91,7 +91,7 @@ func TestOriginalCodeToUnicodeToUnicodeFallback(t *testing.T) {
 	toUni := pdf.NewPDFDict()
 	toUni.HasStream = true
 	toUni.RawStream = []byte("beginbfchar\n<34> <2714>\nendbfchar")
-	d.Entries["ToUnicode"] = toUni
+	d.Entries.Set("ToUnicode", toUni)
 
 	table := mustTable(d)
 	if table[0x34] != 0x2714 {

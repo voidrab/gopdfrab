@@ -3,6 +3,7 @@ package convert
 import (
 	_ "embed"
 	"encoding/binary"
+	"math"
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -14,7 +15,7 @@ import (
 // liberationSansTTF is the Liberation Sans (SIL OFL 1.1) regular face,
 // metric-compatible with Helvetica/Arial, used to render text into
 // synthesized form-field appearance streams (fixups_appearance.go). See
-// assets/fonts/LICENSE.
+// assets/fonts/OFL.txt.
 //
 //go:embed assets/fonts/LiberationSans-Regular.ttf
 var liberationSansTTF []byte
@@ -65,7 +66,7 @@ func buildAppearanceFont() pdf.PDFDict {
 		if unicode := verify.WinAnsiToUnicode[cc]; unicode != 0 {
 			if gid, ok := cmap[unicode]; ok {
 				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
-					w = aw
+					w = int(math.Round(aw))
 				}
 			}
 		}
@@ -73,33 +74,34 @@ func buildAppearanceFont() pdf.PDFDict {
 	}
 
 	fontFile := pdf.NewPDFDict()
-	fontFile.Entries["Length1"] = pdf.PDFInteger(len(liberationSansTTF))
+	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(liberationSansTTF)))
 	if err := writer.SetStreamFlate(&fontFile, liberationSansTTF); err != nil {
 		return pdf.PDFDict{}
 	}
 
 	desc := pdf.NewPDFDict()
-	desc.Entries["Type"] = pdf.PDFName{Value: "FontDescriptor"}
-	desc.Entries["FontName"] = pdf.PDFName{Value: "LiberationSans"}
-	desc.Entries["Flags"] = pdf.PDFInteger(32) // Nonsymbolic.
-	desc.Entries["FontBBox"] = ttScaledBBox(tables)
-	desc.Entries["ItalicAngle"] = pdf.PDFInteger(0)
-	desc.Entries["Ascent"] = pdf.PDFInteger(liberationSansAscent)
-	desc.Entries["Descent"] = pdf.PDFInteger(liberationSansDescent)
-	desc.Entries["CapHeight"] = pdf.PDFInteger(liberationSansCapHeight(tables))
-	desc.Entries["StemV"] = pdf.PDFInteger(liberationSansStemV)
-	desc.Entries["MissingWidth"] = pdf.PDFInteger(0)
-	desc.Entries["FontFile2"] = fontFile
+	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
+	desc.Entries.Set("FontName", pdf.PDFName{Value: "LiberationSans"})
+	desc.Entries.Set("Flags", pdf.PDFInteger(32))
+	// Nonsymbolic.
+	desc.Entries.Set("FontBBox", ttScaledBBox(tables))
+	desc.Entries.Set("ItalicAngle", pdf.PDFInteger(0))
+	desc.Entries.Set("Ascent", pdf.PDFInteger(liberationSansAscent))
+	desc.Entries.Set("Descent", pdf.PDFInteger(liberationSansDescent))
+	desc.Entries.Set("CapHeight", pdf.PDFInteger(liberationSansCapHeight(tables)))
+	desc.Entries.Set("StemV", pdf.PDFInteger(liberationSansStemV))
+	desc.Entries.Set("MissingWidth", pdf.PDFInteger(0))
+	desc.Entries.Set("FontFile2", fontFile)
 
 	font := pdf.NewPDFDict()
-	font.Entries["Type"] = pdf.PDFName{Value: "Font"}
-	font.Entries["Subtype"] = pdf.PDFName{Value: "TrueType"}
-	font.Entries["BaseFont"] = pdf.PDFName{Value: "LiberationSans"}
-	font.Entries["FirstChar"] = pdf.PDFInteger(firstChar)
-	font.Entries["LastChar"] = pdf.PDFInteger(lastChar)
-	font.Entries["Widths"] = widths
-	font.Entries["Encoding"] = pdf.PDFName{Value: "WinAnsiEncoding"}
-	font.Entries["FontDescriptor"] = desc
+	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	font.Entries.Set("BaseFont", pdf.PDFName{Value: "LiberationSans"})
+	font.Entries.Set("FirstChar", pdf.PDFInteger(firstChar))
+	font.Entries.Set("LastChar", pdf.PDFInteger(lastChar))
+	font.Entries.Set("Widths", widths)
+	font.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	font.Entries.Set("FontDescriptor", desc)
 	return font
 }
 

@@ -19,35 +19,35 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	contents := pdf.NewPDFDict()
 	contents.HasStream = true
 	contents.RawStream = []byte(onePageContent)
-	contents.Entries["_ref"] = pdf.PDFRef{ObjNum: 4}
+	contents.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
-	pages.Entries["Type"] = pdf.PDFName{Value: "Pages"}
-	pages.Entries["Count"] = pdf.PDFInteger(1)
-	pages.Entries["_ref"] = pdf.PDFRef{ObjNum: 2}
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Count", pdf.PDFInteger(1))
+	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
-	page.Entries["Type"] = pdf.PDFName{Value: "Page"}
-	page.Entries["Parent"] = pages
-	page.Entries["MediaBox"] = pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)}
-	page.Entries["Contents"] = contents
-	page.Entries["_ref"] = pdf.PDFRef{ObjNum: 3}
-	pages.Entries["Kids"] = pdf.PDFArray{page}
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Parent", pages)
+	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
+	page.Entries.Set("Contents", contents)
+	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
-	catalog.Entries["Type"] = pdf.PDFName{Value: "Catalog"}
-	catalog.Entries["Pages"] = pages
-	catalog.Entries["_ref"] = pdf.PDFRef{ObjNum: 1}
+	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
+	catalog.Entries.Set("Pages", pages)
+	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
-	trailer.Entries["Root"] = catalog
+	trailer.Entries.Set("Root", catalog)
 
 	if mutate != nil {
 		mutate(trailer, catalog, page)
 	}
 
 	var buf bytes.Buffer
-	if err := writer.WriteDocument(&buf, trailer); err != nil {
+	if err := writer.WriteDocument(&buf, trailer, 0); err != nil {
 		t.Fatalf("WriteDocument: %v", err)
 	}
 	return buf.Bytes()
@@ -95,12 +95,13 @@ func TestHasFixableIssueRasterGate(t *testing.T) {
 func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	data := buildOnePageDoc(t, func(trailer, _, _ pdf.PDFDict) {
 		info := pdf.NewPDFDict()
-		info.Entries["Trapped"] = pdf.PDFName{Value: "Maybe"} // enum allows True/False/Unknown
-		info.Entries["_ref"] = pdf.PDFRef{ObjNum: 5}
-		trailer.Entries["Info"] = info
+		info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
+		// enum allows True/False/Unknown
+		info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+		trailer.Entries.Set("Info", info)
 	})
 
-	res, err := verify.VerifyBytes(data, pdf.PDF)
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
 	if err != nil {
 		t.Fatalf("VerifyBytes: %v", err)
 	}
@@ -108,7 +109,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		t.Fatalf("fixture must fail with a document-level DisallowedValue, got %v", res.Issues)
 	}
 
-	cr, err := ConvertBytes(data, pdf.PDF)
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
 
-	out, err := pdf.OpenBytes(cr.Output)
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("OpenBytes(output): %v", err)
 	}
@@ -125,8 +126,8 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveGraph(output): %v", err)
 	}
-	if info, ok := graph.(pdf.PDFDict).Entries["Info"].(pdf.PDFDict); ok {
-		if _, still := info.Entries["Trapped"]; still {
+	if info, ok := graph.(pdf.PDFDict).Entries.Get("Info").(pdf.PDFDict); ok {
+		if _, still := info.Entries.Lookup("Trapped"); still {
 			t.Error("Trapped must be deleted from the output Info dict")
 		}
 	}

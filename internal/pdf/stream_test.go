@@ -99,7 +99,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\nHello\nendstream")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error for a missing Length entry")
 		}
@@ -109,7 +109,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\nHello\nendstream")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFName{Value: "X"}}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFName{Value: "X"}})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error for a non-integer Length")
 		}
@@ -121,7 +121,7 @@ func TestValidateStream(t *testing.T) {
 		full := []byte(prefix + streamRegion)
 		d := &Reader{data: full, xrefTable: map[int]int64{99: 0}}
 		l := NewLexerBytes(full, int64(len(prefix)))
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFRef{ObjNum: 99}}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFRef{ObjNum: 99}})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error resolving a malformed Length reference")
 		}
@@ -131,7 +131,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\nHello\nendstream")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(1000)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error when Length extends past EOF")
 		}
@@ -141,7 +141,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\ndataendstream")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
@@ -155,7 +155,7 @@ func TestValidateStream(t *testing.T) {
 		d := newTestFileReader(data)
 		l := NewLexerAt(d.file, 0)
 		defer l.Release()
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(1000)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error reading a stream body past EOF")
 		}
@@ -166,7 +166,7 @@ func TestValidateStream(t *testing.T) {
 		d := newTestFileReader(data)
 		l := NewLexerAt(d.file, 0)
 		defer l.Release()
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
@@ -179,7 +179,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\ndataNOTHINGHERE")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error when endstream cannot be found")
 		}
@@ -189,7 +189,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("\ndataXXendstream")
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
@@ -202,7 +202,7 @@ func TestValidateStream(t *testing.T) {
 		data := []byte("  \ndataendstream") // stray spaces before the EOL
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
@@ -216,7 +216,7 @@ func TestValidateStream(t *testing.T) {
 		d := &Reader{file: seekFailFileSource{bytesFileSource{bytes.NewReader(data)}}}
 		l := NewLexerAt(d.file, 0)
 		defer l.Release()
-		dict := PDFDict{Entries: map[string]PDFValue{"Length": PDFInteger(4)}}
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected the final seek-back error to propagate")
 		}

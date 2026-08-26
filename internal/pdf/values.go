@@ -13,15 +13,24 @@ import (
 // walking the object graph.
 func ValuePointer(v PDFValue) uintptr {
 	switch x := v.(type) {
-	case map[string]PDFValue:
-		// A map variable is a pointer to the runtime map header; dereference it.
-		return *(*uintptr)(unsafe.Pointer(&x))
+	case Dict:
+		// Already pointer-shaped, and stable across Set/Del -- see Dict.
+		return uintptr(unsafe.Pointer(x))
 	case PDFArray:
 		// A slice header starts with the data pointer.
 		return *(*uintptr)(unsafe.Pointer(&x))
 	default:
 		return reflect.ValueOf(v).Pointer()
 	}
+}
+
+// ArrayPointer is ValuePointer for a PDFArray, without the interface
+// parameter. A slice is three words, so passing one to ValuePointer's PDFValue
+// parameter boxes it onto the heap -- once per array per graph walk, which the
+// walkers do constantly. A map is pointer-shaped and rides in the interface
+// directly, so dicts need no such variant.
+func ArrayPointer(a PDFArray) uintptr {
+	return *(*uintptr)(unsafe.Pointer(&a))
 }
 
 // AbsInt returns the absolute value of x.
@@ -124,6 +133,29 @@ func DecodePDFTextString(raw []byte) string {
 		u16[i] = uint16(raw[i*2])<<8 | uint16(raw[i*2+1])
 	}
 	return string(utf16.Decode(u16))
+}
+
+// EncodePDFTextString encodes s as a PDF text string, the inverse of
+// DecodePDFTextString: the bytes themselves when every one is printable ASCII,
+// which PDFDocEncoding leaves alone, and UTF-16BE with a BOM otherwise.
+func EncodePDFTextString(s string) []byte {
+	ascii := true
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] >= 0x7F {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return []byte(s)
+	}
+	u16 := utf16.Encode([]rune(s))
+	out := make([]byte, 0, 2+2*len(u16))
+	out = append(out, 0xFE, 0xFF)
+	for _, c := range u16 {
+		out = append(out, byte(c>>8), byte(c))
+	}
+	return out
 }
 
 // DecodeInfoTextString decodes a PDFString or PDFHexString Info-dictionary value

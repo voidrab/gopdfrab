@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -65,25 +66,31 @@ func TTGlyphInRange(tables map[string][]byte) func(gid int) bool {
 }
 
 // TTGlyphPresent returns a function reporting whether a glyph ID counts as
-// present for coverage purposes (6.3.5): non-empty outline, or in-range with
-// zero advance width (whitespace glyphs are exempt from needing outline data).
+// present for coverage purposes (6.3.5): a non-empty outline, or any glyph the
+// font defines at all -- an in-range glyph ID with a loca entry.
+//
+// An empty loca entry means "no contours", which is how TrueType encodes a
+// space; the glyph is defined, it just draws nothing. This used to additionally
+// require a zero advance width before accepting an empty outline, which is not
+// a rule TrueType has: a space in a monospaced subset is empty *and* 600/1000
+// wide, so every such font was reported as missing a glyph it plainly defines.
+// A genuinely absent glyph is out of range instead, which is still caught.
 func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 	hasData := ttLocaHasGlyph(tables)
 	inRange := TTGlyphInRange(tables)
 	return func(gid int) bool {
-		if hasData(gid) {
-			return true
-		}
-		if !inRange(gid) {
-			return false
-		}
-		return TTAdvanceWidth(tables, gid) == 0
+		// hasData covers the case of a readable loca with no maxp to bound it.
+		return hasData(gid) || inRange(gid)
 	}
 }
 
 // TTAdvanceWidth returns the advance width for glyph gid from the hmtx table,
-// scaled to PDF units (1/1000 of em). Returns -1 if unavailable.
-func TTAdvanceWidth(tables map[string][]byte, gid int) int {
+// scaled to PDF units (1/1000 of em). Returns -1 if unavailable. The result
+// stays a real number: at a unitsPerEm that is not 1000 the scaled width is
+// rarely a whole one, and rounding it here would widen the 6.3.6 comparison's
+// tolerance by half a unit -- enough to miss a mismatch a stricter reader
+// catches.
+func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	hmtx := tables["hmtx"]
 	hhea := tables["hhea"]
 	head := tables["head"]
@@ -107,7 +114,7 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) int {
 		}
 		aw = int(binary.BigEndian.Uint16(hmtx[(nHM-1)*4:]))
 	}
-	return (aw*1000 + upm/2) / upm
+	return float64(aw) * 1000 / float64(upm)
 }
 
 // TTWindowsBMPCmap finds the platform 3 encoding 1 cmap subtable, or nil.
@@ -407,9 +414,9 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	case pdf.PDFName:
 		applyBase(e.Value)
 	case pdf.PDFDict:
-		base, _ := e.Entries["BaseEncoding"].(pdf.PDFName)
+		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
 		applyBase(base.Value)
-		if diffs, ok := e.Entries["Differences"].(pdf.PDFArray); ok {
+		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
 			code := 0
 			for _, item := range diffs {
 				switch d := item.(type) {
@@ -439,7 +446,7 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 // violates 6.3.5-2 (unused program glyphs need not be listed). The CharSet
 // string stands in as the glyph set when the program is unparseable.
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
-	charSetVal, ok := desc.Entries["CharSet"]
+	charSetVal, ok := desc.Entries.Lookup("CharSet")
 	if !ok {
 		return // CharSet absence is caught by a separate check
 	}
@@ -463,6 +470,11 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 
 	// The program's own glyph set is the coverage ground truth; CharSet is
 	// metadata that must stay consistent with it for the glyphs actually used.
+	// When the program is absent or unreadable, glyphSet falls back to CharSet
+	// and the 6.3.5-2 consistency branch below becomes unreachable -- there is
+	// nothing to compare CharSet against. An unreadable program is separately
+	// reported as StreamUndecodable by the decode chokepoint, so the fallback
+	// is a narrowed check rather than a silent pass.
 	glyphSet := charSet
 	haveProgram := false
 	if programNames := embeddedType1GlyphNames(desc, ctx); len(programNames) > 0 {
@@ -501,7 +513,15 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	// sometimes given width 0 as a placeholder, hiding the violation);
 	// fall back to non-zero-width codes if usage info is unavailable.
 	if usedCodes, knownUsage := ctx.usedCodesFor(v); knownUsage {
+		// Iterate in code order: checkCode reports the first offending glyph and
+		// stops, so a stable order makes the reported glyph deterministic rather
+		// than dependent on map iteration.
+		codes := make([]int, 0, len(usedCodes))
 		for cc := range usedCodes {
+			codes = append(codes, cc)
+		}
+		sort.Ints(codes)
+		for _, cc := range codes {
 			if !checkCode(cc) {
 				return
 			}
@@ -526,39 +546,54 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	}
 }
 
-// SimpleFontGlyphNameTable builds a code->glyph-name table from a simple
-// font's /Encoding (WinAnsi base plus optional Differences). ok is false for
-// encodings this package doesn't model by name.
-func SimpleFontGlyphNameTable(v pdf.PDFDict) (glyphNames [256]string, ok bool) {
-	switch enc := v.Entries["Encoding"].(type) {
-	case pdf.PDFName:
-		switch enc.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		default:
-			return glyphNames, false
+// namedEncodingTable resolves a modelled base encoding to its code->glyph-name
+// table. MacRomanEncoding is absent: encodings_symbol.go carries it only as a
+// code->Unicode map, so there are no glyph names to compare against.
+func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
+	switch name {
+	case "StandardEncoding":
+		return StandardEncoding, true
+	case "WinAnsiEncoding":
+		return WinAnsiGlyphName, true
+	}
+	return glyphNames, false
+}
+
+// applyDifferences overlays an /Encoding dictionary's /Differences array onto
+// a base table (ISO 32000-1 9.6.6.1).
+func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
+	diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray)
+	if !ok {
+		return
+	}
+	code := 0
+	for _, item := range diffs {
+		switch d := item.(type) {
+		case pdf.PDFInteger:
+			code = int(d)
+		case pdf.PDFName:
+			if code >= 0 && code < 256 {
+				glyphNames[code] = d.Value
+			}
+			code++
 		}
+	}
+}
+
+// SimpleFontGlyphNameTable builds a code->glyph-name table from a simple
+// font's /Encoding (a modelled base encoding plus optional Differences). ok is
+// false for encodings this package doesn't model by name.
+func SimpleFontGlyphNameTable(v pdf.PDFDict) (glyphNames [256]string, ok bool) {
+	switch enc := v.Entries.Get("Encoding").(type) {
+	case pdf.PDFName:
+		return namedEncodingTable(enc.Value)
 	case pdf.PDFDict:
 		// Custom encoding: start from BaseEncoding, then apply Differences.
-		base, _ := enc.Entries["BaseEncoding"].(pdf.PDFName)
-		switch base.Value {
-		case "WinAnsiEncoding":
-			glyphNames = WinAnsiGlyphName
-		}
-		if diffs, ok := enc.Entries["Differences"].(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						glyphNames[code] = d.Value
-					}
-					code++
-				}
-			}
-		}
+		// An absent or unmodelled BaseEncoding leaves the base empty rather
+		// than failing, since Differences alone may name every code used.
+		base, _ := enc.Entries.Get("BaseEncoding").(pdf.PDFName)
+		glyphNames, _ = namedEncodingTable(base.Value)
+		applyDifferences(&glyphNames, enc)
 	default:
 		return glyphNames, false
 	}
@@ -603,9 +638,9 @@ func validateType1CMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, firs
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pdfWidth-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ CFF advance width %d",
-				cc, glyph, pdfWidth, csWidth))
+		if math.Abs(float64(pdfWidth)-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ CFF advance width %s",
+				cc, glyph, pdfWidth, formatWidth(csWidth)))
 			return
 		}
 	}
@@ -632,9 +667,9 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pair[1]-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ CFF advance width %d",
-				pair[0], pair[1], csWidth))
+		if math.Abs(float64(pair[1])-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ CFF advance width %s",
+				pair[0], pair[1], formatWidth(csWidth)))
 			return
 		}
 	}
@@ -644,13 +679,13 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 // embedded Type1 (FontFile) or Type1C (FontFile3) program, or nil when no
 // program is present or it cannot be parsed.
 func embeddedType1GlyphNames(desc pdf.PDFDict, ctx *ValidationContext) []string {
-	if ff, ok := desc.Entries["FontFile"].(pdf.PDFDict); ok {
+	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 		if data, err := ctx.decodeStreamCached(ff); err == nil {
 			return ctx.type1ProgramFor(data).names
 		}
 		return nil
 	}
-	if ff, ok := desc.Entries["FontFile3"].(pdf.PDFDict); ok {
+	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		if data, err := ctx.decodeStreamCached(ff); err == nil {
 			return CFFGlyphNames(data)
 		}
@@ -732,8 +767,9 @@ type CFFTopDict struct {
 	CharsetOffset int // Charset table offset, -1 if not found / predefined
 	PrivateOffset int // Private DICT offset, -1 if not found
 	PrivateSize   int
-	FDArrayOffset int // CID-keyed only, -1 if not found
-	FDSelect      int // CID-keyed only, -1 if not found
+	FDArrayOffset int        // CID-keyed only, -1 if not found
+	FDSelect      int        // CID-keyed only, -1 if not found
+	FontMatrix    [6]float64 // as declared; only meaningful when HasFontMatrix
 	HasFontMatrix bool
 	IsCIDKeyed    bool
 }
@@ -806,85 +842,44 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	}
 	topDict := cff[tdDataStart : tdDataStart+tdDataLen]
 
-	// Parse Top DICT DICT encoding to find CharStrings (17), Charset (15),
-	// and ROS (escape 12 30, present only on CID-keyed fonts).
-	var stack []int
-	for i := 0; i < len(topDict); {
-		b := int(topDict[i])
-		switch {
-		case b >= 32 && b <= 246:
-			stack = append(stack, b-139)
-			i++
-		case b >= 247 && b <= 250:
-			if i+1 >= len(topDict) {
-				return td, false
+	// Read the operators we need. cffDictNumbers decodes nibble reals, which
+	// is how FontMatrix is always written.
+	return td, cffDictNumbers(topDict, func(operator int, operands []float64) {
+		first := func() (int, bool) {
+			if len(operands) == 0 {
+				return 0, false
 			}
-			stack = append(stack, (b-247)*256+int(topDict[i+1])+108)
-			i += 2
-		case b >= 251 && b <= 254:
-			if i+1 >= len(topDict) {
-				return td, false
-			}
-			stack = append(stack, -(b-251)*256-int(topDict[i+1])-108)
-			i += 2
-		case b == 28:
-			if i+2 >= len(topDict) {
-				return td, false
-			}
-			v := int(int16(binary.BigEndian.Uint16(topDict[i+1 : i+3])))
-			stack = append(stack, v)
-			i += 3
-		case b == 29:
-			if i+4 >= len(topDict) {
-				return td, false
-			}
-			v := int(int32(binary.BigEndian.Uint32(topDict[i+1 : i+5])))
-			stack = append(stack, v)
-			i += 5
-		case b == 30: // real number — skip
-			i++
-			for i < len(topDict) {
-				nb := topDict[i]
-				i++
-				if nb&0x0F == 0x0F {
-					break
-				}
-			}
-		case b == 12: // two-byte escape operator
-			if i+1 >= len(topDict) {
-				return td, false
-			}
-			switch topDict[i+1] {
-			case 30: // ROS: marks a CID-keyed font
-				td.IsCIDKeyed = true
-			case 7: // FontMatrix: glyph space is not the default 1/1000 em
-				td.HasFontMatrix = true
-			case 36:
-				if len(stack) > 0 {
-					td.FDArrayOffset = stack[0]
-				}
-			case 37:
-				if len(stack) > 0 {
-					td.FDSelect = stack[0]
-				}
-			}
-			stack = nil
-			i += 2
-		default: // single-byte operator
-			switch {
-			case b == 17 && len(stack) > 0: // CharStrings
-				td.CSOffset = stack[0]
-			case b == 15 && len(stack) > 0: // charset
-				td.CharsetOffset = stack[0]
-			case b == 18 && len(stack) > 1: // Private: [size offset]
-				td.PrivateSize = stack[0]
-				td.PrivateOffset = stack[1]
-			}
-			stack = nil
-			i++
+			return int(operands[0]), true
 		}
-	}
-	return td, true
+		switch operator {
+		case 17: // CharStrings
+			if v, o := first(); o {
+				td.CSOffset = v
+			}
+		case 15: // charset
+			if v, o := first(); o {
+				td.CharsetOffset = v
+			}
+		case 18: // Private: [size offset]
+			if len(operands) > 1 {
+				td.PrivateSize = int(operands[0])
+				td.PrivateOffset = int(operands[1])
+			}
+		case 1207: // FontMatrix: glyph space is not the default 1/1000 em
+			td.HasFontMatrix = true
+			copy(td.FontMatrix[:], operands)
+		case 1230: // ROS: marks a CID-keyed font
+			td.IsCIDKeyed = true
+		case 1236: // FDArray
+			if v, o := first(); o {
+				td.FDArrayOffset = v
+			}
+		case 1237: // FDSelect
+			if v, o := first(); o {
+				td.FDSelect = v
+			}
+		}
+	})
 }
 
 // ParseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
@@ -1129,6 +1124,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	td, ok := ParseCFFTopDict(data)
 	if !ok || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return
@@ -1185,7 +1181,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 // every CID that has a glyph in the embedded CID-keyed CFF program (6.3.5/3).
 // Each byte covers 8 CIDs, MSB first: bit j of byte i is CID i*8+j.
 func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
-	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
 		return
 	}
@@ -1197,6 +1193,7 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	td, ok := ParseCFFTopDict(data)
 	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return
@@ -1216,10 +1213,25 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 }
 
 // validateCIDSetTrueType checks that the FontDescriptor's CIDSet bitmap marks
-// every CID whose glyph has outline data in the embedded CIDFontType2 subset
-// program (6.3.5/3), assuming an Identity CIDToGIDMap. CID 0 (.notdef) is exempt.
+// the CIDs the document renders from the embedded CIDFontType2 subset program
+// (6.3.5/3), assuming an Identity CIDToGIDMap. CID 0 (.notdef) is exempt.
+//
+// Scoped to rendered CIDs, unlike the CFF path, and the asymmetry is in how the
+// two formats subset rather than in the rule. A CID-keyed CFF subset's charset
+// lists exactly the glyphs the subset carries, so "in the charset" is the same
+// question as "present in the font program". A TrueType subsetter typically
+// keeps `loca` and `numGlyphs` at their original size and simply empties the
+// entries it dropped, so glyphs with outline data include composite components
+// and whatever else the subsetter chose to retain -- none of which the document
+// renders, and none of which a producer puts in CIDSet. Requiring those made
+// gopdfrab reject real PDF/A that veraPDF accepts: one arXiv paper's font had
+// 3065 glyph slots, 64 outlines and 26 CIDs in its CIDSet, all consistent.
+//
+// When usage is unknown (an undecodable content stream, a degraded object) the
+// check does not run at all rather than falling back to the glyph table, on the
+// item-1 rule that an incomplete usage set must not drive a report.
 func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
-	cidSet, ok := desc.Entries["CIDSet"].(pdf.PDFDict)
+	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
 		return
 	}
@@ -1231,21 +1243,46 @@ func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, 
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
 	}
+	used, known := cidsRenderedBy(obj, ctx)
+	if !known {
+		return
+	}
 	hasGlyph := ttLocaHasGlyph(tables)
-	for cid := 1; cid < TTNumGlyphs(tables); cid++ {
-		if !hasGlyph(cid) {
-			continue
+	numGlyphs := TTNumGlyphs(tables)
+	for _, cid := range used {
+		if cid < 1 || cid >= numGlyphs || !hasGlyph(cid) {
+			continue // absent glyphs are the coverage check's business, not this one
 		}
 		byteIdx, bitIdx := cid/8, 7-cid%8
 		if byteIdx >= len(bitmap) || bitmap[byteIdx]&(1<<bitIdx) == 0 {
-			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which has a glyph in the embedded font program", cid))
+			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, obj, fmt.Sprintf("CIDSet does not list CID %d, which the document renders from the embedded font program", cid))
 			return
 		}
 	}
+}
+
+// cidsRenderedBy returns the CIDs the document shows from the CIDFont obj, in
+// ascending order, and whether usage is known at all.
+func cidsRenderedBy(obj pdf.PDFValue, ctx *ValidationContext) (cids []int, known bool) {
+	d, ok := obj.(pdf.PDFDict)
+	if !ok {
+		return nil, false
+	}
+	used, known := ctx.usedCIDsFor(d)
+	if !known {
+		return nil, false
+	}
+	cids = make([]int, 0, len(used))
+	for cid := range used {
+		cids = append(cids, cid)
+	}
+	sort.Ints(cids) // the first mismatch is reported, so the order must be stable
+	return cids, true
 }
 
 // cidsToCheck returns the CIDs a coverage/metrics check should examine for the
@@ -1272,7 +1309,7 @@ func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids
 // cidDefaultWidth returns the CIDFont's DW entry, defaulting to 1000.
 func cidDefaultWidth(obj pdf.PDFValue) int {
 	if d, ok := obj.(pdf.PDFDict); ok {
-		switch dw := d.Entries["DW"].(type) {
+		switch dw := d.Entries.Get("DW").(type) {
 		case pdf.PDFInteger:
 			return int(dw)
 		case pdf.PDFReal:
@@ -1290,6 +1327,7 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1312,6 +1350,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1323,11 +1362,11 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 		}
 		fontWidth := TTAdvanceWidth(tables, cid)
 		// Allow ±1 rounding tolerance.
-		return fontWidth >= 0 && pdf.AbsInt(fontWidth-pdfWidth) > 1
+		return fontWidth >= 0 && math.Abs(fontWidth-float64(pdfWidth)) > 1
 	}
-	report := func(cid, pdfWidth, fontWidth int) {
-		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %d",
-			cid, pdfWidth, fontWidth))
+	report := func(cid, pdfWidth int, fontWidth float64) {
+		ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("CID %d: PDF width %d ≠ font hmtx width %s",
+			cid, pdfWidth, formatWidth(fontWidth)))
 	}
 
 	widthOf := map[int]int{}
@@ -1371,6 +1410,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1392,7 +1432,7 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	// Build encoding-aware code→unicode table from the font's /Encoding.
 	var enc pdf.PDFValue
 	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries["Encoding"]
+		enc = fontDict.Entries.Get("Encoding")
 	}
 	codeToUnicode := SimpleFontCodeToUnicode(enc)
 
@@ -1403,24 +1443,19 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	}
 	symGIDMap := ParseCmapSubtable(TTSymbolicCmap(tables))
 	numGlyphs := TTNumGlyphs(tables)
-	symbolic := false
-	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		if desc, ok3 := fontDict.Entries["FontDescriptor"].(pdf.PDFDict); ok3 {
-			if f, ok4 := desc.Entries["Flags"].(pdf.PDFInteger); ok4 {
-				symbolic = f&4 != 0
-			}
-		}
-	}
 
 	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
 	codeToGID := func(cc int) (int, bool) {
 		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			gid, exists := winGIDMap[u]
-			if exists {
+			if gid, exists := winGIDMap[u]; exists {
 				return int(gid), true
 			}
-			// Unicode is known but not in (3,1) cmap: glyph definitively absent.
-			return 0, true
+			// A (3,1) miss is not the end of the lookup. ISO 32000-1 9.6.6.4
+			// has a viewer try the (1,0) Macintosh cmap next, and subsetters
+			// prune (3,1) entries for characters the document does not use
+			// while leaving (1,0) intact -- so treating a miss as definitive
+			// rejected real PDF/A (Word-produced subsets in an arXiv paper)
+			// whose glyphs resolve perfectly well through (1,0).
 		}
 		// Fall back to symbolic (3,0)/(1,0) cmap with raw code or PUA offset.
 		if symGIDMap != nil {
@@ -1430,12 +1465,11 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 				}
 			}
 		}
-		// A non-symbolic font resolves codes only through its encoding and
-		// cmaps; a code neither can map renders .notdef.
-		if !symbolic {
-			return 0, true
-		}
-		return 0, false // Cannot determine GID — skip.
+		// Neither cmap maps the code, so whatever the font's flags say, the
+		// viewer has nothing left to resolve it with and renders .notdef.
+		// Skipping the symbolic case here meant a code shown from a symbolic
+		// subset whose cmaps do not carry it went unreported.
+		return 0, true
 	}
 
 	checkCode := func(cc int) bool {
@@ -1455,7 +1489,14 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 	// non-zero-width codes if usage info is unavailable.
 	if fontDict, ok := obj.(pdf.PDFDict); ok {
 		if usedCodes, knownUsage := ctx.usedCodesFor(fontDict); knownUsage {
+			// Sorted: checkCode reports the first failure and stops, so
+			// iterating the map directly would name a different code per run.
+			codes := make([]int, 0, len(usedCodes))
 			for cc := range usedCodes {
+				codes = append(codes, cc)
+			}
+			sort.Ints(codes)
+			for _, cc := range codes {
 				if !checkCode(cc) {
 					return
 				}
@@ -1488,6 +1529,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 	if err != nil {
 		return
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return
@@ -1495,7 +1537,7 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 
 	var enc pdf.PDFValue
 	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries["Encoding"]
+		enc = fontDict.Entries.Get("Encoding")
 	}
 	codeToUnicode := SimpleFontCodeToUnicode(enc)
 
@@ -1545,9 +1587,9 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		if fontWidth < 0 {
 			continue
 		}
-		if pdf.AbsInt(fontWidth-pdfWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %d",
-				firstChar+i, pdfWidth, fontWidth))
+		if math.Abs(fontWidth-float64(pdfWidth)) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d: PDF width %d ≠ font hmtx width %s",
+				firstChar+i, pdfWidth, formatWidth(fontWidth)))
 			return
 		}
 	}
@@ -1595,7 +1637,8 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 		return ok
 	case "FontFile3":
 		if len(data) >= 4 && data[0] == 1 { // CFF header, major version 1
-			return true
+			_, ok := ParseCFFTopDict(data)
+			return ok
 		}
 		_, ok := ParseSfnt(data) // OpenType-wrapped CFF
 		return ok
@@ -1606,15 +1649,23 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 	return true
 }
 
-// validateFontProgram flags a damaged embedded font program (6.3.2).
+// validateFontProgram flags a damaged embedded font program (6.3.2) and an
+// embedded font file in a format PDF 1.4 does not define (6.3.2).
 func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *ValidationContext) {
 	for _, key := range []string{"FontFile", "FontFile2", "FontFile3"} {
-		ff, ok := desc.Entries[key].(pdf.PDFDict)
+		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
 		if !ok {
 			continue
 		}
 		if !fontProgramValid(ctx, ff, key) {
 			ctx.Report(pdf.Checks.Font.InvalidProgram, obj, fmt.Sprintf("embedded font program for %s is damaged", name))
+		}
+		// The only font file subtypes PDF 1.4 defines are Type1C and
+		// CIDFontType0C; no subtype at all is fine.
+		if st, ok := ff.Entries.Get("Subtype").(pdf.PDFName); ok &&
+			st.Value != "Type1C" && st.Value != "CIDFontType0C" {
+			ctx.Report(pdf.Checks.Font.FontFileSubtype, obj,
+				fmt.Sprintf("embedded font file for %s has unsupported Subtype /%s", name, st.Value))
 		}
 	}
 }
@@ -1622,7 +1673,7 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 // trueTypeCmapSubtables returns the number of cmap subtables in an embedded
 // TrueType font, and whether it could be determined.
 func trueTypeCmapSubtables(ctx *ValidationContext, desc pdf.PDFDict) (int, bool) {
-	ff, ok := desc.Entries["FontFile2"].(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {
 		return 0, false
 	}
@@ -1630,6 +1681,7 @@ func trueTypeCmapSubtables(ctx *ValidationContext, desc pdf.PDFDict) (int, bool)
 	if err != nil {
 		return 0, false
 	}
+	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := ParseSfnt(data)
 	if !ok {
 		return 0, false
@@ -1678,97 +1730,205 @@ var StandardEncoding = [256]string{
 // DecryptType1Block decrypts a Type1 font binary block using the given seed key.
 // It skips the first 4 bytes (random seed) and returns the plaintext.
 func DecryptType1Block(data []byte, seedKey uint16) []byte {
+	return decryptType1(data, seedKey, 4)
+}
+
+// DecryptType1CharString decrypts one charstring, dropping the lenIV leading
+// random bytes the program declares (Type 1 spec 7.1). Everything before them
+// is padding; taking the default 4 from a program declaring 0 ate the hsbw
+// that carries the advance width, and the glyph then had no width at all.
+func DecryptType1CharString(data []byte, lenIV int) []byte {
+	return decryptType1(data, 4330, lenIV)
+}
+
+// decryptType1 runs the eexec cipher, discarding the first skip plaintext
+// bytes.
+func decryptType1(data []byte, seedKey uint16, skip int) []byte {
 	R := seedKey
 	out := make([]byte, 0, len(data))
 	for i, c := range data {
 		p := byte(uint16(c) ^ (R >> 8))
 		R = (uint16(c)+R)*52845 + 22719
-		if i >= 4 {
+		if i >= skip {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
+// type1LenIVRe captures a Private dict's /lenIV, the number of random bytes
+// prepended to every charstring.
+var type1LenIVRe = regexp.MustCompile(`/lenIV\s+(\d+)\s+def`)
+
+// type1LenIV reads /lenIV from a decrypted private section, defaulting to the
+// 4 the spec prescribes when the program declares none.
+func type1LenIV(plain []byte) int {
+	m := type1LenIVRe.FindSubmatch(plain)
+	if m == nil {
+		return 4
+	}
+	n, err := strconv.Atoi(string(m[1]))
+	if err != nil || n < 0 {
+		return 4
+	}
+	return n
+}
+
 // parseType1AdvanceWidth parses a decrypted Type1 CharString and returns the
 // advance width (wx) from the hsbw (op 13) or sbw (escape op 8) command.
-func parseType1AdvanceWidth(cs []byte) (int, bool) {
-	stack := make([]int, 0, 8)
+// subrs are the program's decrypted Subrs: a subroutinized program pushes the
+// hsbw operands and leaves the command itself in a subr, so a scan that stops
+// at callsubr finds no width at all.
+func parseType1AdvanceWidth(cs []byte, subrs [][]byte) (int, bool) {
+	var stack []int
+	w, found, _ := scanType1Width(cs, subrs, &stack, 0)
+	return w, found
+}
+
+// scanType1Width walks one charstring, sharing the operand stack with any
+// subrs it calls. stop reports that the scan is over (endchar, or bytes that
+// do not decode) rather than that this charstring merely returned.
+func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, found, stop bool) {
+	push := func(v int) { *stack = append(*stack, v) }
 	i := 0
 	for i < len(cs) {
 		b := cs[i]
 		switch {
 		case b >= 32 && b <= 246:
-			stack = append(stack, int(b)-139)
+			push(int(b) - 139)
 			i++
 		case b >= 247 && b <= 250:
 			if i+1 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			stack = append(stack, (int(b)-247)*256+int(cs[i+1])+108)
+			push((int(b)-247)*256 + int(cs[i+1]) + 108)
 			i += 2
 		case b >= 251 && b <= 254:
 			if i+1 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			stack = append(stack, -((int(b)-251)*256 + int(cs[i+1]) + 108))
+			push(-((int(b)-251)*256 + int(cs[i+1]) + 108))
 			i += 2
 		case b == 28:
 			if i+2 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			v := int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2])))
-			stack = append(stack, v)
+			push(int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2]))))
 			i += 3
-		case b == 29:
+		case b == 29 || b == 255: // 32-bit integer: 29 in Type 2, 255 in Type 1
 			if i+4 >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			v := int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4])))
-			stack = append(stack, v)
+			push(int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4]))))
 			i += 5
+		case b == 10: // callsubr
+			n := len(*stack)
+			if n == 0 {
+				return 0, false, true
+			}
+			idx := (*stack)[n-1]
+			*stack = (*stack)[:n-1]
+			if depth >= type1SubrDepth || idx < 0 || idx >= len(subrs) {
+				return 0, false, true
+			}
+			w, found, stop = scanType1Width(subrs[idx], subrs, stack, depth+1)
+			if found || stop {
+				return w, found, stop
+			}
+			i++
+		case b == 11: // return
+			return 0, false, false
 		case b == 12: // 2-byte escape
 			i++
 			if i >= len(cs) {
-				return 0, false
+				return 0, false, true
 			}
-			if cs[i] == 8 && len(stack) >= 4 { // sbw: sbx sby wx wy
-				return stack[2], true
+			if cs[i] == 8 && len(*stack) >= 4 { // sbw: sbx sby wx wy
+				return (*stack)[2], true, true
 			}
-			stack = stack[:0]
+			*stack = (*stack)[:0]
 			i++
-		case b == 13: // hsbw: sbx wx → wx is advance width
-			if len(stack) >= 2 {
-				return stack[1], true
+		case b == 13: // hsbw: sbx wx -> wx is advance width
+			if len(*stack) >= 2 {
+				return (*stack)[1], true, true
 			}
-			return 0, false
+			return 0, false, true
 		case b == 14: // endchar
-			return 0, false
+			return 0, false, true
 		default:
-			stack = stack[:0]
+			*stack = (*stack)[:0]
 			i++
 		}
 	}
-	return 0, false
+	return 0, false, true
 }
 
+// type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
+// other in a cycle cannot spin.
+const type1SubrDepth = 10
+
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
-var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) RD `)
+// The operator that introduces the charstring bytes is whatever the Private
+// dict named it: "RD" and "-|" are the two in use, and a program using "-|"
+// used to read as having no glyphs at all.
+var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
 
 // Type1CharStringsSection decrypts a Type1 program's eexec section and
-// returns the decrypted bytes starting at "/CharStrings", or nil if absent.
-// binStart is the byte offset of the first encrypted byte after "eexec".
-func Type1CharStringsSection(fontData []byte, binStart int) []byte {
+// returns the decrypted bytes starting at "/CharStrings", or nil if absent,
+// together with the /lenIV each charstring in it is padded with. binStart is
+// the byte offset of the first encrypted byte after "eexec".
+func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
+	section, lenIV, _ = type1Sections(fontData, binStart)
+	return section, lenIV
+}
+
+// type1SubrRe matches one entry of a decrypted Type1 Subrs array.
+var type1SubrRe = regexp.MustCompile(`dup (\d+) (\d+) (?:RD|-\|) `)
+
+// type1Sections decrypts a Type1 program's eexec section once and returns the
+// bytes from "/CharStrings" on, the /lenIV its charstrings are padded with,
+// and the decrypted Subrs indexed by subr number.
+func type1Sections(fontData []byte, binStart int) (section []byte, lenIV int, subrs [][]byte) {
 	if binStart <= 0 || binStart >= len(fontData) {
-		return nil
+		return nil, 4, nil
 	}
 	plain := DecryptType1Block(fontData[binStart:], 55665)
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
+		return nil, 4, nil
+	}
+	// Both live in the Private dict, ahead of /CharStrings.
+	private := plain[:csIdx]
+	lenIV = type1LenIV(private)
+	return plain[csIdx:], lenIV, type1SubrArray(private, lenIV)
+}
+
+// type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
+// Numbers are as the program writes them, so a sparse or out-of-order array
+// leaves the gaps nil rather than shifting the rest.
+func type1SubrArray(private []byte, lenIV int) [][]byte {
+	start := bytes.Index(private, []byte("/Subrs"))
+	if start < 0 {
 		return nil
 	}
-	return plain[csIdx:]
+	var subrs [][]byte
+	for _, m := range type1SubrRe.FindAllSubmatchIndex(private[start:], -1) {
+		idx, err := strconv.Atoi(string(private[start+m[2] : start+m[3]]))
+		n, err2 := strconv.Atoi(string(private[start+m[4] : start+m[5]]))
+		if err != nil || err2 != nil || idx < 0 || idx > maxType1Subrs || n <= 0 || start+m[1]+n > len(private) {
+			continue
+		}
+		for len(subrs) <= idx {
+			subrs = append(subrs, nil)
+		}
+		subrs[idx] = DecryptType1CharString(private[start+m[1]:start+m[1]+n], lenIV)
+	}
+	return subrs
 }
+
+// maxType1Subrs bounds the array a program can claim, so a bogus subr number
+// cannot make it allocate without limit.
+const maxType1Subrs = 65535
 
 // type1Program is the result of one combined CharStrings scan of a Type1
 // font program: every defined glyph name (a glyph with an unparseable width
@@ -1776,19 +1936,22 @@ func Type1CharStringsSection(fontData []byte, binStart int) []byte {
 // advance width for each charstring whose width parses (6.3.6).
 type type1Program struct {
 	names  []string
-	widths map[string]int
+	widths map[string]float64
 }
 
 // extractType1Program decrypts the eexec binary section of a Type1 font
 // program once and extracts names and widths in a single CharStrings scan.
 // binStart is the byte offset of the first encrypted byte after "eexec".
 func extractType1Program(fontData []byte, binStart int) type1Program {
-	cs := Type1CharStringsSection(fontData, binStart)
+	cs, lenIV, subrs := type1Sections(fontData, binStart)
 	if cs == nil {
 		return type1Program{}
 	}
+	// A matrix we cannot read leaves the widths out: the names still belong in
+	// CharSet (6.3.5), but there is no width to compare against (6.3.6).
+	scale, scaleOK := type1WidthScale(fontData)
 	var p type1Program
-	p.widths = map[string]int{}
+	p.widths = map[string]float64{}
 	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
 		name := string(cs[m[2]:m[3]])
 		p.names = append(p.names, name)
@@ -1796,9 +1959,9 @@ func extractType1Program(fontData []byte, binStart int) type1Program {
 		if n <= 0 || m[1]+n > len(cs) {
 			continue
 		}
-		dec := DecryptType1Block(cs[m[1]:m[1]+n], 4330)
-		if w, ok := parseType1AdvanceWidth(dec); ok {
-			p.widths[name] = w
+		dec := DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
+		if w, ok := parseType1AdvanceWidth(dec, subrs); ok && scaleOK {
+			p.widths[name] = scaleWidth(float64(w), scale)
 		}
 	}
 	return p
@@ -1834,22 +1997,95 @@ func Type1GlyphNames(fontData []byte) []string {
 // type1EncodingRe finds the built-in Encoding name in a Type1 clear-text section.
 var type1EncodingRe = regexp.MustCompile(`/Encoding\s+(\w+)\s+def`)
 
+// type1EncodingArrayRe matches one entry of a Type1 program's own /Encoding
+// array, the "dup <code> /<name> put" form a font with a custom encoding uses
+// instead of naming a standard one.
+var type1EncodingArrayRe = regexp.MustCompile(`dup\s+(\d+)\s*/([^\s/(\[{]+)\s+put`)
+
+// type1BuiltinEncodingArray reads a Type1 program's own /Encoding array from
+// the clear-text section. ok is false when the program declares no array,
+// which is the case for one naming a standard encoding instead.
+func type1BuiltinEncodingArray(textPart []byte) (enc [256]string, ok bool) {
+	start := bytes.Index(textPart, []byte("/Encoding"))
+	if start < 0 {
+		return enc, false
+	}
+	for _, m := range type1EncodingArrayRe.FindAllSubmatch(textPart[start:], -1) {
+		code, err := strconv.Atoi(string(m[1]))
+		if err != nil || code < 0 || code > 255 {
+			continue
+		}
+		enc[code] = string(m[2])
+		ok = true
+	}
+	return enc, ok
+}
+
+// type1FontMatrixRe captures a Type1 /FontMatrix's first two elements, the
+// x-scale and the term that would tilt an advance off the horizontal.
+var type1FontMatrixRe = regexp.MustCompile(`/FontMatrix\s*\[\s*([0-9.eE+-]+)\s+([0-9.eE+-]+)`)
+
+// type1WidthScale is cffWidthScale for a Type1 program, reading the FontMatrix
+// out of the clear-text section before "eexec". A program declaring none is in
+// the default 1/1000 em glyph space.
+func type1WidthScale(fontData []byte) (scale float64, ok bool) {
+	textPart := fontData
+	if i := bytes.Index(fontData, []byte("eexec")); i > 0 {
+		textPart = fontData[:i]
+	}
+	m := type1FontMatrixRe.FindSubmatch(textPart)
+	if m == nil {
+		return 1, true
+	}
+	a, aErr := strconv.ParseFloat(string(m[1]), 64)
+	b, bErr := strconv.ParseFloat(string(m[2]), 64)
+	if aErr != nil || bErr != nil {
+		return 0, false
+	}
+	return fontMatrixWidthScale(a, b)
+}
+
 // validateType1Metrics checks that PDF Widths entries match advance widths in
 // the embedded Type1 font program (6.3.6).
-func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, pdfEncoding string, ctx *ValidationContext) {
+func validateType1Metrics(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, firstChar int, widths pdf.PDFArray, encoding pdf.PDFValue, ctx *ValidationContext) {
 	fontData, err := ctx.decodeStreamCached(ff)
 	if err != nil || len(fontData) == 0 {
 		return
 	}
 
-	enc, ok := Type1EncodingTable(fontData, pdfEncoding)
-	if !ok {
+	glyphWidths := ctx.type1ProgramFor(fontData).widths
+	enc, stats := Type1WidthTable(fontData, encoding, glyphWidths)
+	if stats.Skip != WidthSkipNone {
 		return
 	}
 
-	glyphWidths := ctx.type1ProgramFor(fontData).widths
-	if len(glyphWidths) == 0 {
-		return
+	// Only codes actually shown, as on the Type1C path: a /Widths entry for a
+	// code the document never draws says nothing about what gets rendered, and
+	// the base encoding can put a real glyph name on one.
+	var usedCodes map[int]bool
+	knownUsage := false
+	if fontDict, ok := obj.(pdf.PDFDict); ok {
+		usedCodes, knownUsage = ctx.usedCodesFor(fontDict)
+	}
+
+	// A code outside /Widths takes its width from /MissingWidth, so a font
+	// whose FirstChar starts past a code it shows is checked there rather than
+	// not at all -- which is where the Isartor 6.3.6 case lives.
+	if knownUsage {
+		missing, _ := pdf.PDFNumberToInt(desc.Entries.Get("MissingWidth"))
+		codes := make([]int, 0, len(usedCodes))
+		for cc := range usedCodes {
+			codes = append(codes, cc)
+		}
+		sort.Ints(codes)
+		for _, cc := range codes {
+			if cc >= firstChar && cc < firstChar+len(widths) {
+				continue
+			}
+			if !reportType1WidthMismatch(obj, cc, missing, enc, glyphWidths, ctx) {
+				return
+			}
+		}
 	}
 
 	for i, w := range widths {
@@ -1869,6 +2105,9 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		if cc < 0 || cc > 255 {
 			continue
 		}
+		if knownUsage && !usedCodes[cc] {
+			continue
+		}
 		glyph := enc[cc]
 		if glyph == "" {
 			continue
@@ -1877,12 +2116,87 @@ func validateType1Metrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar int, width
 		if !found {
 			continue
 		}
-		if pdf.AbsInt(pdfWidth-csWidth) > 1 {
-			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %d",
-				cc, glyph, pdfWidth, csWidth))
+		if math.Abs(float64(pdfWidth)-csWidth) > 1 {
+			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %s",
+				cc, glyph, pdfWidth, formatWidth(csWidth)))
 			return
 		}
 	}
+}
+
+// reportType1WidthMismatch compares one code's width against the program and
+// reports the first disagreement. It returns false once it has reported, so
+// the caller stops at one finding per font.
+func reportType1WidthMismatch(obj pdf.PDFValue, cc, pdfWidth int, enc [256]string, glyphWidths map[string]float64, ctx *ValidationContext) bool {
+	if cc < 0 || cc > 255 || pdfWidth == 0 {
+		return true
+	}
+	glyph := enc[cc]
+	if glyph == "" {
+		return true
+	}
+	csWidth, found := glyphWidths[glyph]
+	if !found || math.Abs(float64(pdfWidth)-csWidth) <= 1 {
+		return true
+	}
+	ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, obj, fmt.Sprintf("character code %d (/%s): PDF width %d ≠ Type1 advance width %s",
+		cc, glyph, pdfWidth, formatWidth(csWidth)))
+	return false
+}
+
+// Type1GlyphNameTable resolves the code->glyph-name table for a Type1
+// (FontFile) program, composing the font dict's /Encoding over the program's
+// built-in encoding per ISO 32000-1 9.6.6.1/9.6.6.2: a name selects that base,
+// a dictionary takes its /BaseEncoding when modelled and the built-in
+// otherwise, with /Differences overlaid. ok is false when no base resolved.
+//
+// The dictionary arm is what this path used to lack: taking only a PDFName
+// meant an /Encoding dictionary read as absent, so /Differences were ignored
+// and /Widths were compared against the wrong glyph.
+func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [256]string, ok bool) {
+	builtin := func() ([256]string, bool) { return Type1EncodingTable(fontData, "") }
+
+	switch enc := encoding.(type) {
+	case pdf.PDFName:
+		return Type1EncodingTable(fontData, enc.Value)
+	case pdf.PDFDict:
+		base, _ := enc.Entries.Get("BaseEncoding").(pdf.PDFName)
+		if base.Value != "" {
+			glyphNames, ok = namedEncodingTable(base.Value)
+		} else {
+			glyphNames, ok = builtin()
+		}
+		// Differences may name every code the font actually shows, so they
+		// are applied even when no base could be resolved; ok stays false in
+		// that case only if the base was required and missing.
+		applyDifferences(&glyphNames, enc)
+		if !ok {
+			_, hasDiffs := enc.Entries.Get("Differences").(pdf.PDFArray)
+			ok = hasDiffs
+		}
+		return glyphNames, ok
+	default:
+		return builtin()
+	}
+}
+
+// Type1WidthTable is the Type1 (FontFile) counterpart to
+// CFFAdvanceWidthsStats: it resolves the code->glyph-name table the 6.3.6 width
+// comparison needs and reports why it gave up when it did. widths is the
+// program's glyph-name -> advance width map (Type1GlyphWidths); encoding is the
+// font dict's raw /Encoding entry.
+func Type1WidthTable(fontData []byte, encoding pdf.PDFValue, widths map[string]float64) ([256]string, WidthStats) {
+	enc, ok := Type1GlyphNameTable(fontData, encoding)
+	if !ok {
+		return enc, WidthStats{Skip: WidthSkipEncoding}
+	}
+	if _, ok := type1WidthScale(fontData); !ok {
+		return enc, WidthStats{Skip: WidthSkipFontMatrix}
+	}
+	if len(widths) == 0 {
+		return enc, WidthStats{Skip: WidthSkipNoWidths}
+	}
+	return enc, WidthStats{GlyphsTotal: len(widths)}
 }
 
 // Type1EncodingTable resolves the code->glyph-name table for a Type1 program,
@@ -1899,6 +2213,11 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 		}
 		if m := type1EncodingRe.FindSubmatch(textPart); m != nil {
 			encName = string(m[1])
+		} else if enc, ok := type1BuiltinEncodingArray(textPart); ok {
+			// A program with a custom encoding builds the array itself rather
+			// than naming a standard one. Subset TeX fonts nearly all do, which
+			// is most of what used to reach WidthSkipEncoding.
+			return enc, true
 		}
 	}
 	switch encName {
@@ -1926,9 +2245,17 @@ func Type1EexecBinStart(fontData []byte) int {
 	return binStart
 }
 
+// formatWidth renders an advance width for a message: a program's width need
+// not be a whole number, and printing it rounded would make a real mismatch
+// look like an off-by-one.
+func formatWidth(w float64) string {
+	return strconv.FormatFloat(w, 'g', -1, 64)
+}
+
 // Type1GlyphWidths locates the eexec-encrypted section of a Type1 font
-// program and returns its glyph name -> advance width map (in 1/1000 em).
-func Type1GlyphWidths(fontData []byte) map[string]int {
+// program and returns its glyph name -> advance width map (in 1/1000 em; a
+// declared FontMatrix is folded in, and an unreadable one yields no widths).
+func Type1GlyphWidths(fontData []byte) map[string]float64 {
 	return extractType1Program(fontData, Type1EexecBinStart(fontData)).widths
 }
 
@@ -1940,7 +2267,7 @@ func validateCMapWMode(obj pdf.PDFValue, cmap pdf.PDFDict, ctx *ValidationContex
 	if !cmap.HasStream {
 		return
 	}
-	dictWMode, ok := cmap.Entries["WMode"].(pdf.PDFInteger)
+	dictWMode, ok := cmap.Entries.Get("WMode").(pdf.PDFInteger)
 	if !ok {
 		return
 	}

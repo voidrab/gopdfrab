@@ -29,10 +29,6 @@ func FilterNames(filter PDFValue) []string {
 
 var zlibReaderPool = sync.Pool{}
 
-// maxInflateOutput caps decoded output so a flate bomb cannot OOM. Var, not
-// const, only so tests can lower it.
-var maxInflateOutput int64 = 256 << 20
-
 // inflateBufPool holds *bytes.Buffer scratch space for InflateZlib, reused
 // across calls so its backing array grows to a working size once instead of
 // reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
@@ -64,8 +60,20 @@ func InflateZlib(data []byte) ([]byte, error) {
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
-	_, err := buf.ReadFrom(io.LimitReader(zr, maxInflateOutput))
+	// Read one byte past the cap so a stream that would exceed it is detected
+	// as too-large rather than silently truncated to a prefix that every
+	// downstream check then runs against as if it were the whole stream.
+	capBytes := effectiveDecodedCap()
+	_, err := buf.ReadFrom(io.LimitReader(zr, capBytes+1))
 	zlibReaderPool.Put(zr)
+
+	// Over the size cap is a hard error (matching DecodeLZW/DecodeRunLength),
+	// kept distinct from the leniency below: it flows through the decode
+	// chokepoint as a reported StreamUndecodable instead of vanishing.
+	if int64(buf.Len()) > capBytes {
+		inflateBufPool.Put(buf)
+		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, capBytes)
+	}
 
 	// A truncated or checksum-broken zlib stream (common in malformed PDFs)
 	// still yields a usable prefix; return what inflated rather than
@@ -82,38 +90,76 @@ func InflateZlib(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// decodeStream returns the decoded bytes of a stream dictionary, applying
-// FlateDecode, ASCIIHexDecode, and ASCII85Decode filters as needed.
-func DecodeStream(dict PDFDict) ([]byte, error) {
+// DecodeStreamFull runs dict's complete filter chain: each filter in order,
+// with its positionally-matched DecodeParms, and each predictor undone
+// immediately after the filter that produced the predicted bytes -- rather
+// than once at the end, which was only ever correct for single-filter
+// streams. A terminal image codec stops the chain and is reported through
+// DecodedStream.Image, not as an error.
+func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
 	if !dict.HasStream {
-		return nil, fmt.Errorf("object is not a stream")
+		return DecodedStream{}, ErrNotAStream
 	}
+	names := FilterNames(dict.Entries.Get("Filter"))
 	data := dict.RawStream
-	for _, f := range FilterNames(dict.Entries["Filter"]) {
-		switch f {
-		case "FlateDecode", "Fl":
-			out, err := InflateZlib(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCIIHexDecode", "AHx":
-			out, err := DecodeASCIIHex(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		case "ASCII85Decode", "A85":
-			out, err := DecodeASCII85(data)
-			if err != nil {
-				return nil, err
-			}
-			data = out
-		default:
-			return nil, fmt.Errorf("unsupported filter %q", f)
+	for i, name := range names {
+		info, ok := LookupFilter(name)
+		if !ok {
+			return DecodedStream{}, fmt.Errorf("%w %q", ErrUnsupportedFilter, name)
 		}
+		parms := FilterDecodeParms(dict, i, len(names))
+		if info.Image {
+			// An image codec consumes the stream: nothing may follow it.
+			if i != len(names)-1 {
+				return DecodedStream{}, fmt.Errorf("%w: %s must be the last filter", ErrUnsupportedFilter, info.Name)
+			}
+			return DecodedStream{Data: data, Image: &info, ImageParms: parms}, nil
+		}
+		out, err := applyFilter(info, data, parms)
+		if err != nil {
+			return DecodedStream{}, err
+		}
+		if info.Predictor {
+			if out, err = UndoStreamPredictor(out, parms, opts); err != nil {
+				return DecodedStream{}, err
+			}
+		}
+		data = out
 	}
-	return data, nil
+	return DecodedStream{Data: data}, nil
+}
+
+// applyFilter decodes one non-image filter.
+func applyFilter(info FilterInfo, data []byte, parms PDFDict) ([]byte, error) {
+	switch info.Kind {
+	case FilterFlate:
+		return InflateZlib(data)
+	case FilterLZW:
+		return DecodeLZWParams(data, DictInt(parms, "EarlyChange", 1))
+	case FilterASCIIHex:
+		return DecodeASCIIHex(data)
+	case FilterASCII85:
+		return DecodeASCII85(data)
+	case FilterRunLength:
+		return DecodeRunLength(data)
+	default:
+		return nil, fmt.Errorf("%w %q", ErrUnsupportedFilter, info.Name)
+	}
+}
+
+// DecodeStream returns a stream dictionary's fully decoded bytes. A chain
+// ending in an image codec yields ErrEncodedImage: the stream is well-formed
+// but has no byte representation, which callers can tell apart from damage
+// with errors.Is.
+func DecodeStream(dict PDFDict) ([]byte, error) {
+	s, err := DecodeStreamFull(dict, DecodeOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if s.IsImage() {
+		return nil, fmt.Errorf("%w: %s", ErrEncodedImage, s.Image.Name)
+	}
+	return s.Data, nil
 }
 
 // StreamKey identifies a stream's raw (undecoded) bytes by content identity:
@@ -121,6 +167,13 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 // stream always assigns a fresh RawStream slice (SetStreamFlate et al.), so
 // keying a decode cache on StreamKey makes invalidation automatic -- an
 // unchanged stream keeps hitting, a rewritten one always misses.
+//
+// The invariant a cache consumer must respect: a key is meaningful only while
+// something pins the bytes it was taken from. A key outliving its slice can be
+// matched by an unrelated allocation at the same address. In practice the
+// resolved graph is that pin, which is why the caches live on the Reader that
+// owns the graph -- and why AdoptStreamCaches (which shares a cache between two
+// Readers) is sound only because both are seeded with the same graph.
 type StreamKey struct {
 	ptr uintptr
 	len int
@@ -263,10 +316,17 @@ type InlineImageRaw struct {
 // with its operands. It reuses the object Lexer for tokenising; bare operators
 // arrive as keyword tokens.
 type ContentScanner struct {
-	lex   *Lexer
-	stack []PDFValue
-	data  []byte
+	lex      *Lexer
+	stack    []PDFValue
+	data     []byte
+	complete bool
 }
+
+// Complete reports whether the last Scan read the stream to its end. A scan
+// that stopped early has not seen all of the content, so a caller rewriting
+// the stream must keep the original bytes rather than write back the part it
+// managed to read.
+func (cs *ContentScanner) Complete() bool { return cs.complete }
 
 func NewContentScanner(data []byte) *ContentScanner {
 	return &ContentScanner{lex: NewLexerBytes(data, 0), data: data}
@@ -295,7 +355,7 @@ func TokenizeContent(data []byte) []ScannedOp {
 
 // ReplayOps invokes fn for each entry in ops in order, the same callback
 // shape as ContentScanner.Scan, so a cached token list (see
-// Reader.ScanStreamCached) can stand in for re-lexing an unchanged stream.
+// Reader.ScanStreamFunc) can stand in for re-lexing an unchanged stream.
 func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 	for _, o := range ops {
 		fn(o.Op, o.Operands)
@@ -303,13 +363,27 @@ func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 }
 
 // scan iterates the content stream, invoking fn for each operator with the
-// operands collected since the previous operator.
+// operands collected since the previous operator. It stops at the first thing
+// it cannot read, which Complete reports.
 func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 	defer cs.lex.Release()
+	cs.complete = false
 	for {
 		tok := cs.lex.NextToken()
 		switch tok.Type {
-		case TokenEOF, TokenError:
+		case TokenEOF:
+			cs.complete = true
+			return
+		case TokenError:
+			// ' and " show text (ISO 32000-1 table 107) but are not made of
+			// letters, which is all the lexer reads a keyword as, so they
+			// arrive here. Without this a stream stopped at its first one, and
+			// everything after it went unread.
+			if tok.Value == "'" || tok.Value == "\"" {
+				fn(tok.Value, cs.stack)
+				cs.stack = cs.stack[:0]
+				continue
+			}
 			return
 		case TokenInteger:
 			cs.stack = append(cs.stack, PDFInteger(tok.IntValue()))

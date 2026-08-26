@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -102,7 +103,8 @@ var xmpBuiltinTypes = map[string]bool{
 	"RenditionClass": true, "Thumbnail": true, "XPath": true, "Locale": true,
 }
 
-var xmpNSBindRe = regexp.MustCompile(`xmlns:(\w+)\s*=\s*"([^"]*)"`)
+// Groups: 1 = prefix, then the URI in whichever quote character it uses.
+var xmpNSBindRe = regexp.MustCompile(`xmlns:(\w+)` + pdf.XMLAttrValue)
 
 // Intermediate structures for parsed extension schema content.
 
@@ -135,7 +137,7 @@ func checkExtensionSchemas(xmp string) []pdf.PDFError {
 	bindPrefixToURI := map[string]string{}
 	bindURIToPrefixes := map[string][]string{}
 	for _, m := range xmpNSBindRe.FindAllStringSubmatch(xmp, -1) {
-		prefix, uri := m[1], m[2]
+		prefix, uri := m[1], m[2]+m[3] // exactly one quote alternative matches
 		if _, exists := bindPrefixToURI[prefix]; !exists {
 			bindPrefixToURI[prefix] = uri
 		}
@@ -261,8 +263,163 @@ func validateExtSchemas(data []byte) []pdf.PDFError {
 		docNS[s.namespaceURI] = true
 		errs = append(errs, validateExtSchema(s, string(data))...)
 	}
+	errs = append(errs, checkExtPropertyValueTypes(data, schemas)...)
 
 	return errs
+}
+
+// extBuiltinKinds maps each value type XMP itself defines to the shape a
+// property of that type must have. Types absent here are custom ones, whose
+// usage validateExtSchema already covers.
+var extBuiltinKinds = map[string]xmpContainerKind{
+	"Boolean": xmpKindBoolean,
+	"Integer": xmpKindInteger,
+	"Bag":     xmpKindBag,
+	"Seq":     xmpKindSeq,
+	"Alt":     xmpKindAlt,
+	"LangAlt": xmpKindAlt,
+
+	"ResourceRef":   xmpKindStruct,
+	"ResourceEvent": xmpKindStruct,
+	"Thumbnail":     xmpKindStruct,
+
+	"Date": xmpKindScalar, "Real": xmpKindScalar, "Text": xmpKindScalar,
+	"URI": xmpKindScalar, "URL": xmpKindScalar, "ProperName": xmpKindScalar,
+	"MIMEType": xmpKindScalar, "Rational": xmpKindScalar,
+	"RenditionClass": xmpKindScalar, "XPath": xmpKindScalar,
+	"Locale": xmpKindScalar,
+}
+
+// extDeclaredType reduces a pdfaProperty:valueType to the type name to compare
+// against, so a qualified declaration such as "Bag Text" reads as "Bag".
+func extDeclaredType(valueType string) string {
+	if i := strings.IndexAny(valueType, " \t"); i > 0 {
+		return valueType[:i]
+	}
+	return valueType
+}
+
+// checkExtPropertyValueTypes reports properties whose actual value does not
+// match the type their extension schema declares for them (6.7.9). It covers
+// only the extension-defined half: properties from the schemas XMP itself
+// predefines are checked against XMP 2004 under 6.7.2 instead.
+func checkExtPropertyValueTypes(data []byte, schemas []extSchema) []pdf.PDFError {
+	declared := map[string]map[string]string{}
+	for _, s := range schemas {
+		if s.namespaceURI == "" {
+			continue
+		}
+		for _, p := range s.properties {
+			if _, known := extBuiltinKinds[extDeclaredType(p.valueType)]; p.name == "" || !known {
+				continue
+			}
+			if declared[s.namespaceURI] == nil {
+				declared[s.namespaceURI] = map[string]string{}
+			}
+			declared[s.namespaceURI][p.name] = extDeclaredType(p.valueType)
+		}
+	}
+	if len(declared) == 0 {
+		return nil
+	}
+
+	if i := bytes.IndexByte(data, '<'); i > 0 {
+		data = data[i:]
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec.Strict = false
+
+	var errs []pdf.PDFError
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if se.Name.Space == nsRDF && se.Name.Local == "Description" {
+			// Attribute-style properties are always plain scalars.
+			for _, a := range se.Attr {
+				if vt, ok := declared[a.Name.Space][a.Name.Local]; ok {
+					errs = append(errs, extValueTypeErrs(a.Name.Local, vt, xmpKindScalar, a.Value, nil)...)
+				}
+			}
+			continue
+		}
+		vt, ok := declared[se.Name.Space][se.Name.Local]
+		if !ok {
+			continue
+		}
+		kind, text, items := xmpConsumeProperty(dec, se)
+		errs = append(errs, extValueTypeErrs(se.Name.Local, vt, kind, text, items)...)
+	}
+	return errs
+}
+
+// extValueTypeErrs compares one property's actual shape and value against the
+// value type its extension schema declares.
+func extValueTypeErrs(name, valueType string, actual xmpContainerKind, value string, items []xmpPropItem) []pdf.PDFError {
+	fail := func(format string, args ...any) []pdf.PDFError {
+		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.XMPNoCorrespondingType,
+			fmt.Sprintf("property %q is declared as %s but ", name, valueType)+fmt.Sprintf(format, args...))}
+	}
+
+	expected, known := extBuiltinKinds[valueType]
+	if !known {
+		return nil
+	}
+	if !xmpContainerOK(expected, actual) {
+		return fail("is not used that way")
+	}
+	if actual != xmpKindScalar {
+		// A LangAlt is an Alt whose every entry names its language.
+		if valueType == "LangAlt" {
+			for _, item := range items {
+				if !item.hasLang {
+					return fail("an entry has no xml:lang")
+				}
+			}
+		}
+		return nil
+	}
+	if value == "" {
+		return nil
+	}
+	switch valueType {
+	case "Integer":
+		if !xmpIsInteger(value) {
+			return fail("holds %q", value)
+		}
+	case "Real":
+		if !xmpIsReal(value) {
+			return fail("holds %q", value)
+		}
+	case "Boolean":
+		if value != "True" && value != "False" {
+			return fail("holds %q", value)
+		}
+	case "Date":
+		if !xmpIsDate(value) {
+			return fail("holds %q", value)
+		}
+	}
+	return nil
+}
+
+// xmpIsReal reports whether s is a valid XMP real number.
+func xmpIsReal(s string) bool {
+	if _, err := strconv.ParseFloat(s, 64); err != nil {
+		return false
+	}
+	// ParseFloat also accepts forms XMP does not, such as hex and infinities.
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '+' && r != '-' && r != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseSchemasBag parses the content of pdfaExtension:schemas, returning the
@@ -695,7 +852,7 @@ func validateExtSchema(s extSchema, xmp string) []pdf.PDFError {
 
 var (
 	xpacketRe = regexp.MustCompile(`<\?xpacket[^>]*>`)
-	pdfaNSRe  = regexp.MustCompile(`xmlns:pdfaid\s*=\s*"([^"]*)"`)
+	pdfaNSRe  = regexp.MustCompile(`xmlns:pdfaid` + pdf.XMLAttrValue)
 )
 
 func xmpErr(c pdf.Check, msg string) pdf.PDFError {
@@ -712,7 +869,7 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	// 6.7.2: the metadata stream shall not be filtered.
-	if meta.Entries["Filter"] != nil {
+	if meta.Entries.Get("Filter") != nil {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataFiltered, "Metadata stream shall not specify a Filter"))
 	}
 
@@ -737,17 +894,17 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 // checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
 // that lack an xpacket wrapper (6.7.5), resolving violations the converter
 // strips via stripEmbeddedMetadata.
-func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
+func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
 	trailer, ok := graph.(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
-	root, ok := trailer.Entries["Root"].(pdf.PDFDict)
+	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	if meta, ok := root.Entries["Metadata"].(pdf.PDFDict); ok && meta.HasStream {
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.HasStream {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 
@@ -762,19 +919,22 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue) []pdf.PDFError {
 				return
 			}
 			visited[ptr] = true
-			if val.HasStream && val.Entries["Type"] == (pdf.PDFName{Value: "Metadata"}) &&
+			if val.HasStream && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
 				ptr != catalogMetaPtr {
-				data, err := pdf.DecodeStream(val)
-				if err != nil || !xpacketRe.Match(data) {
+				// A stream that will not decode is a structural defect, not a
+				// missing xpacket wrapper; the chokepoint reports it as
+				// StreamUndecodable rather than conflating the two.
+				data, err := ctx.decodeStreamCached(val)
+				if err == nil && !xpacketRe.Match(data) {
 					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
 						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
 				}
 			}
-			for _, child := range val.Entries {
+			for _, child := range val.Entries.All() {
 				walk(child)
 			}
 		case pdf.PDFArray:
-			ptr := pdf.ValuePointer(val)
+			ptr := pdf.ArrayPointer(val)
 			if visited[ptr] {
 				return
 			}
@@ -851,8 +1011,8 @@ func xmpWellFormed(data []byte) bool {
 	}
 }
 
-var xmpCreateDateRe = regexp.MustCompile(`xmp:CreateDate\s*=\s*"([^"]*)"|<xmp:CreateDate>\s*([^<\s]+)\s*</xmp:CreateDate>`)
-var xmpModifyDateRe = regexp.MustCompile(`xmp:ModifyDate\s*=\s*"([^"]*)"|<xmp:ModifyDate>\s*([^<\s]+)\s*</xmp:ModifyDate>`)
+var xmpCreateDateRe = regexp.MustCompile(`xmp:CreateDate` + pdf.XMLAttrValue + `|<xmp:CreateDate>\s*([^<\s]+)\s*</xmp:CreateDate>`)
+var xmpModifyDateRe = regexp.MustCompile(`xmp:ModifyDate` + pdf.XMLAttrValue + `|<xmp:ModifyDate>\s*([^<\s]+)\s*</xmp:ModifyDate>`)
 
 // digitsOf returns only the decimal digits of s.
 func digitsOf(s string) string {
@@ -953,7 +1113,7 @@ func xmpScalarValue(xmp, prop string) (string, bool) {
 // checkInfoXMPSync verifies that document information dictionary entries are
 // reflected in the XMP metadata (6.7.3).
 func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
-	info, err := d.GetMetadata()
+	info, err := d.Metadata()
 	if err != nil {
 		return nil
 	}
@@ -984,7 +1144,17 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			var msg string
 			if len(items) > 1 {
 				msg = "document info Author not synchronized with XMP dc:creator (multiple entries)"
-			} else if len(items) == 1 && strings.TrimSpace(items[0][1]) != author {
+			} else if len(items) == 1 && decodeXMLEntities(items[0][1]) != author {
+				// Compared as written on both sides, entities decoded.
+				//
+				// Two things were wrong here. It compared decoded text against
+				// raw XML markup, so any author name containing an "&" was
+				// reported out of sync -- ordinary in an arXiv author list.
+				// And it trimmed the XMP side only, so a value with leading
+				// whitespace was reported as differing from itself. Trimming
+				// *both* sides is not the fix: veraPDF treats a whitespace-only
+				// difference as a genuine mismatch (its 6-1-5-t01-fail-b
+				// fixture is exactly that), so neither side is trimmed.
 				msg = "document info Author not synchronized with XMP dc:creator"
 			}
 			if msg != "" {
