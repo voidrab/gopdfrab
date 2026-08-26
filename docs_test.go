@@ -343,3 +343,46 @@ func TestREADMEDocumentsCLIFlags(t *testing.T) {
 		}
 	}
 }
+
+// TestREADMEStatesCheckCounts fails when the check and group totals the README
+// quotes drift from the registry. The pre-1.0 roadmap claimed "159 checks
+// across 10 groups", which was never true of any reading: 159 counts the
+// PDF/A-1a group the table leaves out.
+func TestREADMEStatesCheckCounts(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	groups := reflect.ValueOf(Checks).NumField()
+	documented := strings.Count(string(readme), "| `Checks.")
+	all := len(AllChecks())
+
+	for _, want := range []string{
+		strconv.Itoa(all) + " checks over all",
+		strconv.Itoa(all-groupSize(t, "LogicalStructure")) + " over the ten above",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("README.md does not state %q", want)
+		}
+	}
+	if documented != groups-1 {
+		t.Errorf("README table lists %d groups, registry has %d; the table omits "+
+			"LogicalStructure alone", documented, groups)
+	}
+}
+
+// groupSize returns the number of checks in a named registry group.
+func groupSize(t *testing.T, group string) int {
+	t.Helper()
+	g := reflect.ValueOf(Checks).FieldByName(group)
+	if !g.IsValid() {
+		t.Fatalf("no check group %q", group)
+	}
+	n := 0
+	for i := range g.NumField() {
+		if g.Field(i).Type() == reflect.TypeOf(Check{}) {
+			n++
+		}
+	}
+	return n
+}
