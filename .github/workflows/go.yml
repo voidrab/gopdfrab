@@ -157,6 +157,15 @@ jobs:
     # in the nightly job.
     - name: Fuzz smoke
       run: ./scripts/fuzz.sh 20s
+    # Without this the reproducer dies with the runner, and a failure that does
+    # not reproduce locally cannot be diagnosed at all. A distinct name from the
+    # nightly job's: on a schedule event both run, and artifact names collide.
+    - name: Upload crashers
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-crashers-smoke
+        path: '**/testdata/fuzz/**'
 
   nightly-fuzz:
     if: github.event_name == 'schedule'
