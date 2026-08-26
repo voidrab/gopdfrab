@@ -12,10 +12,9 @@ Verify and convert PDF documents with a small, predictable open source library.
 
 PDF/A-1b verification and conversion are implemented and tested against the full
 Isartor and veraPDF conformance suites (see [Performance](#performance) and
-[Fuzzing & Stress Testing](#fuzzing--stress-testing)). The project is **pre-1.0**:
-the API is still being refined and may change until the first tagged release —
-[CHANGELOG.md](CHANGELOG.md) states the versioning and stability policy. To report
-a vulnerability, see [SECURITY.md](SECURITY.md).
+[Fuzzing & Stress Testing](#fuzzing--stress-testing)). The API is **stable as of
+1.0** — [CHANGELOG.md](CHANGELOG.md) states the versioning and stability policy.
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Features
 
@@ -27,9 +26,8 @@ a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
-PDF/A-1b is the current focus and the target for the 1.0 release. The detailed,
-up-to-date roadmap — including what remains before the API is frozen — lives in
-[roadmap.md](roadmap.md). PDF/A-2, -3 and -4 come after 1.0.
+PDF/A-1b is complete: every check in scope is implemented and both conformance
+suites pass. PDF/A-2, -3 and -4 come next.
 
 ## Command-line tool
 

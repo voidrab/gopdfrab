@@ -51,7 +51,5 @@ We will credit reporters who wish to be named once a fix is released.
 
 ## Supported versions
 
-Until the 1.0 release the API is still changing (see the stability note in
-`CHANGELOG.md`). Fixes land on `main` and, when a release is tagged, in the latest
-tagged release. Only the latest release and `main` receive security fixes
-pre-1.0.
+Fixes land on `main` and in the next tagged release. Only the latest release and
+`main` receive security fixes; older releases are not patched.
