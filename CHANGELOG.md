@@ -33,6 +33,15 @@ notice.
 First changelog entry; earlier history lives in the git log.
 
 ### Added
+- Generic ISO 32000 object-model checks, driven by the Arlington model, in both
+  verification and conversion: the `ObjectModel` level, the `PDF` profile,
+  `NewProfile`/`ObjectModelOnly`, and `VerifyObjectModel`/`ConvertObjectModel`
+  with their `Bytes` forms.
+- Four checks that were declared but never reported now do, each with a fixer:
+  `FontFileSubtype`, `FontBaseFont`, `XMPNoCorrespondingType` and
+  `ICCBasedComponentsMismatch`.
+- A WebAssembly build under `wasm/`, registering `gopdfrabVerify` and
+  `gopdfrabConvert` as JavaScript globals.
 - `OpenBytes`/`OpenBytesWithPassword` open a `*Document` from an in-memory PDF,
   so the document helpers (`PageCount`, `Version`, `ClaimedConformance`,
   `Metadata`, `XMPMetadata`) are reachable without a file on disk.
@@ -73,6 +82,11 @@ First changelog entry; earlier history lives in the git log.
 - A real-world corpus of test documents.
 
 ### Changed
+- The declared minimum Go version is 1.24. It was a 1.26.4 patch-level
+  directive, which made that exact patch the floor.
+- The bundled one-component ICC profile is the CC0 sGrey v2 profile. The
+  previous one was byte-identical to Ghostscript's `sgray.icc`, which is GPL,
+  and conversion embeds it in the output. `NOTICE` names every bundled asset.
 - **Breaking:** renamed for Go convention — `A_1B` → `A1B`, `PDFA_1B` →
   `PDFA1B`, `Legacy_1B` → `Legacy1B`, `GetPageCount`/`GetVersion`/`GetMetadata`
   → `PageCount`/`Version`/`Metadata`.
@@ -85,6 +99,29 @@ First changelog entry; earlier history lives in the git log.
 - The concurrency contract of each public type is documented and race-tested.
 
 ### Fixed
+- Advance widths are scaled by a font program's declared `FontMatrix` instead of
+  skipping the 6.3.6 check, and the Type1 width fixer no longer writes
+  glyph-space numbers into `/Widths`.
+- A page's `/Contents` array is scanned as one stream, so a font selected at the
+  end of one part still applies to the text at the start of the next.
+- Type1 programs: the program's own `/lenIV` and `-|` charstring operator are
+  honoured, widths follow `callsubr`, and a built-in `/Encoding` built as an
+  array is read, not just a named one (6.3.6).
+- An advance width is compared as a real number rather than rounded to an
+  integer first, which widened the 6.3.6 tolerance to +-1.5 units.
+- A character code no cmap maps is reported whatever the descriptor's symbolic
+  flag says (6.3.5).
+- An annotation dictionary without `/Type` is checked and repaired; `/Type` is
+  optional there (6.5.3).
+- A forbidden action is taken off the entry that names it, instead of leaving an
+  action dictionary with no `/S` (6.6.1).
+- An `/Info` text string that does not round trip is written back, so `/Info` and
+  the XMP packet built from it describe the same string (6.7.3).
+- A TrueType glyph whose contour endpoints do not increase read past its point
+  arrays, which crashed a rasterizer worker goroutine.
+- A flattened form keeps what it did not paint, instead of covering the page
+  with the unpainted part of its bounding box, and a soft mask too faint to
+  threshold fades into the samples instead of masking the image out.
 - Eight repairs that emptied a page or drew over one: a group form rasterized
   against the wrong resources, in the wrong colour, or at a size nothing could
   decode; a soft mask composited over white rather than turned into a stencil
