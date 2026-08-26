@@ -7,10 +7,6 @@ onward.
 
 ## Versioning and stability
 
-**Pre-1.0 (now): the API is not stable.** Anything may change between releases
-while PDF/A-1b verification and conversion is hardened toward 1.0. Pin a version
-if you depend on current behavior.
-
 **From 1.0, the stability guarantee covers the root package only** —
 `github.com/voidrab/gopdfrab`. Everything under `internal/` is implementation
 detail, is not importable by external code, and may change in any release without
@@ -28,7 +24,7 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
-## [Unreleased]
+## [1.0.0] - 2026-08-26
 
 First changelog entry; earlier history lives in the git log.
 
