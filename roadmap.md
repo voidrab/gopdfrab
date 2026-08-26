@@ -3,10 +3,9 @@
 Goal: the best PDF/A-1b verifier and converter available in Go, good enough that
 the API can be frozen. PDF/A-2/3/4 come after 1.0, not before.
 
-Items 1–36 and 38–43 are done; each is one line under "Done", and the commit
-history has the detail. What stands between here and a tagged 1.0 is item 37,
-which is not a verifier or converter defect. The conformance work is finished —
-what is left is the release itself.
+Items 1–43 are done; each is one line under "Done", and the commit history has
+the detail. What stands between here and a tagged 1.0 is item 44, the release
+itself. The conformance work is finished.
 
 ## Where things stand
 
@@ -39,23 +38,25 @@ what is left is the release itself.
 
 ## Open work
 
-Item 37 is the release.
+Item 44 is the release.
 
-### 37. Cut the release
+### 44. Cut the release
 
-The goal is a frozen API, and nothing declares it frozen yet: `CHANGELOG.md`
-still says "Pre-1.0: the API is not stable", its entries are under
-`[Unreleased]`, and the README's Status section says pre-1.0. That is a
-changelog roll to `[1.0.0]`, a README edit, and a tag.
+Nothing declares the API frozen yet. `CHANGELOG.md` still says "Pre-1.0: the API
+is not stable" and files its entries under `[Unreleased]`, and the README's
+Status section says pre-1.0. So:
 
-It is also a merge. The work lives on `feature/roadmap`, **152 commits ahead of
-`main`**, and everything a reader of the repo sees points at `main`: the codecov
-badge, the pkg.go.dev badge, and the CI workflow, which triggers only on pushes
-and pull requests to `main`. So none of the last 152 commits have been through
-the 3-OS race matrix, the wasm build, the differential job, or the fuzz smoke
-test in CI — they have only been through the local run. Merge first, let CI go
-green on `main`, then tag. The existing tags stop at `v0.7.0`, so `v1.0.0` is
-the first one that makes the stability promise in `CHANGELOG.md` binding.
+1. Roll `[Unreleased]` to `[1.0.0]` in `CHANGELOG.md` and drop the pre-1.0
+   paragraph; the stability policy below it stays as written.
+2. Edit the README's Status section off pre-1.0, and its Roadmap section, which
+   points at this file.
+3. Clear out what is lying around: this file goes — the git log and the
+   changelog carry its content — and `benchmarks/`, `scripts/` and the ignore
+   lists want a look for files that no longer earn their place.
+4. Merge `feature/roadmap` into `main`. CI has been green on the pull request
+   throughout (item 37), and the push event runs the same jobs.
+5. Tag `v1.0.0`. The existing tags stop at `v0.7.0`, so this is the first one
+   that makes the promise in `CHANGELOG.md` binding.
 
 ---
 
@@ -220,6 +221,19 @@ the first one that makes the stability promise in `CHANGELOG.md` binding.
     `surveyFidelity` now pin. Whether an ExtGState soft mask costs any fidelity
     is unmeasured: nothing in 1580 files loses content to it, and the renderer
     still does not apply one.
+
+37. **The changelog matches the branch, and the item's own premise did not.** It
+    recorded 152 commits ahead of `main` and claimed none of them had been
+    through CI, because the workflow triggers only on `main`. It is 178 commits,
+    and the draft pull request from `feature/roadmap` fires the `pull_request`
+    trigger, so the 3-OS race matrix, the wasm build, the differential job and
+    the fuzz smoke test have run green on every push all along. The merge is not
+    a first exposure. What was really behind was `CHANGELOG.md`: its
+    `[Unreleased]` section stopped around item 33, leaving the object-model
+    checks, item 29's four revived checks, the wasm build, the Go floor, the
+    replaced gray profile and every font-program fix from items 31, 36 and 38
+    unrecorded. All of it is in now, user-visible changes only — test, CI and
+    doc-pinning work is not a changelog entry. The release itself is item 44.
 
 38. **The five outputs veraPDF still rejected, at 1580 of 1580.** Four were one
     defect, and it was not in a font check: a page's `/Contents` array is a
