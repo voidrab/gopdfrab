@@ -559,8 +559,8 @@ func flattenedInk(t *testing.T, form pdf.PDFDict) float64 {
 	return inkFraction(decoded)
 }
 
-// TestFlattenFormUsesItsOwnResources is roadmap item 36's blanking cause: a
-// form names what it draws in its own /Resources, so rasterizing it against
+// TestFlattenFormUsesItsOwnResources covers a group-flattening blanking cause:
+// a form names what it draws in its own /Resources, so rasterizing it against
 // the page's instead leaves every image, font and colour inside it
 // unresolvable and replaces the form with a blank picture. The page it stood
 // on then comes out empty, and conformance says nothing about it. Both files
@@ -829,7 +829,7 @@ func TestBakeStraySoftMasksReachesOutsideThePageTree(t *testing.T) {
 	}
 }
 
-// --- zero opacity (roadmap item 35) ---
+// --- zero opacity ---
 
 // alphaStates is the resource dictionary the tests below draw with: /F0 puts
 // the fill opacity at zero, /S0 the stroke opacity, /B0 both, /Half puts the
@@ -1120,7 +1120,7 @@ func TestDropInvisibleAcrossContentParts(t *testing.T) {
 	}
 }
 
-// --- partial opacity (roadmap item 36) ---
+// --- partial opacity ---
 
 // TestFadePartialOpacityColours: a drawing at a partial opacity keeps what it
 // looks like over white paper, in the space the file named its colour in --
@@ -1523,7 +1523,7 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	}
 }
 
-// TestFlattenFormMasksWhatItDidNotPaint is roadmap item 36's last blanking
+// TestFlattenFormMasksWhatItDidNotPaint covers another flattening blanking
 // cause: a flattened form becomes one flat image, and a flat image is opaque
 // everywhere, so the part of the BBox the form never painted covers the page
 // it is drawn on. oapen-26d73842 page 4 is a page-covering group drawn last,
@@ -1594,8 +1594,8 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskFadesAMaskAStencilCannotSay is the last of roadmap item 36's
-// blanking causes. A stencil says "paint this pixel" or "do not", so a mask
+// TestBakeSoftMaskFadesAMaskAStencilCannotSay covers the soft-mask blanking
+// cause. A stencil says "paint this pixel" or "do not", so a mask
 // with nothing in it opaque enough to survive the threshold masks the whole
 // picture out: zenodo-21226384 page 72 is a photograph behind its text at a
 // flat 20%, and thresholding it emptied the page. A mask like that is not a

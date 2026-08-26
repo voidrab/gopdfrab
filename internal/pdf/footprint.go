@@ -4,7 +4,7 @@ import "unsafe"
 
 // Footprint reports what a Reader is holding in the Go heap. It exists to
 // attribute a conversion's memory between the resolved object graph and the
-// derived caches, which is the measurement roadmap item 8 is built on.
+// derived caches.
 //
 // Byte totals are accumulated as entries go in, so reading a Footprint is
 // O(1). Objects and Nodes are counts only: a resolved object's size is not

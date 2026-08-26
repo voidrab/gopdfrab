@@ -301,7 +301,7 @@ func TestOpenBytesWithPassword(t *testing.T) {
 
 // TestResultMarshalsToJSON confirms the public Result/PDFError/Check aliases
 // serialize to a populated, stable JSON shape rather than the empty objects
-// their unexported fields used to produce (roadmap item 17).
+// their unexported fields used to produce.
 func TestResultMarshalsToJSON(t *testing.T) {
 	data, err := os.ReadFile("internal/pdf/testdata/crypt/enc_aesv3.pdf")
 	if err != nil {

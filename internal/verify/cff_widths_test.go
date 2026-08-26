@@ -476,8 +476,8 @@ var widthSkipBudget = map[string]int{
 
 // TestWidthSkipCorpusBudget tallies every width-path skip across both
 // conformance corpora. The bails are individually reasonable, but they were
-// invisible -- the same class of gap as roadmap item 1a, one layer up -- so this
-// measures them instead of leaving them to be guessed at.
+// invisible -- the same class of gap as a swallowed decode error, one layer
+// up -- so this measures them instead of leaving them to be guessed at.
 func TestWidthSkipCorpusBudget(t *testing.T) {
 	got := map[string]int{}
 	files := 0

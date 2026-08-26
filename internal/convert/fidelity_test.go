@@ -311,7 +311,7 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 	return found
 }
 
-// clippedAtScale is the shape roadmap item 34 was written about, taken from a
+// clippedAtScale is the shape coordinate clamping blanked, taken from a
 // real presentation: the page is drawn at 1/500 scale, so a full-page clip
 // needs coordinates in the hundreds of thousands. Clamping those to 32767
 // shrinks the clip to a corner and takes the whole page with it.
@@ -483,7 +483,7 @@ func TestOverpaintedPages(t *testing.T) {
 	}
 }
 
-// drawnAtZeroOpacity is the shape roadmap item 35 was written about, taken
+// drawnAtZeroOpacity is the shape the zero-opacity repair was written for, taken
 // from two real presentations: a black rectangle the size of the page, drawn
 // at zero opacity over the content. It is invisible in the file as written,
 // and making it opaque -- which is how a conversion used to repair the
@@ -503,7 +503,7 @@ func onePageDocWithZeroAlpha(content string) []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// groupFormDoc is the shape roadmap item 36's blanking came from, taken from
+// groupFormDoc is the shape the group-flattening blanking came from, taken from
 // two real presentations: the whole page is one transparency group form, and
 // everything it draws -- here a black image -- is named in the form's own
 // resources rather than the page's.
@@ -596,8 +596,8 @@ func coveringGroupFormDoc() []byte {
 	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 }
 
-// TestConvertKeepsPageUnderAFlattenedGroup is the last of roadmap item 36's
-// blanking causes: a flattened group becomes one flat image, and a flat image
+// TestConvertKeepsPageUnderAFlattenedGroup covers a group-flattening blanking
+// cause: a flattened group becomes one flat image, and a flat image
 // covers everything the page drew before it. What the group did not paint has
 // to keep showing what is underneath.
 func TestConvertKeepsPageUnderAFlattenedGroup(t *testing.T) {

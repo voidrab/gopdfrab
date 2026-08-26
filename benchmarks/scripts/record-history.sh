@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Record one round of the in-process microbenchmarks into the committed
-# performance history (roadmap item 22), and compare it against the previous
-# round.
+# performance history, and compare it against the previous round.
 #
 # Usage: benchmarks/scripts/record-history.sh [count]
 #

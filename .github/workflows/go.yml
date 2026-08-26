@@ -115,7 +115,7 @@ jobs:
       with:
         go-version: '1.26.4'
     # -o /dev/null: without an explicit output the binary name collides with
-    # the ./wasm/ directory and the build fails (roadmap item 28).
+    # the ./wasm/ directory and the build fails.
     - name: Build wasm
       run: GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/
 

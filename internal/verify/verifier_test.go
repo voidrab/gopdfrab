@@ -1876,7 +1876,7 @@ func pageGraphWithContents(contents pdf.PDFDict) pdf.PDFDict {
 	return graph
 }
 
-// TestEncodedContentStreamStillReportsViolations is the roadmap's opening
+// TestEncodedContentStreamStillReportsViolations is the original
 // reproduction: two documents with byte-identical page content and no
 // OutputIntent, differing only in how the content stream is encoded. The
 // RunLength-encoded one used to verify clean, because the decode failed and

@@ -32,7 +32,7 @@ func Seeds() [][]byte {
 	}
 }
 
-// PlainThreeIssue builds the roadmap item-2 repro shape: a structurally valid
+// PlainThreeIssue builds the offset-recovery repro shape: a structurally valid
 // PDF whose PDF/A-1b verification yields three unrelated document-level
 // findings (no trailer /ID, an RGB fill without a matching OutputIntent, no
 // catalog Metadata). The content stream is object 4, so offset-recovery

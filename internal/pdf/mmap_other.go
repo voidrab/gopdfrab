@@ -10,7 +10,7 @@ import "os"
 // -- exercised on any OS via OpenBytesSeek and the seek-parity tests -- but does
 // not get mmap's OS-managed paging, so the larger-than-RAM guarantee is
 // unix-only. Implementing Windows file mapping (CreateFileMapping/MapViewOfFile)
-// would restore it; see roadmap item 9.
+// would restore it.
 func mmapFile(_ *os.File, _ int64) ([]byte, func() error, error) {
 	return nil, func() error { return nil }, nil
 }

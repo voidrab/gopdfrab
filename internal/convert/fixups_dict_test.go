@@ -139,11 +139,10 @@ func TestExtGStateFixer(t *testing.T) {
 	}
 }
 
-// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque is roadmap item
-// 35: the fixer's own repair for a zero opacity is to set it to 1, which on
-// its own would paint invisible content over the page. It has to take the
-// drawing out first, in the same pass, while the opacity still says it is
-// invisible.
+// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque: the fixer's own
+// repair for a zero opacity is to set it to 1, which on its own would paint
+// invisible content over the page. It has to take the drawing out first, in
+// the same pass, while the opacity still says it is invisible.
 func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "ExtGState"},

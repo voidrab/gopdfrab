@@ -14,7 +14,7 @@ import (
 
 // spillThreshold is the in-memory ceiling for a single conversion's output. A
 // larger output spills to a temp file so the whole PDF need not stay resident in
-// the Go heap (roadmap items 8/18). A var, not a const, so tests can lower it to
+// the Go heap. A var, not a const, so tests can lower it to
 // exercise the spill path on small inputs. Ignored where spillSupported is false.
 var spillThreshold = 8 << 20 // 8 MB
 

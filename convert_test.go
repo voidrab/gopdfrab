@@ -1167,9 +1167,9 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // conversion, so when it is set the default is a sample -- evenly spaced through
 // the sorted file list, never by map order, so two runs survey the same files.
 // What a full sweep of the real-world corpus still blanks and still draws
-// over, measured for roadmap item 36 (it was 20 files and 47 pages blanked, 27
-// files and 717 pages drawn over, when the item opened). Both remainders have
-// a mechanism and a file against them; the item carries them.
+// over. It was 20 files and 47 pages blanked, 27 files and 717 pages drawn
+// over before the transparency repairs landed. Both remainders have a
+// mechanism and a file against them.
 const (
 	maxBlankedFiles = 1
 	maxBlankedPages = 1
@@ -1226,11 +1226,11 @@ func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 	// sweep is comparable to the recorded numbers.
 	if len(sample) == len(files) {
 		if len(blanked) > maxBlankedFiles || blankedPages > maxBlankedPages {
-			t.Errorf("blanked %d files / %d pages, over the recorded %d / %d (see roadmap item 36)",
+			t.Errorf("blanked %d files / %d pages, over the recorded budget of %d / %d",
 				len(blanked), blankedPages, maxBlankedFiles, maxBlankedPages)
 		}
 		if len(overpainted) > maxOverpaintedFiles || overpaintedPages > maxOverpaintedPages {
-			t.Errorf("drew over %d files / %d pages, over the recorded %d / %d (see roadmap item 36)",
+			t.Errorf("drew over %d files / %d pages, over the recorded budget of %d / %d",
 				len(overpainted), overpaintedPages, maxOverpaintedFiles, maxOverpaintedPages)
 		}
 	}

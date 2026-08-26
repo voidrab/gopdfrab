@@ -41,7 +41,7 @@ benchmarks/tools/pdfbox/*.jar
 benchmarks/tools/pdfbox/*.class
 benchmarks/results/*
 !benchmarks/results/report.md
-# Per-round benchstat history is committed on purpose (roadmap item 22), so
+# Per-round benchstat history is committed on purpose, so
 # regressions across releases stay visible. Written by record-history.sh.
 !benchmarks/results/history/
 

@@ -144,7 +144,7 @@ func issueSet(res gopdfrab.Result) string {
 //
 // The cross-goroutine equality doubles as a determinism check -- the same
 // comparison, across two read paths rather than two goroutines, is what caught
-// two map-iteration message bugs in roadmap item 9.
+// two map-iteration message bugs in the Windows seek path.
 func TestDocumentPerGoroutineIsSafe(t *testing.T) {
 	fixtures := presentFixtures(t)
 	profile := gopdfrab.PDFA1B // shared deliberately: profiles are immutable

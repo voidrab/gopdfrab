@@ -131,8 +131,8 @@ func TestHeapRetainedBy(t *testing.T) {
 }
 
 // TestConvertMemoryReport converts the large sample and records how much heap
-// the returned result retains versus the output size. It grounds roadmap item 8
-// (measure before deciding how far to take it): today the whole output rides in
+// the returned result retains versus the output size. It measures first, before
+// deciding how far to take the work: today the whole output rides in
 // ConvertResult.Output, so the retained heap tracks the output size. The strict
 // spill guard lives in the lazy-output tests.
 func TestConvertMemoryReport(t *testing.T) {
@@ -169,7 +169,7 @@ var footprintSamples = map[string]string{
 
 // TestConvertFootprintReport attributes a conversion's heap: the peak while it
 // runs, what the resolved graph alone costs, and what the Reader's caches hold
-// when it finishes. This is the roadmap item 8 baseline -- it reports, it does
+// when it finishes. This is the memory baseline -- it reports, it does
 // not gate, because only allocs/op is deterministic enough to assert on.
 func TestConvertFootprintReport(t *testing.T) {
 	for _, name := range slices.Sorted(maps.Keys(footprintSamples)) {

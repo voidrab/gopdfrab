@@ -537,7 +537,7 @@ func TestRasterPixelBudget(t *testing.T) {
 	}
 }
 
-// TestRenderFormRendersOnNothing is roadmap item 36's second blanking cause:
+// TestRenderFormRendersOnNothing covers a second flattening blanking cause:
 // a form is drawn onto what the page already has, so rendering it on paper
 // makes everything it did not paint opaque white. oapen-26d73842 page 4 ends
 // with a page-covering group, and flattened against paper it covered the page.

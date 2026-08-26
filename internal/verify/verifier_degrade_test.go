@@ -30,9 +30,9 @@ func splitGraphResolution(issues []pdf.PDFError) (rest, graphRes []pdf.PDFError)
 	return rest, graphRes
 }
 
-// TestBrokenXrefOffsetOracle is the roadmap item-2 oracle: a file with one
-// deliberately broken xref offset must verify to exactly the same issue set as
-// the intact original, plus one recovery issue. Before per-object degradation,
+// TestBrokenXrefOffsetOracle is the per-object degradation oracle: a file with
+// one deliberately broken xref offset must verify to exactly the same issue set
+// as the intact original, plus one recovery issue. Before per-object degradation,
 // the bad offset suppressed the colour and Metadata findings entirely.
 func TestBrokenXrefOffsetOracle(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
@@ -68,7 +68,7 @@ func TestBrokenXrefOffsetOracle(t *testing.T) {
 	}
 }
 
-// TestBrokenStartxrefOracle is the roadmap item-4 oracle for whole-table
+// TestBrokenStartxrefOracle is the oracle for whole-table
 // damage: a file whose startxref offset is destroyed (so the entire
 // cross-reference table must be rebuilt by scanning for objects) must verify to
 // exactly the same issue set as the intact original, plus one 6.1.4 recovery
