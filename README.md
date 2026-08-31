@@ -587,18 +587,23 @@ Agreement](CLA.md); see below.
 
 ## Contributing
 
-Contributions are welcome! Whether it's a bug report, a failing test file, a new check, or a performance improvement — all of it helps.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the details: how to run the test suites,
+where the test corpora come from, and a walkthrough of adding a check.
+[ARCHITECTURE.md](ARCHITECTURE.md) is a map of the codebase.
 
-- **Bug reports & questions** — open an [issue](https://github.com/voidrab/gopdfrab/issues).
-- **Code changes** — fork the repo, make your change on a feature branch, and open a pull request. Please keep pull requests focused: one concern per PR.
-- **New checks** — if you have a PDF document that contains properties which aren't covered yet, open an issue first so we can agree on the approach before you write the code.
-- **Test files** — if you have PDFs that expose edge cases or regressions, attach them to an issue.
+The short version:
 
-Bug reports, questions and sample PDFs need nothing from you but the file.
+- **A PDF that fails and should not, or passes and should not.** This is the
+  most useful thing you can send. Attach the file to an
+  [issue](https://github.com/voidrab/gopdfrab/issues/new/choose) — no stack
+  trace, no patch, no Go needed. It becomes a regression test.
+- **Code changes** — one concern per pull request, with a test.
+- **New checks** — mostly a data change in the check registry. See the
+  walkthrough in CONTRIBUTING.md.
 
-Code and documentation are different. gopdfrab is dual-licensed — AGPL 3.0 and
-a commercial licence — and that only works if one person can release the whole
-codebase under both, so pull requests need a one-time signature on the
-[Contributor Licence Agreement](CLA.md). You keep your copyright; you are
-granting permission, not handing anything over. A bot will ask you to confirm
-it in a comment the first time you open a pull request.
+Code and documentation are dual-licensed, AGPL 3.0 and a commercial licence,
+and that only works if one party can release the whole codebase under both, so
+pull requests need a one-time signature on the [Contributor Licence
+Agreement](CLA.md). You keep your copyright; you are granting permission, not
+handing anything over. A bot will ask you to confirm it in a comment the first
+time you open a pull request.
