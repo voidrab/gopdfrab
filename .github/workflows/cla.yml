@@ -25,10 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check the CLA signature
-      # The sign sentence must match the action's own default byte for byte:
-      # this comparison is case-sensitive, the action's is not. Do not set
-      # custom-pr-sign-comment -- it switches the action from a forgiving
-      # regex to exact equality, which only makes signing harder to get right.
       if: >
         (github.event.comment.body == 'recheck'
         || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA')
@@ -41,15 +37,15 @@ jobs:
         path-to-document: https://github.com/voidrab/gopdfrab/blob/main/CLA.md
         branch: cla-signatures
         allowlist: SudoStar,dependabot[bot],renovate[bot]
+        # $you becomes "you" or "you all" depending on how many people
+        # authored commits on the pull request.
         custom-notsigned-prcomment: >
           Thanks for the pull request. gopdfrab is dual-licensed under the AGPL
           3.0 and a commercial licence, so before this can be merged we need a
-          one-time signature on the
+          one-time signature from $you on the
           [Contributor Licence Agreement](https://github.com/voidrab/gopdfrab/blob/main/CLA.md).
-          You keep your copyright; read it, it is short. To sign, post a new
-          comment on this pull request with exactly the sentence below.
+          You keep your copyright; read it, it is short. To sign, leave a new
+          comment on this pull request containing the sentence below. Editing
+          an existing comment will not work.
         custom-allsigned-prcomment: 'CLA signed, thank you. You will not be asked again.'
-        # Merged pull requests stay open for follow-up discussion. The upstream
-        # default locks them so a signature comment cannot be deleted after the
-        # fact; the branch history is the record we rely on instead.
         lock-pullrequest-aftermerge: false
