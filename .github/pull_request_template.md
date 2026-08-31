@@ -8,6 +8,7 @@
 
 ---
 
-- [ ] I have read [CLA.md](../blob/main/CLA.md) and I agree to it. (A bot will
-      ask you to confirm this in a comment on your first pull request. You keep
-      your copyright.)
+- [ ] I have read the
+      [Contributor Licence Agreement](https://github.com/voidrab/gopdfrab/blob/main/CLA.md)
+      and I agree to it. A bot will ask you to confirm this in a comment on
+      your first pull request. You keep your copyright.
