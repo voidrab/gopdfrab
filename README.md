@@ -601,4 +601,4 @@ a commercial licence — and that only works if one person can release the whole
 codebase under both, so pull requests need a one-time signature on the
 [Contributor Licence Agreement](CLA.md). You keep your copyright; you are
 granting permission, not handing anything over. A bot will ask you to confirm
-it in a comment the first time you open a pull request, and never again.
+it in a comment the first time you open a pull request.

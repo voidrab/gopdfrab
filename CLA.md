@@ -42,14 +42,12 @@ publicly perform, sublicense and distribute your contribution and works derived
 from it.
 
 "Transferable" means the maintainer can pass this licence on — for example if
-gopdfrab moves to a company he sets up, or the project is sold. Without that,
-every contributor would have to be found and asked again. It does not give
+gopdfrab moves to a company he sets up, or the project is sold. It does not give
 anyone rights beyond the ones you granted here.
 
 This includes the right to release your contribution under the AGPL 3.0, under
 later versions of the AGPL, and under proprietary commercial licence terms that
-do not require source disclosure. That last part is the reason this document
-exists, and it is the part you should be sure about before you sign.
+do not require source disclosure.
 
 ## Patent licence
 
