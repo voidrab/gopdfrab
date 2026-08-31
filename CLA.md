@@ -18,6 +18,16 @@ project.
 The counterparty is **Thomas Karner** ("the maintainer"), the copyright holder
 of gopdfrab.
 
+## What counts as a contribution
+
+Anything you send for inclusion in the project: a pull request, a patch, a
+documentation change, a test file you wrote yourself.
+
+If you want to show the maintainer something without giving him these rights —
+a snippet in an issue to illustrate a bug, code from elsewhere you think is
+worth a look — write **"Not a Contribution"** next to it. Anything marked that
+way is outside this agreement and will not be used in the project.
+
 ## You keep your copyright
 
 Nothing here transfers ownership. Your contribution stays yours. You can reuse
@@ -27,8 +37,14 @@ granting is permission for the maintainer to use it too.
 ## Copyright licence
 
 You grant the maintainer a perpetual, worldwide, non-exclusive, irrevocable,
-royalty-free licence to reproduce, modify, publicly display, publicly perform,
-sublicense and distribute your contribution and works derived from it.
+royalty-free, transferable licence to reproduce, modify, publicly display,
+publicly perform, sublicense and distribute your contribution and works derived
+from it.
+
+"Transferable" means the maintainer can pass this licence on — for example if
+gopdfrab moves to a company he sets up, or the project is sold. Without that,
+every contributor would have to be found and asked again. It does not give
+anyone rights beyond the ones you granted here.
 
 This includes the right to release your contribution under the AGPL 3.0, under
 later versions of the AGPL, and under proprietary commercial licence terms that
@@ -38,10 +54,10 @@ exists, and it is the part you should be sure about before you sign.
 ## Patent licence
 
 You grant the maintainer and everyone who receives the software a perpetual,
-worldwide, non-exclusive, irrevocable, royalty-free patent licence to make,
-use, sell, offer to sell, import and otherwise transfer your contribution. This
-covers only those patent claims you own or control that are necessarily
-infringed by your contribution alone, or by the combination of your
+worldwide, non-exclusive, irrevocable, royalty-free, transferable patent
+licence to make, use, sell, offer to sell, import and otherwise transfer your
+contribution. This covers only those patent claims you own or control that are
+necessarily infringed by your contribution alone, or by the combination of your
 contribution with gopdfrab.
 
 If you start patent litigation against anyone, claiming that gopdfrab or a
@@ -52,10 +68,21 @@ this agreement end on the day you file.
 
 - The contribution is your original work, and you have the right to grant the
   licences above.
-- If your employer has rights in work you produce, you have their permission to
-  contribute, or they have waived those rights for this contribution.
+- Nobody else has a claim on it. If your employer does, read the next section
+  before you sign.
 - You are not knowingly including anyone else's copyrighted material without
   saying so.
+
+## If you are contributing for a company
+
+If the work is being done on company time, or your employment contract gives
+your employer rights in what you write, then the company is the one that has to
+agree to this, not you personally. Sign on its behalf only if you are actually
+allowed to — otherwise ask someone who is, and have them sign instead.
+
+Where a company signs, "you" in this document means that company together with
+any business that controls it, that it controls, or that is under the same
+control. One signature covers everyone who contributes on its behalf.
 
 ## What you do not promise
 
@@ -86,3 +113,12 @@ branch of this repository.
 The maintainer may publish a revised version of this agreement. A new version
 applies only to contributions submitted after it is published; it does not
 alter what you agreed to for work already merged.
+
+## Governing law
+
+This agreement is governed by Austrian law, excluding its conflict-of-laws
+rules and the UN Convention on Contracts for the International Sale of Goods.
+Any dispute goes to the competent courts of Austria.
+
+If a court finds part of this agreement unenforceable, only that part falls
+away; the rest stays in force.
