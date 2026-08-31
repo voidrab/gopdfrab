@@ -1,0 +1,46 @@
+name: A PDF fails and should not
+description: gopdfrab reports issues, but the document really is valid PDF/A.
+title: "False positive: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Attach the PDF. That is the whole report — no stack trace, no minimal
+        reproducer, no Go needed. A file that gopdfrab wrongly rejects is the
+        most valuable thing you can send us, and it becomes a regression test
+        once the bug is fixed.
+
+        If the file is confidential, say so below and we will work out what is
+        possible. Sometimes a single page is enough.
+  - type: textarea
+    id: file
+    attributes:
+      label: The PDF
+      description: >
+        Drag the file into this box to attach it. If you cannot attach it, put a
+        link here, or say why not.
+      placeholder: Drop the PDF here, or paste a link.
+    validations:
+      required: true
+  - type: textarea
+    id: reported
+    attributes:
+      label: What gopdfrab reported
+      description: >
+        Paste the output of `gopdfrab verify yourfile.pdf`, or the issues your
+        code got back. Rough is fine.
+      render: text
+  - type: input
+    id: evidence
+    attributes:
+      label: Why you believe the file is valid
+      description: >
+        Anything counts: another validator passes it, the authoring tool claims
+        PDF/A, an archive accepted it. "Not sure, it just looks fine" is also an
+        acceptable answer.
+  - type: input
+    id: version
+    attributes:
+      label: gopdfrab version
+      description: Output of `gopdfrab version`, or the module version you import.

@@ -1,0 +1,40 @@
+name: A PDF passes and should not
+description: gopdfrab calls the document conformant, but it is not.
+title: "False negative: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A verifier that passes a bad file is worse than one that fails a good
+        one, so this report gets priority. Attach the PDF — nothing else is
+        required.
+  - type: textarea
+    id: file
+    attributes:
+      label: The PDF
+      description: >
+        Drag the file into this box to attach it. If you cannot attach it, put a
+        link here, or say why not.
+      placeholder: Drop the PDF here, or paste a link.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should have failed on
+      description: >
+        A clause number from ISO 19005-1 if you have one, or just a description
+        of what is wrong with the file.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How you know
+      description: >
+        Another validator's verdict is a perfectly good answer — paste it here.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: gopdfrab version
+      description: Output of `gopdfrab version`, or the module version you import.

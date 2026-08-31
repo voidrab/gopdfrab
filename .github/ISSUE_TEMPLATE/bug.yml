@@ -1,0 +1,35 @@
+name: Bug report
+description: A crash, wrong output, or anything else that misbehaves.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a file gopdfrab verifies wrongly, use one of the two PDF templates
+        instead — they ask the right questions. This one is for everything else:
+        crashes, hangs, broken conversion output, CLI and API problems.
+
+        Suspected security issues go through
+        [SECURITY.md](https://github.com/voidrab/gopdfrab/blob/main/SECURITY.md),
+        not a public issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        The command or code you ran. If a PDF is involved, attach it — that is
+        usually the whole reproducer.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: gopdfrab version, Go version and OS
+      placeholder: "gopdfrab 1.0.0, go1.24.0, linux/amd64"

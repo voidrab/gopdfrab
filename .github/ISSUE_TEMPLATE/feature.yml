@@ -1,0 +1,24 @@
+name: Feature request
+description: Something gopdfrab should be able to do and cannot.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The problem, not the solution. What are you stuck on?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would solve it
+      description: If you have a shape in mind, describe it. If not, leave this empty.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        Related standards, how other tools handle it, sample files — whatever
+        helps.
