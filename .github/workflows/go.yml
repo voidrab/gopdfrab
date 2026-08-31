@@ -31,8 +31,6 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    # Coverage is gathered once, from the Linux job. Every OS still runs the
-    # race build below, which is where an OS-specific data race would surface.
     - name: Test (coverage, Linux only)
       if: matrix.os == 'ubuntu-latest'
       run: |
@@ -56,8 +54,6 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
 
-  # The floor declared in go.mod. The jobs above run the newest Go; this one
-  # fails when new code needs something older toolchains do not have.
   floor:
     runs-on: ubuntu-latest
     steps:
@@ -81,19 +77,11 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.26.4'
-    # .golangci.yml selects govet, staticcheck (SA* only), ineffassign and
-    # unused. go vet already runs via go test; the other three only run here.
-    # The version is pinned because a newer linter can report new issues on
-    # unchanged code.
     - name: Lint
       uses: golangci/golangci-lint-action@v8
       with:
         version: v2.12.2
 
-    # benchmarks/ is a separate module with a replace directive against the
-    # root, so a change to our own API can break it without failing any other
-    # job. go vet compiles the test files too, so the micro benchmarks are
-    # covered without running one.
     - name: Build and vet benchmarks
       working-directory: benchmarks
       run: |
@@ -114,8 +102,6 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.26.4'
-    # -o /dev/null: without an explicit output the binary name collides with
-    # the ./wasm/ directory and the build fails.
     - name: Build wasm
       run: GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/
 
@@ -135,11 +121,7 @@ jobs:
     - name: Install veraPDF
       run: ./scripts/install-verapdf.sh
     # Cross-checks gopdfrab's verdict against the veraPDF binary over both
-    # committed conformance corpora (TestDifferentialVeraPDFCorpora). Not run
-    # under -short, so this invokes them directly rather than via the -short
-    # build. TestConvertNoResidualIssues runs alongside them but skips here:
-    # its regression documents are local-only (gitignored, not redistributable),
-    # so it is a developer-machine check that CI cannot reproduce.
+    # committed conformance corpora (TestDifferentialVeraPDFCorpora)
     - name: Differential cross-check
       run: go test -run 'TestDifferentialVeraPDFCorpora|TestConvertNoResidualIssues' -v .
 
@@ -151,15 +133,8 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.26.4'
-    # A short smoke-fuzz of every target on each push: replay the committed
-    # seed corpus and explore briefly. A crash fails the job with a reproducer
-    # written under the owning package's testdata/fuzz. Deeper campaigns run
-    # in the nightly job.
     - name: Fuzz smoke
       run: ./scripts/fuzz.sh 20s
-    # Without this the reproducer dies with the runner, and a failure that does
-    # not reproduce locally cannot be diagnosed at all. A distinct name from the
-    # nightly job's: on a schedule event both run, and artifact names collide.
     - name: Upload crashers
       if: failure()
       uses: actions/upload-artifact@v4
