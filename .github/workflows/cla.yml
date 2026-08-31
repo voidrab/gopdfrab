@@ -37,8 +37,6 @@ jobs:
         path-to-document: https://github.com/voidrab/gopdfrab/blob/main/CLA.md
         branch: cla-signatures
         allowlist: SudoStar,dependabot[bot],renovate[bot]
-        # $you becomes "you" or "you all" depending on how many people
-        # authored commits on the pull request.
         custom-notsigned-prcomment: >
           Thanks for the pull request. gopdfrab is dual-licensed under the AGPL
           3.0 and a commercial licence, so before this can be merged we need a
