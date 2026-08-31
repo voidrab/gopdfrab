@@ -462,6 +462,11 @@ res, err := doc.Verify(p)
 | `Checks.Form` | 6.9 interactive forms |
 | `Checks.ObjectModel` | Generic ISO 32000 object-model conformance, independent of PDF/A — see below |
 
+An eleventh group, `Checks.LogicalStructure` (6.8.x tagging, structure tree,
+role map, natural language), is registered but left out of the table: all five
+of its checks are PDF/A-1a only. `AllChecks()` returns 159 checks over all
+eleven groups, 154 over the ten above.
+
 Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `gopdfrab.CheckByClause("6.3.4", 1)` and `gopdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
 
 ## PDF Object-Model Conformance
