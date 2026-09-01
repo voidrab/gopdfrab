@@ -1,0 +1,12 @@
+# Blank issues stay on deliberately: a form that gets in the way of someone
+# telling us something is a form that loses the report.
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/voidrab/gopdfrab/security/advisories/new
+    about: >
+      Report memory-safety issues, denial-of-service vectors and false passes
+      privately. Please do not open a public issue for one.
+  - name: Commercial licence
+    url: mailto:contact@voidrab.com
+    about: gopdfrab is AGPL 3.0; get in touch about commercial licensing.
