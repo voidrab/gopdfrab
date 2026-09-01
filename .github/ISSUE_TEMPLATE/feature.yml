@@ -7,14 +7,14 @@ body:
     id: problem
     attributes:
       label: What are you trying to do
-      description: The problem, not the solution. What are you stuck on?
+      description: What are you stuck on?
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: What would solve it
-      description: If you have a shape in mind, describe it. If not, leave this empty.
+      description: If you have a shape in mind, describe it.
   - type: textarea
     id: context
     attributes:

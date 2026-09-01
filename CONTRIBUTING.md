@@ -16,7 +16,7 @@ reports are worth more than anything else:
 - **A file that passes and should not.** gopdfrab says the document is
   conformant when it is not.
 
-Send the file. That is the whole report. You do not need a stack trace, a
+Report the file. You do not need to attach a stack trace, a
 minimal reproducer, a patch, or any Go. If the file is confidential, say so and
 we will work out what is possible — sometimes a single page of it is enough.
 
@@ -29,7 +29,7 @@ please do not open a public issue for one.
 
 ## Building and testing
 
-Go 1.24 or newer. CI builds on 1.24 (the floor) and 1.26.4, on Linux, macOS and
+Go 1.24 or newer. CI builds on 1.24 and 1.26.4, on Linux, macOS and
 Windows.
 
 ```bash
@@ -63,15 +63,14 @@ the run. Commit that reproducer with the fix.
 
 ## The test corpora
 
-This is the part you cannot guess from the tree. `tests/` is a separate Go
-module (`tests/go.mod`) that contains no code — it exists purely so the vendored
-PDFs are pruned from the published module zip.
+`tests/` is a separate Go
+module (`tests/go.mod`) that contains no code — it exists so the vendored
+PDFs are excluded from the published module zip.
 
 | Directory | Size | What it is |
 |---|---|---|
-| `tests/Isartor` | 8 MB, 205 files | The Isartor test suite. One deliberate PDF/A-1b violation per file. Committed. |
-| `tests/veraPDF` | 9 MB, 569 files | The veraPDF conformance corpus, clause by clause. Committed. |
-| `tests/regression` | 207 MB | Files that once broke something. Committed. |
+| `tests/Isartor` | 8 MB, 205 files | The Isartor test suite. Committed. |
+| `tests/veraPDF` | 9 MB, 569 files | The veraPDF conformance corpus. Committed. |
 | `tests/realworld` | 3.9 GB, 1585 files | Documents from real producers. **Not committed.** |
 
 `tests/rules.md` is the PDF/A-1 rule text, clause by clause, taken from the
@@ -87,9 +86,6 @@ sha256. Fetch them with:
 ```bash
 scripts/fetch-realworld-corpus.sh      # needs jq, curl and sha256sum
 ```
-
-A URL that has rotated away is a warning; a hash mismatch is fatal. Some entries
-have no URL because they are generated locally, and those are skipped.
 
 ### You do not need any of this to start
 
@@ -128,10 +124,6 @@ OptionalContent: newCheck(
 	"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",
 	"6.1.13", 1),
 ```
-
-The description is user-facing — it is what someone reads when their file
-fails. A duplicate (clause, sub-rule) pair panics at startup, so a clash is
-caught the first time anything runs.
 
 **3. Report it** from the matching file in `internal/verify`. The files follow
 the check groups: `checks_dict.go`, `checks_colour.go`, `checks_content.go`,
@@ -193,12 +185,9 @@ The clause text in `tests/rules.md` is usually enough to settle it.
 
 ## Pull requests
 
-- One concern per pull request. A fix and a refactor in the same branch take
-  three times as long to review.
-- Ship the test with the change. A bug fix without a regression test tends to
-  come back.
-- Keep the existing style: the code explains *why*, not *what*, and comments
-  earn their place.
+- One concern per pull request.
+- Ship the test with the change.
+- Keep the existing style: the code explains *why*, not *what*.
 - Update `CHANGELOG.md` if the change is visible to a user of the library or the
   CLI. `CHANGELOG.md` also states what counts as a breaking change.
 - Green CI: build, tests, race, lint, the WASM build, and the differential run
@@ -206,7 +195,7 @@ The clause text in `tests/rules.md` is usually enough to settle it.
 
 ### The CLA
 
-gopdfrab is dual-licensed, AGPL 3.0 and a commercial licence. That only works if
+gopdfrab is dual-licensed under the AGPL 3.0 and a commercial licence. That only works if
 one party can release the whole codebase under both, so code and documentation
 contributions need a one-time signature on the [Contributor Licence
 Agreement](CLA.md). You keep your copyright — you are granting permission, not
@@ -217,7 +206,5 @@ Bug reports, questions and sample PDFs need nothing from you but the file.
 
 ## What to expect from us
 
-- Every issue gets a human reply within 48 hours, even if the reply is "I cannot
-  look at this until next week".
-- Pull requests are merged or turned down within a week. A rejection comes with
-  a reason.
+- Every issue gets a human reply within 72 hours.
+- Pull requests are merged or turned down within two weeks.

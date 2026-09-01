@@ -6,13 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Attach the PDF. That is the whole report — no stack trace, no minimal
-        reproducer, no Go needed. A file that gopdfrab wrongly rejects is the
-        most valuable thing you can send us, and it becomes a regression test
-        once the bug is fixed.
-
-        If the file is confidential, say so below and we will work out what is
-        possible. Sometimes a single page is enough.
+        Please attach the PDF.
   - type: textarea
     id: file
     attributes:
@@ -29,7 +23,7 @@ body:
       label: What gopdfrab reported
       description: >
         Paste the output of `gopdfrab verify yourfile.pdf`, or the issues your
-        code got back. Rough is fine.
+        code got back.
       render: text
   - type: input
     id: evidence
@@ -37,8 +31,7 @@ body:
       label: Why you believe the file is valid
       description: >
         Anything counts: another validator passes it, the authoring tool claims
-        PDF/A, an archive accepted it. "Not sure, it just looks fine" is also an
-        acceptable answer.
+        PDF/A, an archive accepted it.
   - type: input
     id: version
     attributes:

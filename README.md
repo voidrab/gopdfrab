@@ -587,16 +587,15 @@ Agreement](CLA.md); see below.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) has the details: how to run the test suites,
-where the test corpora come from, and a walkthrough of adding a check.
+[CONTRIBUTING.md](CONTRIBUTING.md) goes over how to run the test suites,
+where the test corpora come from, and walkthroughs.
 [ARCHITECTURE.md](ARCHITECTURE.md) is a map of the codebase.
 
 The short version:
 
 - **A PDF that fails and should not, or passes and should not.** This is the
-  most useful thing you can send. Attach the file to an
-  [issue](https://github.com/voidrab/gopdfrab/issues/new/choose) — no stack
-  trace, no patch, no Go needed. It becomes a regression test.
+  most useful thing you can send. Please attach the file to an
+  [issue](https://github.com/voidrab/gopdfrab/issues/new/choose).
 - **Code changes** — one concern per pull request, with a test.
 - **New checks** — mostly a data change in the check registry. See the
   walkthrough in CONTRIBUTING.md.

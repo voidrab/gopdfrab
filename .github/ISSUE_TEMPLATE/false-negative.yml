@@ -6,9 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        A verifier that passes a bad file is worse than one that fails a good
-        one, so this report gets priority. Attach the PDF — nothing else is
-        required.
+        Please attach the PDF.
   - type: textarea
     id: file
     attributes:
