@@ -82,3 +82,22 @@ func TestParallelForStopsDispatchOnCancel(t *testing.T) {
 		t.Fatalf("%d indices ran, want 10 or so of 1000 after cancelling", got)
 	}
 }
+
+// TestValuePointerNeverPanics pins ValuePointer's fallback: values without an
+// identity report 0 instead of panicking in reflect, and pointer-shaped ones
+// still report a stable non-zero pointer.
+func TestValuePointerNeverPanics(t *testing.T) {
+	for _, v := range []PDFValue{nil, PDFInteger(1), PDFReal(1), PDFBoolean(true), PDFName{Value: "N"}, PDFString{Value: "s"}, PDFRef{ObjNum: 1}} {
+		if got := ValuePointer(v); got != 0 {
+			t.Errorf("ValuePointer(%#v) = %#x, want 0", v, got)
+		}
+	}
+	d := NewDict()
+	arr := PDFArray{PDFInteger(1)}
+	b := []byte{1}
+	for _, v := range []PDFValue{d, arr, b} {
+		if ValuePointer(v) == 0 || ValuePointer(v) != ValuePointer(v) {
+			t.Errorf("ValuePointer(%T) not a stable non-zero identity", v)
+		}
+	}
+}
