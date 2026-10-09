@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 func (d *Reader) ResolveObject(obj PDFValue) (PDFValue, error) {
@@ -126,23 +125,24 @@ func (d *Reader) objectHeaderExists(objNum int) (exists, scanned bool) {
 	return len(d.headerScan[objNum]) > 0, true
 }
 
+// objectHeaders returns every "N G obj" header offset in the file, by object
+// number and in file order. The whole-file scan runs once and is shared by
+// offset recovery and the brute-force xref rebuild.
+func (d *Reader) objectHeaders() map[int][]int64 {
+	if d.headerScan == nil {
+		d.headerScan = map[int][]int64{}
+		d.scanObjectHeaders(func(n int, off int64) {
+			d.headerScan[n] = append(d.headerScan[n], off)
+		})
+	}
+	return d.headerScan
+}
+
 // scanForObjectHeader returns the last "objNum G obj" header offset in the
 // file other than exclude. The whole-file scan runs once and is shared across
 // lookups.
 func (d *Reader) scanForObjectHeader(objNum int, exclude int64) (int64, bool) {
-	if d.headerScan == nil {
-		d.headerScan = map[int][]int64{}
-		if raw, err := d.fullBytes(); err == nil {
-			for _, loc := range bruteForceObjRe.FindAllSubmatchIndex(raw, -1) {
-				n, err := strconv.Atoi(string(raw[loc[2]:loc[3]]))
-				if err != nil {
-					continue
-				}
-				d.headerScan[n] = append(d.headerScan[n], int64(loc[2]))
-			}
-		}
-	}
-	offs := d.headerScan[objNum]
+	offs := d.objectHeaders()[objNum]
 	for i := len(offs) - 1; i >= 0; i-- {
 		if offs[i] != exclude {
 			return offs[i], true

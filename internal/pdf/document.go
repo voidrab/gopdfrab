@@ -7,7 +7,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -708,40 +707,22 @@ func (d *Reader) mergeHybridXRefStream(trailer PDFDict) {
 	d.tryParseXRefStream(int64(stm)+d.pdfStart, true /* fillIn */)
 }
 
-// xrefLineRe matches "xref" at a line boundary, capturing it in group 1
-// (excludes the "xref" suffix inside "startxref").
-var xrefLineRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)
-
-// bruteForceObjRe matches an "N G obj" indirect-object header at a line
-// boundary, used to rebuild the object table when xref parsing fails (6.1.4).
-var bruteForceObjRe = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
-
 // recoverXRefByBruteForceScan rebuilds d.xrefTable by scanning the file for
 // "N G obj" headers, used when an xref section cannot be parsed (6.1.4).
 // Later occurrences win, matching how a real /Prev chain resolves duplicates.
 // In fillIn mode existing entries are kept (newer revisions take precedence).
 func (d *Reader) recoverXRefByBruteForceScan(fillIn bool) error {
-	raw, err := d.fullBytes()
-	if err != nil {
-		return err
-	}
-
-	if !fillIn {
+	if !fillIn || d.xrefTable == nil {
 		d.xrefTable = make(map[int]int64)
 	}
-	existing := map[int]bool{}
-	if fillIn {
-		for objNum := range d.xrefTable {
-			existing[objNum] = true
-		}
-	}
 	found := false
-	for _, loc := range bruteForceObjRe.FindAllSubmatchIndex(raw, -1) {
-		objNum, err := strconv.Atoi(string(raw[loc[2]:loc[3]]))
-		if err != nil || existing[objNum] {
-			continue
+	for objNum, offs := range d.objectHeaders() {
+		if fillIn {
+			if _, ok := d.xrefTable[objNum]; ok {
+				continue
+			}
 		}
-		d.xrefTable[objNum] = int64(loc[2])
+		d.xrefTable[objNum] = offs[len(offs)-1]
 		found = true
 	}
 	if !found {
@@ -812,15 +793,21 @@ func (d *Reader) recoverTrailer() (PDFDict, error) {
 // findAndLoadFirstPageTrailer scans every xref section in a linearized PDF,
 // filling d.xrefTable and setting d.firstPageTrailer to the first one with /Root.
 func (d *Reader) findAndLoadFirstPageTrailer() {
-	raw, err := d.fullBytes()
-	if err != nil {
-		return
-	}
-
-	for _, loc := range xrefLineRe.FindAllSubmatchIndex(raw, -1) {
-		// loc[2] and loc[3] delimit the captured group 1 ("xref\r" or "xref\n").
-		// The "xref" keyword itself starts at loc[2].
-		offset := int64(loc[2])
+	// Every "xref" keyword on its own line: a line boundary before it (which
+	// also excludes the suffix of "startxref") and an EOL right after.
+	var offsets []int64
+	d.forEachIndex([]byte("xref"), func(off int64) bool {
+		if off > 0 {
+			if w := d.windowAt(off-1, 1); len(w) != 1 || !isLineEnd(w[0]) {
+				return true
+			}
+		}
+		if w := d.windowAt(off+4, 1); len(w) == 1 && isLineEnd(w[0]) {
+			offsets = append(offsets, off)
+		}
+		return true
+	})
+	for _, offset := range offsets {
 		trailer, err := d.ParseXRefSectionAt(offset, true /* fillIn */)
 		if err != nil {
 			continue

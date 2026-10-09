@@ -55,6 +55,13 @@ notice.
   object in that stream, and a wrong cross-reference index into an object stream
   no longer returns a different object than the one requested.
 
+### Changed
+
+- Damaged-file recovery scans for object headers and `xref` keywords without
+  regular expressions: 4–7× faster on the recovery benchmark, and on the
+  non-mmap read path it reads the file in 1 MB chunks instead of loading it
+  whole.
+
 ## [1.0.0] - 2026-08-26
 
 First changelog entry; earlier history lives in the git log.
