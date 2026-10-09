@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -138,43 +137,31 @@ func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 	return pdf.Result{Type: p.Level, Valid: true}
 }
 
-// VerifyAll opens and verifies multiple PDF files concurrently.
+// VerifyAll opens and verifies multiple PDF files concurrently on
+// runtime.NumCPU workers.
 func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
-	return VerifyAllContext(context.Background(), paths, p, password)
+	return VerifyAllContext(context.Background(), paths, p, password, 0)
 }
 
-// VerifyAllContext is VerifyAll honouring ctx cancellation: a cancelled ctx
-// stops dispatching further files and records ctx.Err() for those not started.
-func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
+// VerifyAllContext is VerifyAll honouring ctx cancellation, on up to workers
+// goroutines (0 means runtime.NumCPU): a cancelled ctx stops dispatching
+// further files and records ctx.Err() for those not started.
+func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte, workers int) ([]pdf.FileResult[pdf.Result], error) {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
 	results := make([]pdf.FileResult[pdf.Result], len(paths))
-
-	workers := min(runtime.NumCPU(), len(paths))
-	if workers < 1 {
-		return results, nil
-	}
-
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			for i := range jobs {
-				res, err := VerifyFileContext(ctx, paths[i], p, password)
-				results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
-			}
-		}()
-	}
+	started := make([]bool, len(paths))
+	pdf.ParallelFor(ctx, len(paths), workers, func(i int) {
+		started[i] = true
+		res, err := VerifyFileContext(ctx, paths[i], p, password)
+		results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
+	})
 	for i := range paths {
-		if err := ctx.Err(); err != nil {
-			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: err}
-			continue
+		if !started[i] {
+			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: ctx.Err()}
 		}
-		jobs <- i
 	}
-	close(jobs)
-	wg.Wait()
-
 	return results, nil
 }
 

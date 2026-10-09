@@ -185,7 +185,7 @@ var (
 //
 // Fields not relevant to an operation are ignored: Verify uses only Password;
 // RasterDPI and MaxIterations apply to Convert; Workers applies to the batch
-// convert entry points (ConvertAll, ConvertEach). Password applies at the open
+// entry points (VerifyAllContext, ConvertAll, ConvertEach). Password applies at the open
 // step, so it has no effect on the *Document methods, whose file is already
 // open (use OpenWithPassword for those).
 //
@@ -204,8 +204,8 @@ type Options struct {
 	// ConvertResult.Fidelity with a per-page comparison. Off by default (it
 	// roughly doubles the work). Verify ignores it.
 	CheckFidelity bool
-	// Workers bounds the concurrency of the batch convert entry points ConvertAll
-	// and ConvertEach. 0 selects the default (runtime.NumCPU).
+	// Workers bounds the concurrency of the batch entry points VerifyAllContext,
+	// ConvertAll and ConvertEach. 0 selects the default (runtime.NumCPU).
 	Workers int
 }
 
@@ -269,10 +269,11 @@ func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
 	return verify.VerifyAll(paths, p, nil)
 }
 
-// VerifyAllContext is VerifyAll honouring ctx cancellation; a cancelled ctx
-// records ctx.Err() for files not yet started.
+// VerifyAllContext is VerifyAll honouring ctx cancellation and o; a cancelled
+// ctx records ctx.Err() for files not yet started. o.Workers bounds how many
+// files are verified at once, and so how many documents are held in memory.
 func VerifyAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[Result], error) {
-	return verify.VerifyAllContext(ctx, paths, p, o.Password)
+	return verify.VerifyAllContext(ctx, paths, p, o.Password, o.Workers)
 }
 
 // VerifyObjectModel opens, checks, and closes a single file against the

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -84,5 +86,41 @@ func TestValidationContextStoppedPolls(t *testing.T) {
 	}
 	if (&ValidationContext{}).stopped() {
 		t.Error("a nil run context must never stop")
+	}
+}
+
+// TestVerifyAllContextWorkers pins the batch pool: every worker count gives
+// the same per-path results in path order, and a pre-cancelled context records
+// ctx.Err() for every file without verifying any.
+func TestVerifyAllContextWorkers(t *testing.T) {
+	dir := t.TempDir()
+	var paths []string
+	for i := range 5 {
+		p := filepath.Join(dir, fmt.Sprintf("f%d.pdf", i))
+		if err := os.WriteFile(p, pdfgen.PlainThreeIssue(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	want, _ := VerifyAllContext(context.Background(), paths, pdf.PDFA1B, nil, 0)
+	for _, workers := range []int{1, 2, 16} {
+		got, err := VerifyAllContext(context.Background(), paths, pdf.PDFA1B, nil, workers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range paths {
+			if got[i].Path != paths[i] || got[i].Err != nil || len(got[i].Result.Issues) != len(want[i].Result.Issues) {
+				t.Errorf("workers=%d result %d = %+v, want %+v", workers, i, got[i], want[i])
+			}
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, _ := VerifyAllContext(ctx, paths, pdf.PDFA1B, nil, 2)
+	for i, fr := range got {
+		if fr.Path != paths[i] || !errors.Is(fr.Err, context.Canceled) {
+			t.Errorf("cancelled result %d = %+v, want Path set and context.Canceled", i, fr)
+		}
 	}
 }
