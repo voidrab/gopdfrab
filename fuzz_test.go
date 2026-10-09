@@ -155,49 +155,53 @@ func FuzzConvertDeterministic(f *testing.F) {
 // converter claimed success while emitting a non-conformant PDF.
 func FuzzConvertHonest(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > fuzzInputCap {
-			return
-		}
-		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		if err != nil || !res.Result.Valid {
-			return
-		}
-		defer res.Close()
-		out, err := res.Output()
-		if err != nil || len(out) == 0 {
-			return
-		}
-		v, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
-		if err != nil || !v.Valid {
-			t.Fatalf("Convert reported Valid but independent verify disagreed: err=%v valid=%v", err, v.Valid)
-		}
-	})
+	f.Fuzz(checkConvertHonest)
+}
+
+func checkConvertHonest(t *testing.T, data []byte) {
+	if len(data) > fuzzInputCap {
+		return
+	}
+	res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+	if err != nil || !res.Result.Valid {
+		return
+	}
+	defer res.Close()
+	out, err := res.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	v, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
+	if err != nil || !v.Valid {
+		t.Fatalf("Convert reported Valid but independent verify disagreed: err=%v valid=%v", err, v.Valid)
+	}
 }
 
 // FuzzConvertConverges: re-converting output that Convert already declared valid
 // must stay valid -- Convert is a fixed point on conformant input.
 func FuzzConvertConverges(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > fuzzInputCap {
-			return
-		}
-		r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		if err != nil || !r1.Result.Valid {
-			return
-		}
-		defer r1.Close()
-		out1, err := r1.Output()
-		if err != nil || len(out1) == 0 {
-			return
-		}
-		r2, err := gopdfrab.ConvertBytes(out1, gopdfrab.PDFA1B)
-		if err == nil {
-			defer r2.Close()
-		}
-		if err != nil || !r2.Result.Valid {
-			t.Fatalf("re-converting already-valid output regressed: err=%v valid=%v", err, r2.Result.Valid)
-		}
-	})
+	f.Fuzz(checkConvertConverges)
+}
+
+func checkConvertConverges(t *testing.T, data []byte) {
+	if len(data) > fuzzInputCap {
+		return
+	}
+	r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+	if err != nil || !r1.Result.Valid {
+		return
+	}
+	defer r1.Close()
+	out1, err := r1.Output()
+	if err != nil || len(out1) == 0 {
+		return
+	}
+	r2, err := gopdfrab.ConvertBytes(out1, gopdfrab.PDFA1B)
+	if err == nil {
+		defer r2.Close()
+	}
+	if err != nil || !r2.Result.Valid {
+		t.Fatalf("re-converting already-valid output regressed: err=%v valid=%v", err, r2.Result.Valid)
+	}
 }

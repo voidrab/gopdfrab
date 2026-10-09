@@ -896,6 +896,11 @@ func (d *Reader) EffectiveTrailer() PDFDict {
 	return d.trailer
 }
 
+// MaxPageTreeDepth caps how deep a page-tree walk descends. Every walk that
+// numbers pages must apply it (and dedupe indirect nodes) the same way
+// BuildPageIndex does, or its page numbers drift from the verifier's.
+const MaxPageTreeDepth = 1 << 16
+
 func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	index := make(map[int]int)
 
@@ -923,10 +928,9 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	// nodes already visited (breaking cycles), and depth caps degenerate but
 	// acyclic nesting, so neither can drive walk into a stack overflow.
 	seen := make(map[int]bool)
-	const maxPageTreeDepth = 1 << 16
 	var walk func(node PDFValue, depth int) error
 	walk = func(node PDFValue, depth int) error {
-		if depth > maxPageTreeDepth {
+		if depth > MaxPageTreeDepth {
 			return fmt.Errorf("page tree exceeds maximum depth")
 		}
 		dict, ok := node.(PDFDict)

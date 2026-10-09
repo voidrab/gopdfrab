@@ -221,11 +221,40 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
-	// Pages are numbered by this same top-down walk, so the counter matches a
-	// PDFError's 1-based Page() and the page-level raster fallback's numbering.
+	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
+		if hasTransparencyGroup(node) {
+			out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
+			return
+		}
+		collectXObjectTargets(resources, visited, pageNum, pagePaintAtDo(node, resources), &out)
+		collectAnnotationTargets(node, resources, visited, pageNum, &out)
+	})
+	return out
+}
+
+// walkPageTree calls visit for every page under pages, top-down from
+// Root/Pages/Kids, with the /Resources and /MediaBox it inherits and its
+// 1-based page number.
+//
+// It guards the walk exactly as pdf.Reader.BuildPageIndex does: an indirect
+// node is visited once and depth is capped. That keeps a cyclic /Kids (a
+// Pages node listing itself or an ancestor) from recursing until the stack
+// overflows -- a fatal error no recover can catch -- and keeps page numbers
+// aligned with the verifier's, so they match PDFError.Page().
+func walkPageTree(pages pdf.PDFDict, visit func(page, resources pdf.PDFDict, mediaBox [4]float64, pageNum int)) {
+	seen := map[int]bool{}
 	pageNum := 0
-	var walk func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64)
-	walk = func(node pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64) {
+	var walk func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int)
+	walk = func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int) {
+		if depth > pdf.MaxPageTreeDepth {
+			return
+		}
+		if ref, ok := node.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+			if seen[ref.ObjNum] {
+				return
+			}
+			seen[ref.ObjNum] = true
+		}
 		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
 			resources = r
 		}
@@ -234,24 +263,18 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 		}
 		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 			pageNum++
-			if hasTransparencyGroup(node) {
-				out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
-				return
-			}
-			collectXObjectTargets(resources, visited, pageNum, pagePaintAtDo(node, resources), &out)
-			collectAnnotationTargets(node, resources, visited, pageNum, &out)
+			visit(node, resources, mediaBox, pageNum)
 			return
 		}
 		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
 			for _, kid := range kids {
 				if kd, ok := kid.(pdf.PDFDict); ok {
-					walk(kd, resources, mediaBox)
+					walk(kd, resources, mediaBox, depth+1)
 				}
 			}
 		}
 	}
-	walk(pages, pdf.PDFDict{}, defaultMediaBox)
-	return out
+	walk(pages, pdf.PDFDict{}, defaultMediaBox, 0)
 }
 
 // pageTarget addresses a page dict in the graph together with the /Resources
@@ -277,27 +300,9 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	}
 
 	var out []pageTarget
-	var walk func(node, resources pdf.PDFDict, mediaBox [4]float64)
-	walk = func(node, resources pdf.PDFDict, mediaBox [4]float64) {
-		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
-			resources = r
-		}
-		if mb, err := pdf.FloatArray(node.Entries.Get("MediaBox")); err == nil && len(mb) == 4 {
-			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
-		}
-		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-			out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
-			return
-		}
-		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
-			for _, kid := range kids {
-				if kd, ok := kid.(pdf.PDFDict); ok {
-					walk(kd, resources, mediaBox)
-				}
-			}
-		}
-	}
-	walk(pages, pdf.PDFDict{}, defaultMediaBox)
+	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, _ int) {
+		out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
+	})
 	return out
 }
 

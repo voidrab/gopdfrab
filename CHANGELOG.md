@@ -91,6 +91,13 @@ notice.
   callback has returned an error.
 - A file whose structure fails to parse is now unmapped, not just closed.
 - `Document.Close` can be called more than once; later calls return nil.
+- Convert could report a non-conformant output as valid. A stream whose
+  `/Filter` used an inline-image abbreviation (`/Fl`) had the filter deleted by
+  the object-model repair, leaving its compressed bytes to be read as content,
+  and the decode cache still answered with the old decoded bytes. Abbreviations
+  are now expanded to the full filter name, the repair never deletes a key that
+  says how stream bytes are read, and the decode cache is keyed on the filter
+  chain as well as the bytes.
 
 ### Security
 
@@ -100,7 +107,9 @@ notice.
   - a cross-reference stream offset too large for `int64`, which wrapped
     negative and panicked the lexer;
   - a long run of comment lines, which grew the lexer's stack one frame per
-    line.
+    line;
+  - a page tree whose `/Kids` lists a node itself or an ancestor, which sent
+    Convert's page walk into unbounded recursion (a fatal stack overflow).
 - The CLI's `--password` flag is visible to other users in `ps`. Its help text
   now says so and points at `$GOPDFRAB_PASSWORD`.
 

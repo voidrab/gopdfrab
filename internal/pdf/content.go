@@ -185,9 +185,25 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 // resolved graph is that pin, which is why the caches live on the Reader that
 // owns the graph -- and why AdoptStreamCaches (which shares a cache between two
 // Readers) is sound only because both are seeded with the same graph.
+//
+// The decoded result also depends on /Filter and /DecodeParms, so the key
+// carries their identity too: a fixer that changes the filter chain without
+// replacing RawStream -- deleting /Filter, say -- must miss the cache, or
+// convert's own verify judges the old decoded bytes while the file holds the
+// new reading of them.
 type StreamKey struct {
-	ptr uintptr
-	len int
+	ptr    uintptr
+	len    int
+	filter filterIdentity
+	parms  uintptr
+}
+
+// filterIdentity identifies a /Filter value: a single name by its text, an
+// array by its backing pointer and length.
+type filterIdentity struct {
+	name string
+	arr  uintptr
+	n    int
 }
 
 // StreamKeyOf returns dict's cache key and whether it is cacheable. Streams
@@ -197,7 +213,20 @@ func StreamKeyOf(dict PDFDict) (StreamKey, bool) {
 	if !dict.HasStream || len(dict.RawStream) == 0 {
 		return StreamKey{}, false
 	}
-	return StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}, true
+	k := StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}
+	switch f := dict.Entries.Get("Filter").(type) {
+	case PDFName:
+		k.filter.name = f.Value
+	case PDFArray:
+		k.filter.arr, k.filter.n = ArrayPointer(f), len(f)
+	}
+	switch p := dict.Entries.Get("DecodeParms").(type) {
+	case PDFDict:
+		k.parms = ValuePointer(p.Entries)
+	case PDFArray:
+		k.parms = ArrayPointer(p)
+	}
+	return k, true
 }
 
 // DecodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
