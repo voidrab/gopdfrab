@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"runtime"
 	"slices"
@@ -377,21 +378,32 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	return pt
 }
 
-func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
-	xrefTable := d.XRefTable()
-	if len(xrefTable) == 0 {
-		return []pdf.PDFError{pdf.NewError(
-			pdf.Checks.Structure.IndirectObjectsExceeded,
-			[]error{fmt.Errorf("number of indirect objects exceeds 8,388,607")},
-			1,
-			nil,
-		)}
+// indirectObjectLimit reports n indirect objects against maxIndirectObjects.
+func indirectObjectLimit(n int) []pdf.PDFError {
+	if n <= maxIndirectObjects {
+		return nil
 	}
+	return []pdf.PDFError{pdf.NewError(
+		pdf.Checks.Structure.IndirectObjectsExceeded,
+		[]error{fmt.Errorf("%d indirect objects exceed the limit of 8,388,607", n)},
+		1,
+		nil,
+	)}
+}
 
-	for objNum := range d.XRefTable() {
+// maxIndirectObjects is the PDF/A-1 implementation limit on indirect objects
+// in a file (6.1.12, ISO 32000-1 Annex C).
+const maxIndirectObjects = 8388607
+
+func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
+	issues := indirectObjectLimit(d.IndirectObjectCount())
+
+	// Resolution records framing diagnostics as a side effect, so walk in
+	// object order: map order would make StructErrors nondeterministic.
+	for _, objNum := range slices.Sorted(maps.Keys(d.XRefTable())) {
 		d.ResolveReference(pdf.PDFRef{ObjNum: objNum})
 	}
-	return nil
+	return issues
 }
 
 // 6.1 File Structure

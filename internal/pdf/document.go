@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -752,7 +754,8 @@ func (d *Reader) recoverXRefByBruteForceScan(fillIn bool) error {
 // "/Type /XRef" and returns its dict, recovering /Root, /Info, and /ID.
 func (d *Reader) recoverTrailerFromXRefStream() (PDFDict, error) {
 	best, bestOff, found := PDFDict{}, int64(-1), false
-	for objNum, off := range d.xrefTable {
+	for _, objNum := range slices.Sorted(maps.Keys(d.xrefTable)) {
+		off := d.xrefTable[objNum]
 		v, err := d.ResolveReference(PDFRef{ObjNum: objNum})
 		if err != nil {
 			continue
@@ -784,7 +787,8 @@ func (d *Reader) recoverTrailer() (PDFDict, error) {
 		return t, nil
 	}
 	catalogNum, catalogOff, found := 0, int64(-1), false
-	for objNum, off := range d.xrefTable {
+	for _, objNum := range slices.Sorted(maps.Keys(d.xrefTable)) {
+		off := d.xrefTable[objNum]
 		v, err := d.ResolveReference(PDFRef{ObjNum: objNum})
 		if err != nil {
 			continue
@@ -960,6 +964,12 @@ func (d *Reader) XRefOffset() int64 {
 // the cross-reference table(s).
 func (d *Reader) XRefTable() map[int]int64 {
 	return d.xrefTable
+}
+
+// IndirectObjectCount is the number of in-use objects the cross-reference
+// data records: classic offsets plus objects compressed in object streams.
+func (d *Reader) IndirectObjectCount() int {
+	return len(d.xrefTable) + len(d.compressedXref)
 }
 
 // Trailer returns the document's main trailer dictionary, as parsed -- use

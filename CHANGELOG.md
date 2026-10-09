@@ -40,6 +40,11 @@ notice.
 - A cross-reference stream offset field too large for `int64` no longer wraps
   into a negative offset that panicked the lexer.
 - A file whose structure fails to parse is now unmapped, not just closed.
+- 6.1.12 `IndirectObjectsExceeded` now fires when a file has more than 8,388,607
+  indirect objects. It used to fire on an empty cross-reference table instead.
+- Object-framing diagnostics for objects outside the page graph, and trailer
+  recovery, now resolve objects in object-number order, so `Issues` is the same
+  on every run.
 
 ## [1.0.0] - 2026-08-26
 
