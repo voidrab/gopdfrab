@@ -24,7 +24,7 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
-## [Unreleased]
+## [1.1.0] - 2026-10-09
 
 ### Added
 
@@ -32,67 +32,77 @@ notice.
   and returned as an error wrapping `ErrInternal`, instead of crashing the
   caller's process. Panics in internal worker goroutines are carried back to the
   calling goroutine first.
-
-### Fixed
-
-- A stream `/Length` past the end of the file no longer sizes a heap allocation
-  on the non-mmap (Windows) read path.
-- A cross-reference stream offset field too large for `int64` no longer wraps
-  into a negative offset that panicked the lexer.
-- A file whose structure fails to parse is now unmapped, not just closed.
-- 6.1.12 `IndirectObjectsExceeded` now fires when a file has more than 8,388,607
-  indirect objects. It used to fire on an empty cross-reference table instead.
-- Object-framing diagnostics for objects outside the page graph, and trailer
-  recovery, now resolve objects in object-number order, so `Issues` is the same
-  on every run.
-- Convert no longer leaves spilled temp files behind when the document writer or
-  the final verify fails, or for `ConvertEach` results that complete after the
-  callback has returned an error.
-- A stream whose `/Length` is wrong by more than a few bytes is now recovered
-  from its `endstream` keyword and reported under 6.1.7, instead of being
-  dropped to null and its content lost.
-- One malformed object inside an object stream no longer loses every other
-  object in that stream, and a wrong cross-reference index into an object stream
-  no longer returns a different object than the one requested.
+- `VerifyAllContext` honours `Options.Workers` (0 still means
+  `runtime.NumCPU`). It used to ignore the field, which was documented as
+  applying to the batch convert entry points only.
+- CLI: `--password` falls back to `$GOPDFRAB_PASSWORD`.
 
 ### Changed
 
-- CLI: `--password` falls back to `$GOPDFRAB_PASSWORD`, which keeps the password
-  out of the process list. `convert` rejects an output path given both as `-o`
-  and as a second argument, or extra arguments, instead of ignoring one.
+- `ConvertResult.Save` is atomic: it writes a temp file beside the target and
+  renames it into place, so a failed save no longer truncates an existing file
+  (including the input, when converting in place). An existing file keeps its
+  permissions, a new one gets 0644, and a symlink is written through.
 - `VerifyContext` now polls the context during the object-graph walk instead of
   only at entry, and Convert's raster passes stop dispatching page renders once
   the context is cancelled.
 - A stream that fails to decode is remembered per document, so a decompression
   bomb is inflated up to the size cap once rather than once per check and per
   convert iteration. Inflate buffers grown past 16 MB are no longer pooled.
-- `ConvertResult.Save` is atomic: it writes a temp file beside the target and
-  renames it into place, so a failed save no longer truncates an existing file
-  (including the input, when converting in place). An existing file keeps its
-  permissions; a symlink is written through.
-- The writer no longer emits `NaN` or `Inf` for a non-finite real (it writes
-  `0`), and escapes whitespace and delimiters in names built by fixers as `#XX`
-  instead of letting them break the token stream.
-- A document's own `/_ref` or `/_dirty` dictionary keys are kept. `/_ref`
-  collided with an internal bookkeeping key (overwritten on indirect objects,
-  and on a direct dictionary it made the writer treat that dictionary as an
-  indirect object); `/_dirty` was dropped on write.
+- Damaged-file recovery scans for object headers and `xref` keywords without
+  regular expressions: 4–7× faster on the recovery benchmark, and on the
+  non-mmap read path it reads the file in 1 MB chunks instead of loading it
+  whole.
+- CLI: `convert` rejects an output path given both as `-o` and as a second
+  argument, and rejects extra arguments, instead of ignoring them.
+
+### Fixed
+
 - 6.1.7/6.1.8 object- and stream-framing issues reported the object number as
   the issue's `Page()`. They are now document-level, with the object in
   `ObjectRef()`, and no longer steer which pages Convert's raster fallback
   targets.
+- 6.1.12 `IndirectObjectsExceeded` now fires when a file has more than 8,388,607
+  indirect objects. It used to fire on an empty cross-reference table instead.
+- Object-framing diagnostics for objects outside the page graph, and trailer
+  recovery, now resolve objects in object-number order, so `Issues` is the same
+  on every run.
+- A stream whose `/Length` is wrong by more than a few bytes is now recovered
+  from its `endstream` keyword and reported under 6.1.7, instead of being
+  dropped to null and its content lost.
+- One malformed object inside an object stream no longer loses every other
+  object in that stream, and a wrong cross-reference index into an object stream
+  no longer returns a different object than the one requested.
 - Encrypted files: revision 5 (AES-256, Adobe Extension Level 3) now
   authenticates. It was hashed with the revision 6 algorithm, so every
   password, including the correct one, was rejected. A V4 handler without a
   key length now defaults to 128 bits instead of 40. A string that fails to
   decrypt is kept as stored and reported against its object instead of
   passing silently.
-- `VerifyAllContext` honours `Options.Workers` (0 still means
-  `runtime.NumCPU`); it used to ignore it.
-- Damaged-file recovery scans for object headers and `xref` keywords without
-  regular expressions: 4–7× faster on the recovery benchmark, and on the
-  non-mmap read path it reads the file in 1 MB chunks instead of loading it
-  whole.
+- A document's own `/_ref` or `/_dirty` dictionary keys are kept. `/_ref`
+  collided with an internal bookkeeping key (overwritten on indirect objects,
+  and on a direct dictionary it made the writer treat that dictionary as an
+  indirect object); `/_dirty` was dropped on write.
+- The writer no longer emits `NaN` or `Inf` for a non-finite real (it writes
+  `0`), and escapes whitespace and delimiters in names built by fixers as `#XX`
+  instead of letting them break the token stream.
+- Convert no longer leaves spilled temp files behind when the document writer or
+  the final verify fails, or for `ConvertEach` results that complete after the
+  callback has returned an error.
+- A file whose structure fails to parse is now unmapped, not just closed.
+- `Document.Close` can be called more than once; later calls return nil.
+
+### Security
+
+- Hostile input can no longer crash the process or exhaust memory through:
+  - a stream `/Length` past the end of the file, which sized a heap allocation
+    on the non-mmap (Windows) read path;
+  - a cross-reference stream offset too large for `int64`, which wrapped
+    negative and panicked the lexer;
+  - a long run of comment lines, which grew the lexer's stack one frame per
+    line.
+- The CLI's `--password` flag is visible to other users in `ps`. Its help text
+  now says so and points at `$GOPDFRAB_PASSWORD`.
 
 ## [1.0.0] - 2026-08-26
 
