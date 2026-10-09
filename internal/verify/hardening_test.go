@@ -27,7 +27,7 @@ func buildDeepGraph(depth int) pdf.PDFDict {
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})

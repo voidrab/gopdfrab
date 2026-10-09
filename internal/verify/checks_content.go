@@ -313,7 +313,7 @@ func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
 		} else {
 			// Subdictionary of appearance states.
 			for k, sv := range v.Entries.All() {
-				if k == "_ref" {
+				if k == pdf.RefKey {
 					continue
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {

@@ -206,7 +206,7 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 		if err != nil {
 			return nil, err
 		}
-		m.Entries.Set("_ref", ref)
+		m.Entries.Set(RefKey, ref)
 
 		// 6.1.8: capture EOL/whitespace right after '>>' before NextToken swallows it;
 		// only used if next token is 'endobj'. Skipped when l.pushed is non-empty, since

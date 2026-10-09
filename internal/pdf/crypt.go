@@ -493,7 +493,7 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 		}
 	case PDFDict:
 		for k, val := range t.Entries.All() {
-			if k == "_ref" {
+			if k == RefKey {
 				continue
 			}
 			t.Entries.Set(k, d.decryptStrings(val, ref))

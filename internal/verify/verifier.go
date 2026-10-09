@@ -759,7 +759,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
 	var typeErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == "_ref" || !slices.Contains(allowedFields, k) {
+		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
 			continue
 		}
 		switch v.(type) {
@@ -782,7 +782,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// PDF Reference 4th ed. are checked for emptiness.
 	var emptyErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == "_ref" || !slices.Contains(allowedFields, k) {
+		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
 			continue
 		}
 		var s string
@@ -858,7 +858,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-				if ref, ok := v.Entries.Get("_ref").(pdf.PDFRef); ok {
+				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 			}
@@ -899,7 +899,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			keysBase := len(ctx.keyScratch)
 			for _, k := range ctx.sortedKeys(v.Entries) {
-				if k == "_ref" {
+				if k == pdf.RefKey {
 					// Synthetic bookkeeping, not a PDF entry.
 					continue
 				}
@@ -1076,7 +1076,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				// decode failure here would be reported as document-level.
 				// Restored afterwards so nothing outside the page inherits it.
 				prevPage := ctx.CurrentPage
-				if ref, ok := val.Entries.Get("_ref").(pdf.PDFRef); ok {
+				if ref, ok := val.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 				resources := inheritedResources(val)
@@ -1147,7 +1147,7 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
 			for k, sv := range v.Entries.All() {
-				if k == "_ref" {
+				if k == pdf.RefKey {
 					continue
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
@@ -1483,7 +1483,7 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 	case pdf.PDFDict:
 		// 6.1.12: maximum number of entries in a dictionary is 4095.
 		realCount := v.Entries.Len()
-		if _, has := v.Entries.Lookup("_ref"); has {
+		if _, has := v.Entries.Lookup(pdf.RefKey); has {
 			realCount--
 		}
 		if realCount > 4095 {

@@ -911,7 +911,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 		if !ok {
 			return nil
 		}
-		if ref, ok := dict.Entries.Get("_ref").(PDFRef); ok {
+		if ref, ok := dict.Entries.Get(RefKey).(PDFRef); ok {
 			if seen[ref.ObjNum] {
 				return nil
 			}
@@ -920,7 +920,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 
 		if (dict.Entries.Get("Type") == PDFName{Value: "Page"}) {
 			pageNum++
-			if ref, ok := dict.Entries.Get("_ref").(PDFRef); ok {
+			if ref, ok := dict.Entries.Get(RefKey).(PDFRef); ok {
 				index[ref.ObjNum] = pageNum
 			}
 			return nil
@@ -1194,7 +1194,7 @@ func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) 
 		}
 		d.resolvedPtrs[ptr] = true // mark before recursing, so cycles terminate
 		for k, val := range v.Entries.All() {
-			if k == "_ref" {
+			if k == RefKey {
 				continue
 			}
 			r, err := d.resolveInPlaceDepth(val, depth+1)

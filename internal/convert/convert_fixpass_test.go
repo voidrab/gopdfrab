@@ -14,11 +14,11 @@ import (
 func fixPassTrailer(t *testing.T, n int) (*fixPass, map[int]pdf.PDFDict) {
 	t.Helper()
 	root := pdf.NewPDFDict()
-	root.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 	kids := make(pdf.PDFArray, 0, n)
 	for i := 0; i < n; i++ {
 		child := pdf.NewPDFDict()
-		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: 100 + i})
+		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 100 + i})
 		kids = append(kids, child)
 	}
 	root.Entries.Set("Kids", kids)
@@ -67,7 +67,7 @@ func TestFixPassDictForRef(t *testing.T) {
 		anyNum = num
 		break
 	}
-	byNum[anyNum].Entries.Set("_ref", pdf.PDFRef{ObjNum: 777})
+	byNum[anyNum].Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 777})
 	if _, ok := pass.dictForRef(pdf.PDFRef{ObjNum: anyNum}); ok {
 		t.Error("dictForRef ok = true for a dict whose _ref no longer matches")
 	}
@@ -127,12 +127,12 @@ func TestFixPassDictsForIssuesGateAndOrder(t *testing.T) {
 // the iteration index, since stream fields don't propagate via Entries.
 func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 	stream := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}}),
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 5}}),
 		HasStream: true,
 		RawStream: []byte("old"),
 	}
 	root := pdf.NewPDFDict()
-	root.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 	root.Entries.Set("Direct", stream)
 	root.Entries.Set("List", pdf.PDFArray{stream})
 	trailer := pdf.NewPDFDict()
@@ -140,7 +140,7 @@ func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := stream.Entries.Get("_ref").(pdf.PDFRef)
+	ref := stream.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 
 	updated := stream
 	updated.RawStream = []byte("new")

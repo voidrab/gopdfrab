@@ -398,7 +398,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		}
 		var extras []string
 		for k := range ap.Entries.All() {
-			if k != "N" && k != "_ref" {
+			if k != "N" && k != pdf.RefKey {
 				extras = append(extras, k)
 			}
 		}

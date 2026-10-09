@@ -23,7 +23,7 @@ func TestValidateAgainstSchema_InheritableKeyNotFlagged(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	parent := pdf.NewPDFDict()
-	parent.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	parent.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 	page.Entries.Set("Parent", parent)
 	// Resources/MediaBox omitted: both are Inheritable on PageObject, so their
 	// absence here is not itself a violation.
@@ -80,7 +80,7 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 	catalog.Entries.Set("Pages", pages)
 	catalog.Entries.Set("ACustomVendorKey", pdf.PDFInteger(42))
 
@@ -178,7 +178,7 @@ func TestValidateAgainstSchema_IndirectRequiredSatisfied(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{}
@@ -222,7 +222,7 @@ func TestValidateAgainstSchema_WildcardTypeSkipsKeyIntroducedAfterPDF14(t *testi
 
 func TestIsIndirect(t *testing.T) {
 	ref := pdf.NewPDFDict()
-	ref.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	ref.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 	if !isIndirect(ref) {
 		t.Error("a dict carrying _ref must be indirect")
 	}
@@ -569,7 +569,7 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	indirect.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	indirect.Entries.Set("Kids", pdf.PDFArray{})
 	indirect.Entries.Set("Count", pdf.PDFInteger(0))
-	indirect.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	indirect.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
 	ctx = &ValidationContext{}
 	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
@@ -587,12 +587,12 @@ func TestArraySchemaCheckedInWalk(t *testing.T) {
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{kid})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
@@ -638,7 +638,7 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 
 	indirect := pdf.NewPDFDict()
 	indirect.HasStream = true
-	indirect.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	indirect.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 	m = pdf.NewPDFDict()
 	m.Entries.Set("Im1", indirect)
 	ctx = &ValidationContext{}
@@ -1286,7 +1286,7 @@ func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// FileTrailer.ID is required when Encrypt is present.
 	trailer := pdf.NewPDFDict()
 	enc := pdf.NewPDFDict()
-	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	enc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 	trailer.Entries.Set("Encrypt", enc)
 	ctx = &ValidationContext{}
 	validateAgainstSchema(trailer, "FileTrailer", ctx)

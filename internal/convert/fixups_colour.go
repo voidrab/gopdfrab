@@ -141,7 +141,7 @@ func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (boo
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == "_ref" {
+			if k == pdf.RefKey {
 				continue
 			}
 			visit(v)

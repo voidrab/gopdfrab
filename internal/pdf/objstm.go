@@ -130,7 +130,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		// same as resolver.go's parseClassicReference does for
 		// classically-stored objects.
 		if dictVal, ok := val.(PDFDict); ok {
-			dictVal.Entries.Set("_ref", PDFRef{ObjNum: p.objNum})
+			dictVal.Entries.Set(RefKey, PDFRef{ObjNum: p.objNum})
 			val = dictVal
 		}
 

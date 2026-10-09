@@ -47,7 +47,7 @@ func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	r, ok := d.Entries.Get("_ref").(pdf.PDFRef)
+	r, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	if !ok || r.ObjNum != ref.ObjNum {
 		return pdf.PDFDict{}, false
 	}
@@ -120,7 +120,7 @@ func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
 	for _, set := range p.parents[ptr] {
 		set(updated)
 	}
-	if ref, ok := old.Entries.Get("_ref").(pdf.PDFRef); ok {
+	if ref, ok := old.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 		if _, exists := p.objs[ref.ObjNum]; exists {
 			p.objs[ref.ObjNum] = updated
 		}
@@ -202,7 +202,7 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 		}
 	}
 	for k, val := range d.Entries.All() {
-		if k == "_ref" || k == "_dirty" {
+		if k == pdf.RefKey {
 			continue
 		}
 		switch v := val.(type) {
@@ -230,7 +230,7 @@ func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintpt
 		}
 		visited[ptr] = true
 		for k, child := range val.Entries.All() {
-			if k == "_ref" || k == "_dirty" {
+			if k == pdf.RefKey {
 				continue
 			}
 			if cd, ok := child.(pdf.PDFDict); ok {

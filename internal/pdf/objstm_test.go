@@ -147,7 +147,7 @@ func TestDecodeObjStm(t *testing.T) {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
 		got, ok := entries[0].value.(PDFDict)
-		if !ok || !EqualPDFValue(got.Entries.Get("_ref"), PDFRef{ObjNum: 7}) {
+		if !ok || !EqualPDFValue(got.Entries.Get(RefKey), PDFRef{ObjNum: 7}) {
 			t.Errorf("nested dict = %#v, want _ref stamped to 7", entries[0].value)
 		}
 	})

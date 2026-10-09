@@ -13,10 +13,10 @@ func TestWalkGraph(t *testing.T) {
 	leaf := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Leaf": pdf.PDFBoolean(true)})}
 	pruned := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Stop": pdf.PDFBoolean(true), "Under": leaf})}
 	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Hidden": pdf.PDFBoolean(true)})},
-		"P":    pruned,
-		"N":    pdf.PDFInteger(1),
-		"A":    pdf.PDFArray{pdf.PDFInteger(2)},
+		pdf.RefKey: pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Hidden": pdf.PDFBoolean(true)})},
+		"P":        pruned,
+		"N":        pdf.PDFInteger(1),
+		"A":        pdf.PDFArray{pdf.PDFInteger(2)},
 	})}
 	root.Entries.Set("Self", root) // cycle
 
