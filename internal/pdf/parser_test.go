@@ -10,7 +10,7 @@ import (
 // Open/OpenBytes's structure parsing so ParseXRefSectionAt can be driven
 // directly against hand-crafted xref sections at a known offset.
 func newTestFileReader(data []byte) *Reader {
-	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)), xrefTable: map[int]int64{}}
 }
 
 // TestParseXRefSectionAt covers a valid classic table+trailer, a bad (past

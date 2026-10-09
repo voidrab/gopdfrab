@@ -22,7 +22,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	lengthObj, err := d.ResolveObject(lengthRef)
 	if err != nil {
-		return fmt.Errorf("could not resolve stream Length: %v", lengthObj)
+		return fmt.Errorf("could not resolve stream Length: %w", err)
 	}
 
 	lengthInt, ok := lengthObj.(PDFInteger)
@@ -41,12 +41,14 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		// int64 overflow from a pathologically large declared Length.
 		return fmt.Errorf("stream Length overflows file bounds")
 	}
+	// Bound before allocating: on the seek path an untrusted /Length would
+	// otherwise size a heap buffer directly.
+	if end > d.sourceSize() {
+		return fmt.Errorf("stream body extends past end of file")
+	}
 
 	if d.data != nil {
 		// Fast path: alias the backing slice directly (mmap or caller buffer).
-		if end > int64(len(d.data)) {
-			return fmt.Errorf("stream body extends past end of file")
-		}
 		dict.RawStream = d.data[streamStart:end:end]
 
 		// 6.1.7: Length must not include the EOL before endstream.
@@ -93,6 +95,14 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	l.pos = posAfter
 
 	return nil
+}
+
+// sourceSize is the byte length of the underlying file.
+func (d *Reader) sourceSize() int64 {
+	if d.data != nil {
+		return int64(len(d.data))
+	}
+	return d.size
 }
 
 // consumeStreamEOL advances the lexer past the EOL following the 'stream'
@@ -144,26 +154,21 @@ func (d *Reader) windowAt(off int64, n int) []byte {
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an
 // EOL marker (6.1.7).
 func (d *Reader) checkEndstreamFraming(objNum int, streamStart int64, length int) {
-	var window []byte
-	if d.data != nil {
-		end := min(int(streamStart)+length+64, len(d.data))
-		window = d.data[streamStart:end]
-	} else {
-		w := make([]byte, length+64)
-		n, _ := d.file.ReadAt(w, streamStart)
-		window = w[:n]
-	}
-
+	// Only the tail of the body matters: read from one byte before the search
+	// start (to see what precedes the keyword) rather than the whole stream.
 	start := max(length-2, 0)
-	if start > len(window) {
+	ws := max(start-1, 0)
+	window := d.windowAt(streamStart+int64(ws), length+64-ws)
+	off := start - ws
+	if off > len(window) {
 		return
 	}
-	rel := bytes.Index(window[start:], []byte("endstream"))
+	rel := bytes.Index(window[off:], []byte("endstream"))
 	if rel < 0 {
 		return
 	}
-	idx := start + rel
-	if idx == 0 || (window[idx-1] != '\n' && window[idx-1] != '\r') {
+	i := off + rel
+	if ws+i == 0 || (window[i-1] != '\n' && window[i-1] != '\r') {
 		d.recordStreamFraming(objNum, Checks.Structure.EndstreamEOL,
 			"endstream keyword not preceded by an EOL marker")
 	}
