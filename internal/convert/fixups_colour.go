@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"runtime"
@@ -278,7 +279,7 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 	})
 
 	locals := make([]map[string]int, len(jobs))
-	pdf.ParallelFor(len(jobs), runtime.NumCPU(), func(i int) {
+	pdf.ParallelFor(context.Background(), len(jobs), runtime.NumCPU(), func(i int) {
 		local := map[string]int{}
 		scanContent(jobs[i].dict, jobs[i].resources, local)
 		locals[i] = local

@@ -335,7 +335,7 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 		{dict: shared, mediaBox: box}, // the same object again
 		{dict: unrenderable, mediaBox: [4]float64{0, 0, 0, 0}},
 	}
-	drops, rasterized, changed := flattenPagesParallel(pages, []int{1, 2, 3, 4}, 72)
+	drops, rasterized, changed := flattenPagesParallel(context.Background(), pages, []int{1, 2, 3, 4}, 72)
 
 	if !changed {
 		t.Fatal("changed = false, want true")
@@ -348,7 +348,7 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 	}
 
 	// A batch with nothing in it reports no change rather than an empty rewrite.
-	if _, _, changed := flattenPagesParallel(nil, nil, 72); changed {
+	if _, _, changed := flattenPagesParallel(context.Background(), nil, nil, 72); changed {
 		t.Error("an empty page batch reported changed = true")
 	}
 }

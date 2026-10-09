@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -16,11 +17,12 @@ type workerPanic struct {
 func (p workerPanic) String() string { return fmt.Sprintf("%v\n%s", p.value, p.stack) }
 
 // ParallelFor calls fn(i) for every i in [0, n) on up to workers goroutines
-// and returns once all calls finish. A panic in fn would otherwise kill the
+// and returns once all calls finish. Once ctx is done no further indices are
+// dispatched; calls already running finish, so callers check ctx afterwards. A panic in fn would otherwise kill the
 // process from a goroutine no caller can recover; instead the first one is
 // re-raised in the calling goroutine after every worker has stopped, where
 // RecoverAsError at the entry point turns it into an error.
-func ParallelFor(n, workers int, fn func(i int)) {
+func ParallelFor(ctx context.Context, n, workers int, fn func(i int)) {
 	workers = min(workers, n)
 	if workers < 1 {
 		return
@@ -48,6 +50,9 @@ func ParallelFor(n, workers int, fn func(i int)) {
 		}()
 	}
 	for i := range n {
+		if ctx.Err() != nil {
+			break
+		}
 		jobs <- i
 	}
 	close(jobs)

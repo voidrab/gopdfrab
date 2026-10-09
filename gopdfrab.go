@@ -294,7 +294,7 @@ func Convert(path string, p *Profile) (ConvertResult, error) {
 }
 
 // ConvertContext is Convert honouring ctx cancellation (checked before each
-// verify/fix iteration and each raster pass) and o.
+// verify/fix iteration and between page renders) and o.
 func ConvertContext(ctx context.Context, path string, p *Profile, o Options) (ConvertResult, error) {
 	return convert.ConvertContext(ctx, path, p, o.convert())
 }
@@ -433,7 +433,7 @@ func (d *Document) Convert(p *Profile) (ConvertResult, error) {
 }
 
 // ConvertContext is Convert honouring ctx cancellation (checked before each
-// verify/fix iteration and each raster pass) and o. Options.Password is ignored
+// verify/fix iteration and between page renders) and o. Options.Password is ignored
 // (the file is already open); RasterDPI and MaxIterations apply.
 func (d *Document) ConvertContext(ctx context.Context, p *Profile, o Options) (ConvertResult, error) {
 	return convert.RunContext(ctx, d.r, p, o.convert())

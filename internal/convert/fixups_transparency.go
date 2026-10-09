@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	"image"
 	"runtime"
 	"sort"
@@ -24,6 +25,9 @@ import (
 type transparencyFlattener struct {
 	dpi   int
 	drops *[]RasterDrop
+	// ctx stops dispatching further renders once the run is cancelled; nil
+	// (the registry prototype) never cancels.
+	ctx context.Context
 }
 
 func init() {
@@ -36,6 +40,13 @@ func (transparencyFlattener) Applies(c pdf.Check) bool {
 		return true
 	}
 	return false
+}
+
+func (f transparencyFlattener) runCtx() context.Context {
+	if f.ctx != nil {
+		return f.ctx
+	}
+	return context.Background()
 }
 
 func (f transparencyFlattener) renderDPI() int {
@@ -75,7 +86,7 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		return false
 	}
 
-	pdf.ParallelFor(len(unique), runtime.NumCPU(), func(i int) {
+	pdf.ParallelFor(f.runCtx(), len(unique), runtime.NumCPU(), func(i int) {
 		t := unique[i]
 		switch t.kind {
 		case "image":

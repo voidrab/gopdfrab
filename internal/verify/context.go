@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,6 +13,12 @@ type ValidationContext struct {
 	PageIndex   map[int]int
 	CurrentPage int
 	errs        []pdf.PDFError
+
+	// run is the caller's context, polled by the graph walk so a cancelled
+	// verify stops early; nil never cancels. See stopped.
+	run       context.Context
+	polls     int
+	cancelled bool
 
 	// keyScratch is a shared stack of dict keys reused by every sortedKeys
 	// call during the graph walk, so deterministic key iteration costs no
@@ -90,6 +97,19 @@ type ValidationContext struct {
 	// throwaway contexts built outside a real verify pass, which then decode
 	// uncached.
 	reader *pdf.Reader
+}
+
+// stopped reports whether the run has been cancelled. It is called once per
+// walked node, so it consults ctx only every 256 calls.
+func (c *ValidationContext) stopped() bool {
+	if c.cancelled || c.run == nil {
+		return c.cancelled
+	}
+	c.polls++
+	if c.polls&255 == 0 && c.run.Err() != nil {
+		c.cancelled = true
+	}
+	return c.cancelled
 }
 
 // NewContext returns a ValidationContext whose stream decodes and scans go

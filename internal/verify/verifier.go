@@ -29,10 +29,8 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	return VerifyContext(context.Background(), d, p)
 }
 
-// VerifyContext is Verify honouring ctx cancellation. Verification is bounded
-// by the parser's resource caps, so ctx is checked at entry; callers needing
-// finer cancellation should prefer the batch or convert entry points, which
-// check per file and per fix/raster pass.
+// VerifyContext is Verify honouring ctx cancellation: ctx is checked at entry
+// and polled during the graph walk, and a cancelled run returns ctx.Err().
 func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Result, err error) {
 	defer pdf.RecoverAsError(&err)
 	if err := ctx.Err(); err != nil {
@@ -47,7 +45,10 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 
 	var issues []pdf.PDFError
 	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		issues = verifyPdfA1b(d, p)
+		issues = verifyPdfA1bParts(ctx, d, p).Issues()
+	}
+	if err := ctx.Err(); err != nil {
+		return pdf.Result{}, err
 	}
 	issues = filterByProfile(issues, p)
 
@@ -102,7 +103,7 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	}
 	var pt Parts
 	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		pt = verifyPdfA1bParts(d, p)
+		pt = verifyPdfA1bParts(context.Background(), d, p)
 	}
 	return pt.filter(p), nil
 }
@@ -249,10 +250,6 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 
 // PDF/A-1b (ISO 19005-1:2005)
 
-func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
-	return verifyPdfA1bParts(d, p).Issues()
-}
-
 // structuralPreIssues runs the byte-level checks that lead the A-1b issue
 // list: file header, linearized ID consistency, trailer, and xref format.
 func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
@@ -271,7 +268,9 @@ func structuralPostIssues(d *pdf.Reader) []pdf.PDFError {
 	return append(issues, d.StructErrors()...)
 }
 
-func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
+// verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
+// partial parts; the caller checks run.Err() and discards them.
+func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -314,10 +313,14 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 		return pt
 	}
 
+	if run.Err() != nil {
+		return pt
+	}
 	ctx := &ValidationContext{
 		PageIndex:  pageIndex,
 		reader:     d,
 		schemaOnly: schemaOnly,
+		run:        run,
 	}
 	if !schemaOnly {
 		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
@@ -347,6 +350,9 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	}
 
 	verifyDocument(graph, ctx)
+	if ctx.stopped() || run.Err() != nil {
+		return pt
+	}
 	issues = append(issues, ctx.errs...)
 	if schemaOnly {
 		pt.Graph = issues
@@ -843,7 +849,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		if node == nil {
 			return
 		}
-		if depth > maxWalkDepth {
+		if depth > maxWalkDepth || ctx.stopped() {
 			return
 		}
 

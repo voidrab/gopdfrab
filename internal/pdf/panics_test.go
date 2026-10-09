@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -12,7 +13,7 @@ import (
 func TestParallelForRunsEveryIndex(t *testing.T) {
 	for _, tc := range []struct{ n, workers int }{{0, 4}, {5, 0}, {1, 8}, {100, 3}} {
 		var seen [100]atomic.Int32
-		ParallelFor(tc.n, tc.workers, func(i int) { seen[i].Add(1) })
+		ParallelFor(context.Background(), tc.n, tc.workers, func(i int) { seen[i].Add(1) })
 		for i := range tc.n {
 			want := int32(1)
 			if tc.workers < 1 {
@@ -33,7 +34,7 @@ func TestParallelForWorkerPanicIsRecoverable(t *testing.T) {
 	var ran atomic.Int32
 	run := func() (err error) {
 		defer RecoverAsError(&err)
-		ParallelFor(50, 4, func(i int) {
+		ParallelFor(context.Background(), 50, 4, func(i int) {
 			ran.Add(1)
 			if i == 7 {
 				panic("boom at seven")
@@ -63,5 +64,21 @@ func TestRecoverAsErrorLeavesNormalReturnsAlone(t *testing.T) {
 	}
 	if err := f(); err != sentinel {
 		t.Fatalf("err = %v, want the ordinary error unchanged", err)
+	}
+}
+
+// TestParallelForStopsDispatchOnCancel pins that a cancelled context stops
+// further indices from being dispatched.
+func TestParallelForStopsDispatchOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var ran atomic.Int32
+	ParallelFor(ctx, 1000, 1, func(i int) {
+		ran.Add(1)
+		if i == 9 {
+			cancel()
+		}
+	})
+	if got := ran.Load(); got >= 1000 || got < 10 {
+		t.Fatalf("%d indices ran, want 10 or so of 1000 after cancelling", got)
 	}
 }

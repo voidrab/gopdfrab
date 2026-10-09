@@ -57,6 +57,9 @@ notice.
 
 ### Changed
 
+- `VerifyContext` now polls the context during the object-graph walk instead of
+  only at entry, and Convert's raster passes stop dispatching page renders once
+  the context is cancelled.
 - Damaged-file recovery scans for object headers and `xref` keywords without
   regular expressions: 4–7× faster on the recovery benchmark, and on the
   non-mmap read path it reads the file in 1 MB chunks instead of loading it
