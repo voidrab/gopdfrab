@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/klauspost/compress/zlib"
 
@@ -387,10 +389,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 	// /Length is always recomputed from the bytes actually being written,
 	// regardless of what the source declared (which may have been wrong, or
 	// even a non-integer; see stream.go's tolerant Length handling).
-	lengthClone := entries.Clone()
-	lengthClone.Set("Length", pdf.PDFInteger(len(raw)))
-
-	if err := wr.writeDictEntries(cw, lengthClone); err != nil {
+	if err := wr.writeDict(cw, entries, pdf.PDFInteger(len(raw))); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(cw, "\nstream\n"); err != nil {
@@ -407,9 +406,23 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 // synthetic "_ref"/"_dirty" bookkeeping keys and visiting real keys in sorted
 // order for deterministic, diffable output.
 func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries pdf.Dict) error {
+	return wr.writeDict(cw, entries, nil)
+}
+
+// writeDict is writeDictEntries with an optional /Length override: non-nil
+// length replaces (or adds) the dict's /Length in the output, so a stream's
+// recomputed length needs no clone of its dict.
+func (wr *pdfWriter) writeDict(cw *countingWriter, entries pdf.Dict, length pdf.PDFValue) error {
 	base := len(wr.keyScratch)
 	defer func() { wr.keyScratch = wr.keyScratch[:base] }()
 	keys := wr.sortedEntryKeys(entries)
+	if length != nil {
+		if _, ok := entries.Lookup("Length"); !ok {
+			wr.keyScratch = append(wr.keyScratch, "Length")
+			keys = wr.keyScratch[base:]
+			sort.Strings(keys)
+		}
+	}
 
 	if _, err := io.WriteString(cw, "<<"); err != nil {
 		return err
@@ -418,13 +431,17 @@ func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries pdf.Dict) erro
 		if _, err := io.WriteString(cw, " /"); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(cw, k); err != nil {
+		if err := writeNameBody(cw, k); err != nil {
 			return err
 		}
 		if _, err := io.WriteString(cw, " "); err != nil {
 			return err
 		}
-		if err := wr.writeValue(cw, entries.Get(k)); err != nil {
+		v := entries.Get(k)
+		if length != nil && k == "Length" {
+			v = length
+		}
+		if err := wr.writeValue(cw, v); err != nil {
 			return err
 		}
 	}
@@ -505,7 +522,7 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 	switch val := v.(type) {
 	case pdf.PDFName:
 		if _, err = io.WriteString(w, "/"); err == nil {
-			_, err = io.WriteString(w, val.Value)
+			err = writeNameBody(w, val.Value)
 		}
 	case pdf.PDFString:
 		if _, err = io.WriteString(w, "("); err == nil {
@@ -524,8 +541,16 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 	case pdf.PDFReal:
 		// Plain decimal, never scientific notation: lexer.go's readNumber
 		// only accumulates digits/'.'/'+'/'-', so "1e+10" would not
-		// round-trip through our own reader.
-		_, err = io.WriteString(w, strconv.FormatFloat(float64(val), 'f', -1, 32))
+		// round-trip through our own reader. bitSize 32 matches PDFReal's
+		// float32 storage: the shortest decimal that round-trips it, where 64
+		// would print float32 widening noise (0.1 as 0.10000000149011612).
+		f := float64(val)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			// PDF has no token for either; a fixer computing one (a
+			// division by zero) must not emit "NaN" into the file.
+			f = 0
+		}
+		_, err = io.WriteString(w, strconv.FormatFloat(f, 'f', -1, 32))
 	case pdf.PDFBoolean:
 		s := "false"
 		if bool(val) {
@@ -536,6 +561,39 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 		return false, nil
 	}
 	return true, err
+}
+
+// writeNameBody writes a name's characters after the '/'. A Value from the
+// lexer is already a valid raw token (any #XX escapes kept as written) and
+// passes through unchanged. A name built in code may hold bytes that would end
+// the token -- whitespace or a delimiter -- and those are written as #XX so
+// the name cannot spill into the token stream. '#' itself is left alone, since
+// Value keeps the source's escapes raw.
+func writeNameBody(w io.Writer, name string) error {
+	if !strings.ContainsFunc(name, func(r rune) bool { return r < 0x80 && nameNeedsEscape(byte(r)) }) {
+		_, err := io.WriteString(w, name)
+		return err
+	}
+	b := make([]byte, 0, len(name)+8)
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; nameNeedsEscape(c) {
+			b = append(b, '#', "0123456789ABCDEF"[c>>4], "0123456789ABCDEF"[c&0xF])
+		} else {
+			b = append(b, c)
+		}
+	}
+	_, err := w.Write(b)
+	return err
+}
+
+// nameNeedsEscape reports whether c would end a name token: PDF whitespace
+// or a delimiter (ISO 32000-1 7.2.2).
+func nameNeedsEscape(c byte) bool {
+	switch c {
+	case 0, '\t', '\n', '\f', '\r', ' ', '(', ')', '<', '>', '[', ']', '{', '}', '/', '%':
+		return true
+	}
+	return false
 }
 
 // writeOperand serializes a content-stream operand: any value writeScalar

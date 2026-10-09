@@ -67,6 +67,9 @@ notice.
   renames it into place, so a failed save no longer truncates an existing file
   (including the input, when converting in place). An existing file keeps its
   permissions; a symlink is written through.
+- The writer no longer emits `NaN` or `Inf` for a non-finite real (it writes
+  `0`), and escapes whitespace and delimiters in names built by fixers as `#XX`
+  instead of letting them break the token stream.
 - Damaged-file recovery scans for object headers and `xref` keywords without
   regular expressions: 4–7× faster on the recovery benchmark, and on the
   non-mmap read path it reads the file in 1 MB chunks instead of loading it
