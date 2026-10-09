@@ -63,6 +63,10 @@ notice.
 - A stream that fails to decode is remembered per document, so a decompression
   bomb is inflated up to the size cap once rather than once per check and per
   convert iteration. Inflate buffers grown past 16 MB are no longer pooled.
+- `ConvertResult.Save` is atomic: it writes a temp file beside the target and
+  renames it into place, so a failed save no longer truncates an existing file
+  (including the input, when converting in place). An existing file keeps its
+  permissions; a symlink is written through.
 - Damaged-file recovery scans for object headers and `xref` keywords without
   regular expressions: 4–7× faster on the recovery benchmark, and on the
   non-mmap read path it reads the file in 1 MB chunks instead of loading it
