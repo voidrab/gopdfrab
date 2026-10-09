@@ -51,6 +51,9 @@ notice.
 - A stream whose `/Length` is wrong by more than a few bytes is now recovered
   from its `endstream` keyword and reported under 6.1.7, instead of being
   dropped to null and its content lost.
+- One malformed object inside an object stream no longer loses every other
+  object in that stream, and a wrong cross-reference index into an object stream
+  no longer returns a different object than the one requested.
 
 ## [1.0.0] - 2026-08-26
 
