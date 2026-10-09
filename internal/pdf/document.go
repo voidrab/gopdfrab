@@ -66,8 +66,9 @@ type Reader struct {
 	// data is the full file content as a byte slice (mmap on unix, heap on
 	// other platforms, or the caller-supplied slice for OpenBytes).
 	// nil only for NewRawReader, which drives test-only paths.
-	data  []byte
-	unmap func() error // non-nil when data is mmap'd; called by Close
+	data   []byte
+	unmap  func() error // non-nil when data is mmap'd; called by Close
+	closed bool         // Close has run; later calls are no-ops
 
 	// compressedXref maps an object number to its location inside a
 	// compressed object stream (xref type 2, PDF 1.5+), for objects not
@@ -961,8 +962,13 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 	return index, err
 }
 
-// Close releases all resources held by the Reader.
+// Close releases all resources held by the Reader. It is idempotent: calls
+// after the first return nil, as ConvertResult.Close does.
 func (d *Reader) Close() error {
+	if d.closed {
+		return nil
+	}
+	d.closed = true
 	if d.unmap != nil {
 		if err := d.unmap(); err != nil {
 			d.file.Close()

@@ -10,7 +10,7 @@ import (
 	"github.com/klauspost/compress/zlib"
 )
 
-// filterNames returns the list of filter names applied to a stream.
+// FilterNames returns the list of filter names applied to a stream.
 func FilterNames(filter PDFValue) []string {
 	switch f := filter.(type) {
 	case PDFName:
@@ -200,7 +200,7 @@ func StreamKeyOf(dict PDFDict) (StreamKey, bool) {
 	return StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}, true
 }
 
-// decodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
+// DecodeASCIIHex decodes an ASCIIHexDecode stream: pairs of hex digits,
 // terminated by '>'. Whitespace between pairs is ignored.
 func DecodeASCIIHex(data []byte) ([]byte, error) {
 	out := make([]byte, 0, len(data)/2)
@@ -373,7 +373,7 @@ func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 	}
 }
 
-// scan iterates the content stream, invoking fn for each operator with the
+// Scan iterates the content stream, invoking fn for each operator with the
 // operands collected since the previous operator. It stops at the first thing
 // it cannot read, which Complete reports.
 func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {

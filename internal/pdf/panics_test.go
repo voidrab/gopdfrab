@@ -3,9 +3,13 @@ package pdf
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // TestParallelForRunsEveryIndex pins the pool's basic contract, including the
@@ -96,8 +100,28 @@ func TestValuePointerNeverPanics(t *testing.T) {
 	arr := PDFArray{PDFInteger(1)}
 	b := []byte{1}
 	for _, v := range []PDFValue{d, arr, b} {
-		if ValuePointer(v) == 0 || ValuePointer(v) != ValuePointer(v) {
+		first, again := ValuePointer(v), ValuePointer(v)
+		if first == 0 || first != again {
 			t.Errorf("ValuePointer(%T) not a stable non-zero identity", v)
 		}
+	}
+}
+
+// TestReaderCloseIsIdempotent pins that a second Close is a no-op rather than
+// an "already closed" error from the file, matching ConvertResult.Close.
+func TestReaderCloseIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "in.pdf")
+	if err := os.WriteFile(path, pdfgen.PlainThreeIssue(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("second Close: %v, want nil", err)
 	}
 }

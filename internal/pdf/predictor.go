@@ -53,7 +53,7 @@ func loneParmsFilter(dict PDFDict, n int) int {
 	return 0
 }
 
-// dictInt reads an integer-valued entry from dict, returning def if absent or
+// DictInt reads an integer-valued entry from dict, returning def if absent or
 // not an integer.
 func DictInt(dict PDFDict, key string, def int) int {
 	if v, ok := dict.Entries.Get(key).(PDFInteger); ok {
@@ -96,7 +96,7 @@ func orDefault(v, def int) int {
 	return def
 }
 
-// undoPNGPredictor reverses the PNG-style per-row predictor (ISO 32000-1
+// UndoPNGPredictor reverses the PNG-style per-row predictor (ISO 32000-1
 // 7.4.4.4 / RFC 2083 §6): each output row is prefixed by a one-byte filter
 // type (None/Sub/Up/Average/Paeth) describing how it was encoded relative to
 // the previous row and to already-decoded bytes within the same row.
@@ -180,7 +180,7 @@ func paethPredictor(a, b, c int) int {
 	}
 }
 
-// undoTIFFPredictor reverses TIFF predictor 2 (horizontal differencing),
+// UndoTIFFPredictor reverses TIFF predictor 2 (horizontal differencing),
 // applied per sample within each row.
 func UndoTIFFPredictor(data []byte, columns, colors, bpc int) ([]byte, error) {
 	if bpc != 8 {

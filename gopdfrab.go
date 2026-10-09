@@ -390,7 +390,8 @@ func OpenBytesWithPassword(data, password []byte) (*Document, error) {
 	return &Document{r: r}, nil
 }
 
-// Close ensures the file handle is released.
+// Close releases the file handle and any memory mapping. Calls after the
+// first return nil.
 func (d *Document) Close() error { return d.r.Close() }
 
 // Verify verifies d against the checks enabled in profile p.
