@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -115,5 +116,21 @@ func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestLexerConsecutiveCommentsUseConstantStack pins that a long run of comment
+// lines is skipped iteratively: NextToken used to recurse once per comment.
+// The stack cap turns a regression into a hard failure (a fatal stack
+// overflow) instead of a silent multi-megabyte stack.
+func TestLexerConsecutiveCommentsUseConstantStack(t *testing.T) {
+	data := []byte(strings.Repeat("%c\n", 1_000_000) + "42")
+	l := NewLexerBytes(data, 0)
+	defer l.Release()
+	old := debug.SetMaxStack(8 << 20)
+	defer debug.SetMaxStack(old)
+	tok := l.NextToken()
+	if tok.Type != TokenInteger || tok.IntValue() != 42 {
+		t.Fatalf("token after the comments = %+v, want integer 42", tok)
 	}
 }
