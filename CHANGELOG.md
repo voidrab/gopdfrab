@@ -60,6 +60,9 @@ notice.
 - `VerifyContext` now polls the context during the object-graph walk instead of
   only at entry, and Convert's raster passes stop dispatching page renders once
   the context is cancelled.
+- A stream that fails to decode is remembered per document, so a decompression
+  bomb is inflated up to the size cap once rather than once per check and per
+  convert iteration. Inflate buffers grown past 16 MB are no longer pooled.
 - Damaged-file recovery scans for object headers and `xref` keywords without
   regular expressions: 4–7× faster on the recovery benchmark, and on the
   non-mmap read path it reads the file in 1 MB chunks instead of loading it

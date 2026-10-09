@@ -109,6 +109,11 @@ type Reader struct {
 	// for DecodeStreamCachedConcurrent callers.
 	decodedCache map[StreamKey][]byte
 	decodedMu    sync.Mutex
+	// decodeErrs is decodedCache's negative side, under the same mutex: a
+	// stream that failed to decode fails the same way next time, so every
+	// check family and fix iteration need not re-inflate a decompression bomb
+	// up to the size cap just to fail again.
+	decodeErrs map[StreamKey]error
 
 	// scanCache memoizes ScanStreamFunc's token list keyed by StreamKeyOf, so an
 	// unchanged content stream is lexed/parsed at most once across all of a
@@ -148,8 +153,12 @@ func (d *Reader) DecodeStreamCached(dict PDFDict) ([]byte, error) {
 	if data, ok := d.decodedCache[key]; ok {
 		return data, nil
 	}
+	if err, ok := d.decodeErrs[key]; ok {
+		return nil, err
+	}
 	data, err := DecodeStream(dict)
 	if err != nil {
+		d.rememberDecodeErr(key, err)
 		return nil, err
 	}
 	// Over budget, stop memoizing rather than evicting: a StreamKey is an
@@ -178,12 +187,19 @@ func (d *Reader) DecodeStreamCachedConcurrent(dict PDFDict) ([]byte, error) {
 	}
 	d.decodedMu.Lock()
 	data, hit := d.decodedCache[key]
+	cachedErr, failed := d.decodeErrs[key]
 	d.decodedMu.Unlock()
 	if hit {
 		return data, nil
 	}
+	if failed {
+		return nil, cachedErr
+	}
 	data, err := DecodeStream(dict)
 	if err != nil {
+		d.decodedMu.Lock()
+		d.rememberDecodeErr(key, err)
+		d.decodedMu.Unlock()
 		return nil, err
 	}
 	d.decodedMu.Lock()
@@ -202,6 +218,15 @@ func (d *Reader) DecodeStreamCachedConcurrent(dict PDFDict) ([]byte, error) {
 	return data, nil
 }
 
+// rememberDecodeErr records a failed decode. Errors hold no decoded bytes, so
+// they need no budget.
+func (d *Reader) rememberDecodeErr(key StreamKey, err error) {
+	if d.decodeErrs == nil {
+		d.decodeErrs = map[StreamKey]error{}
+	}
+	d.decodeErrs[key] = err
+}
+
 // AdoptStreamCaches shares src's decoded-stream and token caches with d.
 // Sound because StreamKey identifies RawStream bytes by pointer identity and
 // both Readers are seeded with the same in-memory graph.
@@ -212,6 +237,9 @@ func (d *Reader) AdoptStreamCaches(src *Reader) {
 	if src.decodedCache != nil {
 		d.decodedCache = src.decodedCache
 		d.decodedBytes = src.decodedBytes
+	}
+	if src.decodeErrs != nil {
+		d.decodeErrs = src.decodeErrs
 	}
 	if src.scanCache != nil {
 		d.scanCache = src.scanCache
@@ -232,6 +260,7 @@ func (d *Reader) AdoptStreamCaches(src *Reader) {
 func (d *Reader) ReleaseCaches() {
 	d.decodedMu.Lock()
 	d.decodedCache = nil
+	d.decodeErrs = nil
 	d.decodedBytes = 0
 	d.decodedMu.Unlock()
 

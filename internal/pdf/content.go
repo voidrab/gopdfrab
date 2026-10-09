@@ -34,7 +34,19 @@ var zlibReaderPool = sync.Pool{}
 // reallocating/copying on every decode (unlike a fresh io.ReadAll per call).
 var inflateBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
-// inflateZlib decodes a zlib (FlateDecode/Fl) stream using a pooled decoder.
+// maxInflatePrealloc caps both InflateZlib's pre-sizing and the buffers it
+// returns to inflateBufPool, so one huge stream cannot pin its buffer.
+const maxInflatePrealloc = 16 << 20
+
+// putInflateBuf returns buf to the pool unless a large stream grew it past
+// maxInflatePrealloc; such a buffer is left to the garbage collector.
+func putInflateBuf(buf *bytes.Buffer) {
+	if buf.Cap() <= maxInflatePrealloc {
+		inflateBufPool.Put(buf)
+	}
+}
+
+// InflateZlib decodes a zlib (FlateDecode/Fl) stream using a pooled decoder.
 func InflateZlib(data []byte) ([]byte, error) {
 	br := bytes.NewReader(data)
 
@@ -56,7 +68,6 @@ func InflateZlib(data []byte) ([]byte, error) {
 	buf.Reset()
 	// Pre-size for the typical ~4x Flate ratio, capped so pooled buffers
 	// never pin large allocations.
-	const maxInflatePrealloc = 16 << 20
 	if need := min(len(data)*4, maxInflatePrealloc); buf.Cap() < need {
 		buf.Grow(need - buf.Len())
 	}
@@ -71,7 +82,7 @@ func InflateZlib(data []byte) ([]byte, error) {
 	// kept distinct from the leniency below: it flows through the decode
 	// chokepoint as a reported StreamUndecodable instead of vanishing.
 	if int64(buf.Len()) > capBytes {
-		inflateBufPool.Put(buf)
+		putInflateBuf(buf)
 		return nil, fmt.Errorf("%w: inflate output exceeds %d bytes", ErrOutputTooLarge, capBytes)
 	}
 
@@ -81,12 +92,12 @@ func InflateZlib(data []byte) ([]byte, error) {
 	// result must be copied out before the buffer is returned to the pool,
 	// since Reset() on the next call reuses (and overwrites) its backing array.
 	if err != nil && buf.Len() == 0 {
-		inflateBufPool.Put(buf)
+		putInflateBuf(buf)
 		return nil, err
 	}
 	out := make([]byte, buf.Len())
 	copy(out, buf.Bytes())
-	inflateBufPool.Put(buf)
+	putInflateBuf(buf)
 	return out, nil
 }
 
