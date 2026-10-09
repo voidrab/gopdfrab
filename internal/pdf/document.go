@@ -55,7 +55,7 @@ type Reader struct {
 	// per object. See PDFError.
 	parseDiagnostics []PDFError
 	framingChecked   map[int]bool
-	streamChecked    map[string]bool
+	streamChecked    map[streamCheckKey]bool
 
 	objCache map[int]PDFValue
 
@@ -348,18 +348,31 @@ func (d *Reader) StructErrors() []PDFError {
 	return d.parseDiagnostics
 }
 
+// streamCheckKey dedupes stream-framing diagnostics per object and check.
+type streamCheckKey struct {
+	objNum int
+	check  Check
+}
+
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated
-// per object number and check name.
+// per object number and check.
 func (d *Reader) recordStreamFraming(objNum int, check Check, msg string) {
 	if d.streamChecked == nil {
-		d.streamChecked = map[string]bool{}
+		d.streamChecked = map[streamCheckKey]bool{}
 	}
-	key := fmt.Sprintf("%d:%s", objNum, check.Name())
+	key := streamCheckKey{objNum, check}
 	if d.streamChecked[key] {
 		return
 	}
 	d.streamChecked[key] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, NewError(check, []error{errors.New(msg)}, objNum, nil))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(check, []error{errors.New(msg)}, objNum))
+}
+
+// objectDiagnostic is a document-level diagnostic about indirect object
+// objNum. The object goes in the reference, never the page: an object number
+// is not a page number, and Page drives which pages convert rasterizes.
+func objectDiagnostic(check Check, errs []error, objNum int) PDFError {
+	return NewError(check, errs, 0, &PDFRef{ObjNum: objNum})
 }
 
 // recordFraming records 6.1.8 object-framing violations for an object, at most
@@ -375,7 +388,7 @@ func (d *Reader) recordFraming(objNum int, errs []error) {
 		return
 	}
 	d.framingChecked[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.ObjectFraming, errs, objNum, nil))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(Checks.Structure.ObjectFraming, errs, objNum))
 }
 
 // recordDegraded records that objNum could not be parsed or recovered and was
@@ -422,19 +435,21 @@ func (d *Reader) DegradedObjects() []PDFError { return d.degradedDiags }
 // potentially incomplete.
 func (d *Reader) HasDegradedObjects() bool { return len(d.degradedObjs) > 0 }
 
-// discardObjDiagnostics drops diagnostics recorded for objNum since mark,
-// un-marking their dedup keys so a later successful parse can record its own.
+// discardObjDiagnostics drops the framing diagnostics recorded for objNum
+// since mark, un-marking their dedup keys so a later successful parse can
+// record its own. Degraded/recovered records about the object are kept.
 func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 	kept := d.parseDiagnostics[:mark]
 	for _, e := range d.parseDiagnostics[mark:] {
-		if e.page != objNum {
+		ref, ok := e.ObjectRef()
+		if !ok || ref.ObjNum != objNum || e.check == Checks.Structure.GraphResolutionFailure {
 			kept = append(kept, e)
 			continue
 		}
 		if e.check == Checks.Structure.ObjectFraming {
 			delete(d.framingChecked, objNum)
 		} else {
-			delete(d.streamChecked, fmt.Sprintf("%d:%s", objNum, e.check.Name()))
+			delete(d.streamChecked, streamCheckKey{objNum, e.check})
 		}
 	}
 	d.parseDiagnostics = kept

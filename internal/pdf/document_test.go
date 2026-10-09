@@ -1281,7 +1281,7 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
 	d.framingChecked = map[int]bool{1: true}
-	d.streamChecked = map[string]bool{"x": true}
+	d.streamChecked = map[streamCheckKey]bool{{1, Checks.Structure.EndstreamEOL}: true}
 	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
 
 	d.ReleaseCaches()

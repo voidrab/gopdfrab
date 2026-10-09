@@ -74,6 +74,10 @@ notice.
   collided with an internal bookkeeping key (overwritten on indirect objects,
   and on a direct dictionary it made the writer treat that dictionary as an
   indirect object); `/_dirty` was dropped on write.
+- 6.1.7/6.1.8 object- and stream-framing issues reported the object number as
+  the issue's `Page()`. They are now document-level, with the object in
+  `ObjectRef()`, and no longer steer which pages Convert's raster fallback
+  targets.
 - `VerifyAllContext` honours `Options.Workers` (0 still means
   `runtime.NumCPU`); it used to ignore it.
 - Damaged-file recovery scans for object headers and `xref` keywords without

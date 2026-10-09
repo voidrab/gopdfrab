@@ -34,7 +34,7 @@ func graphResolutionDiags(d *Reader) []PDFError {
 func framingDiagsFor(d *Reader, objNum int) []PDFError {
 	var out []PDFError
 	for _, e := range d.StructErrors() {
-		if e.Check() == Checks.Structure.ObjectFraming && e.Page() == objNum {
+		if ref, ok := e.ObjectRef(); ok && e.Check() == Checks.Structure.ObjectFraming && ref.ObjNum == objNum {
 			out = append(out, e)
 		}
 	}

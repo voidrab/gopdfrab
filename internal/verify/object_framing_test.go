@@ -54,7 +54,11 @@ func TestObjectFramingDiagnosticsInObjectOrder(t *testing.T) {
 	var objs []int
 	for _, e := range d.StructErrors() {
 		if e.Check() == pdf.Checks.Structure.StreamKeywordEOL {
-			objs = append(objs, e.Page())
+			if e.Page() != 0 {
+				t.Errorf("framing diagnostic reports page %d; an object number is not a page", e.Page())
+			}
+			ref, _ := e.ObjectRef()
+			objs = append(objs, ref.ObjNum)
 		}
 	}
 	if len(objs) != 20 {
