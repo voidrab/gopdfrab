@@ -70,6 +70,10 @@ notice.
 - The writer no longer emits `NaN` or `Inf` for a non-finite real (it writes
   `0`), and escapes whitespace and delimiters in names built by fixers as `#XX`
   instead of letting them break the token stream.
+- A document's own `/_ref` or `/_dirty` dictionary keys are kept. `/_ref`
+  collided with an internal bookkeeping key (overwritten on indirect objects,
+  and on a direct dictionary it made the writer treat that dictionary as an
+  indirect object); `/_dirty` was dropped on write.
 - `VerifyAllContext` honours `Options.Workers` (0 still means
   `runtime.NumCPU`); it used to ignore it.
 - Damaged-file recovery scans for object headers and `xref` keywords without
