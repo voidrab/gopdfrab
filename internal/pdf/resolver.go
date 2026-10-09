@@ -166,6 +166,9 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 }
 
 func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
+	if offset < 0 {
+		return nil, fmt.Errorf("object %d: negative offset %d", ref.ObjNum, offset)
+	}
 	var l *Lexer
 	if d.data != nil {
 		l = NewLexerBytes(d.data, offset)
