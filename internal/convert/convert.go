@@ -286,6 +286,8 @@ func convertEach(ctx context.Context, paths []string, p *pdf.Profile, o Options,
 		mu.Lock()
 		defer mu.Unlock()
 		if firstErr != nil {
+			// Never reaches the sink, so nothing else will close it.
+			fr.Result.Close()
 			return
 		}
 		if err := sink(i, fr); err != nil {
@@ -601,13 +603,14 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // TestConvertSeededVerifyMatchesFreshVerify pins the equivalence), so only
 // the byte-level structural checks run against the output and lastParts
 // supplies the graph verdicts. A dirty graph gets today's full verify.
-func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool, hint int) error {
+func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool, hint int) (err error) {
 	var sw spillWriter
 	if loopDoc != nil {
 		sw.grow(int(loopDoc.Size()))
 	}
 	order, err := writer.WriteDocumentIndexed(&sw, trailer, hint)
 	if err != nil {
+		sw.abort()
 		return err
 	}
 	backing, err := sw.finish()
@@ -615,6 +618,14 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 		return err
 	}
 	cr.backing = backing
+	// The caller discards cr on error, so release the output here rather
+	// than leave a spilled temp file to the finalizer.
+	defer func() {
+		if err != nil {
+			backing.close()
+			cr.backing = nil
+		}
+	}()
 
 	// Open the freshly written output for the byte-level verify: mmap'd when it
 	// spilled to a temp file, wrapped in place when it stayed in memory.

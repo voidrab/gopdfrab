@@ -45,6 +45,9 @@ notice.
 - Object-framing diagnostics for objects outside the page graph, and trailer
   recovery, now resolve objects in object-number order, so `Issues` is the same
   on every run.
+- Convert no longer leaves spilled temp files behind when the document writer or
+  the final verify fails, or for `ConvertEach` results that complete after the
+  callback has returned an error.
 
 ## [1.0.0] - 2026-08-26
 
