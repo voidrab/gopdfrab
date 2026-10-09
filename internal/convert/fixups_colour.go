@@ -278,26 +278,11 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 	})
 
 	locals := make([]map[string]int, len(jobs))
-	if workers := min(runtime.NumCPU(), len(jobs)); workers > 0 {
-		ch := make(chan int)
-		var wg sync.WaitGroup
-		wg.Add(workers)
-		for range workers {
-			go func() {
-				defer wg.Done()
-				for i := range ch {
-					local := map[string]int{}
-					scanContent(jobs[i].dict, jobs[i].resources, local)
-					locals[i] = local
-				}
-			}()
-		}
-		for i := range jobs {
-			ch <- i
-		}
-		close(ch)
-		wg.Wait()
-	}
+	pdf.ParallelFor(len(jobs), runtime.NumCPU(), func(i int) {
+		local := map[string]int{}
+		scanContent(jobs[i].dict, jobs[i].resources, local)
+		locals[i] = local
+	})
 	for _, l := range locals {
 		for k, v := range l {
 			counts[k] += v

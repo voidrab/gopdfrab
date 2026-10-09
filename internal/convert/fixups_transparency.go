@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -72,46 +71,32 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		drops     []string
 	}
 	results := make([]result, len(unique))
-	workers := min(runtime.NumCPU(), len(unique))
-	if workers < 1 {
+	if len(unique) == 0 {
 		return false
 	}
 
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			for i := range jobs {
-				t := unique[i]
-				switch t.kind {
-				case "image":
-					fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
-					results[i] = result{fixed: fixed, ok: ok}
-				case "form":
-					// A provably transparency-free group composites the same
-					// without /Group; deleting it (serially, below) skips the
-					// whole rasterization.
-					if canDropGroupSafely(t.dict) {
-						results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
-						continue
-					}
-					fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
-					results[i] = result{fixed: fixed, ok: ok, drops: drops}
-				case "page":
-					_, had := t.dict.Entries.Lookup("Group")
-					t.dict.Entries.Del("Group")
-					results[i] = result{fixed: pdf.PDFDict{}, ok: had}
-				}
+	pdf.ParallelFor(len(unique), runtime.NumCPU(), func(i int) {
+		t := unique[i]
+		switch t.kind {
+		case "image":
+			fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
+			results[i] = result{fixed: fixed, ok: ok}
+		case "form":
+			// A provably transparency-free group composites the same
+			// without /Group; deleting it (serially, below) skips the
+			// whole rasterization.
+			if canDropGroupSafely(t.dict) {
+				results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
+				return
 			}
-		}()
-	}
-	for i := range unique {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
+			fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
+			results[i] = result{fixed: fixed, ok: ok, drops: drops}
+		case "page":
+			_, had := t.dict.Entries.Lookup("Group")
+			t.dict.Entries.Del("Group")
+			results[i] = result{fixed: pdf.PDFDict{}, ok: had}
+		}
+	})
 
 	// Each worker wrote only its own slot, so collecting the drops here --
 	// serially, in target order -- needs no synchronization.

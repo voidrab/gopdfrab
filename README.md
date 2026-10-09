@@ -204,6 +204,7 @@ inspecting message text:
 | `gopdfrab.ErrEncrypted` | an encryption scheme gopdfrab does not implement |
 | `gopdfrab.ErrPasswordRequired` | a correct password is required to open the file |
 | `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced |
+| `gopdfrab.ErrInternal` | a defect in gopdfrab itself, recovered from a panic; please report it with the input file |
 
 An individual object that fails to parse — a wrong cross-reference offset, a
 corrupt body — does not fail the whole document. The object is re-located by

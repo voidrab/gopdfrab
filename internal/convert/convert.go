@@ -331,7 +331,8 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 
 // RunContext is Run honouring ctx cancellation, checked before each verify/fix
 // iteration and each raster pass.
-func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
+func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (_ ConvertResult, err error) {
+	defer pdf.RecoverAsError(&err)
 	graph, err := doc.ResolveGraph()
 	if err != nil {
 		// Per-object degradation makes this rare (pathological cases like the
@@ -739,24 +740,10 @@ func flattenPagesParallel(pages []pageTarget, pageNums []int, dpi int) ([]Raster
 
 	changedFlags := make([]bool, len(unique))
 	dropLists := make([][]string, len(unique))
-	workers := min(runtime.NumCPU(), len(unique))
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			for i := range jobs {
-				p := unique[i]
-				dropLists[i], changedFlags[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox, dpi)
-			}
-		}()
-	}
-	for i := range unique {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
+	pdf.ParallelFor(len(unique), runtime.NumCPU(), func(i int) {
+		p := unique[i]
+		dropLists[i], changedFlags[i] = flattenPageToImage(p.dict, p.resources, p.mediaBox, dpi)
+	})
 
 	changed := false
 	var drops []RasterDrop

@@ -168,13 +168,15 @@ var Checks = pdf.Checks
 // gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
 // ErrUnresolvableGraph: Convert could not resolve the object graph even with
 // per-object degradation, so no output could be produced (the ConvertResult
-// still carries the best-effort verify Result).
+// still carries the best-effort verify Result). ErrInternal: a defect in
+// gopdfrab, recovered from a panic; please report it with the input file.
 var (
 	ErrNotPDF            = pdf.ErrNotPDF
 	ErrDamaged           = pdf.ErrDamaged
 	ErrEncrypted         = pdf.ErrEncrypted
 	ErrPasswordRequired  = pdf.ErrPasswordRequired
 	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
+	ErrInternal          = pdf.ErrInternal
 )
 
 // Options configures a Verify or Convert call. The zero value is the default

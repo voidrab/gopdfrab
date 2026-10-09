@@ -498,8 +498,12 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 		password: password,
 	}
 
-	if err := doc.initializeStructure(); err != nil {
-		src.Close()
+	initialize := func() (err error) {
+		defer RecoverAsError(&err)
+		return doc.initializeStructure()
+	}
+	if err := initialize(); err != nil {
+		doc.Close() // unmaps too, not just the file
 		return nil, fmt.Errorf("failed to parse structure: %w", err)
 	}
 

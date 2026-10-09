@@ -32,7 +32,8 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 // by the parser's resource caps, so ctx is checked at entry; callers needing
 // finer cancellation should prefer the batch or convert entry points, which
 // check per file and per fix/raster pass.
-func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Result, err error) {
+	defer pdf.RecoverAsError(&err)
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -90,7 +91,8 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // profile-filtered. Convert's fix loop uses it so its final output
 // verification can reuse the last in-loop graph verdicts (see
 // serializeAndVerify) while re-running only the byte-level checks.
-func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
+	defer pdf.RecoverAsError(&err)
 	if p == nil {
 		return Parts{}, fmt.Errorf("nil profile")
 	}
@@ -109,7 +111,8 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 // It exists for convert's final output verification: when the serialized
 // graph is byte-for-byte the graph the last in-loop verify already checked,
 // only these byte-level checks can produce new findings against the output.
-func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
+	defer pdf.RecoverAsError(&err)
 	if p == nil {
 		return Parts{}, fmt.Errorf("nil profile")
 	}

@@ -24,6 +24,23 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
+## [Unreleased]
+
+### Added
+
+- `ErrInternal`: a panic inside gopdfrab is recovered at the public entry points
+  and returned as an error wrapping `ErrInternal`, instead of crashing the
+  caller's process. Panics in internal worker goroutines are carried back to the
+  calling goroutine first.
+
+### Fixed
+
+- A stream `/Length` past the end of the file no longer sizes a heap allocation
+  on the non-mmap (Windows) read path.
+- A cross-reference stream offset field too large for `int64` no longer wraps
+  into a negative offset that panicked the lexer.
+- A file whose structure fails to parse is now unmapped, not just closed.
+
 ## [1.0.0] - 2026-08-26
 
 First changelog entry; earlier history lives in the git log.
