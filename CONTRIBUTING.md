@@ -59,7 +59,9 @@ scripts/fuzz.sh 30s     # every Fuzz* target in the module, 30s each
 ```
 
 A crash writes a reproducer under the owning package's `testdata/fuzz` and fails
-the run. Commit that reproducer with the fix.
+the run. That directory is gitignored, so do not commit the file itself: pin the
+input as an ordinary test next to the fix, the way `internal/pdf/crashers_test.go`
+and `fuzz_regressions_test.go` do.
 
 ## The test corpora
 

@@ -132,7 +132,11 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.26.4'
+        # Fuzz on 1.27: 1.26 fails a healthy run at the end of -fuzztime with
+        # "context deadline exceeded" (golang/go#75804, a shutdown race in the
+        # fuzz coordinator; the fix was not backported). The module's 1.24
+        # floor is unaffected -- the floor job still builds and tests it.
+        go-version: '1.27.1'
     - name: Fuzz smoke
       run: ./scripts/fuzz.sh 20s
     - name: Upload crashers
@@ -150,7 +154,11 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.26.4'
+        # Fuzz on 1.27: 1.26 fails a healthy run at the end of -fuzztime with
+        # "context deadline exceeded" (golang/go#75804, a shutdown race in the
+        # fuzz coordinator; the fix was not backported). The module's 1.24
+        # floor is unaffected -- the floor job still builds and tests it.
+        go-version: '1.27.1'
     - name: Fuzz (extended)
       run: ./scripts/fuzz.sh 5m
     - name: Upload crashers
