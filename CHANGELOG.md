@@ -78,6 +78,12 @@ notice.
   the issue's `Page()`. They are now document-level, with the object in
   `ObjectRef()`, and no longer steer which pages Convert's raster fallback
   targets.
+- Encrypted files: revision 5 (AES-256, Adobe Extension Level 3) now
+  authenticates. It was hashed with the revision 6 algorithm, so every
+  password, including the correct one, was rejected. A V4 handler without a
+  key length now defaults to 128 bits instead of 40. A string that fails to
+  decrypt is kept as stored and reported against its object instead of
+  passing silently.
 - `VerifyAllContext` honours `Options.Workers` (0 still means
   `runtime.NumCPU`); it used to ignore it.
 - Damaged-file recovery scans for object headers and `xref` keywords without

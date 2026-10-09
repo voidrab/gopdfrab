@@ -357,6 +357,12 @@ type streamCheckKey struct {
 // recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated
 // per object number and check.
 func (d *Reader) recordStreamFraming(objNum int, check Check, msg string) {
+	d.recordObjectOnce(objNum, check, msg)
+}
+
+// recordObjectOnce records a diagnostic about object objNum, at most once per
+// object and check.
+func (d *Reader) recordObjectOnce(objNum int, check Check, msg string) {
 	if d.streamChecked == nil {
 		d.streamChecked = map[streamCheckKey]bool{}
 	}
