@@ -48,6 +48,9 @@ notice.
 - Convert no longer leaves spilled temp files behind when the document writer or
   the final verify fails, or for `ConvertEach` results that complete after the
   callback has returned an error.
+- A stream whose `/Length` is wrong by more than a few bytes is now recovered
+  from its `endstream` keyword and reported under 6.1.7, instead of being
+  dropped to null and its content lost.
 
 ## [1.0.0] - 2026-08-26
 

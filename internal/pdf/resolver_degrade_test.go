@@ -190,15 +190,15 @@ func TestResolveDegradesBrokenCompressedObject(t *testing.T) {
 }
 
 // TestDiscardKeepsNestedObjectDiagnostics: object 4's parse fails after it
-// nested-resolved object 5 (its indirect /Length, whose value overflows the
-// file). The rollback must drop only object 4's own framing records; object
+// nested-resolved object 5 (its indirect /Length): the stream has no endstream
+// keyword anywhere, so not even the keyword-scan fallback can bound it. The rollback must drop only object 4's own framing records; object
 // 5's survive alongside object 4's degradation.
 func TestDiscardKeepsNestedObjectDiagnostics(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
 	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>")
-	b.Obj(4, "<< /Length 5 0 R >>\nstream\nhi\nendstream")
+	b.Obj(4, "<< /Length 5 0 R >>\nstream\nhi\n")
 	b.Obj(5, "99999")
 	data := b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 	data = bytes.Replace(data, []byte("5 0 obj\n99999"), []byte("5 0 obj 99999"), 1)
