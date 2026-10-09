@@ -63,38 +63,15 @@ func isOversizedDeviceN(v pdf.PDFValue) bool {
 // already uses.
 func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 	changed := false
-	visited := map[uintptr]bool{}
 	visitedForm := map[uintptr]bool{}
-
-	var walk func(v pdf.PDFValue)
-	walk = func(v pdf.PDFValue) {
-		switch val := v.(type) {
-		case pdf.PDFDict:
-			ptr := pdf.ValuePointer(val.Entries)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			if (val.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
-				rewriteDeviceNPageContents(val, resources, visitedForm, &changed)
-				return
-			}
-			for _, child := range val.Entries.All() {
-				walk(child)
-			}
-		case pdf.PDFArray:
-			ptr := pdf.ArrayPointer(val)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			for _, item := range val {
-				walk(item)
-			}
+	walkGraph(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
+			return true
 		}
-	}
-	walk(*trailer)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		rewriteDeviceNPageContents(d, resources, visitedForm, &changed)
+		return false
+	}, nil)
 	return changed
 }
 

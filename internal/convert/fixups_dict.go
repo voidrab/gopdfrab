@@ -42,31 +42,66 @@ func init() {
 // effect on the shared graph -- replacing fn's own copy's HasStream/RawStream
 // fields would not propagate.
 func walkDicts(v pdf.PDFValue, visited map[uintptr]bool, fn func(pdf.PDFDict)) {
-	switch val := v.(type) {
-	case pdf.PDFDict:
-		ptr := pdf.ValuePointer(val.Entries)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		fn(val)
-		for k, child := range val.Entries.All() {
-			if k == "_ref" || k == "_dirty" {
-				continue
-			}
-			walkDicts(child, visited, fn)
-		}
+	walkGraph(v, visited, func(d pdf.PDFDict) bool { fn(d); return true }, nil)
+}
 
-	case pdf.PDFArray:
-		ptr := pdf.ArrayPointer(val)
-		if visited[ptr] {
+// maxGraphWalkDepth bounds walkGraph's recursion, matching the verifier's
+// walk cap so a pathologically nested graph cannot grow the stack unbounded.
+const maxGraphWalkDepth = 1 << 17
+
+// walkGraph is the one graph traversal the fixers share. It visits every dict
+// and array reachable from v once (cycle-safe via visited, depth-capped),
+// skipping the synthetic bookkeeping keys.
+//
+// visit, when non-nil, runs on each dict before its children; returning false
+// skips them. edit, when non-nil, runs on each child value of a dict or array:
+// a replacement it returns is written back into that slot -- the way a fixer
+// changes a stream's RawStream, which no in-place edit of Entries can -- and
+// the walk descends into the replacement.
+func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict) bool, edit func(pdf.PDFValue) (pdf.PDFValue, bool)) {
+	var walk func(v pdf.PDFValue, depth int)
+	descend := func(child pdf.PDFValue, set func(pdf.PDFValue), depth int) {
+		if edit != nil {
+			if updated, ok := edit(child); ok {
+				set(updated)
+				child = updated
+			}
+		}
+		walk(child, depth+1)
+	}
+	walk = func(v pdf.PDFValue, depth int) {
+		if depth > maxGraphWalkDepth {
 			return
 		}
-		visited[ptr] = true
-		for _, child := range val {
-			walkDicts(child, visited, fn)
+		switch val := v.(type) {
+		case pdf.PDFDict:
+			ptr := pdf.ValuePointer(val.Entries)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			if visit != nil && !visit(val) {
+				return
+			}
+			for k, child := range val.Entries.All() {
+				if k == "_ref" || k == "_dirty" {
+					continue
+				}
+				descend(child, func(u pdf.PDFValue) { val.Entries.Set(k, u) }, depth)
+			}
+
+		case pdf.PDFArray:
+			ptr := pdf.ArrayPointer(val)
+			if visited[ptr] {
+				return
+			}
+			visited[ptr] = true
+			for i, child := range val {
+				descend(child, func(u pdf.PDFValue) { val[i] = u }, depth)
+			}
 		}
 	}
+	walk(v, 0)
 }
 
 // clearDict deletes every entry from d except the synthetic "_ref" (so it
