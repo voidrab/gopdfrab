@@ -108,9 +108,20 @@ func applyLimits(decodedMB, residentMB int) {
 	})
 }
 
-// passwordBytes returns nil for the empty string (the empty-password default)
-// and the raw bytes otherwise.
+// passwordEnv names the environment variable read when --password is not
+// given. A command-line password is visible to every user through ps and
+// /proc; the environment of another user's process is not.
+const passwordEnv = "GOPDFRAB_PASSWORD"
+
+// passwordFlagHelp is the --password usage text, shared by both subcommands.
+const passwordFlagHelp = "password for an encrypted input (visible in ps; prefer $" + passwordEnv + ")"
+
+// passwordBytes returns the password to use: the flag value when given, else
+// $GOPDFRAB_PASSWORD, else nil (the empty-password default).
 func passwordBytes(s string) []byte {
+	if s == "" {
+		s = os.Getenv(passwordEnv)
+	}
 	if s == "" {
 		return nil
 	}

@@ -57,6 +57,9 @@ notice.
 
 ### Changed
 
+- CLI: `--password` falls back to `$GOPDFRAB_PASSWORD`, which keeps the password
+  out of the process list. `convert` rejects an output path given both as `-o`
+  and as a second argument, or extra arguments, instead of ignoring one.
 - `VerifyContext` now polls the context during the object-graph walk instead of
   only at entry, and Convert's raster passes stop dispatching page renders once
   the context is cancelled.

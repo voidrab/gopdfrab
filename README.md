@@ -52,7 +52,7 @@ Both subcommands take:
 | Flag | Meaning |
 |---|---|
 | `--profile` | `pdfa1b` (default), `legacy1b`, or `pdf` |
-| `--password` | password for an encrypted input |
+| `--password` | password for an encrypted input. It is visible to other users in `ps`; set `GOPDFRAB_PASSWORD` instead to keep it out of the process list |
 | `--max-decoded-mb` | cap a single stream's decoded output in MB (0 = default 256) |
 | `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64) |
 | `--json` | emit machine-readable JSON |
