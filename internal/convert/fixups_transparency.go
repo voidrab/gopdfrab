@@ -103,9 +103,11 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 			fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
 			results[i] = result{fixed: fixed, ok: ok, drops: drops}
 		case "page":
+			// Only note it: Del shifts the page dict's entries, and other
+			// workers' renders may read this dict (through /Parent or an
+			// annotation's /P), so the delete happens serially below.
 			_, had := t.dict.Entries.Lookup("Group")
-			t.dict.Entries.Del("Group")
-			results[i] = result{fixed: pdf.PDFDict{}, ok: had}
+			results[i] = result{fixed: t.dict, ok: had, dropGroup: true}
 		}
 	})
 
