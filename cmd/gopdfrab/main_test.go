@@ -68,10 +68,10 @@ func veraFixture(t *testing.T) (pass, fail string) {
 func TestVerifyPassFailExitCodes(t *testing.T) {
 	pass, fail := veraFixture(t)
 
-	if code, out, _ := runCLI("verify", pass); code != exitValid || !strings.Contains(out, "[PASS]") {
+	if code, out, _ := runCLI("verify", pass); code != exitValid || !strings.HasPrefix(out, "profile: pdfa1b\n") || !strings.Contains(out, "\nPASS  ") {
 		t.Errorf("verify pass: exit=%d out=%q", code, out)
 	}
-	if code, out, _ := runCLI("verify", fail); code != exitInvalid || !strings.Contains(out, "[FAIL]") {
+	if code, out, _ := runCLI("verify", fail); code != exitInvalid || !strings.Contains(out, "\nFAIL  issues=") {
 		t.Errorf("verify fail: exit=%d out=%q", code, out)
 	}
 }

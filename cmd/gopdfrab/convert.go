@@ -23,6 +23,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 64)")
 	outPath := fs.String("o", "", "output path (default: <input> with a .pdfa.pdf/.fixed.pdf suffix)")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	detail := fs.Bool("detail", false, "list every page and object an issue was found on")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: gopdfrab convert [flags] <input> [output]")
 		fs.PrintDefaults()
@@ -74,7 +75,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if *jsonOut {
 		return printConvertJSON(input, output, cr, stdout, stderr)
 	}
-	return printConvertText(input, output, cr, stdout)
+	return printConvertText(input, output, *profileName, *detail, cr, stdout)
 }
 
 // defaultOutput derives an output path from the input, tagging it by target.
@@ -127,24 +128,27 @@ func printConvertJSON(input, output string, cr gopdfrab.ConvertResult, stdout, s
 	return exitInvalid
 }
 
-func printConvertText(input, output string, cr gopdfrab.ConvertResult, stdout io.Writer) int {
-	fmt.Fprintf(stdout, "%s -> %s (%d iteration(s))\n", input, output, cr.Iterations)
+// printConvertText prints the conversion as "key: value" lines, with any lost
+// content and residual issues beneath their lines, grouped or per location as
+// detail says, in the layout
+// described at the top of report.go.
+func printConvertText(input, output, profileName string, detail bool, cr gopdfrab.ConvertResult, stdout io.Writer) int {
+	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
+	fmt.Fprintf(stdout, "input: %s\noutput: %s\niterations: %d\n", input, output, cr.Iterations)
 	// Loss is reported whatever the verdict: a conformant output can still be
 	// missing something the input had.
 	if len(cr.LostObjects) > 0 {
-		fmt.Fprintf(stdout, "lost: %d object(s) could not be carried over\n", len(cr.LostObjects))
-		for _, e := range cr.LostObjects {
-			fmt.Fprintf(stdout, "    %s\n", e.String())
-		}
+		writeIssueList(stdout, cr.LostObjects, detail, func(distinct int) string {
+			return fmt.Sprintf("lost: objects=%d distinct=%d", len(cr.LostObjects), distinct)
+		})
 	}
 	if cr.Result.Valid {
 		fmt.Fprintln(stdout, "result: conformant")
 		return exitValid
 	}
 	residual := cr.Residual()
-	fmt.Fprintf(stdout, "result: %d residual issue(s)\n", len(residual))
-	for _, iss := range residual {
-		fmt.Fprintf(stdout, "    %s\n", iss.String())
-	}
+	writeIssueList(stdout, residual, detail, func(distinct int) string {
+		return fmt.Sprintf("result: residual issues=%d distinct=%d", len(residual), distinct)
+	})
 	return exitInvalid
 }

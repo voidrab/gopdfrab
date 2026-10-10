@@ -29,6 +29,16 @@ notice.
 ### Changed
 
 - Font parsing and the renderer moved into their own internal packages.
+- CLI: issues are grouped into one line per check and message, with a count,
+  the pages as ranges and the number of objects; `--detail` lists every location.
+- CLI: the profile is named once in a `profile:` header instead of
+  `PDF/A violation` on every issue line.
+- CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
+  described in the README. `--json` is unchanged.
+
+### Fixed
+
+- `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
 
 ## [1.1.0] - 2026-10-10
 
