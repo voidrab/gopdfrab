@@ -1412,3 +1412,42 @@ func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 		t.Error("expected AdvanceWidthMismatch when /Widths ignores the /Differences remapping")
 	}
 }
+
+// type1CoverageFixture returns a descriptor embedding buildType1Font's program
+// (one glyph, /A, 500 wide) with the given CharSet, and a font dictionary with
+// the given /Encoding.
+func type1CoverageFixture(charSet pdf.PDFValue, encoding pdf.PDFValue) (v, desc pdf.PDFDict) {
+	desc = pdf.NewPDFDict()
+	desc.Entries.Set("FontFile", streamDict(string(buildType1Font())))
+	desc.Entries.Set("CharSet", charSet)
+	v = pdf.NewPDFDict()
+	if encoding != nil {
+		v.Entries.Set("Encoding", encoding)
+	}
+	return v, desc
+}
+
+// TestType1SubsetCharSetHexString covers 6.3.5: CharSet is a string, and a
+// hexadecimal string is as valid as a literal one. A CharSet written in hex
+// that omits a glyph the program defines must be reported just like the
+// literal form.
+func TestType1SubsetCharSetHexString(t *testing.T) {
+	winAnsi := pdf.PDFName{Value: "WinAnsiEncoding"}
+	widths := pdf.PDFArray{pdf.PDFInteger(500)} // code 65, /A
+
+	// "/Zzz" in hex: lists glyphs, but not /A.
+	v, desc := type1CoverageFixture(pdf.PDFHexString{Value: "2F5A7A7A"}, winAnsi)
+	ctx := &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 65, widths, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.Type1SubsetCharSet) {
+		t.Error("a hex-string CharSet omitting /A was not reported")
+	}
+
+	// "/A" in hex lists the glyph: consistent.
+	v, desc = type1CoverageFixture(pdf.PDFHexString{Value: "2F41"}, winAnsi)
+	ctx = &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 65, widths, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("a consistent hex-string CharSet was reported: %v", issueKeys(ctx.Issues()))
+	}
+}

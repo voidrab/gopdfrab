@@ -26,6 +26,8 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	switch cs := charSetVal.(type) {
 	case pdf.PDFString:
 		charSetStr = cs.Value
+	case pdf.PDFHexString:
+		charSetStr = string(pdf.DecodePDFHexStringBytes(cs.Value))
 	default:
 		return
 	}
