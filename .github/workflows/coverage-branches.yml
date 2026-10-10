@@ -1,0 +1,31 @@
+# Quick feedback for the 100%-coverage effort: every push to the umbrella
+# branch or one of its per-unit sub-branches runs the short test suite and
+# prints per-package coverage. The full matrix in go.yml still runs on the
+# PR into main.
+
+name: Coverage branches
+
+on:
+  push:
+    branches: [ "test/coverage-100", "test/coverage-100-**" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  test-short:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.26.4'
+
+    - name: Test (short)
+      run: |
+        PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
+        go test -short -cover $PKGS
