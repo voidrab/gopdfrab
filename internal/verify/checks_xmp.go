@@ -323,9 +323,8 @@ func checkExtPropertyValueTypes(data []byte, schemas []extSchema) []pdf.PDFError
 		return nil
 	}
 
-	if i := bytes.IndexByte(data, '<'); i > 0 {
-		data = data[i:]
-	}
+	// data arrives with any leading BOM or white-space already stripped by
+	// validateExtSchemas, its only caller.
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = false
 
@@ -1465,9 +1464,8 @@ func xmpCheckValueRule(rule xmpValueRule, value string) string {
 // checkXMPPropertySchemas validates that XMP properties are used in accordance
 // with their definitions in XMP 2004 (PDF/A-1b clause 6.7.2).
 func checkXMPPropertySchemas(data []byte) []pdf.PDFError {
-	if i := bytes.IndexByte(data, '<'); i > 0 {
-		data = data[i:]
-	}
+	// data arrives with any leading BOM or white-space already stripped by
+	// validateExtSchemas, its only caller.
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = false
 
