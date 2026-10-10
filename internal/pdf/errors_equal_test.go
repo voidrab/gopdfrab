@@ -10,13 +10,18 @@ import (
 // document-level, object-ref, and message-list branches.
 func TestPDFErrorString(t *testing.T) {
 	c := Check{clause: "6.3.4", subclause: 2}
-	ref := PDFRef{ObjNum: 7}
+	ref := PDFRef{ObjNum: 7, GenNum: 1}
 	e := NewError(c, []error{errors.New("first"), errors.New("second")}, 3, &ref)
 	s := e.String()
-	for _, want := range []string{"6.3.4", "/2", "page 3", "ref", "first", "second"} {
+	for _, want := range []string{"6.3.4", "/2", "page 3", "ref 7 1 R", "first", "second"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("String()=%q missing %q", s, want)
 		}
+	}
+	// The ref is a pointer field; it must print as a PDF reference, not as
+	// fmt's rendering of a pointer to a struct.
+	if strings.Contains(s, "&{") {
+		t.Errorf("String()=%q prints the ref pointer", s)
 	}
 	if e.Error() != s {
 		t.Error("Error() should equal String()")

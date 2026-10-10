@@ -30,6 +30,10 @@ notice.
 
 - Font parsing and the renderer moved into their own internal packages.
 
+### Fixed
+
+- `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
+
 ## [1.1.0] - 2026-10-10
 
 ### Added
