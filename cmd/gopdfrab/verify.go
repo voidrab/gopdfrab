@@ -19,6 +19,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
 	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 64)")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	detail := fs.Bool("detail", false, "list every page and object an issue was found on")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: gopdfrab verify [flags] <path-or-dir>...")
 		fs.PrintDefaults()
@@ -58,7 +59,7 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if *jsonOut {
 		return printVerifyJSON(results, stdout, stderr)
 	}
-	return printVerifyText(results, *profileName, stdout)
+	return printVerifyText(results, *profileName, *detail, stdout)
 }
 
 // verifyFileJSON is the per-file wire shape for `verify --json`.
@@ -96,9 +97,10 @@ func printVerifyJSON(results []gopdfrab.FileResult[gopdfrab.Result], stdout, std
 }
 
 // printVerifyText prints the profile once, then a line per file with the
-// file's issues folded beneath it, then a summary. The layout is described at
+// file's issues beneath it, grouped or per location as detail says, then a
+// summary. The layout is described at
 // the top of report.go.
-func printVerifyText(results []gopdfrab.FileResult[gopdfrab.Result], profileName string, stdout io.Writer) int {
+func printVerifyText(results []gopdfrab.FileResult[gopdfrab.Result], profileName string, detail bool, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
 	pass, fail, errCount := 0, 0, 0
 	code := exitValid
@@ -112,9 +114,9 @@ func printVerifyText(results []gopdfrab.FileResult[gopdfrab.Result], profileName
 			fmt.Fprintf(stdout, "PASS  %s\n", r.Path)
 			pass++
 		default:
-			folded := foldIssues(r.Result.Issues)
-			fmt.Fprintf(stdout, "FAIL  issues=%d distinct=%d  %s\n", len(r.Result.Issues), len(folded), r.Path)
-			writeIssues(stdout, folded)
+			writeIssueList(stdout, r.Result.Issues, detail, func(distinct int) string {
+				return fmt.Sprintf("FAIL  issues=%d distinct=%d  %s", len(r.Result.Issues), distinct, r.Path)
+			})
 			fail++
 			if code < exitInvalid {
 				code = exitInvalid

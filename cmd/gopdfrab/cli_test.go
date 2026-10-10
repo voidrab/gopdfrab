@@ -237,7 +237,7 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	cr := nonConformantResult(t)
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", cr, &stdout); code != exitInvalid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitInvalid {
 		t.Errorf("printConvertText: exit=%d, want %d", code, exitInvalid)
 	}
 	if !strings.Contains(stdout.String(), "result: residual issues=") {
@@ -273,7 +273,7 @@ func TestConvertPrintersReportLostContent(t *testing.T) {
 	}
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", cr, &stdout); code != exitValid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitValid {
 		t.Errorf("printConvertText: exit=%d, want %d for a conformant output", code, exitValid)
 	}
 	if !strings.Contains(stdout.String(), "lost: objects=1 distinct=1") ||
