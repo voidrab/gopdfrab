@@ -1,30 +1,25 @@
-package convert
+package fontprog
 
 import (
 	"encoding/binary"
 	"fmt"
 	"sort"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// This file is CW-4's write side: a minimal TrueType subsetter and sfnt
-// table-repacker.
-
-// subsetTrueType returns a minimal valid sfnt program derived from src,
+// SubsetTrueType returns a minimal valid sfnt program derived from src,
 // containing only the glyphs reachable from unicodes (via src's own (3,1)
 // cmap) plus the transitive closure of any composite-glyph components, with
 // a single (3,1) format-4 cmap mapping each resolved unicode to its new,
 // densely-renumbered glyph ID. Unicodes absent from src's cmap are silently
 // skipped. Glyph 0 (.notdef) is always retained.
-func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
-	tables, ok := verify.ParseSfnt(src)
+func SubsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
+	tables, ok := ParseSfnt(src)
 	if !ok {
-		return nil, fmt.Errorf("subsetTrueType: not a valid sfnt")
+		return nil, fmt.Errorf("SubsetTrueType: not a valid sfnt")
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	gidMap := ParseCmapFormat4(TTWindowsBMPCmap(tables))
 	if gidMap == nil {
-		return nil, fmt.Errorf("subsetTrueType: source has no usable (3,1) cmap")
+		return nil, fmt.Errorf("SubsetTrueType: source has no usable (3,1) cmap")
 	}
 
 	type resolved struct {
@@ -49,7 +44,7 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 	for len(queue) > 0 {
 		gid := queue[0]
 		queue = queue[1:]
-		for _, c := range glyfComponents(glyfRecord(tables, gid)) {
+		for _, c := range GlyfComponents(GlyfRecord(tables, gid)) {
 			addGID(c)
 		}
 	}
@@ -73,23 +68,23 @@ func subsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 
 	out := buildSubsetTables(tables, len(oldGIDs), oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 1, newCmap)
-	return packSfnt(out), nil
+	return PackSfnt(out), nil
 }
 
-// subsetTrueTypeSymbolic returns a minimal sfnt program for a symbolic simple
+// SubsetTrueTypeSymbolic returns a minimal sfnt program for a symbolic simple
 // font: the glyph for each code's unicode (resolved via src's (3,1) cmap) is
 // exposed through a single (3,0) format-4 cmap under both the raw code and
 // its 0xF000-offset alias, so untouched content-stream bytes keep selecting
 // the glyph the code originally meant. Codes whose unicode is absent from src
 // are silently skipped; callers must pre-check coverage.
-func subsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, error) {
-	tables, ok := verify.ParseSfnt(src)
+func SubsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, error) {
+	tables, ok := ParseSfnt(src)
 	if !ok {
-		return nil, fmt.Errorf("subsetTrueTypeSymbolic: not a valid sfnt")
+		return nil, fmt.Errorf("SubsetTrueTypeSymbolic: not a valid sfnt")
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	gidMap := ParseCmapFormat4(TTWindowsBMPCmap(tables))
 	if gidMap == nil {
-		return nil, fmt.Errorf("subsetTrueTypeSymbolic: source has no usable (3,1) cmap")
+		return nil, fmt.Errorf("SubsetTrueTypeSymbolic: source has no usable (3,1) cmap")
 	}
 
 	type resolved struct {
@@ -117,7 +112,7 @@ func subsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 	for len(queue) > 0 {
 		gid := queue[0]
 		queue = queue[1:]
-		for _, c := range glyfComponents(glyfRecord(tables, gid)) {
+		for _, c := range GlyfComponents(GlyfRecord(tables, gid)) {
 			addGID(c)
 		}
 	}
@@ -143,10 +138,10 @@ func subsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 
 	out := buildSubsetTables(tables, len(oldGIDs), oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 0, newCmap)
-	return packSfnt(out), nil
+	return PackSfnt(out), nil
 }
 
-// subsetTrueTypeForCID rebuilds src so that the glyph for each unicode in
+// SubsetTrueTypeForCID rebuilds src so that the glyph for each unicode in
 // targetGID lands at EXACTLY its given output glyph ID, rather than an
 // auto-assigned dense one -- required because the verifier's CID TrueType
 // checks (validateCIDTrueTypeSubset/Metrics, checks_font_program.go) look up
@@ -156,14 +151,14 @@ func subsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 // expected to have already filtered for resolvability). Any output GID in
 // [0, max(targetGID)] not assigned a glyph this way becomes an empty
 // placeholder, since /W only ever references the CIDs the caller asked for.
-func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
-	tables, ok := verify.ParseSfnt(src)
+func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
+	tables, ok := ParseSfnt(src)
 	if !ok {
-		return nil, fmt.Errorf("subsetTrueTypeForCID: not a valid sfnt")
+		return nil, fmt.Errorf("SubsetTrueTypeForCID: not a valid sfnt")
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	gidMap := ParseCmapFormat4(TTWindowsBMPCmap(tables))
 	if gidMap == nil {
-		return nil, fmt.Errorf("subsetTrueTypeForCID: source has no usable (3,1) cmap")
+		return nil, fmt.Errorf("SubsetTrueTypeForCID: source has no usable (3,1) cmap")
 	}
 
 	remap := map[int]int{}
@@ -193,7 +188,7 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 	for len(queue) > 0 {
 		oldGID := queue[0]
 		queue = queue[1:]
-		for _, c := range glyfComponents(glyfRecord(tables, oldGID)) {
+		for _, c := range GlyfComponents(GlyfRecord(tables, oldGID)) {
 			if _, already := remap[c]; !already {
 				place(c, nextClosureGID)
 				nextClosureGID++
@@ -203,18 +198,18 @@ func subsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 1, nil)
-	return packSfnt(out), nil
+	return PackSfnt(out), nil
 }
 
-// promoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
+// PromoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
 // outline) glyph becomes an explicit zero-contour record, leaving all real
 // outlines, metrics and every other sfnt table byte-for-byte identical.
-func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
-	tables, ok := verify.ParseSfnt(data)
+func PromoteEmptyGlyphs(data []byte) ([]byte, bool) {
+	tables, ok := ParseSfnt(data)
 	if !ok {
 		return data, false
 	}
-	n := verify.TTNumGlyphs(tables)
+	n := TTNumGlyphs(tables)
 	if n == 0 {
 		return data, false
 	}
@@ -223,7 +218,7 @@ func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
 	loca := make([]byte, 4*(n+1))
 	for gid := range n {
 		binary.BigEndian.PutUint32(loca[gid*4:], uint32(len(glyf)))
-		rec := glyfRecord(tables, gid)
+		rec := GlyfRecord(tables, gid)
 		if len(rec) == 0 {
 			rec = emptyGlyfRecord
 			changed = true
@@ -244,7 +239,7 @@ func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
 		binary.BigEndian.PutUint16(head[50:52], 1) // long loca format
 	}
 	tables["head"] = head
-	return packSfnt(tables), true
+	return PackSfnt(tables), true
 }
 
 // buildSubsetTables rebuilds glyf/loca/hmtx/hhea/maxp/head for an output
@@ -252,7 +247,7 @@ func promoteEmptyGlyphs(data []byte) ([]byte, bool) {
 // source glyph to copy into that output slot -- any newGID missing from
 // oldGIDOf becomes an empty placeholder glyph -- remapping composite
 // component references through remap (source GID -> output GID). Shared by
-// subsetTrueType's dense renumbering and subsetTrueTypeForCID's sparse,
+// SubsetTrueType's dense renumbering and SubsetTrueTypeForCID's sparse,
 // caller-dictated placement.
 func buildSubsetTables(tables map[string][]byte, outputGIDs int, oldGIDOf, remap map[int]int) map[string][]byte {
 	var glyf []byte
@@ -260,10 +255,10 @@ func buildSubsetTables(tables map[string][]byte, outputGIDs int, oldGIDOf, remap
 	for newGID := range outputGIDs {
 		binary.BigEndian.PutUint32(loca[newGID*4:], uint32(len(glyf)))
 		if oldGID, ok := oldGIDOf[newGID]; ok {
-			rec := remapGlyfComponents(glyfRecord(tables, oldGID), remap)
+			rec := remapGlyfComponents(GlyfRecord(tables, oldGID), remap)
 			if len(rec) == 0 {
 				// A genuinely blank glyph (e.g. space) commonly has zero-length
-				// loca data, but ttGlyphPresent (checks_font_program.go) only
+				// loca data, but TTGlyphPresent (sfnt.go) only
 				// exempts an empty outline when the glyph's advance width is
 				// also zero -- emit an explicit zero-contour record instead
 				// (an equally valid TrueType encoding of "draws nothing") so a
@@ -311,37 +306,37 @@ func buildSubsetTables(tables map[string][]byte, outputGIDs int, oldGIDOf, remap
 	return out
 }
 
-// trimTrueTypeCmapToSingleSubtable returns src with its cmap table reduced to
+// TrimTrueTypeCmapToSingleSubtable returns src with its cmap table reduced to
 // a single (3,1) format-4 subtable (the spec-mandated shape for a symbolic
 // TrueType font, 6.3.7), leaving every other table -- including glyf/loca, so
 // glyph shapes and mapping are unaffected -- byte-for-byte unchanged. Only
 // format-4 source cmaps are supported; other subtable formats return an
 // error so the caller can leave the violation as residual rather than risk a
 // silently-wrong rebuild.
-func trimTrueTypeCmapToSingleSubtable(src []byte) ([]byte, error) {
-	tables, ok := verify.ParseSfnt(src)
+func TrimTrueTypeCmapToSingleSubtable(src []byte) ([]byte, error) {
+	tables, ok := ParseSfnt(src)
 	if !ok {
-		return nil, fmt.Errorf("trimTrueTypeCmapToSingleSubtable: not a valid sfnt")
+		return nil, fmt.Errorf("TrimTrueTypeCmapToSingleSubtable: not a valid sfnt")
 	}
-	platform, encoding, gidMap, ok := firstFormat4CmapSubtable(tables)
+	platform, encoding, gidMap, ok := FirstFormat4CmapSubtable(tables)
 	if !ok {
-		return nil, fmt.Errorf("trimTrueTypeCmapToSingleSubtable: no format-4 cmap subtable found")
+		return nil, fmt.Errorf("TrimTrueTypeCmapToSingleSubtable: no format-4 cmap subtable found")
 	}
 	rebuilt := map[string][]byte{}
 	for tag, data := range tables {
 		rebuilt[tag] = data
 	}
 	rebuilt["cmap"] = buildCmapFormat4Table(platform, encoding, gidMap)
-	return packSfnt(rebuilt), nil
+	return PackSfnt(rebuilt), nil
 }
 
-// firstFormat4CmapSubtable prefers the (3,1) Windows Unicode BMP subtable
+// FirstFormat4CmapSubtable prefers the (3,1) Windows Unicode BMP subtable
 // (ttWindowsBMPCmap), the common and most useful case; if absent, it falls
 // back to the first subtable in the cmap's own directory order that
 // parseCmapFormat4 can read -- a symbolic font's surviving subtable is
 // commonly (3,0) or (1,0) instead.
-func firstFormat4CmapSubtable(tables map[string][]byte) (platform, encoding uint16, gidMap map[uint16]uint16, ok bool) {
-	if m := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables)); m != nil {
+func FirstFormat4CmapSubtable(tables map[string][]byte) (platform, encoding uint16, gidMap map[uint16]uint16, ok bool) {
+	if m := ParseCmapFormat4(TTWindowsBMPCmap(tables)); m != nil {
 		return 3, 1, m, true
 	}
 	cmap := tables["cmap"]
@@ -360,16 +355,16 @@ func firstFormat4CmapSubtable(tables map[string][]byte) (platform, encoding uint
 		if off+2 > len(cmap) {
 			continue
 		}
-		if m := verify.ParseCmapFormat4(cmap[off:]); m != nil {
+		if m := ParseCmapFormat4(cmap[off:]); m != nil {
 			return p, e, m, true
 		}
 	}
 	return 0, 0, nil, false
 }
 
-// glyfRecord returns the raw glyf bytes for gid, or nil if gid is out of
+// GlyfRecord returns the raw glyf bytes for gid, or nil if gid is out of
 // range or has an empty outline (e.g. space).
-func glyfRecord(tables map[string][]byte, gid int) []byte {
+func GlyfRecord(tables map[string][]byte, gid int) []byte {
 	loca := tables["loca"]
 	glyf := tables["glyf"]
 	head := tables["head"]
@@ -397,9 +392,9 @@ func glyfRecord(tables map[string][]byte, gid int) []byte {
 	return glyf[start:end]
 }
 
-// glyfIsComposite reports whether a glyf record's numberOfContours is
+// GlyfIsComposite reports whether a glyf record's numberOfContours is
 // negative, the TrueType signal for a composite (compound) glyph.
-func glyfIsComposite(rec []byte) bool {
+func GlyfIsComposite(rec []byte) bool {
 	return len(rec) >= 2 && int16(binary.BigEndian.Uint16(rec)) < 0
 }
 
@@ -423,10 +418,10 @@ func componentRecordSize(flags uint16) int {
 	return size
 }
 
-// glyfComponents returns the component glyph IDs referenced by a composite
+// GlyfComponents returns the component glyph IDs referenced by a composite
 // glyph record, or nil for a simple glyph (no outline data, or contours >= 0).
-func glyfComponents(rec []byte) []int {
-	if !glyfIsComposite(rec) {
+func GlyfComponents(rec []byte) []int {
+	if !GlyfIsComposite(rec) {
 		return nil
 	}
 	var gids []int
@@ -446,7 +441,7 @@ func glyfComponents(rec []byte) []int {
 // glyphIndex rewritten through remap, leaving a simple glyph's bytes
 // unchanged (returned as-is, no copy needed).
 func remapGlyfComponents(rec []byte, remap map[int]int) []byte {
-	if !glyfIsComposite(rec) {
+	if !GlyfIsComposite(rec) {
 		return rec
 	}
 	out := append([]byte(nil), rec...)
@@ -583,11 +578,11 @@ func tableChecksum(b []byte) uint32 {
 // (checksum of the whole file with checkSumAdjustment itself zeroed).
 const sfntChecksumAdjustmentMagic = 0xB1B0AFBA
 
-// packSfnt assembles tables into a complete sfnt binary: a sorted table
+// PackSfnt assembles tables into a complete sfnt binary: a sorted table
 // directory with correct offsets/lengths/per-table checksums, 4-byte-aligned
 // table data, and (if a 'head' table is present) a correctly patched
 // checkSumAdjustment.
-func packSfnt(tables map[string][]byte) []byte {
+func PackSfnt(tables map[string][]byte) []byte {
 	tags := make([]string, 0, len(tables))
 	for t := range tables {
 		tags = append(tags, t)

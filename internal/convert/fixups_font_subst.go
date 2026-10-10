@@ -5,11 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 
@@ -23,108 +23,18 @@ func init() {
 	registerFixer(trueTypeEncodingFixer{})
 }
 
-//go:embed assets/fonts/LiberationSans-Regular.ttf
-var libSansRegular []byte
-
-//go:embed assets/fonts/LiberationSans-Bold.ttf
-var libSansBold []byte
-
-//go:embed assets/fonts/LiberationSans-Italic.ttf
-var libSansItalic []byte
-
-//go:embed assets/fonts/LiberationSans-BoldItalic.ttf
-var libSansBoldItalic []byte
-
-//go:embed assets/fonts/LiberationSerif-Regular.ttf
-var libSerifRegular []byte
-
-//go:embed assets/fonts/LiberationSerif-Bold.ttf
-var libSerifBold []byte
-
-//go:embed assets/fonts/LiberationSerif-Italic.ttf
-var libSerifItalic []byte
-
-//go:embed assets/fonts/LiberationSerif-BoldItalic.ttf
-var libSerifBoldItalic []byte
-
-//go:embed assets/fonts/LiberationMono-Regular.ttf
-var libMonoRegular []byte
-
-//go:embed assets/fonts/LiberationMono-Bold.ttf
-var libMonoBold []byte
-
-//go:embed assets/fonts/LiberationMono-Italic.ttf
-var libMonoItalic []byte
-
-//go:embed assets/fonts/LiberationMono-BoldItalic.ttf
-var libMonoBoldItalic []byte
-
-//go:embed assets/fonts/NotoSansSymbols2-Regular.ttf
-var notoSymbols2 []byte
-
-//go:embed assets/fonts/NotoSansSymbols-VariableFont_wght.ttf
-var notoSymbols []byte
-
-type liberationFace struct {
-	data                            []byte
-	serif, fixedPitch, italic, bold bool
-}
-
-// pickLiberationFace chooses a bundled Liberation style to substitute for a
-// non-conformant font, from its FontDescriptor flags/weight and BaseFont
-// name (descriptors are sometimes incomplete, so the name is a fallback).
-func pickLiberationFace(desc pdf.PDFDict, baseFont string) liberationFace {
-	flags := 0
-	if f, ok := desc.Entries.Get("Flags").(pdf.PDFInteger); ok {
-		flags = int(f)
-	}
-	lower := strings.ToLower(baseFont)
-	serif := flags&0x2 != 0 || strings.Contains(lower, "times") || strings.Contains(lower, "serif") ||
-		strings.Contains(lower, "georgia") || strings.Contains(lower, "garamond") || strings.Contains(lower, "minion")
-	fixedPitch := flags&0x1 != 0 || strings.Contains(lower, "courier") || strings.Contains(lower, "mono") ||
-		strings.Contains(lower, "consol")
-	italic := flags&0x40 != 0 || strings.Contains(lower, "italic") || strings.Contains(lower, "oblique")
-	bold := flags&0x40000 != 0 || strings.Contains(lower, "bold")
-	if fw, ok := desc.Entries.Get("FontWeight").(pdf.PDFInteger); ok && fw >= 600 {
-		bold = true
-	}
-
-	pick := func(regular, b, i, bi []byte) []byte {
-		switch {
-		case bold && italic:
-			return bi
-		case bold:
-			return b
-		case italic:
-			return i
-		default:
-			return regular
-		}
-	}
-	var data []byte
-	switch {
-	case fixedPitch:
-		data = pick(libMonoRegular, libMonoBold, libMonoItalic, libMonoBoldItalic)
-	case serif:
-		data = pick(libSerifRegular, libSerifBold, libSerifItalic, libSerifBoldItalic)
-	default:
-		data = pick(libSansRegular, libSansBold, libSansItalic, libSansBoldItalic)
-	}
-	return liberationFace{data: data, serif: serif, fixedPitch: fixedPitch, italic: italic, bold: bold}
-}
-
 // substituteFlags builds a FontDescriptor /Flags value for a substituted
 // font: always non-symbolic, since substitution always resolves glyphs via
 // WinAnsi/Unicode rather than a symbolic cmap.
-func substituteFlags(face liberationFace) pdf.PDFInteger {
+func substituteFlags(face fontsubst.Face) pdf.PDFInteger {
 	flags := 32
-	if face.serif {
+	if face.Serif {
 		flags |= 0x2
 	}
-	if face.fixedPitch {
+	if face.FixedPitch {
 		flags |= 0x1
 	}
-	if face.italic {
+	if face.Italic {
 		flags |= 0x40
 	}
 	return pdf.PDFInteger(flags)
@@ -177,7 +87,7 @@ func ttScaledCapHeight(tables map[string][]byte, fallback int) int {
 }
 
 func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
-	return verify.SimpleFontCodeToUnicode(enc)
+	return fontprog.SimpleFontCodeToUnicode(enc)
 }
 
 // simpleFontUsedUnicodes resolves the Unicode values a simple font dict
@@ -254,7 +164,7 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 	if !fcOK || !lcOK || !wOK {
 		return false
 	}
-	subset := verify.SubsetTagRe.MatchString(baseFont.Value)
+	subset := fontprog.SubsetTagRe.MatchString(baseFont.Value)
 	if !subset {
 		return false
 	}
@@ -289,7 +199,7 @@ func substituteCoversUsage(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, co
 		if !ok || gid == 0 {
 			return false
 		}
-		return verify.TTAdvanceWidth(tables, int(gid)) >= 0
+		return fontprog.TTAdvanceWidth(tables, int(gid)) >= 0
 	}
 
 	var codes map[int]bool
@@ -341,7 +251,7 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 	// The substitute keeps the content-stream bytes, so every used code must
 	// mean the same thing under the declared encoding as it originally did;
 	// otherwise a symbolic substitute preserves the codes' meanings directly.
-	origTable, baseKnown := originalSimpleFontCodeToUnicode(d)
+	origTable, baseKnown := fontprog.OriginalSimpleFontCodeToUnicode(d)
 	if !encodingRewritePreservesMeaning(d, usedCodes, origTable, codeToUnicode) {
 		return substituteSimpleFontSymbolic(d, usedCodes, origTable, baseKnown, sharedDescs, nextObjNum)
 	}
@@ -351,16 +261,16 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 	}
 
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
-	face := pickLiberationFace(desc, baseFont.Value)
-	subset, err := subsetTrueType(face.data, unicodes)
+	face := fontsubst.Pick(desc, baseFont.Value)
+	subset, err := fontprog.SubsetTrueType(face.Data, unicodes)
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(subset)
+	tables, ok := fontprog.ParseSfnt(subset)
 	if !ok {
 		return false
 	}
-	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	if !substituteCoversUsage(d, usedCodes, codeToUnicode, cmap, tables) {
 		return false
@@ -378,7 +288,7 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 		if cc := int(firstChar) + i; cc >= 0 && cc < 256 {
 			if u := codeToUnicode[cc]; u != 0 {
 				if gid, ok := cmap[u]; ok {
-					if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
+					if aw := fontprog.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
 						w = int(math.Round(aw))
 					}
 				}
@@ -414,7 +324,7 @@ func symbolicSubsetCoversCodes(tables map[string][]byte, gidMap map[uint16]uint1
 		if !ok || gid == 0 {
 			return false
 		}
-		if verify.TTAdvanceWidth(tables, int(gid)) < 0 {
+		if fontprog.TTAdvanceWidth(tables, int(gid)) < 0 {
 			return false
 		}
 	}
@@ -446,7 +356,7 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 	}
 
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
-	libFace := pickLiberationFace(desc, baseFont.Value)
+	libFace := fontsubst.Pick(desc, baseFont.Value)
 	var subset []byte
 	var tables map[string][]byte
 	var gidOf map[uint16]uint16
@@ -455,19 +365,19 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		data   []byte
 		family string
 	}{
-		{libFace.data, liberationFamilyName(libFace)},
-		{notoSymbols2, "NotoSansSymbols2"},
-		{notoSymbols, "NotoSansSymbols"},
+		{libFace.Data, liberationFamilyName(libFace)},
+		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
+		{fontsubst.NotoSymbols, "NotoSansSymbols"},
 	} {
-		s, err := subsetTrueTypeSymbolic(cand.data, codeUnicode)
+		s, err := fontprog.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
 		if err != nil {
 			continue
 		}
-		t, ok := verify.ParseSfnt(s)
+		t, ok := fontprog.ParseSfnt(s)
 		if !ok {
 			continue
 		}
-		_, _, gm, ok := firstFormat4CmapSubtable(t)
+		_, _, gm, ok := fontprog.FirstFormat4CmapSubtable(t)
 		if !ok {
 			continue
 		}
@@ -495,7 +405,7 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		w := 0
 		if cc := minCode + i; codeUnicode[cc] != 0 {
 			if gid, ok := gidOf[0xF000|uint16(cc)]; ok {
-				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
+				if aw := fontprog.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
 					w = int(math.Round(aw))
 				}
 			}
@@ -542,20 +452,20 @@ func cloneFontDescriptor(desc pdf.PDFDict, nextObjNum *int) pdf.PDFDict {
 
 // liberationFamilyName returns the PostScript family name of the bundled
 // Liberation face matching face's style bits.
-func liberationFamilyName(face liberationFace) string {
+func liberationFamilyName(face fontsubst.Face) string {
 	family := "LiberationSans"
 	switch {
-	case face.fixedPitch:
+	case face.FixedPitch:
 		family = "LiberationMono"
-	case face.serif:
+	case face.Serif:
 		family = "LiberationSerif"
 	}
 	switch {
-	case face.bold && face.italic:
+	case face.Bold && face.Italic:
 		family += "-BoldItalic"
-	case face.bold:
+	case face.Bold:
 		family += "-Bold"
-	case face.italic:
+	case face.Italic:
 		family += "-Italic"
 	}
 	return family
@@ -577,7 +487,7 @@ func substituteTaggedName(family, original string) string {
 	return string(tag) + "+" + family
 }
 
-func substituteBaseFontName(face liberationFace, original string) string {
+func substituteBaseFontName(face fontsubst.Face, original string) string {
 	return substituteTaggedName(liberationFamilyName(face), original)
 }
 
@@ -617,7 +527,7 @@ func buildToUnicodeStream(codeUnicode map[int]uint16) (pdf.PDFDict, bool) {
 	return toUni, true
 }
 
-func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face liberationFace) {
+func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face fontsubst.Face) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(program)))
 	if err := writer.SetStreamFlate(&fontFile, program); err != nil {
@@ -635,8 +545,8 @@ func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, progr
 	desc.Entries.Set("Ascent", pdf.PDFInteger(ascent))
 	desc.Entries.Set("Descent", pdf.PDFInteger(descent))
 	desc.Entries.Set("CapHeight", pdf.PDFInteger(ttScaledCapHeight(tables, ascent)))
-	desc.Entries.Set("StemV", stemVFor(face.bold))
-	desc.Entries.Set("ItalicAngle", italicAngleFor(face.italic))
+	desc.Entries.Set("StemV", stemVFor(face.Bold))
+	desc.Entries.Set("ItalicAngle", italicAngleFor(face.Italic))
 	desc.Entries.Set("MissingWidth", pdf.PDFInteger(0))
 }
 
@@ -655,7 +565,7 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 	if err != nil {
 		return nil, false
 	}
-	cidToUnicode := parseToUnicodeCMap(data)
+	cidToUnicode := fontprog.ParseToUnicodeCMap(data)
 	if len(cidToUnicode) == 0 {
 		return nil, false
 	}
@@ -676,7 +586,7 @@ func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[in
 		return true
 	}
 
-	if !verify.SubsetTagRe.MatchString(baseFont.Value) {
+	if !fontprog.SubsetTagRe.MatchString(baseFont.Value) {
 		return false
 	}
 	w, _ := cid.Entries.Get("W").(pdf.PDFArray)
@@ -745,22 +655,22 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	// Prefer the style-matched Liberation face, falling back to the bundled
 	// Noto symbol repertoires before giving the page to raster fallback.
 	baseFont, _ := cid.Entries.Get("BaseFont").(pdf.PDFName)
-	face := pickLiberationFace(desc, baseFont.Value)
+	face := fontsubst.Pick(desc, baseFont.Value)
 	var faceData []byte
 	family := ""
 	for _, cand := range []struct {
 		data   []byte
 		family string
 	}{
-		{face.data, liberationFamilyName(face)},
-		{notoSymbols2, "NotoSansSymbols2"},
-		{notoSymbols, "NotoSansSymbols"},
+		{face.Data, liberationFamilyName(face)},
+		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
+		{fontsubst.NotoSymbols, "NotoSansSymbols"},
 	} {
-		faceTables, ok := verify.ParseSfnt(cand.data)
+		faceTables, ok := fontprog.ParseSfnt(cand.data)
 		if !ok {
 			continue
 		}
-		faceCmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(faceTables))
+		faceCmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(faceTables))
 		if faceCmap == nil {
 			continue
 		}
@@ -780,11 +690,11 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		return false
 	}
 
-	subset, err := subsetTrueTypeForCID(faceData, targetCIDs)
+	subset, err := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs)
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(subset)
+	tables, ok := fontprog.ParseSfnt(subset)
 	if !ok {
 		return false
 	}
@@ -792,7 +702,7 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 	var widthPairs [][2]int
 	for _, cidList := range targetCIDs {
 		for _, c := range cidList {
-			if aw := verify.TTAdvanceWidth(tables, c); aw >= 0 {
+			if aw := fontprog.TTAdvanceWidth(tables, c); aw >= 0 {
 				widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
 			}
 		}
@@ -824,68 +734,6 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 }
 
 // --- /ToUnicode CMap parsing ---
-
-var (
-	toUnicodeBfCharBlockRe  = regexp.MustCompile(`(?s)beginbfchar(.*?)endbfchar`)
-	toUnicodeBfRangeBlockRe = regexp.MustCompile(`(?s)beginbfrange(.*?)endbfrange`)
-	toUnicodeBfCharEntryRe  = regexp.MustCompile(`<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>`)
-	toUnicodeBfRangeEntryRe = regexp.MustCompile(`(?s)<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]+)>|\[([^\]]*)\])`)
-	toUnicodeHexTokenRe     = regexp.MustCompile(`<([0-9A-Fa-f]+)>`)
-)
-
-// hexToUnicode takes the first UTF-16 code unit of a ToUnicode destination
-// hex string as its Unicode value, ignoring surrogate pairs/ligatures.
-func hexToUnicode(hex string) (uint16, bool) {
-	b := pdf.DecodePDFHexStringBytes(hex)
-	if len(b) < 2 {
-		return 0, false
-	}
-	return binary.BigEndian.Uint16(b[:2]), true
-}
-
-// parseToUnicodeCMap extracts a code->Unicode mapping from a /ToUnicode
-// CMap stream's bfchar/bfrange blocks (PDF 32000-1, 9.10.3).
-func parseToUnicodeCMap(data []byte) map[int]uint16 {
-	result := map[int]uint16{}
-	s := string(data)
-	for _, block := range toUnicodeBfCharBlockRe.FindAllStringSubmatch(s, -1) {
-		for _, m := range toUnicodeBfCharEntryRe.FindAllStringSubmatch(block[1], -1) {
-			code, err := strconv.ParseInt(m[1], 16, 32)
-			if err != nil {
-				continue
-			}
-			if u, ok := hexToUnicode(m[2]); ok {
-				result[int(code)] = u
-			}
-		}
-	}
-	for _, block := range toUnicodeBfRangeBlockRe.FindAllStringSubmatch(s, -1) {
-		for _, m := range toUnicodeBfRangeEntryRe.FindAllStringSubmatch(block[1], -1) {
-			lo, errLo := strconv.ParseInt(m[1], 16, 32)
-			hi, errHi := strconv.ParseInt(m[2], 16, 32)
-			if errLo != nil || errHi != nil || hi < lo {
-				continue
-			}
-			if m[3] != "" {
-				base, ok := hexToUnicode(m[3])
-				if !ok {
-					continue
-				}
-				for c := lo; c <= hi; c++ {
-					result[int(c)] = base + uint16(c-lo)
-				}
-			} else if m[4] != "" {
-				dsts := toUnicodeHexTokenRe.FindAllStringSubmatch(m[4], -1)
-				for i, c := 0, lo; i < len(dsts) && c <= hi; i, c = i+1, c+1 {
-					if u, ok := hexToUnicode(dsts[i][1]); ok {
-						result[int(c)] = u
-					}
-				}
-			}
-		}
-	}
-	return result
-}
 
 // fontSubstitutionFixer remediates SubsetGlyphCoverage, SimpleNotEmbedded,
 // CIDNotEmbedded and InvalidProgram by substituting a bundled Liberation
@@ -1017,13 +865,13 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 			// The font keeps its program and content bytes, so the replacement
 			// name encoding must preserve what every used code meant; when
 			// neither does, leave the violation for the raster fallback.
-			orig, _ := originalSimpleFontCodeToUnicode(d)
+			orig, _ := fontprog.OriginalSimpleFontCodeToUnicode(d)
 			for _, cand := range [...]struct {
 				name  string
 				table [256]uint16
 			}{
-				{"WinAnsiEncoding", verify.WinAnsiToUnicode},
-				{"MacRomanEncoding", verify.MacRomanToUnicode},
+				{"WinAnsiEncoding", fontprog.WinAnsiToUnicode},
+				{"MacRomanEncoding", fontprog.MacRomanToUnicode},
 			} {
 				if encodingRewritePreservesMeaning(d, usage(), orig, cand.table) {
 					d.Entries.Set("Encoding", pdf.PDFName{Value: cand.name})
@@ -1050,7 +898,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if n, ok := trueTypeCmapSubtableCount(data); !ok || n == 1 {
 		return false
 	}
-	trimmed, err := trimTrueTypeCmapToSingleSubtable(data)
+	trimmed, err := fontprog.TrimTrueTypeCmapToSingleSubtable(data)
 	if err != nil {
 		return false
 	}
@@ -1062,7 +910,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 }
 
 func trueTypeCmapSubtableCount(data []byte) (int, bool) {
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return 0, false
 	}

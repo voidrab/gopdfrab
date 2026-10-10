@@ -3,7 +3,7 @@ package convert
 import (
 	"encoding/binary"
 
-	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // GlyphPath is a glyph outline flattened to straight-line contours, scaled
@@ -43,11 +43,11 @@ func ttGlyfContours(tables map[string][]byte, gid, depth int) ([][]Point, bool) 
 	if depth > 8 {
 		return nil, false
 	}
-	rec := glyfRecord(tables, gid)
+	rec := fontprog.GlyfRecord(tables, gid)
 	if len(rec) == 0 {
 		return nil, true // empty outline, e.g. space -- not an error
 	}
-	if glyfIsComposite(rec) {
+	if fontprog.GlyfIsComposite(rec) {
 		return ttCompositeContours(tables, rec, depth)
 	}
 	return ttSimpleGlyphContours(rec)
@@ -312,11 +312,11 @@ func ttCompositeContours(tables map[string][]byte, rec []byte, depth int) ([][]P
 // CharStrings INDEX, interpreting the Type2 charstring moveto/lineto/curveto
 // subset (hstem/vstem/hintmask hints are parsed and discarded).
 func glyphOutlineFromCFF(cff []byte, gid int) (GlyphPath, bool) {
-	td, ok := verify.ParseCFFTopDict(cff)
+	td, ok := fontprog.ParseCFFTopDict(cff)
 	if !ok || td.CSOffset < 0 {
 		return GlyphPath{}, false
 	}
-	entries, _ := verify.ParseCFFIndex(cff, td.CSOffset)
+	entries, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
 	if gid < 0 || gid >= len(entries) {
 		return GlyphPath{}, false
 	}
@@ -613,12 +613,12 @@ func readType2Number(b []byte) (float64, int) {
 // Type1 font program, interpreting the Type1 charstring moveto/lineto/curveto
 // subset (hint operators are parsed and discarded).
 func glyphOutlineFromType1(fontData []byte, glyphName string) (GlyphPath, bool) {
-	binStart := verify.Type1EexecBinStart(fontData)
-	cs, lenIV := verify.Type1CharStringsSection(fontData, binStart)
+	binStart := fontprog.Type1EexecBinStart(fontData)
+	cs, lenIV := fontprog.Type1CharStringsSection(fontData, binStart)
 	if cs == nil {
 		return GlyphPath{}, false
 	}
-	for _, m := range verify.Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
+	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
 		name := string(cs[m[2]:m[3]])
 		if name != glyphName {
 			continue
@@ -627,7 +627,7 @@ func glyphOutlineFromType1(fontData []byte, glyphName string) (GlyphPath, bool) 
 		if n <= 0 || m[1]+n > len(cs) {
 			return GlyphPath{}, false
 		}
-		dec := verify.DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
+		dec := fontprog.DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
 		contours := interpretType1Charstring(dec)
 		return GlyphPath{Contours: contours}, true
 	}

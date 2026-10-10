@@ -3,6 +3,7 @@ package verify
 import (
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -237,33 +238,6 @@ func TestValidateCMapStreamAndCIDLimits(t *testing.T) {
 	}
 }
 
-func TestCmapTokenizeAndParseInt(t *testing.T) {
-	toks := CmapTokenize([]byte("% comment\n<0041> 65 (lit\\)eral) endcidrange"))
-	var texts []string
-	for _, tok := range toks {
-		texts = append(texts, tok.Text)
-	}
-	want := []string{"<0041>", "65", "(lit\\)eral)", "endcidrange"}
-	if len(texts) != len(want) {
-		t.Fatalf("CmapTokenize = %v, want %v", texts, want)
-	}
-	for i := range want {
-		if texts[i] != want[i] {
-			t.Errorf("token[%d] = %q, want %q", i, texts[i], want[i])
-		}
-	}
-
-	if n, ok := CmapParseInt("12345"); !ok || n != 12345 {
-		t.Errorf("CmapParseInt(12345) = %d, %v", n, ok)
-	}
-	if _, ok := CmapParseInt("12a"); ok {
-		t.Error("CmapParseInt should reject non-digit characters")
-	}
-	if _, ok := CmapParseInt(""); ok {
-		t.Error("CmapParseInt should reject an empty token")
-	}
-}
-
 func TestEmbeddedProgramMatchesSubtype(t *testing.T) {
 	descFF := pdf.NewPDFDict()
 	descFF.Entries.Set("FontFile", pdf.NewPDFDict())
@@ -359,9 +333,9 @@ func TestValidateFontDictType1SubsetMissingCharSet(t *testing.T) {
 
 func TestValidateFontDictTrueTypeSubset(t *testing.T) {
 	ttf := loadTTF(t)
-	tables, _ := ParseSfnt(ttf)
-	gidA, _ := ParseCmapFormat4(TTWindowsBMPCmap(tables))['A']
-	widthA := TTAdvanceWidth(tables, int(gidA))
+	tables, _ := fontprog.ParseSfnt(ttf)
+	gidA, _ := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
+	widthA := fontprog.TTAdvanceWidth(tables, int(gidA))
 
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
@@ -390,8 +364,8 @@ func TestValidateFontDictCIDFontType2(t *testing.T) {
 	desc, ff, gidA, widthA := buildCIDTrueTypeFont(t)
 	desc.Entries.Set("CIDSet", func() pdf.PDFDict {
 		ttf := loadTTF(t)
-		tables, _ := ParseSfnt(ttf)
-		n := TTNumGlyphs(tables)
+		tables, _ := fontprog.ParseSfnt(ttf)
+		n := fontprog.TTNumGlyphs(tables)
 		bm := make([]byte, (n+7)/8)
 		for i := range bm {
 			bm[i] = 0xFF

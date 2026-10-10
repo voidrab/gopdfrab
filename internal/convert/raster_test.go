@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 func nrgbaAt(t *testing.T, img *image.RGBA, x, y int) color.NRGBA {
@@ -197,7 +197,7 @@ func TestSimpleCodeToGID(t *testing.T) {
 	if gid := simpleCodeToGID(nil, 99, [256]string{}); gid != 99 {
 		t.Errorf("simpleCodeToGID nil map = %d, want passthrough 99", gid)
 	}
-	_ = verify.WinAnsiToUnicode // ensure the encoding table is linked
+	_ = fontprog.WinAnsiToUnicode // ensure the encoding table is linked
 }
 
 // TestRenderPageOperatorCoverage drives RenderPage with a content stream that
@@ -275,7 +275,7 @@ ET
 
 func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 	t.Helper()
-	ttf, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	ttf, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
 	if err != nil {
 		t.Skipf("font asset not available: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestExtractCFFBytes(t *testing.T) {
 		t.Errorf("bare CFF passthrough = %x, want %x", got, cff)
 	}
 
-	otf := packSfnt(map[string][]byte{"CFF ": cff})
+	otf := fontprog.PackSfnt(map[string][]byte{"CFF ": cff})
 	if got := extractCFFBytes(otf); string(got) != string(cff) {
 		t.Errorf("OpenType-wrapped CFF extraction = %x, want %x", got, cff)
 	}

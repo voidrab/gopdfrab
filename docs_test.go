@@ -184,18 +184,20 @@ func TestNoticeCoversBundledAssets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read NOTICE: %v", err)
 	}
-	err = filepath.WalkDir("internal/convert/assets", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
+	for _, dir := range []string{"internal/convert/assets", "internal/fontsubst/fonts"} {
+		err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			// README.md documents the directory rather than shipping in output.
+			if name := d.Name(); name != "README.md" && !strings.Contains(string(notice), name) {
+				t.Errorf("NOTICE does not name %s", path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", dir, err)
 		}
-		// README.md documents the directory rather than shipping in output.
-		if name := d.Name(); name != "README.md" && !strings.Contains(string(notice), name) {
-			t.Errorf("NOTICE does not name %s", path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk assets: %v", err)
 	}
 }
 

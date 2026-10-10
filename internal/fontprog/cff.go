@@ -1,4 +1,4 @@
-package verify
+package fontprog
 
 import (
 	"encoding/binary"
@@ -570,4 +570,360 @@ func parseCFFFDSelect(cff []byte, offset, numGlyphs int) []int {
 		return nil
 	}
 	return out
+}
+
+// CFFTopDict holds the Top DICT operands relevant to CID-keyed subset
+// validation (6.3.5).
+type CFFTopDict struct {
+	CSOffset      int // CharStrings INDEX offset, -1 if not found
+	CharsetOffset int // Charset table offset, -1 if not found / predefined
+	PrivateOffset int // Private DICT offset, -1 if not found
+	PrivateSize   int
+	FDArrayOffset int        // CID-keyed only, -1 if not found
+	FDSelect      int        // CID-keyed only, -1 if not found
+	FontMatrix    [6]float64 // as declared; only meaningful when HasFontMatrix
+	HasFontMatrix bool
+	IsCIDKeyed    bool
+}
+
+// ParseCFFTopDict parses a CFF binary stream's Top DICT and returns the
+// operands needed to validate CID coverage.
+func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
+	td.CSOffset = -1
+	td.CharsetOffset = -1
+	td.PrivateOffset = -1
+	td.PrivateSize = -1
+	td.FDArrayOffset = -1
+	td.FDSelect = -1
+	if len(cff) < 4 {
+		return td, false
+	}
+	hdrSize := int(cff[2])
+
+	// Parse INDEX: returns byte length of the INDEX block and entry count.
+	parseIndex := func(off int) (end int, count int) {
+		if off+2 > len(cff) {
+			return off, 0
+		}
+		n := int(binary.BigEndian.Uint16(cff[off : off+2]))
+		if n == 0 {
+			return off + 2, 0
+		}
+		if off+3 > len(cff) {
+			return off, 0
+		}
+		os := int(cff[off+2]) // offset size: 1, 2, 3, or 4
+		if os < 1 || os > 4 || off+3+(n+1)*os > len(cff) {
+			return off, 0
+		}
+		lastOffBytes := cff[off+3+n*os : off+3+(n+1)*os]
+		lastOff := 0
+		for _, b := range lastOffBytes {
+			lastOff = lastOff<<8 | int(b)
+		}
+		return off + 3 + (n+1)*os + lastOff - 1, n
+	}
+
+	// Skip Name INDEX.
+	off, _ := parseIndex(hdrSize)
+	if off == hdrSize {
+		return td, false
+	}
+
+	// Scan Top DICT INDEX data for the operators we need.
+	if off+2 > len(cff) {
+		return td, false
+	}
+	tdCount := int(binary.BigEndian.Uint16(cff[off : off+2]))
+	if tdCount == 0 {
+		return td, false
+	}
+	os := int(cff[off+2])
+	if os < 1 || os > 4 || off+3+(tdCount+1)*os > len(cff) {
+		return td, false
+	}
+	tdDataStart := off + 3 + (tdCount+1)*os
+	endOffBytes := cff[off+3+tdCount*os : off+3+(tdCount+1)*os]
+	tdDataLen := 0
+	for _, b := range endOffBytes {
+		tdDataLen = tdDataLen<<8 | int(b)
+	}
+	tdDataLen-- // offsets are 1-based
+	if tdDataStart+tdDataLen > len(cff) {
+		return td, false
+	}
+	topDict := cff[tdDataStart : tdDataStart+tdDataLen]
+
+	// Read the operators we need. cffDictNumbers decodes nibble reals, which
+	// is how FontMatrix is always written.
+	return td, cffDictNumbers(topDict, func(operator int, operands []float64) {
+		first := func() (int, bool) {
+			if len(operands) == 0 {
+				return 0, false
+			}
+			return int(operands[0]), true
+		}
+		switch operator {
+		case 17: // CharStrings
+			if v, o := first(); o {
+				td.CSOffset = v
+			}
+		case 15: // charset
+			if v, o := first(); o {
+				td.CharsetOffset = v
+			}
+		case 18: // Private: [size offset]
+			if len(operands) > 1 {
+				td.PrivateSize = int(operands[0])
+				td.PrivateOffset = int(operands[1])
+			}
+		case 1207: // FontMatrix: glyph space is not the default 1/1000 em
+			td.HasFontMatrix = true
+			copy(td.FontMatrix[:], operands)
+		case 1230: // ROS: marks a CID-keyed font
+			td.IsCIDKeyed = true
+		case 1236: // FDArray
+			if v, o := first(); o {
+				td.FDArrayOffset = v
+			}
+		case 1237: // FDSelect
+			if v, o := first(); o {
+				td.FDSelect = v
+			}
+		}
+	})
+}
+
+// ParseCFFCharsetCIDs parses a CFF Charset table (CID-keyed fonts store CIDs
+// here instead of SIDs) and returns the CID for each glyph ID. Returns nil
+// for predefined charsets (offsets 0-2) or on parse failure.
+func ParseCFFCharsetCIDs(cff []byte, CharsetOffset, numGlyphs int) []int {
+	if CharsetOffset <= 2 || CharsetOffset >= len(cff) || numGlyphs <= 0 {
+		return nil
+	}
+	format := cff[CharsetOffset]
+	cids := make([]int, numGlyphs)
+	off := CharsetOffset + 1
+	gid := 1
+	switch format {
+	case 0:
+		for gid < numGlyphs {
+			if off+2 > len(cff) {
+				return nil
+			}
+			cids[gid] = int(binary.BigEndian.Uint16(cff[off : off+2]))
+			off += 2
+			gid++
+		}
+	case 1, 2:
+		for gid < numGlyphs {
+			if off+2 > len(cff) {
+				return nil
+			}
+			first := int(binary.BigEndian.Uint16(cff[off : off+2]))
+			off += 2
+			var nLeft int
+			if format == 1 {
+				if off+1 > len(cff) {
+					return nil
+				}
+				nLeft = int(cff[off])
+				off++
+			} else {
+				if off+2 > len(cff) {
+					return nil
+				}
+				nLeft = int(binary.BigEndian.Uint16(cff[off : off+2]))
+				off += 2
+			}
+			for j := 0; j <= nLeft && gid < numGlyphs; j++ {
+				cids[gid] = first + j
+				gid++
+			}
+		}
+	default:
+		return nil
+	}
+	return cids
+}
+
+// ParseCFFCharStringLengths returns the byte length of each entry in the
+// CharStrings INDEX at the given offset, or nil on parse failure.
+func ParseCFFCharStringLengths(cff []byte, CSOffset int) []int {
+	if CSOffset < 0 || CSOffset+3 > len(cff) {
+		return nil
+	}
+	n := int(binary.BigEndian.Uint16(cff[CSOffset : CSOffset+2]))
+	if n == 0 {
+		return nil
+	}
+	osz := int(cff[CSOffset+2])
+	if osz < 1 || osz > 4 || CSOffset+3+(n+1)*osz > len(cff) {
+		return nil
+	}
+	base := CSOffset + 3
+	offsets := make([]int, n+1)
+	for i := 0; i <= n; i++ {
+		v := 0
+		for b := range osz {
+			v = v<<8 | int(cff[base+i*osz+b])
+		}
+		offsets[i] = v
+	}
+	lens := make([]int, n)
+	for i := range n {
+		lens[i] = offsets[i+1] - offsets[i]
+	}
+	return lens
+}
+
+// cffStandardStrings is the CFF specification's fixed table of predefined
+// SIDs (Appendix A); SIDs >= len(cffStandardStrings) index into a font's own
+// String INDEX instead.
+var cffStandardStrings = [...]string{
+	".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent", "ampersand",
+	"quoteright", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
+	"slash", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+	"colon", "semicolon", "less", "equal", "greater", "question", "at", "A", "B", "C", "D", "E",
+	"F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W",
+	"X", "Y", "Z", "bracketleft", "backslash", "bracketright", "asciicircum", "underscore",
+	"quoteleft", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p",
+	"q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "braceleft", "bar", "braceright",
+	"asciitilde", "exclamdown", "cent", "sterling", "fraction", "yen", "florin", "section",
+	"currency", "quotesingle", "quotedblleft", "guillemotleft", "guilsinglleft",
+	"guilsinglright", "fi", "fl", "endash", "dagger", "daggerdbl", "periodcentered", "paragraph",
+	"bullet", "quotesinglbase", "quotedblbase", "quotedblright", "guillemotright", "ellipsis",
+	"perthousand", "questiondown", "grave", "acute", "circumflex", "tilde", "macron", "breve",
+	"dotaccent", "dieresis", "ring", "cedilla", "hungarumlaut", "ogonek", "caron", "emdash",
+	"AE", "ordfeminine", "Lslash", "Oslash", "OE", "ordmasculine", "ae", "dotlessi", "lslash",
+	"oslash", "oe", "germandbls", "onesuperior", "logicalnot", "mu", "trademark", "Eth",
+	"onehalf", "plusminus", "Thorn", "onequarter", "divide", "brokenbar", "degree", "thorn",
+	"threequarters", "twosuperior", "registered", "minus", "eth", "multiply", "threesuperior",
+	"copyright", "Aacute", "Acircumflex", "Adieresis", "Agrave", "Aring", "Atilde", "Ccedilla",
+	"Eacute", "Ecircumflex", "Edieresis", "Egrave", "Iacute", "Icircumflex", "Idieresis",
+	"Igrave", "Ntilde", "Oacute", "Ocircumflex", "Odieresis", "Ograve", "Otilde", "Scaron",
+	"Uacute", "Ucircumflex", "Udieresis", "Ugrave", "Yacute", "Ydieresis", "Zcaron", "aacute",
+	"acircumflex", "adieresis", "agrave", "aring", "atilde", "ccedilla", "eacute", "ecircumflex",
+	"edieresis", "egrave", "iacute", "icircumflex", "idieresis", "igrave", "ntilde", "oacute",
+	"ocircumflex", "odieresis", "ograve", "otilde", "scaron", "uacute", "ucircumflex",
+	"udieresis", "ugrave", "yacute", "ydieresis", "zcaron", "exclamsmall", "Hungarumlautsmall",
+	"dollaroldstyle", "dollarsuperior", "ampersandsmall", "Acutesmall", "parenleftsuperior",
+	"parenrightsuperior", "twodotenleader", "onedotenleader", "zerooldstyle", "oneoldstyle",
+	"twooldstyle", "threeoldstyle", "fouroldstyle", "fiveoldstyle", "sixoldstyle",
+	"sevenoldstyle", "eightoldstyle", "nineoldstyle", "commasuperior", "threequartersemdash",
+	"periodsuperior", "questionsmall", "asuperior", "bsuperior", "centsuperior", "dsuperior",
+	"esuperior", "isuperior", "lsuperior", "msuperior", "nsuperior", "osuperior", "rsuperior",
+	"ssuperior", "tsuperior", "ff", "ffi", "ffl", "parenleftinferior", "parenrightinferior",
+	"Circumflexsmall", "hyphensuperior", "Gravesmall", "Asmall", "Bsmall", "Csmall", "Dsmall",
+	"Esmall", "Fsmall", "Gsmall", "Hsmall", "Ismall", "Jsmall", "Ksmall", "Lsmall", "Msmall",
+	"Nsmall", "Osmall", "Psmall", "Qsmall", "Rsmall", "Ssmall", "Tsmall", "Usmall", "Vsmall",
+	"Wsmall", "Xsmall", "Ysmall", "Zsmall", "colonmonetary", "onefitted", "rupiah", "Tildesmall",
+	"exclamdownsmall", "centoldstyle", "Lslashsmall", "Scaronsmall", "Zcaronsmall",
+	"Dieresissmall", "Brevesmall", "Caronsmall", "Dotaccentsmall", "Macronsmall", "figuredash",
+	"hypheninferior", "Ogoneksmall", "Ringsmall", "Cedillasmall", "questiondownsmall",
+	"oneeighth", "threeeighths", "fiveeighths", "seveneighths", "onethird", "twothirds",
+	"zerosuperior", "foursuperior", "fivesuperior", "sixsuperior", "sevensuperior",
+	"eightsuperior", "ninesuperior", "zeroinferior", "oneinferior", "twoinferior",
+	"threeinferior", "fourinferior", "fiveinferior", "sixinferior", "seveninferior",
+	"eightinferior", "nineinferior", "centinferior", "dollarinferior", "periodinferior",
+	"commainferior", "Agravesmall", "Aacutesmall", "Acircumflexsmall", "Atildesmall",
+	"Adieresissmall", "Aringsmall", "AEsmall", "Ccedillasmall", "Egravesmall", "Eacutesmall",
+	"Ecircumflexsmall", "Edieresissmall", "Igravesmall", "Iacutesmall", "Icircumflexsmall",
+	"Idieresissmall", "Ethsmall", "Ntildesmall", "Ogravesmall", "Oacutesmall",
+	"Ocircumflexsmall", "Otildesmall", "Odieresissmall", "OEsmall", "Oslashsmall", "Ugravesmall",
+	"Uacutesmall", "Ucircumflexsmall", "Udieresissmall", "Yacutesmall", "Thornsmall",
+	"Ydieresissmall", "001.000", "001.001", "001.002", "001.003", "Black", "Bold", "Book",
+	"Light", "Medium", "Regular", "Roman", "Semibold",
+}
+
+// ParseCFFIndex parses a CFF INDEX structure at offset off, returning each
+// entry's bytes and the byte offset immediately following the INDEX.
+func ParseCFFIndex(cff []byte, off int) (entries [][]byte, end int) {
+	if off+2 > len(cff) {
+		return nil, off
+	}
+	n := int(binary.BigEndian.Uint16(cff[off : off+2]))
+	if n == 0 {
+		return nil, off + 2
+	}
+	if off+3 > len(cff) {
+		return nil, off
+	}
+	osz := int(cff[off+2])
+	if osz < 1 || osz > 4 || off+3+(n+1)*osz > len(cff) {
+		return nil, off
+	}
+	readOff := func(i int) int {
+		v := 0
+		for _, b := range cff[off+3+i*osz : off+3+(i+1)*osz] {
+			v = v<<8 | int(b)
+		}
+		return v
+	}
+	dataStart := off + 3 + (n+1)*osz
+	last := readOff(n)
+	if dataStart+last-1 > len(cff) || last < 1 {
+		return nil, off
+	}
+	entries = make([][]byte, n)
+	for i := range n {
+		s, e := readOff(i)-1, readOff(i+1)-1
+		if s < 0 || e > last-1 || s > e {
+			return nil, off
+		}
+		entries[i] = cff[dataStart+s : dataStart+e]
+	}
+	return entries, dataStart + last - 1
+}
+
+// cffStringIndexEntries returns a CFF program's String INDEX entries (custom
+// strings, addressed by SID-len(cffStandardStrings) and up), walking past the
+// Name INDEX and Top DICT INDEX to reach it. Returns nil on parse failure.
+func cffStringIndexEntries(cff []byte) [][]byte {
+	if len(cff) < 4 {
+		return nil
+	}
+	_, off := ParseCFFIndex(cff, int(cff[2])) // skip Name INDEX
+	_, off = ParseCFFIndex(cff, off)          // skip Top DICT INDEX
+	entries, _ := ParseCFFIndex(cff, off)     // String INDEX
+	return entries
+}
+
+// cffSIDName resolves a CFF string ID to its glyph name, via the standard
+// strings table or the font's own String INDEX. Returns "" if unresolvable.
+func cffSIDName(sid int, customStrings [][]byte) string {
+	if sid >= 0 && sid < len(cffStandardStrings) {
+		return cffStandardStrings[sid]
+	}
+	if idx := sid - len(cffStandardStrings); idx >= 0 && idx < len(customStrings) {
+		return string(customStrings[idx])
+	}
+	return ""
+}
+
+// CFFGlyphNames returns the glyph names defined in a name-keyed (non-CID)
+// CFF program's charset, resolving each glyph's SID via cffSIDName. Returns
+// nil for CID-keyed fonts (use ParseCFFCharsetCIDs instead) or on parse
+// failure, including the rare predefined-charset case (ISOAdobe/Expert/
+// ExpertSubset, CharsetOffset 0-2), which this package doesn't decode.
+func CFFGlyphNames(cff []byte) []string {
+	td, ok := ParseCFFTopDict(cff)
+	if !ok || td.IsCIDKeyed || td.CSOffset < 0 || td.CSOffset+2 > len(cff) {
+		return nil
+	}
+	csCount := int(binary.BigEndian.Uint16(cff[td.CSOffset : td.CSOffset+2]))
+	// The charset table layout is identical whether it stores CIDs (CID-keyed
+	// fonts) or SIDs (name-keyed fonts); only the interpretation differs.
+	sids := ParseCFFCharsetCIDs(cff, td.CharsetOffset, csCount)
+	if sids == nil {
+		return nil
+	}
+	customStrings := cffStringIndexEntries(cff)
+	var names []string
+	for _, sid := range sids {
+		if name := cffSIDName(sid, customStrings); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }

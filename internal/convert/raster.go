@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -989,7 +991,7 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	if ff2, ok := desc2.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
-			if tables, ok := verify.ParseSfnt(data); ok {
+			if tables, ok := fontprog.ParseSfnt(data); ok {
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
 					return glyphOutlineFromTrueType(tables, cidToGID(code))
 				}
@@ -1052,8 +1054,8 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	if ff2, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
-			if tables, ok := verify.ParseSfnt(data); ok {
-				gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+			if tables, ok := fontprog.ParseSfnt(data); ok {
+				gidMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
 					return glyphOutlineFromTrueType(tables, simpleCodeToGID(gidMap, code, names))
 				}
@@ -1077,17 +1079,17 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	// No usable embedded program: render through the bundled faces when the
 	// codes' original meaning is known (e.g. standard symbol fonts), so a
 	// rasterized page does not silently drop those glyphs.
-	if origTable, baseKnown := originalSimpleFontCodeToUnicode(font); baseKnown {
+	if origTable, baseKnown := fontprog.OriginalSimpleFontCodeToUnicode(font); baseKnown {
 		type parsedFace struct {
 			tables map[string][]byte
 			cmap   map[uint16]uint16
 		}
 		var faces []parsedFace
 		baseFont, _ := font.Entries.Get("BaseFont").(pdf.PDFName)
-		lib := pickLiberationFace(desc, baseFont.Value)
-		for _, data := range [][]byte{lib.data, notoSymbols2, notoSymbols} {
-			if tables, ok := verify.ParseSfnt(data); ok {
-				if cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables)); cmap != nil {
+		lib := fontsubst.Pick(desc, baseFont.Value)
+		for _, data := range [][]byte{lib.Data, fontsubst.NotoSymbols2, fontsubst.NotoSymbols} {
+			if tables, ok := fontprog.ParseSfnt(data); ok {
+				if cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables)); cmap != nil {
 					faces = append(faces, parsedFace{tables, cmap})
 				}
 			}
@@ -1115,7 +1117,7 @@ func extractCFFBytes(data []byte) []byte {
 	if len(data) >= 4 && data[0] == 1 {
 		return data
 	}
-	if tables, ok := verify.ParseSfnt(data); ok {
+	if tables, ok := fontprog.ParseSfnt(data); ok {
 		if cff, ok := tables["CFF "]; ok {
 			return cff
 		}
@@ -1129,7 +1131,7 @@ func simpleCodeToGID(gidMap map[uint16]uint16, code int, names [256]string) int 
 	if gidMap != nil && code >= 0 && code < 256 {
 		if name := names[code]; name != "" {
 			if uni, ok := glyphNameToWinAnsiCode(name); ok {
-				if gid, ok := gidMap[verify.WinAnsiToUnicode[uni]]; ok {
+				if gid, ok := gidMap[fontprog.WinAnsiToUnicode[uni]]; ok {
 					return int(gid)
 				}
 			}
@@ -1146,18 +1148,18 @@ func simpleCodeToGID(gidMap map[uint16]uint16, code int, names [256]string) int 
 	return code
 }
 
-// winAnsiCodeByName inverts verify.WinAnsiGlyphName once, mapping each glyph
+// winAnsiCodeByName inverts fontprog.WinAnsiGlyphName once, mapping each glyph
 // name to the lowest WinAnsi code producing it (matching the front-to-back
 // scan it replaces).
 var winAnsiCodeByName = func() map[string]int {
-	m := make(map[string]int, len(verify.WinAnsiGlyphName))
-	for i := len(verify.WinAnsiGlyphName) - 1; i >= 0; i-- {
-		m[verify.WinAnsiGlyphName[i]] = i
+	m := make(map[string]int, len(fontprog.WinAnsiGlyphName))
+	for i := len(fontprog.WinAnsiGlyphName) - 1; i >= 0; i-- {
+		m[fontprog.WinAnsiGlyphName[i]] = i
 	}
 	return m
 }()
 
-// glyphNameToWinAnsiCode reverse-looks-up verify.WinAnsiGlyphName for name,
+// glyphNameToWinAnsiCode reverse-looks-up fontprog.WinAnsiGlyphName for name,
 // returning the WinAnsi code that produces it (used to recover a Unicode
 // value for a Differences-renamed glyph).
 func glyphNameToWinAnsiCode(name string) (int, bool) {
@@ -1174,17 +1176,17 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 	case pdf.PDFName:
 		switch e.Value {
 		case "WinAnsiEncoding":
-			names = verify.WinAnsiGlyphName
+			names = fontprog.WinAnsiGlyphName
 		default:
-			names = verify.StandardEncoding
+			names = fontprog.StandardEncoding
 		}
 	case pdf.PDFDict:
 		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
 		switch base.Value {
 		case "WinAnsiEncoding":
-			names = verify.WinAnsiGlyphName
+			names = fontprog.WinAnsiGlyphName
 		default:
-			names = verify.StandardEncoding
+			names = fontprog.StandardEncoding
 		}
 		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
 			code := 0
@@ -1201,7 +1203,7 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 			}
 		}
 	default:
-		names = verify.StandardEncoding
+		names = fontprog.StandardEncoding
 	}
 	return names
 }

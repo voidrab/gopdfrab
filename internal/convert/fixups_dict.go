@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"math"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -286,13 +288,13 @@ func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
 			*changed = true
 		}
 		if ca, ok := d.Entries.Lookup("CA"); ok {
-			if f, num := verify.AsFloat(ca); num && verify.Abs64(f-1.0) > 1e-5 {
+			if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
 			}
 		}
 		if ca, ok := d.Entries.Lookup("ca"); ok {
-			if f, num := verify.AsFloat(ca); num && verify.Abs64(f-1.0) > 1e-5 {
+			if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 				d.Entries.Set("ca", pdf.PDFReal(1.0))
 				*changed = true
 			}
@@ -341,7 +343,7 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDF
 		}
 
 		if ca, ok := d.Entries.Lookup("CA"); ok {
-			if f, num := verify.AsFloat(ca); num && f != 1.0 {
+			if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
 				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
 			}

@@ -7,12 +7,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 func loadTTF(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile("../convert/assets/fonts/LiberationSans-Regular.ttf")
+	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
 	if err != nil {
 		t.Skipf("font asset not available: %v", err)
 	}
@@ -22,82 +23,39 @@ func loadTTF(t *testing.T) []byte {
 // TestTrueTypeTableParsers exercises the sfnt/cmap/glyf/hmtx accessors against a
 // real TrueType font.
 func TestTrueTypeTableParsers(t *testing.T) {
-	tables, ok := ParseSfnt(loadTTF(t))
+	tables, ok := fontprog.ParseSfnt(loadTTF(t))
 	if !ok {
 		t.Fatal("ParseSfnt failed on a valid TTF")
 	}
 
-	if n := TTNumGlyphs(tables); n <= 0 {
+	if n := fontprog.TTNumGlyphs(tables); n <= 0 {
 		t.Fatalf("TTNumGlyphs = %d", n)
 	}
 
-	cmap := TTWindowsBMPCmap(tables)
+	cmap := fontprog.TTWindowsBMPCmap(tables)
 	if cmap == nil {
 		t.Fatal("TTWindowsBMPCmap returned nil")
 	}
-	gidMap := ParseCmapFormat4(cmap)
+	gidMap := fontprog.ParseCmapFormat4(cmap)
 	gidA, ok := gidMap['A']
 	if !ok {
 		t.Fatal("no glyph for 'A'")
 	}
 
-	if !ttLocaHasGlyph(tables)(int(gidA)) {
-		t.Error("ttLocaHasGlyph false for a real glyph")
+	if !fontprog.TTLocaHasGlyph(tables)(int(gidA)) {
+		t.Error("TTLocaHasGlyph false for a real glyph")
 	}
-	if !TTGlyphInRange(tables)(int(gidA)) {
+	if !fontprog.TTGlyphInRange(tables)(int(gidA)) {
 		t.Error("TTGlyphInRange false for a real glyph")
 	}
-	if !TTGlyphPresent(tables)(int(gidA)) {
+	if !fontprog.TTGlyphPresent(tables)(int(gidA)) {
 		t.Error("TTGlyphPresent false for a real glyph")
 	}
-	if w := TTAdvanceWidth(tables, int(gidA)); w <= 0 {
+	if w := fontprog.TTAdvanceWidth(tables, int(gidA)); w <= 0 {
 		t.Errorf("TTAdvanceWidth('A') = %v", w)
 	}
-	if m := ParseCmapSubtable(cmap); m == nil {
+	if m := fontprog.ParseCmapSubtable(cmap); m == nil {
 		t.Error("ParseCmapSubtable(format4) returned nil")
-	}
-}
-
-// TestCmapFormat0And6 covers the format-0 and format-6 cmap decoders with
-// hand-built subtables, including the dispatch in ParseCmapSubtable.
-func TestCmapFormat0And6(t *testing.T) {
-	sub0 := make([]byte, 262)
-	binary.BigEndian.PutUint16(sub0[0:], 0)
-	sub0[6+65] = 5 // code 'A' -> gid 5
-	if m := ParseCmapFormat0(sub0); m[65] != 5 {
-		t.Errorf("ParseCmapFormat0[65] = %d, want 5", m[65])
-	}
-	if ParseCmapFormat0([]byte{0, 0}) != nil {
-		t.Error("ParseCmapFormat0 on short input should be nil")
-	}
-
-	sub6 := make([]byte, 12)
-	binary.BigEndian.PutUint16(sub6[0:], 6)
-	binary.BigEndian.PutUint16(sub6[6:], 65) // firstCode
-	binary.BigEndian.PutUint16(sub6[8:], 1)  // count
-	binary.BigEndian.PutUint16(sub6[10:], 5) // gid
-	if m := ParseCmapFormat6(sub6); m[65] != 5 {
-		t.Errorf("ParseCmapFormat6[65] = %d, want 5", m[65])
-	}
-	if m := ParseCmapSubtable(sub6); m[65] != 5 {
-		t.Error("ParseCmapSubtable(format6) failed")
-	}
-	if ParseCmapSubtable([]byte{0x00, 0x63}) != nil { // format 99
-		t.Error("ParseCmapSubtable of unknown format should be nil")
-	}
-}
-
-// TestGlyphNameAndEncoding covers GlyphNameToUnicode and SimpleFontCodeToUnicode.
-func TestGlyphNameAndEncoding(t *testing.T) {
-	if u, ok := GlyphNameToUnicode("A"); !ok || u != 'A' {
-		t.Errorf("GlyphNameToUnicode(A) = %d, %v", u, ok)
-	}
-	if _, ok := GlyphNameToUnicode("no_such_glyph_xyz"); ok {
-		t.Error("GlyphNameToUnicode(unknown) should be false")
-	}
-	table := SimpleFontCodeToUnicode(pdf.PDFName{Value: "WinAnsiEncoding"})
-	if table[65] != 'A' {
-		t.Errorf("WinAnsi code 65 -> U+%04X, want 'A'", table[65])
 	}
 }
 
@@ -224,7 +182,7 @@ func cffReal(s string) []byte {
 func TestParseMinimalCFF(t *testing.T) {
 	cff := buildMinimalCFF()
 
-	td, ok := ParseCFFTopDict(cff)
+	td, ok := fontprog.ParseCFFTopDict(cff)
 	if !ok {
 		t.Fatal("ParseCFFTopDict failed on a hand-built CFF")
 	}
@@ -232,7 +190,7 @@ func TestParseMinimalCFF(t *testing.T) {
 		t.Errorf("Top DICT offsets = CS %d, charset %d; want 48, 45", td.CSOffset, td.CharsetOffset)
 	}
 
-	names := CFFGlyphNames(cff)
+	names := fontprog.CFFGlyphNames(cff)
 	if len(names) != 2 {
 		t.Fatalf("CFFGlyphNames = %v, want 2 glyph names", names)
 	}
@@ -241,22 +199,9 @@ func TestParseMinimalCFF(t *testing.T) {
 	}
 
 	// ParseCFFIndex over the Name INDEX yields the single "Font" entry.
-	entries, _ := ParseCFFIndex(cff, int(cff[2]))
+	entries, _ := fontprog.ParseCFFIndex(cff, int(cff[2]))
 	if len(entries) != 1 || string(entries[0]) != "Font" {
 		t.Errorf("Name INDEX = %q, want [\"Font\"]", entries)
-	}
-}
-
-func TestCFFSIDName(t *testing.T) {
-	if got := cffSIDName(0, nil); got != ".notdef" {
-		t.Errorf("SID 0 = %q, want .notdef", got)
-	}
-	custom := [][]byte{[]byte("MyGlyph")}
-	if got := cffSIDName(len(cffStandardStrings), custom); got != "MyGlyph" {
-		t.Errorf("first custom SID = %q, want MyGlyph", got)
-	}
-	if got := cffSIDName(999999, nil); got != "" {
-		t.Errorf("out-of-range SID = %q, want empty", got)
 	}
 }
 
@@ -360,7 +305,7 @@ func TestCIDCFFSubsetAndMetrics(t *testing.T) {
 	ff.HasStream = true
 	ff.RawStream = cff
 
-	widths := CFFCIDAdvanceWidths(cff)
+	widths := fontprog.CFFCIDAdvanceWidths(cff)
 	if widths[1] != 600 || widths[2] != 700 {
 		t.Fatalf("CFFCIDAdvanceWidths = %v, want {1:600, 2:700, ...}", widths)
 	}
@@ -458,11 +403,11 @@ func TestCidsToCheckAndDefaultWidth(t *testing.T) {
 func buildCIDTrueTypeFont(t *testing.T) (desc pdf.PDFDict, ff pdf.PDFDict, gidA int, widthA int) {
 	t.Helper()
 	ttf := loadTTF(t)
-	tables, ok := ParseSfnt(ttf)
+	tables, ok := fontprog.ParseSfnt(ttf)
 	if !ok {
 		t.Fatal("ParseSfnt failed")
 	}
-	gid, ok := ParseCmapFormat4(TTWindowsBMPCmap(tables))['A']
+	gid, ok := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
 	if !ok {
 		t.Fatal("no glyph for 'A'")
 	}
@@ -471,7 +416,7 @@ func buildCIDTrueTypeFont(t *testing.T) (desc pdf.PDFDict, ff pdf.PDFDict, gidA 
 	ff.RawStream = ttf
 
 	desc = pdf.NewPDFDict()
-	return desc, ff, int(gid), int(math.Round(TTAdvanceWidth(tables, int(gid))))
+	return desc, ff, int(gid), int(math.Round(fontprog.TTAdvanceWidth(tables, int(gid))))
 }
 
 func TestCIDTrueTypeSubsetAndMetrics(t *testing.T) {
@@ -516,12 +461,12 @@ func TestCIDTrueTypeSubsetAndMetrics(t *testing.T) {
 func TestValidateCIDSetTrueType(t *testing.T) {
 	_, ff, _, _ := buildCIDTrueTypeFont(t)
 	ttf := loadTTF(t)
-	tables, _ := ParseSfnt(ttf)
-	numGlyphs := TTNumGlyphs(tables)
+	tables, _ := fontprog.ParseSfnt(ttf)
+	numGlyphs := fontprog.TTNumGlyphs(tables)
 
 	// A CID the document renders, which the font has a glyph for.
 	rendered := 0
-	hasGlyph := ttLocaHasGlyph(tables)
+	hasGlyph := fontprog.TTLocaHasGlyph(tables)
 	for cid := 1; cid < numGlyphs; cid++ {
 		if hasGlyph(cid) {
 			rendered = cid
@@ -655,13 +600,13 @@ func TestType1LenIVZero(t *testing.T) {
 	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
 	font = append(font, encryptType1(binPlain, 55665)...)
 
-	if _, lenIV := Type1CharStringsSection(font, Type1EexecBinStart(font)); lenIV != 0 {
+	if _, lenIV := fontprog.Type1CharStringsSection(font, fontprog.Type1EexecBinStart(font)); lenIV != 0 {
 		t.Errorf("lenIV = %d, want 0", lenIV)
 	}
-	if names := Type1GlyphNames(font); len(names) != 1 || names[0] != "A" {
+	if names := fontprog.Type1GlyphNames(font); len(names) != 1 || names[0] != "A" {
 		t.Errorf("Type1GlyphNames = %v, want [A]", names)
 	}
-	if got := Type1GlyphWidths(font)["A"]; got != 500 {
+	if got := fontprog.Type1GlyphWidths(font)["A"]; got != 500 {
 		t.Errorf("width of /A = %v, want 500", got)
 	}
 }
@@ -731,7 +676,7 @@ func TestType1SubroutinizedWidth(t *testing.T) {
 	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
 	font = append(font, encryptType1(binPlain, 55665)...)
 
-	if got := Type1GlyphWidths(font)["A"]; got != 500 {
+	if got := fontprog.Type1GlyphWidths(font)["A"]; got != 500 {
 		t.Errorf("width of a subroutinized /A = %v, want 500", got)
 	}
 }
@@ -748,7 +693,7 @@ func TestType1BuiltinEncodingArray(t *testing.T) {
 		"readonly def\n"
 	font := buildType1FontHeaderRaw("%!PS-AdobeFont-1.0: Test\n" + custom)
 
-	enc, ok := Type1EncodingTable(font, "")
+	enc, ok := fontprog.Type1EncodingTable(font, "")
 	if !ok {
 		t.Fatal("Type1EncodingTable should resolve a program's own /Encoding array")
 	}
@@ -760,7 +705,7 @@ func TestType1BuiltinEncodingArray(t *testing.T) {
 	}
 
 	// A program naming a standard encoding still resolves to that, not an array.
-	if enc, ok := Type1EncodingTable(buildType1Font(), ""); !ok || enc[65] != "A" {
+	if enc, ok := fontprog.Type1EncodingTable(buildType1Font(), ""); !ok || enc[65] != "A" {
 		t.Errorf("named StandardEncoding regressed: ok=%v enc[65]=%q", ok, enc[65])
 	}
 }
@@ -781,9 +726,9 @@ func TestType1WidthScale(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			scale, ok := type1WidthScale(buildType1FontHeader(tc.extra))
+			scale, ok := fontprog.Type1WidthScale(buildType1FontHeader(tc.extra))
 			if scale != tc.scale || ok != tc.ok {
-				t.Errorf("type1WidthScale = %v, %v; want %v, %v", scale, ok, tc.scale, tc.ok)
+				t.Errorf("Type1WidthScale = %v, %v; want %v, %v", scale, ok, tc.scale, tc.ok)
 			}
 		})
 	}
@@ -793,7 +738,7 @@ func TestType1WidthScale(t *testing.T) {
 // program, whose charstring widths are twice what /Widths says.
 func TestType1MetricsFontMatrix(t *testing.T) {
 	font := buildType1FontHeader("/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n")
-	if w := Type1GlyphWidths(font)["A"]; w != 250 {
+	if w := fontprog.Type1GlyphWidths(font)["A"]; w != 250 {
 		t.Fatalf("Type1GlyphWidths[A] = %v, want 250 (500 glyph units at 1/2000 em)", w)
 	}
 
@@ -819,27 +764,27 @@ func TestType1MetricsFontMatrix(t *testing.T) {
 // convert-side fixer to write.
 func TestType1MetricsUnusableFontMatrix(t *testing.T) {
 	font := buildType1FontHeader("/FontMatrix [0 0.001 -0.001 0 0 0] def\n")
-	if w := Type1GlyphWidths(font); len(w) != 0 {
+	if w := fontprog.Type1GlyphWidths(font); len(w) != 0 {
 		t.Errorf("Type1GlyphWidths = %v, want none", w)
 	}
-	if names := Type1GlyphNames(font); len(names) != 1 {
+	if names := fontprog.Type1GlyphNames(font); len(names) != 1 {
 		t.Errorf("Type1GlyphNames = %v, want the glyph to still be named", names)
 	}
-	_, stats := Type1WidthTable(font, nil, nil)
-	if stats.Skip != WidthSkipFontMatrix {
-		t.Errorf("skip = %q, want %q", stats.Skip, WidthSkipFontMatrix)
+	_, stats := fontprog.Type1WidthTable(font, nil, nil)
+	if stats.Skip != fontprog.WidthSkipFontMatrix {
+		t.Errorf("skip = %q, want %q", stats.Skip, fontprog.WidthSkipFontMatrix)
 	}
 }
 
 func TestType1EexecRoundTrip(t *testing.T) {
 	font := buildType1Font()
 
-	binStart := Type1EexecBinStart(font)
+	binStart := fontprog.Type1EexecBinStart(font)
 	if binStart <= 0 {
 		t.Fatalf("Type1EexecBinStart = %d, want > 0", binStart)
 	}
 
-	cs, lenIV := Type1CharStringsSection(font, binStart)
+	cs, lenIV := fontprog.Type1CharStringsSection(font, binStart)
 	if cs == nil || !bytes.HasPrefix(cs, []byte("/CharStrings")) {
 		t.Fatalf("Type1CharStringsSection = %q", cs)
 	}
@@ -847,42 +792,28 @@ func TestType1EexecRoundTrip(t *testing.T) {
 		t.Errorf("lenIV = %d, want the default 4", lenIV)
 	}
 
-	names := Type1GlyphNames(font)
+	names := fontprog.Type1GlyphNames(font)
 	if len(names) != 1 || names[0] != "A" {
 		t.Fatalf("Type1GlyphNames = %v, want [A]", names)
 	}
 
-	widths := Type1GlyphWidths(font)
+	widths := fontprog.Type1GlyphWidths(font)
 	if widths["A"] != 500 {
 		t.Fatalf("Type1GlyphWidths[A] = %v, want 500", widths["A"])
 	}
 
-	enc, ok := Type1EncodingTable(font, "")
+	enc, ok := fontprog.Type1EncodingTable(font, "")
 	if !ok || enc[65] != "A" {
 		t.Fatalf("Type1EncodingTable fallback: enc[65] = %q, ok=%v", enc[65], ok)
 	}
-	if enc2, ok2 := Type1EncodingTable(font, "WinAnsiEncoding"); !ok2 || enc2[65] != "A" {
+	if enc2, ok2 := fontprog.Type1EncodingTable(font, "WinAnsiEncoding"); !ok2 || enc2[65] != "A" {
 		t.Error("Type1EncodingTable(WinAnsiEncoding) should resolve to WinAnsiGlyphName")
 	}
-	if _, ok3 := Type1EncodingTable(font, "UnknownEncoding"); ok3 {
+	if _, ok3 := fontprog.Type1EncodingTable(font, "UnknownEncoding"); ok3 {
 		t.Error("Type1EncodingTable(unknown) should be ok=false")
 	}
-	if Type1EexecBinStart([]byte("no marker here")) != -1 {
+	if fontprog.Type1EexecBinStart([]byte("no marker here")) != -1 {
 		t.Error("Type1EexecBinStart should be -1 without an eexec marker")
-	}
-}
-
-func TestParseType1AdvanceWidth(t *testing.T) {
-	// sbw: sbx sby wx wy -> advance is the 3rd operand.
-	sbw := []byte{139, 139, byte(139 + 10), 139, 12, 8} // 0,0,10,0, escape 12 8 (sbw)
-	if w, ok := parseType1AdvanceWidth(sbw, nil); !ok || w != 10 {
-		t.Errorf("parseType1AdvanceWidth(sbw, nil) = %v, %v, want 10, true", w, ok)
-	}
-	if _, ok := parseType1AdvanceWidth([]byte{14}, nil); ok {
-		t.Error("parseType1AdvanceWidth(endchar only) should be ok=false")
-	}
-	if _, ok := parseType1AdvanceWidth(nil, nil); ok {
-		t.Error("parseType1AdvanceWidth(empty) should be ok=false")
 	}
 }
 
@@ -955,38 +886,6 @@ func TestValidateType1SubsetCoverage(t *testing.T) {
 	}
 }
 
-func TestSplitCharSetNames(t *testing.T) {
-	got := SplitCharSetNames("/a /b/c  ")
-	want := []string{"a", "b", "c"}
-	if len(got) != len(want) {
-		t.Fatalf("SplitCharSetNames = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("SplitCharSetNames[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestSimpleFontGlyphNameTableCustomEncoding(t *testing.T) {
-	v := pdf.NewPDFDict()
-	encDict := pdf.NewPDFDict()
-	encDict.Entries.Set("BaseEncoding", pdf.PDFName{Value: "WinAnsiEncoding"})
-	encDict.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "Agrave"}})
-	v.Entries.Set("Encoding", encDict)
-
-	names, ok := SimpleFontGlyphNameTable(v)
-	if !ok || names[65] != "Agrave" {
-		t.Errorf("SimpleFontGlyphNameTable custom Differences: names[65] = %q, ok=%v", names[65], ok)
-	}
-
-	v2 := pdf.NewPDFDict()
-	v2.Entries.Set("Encoding", pdf.PDFName{Value: "MacRomanEncoding"})
-	if _, ok := SimpleFontGlyphNameTable(v2); ok {
-		t.Error("SimpleFontGlyphNameTable(MacRomanEncoding) should be ok=false (unmodeled)")
-	}
-}
-
 func TestValidateType1CMetrics(t *testing.T) {
 	cff := buildMinimalCFF() // glyph "A" from checks_font_program_test.go's builder
 	ff := pdf.NewPDFDict()
@@ -996,7 +895,7 @@ func TestValidateType1CMetrics(t *testing.T) {
 	v := pdf.NewPDFDict()
 	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
 
-	widths := CFFAdvanceWidths(cff)
+	widths := fontprog.CFFAdvanceWidths(cff)
 	aWidth := widths["A"]
 
 	ctx := &ValidationContext{}
@@ -1053,7 +952,7 @@ func TestTrueTypeCmapSubtablesAndSymbolicCmap(t *testing.T) {
 	}
 
 	// A (1,0) Mac subtable is returned when no (3,0) Windows symbol subtable exists.
-	tables, _ := ParseSfnt(ttf)
+	tables, _ := fontprog.ParseSfnt(ttf)
 	cmap := tables["cmap"]
 	numSub := int(binary.BigEndian.Uint16(cmap[2:4]))
 	found31, found10 := false, false
@@ -1069,7 +968,7 @@ func TestTrueTypeCmapSubtablesAndSymbolicCmap(t *testing.T) {
 		}
 	}
 	if !found31 && found10 {
-		if TTSymbolicCmap(tables) == nil {
+		if fontprog.TTSymbolicCmap(tables) == nil {
 			t.Error("TTSymbolicCmap should fall back to the (1,0) subtable")
 		}
 	}
@@ -1081,9 +980,9 @@ func TestValidateSimpleTrueTypeMetricsAndSubset(t *testing.T) {
 	ff.HasStream = true
 	ff.RawStream = ttf
 
-	tables, _ := ParseSfnt(ttf)
-	gidA, _ := ParseCmapFormat4(TTWindowsBMPCmap(tables))['A']
-	widthA := TTAdvanceWidth(tables, int(gidA))
+	tables, _ := fontprog.ParseSfnt(ttf)
+	gidA, _ := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
+	widthA := fontprog.TTAdvanceWidth(tables, int(gidA))
 
 	v := pdf.NewPDFDict()
 	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
@@ -1115,139 +1014,6 @@ func TestValidateSimpleTrueTypeMetricsAndSubset(t *testing.T) {
 	}
 }
 
-// TestTrueTypeTableGuards exercises the short-buffer / out-of-range defensive
-// branches of the low-level sfnt table accessors using synthetic tables (the
-// real LiberationSans TTF only ever hits their "happy path").
-func TestTrueTypeTableGuards(t *testing.T) {
-	if TTNumGlyphs(map[string][]byte{}) != 0 {
-		t.Error("TTNumGlyphs should be 0 with no maxp table")
-	}
-	if TTNumGlyphs(map[string][]byte{"maxp": {0, 0}}) != 0 {
-		t.Error("TTNumGlyphs should be 0 with a truncated maxp table")
-	}
-
-	if ttLocaHasGlyph(map[string][]byte{})(0) {
-		t.Error("ttLocaHasGlyph should be false with no loca/head tables")
-	}
-	// A format-0 (short) loca table: 2-byte entries.
-	head0 := make([]byte, 52) // locFormat (offset 50) = 0
-	shortLoca := map[string][]byte{"head": head0, "loca": {0, 0, 0, 2}}
-	hasGlyph := ttLocaHasGlyph(shortLoca)
-	if !hasGlyph(0) {
-		t.Error("ttLocaHasGlyph(format0) should detect a non-empty glyph 0")
-	}
-	if hasGlyph(5) {
-		t.Error("ttLocaHasGlyph(format0) should be false past the end of the table")
-	}
-
-	if TTGlyphInRange(map[string][]byte{})(0) {
-		t.Error("TTGlyphInRange should be false with no maxp table")
-	}
-
-	if TTAdvanceWidth(map[string][]byte{}, 0) != -1 {
-		t.Error("TTAdvanceWidth should be -1 with no hmtx/hhea/head tables")
-	}
-	head := make([]byte, 20)
-	head[18], head[19] = 0x03, 0xE8 // unitsPerEm = 1000
-	hhea := make([]byte, 36)
-	hhea[34], hhea[35] = 0x00, 0x01                                                     // numberOfHMetrics = 1
-	tables := map[string][]byte{"head": head, "hhea": hhea, "hmtx": {0x01, 0xF4, 0, 0}} // aw=500
-	if w := TTAdvanceWidth(tables, 0); w != 500 {
-		t.Errorf("TTAdvanceWidth = %v, want 500", w)
-	}
-	// gid beyond numberOfHMetrics falls back to the last entry.
-	if w := TTAdvanceWidth(tables, 5); w != 500 {
-		t.Errorf("TTAdvanceWidth(beyond nHM) = %v, want 500 (fallback)", w)
-	}
-	headZeroUPM := make([]byte, 20) // unitsPerEm = 0
-	if TTAdvanceWidth(map[string][]byte{"head": headZeroUPM, "hhea": hhea, "hmtx": {0, 0}}, 0) != -1 {
-		t.Error("TTAdvanceWidth should be -1 when unitsPerEm is 0")
-	}
-
-	if TTWindowsBMPCmap(map[string][]byte{}) != nil {
-		t.Error("TTWindowsBMPCmap should be nil with no cmap table")
-	}
-	if TTWindowsBMPCmap(map[string][]byte{"cmap": {0, 0, 0, 1}}) != nil {
-		t.Error("TTWindowsBMPCmap should be nil when no (3,1) subtable exists")
-	}
-	if TTSymbolicCmap(map[string][]byte{}) != nil {
-		t.Error("TTSymbolicCmap should be nil with no cmap table")
-	}
-
-	if ParseCmapFormat4([]byte{0, 4}) != nil {
-		t.Error("ParseCmapFormat4 should be nil for a too-short subtable")
-	}
-	if ParseCmapFormat6([]byte{0, 6}) != nil {
-		t.Error("ParseCmapFormat6 should be nil for a too-short subtable")
-	}
-}
-
-// TestTTGlyphPresentEmptyOutlines pins what "the font defines this glyph"
-// means for 6.3.5: an empty loca entry is how TrueType encodes a glyph with no
-// contours -- a space -- and such a glyph is defined, not missing.
-//
-// The check used to accept an empty outline only when its advance width was
-// also zero. A space in a monospaced subset is empty and 600/1000 wide, so
-// every one of those fonts was reported as missing a glyph it plainly defines
-// (Ghostscript's PDF/A output, which veraPDF passes). Only an out-of-range
-// glyph id is genuinely absent.
-func TestTTGlyphPresentEmptyOutlines(t *testing.T) {
-	head := make([]byte, 52) // indexToLocFormat (offset 50) = 0, unitsPerEm at 18
-	head[18], head[19] = 0x03, 0xE8
-	hhea := make([]byte, 36)
-	hhea[34], hhea[35] = 0x00, 0x03 // numberOfHMetrics = 3
-	tables := map[string][]byte{
-		"head": head,
-		"hhea": hhea,
-		// gid 0: outline, zero advance. gid 1: empty outline, 600 advance
-		// (a space). gid 2: outline, 600 advance.
-		"loca": {0, 0, 0, 10, 0, 10, 0, 20},
-		"hmtx": {0x00, 0x00, 0, 0, 0x02, 0x58, 0, 0, 0x02, 0x58, 0, 0},
-		"maxp": {0, 0, 0, 0, 0, 3}, // numGlyphs = 3
-	}
-
-	present := TTGlyphPresent(tables)
-	for gid := range 3 {
-		if !present(gid) {
-			t.Errorf("gid %d reported absent; every glyph the font defines is present", gid)
-		}
-	}
-	if present(3) {
-		t.Error("gid 3 is past numGlyphs and must be reported absent")
-	}
-}
-
-func TestParseCFFCharsetCIDsFormats(t *testing.T) {
-	// CharsetOffset must be > 2 (offsets 0-2 mean a predefined charset), so
-	// pad with 3 leading bytes and place the table at offset 3.
-	pad := []byte{0, 0, 0}
-
-	// Format 1: (first, nLeft) ranges, nLeft is a 1-byte count.
-	f1 := append(append([]byte{}, pad...), 0x01, 0x00, 0x05, 0x02) // first CID 5, nLeft 2 -> gids 1,2,3 get CIDs 5,6,7
-	if got := ParseCFFCharsetCIDs(f1, 3, 4); got == nil || got[1] != 5 || got[2] != 6 || got[3] != 7 {
-		t.Errorf("ParseCFFCharsetCIDs(format1) = %v", got)
-	}
-
-	// Format 2: like format 1 but nLeft is a 2-byte count.
-	f2 := append(append([]byte{}, pad...), 0x02, 0x00, 0x0A, 0x00, 0x01) // first CID 10, nLeft 1 -> gids 1,2 get CIDs 10,11
-	if got := ParseCFFCharsetCIDs(f2, 3, 3); got == nil || got[1] != 10 || got[2] != 11 {
-		t.Errorf("ParseCFFCharsetCIDs(format2) = %v", got)
-	}
-
-	if ParseCFFCharsetCIDs(f1, 3, 0) != nil {
-		t.Error("ParseCFFCharsetCIDs should be nil for numGlyphs <= 0")
-	}
-	if ParseCFFCharsetCIDs(f1, 2, 4) != nil {
-		t.Error("ParseCFFCharsetCIDs should be nil for a predefined-charset offset (<=2)")
-	}
-	if ParseCFFCharsetCIDs(append(append([]byte{}, pad...), 0x09), 3, 4) != nil {
-		t.Error("ParseCFFCharsetCIDs should be nil for an unknown format")
-	}
-	if ParseCFFCharsetCIDs(f1, 3, 100) != nil {
-		t.Error("ParseCFFCharsetCIDs should be nil when the table runs past the data")
-	}
-}
-
 // buildCFFWithTopDict assembles a minimal CFF (header + Name INDEX) whose Top
 // DICT INDEX contains exactly topDict as its single entry's raw bytes, for
 // probing ParseCFFTopDict's operand-decoding error branches directly.
@@ -1268,7 +1034,7 @@ func TestParseCFFTopDictOperandTruncation(t *testing.T) {
 		"op29 truncated":    {29, 0, 0},
 		"escape truncated":  {12},
 	} {
-		if _, ok := ParseCFFTopDict(buildCFFWithTopDict(bad)); ok {
+		if _, ok := fontprog.ParseCFFTopDict(buildCFFWithTopDict(bad)); ok {
 			t.Errorf("ParseCFFTopDict(%s) should fail", name)
 		}
 	}
@@ -1281,68 +1047,15 @@ func TestParseCFFTopDictOperandTruncation(t *testing.T) {
 		real = append(real, nibbles[i]<<4|nibbles[i+1])
 	}
 	withReal := append(append([]byte{30}, real...), 17) // real number, then CharStrings op (no operand)
-	if _, ok := ParseCFFTopDict(buildCFFWithTopDict(withReal)); !ok {
+	if _, ok := fontprog.ParseCFFTopDict(buildCFFWithTopDict(withReal)); !ok {
 		t.Error("ParseCFFTopDict should tolerate a real-number operand")
 	}
 
 	// FontMatrix (escape 12 7) and Private with too few operands.
 	fm := []byte{12, 7, 139, 18} // FontMatrix marker, then Private with only 1 operand (ignored)
-	td, ok := ParseCFFTopDict(buildCFFWithTopDict(fm))
+	td, ok := fontprog.ParseCFFTopDict(buildCFFWithTopDict(fm))
 	if !ok || !td.HasFontMatrix {
 		t.Error("ParseCFFTopDict should record HasFontMatrix from escape operator 7")
-	}
-}
-
-func TestParseCFFTopDictMalformed(t *testing.T) {
-	if _, ok := ParseCFFTopDict(nil); ok {
-		t.Error("ParseCFFTopDict should fail on empty input")
-	}
-	if _, ok := ParseCFFTopDict([]byte{1, 0, 4, 1}); ok {
-		t.Error("ParseCFFTopDict should fail with no Name INDEX data")
-	}
-	// A Name INDEX with a truncated Top DICT INDEX count.
-	truncated := []byte{1, 0, 4, 1, 0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't', 0x00}
-	if _, ok := ParseCFFTopDict(truncated); ok {
-		t.Error("ParseCFFTopDict should fail with a truncated Top DICT INDEX")
-	}
-}
-
-func TestParseType1AdvanceWidthMoreOperators(t *testing.T) {
-	// Negative number via the 251-254 range, then hsbw.
-	cs := []byte{byte(251), 0, 139, 13} // push -108, push 0, hsbw -> wx = stack[1] = 0
-	if w, ok := parseType1AdvanceWidth(cs, nil); !ok || w != 0 {
-		t.Errorf("parseType1AdvanceWidth(251-254 range) = %v, %v", w, ok)
-	}
-
-	// 2-byte integer (op 28) then hsbw.
-	cs28 := []byte{28, 0x01, 0x2C, 139, 13} // push 300, push 0, hsbw -> wx=0
-	if w, ok := parseType1AdvanceWidth(cs28, nil); !ok || w != 0 {
-		t.Errorf("parseType1AdvanceWidth(op28) = %v, %v", w, ok)
-	}
-
-	// 4-byte integer (op 29) then hsbw, using the pushed value as wx.
-	cs29 := []byte{139, 29, 0x00, 0x00, 0x01, 0x2C, 13} // push 0 (sbx), push 300 (wx), hsbw
-	if w, ok := parseType1AdvanceWidth(cs29, nil); !ok || w != 300 {
-		t.Errorf("parseType1AdvanceWidth(op29) = %v, %v", w, ok)
-	}
-
-	// A non-hsbw/sbw/endchar operator clears the stack and parsing continues.
-	csClear := []byte{139, 9, 139, byte(139 + 5), 13} // push 0, closepath(9,clears), push 0, push 5, hsbw
-	if w, ok := parseType1AdvanceWidth(csClear, nil); !ok || w != 5 {
-		t.Errorf("parseType1AdvanceWidth(stack-clear op) = %v, %v", w, ok)
-	}
-
-	// Truncated operand encodings should fail cleanly rather than panic.
-	for _, bad := range [][]byte{
-		{247},      // 247-250 missing 2nd byte
-		{251},      // 251-254 missing 2nd byte
-		{28, 0},    // op28 missing 3rd byte
-		{29, 0, 0}, // op29 missing bytes
-		{12},       // escape missing 2nd byte
-	} {
-		if _, ok := parseType1AdvanceWidth(bad, nil); ok {
-			t.Errorf("parseType1AdvanceWidth(%v) should fail on truncated input", bad)
-		}
 	}
 }
 
@@ -1494,40 +1207,15 @@ func TestParseCIDWidthsMalformedEntries(t *testing.T) {
 	}
 }
 
-func TestParseSfntAndCFFIndexMalformed(t *testing.T) {
-	if _, ok := ParseSfnt(nil); ok {
-		t.Error("ParseSfnt should fail on empty input")
-	}
-	if _, ok := ParseSfnt([]byte("BAD!garbagegarbagegarbage")); ok {
-		t.Error("ParseSfnt should fail on an unrecognized version tag")
-	}
-	// Valid tag but zero tables.
-	zeroTables := []byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0}
-	if _, ok := ParseSfnt(zeroTables); ok {
-		t.Error("ParseSfnt should fail with numTables=0")
-	}
-
-	if entries, end := ParseCFFIndex(nil, 0); entries != nil || end != 0 {
-		t.Errorf("ParseCFFIndex(empty) = %v, %d, want nil, 0", entries, end)
-	}
-	if entries, _ := ParseCFFIndex([]byte{0, 0}, 0); entries != nil {
-		t.Error("ParseCFFIndex with count=0 should return nil entries")
-	}
-
-	if cffStringIndexEntries(nil) != nil {
-		t.Error("cffStringIndexEntries should be nil for too-short input")
-	}
-}
-
 func TestValidateSimpleTrueTypeUsedCodesKnown(t *testing.T) {
 	ttf := loadTTF(t)
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
 	ff.RawStream = ttf
 
-	tables, _ := ParseSfnt(ttf)
-	gidA, _ := ParseCmapFormat4(TTWindowsBMPCmap(tables))['A']
-	widthA := TTAdvanceWidth(tables, int(gidA))
+	tables, _ := fontprog.ParseSfnt(ttf)
+	gidA, _ := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
+	widthA := fontprog.TTAdvanceWidth(tables, int(gidA))
 
 	v := pdf.NewPDFDict()
 	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
@@ -1739,7 +1427,7 @@ func buildType1FontTwoGlyphs() []byte {
 // handling the FontFile3 path already had.
 func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 	font := buildType1FontTwoGlyphs()
-	if w := Type1GlyphWidths(font); w["A"] != 500 || w["B"] != 700 {
+	if w := fontprog.Type1GlyphWidths(font); w["A"] != 500 || w["B"] != 700 {
 		t.Fatalf("fixture widths = %v, want A=500 B=700", w)
 	}
 

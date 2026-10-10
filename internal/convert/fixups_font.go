@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -114,7 +115,7 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict),
 		if err != nil {
 			return
 		}
-		m := verify.WmodeRe.FindSubmatch(data)
+		m := fontprog.WmodeRe.FindSubmatch(data)
 		if m == nil {
 			return
 		}
@@ -204,16 +205,16 @@ func fontProgramName(key string, data []byte) string {
 			return string(m[1])
 		}
 	case "FontFile2":
-		if tables, ok := verify.ParseSfnt(data); ok {
+		if tables, ok := fontprog.ParseSfnt(data); ok {
 			return sfntPostScriptName(tables["name"])
 		}
 	case "FontFile3":
 		if cff := extractCFFBytes(data); cff != nil {
-			if names, _ := verify.ParseCFFIndex(cff, int(cff[2])); len(names) > 0 {
+			if names, _ := fontprog.ParseCFFIndex(cff, int(cff[2])); len(names) > 0 {
 				return string(names[0])
 			}
 		}
-		if tables, ok := verify.ParseSfnt(data); ok {
+		if tables, ok := fontprog.ParseSfnt(data); ok {
 			return sfntPostScriptName(tables["name"])
 		}
 	}

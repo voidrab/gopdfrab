@@ -5,20 +5,20 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 func loadLiberationSansGID(t *testing.T, rune16 uint16) (map[string][]byte, int) {
 	t.Helper()
-	data, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
 	if err != nil {
 		t.Fatalf("read font: %v", err)
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		t.Fatalf("parseSfnt failed")
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	gidMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 	if gidMap == nil {
 		t.Fatalf("no cmap subtable")
 	}

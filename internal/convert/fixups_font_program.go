@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -53,7 +54,7 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 	if err != nil {
 		return
 	}
-	repaired, changed := promoteEmptyGlyphs(data)
+	repaired, changed := fontprog.PromoteEmptyGlyphs(data)
 	if !changed {
 		return
 	}
@@ -154,7 +155,7 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 
 	if cff := extractCFFBytes(data); cff != nil {
 		want := "Type1C"
-		td, ok := verify.ParseCFFTopDict(cff)
+		td, ok := fontprog.ParseCFFTopDict(cff)
 		if fontSubtype == "CIDFontType0" || (ok && td.IsCIDKeyed) {
 			want = "CIDFontType0C"
 		}
@@ -175,7 +176,7 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 	if fontSubtype != "TrueType" && fontSubtype != "CIDFontType2" {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok || tables["glyf"] == nil {
 		return false
 	}
@@ -272,14 +273,14 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
 
-	codeToUnicode := verify.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
-	winGIDMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
-	symGIDMap := verify.ParseCmapSubtable(verify.TTSymbolicCmap(tables))
+	codeToUnicode := fontprog.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
+	winGIDMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
+	symGIDMap := fontprog.ParseCmapSubtable(fontprog.TTSymbolicCmap(tables))
 
 	codeToGID := func(cc int) (int, bool) {
 		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
@@ -312,7 +313,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		if !known {
 			continue
 		}
-		fontWidth := verify.TTAdvanceWidth(tables, gid)
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
 			continue
 		}
@@ -335,11 +336,11 @@ func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pd
 	if err != nil || len(fontData) == 0 {
 		return false
 	}
-	enc, ok := verify.Type1GlyphNameTable(fontData, encoding)
+	enc, ok := fontprog.Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return false
 	}
-	glyphWidths := verify.Type1GlyphWidths(fontData)
+	glyphWidths := fontprog.Type1GlyphWidths(fontData)
 	if len(glyphWidths) == 0 {
 		return false
 	}
@@ -432,11 +433,11 @@ func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil || len(data) == 0 {
 		return false
 	}
-	glyphWidths := verify.CFFAdvanceWidths(data)
+	glyphWidths := fontprog.CFFAdvanceWidths(data)
 	if len(glyphWidths) == 0 {
 		return false
 	}
-	glyphNames, ok := verify.SimpleFontGlyphNameTable(v)
+	glyphNames, ok := fontprog.SimpleFontGlyphNameTable(v)
 	if !ok {
 		return false
 	}
@@ -477,7 +478,7 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	cidWidths := verify.CFFCIDAdvanceWidths(data)
+	cidWidths := fontprog.CFFCIDAdvanceWidths(data)
 	if len(cidWidths) == 0 {
 		return false
 	}
@@ -511,7 +512,7 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
@@ -519,7 +520,7 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	pairs := verify.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
-		fontWidth := verify.TTAdvanceWidth(tables, pair[0])
+		fontWidth := fontprog.TTAdvanceWidth(tables, pair[0])
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}
@@ -605,7 +606,7 @@ func fixType3Widths(v pdf.PDFDict) bool {
 			continue
 		}
 		procWidth := verify.Type3GlyphWidth(data)
-		if procWidth < 0 || verify.Abs64(procWidth-pdfWidth) <= 1.0 {
+		if procWidth < 0 || math.Abs(procWidth-pdfWidth) <= 1.0 {
 			continue
 		}
 		if _, isInt := w.(pdf.PDFInteger); isInt {
@@ -666,7 +667,7 @@ func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
 		return false
 	}
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
-	if !verify.SubsetTagRe.MatchString(baseFont.Value) {
+	if !fontprog.SubsetTagRe.MatchString(baseFont.Value) {
 		return false
 	}
 	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
@@ -704,14 +705,14 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 		if err != nil || len(fontData) == 0 {
 			return false
 		}
-		names = verify.Type1GlyphNames(fontData)
+		names = fontprog.Type1GlyphNames(fontData)
 	case desc.Entries.Get("FontFile3") != nil:
 		ff := desc.Entries.Get("FontFile3").(pdf.PDFDict)
 		data, err := pdf.DecodeStream(ff)
 		if err != nil {
 			return false
 		}
-		names = verify.CFFGlyphNames(data)
+		names = fontprog.CFFGlyphNames(data)
 	default:
 		return false
 	}
@@ -735,7 +736,7 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 // the embedded program defines (extra names are tolerated, per 6.3.5-2).
 func charSetConsistent(charSet string, programNames []string) bool {
 	listed := map[string]bool{".notdef": true}
-	for _, part := range verify.SplitCharSetNames(charSet) {
+	for _, part := range fontprog.SplitCharSetNames(charSet) {
 		listed[part] = true
 	}
 	for _, n := range programNames {
@@ -782,12 +783,12 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	td, ok := verify.ParseCFFTopDict(data)
+	td, ok := fontprog.ParseCFFTopDict(data)
 	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return false
 	}
 	csCount := int(binary.BigEndian.Uint16(data[td.CSOffset : td.CSOffset+2]))
-	cids := verify.ParseCFFCharsetCIDs(data, td.CharsetOffset, csCount)
+	cids := fontprog.ParseCFFCharsetCIDs(data, td.CharsetOffset, csCount)
 	if cids == nil {
 		return false
 	}
@@ -819,15 +820,15 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
-	numGlyphs := verify.TTNumGlyphs(tables)
+	numGlyphs := fontprog.TTNumGlyphs(tables)
 	if numGlyphs <= 0 {
 		return false
 	}
-	glyphPresent := verify.TTGlyphPresent(tables)
+	glyphPresent := fontprog.TTGlyphPresent(tables)
 	var cids []int
 	for gid := range numGlyphs {
 		if glyphPresent(gid) {
