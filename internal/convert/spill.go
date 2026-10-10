@@ -18,9 +18,23 @@ import (
 // exercise the spill path on small inputs. Ignored where spillSupported is false.
 var spillThreshold = 8 << 20 // 8 MB
 
-// createTempFile creates the spill file. A var so tests can hand back a file
-// whose writes fail, which a real temp directory cannot be made to do portably.
-var createTempFile = os.CreateTemp
+// tempFile is the slice of *os.File the spill and Save paths use. Naming it lets
+// tests substitute a file whose write, flush, sync or close fails, which a real
+// temp directory cannot be made to do portably.
+type tempFile interface {
+	io.Writer
+	Close() error
+	Name() string
+}
+
+// createTempFile creates the spill file. A var so tests can inject failures.
+var createTempFile = func(dir, pattern string) (tempFile, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
 
 // errNoOutput is returned by the backing accessors when there is nothing to
 // read -- the zero backing, or one already closed.
@@ -34,7 +48,7 @@ var errNoOutput = errors.New("convert: no output")
 // writer is never worse than the previous always-in-memory behaviour.
 type spillWriter struct {
 	buf         bytes.Buffer
-	file        *os.File
+	file        tempFile
 	bw          *bufio.Writer
 	path        string
 	spilled     bool

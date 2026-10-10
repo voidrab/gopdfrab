@@ -271,7 +271,7 @@ func TestSpillWriterGrow(t *testing.T) {
 func TestSpillWriterDegradesWhenFlushToTempFails(t *testing.T) {
 	dir := t.TempDir()
 	old := createTempFile
-	createTempFile = func(_, pattern string) (*os.File, error) {
+	createTempFile = func(_, pattern string) (tempFile, error) {
 		f, err := os.CreateTemp(dir, pattern)
 		if err != nil {
 			return nil, err
