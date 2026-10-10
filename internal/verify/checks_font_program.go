@@ -59,7 +59,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		}
 	}
 
-	glyphNames, ok := fontprog.SimpleFontGlyphNameTable(v)
+	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
 	if !ok {
 		return
 	}
@@ -193,6 +193,19 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 			return
 		}
 	}
+}
+
+// type1SubsetGlyphNames resolves the code->glyph-name table for the 6.3.5
+// Type 1 coverage check. With an embedded FontFile program, an absent
+// /Encoding or /BaseEncoding means the program's built-in encoding (ISO
+// 32000-1 9.6.6.1); the font dictionary alone cannot say what that is.
+func type1SubsetGlyphNames(v, desc pdf.PDFDict, ctx *ValidationContext) ([256]string, bool) {
+	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
+		if data, err := ctx.decodeStreamCached(ff); err == nil {
+			return fontprog.Type1GlyphNameTable(data, v.Entries.Get("Encoding"))
+		}
+	}
+	return fontprog.SimpleFontGlyphNameTable(v)
 }
 
 // embeddedType1GlyphNames returns the glyph names defined by a descriptor's

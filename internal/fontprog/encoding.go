@@ -185,14 +185,15 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 }
 
 // namedEncodingTable resolves a modelled base encoding to its code->glyph-name
-// table. MacRomanEncoding is absent: this package carries it only as a
-// code->Unicode map, so there are no glyph names to compare against.
+// table. MacExpertEncoding is not modelled.
 func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 	switch name {
 	case "StandardEncoding":
 		return StandardEncoding, true
 	case "WinAnsiEncoding":
 		return WinAnsiGlyphName, true
+	case "MacRomanEncoding":
+		return MacRomanGlyphName, true
 	}
 	return glyphNames, false
 }

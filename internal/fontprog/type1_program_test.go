@@ -263,8 +263,11 @@ func TestType1EncodingTable(t *testing.T) {
 	if enc, ok := Type1EncodingTable(nil, "WinAnsiEncoding"); !ok || enc != WinAnsiGlyphName {
 		t.Error("WinAnsiEncoding by name")
 	}
-	if _, ok := Type1EncodingTable(nil, "MacRomanEncoding"); ok {
-		t.Error("MacRomanEncoding is not modelled")
+	if enc, ok := Type1EncodingTable(nil, "MacRomanEncoding"); !ok || enc != MacRomanGlyphName {
+		t.Error("MacRomanEncoding by name")
+	}
+	if _, ok := Type1EncodingTable(nil, "MacExpertEncoding"); ok {
+		t.Error("MacExpertEncoding is not modelled")
 	}
 
 	// From the program: a named encoding, with and without an eexec marker.
@@ -323,12 +326,12 @@ func TestType1GlyphNameTable(t *testing.T) {
 		t.Errorf("built-in + Differences: %q %q %v", enc[65], enc[67], ok)
 	}
 	// An unmodelled base with Differences still resolves (they may name every code).
-	enc, ok = Type1GlyphNameTable(font, dict("MacRomanEncoding", pdf.PDFInteger(1), pdf.PDFName{Value: "Gamma"}))
+	enc, ok = Type1GlyphNameTable(font, dict("MacExpertEncoding", pdf.PDFInteger(1), pdf.PDFName{Value: "Gamma"}))
 	if !ok || enc[1] != "Gamma" {
 		t.Errorf("unmodelled base + Differences: %q %v", enc[1], ok)
 	}
 	// An unmodelled base without Differences does not.
-	if _, ok := Type1GlyphNameTable(font, dict("MacRomanEncoding")); ok {
+	if _, ok := Type1GlyphNameTable(font, dict("MacExpertEncoding")); ok {
 		t.Error("unmodelled base without Differences should be not-ok")
 	}
 }
@@ -341,7 +344,7 @@ func TestType1WidthTable(t *testing.T) {
 	if stats != (WidthStats{GlyphsTotal: len(widths)}) || enc != StandardEncoding {
 		t.Errorf("good case: %+v", stats)
 	}
-	if _, stats := Type1WidthTable(data, pdf.PDFName{Value: "MacRomanEncoding"}, widths); stats.Skip != WidthSkipEncoding {
+	if _, stats := Type1WidthTable(data, pdf.PDFName{Value: "MacExpertEncoding"}, widths); stats.Skip != WidthSkipEncoding {
 		t.Errorf("unmodelled encoding: %+v", stats)
 	}
 	sheared := []byte("/FontMatrix [0.001 0.5 0 0.001 0 0] def\n/Encoding StandardEncoding def\neexec")

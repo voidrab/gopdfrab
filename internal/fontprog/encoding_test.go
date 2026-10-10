@@ -111,9 +111,9 @@ func TestSimpleFontGlyphNameTableCustomEncoding(t *testing.T) {
 	}
 
 	v2 := pdf.NewPDFDict()
-	v2.Entries.Set("Encoding", pdf.PDFName{Value: "MacRomanEncoding"})
+	v2.Entries.Set("Encoding", pdf.PDFName{Value: "MacExpertEncoding"})
 	if _, ok := SimpleFontGlyphNameTable(v2); ok {
-		t.Error("SimpleFontGlyphNameTable(MacRomanEncoding) should be ok=false (unmodeled)")
+		t.Error("SimpleFontGlyphNameTable(MacExpertEncoding) should be ok=false (unmodeled)")
 	}
 }
 

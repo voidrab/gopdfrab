@@ -1464,7 +1464,7 @@ func TestType1SubsetCoverageSkipsWhatItCannotJudge(t *testing.T) {
 		encoding pdf.PDFValue
 	}{
 		{"CharSet is a name", pdf.PDFName{Value: "A"}, pdf.PDFName{Value: "WinAnsiEncoding"}},
-		{"font has no Encoding", pdf.PDFString{Value: "/A"}, nil},
+		{"Encoding is not modelled", pdf.PDFString{Value: "/A"}, pdf.PDFName{Value: "MacExpertEncoding"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v, desc := type1CoverageFixture(tc.charSet, tc.encoding)
@@ -2004,5 +2004,48 @@ func TestCMapWModeSilentCases(t *testing.T) {
 				t.Errorf("reported %v", issueKeys(ctx.Issues()))
 			}
 		})
+	}
+}
+
+// TestType1SubsetCoverageUsesBuiltinEncoding covers ISO 32000-1 9.6.6.1: an
+// embedded Type 1 font without /Encoding, or whose /Encoding dictionary has no
+// /BaseEncoding, uses the program's built-in encoding. buildType1Font's is
+// StandardEncoding, where code 66 is /B, which the program does not define.
+func TestType1SubsetCoverageUsesBuiltinEncoding(t *testing.T) {
+	widths := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(500)} // code 66 /B
+
+	v, desc := type1CoverageFixture(pdf.PDFString{Value: "/A"}, nil)
+	ctx := &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 66, widths, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("font without /Encoding: code 66 /B not reported")
+	}
+
+	enc := pdf.NewPDFDict()
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(70), pdf.PDFName{Value: "A"}})
+	v, desc = type1CoverageFixture(pdf.PDFString{Value: "/A"}, enc)
+	ctx = &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 66, widths, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("/Encoding without /BaseEncoding: code 66 /B not reported")
+	}
+
+	// Positive control: code 65 is /A in the built-in encoding.
+	v, desc = type1CoverageFixture(pdf.PDFString{Value: "/A"}, nil)
+	ctx = &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 65, pdf.PDFArray{pdf.PDFInteger(500)}, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("code 65 /A reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1SubsetCoverageMacRomanEncoding: /MacRomanEncoding resolves to its
+// Annex D glyph names instead of being skipped. Mac Roman 0x80 is /Adieresis.
+func TestType1SubsetCoverageMacRomanEncoding(t *testing.T) {
+	v, desc := type1CoverageFixture(pdf.PDFString{Value: "/A"}, pdf.PDFName{Value: "MacRomanEncoding"})
+	ctx := &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 0x80, 0x80, pdf.PDFArray{pdf.PDFInteger(500)}, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("MacRomanEncoding code 0x80 /Adieresis not reported")
 	}
 }
