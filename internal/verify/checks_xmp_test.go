@@ -1293,3 +1293,23 @@ func TestVerifyReportsNonCatalogXMPWithoutXPacket(t *testing.T) {
 		t.Errorf("ObjectXMPNoXPacket not reported; issues %v", issueKeys(res.Issues))
 	}
 }
+
+// TestXMPExifFlashStructFields checks that every field of the exif Flash
+// structure (Fired, Return, Mode, Function, RedEyeMode) is a defined exif
+// property; the table once carried "pdf.Function" for Function after a
+// mechanical package-prefix rename.
+func TestXMPExifFlashStructFields(t *testing.T) {
+	const exif = "http://ns.adobe.com/exif/1.0/"
+	for _, field := range []string{"Fired", "Return", "Mode", "Function", "RedEyeMode"} {
+		if errs := xmpValidateProp(exif, field, xmpKindScalar, "", nil); len(errs) != 0 {
+			t.Errorf("exif:%s reported as %v", field, issueKeys(errs))
+		}
+	}
+	for ns, props := range xmpNSSchemas {
+		for name := range props {
+			if strings.ContainsAny(name, ". ") {
+				t.Errorf("namespace %s defines property %q, which is not a valid XML local name", ns, name)
+			}
+		}
+	}
+}

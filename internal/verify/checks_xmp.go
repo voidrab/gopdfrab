@@ -1359,7 +1359,7 @@ var xmpNSSchemas = map[string]map[string]xmpContainerKind{
 		"UserComment": xmpKindAlt, "WhiteBalance": xmpKindInteger,
 		// Struct sub-fields (Flash, OECF/SFR, CFAPattern, DeviceSettingDescription):
 		"Fired": xmpKindScalar, "Return": xmpKindInteger,
-		"Mode": xmpKindInteger, "pdf.Function": xmpKindScalar, "RedEyeMode": xmpKindScalar,
+		"Mode": xmpKindInteger, "Function": xmpKindScalar, "RedEyeMode": xmpKindScalar,
 		"Columns": xmpKindInteger, "Rows": xmpKindInteger,
 		"Names": xmpKindSeq, "Values": xmpKindSeq, "Settings": xmpKindSeq,
 	},
