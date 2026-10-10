@@ -1179,7 +1179,6 @@ const (
 	maxOverpaintedPages = 2
 
 	// fidelityWorkerMemory is the memory budget per survey worker.
-	// 16 workers peaked at 14.3 GB on the full corpus.
 	fidelityWorkerMemory = 1536 << 20
 
 	// fidelityFallbackWorkers applies when available memory is unknown.
