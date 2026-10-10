@@ -122,3 +122,39 @@ func TestOutputIntentCoverage(t *testing.T) {
 		t.Errorf("outputIntentCoverage(rgb+cmyk intents) = %v %v %v, want all true", has, rgb, cmyk)
 	}
 }
+
+// TestAnnotColourFixerCmykAndGrayModels covers the 1- and 4-element colour
+// arrays: gray is allowed by any OutputIntent, cmyk only by a 4-component
+// profile. A non-dict OutputIntents entry is skipped.
+func TestAnnotColourFixerCmykAndGrayModels(t *testing.T) {
+	cmykOI := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"S":                 pdf.PDFName{Value: "GTS_PDFA1"},
+		"DestOutputProfile": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"N": pdf.PDFInteger(4)})},
+	})}
+	mk := func(c pdf.PDFArray) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Annot"}, "C": c,
+		})}
+	}
+	cmyk := mk(pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)})
+	gray := mk(pdf.PDFArray{pdf.PDFReal(0.5)})
+	rgb := mk(pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)})
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"OutputIntents": pdf.PDFArray{pdf.PDFInteger(1), cmykOI},
+		"A": cmyk, "B": gray, "R": rgb,
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
+	changed, err := annotColourFixer{}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want true (rgb uncovered)", changed, err)
+	}
+	if _, ok := cmyk.Entries.Lookup("C"); !ok {
+		t.Error("covered cmyk /C removed")
+	}
+	if _, ok := gray.Entries.Lookup("C"); !ok {
+		t.Error("gray /C removed despite an OutputIntent")
+	}
+	if _, ok := rgb.Entries.Lookup("C"); ok {
+		t.Error("uncovered rgb /C kept")
+	}
+}
