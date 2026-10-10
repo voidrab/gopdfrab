@@ -29,7 +29,8 @@ notice.
 ### Changed
 
 - Font parsing and the renderer moved into their own internal packages.
-- CLI: repeats of the same issue on a file fold into one line with `count=N`.
+- CLI: issues are grouped into one line per check and message, with a count,
+  the pages as ranges and the number of objects; `--detail` lists every location.
 - CLI: the profile is named once in a `profile:` header instead of
   `PDF/A violation` on every issue line.
 - CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
