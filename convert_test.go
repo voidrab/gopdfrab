@@ -5,6 +5,7 @@
 package gopdfrab
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -1120,12 +1121,61 @@ const (
 	maxOverpaintedFiles = 1
 	maxOverpaintedPages = 2
 
-	// fidelitySurveyWorkers bounds how many files are rendered at once. Every
-	// page of both sides of a document is measured while it is compared, so a
-	// few hundred-page books in flight together is gigabytes -- one worker per
-	// core ran a 16-core machine out of memory.
-	fidelitySurveyWorkers = 4
+	// fidelityWorkerMemory is the memory budget per survey worker.
+	fidelityWorkerMemory = 1536 << 20
+
+	// fidelityFallbackWorkers applies when available memory is unknown.
+	fidelityFallbackWorkers = 4
 )
+
+// fidelitySurveyWorkers returns the survey's worker count, bounded by cores and
+// available memory. GOPDFRAB_REALWORLD_FIDELITY_WORKERS overrides it.
+func fidelitySurveyWorkers(t *testing.T) int {
+	t.Helper()
+	if spec := os.Getenv("GOPDFRAB_REALWORLD_FIDELITY_WORKERS"); spec != "" {
+		n, err := strconv.Atoi(spec)
+		if err != nil || n <= 0 {
+			t.Fatalf("GOPDFRAB_REALWORLD_FIDELITY_WORKERS = %q, want a positive count", spec)
+		}
+		return n
+	}
+	n := min(runtime.NumCPU(), fidelityFallbackWorkers)
+	if avail, ok := availableMemory(); ok {
+		n = max(1, min(runtime.NumCPU(), int(avail/fidelityWorkerMemory)))
+		t.Logf("fidelity survey: %d workers (%d cores, %d MB available)",
+			n, runtime.NumCPU(), avail>>20)
+	} else {
+		t.Logf("fidelity survey: %d workers (available memory unknown)", n)
+	}
+	return n
+}
+
+// availableMemory returns MemAvailable in bytes, or false off Linux.
+func availableMemory() (int64, bool) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	return parseMemAvailable(f)
+}
+
+// parseMemAvailable parses MemAvailable from /proc/meminfo, in bytes.
+func parseMemAvailable(r io.Reader) (int64, bool) {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) != 3 || fields[0] != "MemAvailable:" || fields[2] != "kB" {
+			continue
+		}
+		kb, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || kb <= 0 {
+			return 0, false
+		}
+		return kb << 10, true
+	}
+	return 0, false
+}
 
 func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 	t.Helper()
@@ -1138,7 +1188,7 @@ func surveyFidelity(t *testing.T, files []string, rep *realWorldReporter) {
 	overpainted := map[string][]int{}
 	start := time.Now()
 	err := ConvertEachContext(context.Background(), sample, PDFA1B,
-		Options{CheckFidelity: true, Workers: fidelitySurveyWorkers},
+		Options{CheckFidelity: true, Workers: fidelitySurveyWorkers(t)},
 		func(fr FileResult[ConvertResult]) error {
 			// The callback is serialized, so the maps need no synchronization.
 			if fr.Err != nil {
@@ -1398,6 +1448,36 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	for _, r := range records {
 		if !r.OK || r.Path == "" || r.Kind == "" || r.Bytes == 0 {
 			t.Errorf("report record incomplete: %+v", r)
+		}
+	}
+}
+
+// TestFidelitySurveyWorkers covers the env override, the core bound and
+// meminfo parsing.
+func TestFidelitySurveyWorkers(t *testing.T) {
+	t.Setenv("GOPDFRAB_REALWORLD_FIDELITY_WORKERS", "")
+	if n := fidelitySurveyWorkers(t); n < 1 || n > runtime.NumCPU() {
+		t.Errorf("default workers = %d, want 1..%d", n, runtime.NumCPU())
+	}
+	t.Setenv("GOPDFRAB_REALWORLD_FIDELITY_WORKERS", "3")
+	if n := fidelitySurveyWorkers(t); n != 3 {
+		t.Errorf("overridden workers = %d, want 3", n)
+	}
+
+	for _, tc := range []struct {
+		name, meminfo string
+		want          int64
+		ok            bool
+	}{
+		{"present", "MemTotal:       32000000 kB\nMemFree:  100 kB\nMemAvailable:   16000000 kB\n", 16000000 << 10, true},
+		{"absent", "MemTotal:       32000000 kB\nMemFree:  100 kB\n", 0, false},
+		{"unparsable", "MemAvailable:   lots kB\n", 0, false},
+		{"zero", "MemAvailable:   0 kB\n", 0, false},
+		{"wrong unit", "MemAvailable:   16000000 MB\n", 0, false},
+	} {
+		got, ok := parseMemAvailable(strings.NewReader(tc.meminfo))
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%s: parseMemAvailable = %d, %v; want %d, %v", tc.name, got, ok, tc.want, tc.ok)
 		}
 	}
 }

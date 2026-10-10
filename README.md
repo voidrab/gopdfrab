@@ -47,6 +47,41 @@ Subcommands are `verify`, `convert`, `version` and `help`. Exit codes are `0`
 conformant, `1` non-conformant, `2` error, so it drops into scripts and CI
 directly. `verify` walks directories recursively.
 
+`verify` prints a fixed layout that scripts can parse:
+
+```text
+profile: pdfa1b
+
+FAIL  issues=974 distinct=36  docs/L34a.pdf
+  6.1.2/5     count=1    pages=doc        objs=1    "ViewerPreferences entry /PrintScaling requires PDF 1.5 or later"
+  6.2.3.3/2   count=149  pages=1-2        objs=127  "device colour (gray) used in content stream without matching OutputIntent"
+  6.3.4/1     count=3    pages=doc,1      objs=3    "font Courier-Bold is not embedded"
+  6.6.1/1     count=258  pages=doc,1-2,4  objs=258  "forbidden action type /JavaScript"
+  ...
+  objmodel/1  count=3    pages=1-2        objs=0    "Appearance is missing required key \"N\""
+PASS  docs/ok.pdf
+ERROR docs/broken.pdf
+  error "failed to parse structure: pdf: not a PDF document: no %PDF- header"
+
+summary: pass=1 fail=1 error=1 files=3
+```
+
+- A file line starts with `PASS`, `FAIL` or `ERROR`; the path is the rest of the
+  line. `FAIL` gives the number of issues and of issue lines.
+- Indented lines belong to the file above. An issue line covers every report of
+  one check with one message: clause[/subclause], `count=<n>` reports,
+  `pages=` the pages they were on (`doc` for document-level, runs as ranges),
+  `objs=<n>` distinct objects, and the messages as one Go-quoted string. Lines
+  are sorted by clause, then message.
+- `--detail` lists every location instead, one line per page and object:
+  clause, `page=<n|doc>`, `obj=<num>.<gen>` or `obj=-`, `count=<n>` repeats there,
+  and the messages.
+- `convert` prints `profile:`, `input:`, `output:`, `iterations:`, an optional
+  `lost: objects=<n> distinct=<n>` and `result: conformant` or
+  `result: residual issues=<n> distinct=<n>`, with the same issue lines beneath.
+
+`--json` reports every occurrence, ungrouped.
+
 Both subcommands take:
 
 | Flag | Meaning |
@@ -56,6 +91,7 @@ Both subcommands take:
 | `--max-decoded-mb` | cap a single stream's decoded output in MB (0 = default 256) |
 | `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64) |
 | `--json` | emit machine-readable JSON |
+| `--detail` | list every page and object an issue was found on, instead of grouping by check and message |
 
 `convert` also takes:
 
