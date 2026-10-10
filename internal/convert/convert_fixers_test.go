@@ -77,3 +77,13 @@ func TestStreamUndecodableFixerLeavesRealContentAlone(t *testing.T) {
 		t.Error("the filter was dropped, which would present undecodable bytes as content")
 	}
 }
+
+func TestRunDictVisitorDeclinedPrepare(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	changed, err := runDictVisitor(&trailer, func(*pdf.PDFDict, *bool) (func(pdf.PDFDict), bool) {
+		return func(pdf.PDFDict) { t.Error("visitor ran although prepare declined") }, false
+	})
+	if changed || err != nil {
+		t.Errorf("runDictVisitor = %v, %v; want false, nil", changed, err)
+	}
+}

@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -499,5 +503,339 @@ func TestSortedChecksOrdering(t *testing.T) {
 					i, got[i].Name(), again[i].Name())
 			}
 		}
+	}
+}
+
+// failingFixer stands in for every registered fixer so a fixer error, a
+// targeted-fixer error or a mid-run cancellation can be provoked on any input
+// that has issues.
+type failingFixer struct {
+	check pdf.Check
+	err   error
+	onFix func()
+}
+
+func (f failingFixer) Applies(c pdf.Check) bool { return c == f.check }
+func (f failingFixer) Fix(*pdf.PDFDict, []pdf.PDFError) (bool, error) {
+	if f.onFix != nil {
+		f.onFix()
+	}
+	return false, f.err
+}
+
+// failingTargetedFixer adds the targetedFixer capability to failingFixer.
+type failingTargetedFixer struct{ failingFixer }
+
+func (f failingTargetedFixer) fixTargeted(*fixPass, []pdf.PDFError) (bool, bool, error) {
+	return false, true, f.err
+}
+
+// lzwPDF is a one-page document whose content stream carries an LZWDecode
+// filter -- a PDF/A-1 violation with a registered, non-preemptive fixer and a
+// page attribution.
+func lzwPDF() []byte {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R >>")
+	b.StreamObj(4, "/Filter /LZWDecode", []byte{0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01})
+	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
+}
+
+// replaceAllFixers swaps every registered fixer for mk(check) until the test
+// ends.
+func replaceAllFixers(t *testing.T, mk func(pdf.Check) Fixer) {
+	t.Helper()
+	old := fixerRegistry
+	fixerRegistry = map[pdf.Check]Fixer{}
+	for c := range old {
+		fixerRegistry[c] = mk(c)
+	}
+	t.Cleanup(func() { fixerRegistry = old })
+}
+
+func TestRunWrapsFixerErrors(t *testing.T) {
+	boom := errors.New("fixer boom")
+	for name, mk := range map[string]func(pdf.Check) Fixer{
+		"Fix":         func(c pdf.Check) Fixer { return failingFixer{check: c, err: boom} },
+		"fixTargeted": func(c pdf.Check) Fixer { return failingTargetedFixer{failingFixer{check: c, err: boom}} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			replaceAllFixers(t, mk)
+			_, err := ConvertBytes(lzwPDF(), pdf.PDFA1B, Options{})
+			if !errors.Is(err, boom) || !strings.Contains(err.Error(), "fixer for check") {
+				t.Errorf("err = %v, want it to wrap the fixer error and name the check", err)
+			}
+		})
+	}
+}
+
+func TestRunWrapsPreemptiveFixupError(t *testing.T) {
+	old := preemptiveFixups
+	t.Cleanup(func() { preemptiveFixups = old })
+	boom := errors.New("preemptive boom")
+	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader) error { return boom })
+
+	_, err := ConvertBytes(pdfgen.PlainThreeIssue(), pdf.PDFA1B, Options{})
+	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "pre-emptive fixups") {
+		t.Errorf("err = %v, want the wrapped pre-emptive fixup error", err)
+	}
+}
+
+// TestRunCancelledDuringFixPassSkipsBackstop cancels the context from inside a
+// fixer that changes nothing: the loop ends, and the raster backstop must
+// notice the cancellation before it rasterizes anything.
+func TestRunCancelledDuringFixPassSkipsBackstop(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	replaceAllFixers(t, func(c pdf.Check) Fixer { return failingFixer{check: c, onFix: cancel} })
+
+	_, err := ConvertBytesContext(ctx, lzwPDF(), pdf.PDFA1B, Options{})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+}
+
+// TestRunUnresolvableGraphWithUnverifiableProfile: when the graph cannot be
+// resolved and the best-effort verify fails too, the resolve error is still
+// returned, with no result riding along.
+func TestRunUnresolvableGraphWithUnverifiableProfile(t *testing.T) {
+	cr, err := ConvertBytes(unresolvableChainPDF(), &pdf.Profile{Level: pdf.Undefined}, Options{})
+	if !errors.Is(err, pdf.ErrUnresolvableGraph) {
+		t.Fatalf("err = %v, want ErrUnresolvableGraph", err)
+	}
+	if len(cr.Result.Issues) != 0 {
+		t.Errorf("Result carries %d issues, want none because the verify failed", len(cr.Result.Issues))
+	}
+}
+
+// unresolvableChainPDF has a reference chain past the resolve depth cap, so its
+// graph cannot be resolved.
+func unresolvableChainPDF() []byte {
+	const chain = 70000
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Deep 4 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
+	for i := 4; i < 4+chain; i++ {
+		b.Obj(i, fmt.Sprintf("[%d 0 R]", i+1))
+	}
+	b.Obj(4+chain, "42")
+	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
+}
+
+func TestSummarizeTrailerPagesOfUnresolvableOutput(t *testing.T) {
+	doc, err := pdf.OpenBytes(unresolvableChainPDF())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer doc.Close()
+	if got := summarizeTrailerPagesOf(doc); got != nil {
+		t.Errorf("summarizeTrailerPagesOf = %v, want nil for an unresolvable graph", got)
+	}
+}
+
+func TestSerializeAndVerifyFullVerifyOnDirtyGraph(t *testing.T) {
+	trailer := onePageTrailer()
+	doc := openTrailer(t, trailer)
+	var cr ConvertResult
+	if err := serializeAndVerify(doc, trailer, &cr, pdf.PDFA1B, verify.Parts{}, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer cr.Close()
+	if cr.Result.Type != pdf.A1B {
+		t.Errorf("Result.Type = %v, want A1B (full verify ran)", cr.Result.Type)
+	}
+	if b, err := cr.Output(); err != nil || len(b) == 0 {
+		t.Errorf("Output = %d bytes, %v; want the serialized document", len(b), err)
+	}
+}
+
+// TestResolveGraphRootIsAlwaysADict guards resolveTrailer's unchecked type
+// assertion: a parsed Reader and a seeded one both resolve to a PDFDict.
+func TestResolveGraphRootIsAlwaysADict(t *testing.T) {
+	parsed, err := pdf.OpenBytes(pdfgen.PlainThreeIssue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parsed.Close()
+	seeded := openTrailer(t, onePageTrailer())
+	seeded.SeedResolvedGraph(onePageTrailer(), nil)
+	for name, r := range map[string]*pdf.Reader{"parsed": parsed, "seeded": seeded} {
+		for pass := 0; pass < 2; pass++ { // second pass takes the cached-graph path
+			g, err := r.ResolveGraph()
+			if err != nil {
+				t.Fatalf("%s: ResolveGraph: %v", name, err)
+			}
+			if _, ok := g.(pdf.PDFDict); !ok {
+				t.Fatalf("%s: ResolveGraph returned %T, want PDFDict", name, g)
+			}
+		}
+	}
+}
+
+func TestSerializeAndVerifyFullVerifyError(t *testing.T) {
+	trailer := onePageTrailer()
+	doc := openTrailer(t, trailer)
+	var cr ConvertResult
+	err := serializeAndVerify(doc, trailer, &cr, &pdf.Profile{Level: pdf.Undefined}, verify.Parts{}, false, 0)
+	if err == nil {
+		t.Fatal("serializeAndVerify with an undefined profile succeeded")
+	}
+	if cr.backing != nil {
+		t.Error("backing kept after a failed verify; the output must be released")
+	}
+}
+
+// vanishingFile is a spill file that deletes itself when closed, so the sealed
+// backing points at a path that no longer exists.
+type vanishingFile struct {
+	*os.File
+	closeErr error
+	vanish   bool
+}
+
+func (v vanishingFile) Close() error {
+	err := v.File.Close()
+	if v.vanish {
+		os.Remove(v.File.Name())
+	}
+	if v.closeErr != nil {
+		return v.closeErr
+	}
+	return err
+}
+
+func TestSerializeAndVerifySpillErrors(t *testing.T) {
+	for name, vf := range map[string]vanishingFile{
+		"finish fails": {closeErr: errors.New("close boom")},
+		"reopen fails": {vanish: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := isolateTempDir(t)
+			setSpillThreshold(t, 1)
+			old := createTempFile
+			t.Cleanup(func() { createTempFile = old })
+			createTempFile = func(d, pattern string) (tempFile, error) {
+				f, err := os.CreateTemp(d, pattern)
+				if err != nil {
+					return nil, err
+				}
+				v := vf
+				v.File = f
+				return v, nil
+			}
+			trailer := onePageTrailer()
+			doc := openTrailer(t, trailer)
+			var cr ConvertResult
+			if err := serializeAndVerify(doc, trailer, &cr, pdf.PDFA1B, verify.Parts{}, false, 0); err == nil {
+				cr.Close()
+				t.Fatal("serializeAndVerify succeeded despite the broken spill file")
+			}
+			if cr.backing != nil {
+				t.Error("backing kept after failure")
+			}
+			assertEmptyDir(t, dir)
+		})
+	}
+}
+
+// TestSortedChecksOrderIsTotal guards the dropped name tie-break: over the whole
+// catalogue, sortedChecks must order strictly by (clause, subclause), i.e. no
+// two checks share that pair.
+func TestSortedChecksOrderIsTotal(t *testing.T) {
+	counts := map[pdf.Check]int{}
+	for _, c := range pdf.AllChecks() {
+		counts[c] = 1
+	}
+	got := sortedChecks(counts)
+	for i := 1; i < len(got); i++ {
+		p, c := got[i-1], got[i]
+		if p.Clause() > c.Clause() || (p.Clause() == c.Clause() && p.Subclause() >= c.Subclause()) {
+			t.Fatalf("%s/%d (%s) not strictly before %s/%d (%s)", p.Clause(), p.Subclause(), p.Name(), c.Clause(), c.Subclause(), c.Name())
+		}
+	}
+}
+
+func TestSaveTempFileFailures(t *testing.T) {
+	data := pdfgen.PlainThreeIssue()
+	cr := ConvertResult{backing: &outputBacking{mem: data}}
+
+	t.Run("no temp file", func(t *testing.T) {
+		if err := cr.Save(filepath.Join(t.TempDir(), "missing-dir", "out.pdf")); err == nil {
+			t.Error("Save into a missing directory succeeded")
+		}
+	})
+
+	for name, ff := range map[string]faultySave{
+		"chmod": {chmodErr: errors.New("chmod boom")},
+		"sync":  {syncErr: errors.New("sync boom")},
+		"close": {closeErr: errors.New("close boom")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			old := createSaveFile
+			t.Cleanup(func() { createSaveFile = old })
+			createSaveFile = func(dir, pattern string) (saveFile, error) {
+				f, err := os.CreateTemp(dir, pattern)
+				if err != nil {
+					return nil, err
+				}
+				v := ff
+				v.File = f
+				return v, nil
+			}
+			dir := t.TempDir()
+			path := filepath.Join(dir, "out.pdf")
+			if err := cr.Save(path); err == nil {
+				t.Fatal("Save succeeded despite the failing temp file")
+			}
+			entries, _ := os.ReadDir(dir)
+			if len(entries) != 0 {
+				t.Errorf("failed Save left %d file(s) behind", len(entries))
+			}
+		})
+	}
+}
+
+// faultySave is a Save temp file with one step that fails.
+type faultySave struct {
+	*os.File
+	chmodErr, syncErr, closeErr error
+}
+
+func (f faultySave) Chmod(m os.FileMode) error {
+	if f.chmodErr != nil {
+		return f.chmodErr
+	}
+	return f.File.Chmod(m)
+}
+
+func (f faultySave) Sync() error {
+	if f.syncErr != nil {
+		return f.syncErr
+	}
+	return f.File.Sync()
+}
+
+func (f faultySave) Close() error {
+	err := f.File.Close()
+	if f.closeErr != nil {
+		return f.closeErr
+	}
+	return err
+}
+
+// TestRunCancelledBeforeFirstIteration: a context already cancelled when the
+// run starts stops it at the first loop check, before any verify. Without this
+// the check is only reached by chance, when a ConvertEach abort lands mid-run.
+func TestRunCancelledBeforeFirstIteration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cr, err := ConvertBytesContext(ctx, lzwPDF(), pdf.PDFA1B, Options{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if cr.Iterations != 0 {
+		t.Errorf("Iterations = %d, want 0 (nothing ran)", cr.Iterations)
 	}
 }
