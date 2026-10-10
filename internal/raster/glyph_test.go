@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"encoding/binary"
@@ -27,32 +27,6 @@ func loadLiberationSansGID(t *testing.T, rune16 uint16) (map[string][]byte, int)
 		t.Fatalf("no glyph mapped for rune %d", rune16)
 	}
 	return tables, int(gid)
-}
-
-func boundsOf(contours [][]Point) (minX, minY, maxX, maxY float64) {
-	first := true
-	for _, c := range contours {
-		for _, p := range c {
-			if first {
-				minX, maxX, minY, maxY = p.X, p.X, p.Y, p.Y
-				first = false
-				continue
-			}
-			if p.X < minX {
-				minX = p.X
-			}
-			if p.X > maxX {
-				maxX = p.X
-			}
-			if p.Y < minY {
-				minY = p.Y
-			}
-			if p.Y > maxY {
-				maxY = p.Y
-			}
-		}
-	}
-	return
 }
 
 func TestGlyphOutlineFromTrueTypeSimpleGlyph(t *testing.T) {
@@ -99,33 +73,6 @@ func TestGlyphOutlineFromTrueTypeSpaceIsEmpty(t *testing.T) {
 	}
 }
 
-func TestInterpretType2CharstringSquare(t *testing.T) {
-	// A hand-built Type2 charstring tracing a 100x100 square via rmoveto +
-	// rlineto, then endchar: moveto (10,10); lineto (110,10),(110,110),(10,110).
-	enc := func(v int) byte { return byte(v + 139) }
-	program := []byte{
-		enc(10), enc(10), 21, // 10 10 rmoveto
-		enc(100), enc(0), 5, // 100 0 rlineto
-		enc(0), enc(100), 5, // 0 100 rlineto
-		enc(-100), enc(0), 5, // -100 0 rlineto
-		14, // endchar
-	}
-	contours := interpretType2Charstring(program)
-	if len(contours) != 1 {
-		t.Fatalf("got %d contours, want 1", len(contours))
-	}
-	pts := contours[0]
-	if len(pts) != 4 {
-		t.Fatalf("got %d points, want 4 (square corners)", len(pts))
-	}
-	want := []Point{{10, 10}, {110, 10}, {110, 110}, {10, 110}}
-	for i, w := range want {
-		if pts[i].X != w.X || pts[i].Y != w.Y {
-			t.Errorf("point %d = %+v, want %+v", i, pts[i], w)
-		}
-	}
-}
-
 func TestInterpretType2CharstringHVCurve(t *testing.T) {
 	enc := func(v int) byte { return byte(v + 139) }
 	// 0 0 moveto, then a hvcurveto: dx1 dx2 dy2 dy3 (horizontal start) from (0,0).
@@ -143,35 +90,6 @@ func TestInterpretType2CharstringHVCurve(t *testing.T) {
 	// Curve ends at x3=x2 (=50+20=70), y3=y2+50=20+50=70 for the horizontal-start 4-arg case.
 	if last.X != 70 || last.Y != 70 {
 		t.Errorf("curve endpoint = %+v, want (70,70)", last)
-	}
-}
-
-func TestInterpretType1CharstringSquare(t *testing.T) {
-	// hsbw sbx=0 wx=100, then rmoveto (10,10), rlineto x3 tracing a square,
-	// closepath, endchar -- the Type1 counterpart of the Type2 square test.
-	enc := func(v int) byte { return byte(v + 139) }
-	program := []byte{
-		enc(0), enc(100), 13, // 0 100 hsbw
-		enc(10), enc(10), 21, // 10 10 rmoveto
-		enc(100), 6, // 100 hlineto
-		enc(100), 7, // 100 vlineto
-		enc(-100), 6, // -100 hlineto
-		9,  // closepath
-		14, // endchar
-	}
-	contours := interpretType1Charstring(program)
-	if len(contours) != 1 {
-		t.Fatalf("got %d contours, want 1", len(contours))
-	}
-	pts := contours[0]
-	want := []Point{{10, 10}, {110, 10}, {110, 110}, {10, 110}}
-	if len(pts) != len(want) {
-		t.Fatalf("got %d points, want %d", len(pts), len(want))
-	}
-	for i, w := range want {
-		if pts[i].X != w.X || pts[i].Y != w.Y {
-			t.Errorf("point %d = %+v, want %+v", i, pts[i], w)
-		}
 	}
 }
 
@@ -459,5 +377,87 @@ func TestTTSimpleGlyphContoursDescendingEndPoints(t *testing.T) {
 	// be accepted, so the guard cannot just reject any non-increase.
 	if _, ok := ttSimpleGlyphContours(build(0, 1)); !ok {
 		t.Error("a glyph with climbing endpoints was rejected")
+	}
+}
+
+func boundsOf(contours [][]Point) (minX, minY, maxX, maxY float64) {
+	first := true
+	for _, c := range contours {
+		for _, p := range c {
+			if first {
+				minX, maxX, minY, maxY = p.X, p.X, p.Y, p.Y
+				first = false
+				continue
+			}
+			if p.X < minX {
+				minX = p.X
+			}
+			if p.X > maxX {
+				maxX = p.X
+			}
+			if p.Y < minY {
+				minY = p.Y
+			}
+			if p.Y > maxY {
+				maxY = p.Y
+			}
+		}
+	}
+	return
+}
+
+func TestInterpretType2CharstringSquare(t *testing.T) {
+	// A hand-built Type2 charstring tracing a 100x100 square via rmoveto +
+	// rlineto, then endchar: moveto (10,10); lineto (110,10),(110,110),(10,110).
+	enc := func(v int) byte { return byte(v + 139) }
+	program := []byte{
+		enc(10), enc(10), 21, // 10 10 rmoveto
+		enc(100), enc(0), 5, // 100 0 rlineto
+		enc(0), enc(100), 5, // 0 100 rlineto
+		enc(-100), enc(0), 5, // -100 0 rlineto
+		14, // endchar
+	}
+	contours := interpretType2Charstring(program)
+	if len(contours) != 1 {
+		t.Fatalf("got %d contours, want 1", len(contours))
+	}
+	pts := contours[0]
+	if len(pts) != 4 {
+		t.Fatalf("got %d points, want 4 (square corners)", len(pts))
+	}
+	want := []Point{{10, 10}, {110, 10}, {110, 110}, {10, 110}}
+	for i, w := range want {
+		if pts[i].X != w.X || pts[i].Y != w.Y {
+			t.Errorf("point %d = %+v, want %+v", i, pts[i], w)
+		}
+	}
+}
+
+func TestInterpretType1CharstringSquare(t *testing.T) {
+	// hsbw sbx=0 wx=100, then rmoveto (10,10), rlineto x3 tracing a square,
+	// closepath, endchar -- the Type1 counterpart of the Type2 square test.
+	enc := func(v int) byte { return byte(v + 139) }
+	program := []byte{
+		enc(0), enc(100), 13, // 0 100 hsbw
+		enc(10), enc(10), 21, // 10 10 rmoveto
+		enc(100), 6, // 100 hlineto
+		enc(100), 7, // 100 vlineto
+		enc(-100), 6, // -100 hlineto
+		9,  // closepath
+		14, // endchar
+	}
+	contours := interpretType1Charstring(program)
+	if len(contours) != 1 {
+		t.Fatalf("got %d contours, want 1", len(contours))
+	}
+	pts := contours[0]
+	want := []Point{{10, 10}, {110, 10}, {110, 110}, {10, 110}}
+	if len(pts) != len(want) {
+		t.Fatalf("got %d points, want %d", len(pts), len(want))
+	}
+	for i, w := range want {
+		if pts[i].X != w.X || pts[i].Y != w.Y {
+			t.Errorf("point %d = %+v, want %+v", i, pts[i], w)
+		}
 	}
 }

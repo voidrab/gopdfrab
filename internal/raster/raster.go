@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"encoding/binary"
@@ -10,8 +10,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // RenderPage rasterizes a single page's content streams into an opaque RGBA
@@ -22,20 +20,20 @@ import (
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, []string, error) {
-	content, err := pageContentBytes(page)
+	content, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(content, resources, mediaBox, dpi, inheritedPaint{}, paperBackdrop)
+	return renderContent(content, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop)
 }
 
-// renderFormContent rasterizes a Form XObject's own /BBox + content in
+// RenderFormContent rasterizes a Form XObject's own /BBox + content in
 // isolation, ignoring its /Matrix and whatever CTM is active at each /Do
 // that invokes it: those keep applying, unchanged, to whatever the Form
 // paints once flattened, since only its content is being replaced, not its
 // identity or placement. Returns the rendered buffer and the BBox it was
 // rendered against (needed to place the replacement image back into it).
-func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited inheritedPaint) (*image.RGBA, [4]float64, []string, error) {
+func RenderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited InheritedPaint) (*image.RGBA, [4]float64, []string, error) {
 	bbox, err := pdf.FloatArray(form.Entries.Get("BBox"))
 	if err != nil || len(bbox) != 4 {
 		return nil, [4]float64{}, nil, fmt.Errorf("raster: missing or invalid Form /BBox")
@@ -52,14 +50,14 @@ func renderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 	return canvas, box, drops, err
 }
 
-// inheritedPaint is the part of the graphics state a form is drawn under that
+// InheritedPaint is the part of the graphics state a form is drawn under that
 // its own content may never set. A page starts at black in DeviceGray, which
 // is what the zero value says; a form starts wherever the stream that draws it
 // had got to, and a page-sized wrapper form whose background is filled without
 // naming a colour comes out inverted if that is guessed wrong.
-type inheritedPaint struct {
-	set          bool
-	fill, stroke [3]float64
+type InheritedPaint struct {
+	Set          bool
+	Fill, Stroke [3]float64
 }
 
 // backdrop is what a render starts on: a page is paper, a form is nothing.
@@ -70,10 +68,10 @@ const (
 	clearBackdrop                 // transparent, so unpainted stays unpainted
 )
 
-// renderContent is the shared core behind RenderPage and renderFormContent:
+// renderContent is the shared core behind RenderPage and RenderFormContent:
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited inheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
+func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
 	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
@@ -104,8 +102,8 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		fillCS:   pdf.PDFName{Value: "DeviceGray"},
 		strokeCS: pdf.PDFName{Value: "DeviceGray"},
 	}
-	if inherited.set {
-		gs.fillRGB, gs.strokeRGB = inherited.fill, inherited.stroke
+	if inherited.Set {
+		gs.fillRGB, gs.strokeRGB = inherited.Fill, inherited.Stroke
 	}
 	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
 	r.execContent(content, resources, gs)
@@ -125,9 +123,9 @@ func sortedDrops(set map[string]bool) []string {
 	return out
 }
 
-// pageContentBytes concatenates a page's /Contents stream(s) (a single
+// PageContentBytes concatenates a page's /Contents stream(s) (a single
 // stream or an array of streams, per the spec, joined by whitespace).
-func pageContentBytes(page pdf.PDFDict) ([]byte, error) {
+func PageContentBytes(page pdf.PDFDict) ([]byte, error) {
 	var out []byte
 	switch c := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
@@ -163,7 +161,7 @@ type renderState struct {
 	// Pattern colour: fillIsPattern records that the colour space is a
 	// Pattern one, so a fill paints the pattern or nothing -- never the black
 	// a bare Pattern cs would otherwise leave in fillRGB. fillPattern is the
-	// selected shading pattern, zero when none is usable. See raster_pattern.go.
+	// selected shading pattern, zero when none is usable. See pattern.go.
 	fillIsPattern, strokeIsPattern bool
 	fillPattern, strokePattern     pdf.PDFDict
 	lineWidth                      float64
@@ -201,7 +199,7 @@ type renderer struct {
 // raster-drop feature names, reported so a rasterized conversion does not
 // silently lose them.
 const (
-	dropShading       = "shading"
+	DropShading       = "shading"
 	dropInlineImage   = "inline image"
 	dropType3         = "Type 3 font"
 	dropTilingPattern = "tiling pattern"
@@ -394,12 +392,12 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.strokeCS = pdf.PDFName{Value: "DeviceCMYK"}
 			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
 		case "cs":
-			gs.fillCS = resolveOperandColorSpace(operands, resources)
+			gs.fillCS = ResolveOperandColorSpace(operands, resources)
 			gs.fillRGB = [3]float64{0, 0, 0}
 			gs.fillPattern = pdf.PDFDict{}
 			gs.fillIsPattern = isPatternColorSpace(gs.fillCS)
 		case "CS":
-			gs.strokeCS = resolveOperandColorSpace(operands, resources)
+			gs.strokeCS = ResolveOperandColorSpace(operands, resources)
 			gs.strokeRGB = [3]float64{0, 0, 0}
 			gs.strokePattern = pdf.PDFDict{}
 			gs.strokeIsPattern = isPatternColorSpace(gs.strokeCS)
@@ -407,7 +405,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			if name, ok := patternNameOperand(operands); ok {
 				gs.fillIsPattern = true
 				gs.fillPattern, _ = r.selectPattern(name, resources)
-			} else if comps := numericOperands(operands); len(comps) > 0 && gs.fillCS != nil {
+			} else if comps := pdf.NumericOperands(operands); len(comps) > 0 && gs.fillCS != nil {
 				r, g, b := pdf.ResolveColor(gs.fillCS, comps, resources)
 				gs.fillRGB = [3]float64{r, g, b}
 			}
@@ -415,7 +413,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			if name, ok := patternNameOperand(operands); ok {
 				gs.strokeIsPattern = true
 				gs.strokePattern, _ = r.selectPattern(name, resources)
-			} else if comps := numericOperands(operands); len(comps) > 0 && gs.strokeCS != nil {
+			} else if comps := pdf.NumericOperands(operands); len(comps) > 0 && gs.strokeCS != nil {
 				r, g, b := pdf.ResolveColor(gs.strokeCS, comps, resources)
 				gs.strokeRGB = [3]float64{r, g, b}
 			}
@@ -456,17 +454,17 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "'":
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
 			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
-			r.showText(verify.ShownStringBytes(op, operands), resources, &gs)
+			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "TJ":
 			r.showTextArray(operands, resources, &gs)
 		case "Ts":
@@ -582,19 +580,9 @@ func patternNameOperand(operands []pdf.PDFValue) (string, bool) {
 	return name.Value, true
 }
 
-func numericOperands(operands []pdf.PDFValue) []float64 {
-	var out []float64
-	for _, v := range operands {
-		if f, ok := pdf.PDFNumberToFloat(v); ok {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// resolveOperandColorSpace resolves a cs/CS operator's color-space name
+// ResolveOperandColorSpace resolves a cs/CS operator's color-space name
 // operand against resources (DeviceGray/RGB/CMYK pass through as-is).
-func resolveOperandColorSpace(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFValue {
+func ResolveOperandColorSpace(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFValue {
 	if len(operands) == 0 {
 		return nil
 	}
@@ -698,15 +686,15 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// mask, which takes precedence (ISO 32000-1 8.9.6.4).
 	if smask == nil {
 		if m, ok := xobj.Entries.Get("Mask").(pdf.PDFDict); ok {
-			smask = stencilAlpha(m, resources)
+			smask = StencilAlpha(m, resources)
 		}
 	}
 	r.compositeImage(img, smask, isImageMask(xobj), gs)
 }
 
-// stencilAlpha reads a stencil mask as the opacity it stands for, in the shape
+// StencilAlpha reads a stencil mask as the opacity it stands for, in the shape
 // compositeImage samples a soft mask in: the first channel is the opacity.
-func stencilAlpha(mask pdf.PDFDict, resources pdf.PDFDict) *image.RGBA {
+func StencilAlpha(mask pdf.PDFDict, resources pdf.PDFDict) *image.RGBA {
 	decoded, err := DecodeImageRGBA(mask, resources)
 	if err != nil {
 		return nil
@@ -970,7 +958,7 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 		fi.defaultWidth = dw
 	}
 	if w, ok := desc.Entries.Get("W").(pdf.PDFArray); ok {
-		for _, pair := range verify.ParseCIDWidths(w) {
+		for _, pair := range fontprog.ParseCIDWidths(w) {
 			fi.widths[pair[0]] = float64(pair[1])
 		}
 	}
@@ -1002,7 +990,7 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc2.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			cff := extractCFFBytes(data)
+			cff := fontprog.ExtractCFFBytes(data)
 			if cff != nil {
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
 					return glyphOutlineFromCFF(cff, cidToGID(code))
@@ -1066,7 +1054,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			if cff := extractCFFBytes(data); cff != nil {
+			if cff := fontprog.ExtractCFFBytes(data); cff != nil {
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
 					// No charset-based name->GID resolution is implemented;
 					// falling back to code-as-GID is a documented approximation.
@@ -1109,20 +1097,6 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	}
 	fi.glyphFor = func(int) (GlyphPath, bool) { return GlyphPath{}, false }
 	return fi
-}
-
-// extractCFFBytes returns a FontFile3 stream's raw CFF table bytes, whether
-// it's a bare CFF program or an OpenType-wrapped one (Subtype /OpenType).
-func extractCFFBytes(data []byte) []byte {
-	if len(data) >= 4 && data[0] == 1 {
-		return data
-	}
-	if tables, ok := fontprog.ParseSfnt(data); ok {
-		if cff, ok := tables["CFF "]; ok {
-			return cff
-		}
-	}
-	return nil
 }
 
 // simpleCodeToGID resolves a simple TrueType font's character code to a GID.
@@ -1206,4 +1180,266 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 		names = fontprog.StandardEncoding
 	}
 	return names
+}
+
+// paintInlineImage decodes an inline image and composites it exactly as an
+// Image XObject, reporting a drop only when it cannot be built or decoded.
+func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
+	if !ok {
+		r.drop(dropInlineImage)
+		return
+	}
+	dict, ok := inlineImageDict(params, raw)
+	if !ok {
+		r.drop(dropInlineImage)
+		return
+	}
+	img, err := DecodeImageRGBA(dict, resources)
+	if err != nil {
+		r.drop(dropInlineImage)
+		return
+	}
+	r.compositeImage(img, nil, isImageMask(dict), gs)
+}
+
+// patternShading resolves a shading pattern's /Shading, caching the parsed
+// form per pattern dict so a repeated fill re-parses nothing.
+func (r *renderer) patternShading(pattern pdf.PDFDict) (*shading, bool) {
+	key := pdf.ValuePointer(pattern.Entries)
+	if sh, ok := r.shadingCache[key]; ok {
+		return sh, sh != nil
+	}
+	resources, _ := pattern.Entries.Get("Resources").(pdf.PDFDict)
+	sh, ok := parseShading(pattern.Entries.Get("Shading"), resources)
+	if !ok {
+		sh = nil
+	}
+	if r.shadingCache == nil {
+		r.shadingCache = map[uintptr]*shading{}
+	}
+	r.shadingCache[key] = sh
+	return sh, sh != nil
+}
+
+// patternToDevice maps a pattern's own space to device space. A pattern
+// matrix is relative to the default coordinate system of the page (or form)
+// it is used in, not to the CTM in force when it is selected.
+func (r *renderer) patternToDevice(pattern pdf.PDFDict) Matrix {
+	m := IdentityMatrix
+	if a, err := pdf.FloatArray(pattern.Entries.Get("Matrix")); err == nil && len(a) == 6 {
+		m = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
+	}
+	return m.Mul(r.patternBase)
+}
+
+// selectPattern resolves a scn/SCN pattern-name operand. A tiling pattern is
+// reported as a drop and yields no pattern, so the caller paints nothing
+// rather than a misleading flat colour.
+func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
+	pattern, ok := patterns.Entries.Get(name).(pdf.PDFDict)
+	if !ok {
+		r.drop(DropShading)
+		return pdf.PDFDict{}, false
+	}
+	switch pdf.DictInt(pattern, "PatternType", 0) {
+	case 2:
+		if _, ok := r.patternShading(pattern); !ok {
+			r.drop(DropShading)
+			return pdf.PDFDict{}, false
+		}
+		return pattern, true
+	case 1:
+		r.drop(dropTilingPattern)
+	default:
+		r.drop(DropShading)
+	}
+	return pdf.PDFDict{}, false
+}
+
+// patternSampler returns a per-pixel colour source for a shading pattern, or
+// false when the shading is a mesh (which is geometry, not a field, and so is
+// painted separately).
+func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y int) ([3]float64, float64), bool) {
+	sh, ok := r.patternShading(pattern)
+	if !ok || sh.isMesh() {
+		return nil, false
+	}
+	inv, ok := r.patternToDevice(pattern).Invert()
+	if !ok {
+		return nil, false
+	}
+	return func(x, y int) ([3]float64, float64) {
+		p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
+		rgb, painted := sh.colorAt(p.X, p.Y)
+		if !painted {
+			return [3]float64{}, 0
+		}
+		return rgb, alpha
+	}, true
+}
+
+// paintPatternPath paints contours with gs's shading pattern, reporting
+// whether it handled the paint. Mesh patterns fall back to painting the mesh
+// over the path's bounding box, the same approximation the renderer already
+// makes for clipping.
+func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]Point, pattern pdf.PDFDict, gs *renderState, evenOdd bool, stroke bool) bool {
+	if pattern.Entries == nil {
+		return false
+	}
+	alpha := gs.fillAlpha
+	if stroke {
+		alpha = gs.strokeAlpha
+	}
+	if sample, ok := r.patternSampler(pattern, alpha); ok {
+		if stroke {
+			StrokePathShaded(target, contours, gs.lineWidth*ctmScale(gs.ctm), sample)
+		} else {
+			FillPathShaded(target, contours, evenOdd, sample)
+		}
+		return true
+	}
+
+	sh, ok := r.patternShading(pattern)
+	if !ok || !sh.isMesh() {
+		return false
+	}
+	minX, minY, maxX, maxY := boundsOfContours(contours)
+	area := clipToBounds(target.Bounds(), intersectRect(gs.clip, [4]float64{
+		math.Floor(minX), math.Floor(minY), math.Ceil(maxX), math.Ceil(maxY),
+	}))
+	r.paintShading(sh, r.patternToDevice(pattern), alpha, area)
+	return true
+}
+
+// paintShading fills area by mapping each device pixel back through
+// shadingToDevice and sampling the shading there. Mesh shadings define no
+// such field and are drawn as geometry instead.
+func (r *renderer) paintShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
+	if sh.isMesh() {
+		r.paintMeshShading(sh, shadingToDevice, alpha, area)
+		return
+	}
+	inv, ok := shadingToDevice.Invert()
+	if !ok || area.Empty() || alpha <= 0 {
+		return
+	}
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
+			rgb, ok := sh.colorAt(p.X, p.Y)
+			if !ok {
+				continue
+			}
+			blendPixel(r.canvas, x, y, rgb, alpha)
+		}
+	}
+}
+
+// paintShadingOp implements the sh operator: paint the named shading over the
+// current clip, in the current user space.
+func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
+	sh, ok := r.namedShading(operands, resources)
+	if !ok {
+		return
+	}
+	r.paintShading(sh, gs.ctm, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
+}
+
+// namedShading resolves an operator's shading-name operand against the
+// /Shading resource dictionary, reporting a drop when it cannot be used.
+func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) (*shading, bool) {
+	if len(operands) == 0 {
+		r.drop(DropShading)
+		return nil, false
+	}
+	name, ok := operands[len(operands)-1].(pdf.PDFName)
+	if !ok {
+		r.drop(DropShading)
+		return nil, false
+	}
+	shadings, _ := resources.Entries.Get("Shading").(pdf.PDFDict)
+	sh, ok := parseShading(shadings.Entries.Get(name.Value), resources)
+	if !ok {
+		r.drop(DropShading)
+		return nil, false
+	}
+	return sh, true
+}
+
+// paintMeshShading decodes the mesh stream and paints it, clipped to area.
+func (r *renderer) paintMeshShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
+	if area.Empty() || alpha <= 0 {
+		return
+	}
+	data, err := pdf.DecodeStream(sh.dict)
+	if err != nil {
+		r.drop(DropShading)
+		return
+	}
+	target := r.canvas
+	if area != r.canvas.Bounds() {
+		sub, ok := r.canvas.SubImage(area).(*image.RGBA)
+		if !ok {
+			return
+		}
+		target = sub
+	}
+
+	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha}
+	m := &meshReader{data: data}
+	switch sh.kind {
+	case 4:
+		sh.paintFreeFormMesh(m, mp)
+	case 5:
+		sh.paintLatticeMesh(m, mp)
+	case 6, 7:
+		sh.paintPatchMesh(m, mp)
+	}
+	if mp.overflow || m.short {
+		r.drop(DropShading)
+	}
+}
+
+// drawType3Glyph executes one glyph's CharProc with the CTM set to map glyph
+// space through the font matrix, the text state and the CTM in force. A code
+// with no CharProc is reported, since the glyph is then simply missing.
+// pageResources stands in when the font declares no /Resources of its own,
+// per ISO 32000-1 9.6.5.
+func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFDict, gs *renderState) {
+	proc, ok := fi.charProcs[code]
+	if !ok {
+		r.drop(dropType3)
+		return
+	}
+	// A CharProc may Do a Form or show text again; share the Form recursion
+	// guard rather than adding a second one.
+	if r.depth > 12 {
+		return
+	}
+	data, err := pdf.DecodeStream(proc)
+	if err != nil {
+		r.drop(dropType3)
+		return
+	}
+
+	resources := fi.t3Resources
+	if resources.Entries == nil {
+		resources = pageResources
+	}
+	child := *gs
+	// Glyph space -> text space (the font matrix) -> user space (font size,
+	// horizontal scale and rise, then the text matrix) -> device.
+	child.ctm = fi.fontMatrix.
+		Mul(Matrix{A: gs.fontSize * gs.hScale, D: gs.fontSize, F: gs.rise}).
+		Mul(gs.tm).
+		Mul(gs.ctm)
+	// The glyph procedure starts its own text object if it shows text at all.
+	child.tm, child.tlm = IdentityMatrix, IdentityMatrix
+	child.font = pdf.PDFDict{}
+
+	r.depth++
+	defer func() { r.depth-- }()
+	r.execContent(data, resources, child)
 }

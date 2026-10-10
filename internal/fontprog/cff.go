@@ -927,3 +927,17 @@ func CFFGlyphNames(cff []byte) []string {
 	}
 	return names
 }
+
+// ExtractCFFBytes returns a FontFile3 stream's raw CFF table bytes, whether
+// it's a bare CFF program or an OpenType-wrapped one (Subtype /OpenType).
+func ExtractCFFBytes(data []byte) []byte {
+	if len(data) >= 4 && data[0] == 1 {
+		return data
+	}
+	if tables, ok := ParseSfnt(data); ok {
+		if cff, ok := tables["CFF "]; ok {
+			return cff
+		}
+	}
+	return nil
+}

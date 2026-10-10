@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -48,25 +48,4 @@ func inlineImageDict(params []pdf.PDFValue, raw pdf.InlineImageRaw) (pdf.PDFDict
 	dict.HasStream = true
 	dict.RawStream = raw.Data
 	return dict, true
-}
-
-// paintInlineImage decodes an inline image and composites it exactly as an
-// Image XObject, reporting a drop only when it cannot be built or decoded.
-func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
-	params, raw, ok := inlineImageRawOperand(operands)
-	if !ok {
-		r.drop(dropInlineImage)
-		return
-	}
-	dict, ok := inlineImageDict(params, raw)
-	if !ok {
-		r.drop(dropInlineImage)
-		return
-	}
-	img, err := DecodeImageRGBA(dict, resources)
-	if err != nil {
-		r.drop(dropInlineImage)
-		return
-	}
-	r.compositeImage(img, nil, isImageMask(dict), gs)
 }

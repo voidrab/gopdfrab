@@ -1,6 +1,7 @@
 package fontprog
 
 import (
+	"encoding/binary"
 	"testing"
 )
 
@@ -282,5 +283,112 @@ func TestParseCFFTopDictMalformed(t *testing.T) {
 	truncated := []byte{1, 0, 4, 1, 0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't', 0x00}
 	if _, ok := ParseCFFTopDict(truncated); ok {
 		t.Error("ParseCFFTopDict should fail with a truncated Top DICT INDEX")
+	}
+}
+
+// buildMinimalCIDCFF assembles a tiny CID-keyed CFF font with 3 glyphs
+// (.notdef, CID 1 width 600, CID 2 width 700), a format-0 CID charset, a
+// single FDArray Font DICT (format-0 FDSelect), and a Private DICT with zero
+// width defaults. Ported from verify.buildMinimalCIDCFF (internal/verify's
+// test-only helper isn't importable across packages).
+func buildMinimalCIDCFF() []byte {
+	i32 := func(v int) []byte {
+		var b [5]byte
+		b[0] = 29
+		binary.BigEndian.PutUint32(b[1:], uint32(v))
+		return b[:]
+	}
+
+	header := []byte{0x01, 0x00, 0x04, 0x01}
+	nameIndex := []byte{0x00, 0x01, 0x01, 0x01, 0x05, 'F', 'o', 'n', 't'}
+
+	topDictLen := 6 + 6 + 2 + 7 + 7 // CharStrings, charset, ROS, FDArray, FDSelect
+	topDictIndex := []byte{0x00, 0x01, 0x01, byte(1), byte(topDictLen + 1)}
+
+	nameEnd := len(header) + len(nameIndex)
+	topDictEnd := nameEnd + len(topDictIndex) + topDictLen
+	stringIndex := []byte{0x00, 0x00}
+	globalSubrIndex := []byte{0x00, 0x00}
+	stringEnd := topDictEnd + len(stringIndex)
+	subrEnd := stringEnd + len(globalSubrIndex)
+
+	charsetOff := subrEnd
+	charset := []byte{0x00, 0x00, 0x01, 0x00, 0x02} // format 0: gid1->CID1, gid2->CID2
+	charsetEnd := charsetOff + len(charset)
+
+	csOff := charsetEnd
+	cs0 := []byte{0x0e}           // .notdef: endchar, no width
+	cs1 := []byte{248, 236, 0x0e} // CID1: width 600, endchar
+	cs2 := []byte{249, 80, 0x0e}  // CID2: width 700, endchar
+	csIndex := []byte{0x00, 0x03, 0x01, 1, 2, 5, 8}
+	csIndex = append(csIndex, cs0...)
+	csIndex = append(csIndex, cs1...)
+	csIndex = append(csIndex, cs2...)
+	csEnd := csOff + len(csIndex)
+
+	fdArrayOff := csEnd
+	const fdDictLen = 11
+	fdArrayIndexLen := 2 + 1 + 2 + fdDictLen
+	fdArrayEnd := fdArrayOff + fdArrayIndexLen
+
+	fdSelectOff := fdArrayEnd
+	fdSelect := []byte{0x00, 0x00, 0x00, 0x00} // format 0, FD 0 for all 3 glyphs
+	fdSelectEnd := fdSelectOff + len(fdSelect)
+
+	privOff := fdSelectEnd
+	fdDict := append(i32(4), i32(privOff)...)
+	fdDict = append(fdDict, 18) // Private: [size offset]
+	if len(fdDict) != fdDictLen {
+		panic("buildMinimalCIDCFF: fd dict length mismatch")
+	}
+	fdArrayIndex := []byte{0x00, 0x01, 0x01, 1, byte(fdDictLen + 1)}
+	fdArrayIndex = append(fdArrayIndex, fdDict...)
+
+	privateDict := []byte{0x8b, 20, 0x8b, 21} // defaultWidthX=0, nominalWidthX=0
+
+	topDict := append(i32(csOff), 17)
+	topDict = append(topDict, i32(charsetOff)...)
+	topDict = append(topDict, 15)
+	topDict = append(topDict, 12, 30) // ROS
+	topDict = append(topDict, i32(fdArrayOff)...)
+	topDict = append(topDict, 12, 36)
+	topDict = append(topDict, i32(fdSelectOff)...)
+	topDict = append(topDict, 12, 37)
+	if len(topDict) != topDictLen {
+		panic("buildMinimalCIDCFF: top dict length mismatch")
+	}
+
+	var cff []byte
+	cff = append(cff, header...)
+	cff = append(cff, nameIndex...)
+	cff = append(cff, topDictIndex...)
+	cff = append(cff, topDict...)
+	cff = append(cff, stringIndex...)
+	cff = append(cff, globalSubrIndex...)
+	cff = append(cff, charset...)
+	cff = append(cff, csIndex...)
+	cff = append(cff, fdArrayIndex...)
+	cff = append(cff, fdSelect...)
+	cff = append(cff, privateDict...)
+	return cff
+}
+
+// TestExtractCFFBytes covers all three shapes: a bare CFF program passed
+// through as-is, a CFF wrapped in an OpenType ("CFF " table) container, and
+// data that is neither.
+func TestExtractCFFBytes(t *testing.T) {
+	cff := buildMinimalCIDCFF()
+
+	if got := ExtractCFFBytes(cff); string(got) != string(cff) {
+		t.Errorf("bare CFF passthrough = %x, want %x", got, cff)
+	}
+
+	otf := PackSfnt(map[string][]byte{"CFF ": cff})
+	if got := ExtractCFFBytes(otf); string(got) != string(cff) {
+		t.Errorf("OpenType-wrapped CFF extraction = %x, want %x", got, cff)
+	}
+
+	if got := ExtractCFFBytes([]byte("not a font")); got != nil {
+		t.Errorf("extractCFFBytes(garbage) = %x, want nil", got)
 	}
 }

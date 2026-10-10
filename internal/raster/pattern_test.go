@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"image"
@@ -138,8 +138,8 @@ func TestUnusablePatternReportsDrop(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", tc.pattern)
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 			assertUnpainted(t, img, 10, 10, "unusable pattern fill")
 		})

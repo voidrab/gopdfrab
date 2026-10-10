@@ -177,7 +177,7 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 		return
 	}
 	usedCIDs, knownUsage := ctx.usedCIDsFor(v)
-	for _, pair := range ParseCIDWidths(w) {
+	for _, pair := range fontprog.ParseCIDWidths(w) {
 		if knownUsage && !usedCIDs[pair[0]] {
 			continue
 		}
@@ -209,61 +209,6 @@ func embeddedType1GlyphNames(desc pdf.PDFDict, ctx *ValidationContext) []string 
 		}
 	}
 	return nil
-}
-
-// ParseCIDWidths decodes a CID font W array into (CID, pdfWidth-in-1/1000-em) pairs.
-// W format: [c1 [w1 w2 ...] c2 c3 w ...]
-func ParseCIDWidths(w pdf.PDFArray) [][2]int {
-	var pairs [][2]int
-	i := 0
-	intV := func(v pdf.PDFValue) (int, bool) {
-		switch x := v.(type) {
-		case pdf.PDFInteger:
-			return int(x), true
-		case pdf.PDFReal:
-			return int(x), true
-		}
-		return 0, false
-	}
-	for i < len(w) {
-		c1, ok := intV(w[i])
-		if !ok {
-			i++
-			continue
-		}
-		i++
-		if i >= len(w) {
-			break
-		}
-		if arr, ok2 := w[i].(pdf.PDFArray); ok2 {
-			for j, wv := range arr {
-				if width, ok3 := intV(wv); ok3 {
-					pairs = append(pairs, [2]int{c1 + j, width})
-				}
-			}
-			i++
-		} else {
-			c2, ok2 := intV(w[i])
-			if !ok2 {
-				i++
-				continue
-			}
-			i++
-			if i >= len(w) {
-				break
-			}
-			width, ok3 := intV(w[i])
-			if !ok3 {
-				i++
-				continue
-			}
-			i++
-			for c := c1; c <= c2; c++ {
-				pairs = append(pairs, [2]int{c, width})
-			}
-		}
-	}
-	return pairs
 }
 
 // ValidateCIDCFFSubset checks that all CIDs referenced in the W array are
@@ -301,7 +246,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 		// A bare/near-empty CharString (e.g. a single "endchar" byte, no
 		// hsbw/width) is functionally undefined despite the charset entry.
 		lens := fontprog.ParseCFFCharStringLengths(data, td.CSOffset)
-		for _, pair := range ParseCIDWidths(w) {
+		for _, pair := range fontprog.ParseCIDWidths(w) {
 			cid := pair[0]
 			if knownUsage && !used[cid] {
 				continue
@@ -315,7 +260,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 		return
 	}
 
-	for _, pair := range ParseCIDWidths(w) {
+	for _, pair := range fontprog.ParseCIDWidths(w) {
 		cid := pair[0]
 		if knownUsage && !used[cid] {
 			continue
@@ -450,7 +395,7 @@ func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids
 			return cids, true
 		}
 	}
-	for _, pair := range ParseCIDWidths(w) {
+	for _, pair := range fontprog.ParseCIDWidths(w) {
 		cids = append(cids, pair[0])
 	}
 	return cids, false
@@ -520,7 +465,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	}
 
 	widthOf := map[int]int{}
-	for _, pair := range ParseCIDWidths(w) {
+	for _, pair := range fontprog.ParseCIDWidths(w) {
 		widthOf[pair[0]] = pair[1]
 		if mismatched(pair[0], pair[1]) {
 			report(pair[0], pair[1], fontprog.TTAdvanceWidth(tables, pair[0]))

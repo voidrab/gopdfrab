@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
@@ -385,7 +386,7 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	if bpc, _ := got.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc != 8 {
 		t.Errorf("BitsPerComponent = %v, want 8", got.Entries.Get("BitsPerComponent"))
 	}
-	if _, err := DecodeImageRGBA(got, pdf.PDFDict{}); err != nil {
+	if _, err := raster.DecodeImageRGBA(got, pdf.PDFDict{}); err != nil {
 		t.Errorf("rewritten image does not decode: %v", err)
 	}
 	gotMask, _ := xobjects.Entries.Get("Im1").(pdf.PDFDict)

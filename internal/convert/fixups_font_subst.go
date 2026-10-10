@@ -629,7 +629,7 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		}
 	} else {
 		w, _ := cid.Entries.Get("W").(pdf.PDFArray)
-		for _, pair := range verify.ParseCIDWidths(w) {
+		for _, pair := range fontprog.ParseCIDWidths(w) {
 			cids[pair[0]] = true
 		}
 	}

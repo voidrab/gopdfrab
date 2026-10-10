@@ -26,20 +26,6 @@ func init() {
 	registerFixer(inlineImageLZWFixer{})
 }
 
-// inlineImageRawOperand splits an INLINEIMAGE op's operands into its
-// (key, value) params and its trailing pdf.InlineImageRaw, or ok=false if the
-// last operand isn't the expected raw marker.
-func inlineImageRawOperand(operands []pdf.PDFValue) (params []pdf.PDFValue, raw pdf.InlineImageRaw, ok bool) {
-	if len(operands) == 0 {
-		return nil, pdf.InlineImageRaw{}, false
-	}
-	raw, ok = operands[len(operands)-1].(pdf.InlineImageRaw)
-	if !ok {
-		return nil, pdf.InlineImageRaw{}, false
-	}
-	return operands[:len(operands)-1], raw, true
-}
-
 // hasInlineImageKey reports whether key appears among params' (key, value)
 // pairs, regardless of its value.
 func hasInlineImageKey(params []pdf.PDFValue, key string) bool {
@@ -96,7 +82,7 @@ func removeInlineImageKeys(params []pdf.PDFValue, keys ...string) []pdf.PDFValue
 // (checks_content.go) in reverse. ok is false if operands isn't an
 // INLINEIMAGE op's operands or nothing needed fixing.
 func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValue, ok bool) {
-	params, raw, ok := inlineImageRawOperand(operands)
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		return operands, false
 	}
@@ -130,7 +116,7 @@ func fixInlineImageInterpolate(op string, operands []pdf.PDFValue, changed *bool
 	if op != "INLINEIMAGE" {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}
-	params, raw, ok := inlineImageRawOperand(operands)
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}
@@ -181,7 +167,7 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 	if op != "INLINEIMAGE" {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}
-	params, raw, ok := inlineImageRawOperand(operands)
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}

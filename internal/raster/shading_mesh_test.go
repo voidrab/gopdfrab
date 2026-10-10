@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"fmt"
@@ -8,6 +8,129 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// TestMeshPrimitiveCap: a mesh that would paint more pieces than the cap stops
+// and reports the loss instead of running unbounded.
+func TestMeshPrimitiveCap(t *testing.T) {
+	mp := &meshPainter{
+		canvas:    image.NewRGBA(image.Rect(0, 0, 20, 20)),
+		toDevice:  IdentityMatrix,
+		alpha:     1,
+		primitive: meshMaxPrimitives,
+	}
+	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
+	if !mp.overflow {
+		t.Error("painting past the primitive cap did not set overflow")
+	}
+}
+
+func TestDecodeValue(t *testing.T) {
+	tests := []struct {
+		raw    uint64
+		bits   int
+		lo, hi float64
+		want   float64
+	}{
+		{0, 8, 0, 20, 0},
+		{255, 8, 0, 20, 20},
+		{128, 8, 0, 255, 128},
+		{0, 0, 5, 9, 5}, // a zero-width field has no range to map
+	}
+	for _, tc := range tests {
+		if got := decodeValue(tc.raw, tc.bits, tc.lo, tc.hi); got != tc.want {
+			t.Errorf("decodeValue(%d, %d, %v, %v) = %v, want %v",
+				tc.raw, tc.bits, tc.lo, tc.hi, got, tc.want)
+		}
+	}
+}
+
+// TestSharedEdgeIndices pins the points and colours a flag-1/2/3 patch
+// inherits from its predecessor (ISO 32000-1 Table 85). The mapping is pure
+// index arithmetic derived from the spec, so a transcription slip would
+// silently distort every multi-patch mesh.
+func TestSharedEdgeIndices(t *testing.T) {
+	pts := make([]Point, 12)
+	for i := range pts {
+		pts[i] = Point{X: float64(i), Y: float64(i)}
+	}
+	var cols [4][3]float64
+	for i := range cols {
+		cols[i] = [3]float64{float64(i), 0, 0}
+	}
+
+	tests := []struct {
+		flag     int
+		wantPts  []int // indices into pts
+		wantCols [2]int
+	}{
+		{1, []int{3, 4, 5, 6}, [2]int{1, 2}},
+		{2, []int{6, 7, 8, 9}, [2]int{2, 3}},
+		{3, []int{9, 10, 11, 0}, [2]int{3, 0}},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("flag%d", tc.flag), func(t *testing.T) {
+			edge, c0, c1 := sharedEdge(tc.flag, pts, cols)
+			if len(edge) != 4 {
+				t.Fatalf("edge has %d points, want 4", len(edge))
+			}
+			for i, want := range tc.wantPts {
+				if edge[i] != pts[want] {
+					t.Errorf("edge[%d] = %v, want pts[%d] = %v", i, edge[i], want, pts[want])
+				}
+			}
+			if c0 != cols[tc.wantCols[0]] {
+				t.Errorf("first colour = %v, want cols[%d]", c0, tc.wantCols[0])
+			}
+			if c1 != cols[tc.wantCols[1]] {
+				t.Errorf("second colour = %v, want cols[%d]", c1, tc.wantCols[1])
+			}
+		})
+	}
+}
+
+// TestMeshOverflowStopsPainting: once the primitive cap is hit every painter
+// entry point must return immediately, so a hostile mesh cannot keep the
+// rasterizer busy after the budget is spent.
+func TestMeshOverflowStopsPainting(t *testing.T) {
+	newPainter := func() *meshPainter {
+		return &meshPainter{
+			canvas:   image.NewRGBA(image.Rect(0, 0, 20, 20)),
+			toDevice: IdentityMatrix,
+			alpha:    1,
+			overflow: true,
+		}
+	}
+
+	mp := newPainter()
+	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
+	if mp.primitive != 0 {
+		t.Errorf("tri painted %d pieces after overflow, want 0", mp.primitive)
+	}
+
+	mp = newPainter()
+	mp.flat(meshVertex{}, meshVertex{}, meshVertex{}, 0, 0, 1, false)
+	if mp.primitive != 0 {
+		t.Errorf("flat painted %d pieces after overflow, want 0", mp.primitive)
+	}
+
+	// coonsPatch checks the flag per grid cell, so a painter that overflows on
+	// its first cell must abandon the remaining ones.
+	mp = newPainter()
+	mp.overflow = false
+	mp.primitive = meshMaxPrimitives
+	pts := make([]Point, 12)
+	for i := range pts {
+		pts[i] = Point{X: float64(i), Y: float64(i)}
+	}
+	mp.coonsPatch(pts, [4][3]float64{})
+	if !mp.overflow {
+		t.Error("coonsPatch past the cap did not set overflow")
+	}
+	if mp.primitive != meshMaxPrimitives+1 {
+		t.Errorf("coonsPatch painted %d pieces past the cap, want 1",
+			mp.primitive-meshMaxPrimitives)
+	}
+}
 
 // meshShading builds a mesh shading stream dict over a 0..20 coordinate range
 // with 8-bit fields and DeviceRGB colours, so a test's bytes map linearly:
@@ -127,8 +250,8 @@ func TestRenderMeshTruncatedDrops(t *testing.T) {
 	data = append(data, 1, 255) // a fourth vertex, cut short
 
 	_, drops := renderShading(t, meshShading(4, data, nil))
-	if !hasDrop(drops, dropShading) {
-		t.Errorf("drops = %v, want %q", drops, dropShading)
+	if !hasDrop(drops, DropShading) {
+		t.Errorf("drops = %v, want %q", drops, DropShading)
 	}
 }
 
@@ -149,25 +272,10 @@ func TestRenderMeshMalformedDrops(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, drops := renderShading(t, meshShading(tc.kind, []byte{0, 0, 0, 0, 0, 0}, tc.extra))
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 		})
-	}
-}
-
-// TestMeshPrimitiveCap: a mesh that would paint more pieces than the cap stops
-// and reports the loss instead of running unbounded.
-func TestMeshPrimitiveCap(t *testing.T) {
-	mp := &meshPainter{
-		canvas:    image.NewRGBA(image.Rect(0, 0, 20, 20)),
-		toDevice:  IdentityMatrix,
-		alpha:     1,
-		primitive: meshMaxPrimitives,
-	}
-	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
-	if !mp.overflow {
-		t.Error("painting past the primitive cap did not set overflow")
 	}
 }
 
@@ -196,70 +304,6 @@ func TestMeshReaderBounds(t *testing.T) {
 	}
 	if !m.exhausted() {
 		t.Error("reader should be exhausted after consuming both bytes")
-	}
-}
-
-func TestDecodeValue(t *testing.T) {
-	tests := []struct {
-		raw    uint64
-		bits   int
-		lo, hi float64
-		want   float64
-	}{
-		{0, 8, 0, 20, 0},
-		{255, 8, 0, 20, 20},
-		{128, 8, 0, 255, 128},
-		{0, 0, 5, 9, 5}, // a zero-width field has no range to map
-	}
-	for _, tc := range tests {
-		if got := decodeValue(tc.raw, tc.bits, tc.lo, tc.hi); got != tc.want {
-			t.Errorf("decodeValue(%d, %d, %v, %v) = %v, want %v",
-				tc.raw, tc.bits, tc.lo, tc.hi, got, tc.want)
-		}
-	}
-}
-
-// TestSharedEdgeIndices pins the points and colours a flag-1/2/3 patch
-// inherits from its predecessor (ISO 32000-1 Table 85). The mapping is pure
-// index arithmetic derived from the spec, so a transcription slip would
-// silently distort every multi-patch mesh.
-func TestSharedEdgeIndices(t *testing.T) {
-	pts := make([]Point, 12)
-	for i := range pts {
-		pts[i] = Point{X: float64(i), Y: float64(i)}
-	}
-	var cols [4][3]float64
-	for i := range cols {
-		cols[i] = [3]float64{float64(i), 0, 0}
-	}
-
-	tests := []struct {
-		flag     int
-		wantPts  []int // indices into pts
-		wantCols [2]int
-	}{
-		{1, []int{3, 4, 5, 6}, [2]int{1, 2}},
-		{2, []int{6, 7, 8, 9}, [2]int{2, 3}},
-		{3, []int{9, 10, 11, 0}, [2]int{3, 0}},
-	}
-	for _, tc := range tests {
-		t.Run(fmt.Sprintf("flag%d", tc.flag), func(t *testing.T) {
-			edge, c0, c1 := sharedEdge(tc.flag, pts, cols)
-			if len(edge) != 4 {
-				t.Fatalf("edge has %d points, want 4", len(edge))
-			}
-			for i, want := range tc.wantPts {
-				if edge[i] != pts[want] {
-					t.Errorf("edge[%d] = %v, want pts[%d] = %v", i, edge[i], want, pts[want])
-				}
-			}
-			if c0 != cols[tc.wantCols[0]] {
-				t.Errorf("first colour = %v, want cols[%d]", c0, tc.wantCols[0])
-			}
-			if c1 != cols[tc.wantCols[1]] {
-				t.Errorf("second colour = %v, want cols[%d]", c1, tc.wantCols[1])
-			}
-		})
 	}
 }
 
@@ -450,8 +494,8 @@ func TestRenderMeshTruncationPoints(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, drops := renderShading(t, meshShading(tc.kind, tc.data, tc.extra))
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 		})
 	}
@@ -467,8 +511,8 @@ func TestRenderMeshFlagCutShort(t *testing.T) {
 				"BitsPerFlag": pdf.PDFInteger(16),
 			})
 			_, drops := renderShading(t, sh)
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 		})
 	}
@@ -481,8 +525,8 @@ func TestRenderMeshUndecodableStream(t *testing.T) {
 		"Filter": pdf.PDFName{Value: "FlateDecode"},
 	})
 	_, drops := renderShading(t, sh)
-	if !hasDrop(drops, dropShading) {
-		t.Errorf("drops = %v, want %q", drops, dropShading)
+	if !hasDrop(drops, DropShading) {
+		t.Errorf("drops = %v, want %q", drops, DropShading)
 	}
 }
 
@@ -502,49 +546,5 @@ func TestPaintMeshDegenerateState(t *testing.T) {
 			}
 			assertUnpainted(t, img, 3, 17, "a mesh with no area to paint")
 		})
-	}
-}
-
-// TestMeshOverflowStopsPainting: once the primitive cap is hit every painter
-// entry point must return immediately, so a hostile mesh cannot keep the
-// rasterizer busy after the budget is spent.
-func TestMeshOverflowStopsPainting(t *testing.T) {
-	newPainter := func() *meshPainter {
-		return &meshPainter{
-			canvas:   image.NewRGBA(image.Rect(0, 0, 20, 20)),
-			toDevice: IdentityMatrix,
-			alpha:    1,
-			overflow: true,
-		}
-	}
-
-	mp := newPainter()
-	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
-	if mp.primitive != 0 {
-		t.Errorf("tri painted %d pieces after overflow, want 0", mp.primitive)
-	}
-
-	mp = newPainter()
-	mp.flat(meshVertex{}, meshVertex{}, meshVertex{}, 0, 0, 1, false)
-	if mp.primitive != 0 {
-		t.Errorf("flat painted %d pieces after overflow, want 0", mp.primitive)
-	}
-
-	// coonsPatch checks the flag per grid cell, so a painter that overflows on
-	// its first cell must abandon the remaining ones.
-	mp = newPainter()
-	mp.overflow = false
-	mp.primitive = meshMaxPrimitives
-	pts := make([]Point, 12)
-	for i := range pts {
-		pts[i] = Point{X: float64(i), Y: float64(i)}
-	}
-	mp.coonsPatch(pts, [4][3]float64{})
-	if !mp.overflow {
-		t.Error("coonsPatch past the cap did not set overflow")
-	}
-	if mp.primitive != meshMaxPrimitives+1 {
-		t.Errorf("coonsPatch painted %d pieces past the cap, want 1",
-			mp.primitive-meshMaxPrimitives)
 	}
 }

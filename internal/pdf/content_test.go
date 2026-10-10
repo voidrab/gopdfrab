@@ -579,3 +579,26 @@ func TestInflateZlibCorruptFromTheStart(t *testing.T) {
 		t.Fatalf("InflateZlib = %q, nil; want an error", out)
 	}
 }
+
+func TestShownStringBytes(t *testing.T) {
+	got := ShownStringBytes("Tj", []PDFValue{PDFString{Value: "AB"}})
+	if string(got) != "AB" {
+		t.Errorf("ShownStringBytes(Tj) = %q, want AB", got)
+	}
+
+	got = ShownStringBytes("TJ", []PDFValue{PDFArray{
+		PDFString{Value: "A"}, PDFInteger(-100), PDFHexString{Value: "42"},
+	}})
+	if string(got) != "AB" {
+		t.Errorf("ShownStringBytes(TJ) = %q, want AB", got)
+	}
+
+	got = ShownStringBytes("'", []PDFValue{PDFString{Value: "X"}})
+	if string(got) != "X" {
+		t.Errorf(`ShownStringBytes(') = %q, want X`, got)
+	}
+
+	if got := ShownStringBytes("Tj", nil); got != nil {
+		t.Errorf("ShownStringBytes(Tj, no operands) = %q, want nil", got)
+	}
+}

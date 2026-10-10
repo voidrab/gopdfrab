@@ -1,17 +1,10 @@
-package convert
+package raster
 
 import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
-
-// inlineImagePage wraps content in a page dict for the inline-image render tests.
-func inlineImagePage(content string) pdf.PDFDict {
-	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
-	})}
-}
 
 func TestInlineImageDictKeyExpansion(t *testing.T) {
 	name := func(s string) pdf.PDFValue { return pdf.PDFName{Value: s} }
@@ -78,6 +71,13 @@ func TestInlineImageDictKeyExpansion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// inlineImagePage wraps content in a page dict for the inline-image render tests.
+func inlineImagePage(content string) pdf.PDFDict {
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+	})}
 }
 
 // TestRenderInlineImageRGB: an inline RGB image paints its samples, with row 0

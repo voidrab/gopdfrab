@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"image"
@@ -6,6 +6,78 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
+
+// TestShadingFuncArrayFanOut: a /Function array of n single-output functions
+// is equivalent to one function with n outputs.
+func TestShadingFuncArrayFanOut(t *testing.T) {
+	one := func(c0, c1 float64) pdf.PDFDict { return expFunction([]float64{c0}, []float64{c1}) }
+
+	sf := parseShadingFunc(pdf.PDFArray{one(1, 0), one(0, 1), one(0, 0)})
+	if !sf.valid() {
+		t.Fatal("parseShadingFunc rejected a valid function array")
+	}
+	got := sf.eval([]float64{0})
+	want := []float64{1, 0, 0}
+	if len(got) != len(want) {
+		t.Fatalf("eval returned %d components, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("component %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+
+	if parseShadingFunc(pdf.PDFArray{one(0, 1), pdf.PDFInteger(3)}).valid() {
+		t.Error("an array holding a non-function should not parse")
+	}
+	if parseShadingFunc(nil).valid() {
+		t.Error("a missing /Function should not parse")
+	}
+}
+
+// TestShadingNamedColorSpace: a /ColorSpace given as a bare name resolves
+// through the resource dictionary, the same way image colour spaces do.
+func TestShadingNamedColorSpace(t *testing.T) {
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"CS1": pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"WhitePoint": numArray(0.9505, 1, 1.089),
+			})}},
+		})},
+	})}
+	dict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ShadingType": pdf.PDFInteger(2),
+		"ColorSpace":  pdf.PDFName{Value: "CS1"},
+		"Coords":      numArray(0, 0, 20, 0),
+		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+	})}
+
+	sh, ok := parseShading(dict, resources)
+	if !ok {
+		t.Fatal("parseShading rejected a shading with a named colour space")
+	}
+	if _, isName := sh.cs.(pdf.PDFName); isName {
+		t.Errorf("cs = %v, want the resolved array, not the name", sh.cs)
+	}
+
+	// An unresolvable name stays as written, so ResolveColor can still apply
+	// its device-space fallback rather than the shading being dropped.
+	if got := resolveShadingColorSpace(dict, pdf.PDFDict{}); got != dict.Entries.Get("ColorSpace") {
+		t.Errorf("unresolvable name = %v, want it passed through", got)
+	}
+}
+
+// TestColorAtUnsupportedKind: colorAt is the sampling path for types 1-3 only.
+// Mesh types never reach it, and an unset kind must paint nothing rather than
+// index into an absent colour table.
+func TestColorAtUnsupportedKind(t *testing.T) {
+	for _, kind := range []int{0, 4, 9} {
+		sh := &shading{kind: kind}
+		if _, ok := sh.colorAt(1, 1); ok {
+			t.Errorf("colorAt on a type %d shading returned a colour", kind)
+		}
+	}
+}
 
 func numArray(v ...float64) pdf.PDFArray {
 	arr := make(pdf.PDFArray, len(v))
@@ -214,70 +286,10 @@ func TestRenderShadingMalformedDrops(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, drops := renderShading(t, tc.sh)
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 		})
-	}
-}
-
-// TestShadingFuncArrayFanOut: a /Function array of n single-output functions
-// is equivalent to one function with n outputs.
-func TestShadingFuncArrayFanOut(t *testing.T) {
-	one := func(c0, c1 float64) pdf.PDFDict { return expFunction([]float64{c0}, []float64{c1}) }
-
-	sf := parseShadingFunc(pdf.PDFArray{one(1, 0), one(0, 1), one(0, 0)})
-	if !sf.valid() {
-		t.Fatal("parseShadingFunc rejected a valid function array")
-	}
-	got := sf.eval([]float64{0})
-	want := []float64{1, 0, 0}
-	if len(got) != len(want) {
-		t.Fatalf("eval returned %d components, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("component %d = %v, want %v", i, got[i], want[i])
-		}
-	}
-
-	if parseShadingFunc(pdf.PDFArray{one(0, 1), pdf.PDFInteger(3)}).valid() {
-		t.Error("an array holding a non-function should not parse")
-	}
-	if parseShadingFunc(nil).valid() {
-		t.Error("a missing /Function should not parse")
-	}
-}
-
-// TestShadingNamedColorSpace: a /ColorSpace given as a bare name resolves
-// through the resource dictionary, the same way image colour spaces do.
-func TestShadingNamedColorSpace(t *testing.T) {
-	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"CS1": pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"WhitePoint": numArray(0.9505, 1, 1.089),
-			})}},
-		})},
-	})}
-	dict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"ShadingType": pdf.PDFInteger(2),
-		"ColorSpace":  pdf.PDFName{Value: "CS1"},
-		"Coords":      numArray(0, 0, 20, 0),
-		"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
-	})}
-
-	sh, ok := parseShading(dict, resources)
-	if !ok {
-		t.Fatal("parseShading rejected a shading with a named colour space")
-	}
-	if _, isName := sh.cs.(pdf.PDFName); isName {
-		t.Errorf("cs = %v, want the resolved array, not the name", sh.cs)
-	}
-
-	// An unresolvable name stays as written, so ResolveColor can still apply
-	// its device-space fallback rather than the shading being dropped.
-	if got := resolveShadingColorSpace(dict, pdf.PDFDict{}); got != dict.Entries.Get("ColorSpace") {
-		t.Errorf("unresolvable name = %v, want it passed through", got)
 	}
 }
 
@@ -346,18 +358,6 @@ func TestClampExtend(t *testing.T) {
 				t.Errorf("clampExtend(%v) = %v, %v; want %v, %v", tc.s, got, ok, tc.want, tc.wantOK)
 			}
 		})
-	}
-}
-
-// TestColorAtUnsupportedKind: colorAt is the sampling path for types 1-3 only.
-// Mesh types never reach it, and an unset kind must paint nothing rather than
-// index into an absent colour table.
-func TestColorAtUnsupportedKind(t *testing.T) {
-	for _, kind := range []int{0, 4, 9} {
-		sh := &shading{kind: kind}
-		if _, ok := sh.colorAt(1, 1); ok {
-			t.Errorf("colorAt on a type %d shading returned a colour", kind)
-		}
 	}
 }
 
@@ -477,8 +477,8 @@ func TestShadingOperandDrops(t *testing.T) {
 	for _, content := range []string{"q sh Q", "q 42 sh Q"} {
 		t.Run(content, func(t *testing.T) {
 			_, drops := renderShadingContent(t, sh, content)
-			if !hasDrop(drops, dropShading) {
-				t.Errorf("drops = %v, want %q", drops, dropShading)
+			if !hasDrop(drops, DropShading) {
+				t.Errorf("drops = %v, want %q", drops, DropShading)
 			}
 		})
 	}

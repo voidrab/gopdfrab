@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -498,7 +499,7 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 		case 0:
 			return d, false // absent: nothing to repair
 		}
-		canvas, err := DecodeImageRGBA(d, pdf.PDFDict{})
+		canvas, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
 			return d, false
 		}

@@ -1,6 +1,8 @@
-package convert
+package raster
 
-import "math"
+import (
+	"math"
+)
 
 // Matrix is a PDF-style 2D affine transform: [A B 0; C D 0; E F 1],
 // applied to a point as x' = A*x + C*y + E, y' = B*x + D*y + F.

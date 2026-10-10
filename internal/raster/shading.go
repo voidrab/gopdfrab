@@ -1,7 +1,6 @@
-package convert
+package raster
 
 import (
-	"image"
 	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -12,7 +11,7 @@ import (
 // colour. That mirrors compositeImage's inverse-CTM loop and keeps the whole
 // family -- function-based, axial and radial -- behind one colorAt method.
 // Mesh types (4-7) are geometry rather than a field and are handled
-// separately in raster_shading_mesh.go.
+// separately in shading_mesh.go.
 
 // shadingLUTSize is how finely a type 2/3 shading's parametric domain is
 // pre-evaluated. Sampling per pixel would call the PDF function millions of
@@ -310,57 +309,216 @@ func (sh *shading) clampExtend(s float64) (float64, bool) {
 	return s, true
 }
 
-// paintShading fills area by mapping each device pixel back through
-// shadingToDevice and sampling the shading there. Mesh shadings define no
-// such field and are drawn as geometry instead.
-func (r *renderer) paintShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
-	if sh.isMesh() {
-		r.paintMeshShading(sh, shadingToDevice, alpha, area)
-		return
+func (sh *shading) initMesh(dict pdf.PDFDict) bool {
+	sh.bitsPerCoord = pdf.DictInt(dict, "BitsPerCoordinate", 0)
+	sh.bitsPerComp = pdf.DictInt(dict, "BitsPerComponent", 0)
+	sh.bitsPerFlag = pdf.DictInt(dict, "BitsPerFlag", 0)
+	sh.vertsPerRow = pdf.DictInt(dict, "VerticesPerRow", 0)
+
+	// A /Function reduces every vertex to a single parametric value.
+	sh.ncomp = pdf.ColorSpaceComponents(sh.cs)
+	if sh.fn.valid() {
+		sh.ncomp = 1
 	}
-	inv, ok := shadingToDevice.Invert()
-	if !ok || area.Empty() || alpha <= 0 {
-		return
+	if sh.ncomp <= 0 || sh.bitsPerCoord <= 0 || sh.bitsPerCoord > 32 ||
+		sh.bitsPerComp <= 0 || sh.bitsPerComp > 32 {
+		return false
 	}
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		for x := area.Min.X; x < area.Max.X; x++ {
-			p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
-			rgb, ok := sh.colorAt(p.X, p.Y)
-			if !ok {
-				continue
-			}
-			blendPixel(r.canvas, x, y, rgb, alpha)
+	if sh.kind != 5 && (sh.bitsPerFlag <= 0 || sh.bitsPerFlag > 32) {
+		return false
+	}
+	if sh.kind == 5 && sh.vertsPerRow < 2 {
+		return false
+	}
+
+	decode, err := pdf.FloatArray(dict.Entries.Get("Decode"))
+	if err != nil || len(decode) < 4+2*sh.ncomp {
+		return false
+	}
+	sh.meshDecode = decode
+	return dict.HasStream
+}
+
+// readCoords reads one vertex's x,y through the /Decode ranges.
+func (sh *shading) readCoords(m *meshReader) (Point, bool) {
+	rx, ok := m.read(sh.bitsPerCoord)
+	if !ok {
+		return Point{}, false
+	}
+	ry, ok := m.read(sh.bitsPerCoord)
+	if !ok {
+		return Point{}, false
+	}
+	return Point{
+		X: decodeValue(rx, sh.bitsPerCoord, sh.meshDecode[0], sh.meshDecode[1]),
+		Y: decodeValue(ry, sh.bitsPerCoord, sh.meshDecode[2], sh.meshDecode[3]),
+	}, true
+}
+
+// readColor reads one vertex's colour components and resolves them to RGB,
+// through /Function first when the shading declares one.
+func (sh *shading) readColor(m *meshReader) ([3]float64, bool) {
+	comps := make([]float64, sh.ncomp)
+	for i := range comps {
+		raw, ok := m.read(sh.bitsPerComp)
+		if !ok {
+			return [3]float64{}, false
 		}
+		lo, hi := sh.meshDecode[4+2*i], sh.meshDecode[5+2*i]
+		comps[i] = decodeValue(raw, sh.bitsPerComp, lo, hi)
+	}
+	if sh.fn.valid() {
+		comps = sh.fn.eval(comps)
+	}
+	return sh.colorFromComps(comps), true
+}
+
+func (sh *shading) readVertex(m *meshReader) (meshVertex, bool) {
+	p, ok := sh.readCoords(m)
+	if !ok {
+		return meshVertex{}, false
+	}
+	rgb, ok := sh.readColor(m)
+	if !ok {
+		return meshVertex{}, false
+	}
+	return meshVertex{p: p, rgb: rgb}, true
+}
+
+// paintFreeFormMesh walks a type 4 stream, where each vertex's edge flag says
+// how it joins the two before it.
+func (sh *shading) paintFreeFormMesh(m *meshReader, mp *meshPainter) {
+	var va, vb, vc meshVertex
+	have := 0
+	for !m.exhausted() && !mp.overflow {
+		flag, ok := m.read(sh.bitsPerFlag)
+		if !ok {
+			return
+		}
+		v, ok := sh.readVertex(m)
+		if !ok {
+			return
+		}
+		m.align()
+
+		if flag == 0 || have < 3 {
+			// A flag-0 vertex starts a fresh triangle: the next two vertices
+			// carry their own (also 0) flags and complete it.
+			va = v
+			second, ok := sh.readTaggedVertex(m)
+			if !ok {
+				return
+			}
+			third, ok := sh.readTaggedVertex(m)
+			if !ok {
+				return
+			}
+			vb, vc = second, third
+			have = 3
+		} else if flag == 1 {
+			// Share the previous triangle's second edge.
+			va, vb, vc = vb, vc, v
+		} else {
+			// Flag 2 shares the first edge, so va is carried over.
+			vb, vc = vc, v
+		}
+		mp.tri(va, vb, vc)
 	}
 }
 
-// paintShadingOp implements the sh operator: paint the named shading over the
-// current clip, in the current user space.
-func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict, gs *renderState) {
-	sh, ok := r.namedShading(operands, resources)
-	if !ok {
-		return
+// readTaggedVertex reads a flag-prefixed vertex whose flag is not needed.
+func (sh *shading) readTaggedVertex(m *meshReader) (meshVertex, bool) {
+	if _, ok := m.read(sh.bitsPerFlag); !ok {
+		return meshVertex{}, false
 	}
-	r.paintShading(sh, gs.ctm, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
+	v, ok := sh.readVertex(m)
+	if !ok {
+		return meshVertex{}, false
+	}
+	m.align()
+	return v, true
 }
 
-// namedShading resolves an operator's shading-name operand against the
-// /Shading resource dictionary, reporting a drop when it cannot be used.
-func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) (*shading, bool) {
-	if len(operands) == 0 {
-		r.drop(dropShading)
-		return nil, false
+// paintLatticeMesh walks a type 5 stream, a plain row-major grid of vertices
+// with no flags, triangulating each cell of adjacent rows.
+func (sh *shading) paintLatticeMesh(m *meshReader, mp *meshPainter) {
+	perRow := sh.vertsPerRow
+	var prev []meshVertex
+	for !m.exhausted() && !mp.overflow {
+		row := make([]meshVertex, 0, perRow)
+		for range perRow {
+			v, ok := sh.readVertex(m)
+			if !ok {
+				return
+			}
+			row = append(row, v)
+		}
+		if prev != nil {
+			for i := 0; i+1 < perRow; i++ {
+				mp.quad(prev[i], prev[i+1], row[i+1], row[i])
+			}
+		}
+		prev = row
 	}
-	name, ok := operands[len(operands)-1].(pdf.PDFName)
-	if !ok {
-		r.drop(dropShading)
-		return nil, false
+}
+
+// paintPatchMesh walks a type 6 (Coons) or 7 (tensor) stream. A tensor
+// patch's four interior control points are read but not used: the surface is
+// evaluated by the Coons formula over the shared boundary curves, which for a
+// raster fallback differs from the true tensor surface only in the interior.
+func (sh *shading) paintPatchMesh(m *meshReader, mp *meshPainter) {
+	pointsPerPatch := 12
+	if sh.kind == 7 {
+		pointsPerPatch = 16
 	}
-	shadings, _ := resources.Entries.Get("Shading").(pdf.PDFDict)
-	sh, ok := parseShading(shadings.Entries.Get(name.Value), resources)
-	if !ok {
-		r.drop(dropShading)
-		return nil, false
+	var prevPts []Point
+	var prevCols [4][3]float64
+
+	for !m.exhausted() && !mp.overflow {
+		flag, ok := m.read(sh.bitsPerFlag)
+		if !ok {
+			return
+		}
+		newPatch := flag == 0 || prevPts == nil
+
+		pts := make([]Point, 12)
+		var cols [4][3]float64
+		first := 0
+		if !newPatch {
+			// Flags 1-3 reuse one edge (4 points) and 2 colours of the
+			// previous patch, per ISO 32000-1 Table 85.
+			edge, c0, c1 := sharedEdge(int(flag), prevPts, prevCols)
+			copy(pts, edge)
+			cols[0], cols[1] = c0, c1
+			first = 4
+		}
+		for i := first; i < 12; i++ {
+			p, ok := sh.readCoords(m)
+			if !ok {
+				return
+			}
+			pts[i] = p
+		}
+		// A tensor patch's interior points follow the boundary ones.
+		for i := 12; i < pointsPerPatch; i++ {
+			if _, ok := sh.readCoords(m); !ok {
+				return
+			}
+		}
+		firstCol := 0
+		if !newPatch {
+			firstCol = 2
+		}
+		for i := firstCol; i < 4; i++ {
+			rgb, ok := sh.readColor(m)
+			if !ok {
+				return
+			}
+			cols[i] = rgb
+		}
+		m.align()
+
+		mp.coonsPatch(pts, cols)
+		prevPts, prevCols = pts, cols
 	}
-	return sh, true
 }

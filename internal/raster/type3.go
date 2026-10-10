@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -55,46 +55,4 @@ func type3WordSpace(code int, gs *renderState) float64 {
 		return gs.wordSpace
 	}
 	return 0
-}
-
-// drawType3Glyph executes one glyph's CharProc with the CTM set to map glyph
-// space through the font matrix, the text state and the CTM in force. A code
-// with no CharProc is reported, since the glyph is then simply missing.
-// pageResources stands in when the font declares no /Resources of its own,
-// per ISO 32000-1 9.6.5.
-func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFDict, gs *renderState) {
-	proc, ok := fi.charProcs[code]
-	if !ok {
-		r.drop(dropType3)
-		return
-	}
-	// A CharProc may Do a Form or show text again; share the Form recursion
-	// guard rather than adding a second one.
-	if r.depth > 12 {
-		return
-	}
-	data, err := pdf.DecodeStream(proc)
-	if err != nil {
-		r.drop(dropType3)
-		return
-	}
-
-	resources := fi.t3Resources
-	if resources.Entries == nil {
-		resources = pageResources
-	}
-	child := *gs
-	// Glyph space -> text space (the font matrix) -> user space (font size,
-	// horizontal scale and rise, then the text matrix) -> device.
-	child.ctm = fi.fontMatrix.
-		Mul(Matrix{A: gs.fontSize * gs.hScale, D: gs.fontSize, F: gs.rise}).
-		Mul(gs.tm).
-		Mul(gs.ctm)
-	// The glyph procedure starts its own text object if it shows text at all.
-	child.tm, child.tlm = IdentityMatrix, IdentityMatrix
-	child.font = pdf.PDFDict{}
-
-	r.depth++
-	defer func() { r.depth-- }()
-	r.execContent(data, resources, child)
 }

@@ -2,6 +2,7 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -122,27 +123,27 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	cs.Scan(func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "cs":
-			fillCS = resolveOperandColorSpace(operands, resources)
+			fillCS = raster.ResolveOperandColorSpace(operands, resources)
 			if isOversizedDeviceN(fillCS) {
 				modified = true
 				return
 			}
 		case "CS":
-			strokeCS = resolveOperandColorSpace(operands, resources)
+			strokeCS = raster.ResolveOperandColorSpace(operands, resources)
 			if isOversizedDeviceN(strokeCS) {
 				modified = true
 				return
 			}
 		case "scn":
 			if isOversizedDeviceN(fillCS) {
-				r, g, b := pdf.ResolveColor(fillCS, numericOperands(operands), resources)
+				r, g, b := pdf.ResolveColor(fillCS, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("rg", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
 			}
 		case "SCN":
 			if isOversizedDeviceN(strokeCS) {
-				r, g, b := pdf.ResolveColor(strokeCS, numericOperands(operands), resources)
+				r, g, b := pdf.ResolveColor(strokeCS, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("RG", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
@@ -216,7 +217,7 @@ func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 		if !isOversizedDeviceN(d.Entries.Get("ColorSpace")) {
 			return d, false
 		}
-		img, err := DecodeImageRGBA(d, pdf.PDFDict{})
+		img, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
 			return d, false
 		}

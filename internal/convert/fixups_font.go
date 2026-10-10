@@ -209,7 +209,7 @@ func fontProgramName(key string, data []byte) string {
 			return sfntPostScriptName(tables["name"])
 		}
 	case "FontFile3":
-		if cff := extractCFFBytes(data); cff != nil {
+		if cff := fontprog.ExtractCFFBytes(data); cff != nil {
 			if names, _ := fontprog.ParseCFFIndex(cff, int(cff[2])); len(names) > 0 {
 				return string(names[0])
 			}

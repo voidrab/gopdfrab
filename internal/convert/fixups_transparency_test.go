@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
 // TestSmaskFullyOpaque covers the empty-bounds guard and both the
@@ -255,8 +256,8 @@ func TestFlattenFormReportsDrops(t *testing.T) {
 	if drops[0].Page != 1 {
 		t.Errorf("drop page = %d, want 1", drops[0].Page)
 	}
-	if !hasDrop(drops[0].Features, dropShading) {
-		t.Errorf("drop features = %v, want %q", drops[0].Features, dropShading)
+	if !hasDrop(drops[0].Features, raster.DropShading) {
+		t.Errorf("drop features = %v, want %q", drops[0].Features, raster.DropShading)
 	}
 }
 
@@ -433,14 +434,14 @@ func TestBakeSoftMaskOutStencils(t *testing.T) {
 	}
 
 	// And the renderer reads it back as the opacity it stands for.
-	alpha := stencilAlpha(stencil, pdf.PDFDict{})
+	alpha := raster.StencilAlpha(stencil, pdf.PDFDict{})
 	if alpha == nil {
 		t.Fatal("the stencil does not read back as an opacity")
 	}
 	if alpha.Pix[0] != 255 || alpha.Pix[4] != 0 {
 		t.Errorf("stencil opacities = %d, %d; want opaque then clear", alpha.Pix[0], alpha.Pix[4])
 	}
-	if stencilAlpha(pdf.PDFDict{}, pdf.PDFDict{}) != nil {
+	if raster.StencilAlpha(pdf.PDFDict{}, pdf.PDFDict{}) != nil {
 		t.Error("a stencil that does not decode should read back as nothing")
 	}
 }
@@ -552,7 +553,7 @@ func flattenedInk(t *testing.T, form pdf.PDFDict) float64 {
 	if !ok {
 		t.Fatal("flattened form paints no image")
 	}
-	decoded, err := DecodeImageRGBA(img, pdf.PDFDict{})
+	decoded, err := raster.DecodeImageRGBA(img, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("decoding the flattened image: %v", err)
 	}
@@ -708,7 +709,7 @@ func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
 		HasStream: true,
 		RawStream: []byte("q Q"),
 	}
-	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150, inheritedPaint{}); ok {
+	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150, raster.InheritedPaint{}); ok {
 		t.Error("flattenFormToImage on a Form with no /BBox reported success")
 	}
 	if form.Entries.Get("Group") == nil {
@@ -1458,19 +1459,19 @@ func TestPaintAtDo(t *testing.T) {
 		{"Named", [3]float64{0.5, 0.5, 0.5}, [3]float64{0, 0, 0}},
 	} {
 		got, ok := at[tc.name]
-		if !ok || !got.set {
+		if !ok || !got.Set {
 			t.Errorf("%s: no colour recorded", tc.name)
 			continue
 		}
-		if got.fill != tc.fill || got.stroke != tc.stroke {
-			t.Errorf("%s: fill %v stroke %v, want %v and %v", tc.name, got.fill, got.stroke, tc.fill, tc.stroke)
+		if got.Fill != tc.fill || got.Stroke != tc.stroke {
+			t.Errorf("%s: fill %v stroke %v, want %v and %v", tc.name, got.Fill, got.Stroke, tc.fill, tc.stroke)
 		}
 	}
 
 	// Operands that are not a colour, and a Do with no name, leave no mark.
 	at = paintAtDo([]byte("g\nDo\n/P0 scn\n/Pattern Do\nQ\n"), resources)
-	if got := at["Pattern"]; got.fill != [3]float64{} {
-		t.Errorf("a pattern colour was recorded as %v, want the default", got.fill)
+	if got := at["Pattern"]; got.Fill != [3]float64{} {
+		t.Errorf("a pattern colour was recorded as %v, want the default", got.Fill)
 	}
 }
 
@@ -1492,14 +1493,14 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 		}
 	}
 
-	white := inheritedPaint{set: true, fill: [3]float64{1, 1, 1}}
+	white := raster.InheritedPaint{Set: true, Fill: [3]float64{1, 1, 1}}
 	fixed, _, ok := flattenFormToImage(newForm(), pdf.PDFDict{}, 72, white)
 	if !ok {
 		t.Fatal("flattenFormToImage reported no change")
 	}
 	res, _ := fixed.Entries.Get("Resources").(pdf.PDFDict)
 	xo, _ := res.Entries.Get("XObject").(pdf.PDFDict)
-	img, err := DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
+	img, err := raster.DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("the flattened image does not decode: %v", err)
 	}
@@ -1508,13 +1509,13 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	}
 
 	// And the default state still paints the same fill black.
-	fixed, _, ok = flattenFormToImage(newForm(), pdf.PDFDict{}, 72, inheritedPaint{})
+	fixed, _, ok = flattenFormToImage(newForm(), pdf.PDFDict{}, 72, raster.InheritedPaint{})
 	if !ok {
 		t.Fatal("flattenFormToImage reported no change")
 	}
 	res, _ = fixed.Entries.Get("Resources").(pdf.PDFDict)
 	xo, _ = res.Entries.Get("XObject").(pdf.PDFDict)
-	img, err = DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
+	img, err = raster.DecodeImageRGBA(xo.Entries.Get("Im0").(pdf.PDFDict), pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("the flattened image does not decode: %v", err)
 	}
@@ -1555,7 +1556,7 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 
 	// Painting a corner of the BBox leaves the rest to be masked out.
-	part, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 10 10 re f"), pdf.PDFDict{}, 72, inheritedPaint{})
+	part, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 10 10 re f"), pdf.PDFDict{}, 72, raster.InheritedPaint{})
 	if !ok {
 		t.Fatal("flattenFormToImage on a renderable form reported failure")
 	}
@@ -1585,7 +1586,7 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 
 	// A form that paints its whole BBox needs no mask and stays as it was.
-	full, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 20 20 re f"), pdf.PDFDict{}, 72, inheritedPaint{})
+	full, _, ok := flattenFormToImage(formWith("1 0 0 rg 0 0 20 20 re f"), pdf.PDFDict{}, 72, raster.InheritedPaint{})
 	if !ok {
 		t.Fatal("flattenFormToImage on a fully painted form reported failure")
 	}
@@ -1619,7 +1620,7 @@ func TestBakeSoftMaskFadesAMaskAStencilCannotSay(t *testing.T) {
 	if got.Entries.Get("ColorSpace") != (pdf.PDFName{Value: "DeviceRGB"}) {
 		t.Errorf("faded image colour space = %v, want DeviceRGB", got.Entries.Get("ColorSpace"))
 	}
-	faded, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	faded, err := raster.DecodeImageRGBA(got, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("the faded image does not decode: %v", err)
 	}
@@ -1666,7 +1667,7 @@ func TestBakeSoftMaskUndoesTheMatte(t *testing.T) {
 	if !ok {
 		t.Fatal("bakeSoftMaskOut reported no change")
 	}
-	faded, err := DecodeImageRGBA(got, pdf.PDFDict{})
+	faded, err := raster.DecodeImageRGBA(got, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("the faded image does not decode: %v", err)
 	}

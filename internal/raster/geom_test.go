@@ -1,4 +1,4 @@
-package convert
+package raster
 
 import (
 	"math"
@@ -33,19 +33,6 @@ func TestMatrixApplyTranslateScale(t *testing.T) {
 	want := Point{X: 7, Y: 10}
 	if got != want {
 		t.Errorf("m.Apply = %v, want %v", got, want)
-	}
-}
-
-func TestMatrixInvert(t *testing.T) {
-	m := Matrix{A: 2, B: 0, C: 0, D: 4, E: 1, F: 2}
-	inv, ok := m.Invert()
-	if !ok {
-		t.Fatal("Invert() reported singular for a non-singular matrix")
-	}
-	p := Point{X: 10, Y: -3}
-	roundTrip := inv.Apply(m.Apply(p))
-	if math.Abs(roundTrip.X-p.X) > 1e-9 || math.Abs(roundTrip.Y-p.Y) > 1e-9 {
-		t.Errorf("round trip = %v, want %v", roundTrip, p)
 	}
 }
 
@@ -91,5 +78,18 @@ func TestFlattenCubicCurved(t *testing.T) {
 		if p.X < -1 || p.X > 101 || p.Y < -1 || p.Y > 51 {
 			t.Errorf("flattened point %v outside expected bounds", p)
 		}
+	}
+}
+
+func TestMatrixInvert(t *testing.T) {
+	m := Matrix{A: 2, B: 0, C: 0, D: 4, E: 1, F: 2}
+	inv, ok := m.Invert()
+	if !ok {
+		t.Fatal("Invert() reported singular for a non-singular matrix")
+	}
+	p := Point{X: 10, Y: -3}
+	roundTrip := inv.Apply(m.Apply(p))
+	if math.Abs(roundTrip.X-p.X) > 1e-9 || math.Abs(roundTrip.Y-p.Y) > 1e-9 {
+		t.Errorf("round trip = %v, want %v", roundTrip, p)
 	}
 }

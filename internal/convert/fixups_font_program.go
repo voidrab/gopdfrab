@@ -153,7 +153,7 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 		return false
 	}
 
-	if cff := extractCFFBytes(data); cff != nil {
+	if cff := fontprog.ExtractCFFBytes(data); cff != nil {
 		want := "Type1C"
 		td, ok := fontprog.ParseCFFTopDict(cff)
 		if fontSubtype == "CIDFontType0" || (ok && td.IsCIDKeyed) {
@@ -483,7 +483,7 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	pairs := verify.ParseCIDWidths(w)
+	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
 		csWidth, found := cidWidths[pair[0]]
@@ -517,7 +517,7 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	pairs := verify.ParseCIDWidths(w)
+	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
 		fontWidth := fontprog.TTAdvanceWidth(tables, pair[0])

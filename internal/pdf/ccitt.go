@@ -4,7 +4,7 @@ import "fmt"
 
 // This file implements a CCITT Group 3/Group 4 (ITU-T T.4/T.6) fax decoder,
 // the codec behind PDF's CCITTFaxDecode filter. It is used only by the
-// rasterizer (raster_image.go) to reproduce bilevel fax images faithfully
+// rasterizer (internal/raster/image.go) to reproduce bilevel fax images faithfully
 // when a page is flattened; a decode failure falls back to a placeholder, so
 // it never affects conformance, only fidelity.
 

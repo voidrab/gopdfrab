@@ -1,10 +1,21 @@
-package convert
+package raster
 
 import (
 	"image"
 	"image/color"
 	"testing"
 )
+
+func TestFillPathAlphaBlending(t *testing.T) {
+	canvas := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	rect := []Point{{0, 0}, {4, 0}, {4, 4}, {0, 4}}
+	FillPath(canvas, [][]Point{rect}, [3]float64{1, 0, 0}, 0.5, false)
+
+	px := canvas.RGBAAt(2, 2)
+	if px.A < 120 || px.A > 135 {
+		t.Errorf("alpha=0.5 fill over empty canvas alpha = %d, want ~127", px.A)
+	}
+}
 
 func TestFillPathRectangle(t *testing.T) {
 	canvas := image.NewRGBA(image.Rect(0, 0, 10, 10))
@@ -60,17 +71,6 @@ func TestFillPathEvenOddVsNonzero(t *testing.T) {
 	centerEvenOdd := color.NRGBAModel.Convert(canvasEvenOdd.At(5, 5)).(color.NRGBA)
 	if centerEvenOdd.A != 0 {
 		t.Errorf("even-odd winding: overlap pixel = %+v, want unfilled (hole)", centerEvenOdd)
-	}
-}
-
-func TestFillPathAlphaBlending(t *testing.T) {
-	canvas := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	rect := []Point{{0, 0}, {4, 0}, {4, 4}, {0, 4}}
-	FillPath(canvas, [][]Point{rect}, [3]float64{1, 0, 0}, 0.5, false)
-
-	px := canvas.RGBAAt(2, 2)
-	if px.A < 120 || px.A > 135 {
-		t.Errorf("alpha=0.5 fill over empty canvas alpha = %d, want ~127", px.A)
 	}
 }
 
