@@ -225,3 +225,66 @@ func maxMidMin(nums []int) (max, mid, min int) {
 	}
 	return max, mid, min
 }
+
+func TestFixPassDictForIssueFileTrailer(t *testing.T) {
+	pass, _ := fixPassTrailer(t, 1)
+	detail := pdf.ObjModelDetail{TypeName: "FileTrailer", Key: "Root"}
+
+	iss := pdf.NewError(pdf.Checks.Structure.StreamLZWFilter, nil, 0, nil).WithObjModelDetail(detail)
+	got, ok := pass.dictForIssue(iss)
+	if !ok || pdf.ValuePointer(got.Entries) != pdf.ValuePointer(pass.trailer.Entries) {
+		t.Errorf("trailer issue resolved ok=%v, want the trailer itself", ok)
+	}
+
+	other := pdf.NewError(pdf.Checks.Structure.StreamLZWFilter, nil, 0, nil).
+		WithObjModelDetail(pdf.ObjModelDetail{TypeName: "Catalog"})
+	if _, ok := pass.dictForIssue(other); ok {
+		t.Error("a ref-less issue about a non-trailer type resolved to a dict")
+	}
+}
+
+func TestFixOwnedScalarsNestedAndCyclicArrays(t *testing.T) {
+	inner := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2)}
+	cyc := pdf.PDFArray{pdf.PDFInteger(3), nil}
+	cyc[1] = cyc
+	child := pdf.NewPDFDict()
+	child.Entries.Set("Skip", pdf.PDFInteger(9))
+	d := pdf.NewPDFDict()
+	d.Entries.Set("Nested", pdf.PDFArray{inner, child})
+	d.Entries.Set("Cyc", cyc)
+
+	calls := 0
+	changed := fixOwnedScalars(d, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
+		calls++
+		return pdf.PDFInteger(0), true
+	})
+	if !changed {
+		t.Error("changed = false, want true")
+	}
+	if calls != 3 { // inner's two, cyc's one; the cycle is not re-entered, the child dict is not entered
+		t.Errorf("fix called %d times, want 3", calls)
+	}
+	if inner[0] != pdf.PDFInteger(0) || inner[1] != pdf.PDFInteger(0) || cyc[0] != pdf.PDFInteger(0) {
+		t.Errorf("scalars not rewritten: inner=%v cyc[0]=%v", inner, cyc[0])
+	}
+	if child.Entries.Get("Skip") != pdf.PDFInteger(9) {
+		t.Error("a child dict's scalar was rewritten; it belongs to the child")
+	}
+}
+
+func TestCollectParentSlotsCyclicArray(t *testing.T) {
+	child := pdf.NewPDFDict()
+	arr := pdf.PDFArray{child, nil}
+	arr[1] = arr
+	out := map[uintptr][]parentSlot{}
+	collectParentSlots(arr, map[uintptr]bool{}, out)
+	slots := out[pdf.ValuePointer(child.Entries)]
+	if len(slots) != 1 {
+		t.Fatalf("child has %d parent slots, want exactly 1 (cycle must not revisit)", len(slots))
+	}
+	repl := pdf.NewPDFDict()
+	slots[0](repl)
+	if got := arr[0].(pdf.PDFDict); pdf.ValuePointer(got.Entries) != pdf.ValuePointer(repl.Entries) {
+		t.Error("slot setter did not replace the array element")
+	}
+}
