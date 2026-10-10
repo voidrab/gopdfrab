@@ -1393,3 +1393,46 @@ func TestRepairTrailerInfoReplacesStream(t *testing.T) {
 		t.Error("a valid Info dictionary was replaced")
 	}
 }
+
+// TestExpandFilterAbbrevs covers each value shape: a lone name, an array
+// mixing abbreviations with full names and non-names, an array with nothing
+// to expand, and a value that is neither.
+func TestExpandFilterAbbrevs(t *testing.T) {
+	name := func(s string) pdf.PDFName { return pdf.PDFName{Value: s} }
+	if got, ok := expandFilterAbbrevs(name("Fl")); !ok || got != name("FlateDecode") {
+		t.Errorf("/Fl -> %v, %v; want /FlateDecode, true", got, ok)
+	}
+	in := pdf.PDFArray{name("AHx"), name("FlateDecode"), pdf.PDFInteger(3)}
+	got, ok := expandFilterAbbrevs(in)
+	want := pdf.PDFArray{name("ASCIIHexDecode"), name("FlateDecode"), pdf.PDFInteger(3)}
+	if !ok || !pdf.EqualPDFValue(got, want) {
+		t.Errorf("%v -> %v, %v; want %v, true", in, got, ok, want)
+	}
+	if in[0] != name("AHx") {
+		t.Error("expandFilterAbbrevs modified its input array")
+	}
+	if _, ok := expandFilterAbbrevs(pdf.PDFArray{name("FlateDecode")}); ok {
+		t.Error("an array of full names reported a change")
+	}
+	if _, ok := expandFilterAbbrevs(pdf.PDFInteger(1)); ok {
+		t.Error("a non-name, non-array value reported a change")
+	}
+}
+
+// TestStreamDataKey pins which keys the schema fixers may never delete: only a
+// stream's decoding keys, and only on a stream.
+func TestStreamDataKey(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	for _, key := range []string{"Filter", "DecodeParms", "F", "FFilter", "FDecodeParms"} {
+		if !streamDataKey(stream, key) {
+			t.Errorf("streamDataKey(stream, %q) = false, want true", key)
+		}
+	}
+	if streamDataKey(stream, "Length1") {
+		t.Error("streamDataKey(stream, \"Length1\") = true, want false")
+	}
+	if streamDataKey(pdf.NewPDFDict(), "Filter") {
+		t.Error("streamDataKey on a non-stream dict = true, want false")
+	}
+}

@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -321,5 +322,19 @@ func TestValidateObjectEnd(t *testing.T) {
 	defer l2.Release()
 	if errs := l2.validateObjectEnd(); errs == nil {
 		t.Error("validateObjectEnd(non-EOL) should error")
+	}
+}
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("disk on fire") }
+
+// TestNextTokenReportsReadError pins that a read error other than EOF surfaces
+// as a TokenError carrying the error, not as a silent end of input.
+func TestNextTokenReportsReadError(t *testing.T) {
+	l := NewLexer(failingReader{})
+	defer l.Release()
+	if tok := l.NextToken(); tok.Type != TokenError || tok.Value != "disk on fire" {
+		t.Fatalf("NextToken = %+v, want TokenError \"disk on fire\"", tok)
 	}
 }

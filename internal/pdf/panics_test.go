@@ -71,6 +71,22 @@ func TestRecoverAsErrorLeavesNormalReturnsAlone(t *testing.T) {
 	}
 }
 
+// TestRecoverAsErrorPlainPanic pins the non-worker path: a panic raised on the
+// caller's own goroutine becomes ErrInternal with the value and a stack.
+func TestRecoverAsErrorPlainPanic(t *testing.T) {
+	f := func() (err error) {
+		defer RecoverAsError(&err)
+		panic("direct boom")
+	}
+	err := f()
+	if !errors.Is(err, ErrInternal) {
+		t.Fatalf("err = %v, want ErrInternal", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "direct boom") || !strings.Contains(msg, "panics_test.go") {
+		t.Fatalf("error lacks the panic value or the stack: %q", msg)
+	}
+}
+
 // TestParallelForStopsDispatchOnCancel pins that a cancelled context stops
 // further indices from being dispatched.
 func TestParallelForStopsDispatchOnCancel(t *testing.T) {

@@ -124,3 +124,25 @@ func TestVerifyAllContextWorkers(t *testing.T) {
 		}
 	}
 }
+
+// TestVerifyPartsCancelledBeforePageChecks pins the poll between building the
+// page index and running the page-level checks: a run already cancelled
+// there returns before any graph check, leaving Graph empty.
+func TestVerifyPartsCancelledBeforePageChecks(t *testing.T) {
+	d, err := pdf.OpenBytes(pdfgen.PlainThreeIssue())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if full := verifyPdfA1bParts(context.Background(), d, pdf.PDFA1B); len(full.Graph) == 0 {
+		t.Fatal("fixture must have graph-level issues for the check to be meaningful")
+	}
+	run := &cancelAfterCtx{after: 0}
+	pt := verifyPdfA1bParts(run, d, pdf.PDFA1B)
+	if len(pt.Graph) != 0 {
+		t.Errorf("cancelled run produced %d graph issues, want none", len(pt.Graph))
+	}
+	if got := run.calls.Load(); got != 1 {
+		t.Errorf("ctx.Err called %d times, want 1", got)
+	}
+}

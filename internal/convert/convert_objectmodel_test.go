@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -142,4 +143,44 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 		}
 	}
 	return false
+}
+
+// TestConvertObjectModelExpandsFilterArrayAbbrev: a content stream whose
+// /Filter array names the inline-image abbreviation /AHx fails the element
+// enum check. The repair expands it to /ASCIIHexDecode in place -- deleting
+// it, or replacing it with some other enum value, would leave the hex bytes
+// read as operators -- so the page content survives byte-identical.
+func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		contents := page.Entries.Get("Contents").(pdf.PDFDict)
+		contents.RawStream = []byte(hex.EncodeToString([]byte(onePageContent)) + ">")
+		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
+		page.Entries.Set("Contents", contents) // RawStream lives on the copy
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Fatalf("fixture must fail with a DisallowedValue, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph(output): %v", err)
+	}
+	assertContentStream(t, assertOnePageGraph(t, graph), onePageContent)
 }

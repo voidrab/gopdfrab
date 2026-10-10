@@ -1675,3 +1675,36 @@ func TestBakeSoftMaskUndoesTheMatte(t *testing.T) {
 		t.Errorf("premultiplied grey came out %d, want about 229", v)
 	}
 }
+
+// TestWalkPageTreeCapsDepth pins the depth guard: a page nested deeper than
+// pdf.MaxPageTreeDepth is not visited, while a shallow sibling still is and is
+// numbered 1, matching BuildPageIndex.
+func TestWalkPageTreeCapsDepth(t *testing.T) {
+	page := func() pdf.PDFDict {
+		p := pdf.NewPDFDict()
+		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+		return p
+	}
+	deep := page()
+	for range pdf.MaxPageTreeDepth + 1 {
+		n := pdf.NewPDFDict()
+		n.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+		n.Entries.Set("Kids", pdf.PDFArray{deep})
+		deep = n
+	}
+	shallow := page()
+	root := pdf.NewPDFDict()
+	root.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	root.Entries.Set("Kids", pdf.PDFArray{deep, shallow})
+
+	var visited []int
+	walkPageTree(root, func(p, _ pdf.PDFDict, _ [4]float64, n int) {
+		if pdf.ValuePointer(p) != pdf.ValuePointer(shallow) {
+			t.Errorf("visited a page below the depth cap (number %d)", n)
+		}
+		visited = append(visited, n)
+	})
+	if len(visited) != 1 || visited[0] != 1 {
+		t.Fatalf("visited page numbers %v, want [1]", visited)
+	}
+}
