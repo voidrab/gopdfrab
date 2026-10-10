@@ -903,15 +903,14 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if numGlyphs <= 0 {
 		return false
 	}
+	// numGlyphs > 0, so gid 0 is in range and TTGlyphPresent accepts every
+	// gid in [0, numGlyphs): cids is never empty.
 	glyphPresent := fontprog.TTGlyphPresent(tables)
 	var cids []int
 	for gid := range numGlyphs {
 		if glyphPresent(gid) {
 			cids = append(cids, gid)
 		}
-	}
-	if len(cids) == 0 {
-		return false
 	}
 
 	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
