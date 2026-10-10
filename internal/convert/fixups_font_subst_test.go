@@ -356,3 +356,79 @@ func TestTrimSymbolicCmap(t *testing.T) {
 		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")
 	}
 }
+
+// TestBundledFacesSupportSubsetting pins what the substitution code relies on
+// instead of re-checking at run time: every face it can embed (the twelve
+// Liberation styles Pick returns and the two Noto symbol faces) parses, has a
+// format-4 (3,1) cmap and full head/hhea tables, so the subsetters cannot fail
+// on them and their packed output parses back with a format-4 cmap.
+func TestBundledFacesSupportSubsetting(t *testing.T) {
+	faces := map[string][]byte{"NotoSymbols2": fontsubst.NotoSymbols2, "NotoSymbols": fontsubst.NotoSymbols}
+	for _, flags := range []int{0, 0x2, 0x1} {
+		for _, style := range []int{0, 0x40, 0x40000, 0x40 | 0x40000} {
+			face := fontsubst.Pick(dictOf(map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags | style)}), "")
+			faces[liberationFamilyName(face)] = face.Data
+		}
+	}
+	if len(faces) != 14 {
+		t.Fatalf("collected %d distinct faces, want 12 Liberation + 2 Noto", len(faces))
+	}
+
+	for name, data := range faces {
+		t.Run(name, func(t *testing.T) {
+			tables, ok := fontprog.ParseSfnt(data)
+			if !ok {
+				t.Fatal("face does not parse")
+			}
+			if len(tables["head"]) < 54 || len(tables["hhea"]) < 36 || len(tables["OS/2"]) < 90 {
+				t.Errorf("short head/hhea/OS-2 tables: %d/%d/%d", len(tables["head"]), len(tables["hhea"]), len(tables["OS/2"]))
+			}
+			if fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables)) == nil {
+				t.Fatal("face has no format-4 (3,1) cmap")
+			}
+
+			outputs := map[string]func() ([]byte, error){
+				"SubsetTrueType":         func() ([]byte, error) { return fontprog.SubsetTrueType(data, []uint16{'A'}) },
+				"SubsetTrueTypeSymbolic": func() ([]byte, error) { return fontprog.SubsetTrueTypeSymbolic(data, map[int]uint16{65: 'A'}) },
+				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontprog.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}) },
+			}
+			for fn, run := range outputs {
+				out, err := run()
+				if err != nil {
+					t.Fatalf("%s: %v", fn, err)
+				}
+				outTables, ok := fontprog.ParseSfnt(out)
+				if !ok {
+					t.Fatalf("%s output does not parse", fn)
+				}
+				if _, _, gm, ok := fontprog.FirstFormat4CmapSubtable(outTables); !ok || gm == nil {
+					t.Errorf("%s output has no format-4 cmap", fn)
+				}
+			}
+		})
+	}
+}
+
+// TestTTScaledAscentDescent covers the short-table and zero-unitsPerEm
+// fallbacks alongside the scaled reading.
+func TestTTScaledAscentDescent(t *testing.T) {
+	head := make([]byte, 20)
+	binary.BigEndian.PutUint16(head[18:20], 2000) // unitsPerEm
+	hhea := make([]byte, 8)
+	binary.BigEndian.PutUint16(hhea[4:6], 1600)           // ascender
+	binary.BigEndian.PutUint16(hhea[6:8], uint16(0xFC18)) // descender -1000
+
+	for name, tc := range map[string]struct {
+		tables          map[string][]byte
+		ascent, descent int
+	}{
+		"short hhea": {map[string][]byte{"hhea": make([]byte, 4), "head": head}, 0, 0},
+		"short head": {map[string][]byte{"hhea": hhea, "head": make([]byte, 4)}, 0, 0},
+		"zero upm":   {map[string][]byte{"hhea": hhea, "head": make([]byte, 20)}, 0, 0},
+		"scaled":     {map[string][]byte{"hhea": hhea, "head": head}, 800, -500},
+	} {
+		if a, d := ttScaledAscentDescent(tc.tables); a != tc.ascent || d != tc.descent {
+			t.Errorf("%s: ttScaledAscentDescent = %d, %d; want %d, %d", name, a, d, tc.ascent, tc.descent)
+		}
+	}
+}
