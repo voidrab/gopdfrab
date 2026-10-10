@@ -63,8 +63,11 @@ func TestNamedEncodingTable(t *testing.T) {
 	if got, ok := namedEncodingTable("WinAnsiEncoding"); !ok || got != WinAnsiGlyphName {
 		t.Error("WinAnsiEncoding")
 	}
-	if _, ok := namedEncodingTable("MacRomanEncoding"); ok {
-		t.Error("MacRomanEncoding has no glyph names here")
+	if got, ok := namedEncodingTable("MacRomanEncoding"); !ok || got != MacRomanGlyphName {
+		t.Error("MacRomanEncoding")
+	}
+	if _, ok := namedEncodingTable("MacExpertEncoding"); ok {
+		t.Error("MacExpertEncoding is not modelled")
 	}
 }
 

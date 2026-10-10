@@ -27,6 +27,105 @@ func init() {
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return promoteEmptyGlyphsInFont
 	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return repairNonSymbolicTrueTypeCmap
+	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return inlineType1WidthSubrsInFont
+	})
+}
+
+// inlineType1WidthSubrsInFont rewrites a Type 1 font's embedded FontFile so
+// every glyph carries its hsbw/sbw itself rather than in a called subr
+// (fontprog.InlineType1WidthSubrs). Rendering is unchanged; veraPDF, which
+// does not follow callsubr when reading a width, otherwise reads 0 and reports
+// 6.3.5/6.3.6 against a correct font.
+func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
+	switch d.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Type1"}, pdf.PDFName{Value: "MMType1"}:
+	default:
+		return
+	}
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	length1, ok1 := ff.Entries.Get("Length1").(pdf.PDFInteger)
+	length2, ok2 := ff.Entries.Get("Length2").(pdf.PDFInteger)
+	if !ok1 || !ok2 {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	rewritten, newLength2, changed := fontprog.InlineType1WidthSubrs(data, int(length1), int(length2))
+	if !changed {
+		return
+	}
+	ff.Entries.Set("Length2", pdf.PDFInteger(newLength2))
+	if err := writer.SetStreamFlate(&ff, rewritten); err != nil {
+		return
+	}
+	desc.Entries.Set("FontFile", ff)
+}
+
+// repairNonSymbolicTrueTypeCmap gives a non-symbolic (encoded) simple
+// TrueType font a (3,1) cmap mapping for every code in FirstChar..LastChar
+// that ISO 32000-1 9.6.6.4 cannot resolve but the raw-code lookup lenient
+// viewers fall back to can. Strict readers -- verify, veraPDF -- otherwise
+// render .notdef and report 6.3.5 for a glyph the font has; the mapping points
+// at the very glyph lenient viewers already show, so no page changes.
+func repairNonSymbolicTrueTypeCmap(d pdf.PDFDict) {
+	if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "TrueType"}) {
+		return
+	}
+	enc := d.Entries.Get("Encoding")
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if enc == nil || !ok || !ff.HasStream {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return
+	}
+	r := fontprog.NewSimpleTrueTypeCmaps(enc, tables)
+	first, lo := d.Entries.Get("FirstChar").(pdf.PDFInteger)
+	last, hi := d.Entries.Get("LastChar").(pdf.PDFInteger)
+	if !lo || !hi {
+		first, last = 0, 255
+	}
+	add := map[uint16]uint16{}
+	for cc := max(int(first), 0); cc <= min(int(last), 255); cc++ {
+		u := r.CodeToUnicode[cc]
+		if u == 0 {
+			continue
+		}
+		if _, _, found := r.Windows(cc); found {
+			continue
+		}
+		if _, found := r.Fallback(cc); found {
+			continue
+		}
+		if gid, found := r.RawCode(cc); found && gid != 0 {
+			add[u] = uint16(gid)
+		}
+	}
+	repaired, changed := fontprog.AddWindowsUnicodeCmap(data, add)
+	if !changed {
+		return
+	}
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
+	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
+		return
+	}
+	desc.Entries.Set("FontFile2", ff)
 }
 
 // promoteEmptyGlyphsInFonts rewrites every CIDFontType2's embedded TrueType
@@ -278,25 +377,13 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	codeToUnicode := fontprog.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
-	winGIDMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
-	symGIDMap := fontprog.ParseCmapSubtable(fontprog.TTSymbolicCmap(tables))
+	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
 
 	codeToGID := func(cc int) (int, bool) {
-		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			if gid, ok := winGIDMap[u]; ok {
-				return int(gid), true
-			}
-			return 0, false
+		if gid, tried, found := r.Windows(cc); tried {
+			return gid, found
 		}
-		if symGIDMap != nil {
-			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
-				if gid, ok := symGIDMap[candidate]; ok {
-					return int(gid), true
-				}
-			}
-		}
-		return 0, false
+		return r.Fallback(cc)
 	}
 
 	changed := false

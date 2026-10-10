@@ -387,6 +387,8 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 		return StandardEncoding, true
 	case "WinAnsiEncoding":
 		return WinAnsiGlyphName, true
+	case "MacRomanEncoding":
+		return MacRomanGlyphName, true
 	default:
 		return enc, false
 	}

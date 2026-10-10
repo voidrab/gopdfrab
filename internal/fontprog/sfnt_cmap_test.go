@@ -136,32 +136,31 @@ func TestTTWindowsBMPCmapAndSymbolicCmap(t *testing.T) {
 		t.Error("a record count past the table should end the scan")
 	}
 
-	// Symbolic: the Windows (3,0) record wins over an earlier Mac one.
-	got := TTSymbolicCmap(tabs(cmapRecord{1, 0, mac}, cmapRecord{3, 0, sym}))
+	// TTCmapSubtable picks the first record matching platform and encoding.
+	got := TTCmapSubtable(tabs(cmapRecord{1, 0, mac}, cmapRecord{3, 0, sym}), 3, 0)
 	if !reflect.DeepEqual(got[:len(sym)], sym) {
-		t.Errorf("TTSymbolicCmap should prefer (3,0); got %v", got)
+		t.Errorf("TTCmapSubtable(3,0) = %v", got)
 	}
-	// With no Windows record the first Mac record is used.
-	got = TTSymbolicCmap(tabs(cmapRecord{3, 1, other}, cmapRecord{1, 0, mac}, cmapRecord{1, 0, other}))
+	got = TTCmapSubtable(tabs(cmapRecord{3, 1, other}, cmapRecord{1, 0, mac}, cmapRecord{1, 0, other}), 1, 0)
 	if !reflect.DeepEqual(got[:len(mac)], mac) {
-		t.Errorf("TTSymbolicCmap should fall back to the first (1,0); got %v", got)
+		t.Errorf("TTCmapSubtable(1,0) should return the first (1,0); got %v", got)
 	}
-	if TTSymbolicCmap(tabs(cmapRecord{3, 1, other})) != nil {
-		t.Error("TTSymbolicCmap should be nil with neither a (3,0) nor a (1,0) record")
+	if TTCmapSubtable(tabs(cmapRecord{3, 1, other}), 3, 0) != nil {
+		t.Error("TTCmapSubtable should be nil with no matching record")
 	}
 	// Out-of-range offsets are skipped, and a short record array ends the scan.
-	skip := tabs(cmapRecord{3, 0, sym}, cmapRecord{1, 0, mac})
+	skip := tabs(cmapRecord{1, 0, other}, cmapRecord{1, 0, mac})
 	binary.BigEndian.PutUint32(skip["cmap"][8:], 9999)
-	got = TTSymbolicCmap(skip)
+	got = TTCmapSubtable(skip, 1, 0)
 	if !reflect.DeepEqual(got[:len(mac)], mac) {
-		t.Errorf("an out-of-range (3,0) offset should be skipped; got %v", got)
+		t.Errorf("an out-of-range offset should be skipped; got %v", got)
 	}
-	shortSym := tabs(cmapRecord{1, 0, mac})
-	shortSym["cmap"][3] = 5
-	if got := TTSymbolicCmap(shortSym); !reflect.DeepEqual(got[:len(mac)], mac) {
+	shortMac := tabs(cmapRecord{1, 0, mac})
+	shortMac["cmap"][3] = 5
+	if got := TTCmapSubtable(shortMac, 1, 0); !reflect.DeepEqual(got[:len(mac)], mac) {
 		t.Errorf("a record count past the table should keep what was found; got %v", got)
 	}
-	if TTSymbolicCmap(map[string][]byte{"cmap": {0, 0}}) != nil {
+	if TTCmapSubtable(map[string][]byte{"cmap": {0, 0}}, 1, 0) != nil {
 		t.Error("a truncated cmap should give nil")
 	}
 }

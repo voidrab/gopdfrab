@@ -185,14 +185,15 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 }
 
 // namedEncodingTable resolves a modelled base encoding to its code->glyph-name
-// table. MacRomanEncoding is absent: this package carries it only as a
-// code->Unicode map, so there are no glyph names to compare against.
+// table. MacExpertEncoding is not modelled.
 func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 	switch name {
 	case "StandardEncoding":
 		return StandardEncoding, true
 	case "WinAnsiEncoding":
 		return WinAnsiGlyphName, true
+	case "MacRomanEncoding":
+		return MacRomanGlyphName, true
 	}
 	return glyphNames, false
 }
@@ -337,6 +338,25 @@ func init() {
 	for i, name := range high {
 		MacRomanGlyphName[0x80+i] = name
 	}
+}
+
+// macOSRomanCode inverts MacRomanToUnicode.
+var macOSRomanCode = map[uint16]byte{}
+
+func init() {
+	for code, u := range MacRomanToUnicode {
+		if u != 0 {
+			macOSRomanCode[u] = byte(code)
+		}
+	}
+}
+
+// MacOSRomanCode returns the Mac OS Roman character code for Unicode value u:
+// the code ISO 32000-1 9.6.6.4 looks up in a TrueType font's (1,0) cmap once
+// a character code has been mapped to a glyph name.
+func MacOSRomanCode(u uint16) (byte, bool) {
+	code, ok := macOSRomanCode[u]
+	return code, ok
 }
 
 // StandardToUnicode maps StandardEncoding character codes 0–255 to Unicode,
