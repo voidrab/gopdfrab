@@ -8,18 +8,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-func TestAsFloat(t *testing.T) {
-	if f, ok := AsFloat(pdf.PDFInteger(5)); !ok || f != 5 {
-		t.Errorf("AsFloat(PDFInteger) = %g, %v", f, ok)
-	}
-	if f, ok := AsFloat(pdf.PDFReal(2.5)); !ok || f != 2.5 {
-		t.Errorf("AsFloat(PDFReal) = %g, %v", f, ok)
-	}
-	if _, ok := AsFloat(pdf.PDFName{Value: "x"}); ok {
-		t.Error("AsFloat should be false for a non-numeric value")
-	}
-}
-
 // TestValidateActionsOwnerWithoutS covers what emptying a forbidden action in
 // place used to leave behind: an /A naming a dictionary with no /S, which is
 // an action of no known type.

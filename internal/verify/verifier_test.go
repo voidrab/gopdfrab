@@ -1318,29 +1318,6 @@ func TestCollectAPEntryUsage(t *testing.T) {
 	collectAPEntryUsage(ctx, pdf.PDFName{Value: "x"}, map[uintptr]bool{}, fu)
 }
 
-func TestShownStringBytes(t *testing.T) {
-	got := ShownStringBytes("Tj", []pdf.PDFValue{pdf.PDFString{Value: "AB"}})
-	if string(got) != "AB" {
-		t.Errorf("ShownStringBytes(Tj) = %q, want AB", got)
-	}
-
-	got = ShownStringBytes("TJ", []pdf.PDFValue{pdf.PDFArray{
-		pdf.PDFString{Value: "A"}, pdf.PDFInteger(-100), pdf.PDFHexString{Value: "42"},
-	}})
-	if string(got) != "AB" {
-		t.Errorf("ShownStringBytes(TJ) = %q, want AB", got)
-	}
-
-	got = ShownStringBytes("'", []pdf.PDFValue{pdf.PDFString{Value: "X"}})
-	if string(got) != "X" {
-		t.Errorf(`ShownStringBytes(') = %q, want X`, got)
-	}
-
-	if got := ShownStringBytes("Tj", nil); got != nil {
-		t.Errorf("ShownStringBytes(Tj, no operands) = %q, want nil", got)
-	}
-}
-
 // buildValidICCProfile returns a minimal 128-byte ICC profile header with a
 // valid version, device class, colour space and matching /N.
 func buildValidICCProfile() []byte {

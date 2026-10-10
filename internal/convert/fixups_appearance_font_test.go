@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -72,20 +73,20 @@ func TestAppearanceFontWidthsMatchHmtx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pdf.DecodeStream(FontFile2): %v", err)
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		t.Fatalf("embedded FontFile2 did not parse as sfnt")
 	}
-	gidMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	gidMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	widths := font.Entries.Get("Widths").(pdf.PDFArray)
 	firstChar := int(font.Entries.Get("FirstChar").(pdf.PDFInteger))
 	for _, cc := range []int{'A', 'a', ' ', '0', 'W'} {
-		gid, ok := gidMap[verify.WinAnsiToUnicode[cc]]
+		gid, ok := gidMap[fontprog.WinAnsiToUnicode[cc]]
 		if !ok {
 			t.Fatalf("code %d has no glyph in the embedded font's cmap", cc)
 		}
-		want := int(math.Round(verify.TTAdvanceWidth(tables, int(gid))))
+		want := int(math.Round(fontprog.TTAdvanceWidth(tables, int(gid))))
 		got := int(widths[cc-firstChar].(pdf.PDFInteger))
 		if got != want {
 			t.Errorf("Widths[%d] (code %d) = %d, want %d (hmtx)", cc-firstChar, cc, got, want)

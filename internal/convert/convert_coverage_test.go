@@ -390,19 +390,6 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 	}
 }
 
-// TestPlaceholderImageDegenerate covers the zero-dimension early return and
-// the doubling-copy fill.
-func TestPlaceholderImageDegenerate(t *testing.T) {
-	if img := placeholderImage(0, 3); img.Bounds().Dx() != 0 {
-		t.Errorf("placeholderImage(0,3) width = %d, want 0", img.Bounds().Dx())
-	}
-	img := placeholderImage(3, 2)
-	r, g, b, _ := img.At(2, 1).RGBA()
-	if r != g || g != b || r == 0 {
-		t.Errorf("placeholderImage pixel = %d,%d,%d, want uniform gray", r, g, b)
-	}
-}
-
 // TestFlattenPagesParallelDedupesAndReports pins three properties of the
 // page-level raster backstop that only show up with a mixed batch: one page
 // object reachable at two positions in the tree is rasterized once, a page the

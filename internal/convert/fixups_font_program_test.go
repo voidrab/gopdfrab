@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -312,7 +313,7 @@ func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
 		t.Fatalf("fixCIDCFFWidths = false, want true (500/500 mismatches the embedded 600/700)")
 	}
 	want := map[int]int{1: 600, 2: 700}
-	for _, pair := range verify.ParseCIDWidths(v.Entries.Get("W").(pdf.PDFArray)) {
+	for _, pair := range fontprog.ParseCIDWidths(v.Entries.Get("W").(pdf.PDFArray)) {
 		if pair[1] != want[pair[0]] {
 			t.Errorf("CID %d width = %d, want %d", pair[0], pair[1], want[pair[0]])
 		}

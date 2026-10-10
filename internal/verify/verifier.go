@@ -1279,7 +1279,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCodes[st.simpleFontPtr] = set
 				}
-				for _, b := range ShownStringBytes(op, operands) {
+				for _, b := range pdf.ShownStringBytes(op, operands) {
 					set[int(b)] = true
 				}
 			}
@@ -1289,7 +1289,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCIDs[st.compositeFontPtr] = set
 				}
-				shown := ShownStringBytes(op, operands)
+				shown := pdf.ShownStringBytes(op, operands)
 				for i := 0; i+1 < len(shown); i += 2 {
 					set[int(shown[i])<<8|int(shown[i+1])] = true
 				}
@@ -1356,35 +1356,6 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 		return false // reported as StreamUndecodable by scanStream
 	}
 	return complete
-}
-
-// ShownStringBytes returns the decoded bytes of all string operands a
-// text-showing operator passes to the font.
-func ShownStringBytes(op string, operands []pdf.PDFValue) []byte {
-	var out []byte
-	appendOperand := func(v pdf.PDFValue) {
-		switch s := v.(type) {
-		case pdf.PDFString:
-			out = append(out, s.Value...)
-		case pdf.PDFHexString:
-			out = append(out, pdf.DecodePDFHexStringBytes(s.Value)...)
-		}
-	}
-	switch op {
-	case "TJ":
-		if len(operands) > 0 {
-			if arr, ok := operands[len(operands)-1].(pdf.PDFArray); ok {
-				for _, item := range arr {
-					appendOperand(item)
-				}
-			}
-		}
-	default: // Tj, ', "
-		if len(operands) > 0 {
-			appendOperand(operands[len(operands)-1])
-		}
-	}
-	return out
 }
 
 // validateHexString validates requirements outlined in 6.1.6, reporting

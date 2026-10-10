@@ -67,17 +67,17 @@ func TestCheckLinearizedFileIDUnreadableSource(t *testing.T) {
 // per-context cache hit of the combined Type1 CharStrings extraction.
 func TestType1ProgramForMemoizes(t *testing.T) {
 	ctx := &ValidationContext{}
-	if p := ctx.type1ProgramFor(nil); p.names != nil || p.widths != nil {
+	if p := ctx.type1ProgramFor(nil); p.Names != nil || p.Widths != nil {
 		t.Errorf("type1ProgramFor(nil) = %+v, want zero value", p)
 	}
 
 	font := buildType1Font()
 	p1 := ctx.type1ProgramFor(font)
-	if len(p1.names) != 1 || p1.names[0] != "A" || p1.widths["A"] != 500 {
-		t.Fatalf("type1ProgramFor = names %v widths %v, want [A] and A:500", p1.names, p1.widths)
+	if len(p1.Names) != 1 || p1.Names[0] != "A" || p1.Widths["A"] != 500 {
+		t.Fatalf("type1ProgramFor = names %v widths %v, want [A] and A:500", p1.Names, p1.Widths)
 	}
 	p2 := ctx.type1ProgramFor(font)
-	if &p1.names[0] != &p2.names[0] {
+	if &p1.Names[0] != &p2.Names[0] {
 		t.Error("second type1ProgramFor call did not return the cached extraction")
 	}
 }

@@ -76,7 +76,7 @@ func TestFixInlineImageInterpolateFlipsTrueToFalse(t *testing.T) {
 		t.Fatalf("changed = false, want true (the op has /I true)")
 	}
 
-	params, _, ok := inlineImageRawOperand(newOp.Operands)
+	params, _, ok := pdf.InlineImageRawOperand(newOp.Operands)
 	if !ok {
 		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
 	}
@@ -112,11 +112,11 @@ func TestFixInlineImageInterpolateNoOpWhenAlreadyFalse(t *testing.T) {
 // TestInlineImageRawOperandEdgeCases covers the two ok=false paths: no
 // operands at all, and operands whose last entry isn't a pdf.InlineImageRaw.
 func TestInlineImageRawOperandEdgeCases(t *testing.T) {
-	if _, _, ok := inlineImageRawOperand(nil); ok {
+	if _, _, ok := pdf.InlineImageRawOperand(nil); ok {
 		t.Error("inlineImageRawOperand(nil) ok = true, want false")
 	}
 	notRaw := []pdf.PDFValue{pdf.PDFName{Value: "W"}, pdf.PDFInteger(1)}
-	if _, _, ok := inlineImageRawOperand(notRaw); ok {
+	if _, _, ok := pdf.InlineImageRawOperand(notRaw); ok {
 		t.Error("inlineImageRawOperand(no trailing raw) ok = true, want false")
 	}
 }
@@ -195,7 +195,7 @@ func TestFixInlineImageRenderingIntentFlipsDisallowedIntent(t *testing.T) {
 	if !ok {
 		t.Fatalf("fixInlineImageRenderingIntent ok = false, want true (/Intent /Bogus is disallowed)")
 	}
-	params, _, rawOk := inlineImageRawOperand(fixed)
+	params, _, rawOk := pdf.InlineImageRawOperand(fixed)
 	if !rawOk {
 		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
 	}
@@ -236,7 +236,7 @@ func TestFixInlineImageLZWUndoesPredictor(t *testing.T) {
 		t.Fatalf("changed = false, want true (the predictor should be undone, not bailed on)")
 	}
 
-	params, _, ok := inlineImageRawOperand(newOp.Operands)
+	params, _, ok := pdf.InlineImageRawOperand(newOp.Operands)
 	if !ok {
 		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
 	}

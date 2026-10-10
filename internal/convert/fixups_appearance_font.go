@@ -1,24 +1,21 @@
 package convert
 
 import (
-	_ "embed"
 	"encoding/binary"
 	"math"
 	"sync"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // liberationSansTTF is the Liberation Sans (SIL OFL 1.1) regular face,
 // metric-compatible with Helvetica/Arial, used to render text into
 // synthesized form-field appearance streams (fixups_appearance.go). See
-// assets/fonts/OFL.txt.
-//
-//go:embed assets/fonts/LiberationSans-Regular.ttf
-var liberationSansTTF []byte
+// internal/fontsubst/fonts/OFL.txt.
+var liberationSansTTF = fontsubst.LiberationSansRegular
 
 // Liberation Sans FontDescriptor metrics with no programmatic source (head/
 // OS2/post cover FontBBox/ItalicAngle/CapHeight; these don't map to any
@@ -56,16 +53,16 @@ func (s *appearanceFontSource) font() pdf.PDFDict {
 }
 
 func buildAppearanceFont() pdf.PDFDict {
-	tables, _ := verify.ParseSfnt(liberationSansTTF)
-	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	tables, _ := fontprog.ParseSfnt(liberationSansTTF)
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	const firstChar, lastChar = 32, 255
 	widths := make(pdf.PDFArray, lastChar-firstChar+1)
 	for cc := firstChar; cc <= lastChar; cc++ {
 		w := 0
-		if unicode := verify.WinAnsiToUnicode[cc]; unicode != 0 {
+		if unicode := fontprog.WinAnsiToUnicode[cc]; unicode != 0 {
 			if gid, ok := cmap[unicode]; ok {
-				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
+				if aw := fontprog.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
 					w = int(math.Round(aw))
 				}
 			}
