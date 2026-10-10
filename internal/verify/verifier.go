@@ -1579,19 +1579,9 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			}
 		}
 
-		profile, err := d.ResolveObject(destOutputProfile)
-		if err != nil {
-			err := pdf.NewError(
-				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
-				[]error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)},
-				0,
-				nil,
-			)
-			errs = append(errs, err)
-			continue
-		}
-
-		profileMap, ok := profile.(pdf.PDFDict)
+		// ResolveGraphByPath resolved the array in place, so the profile is
+		// already a final value rather than a reference.
+		profileMap, ok := destOutputProfile.(pdf.PDFDict)
 		if !ok {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentInvalidProfile,
