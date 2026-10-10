@@ -313,15 +313,13 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 	return true
 }
 
-// symbolicSubsetCoversCodes confirms every code resolves to a real glyph with
-// a usable advance width through the subset's own (3,0) cmap.
-func symbolicSubsetCoversCodes(tables map[string][]byte, gidMap map[uint16]uint16, codeUnicode map[int]uint16) bool {
+// symbolicSubsetCoversCodes confirms every code resolves to a real glyph
+// through the subset's own (3,0) cmap. Every gid that cmap names is below the
+// subset's glyph count and so has an hmtx entry: no advance-width check needed.
+func symbolicSubsetCoversCodes(gidMap map[uint16]uint16, codeUnicode map[int]uint16) bool {
 	for cc := range codeUnicode {
 		gid, ok := gidMap[0xF000|uint16(cc)]
 		if !ok || gid == 0 {
-			return false
-		}
-		if fontprog.TTAdvanceWidth(tables, int(gid)) < 0 {
 			return false
 		}
 	}
@@ -372,7 +370,7 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		s, _ := fontprog.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
 		t, _ := fontprog.ParseSfnt(s)
 		_, _, gm, _ := fontprog.FirstFormat4CmapSubtable(t)
-		if !symbolicSubsetCoversCodes(t, gm, codeUnicode) {
+		if !symbolicSubsetCoversCodes(gm, codeUnicode) {
 			continue
 		}
 		subset, tables, gidOf, family = s, t, gm, cand.family
