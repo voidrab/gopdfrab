@@ -468,3 +468,162 @@ func TestFormLevelDA(t *testing.T) {
 		t.Errorf("formLevelDA(non-string DA) = %q, want empty", got)
 	}
 }
+
+func widgetWith(ft string, rect pdf.PDFArray) pdf.PDFDict {
+	w := pdf.NewPDFDict()
+	w.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	w.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
+	if ft != "" {
+		w.Entries.Set("FT", pdf.PDFName{Value: ft})
+	}
+	if rect != nil {
+		w.Entries.Set("Rect", rect)
+	}
+	w.Entries.Set("V", pdf.PDFString{Value: "x"})
+	return w
+}
+
+func fixAppearance(t *testing.T, annot pdf.PDFDict, formDA string) bool {
+	t.Helper()
+	trailer := minimalTrailer()
+	if formDA != "" {
+		af := pdf.NewPDFDict()
+		af.Entries.Set("DA", pdf.PDFString{Value: formDA})
+		trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", af)
+	}
+	trailer.Entries.Set("Annot", annot)
+	changed, err := appearanceFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	return changed
+}
+
+func textOpsOf(t *testing.T, annot pdf.PDFDict) map[string][]pdf.PDFValue {
+	t.Helper()
+	n := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
+	ops := map[string][]pdf.PDFValue{}
+	pdf.NewContentScanner(contentBytesOf(t, n)).Scan(func(op string, operands []pdf.PDFValue) {
+		ops[op] = append([]pdf.PDFValue(nil), operands...) // scanner reuses its slice
+	})
+	return ops
+}
+
+// TestAppearanceFixerIgnoresDisallowedSubtype: an annotation whose subtype is
+// not an allowed PDF/A type is left alone (a different fixer removes it).
+func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
+	annot := pdf.NewPDFDict()
+	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	annot.Entries.Set("Subtype", pdf.PDFName{Value: "Movie"})
+	if fixAppearance(t, annot, "") {
+		t.Error("changed = true for a disallowed subtype")
+	}
+	if _, ok := annot.Entries.Lookup("AP"); ok {
+		t.Error("AP added to a disallowed-subtype annotation")
+	}
+}
+
+// TestAppearanceFixerReplacesNonDictN: /AP/N that is not a dictionary at all
+// is replaced by a synthesized appearance stream.
+func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
+	annot := pdf.NewPDFDict()
+	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
+	annot.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
+	ap := pdf.NewPDFDict()
+	ap.Entries.Set("N", pdf.PDFName{Value: "oops"})
+	annot.Entries.Set("AP", ap)
+	if !fixAppearance(t, annot, "") {
+		t.Fatal("changed = false, want true")
+	}
+	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
+	if !ok || !n.HasStream {
+		t.Errorf("AP/N = %#v, want a synthesized stream", annot.Entries.Get("AP"))
+	}
+}
+
+// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras: a Btn whose /N is
+// already a state subdictionary keeps it when only an extra /AP entry is bad.
+func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
+	annot := widgetWith("Btn", nil)
+	states := pdf.NewPDFDict()
+	states.Entries.Set("On", pdf.NewPDFDict())
+	ap := pdf.NewPDFDict()
+	ap.Entries.Set("N", states)
+	ap.Entries.Set("D", pdf.NewPDFDict())
+	annot.Entries.Set("AP", ap)
+	if !fixAppearance(t, annot, "") {
+		t.Fatal("changed = false, want true")
+	}
+	newAP := annot.Entries.Get("AP").(pdf.PDFDict)
+	if newAP.Entries.Len() != 1 || !pdf.EqualPDFValue(newAP.Entries.Get("N"), states) {
+		t.Errorf("AP = %#v, want only the original N state subdictionary", newAP)
+	}
+}
+
+// TestAppearanceFixerParentCycleIsNotBtn: a /Parent chain that loops without
+// ever naming /FT terminates (the depth guard) and is treated as non-Btn.
+func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
+	annot := widgetWith("", nil)
+	annot.Entries.Set("Parent", annot)
+	if !fixAppearance(t, annot, "") {
+		t.Fatal("changed = false, want true")
+	}
+	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
+	if !ok || !n.HasStream {
+		t.Errorf("AP/N = %#v, want a plain stream (non-Btn)", annot.Entries.Get("AP"))
+	}
+}
+
+// TestAppearanceFixerTextDefaultsFromFormDAAndGeometry covers the text-size
+// fallbacks of buildTextAppearanceContent: the AcroForm /DA when the field
+// has none, the 10pt fallback when the Rect has no height, and the 1pt
+// baseline floor for very short fields.
+func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
+	rect := func(h int) pdf.PDFArray {
+		return pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(50), pdf.PDFInteger(h)}
+	}
+	size := func(ops map[string][]pdf.PDFValue) float64 {
+		f, _ := pdf.PDFNumberToFloat(ops["Tf"][1])
+		return f
+	}
+
+	// Form-level DA supplies the size and colour.
+	a := widgetWith("Tx", rect(40))
+	fixAppearance(t, a, "/Helv 12 Tf 1 0 0 rg")
+	ops := textOpsOf(t, a)
+	if size(ops) != 12 || len(ops["rg"]) != 3 {
+		t.Errorf("form DA not applied: Tf=%v rg=%v", ops["Tf"], ops["rg"])
+	}
+
+	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default colour.
+	b := widgetWith("Tx", nil)
+	fixAppearance(t, b, "")
+	ops = textOpsOf(t, b)
+	if size(ops) != 10 || len(ops["g"]) != 1 {
+		t.Errorf("fallback not applied: Tf=%v g=%v", ops["Tf"], ops["g"])
+	}
+
+	// Height 4: size 2.4, centred baseline 0.8 is floored to 1.
+	c := widgetWith("Tx", rect(4))
+	fixAppearance(t, c, "")
+	ops = textOpsOf(t, c)
+	if y, _ := pdf.PDFNumberToFloat(ops["Td"][1]); y != 1 {
+		t.Errorf("Td y = %v, want 1 (floor)", ops["Td"])
+	}
+}
+
+// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance: a /DA whose
+// colour operator carries an operand the content writer cannot serialise (an
+// indirect reference inside an array) yields a structurally valid, empty
+// appearance rather than an error.
+func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
+	a := widgetWith("Tx", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(50), pdf.PDFInteger(20)})
+	a.Entries.Set("DA", pdf.PDFString{Value: "/Helv 10 Tf [1 0 R] g"})
+	if !fixAppearance(t, a, "") {
+		t.Fatal("changed = false, want true")
+	}
+	n := a.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
+	if !n.HasStream || len(contentBytesOf(t, n)) != 0 {
+		t.Errorf("want an empty appearance stream, got %q", contentBytesOf(t, n))
+	}
+}
