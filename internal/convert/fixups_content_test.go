@@ -515,3 +515,43 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 		t.Errorf("the unit square ends up %g wide, want %g", scale, want)
 	}
 }
+
+// TestRewriteContentStreamDictUndecodable: rewriteContentStreamDict leaves a
+// stream it cannot decode exactly as it is.
+func TestRewriteContentStreamDictUndecodable(t *testing.T) {
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = []byte("not flate data")
+	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	fixed, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits)
+	if changed || string(fixed.RawStream) != "not flate data" {
+		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.RawStream)
+	}
+}
+
+// TestWalkContentStreamsSkipsNonStreamEntries: array Page /Contents items and
+// Type3 CharProcs values that are not streams are skipped, while their
+// stream siblings are still rewritten.
+func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
+	good := undefinedOpStream()
+	glyph := undefinedOpStream()
+	charProcs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"bad": pdf.PDFInteger(1), "noStream": pdf.NewPDFDict(), "g1": glyph,
+	})}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Type3"}, "CharProcs": charProcs,
+	})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":     pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFArray{pdf.PDFInteger(7), pdf.NewPDFDict(), good},
+		"Font":     font,
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
+
+	if !walkContentStreams(&trailer, rewriteOperatorsAndLimits) {
+		t.Fatal("no change reported")
+	}
+	contents := page.Entries.Get("Contents").(pdf.PDFArray)
+	assertOperatorDropped(t, "Contents[2]", contents[2].(pdf.PDFDict))
+	assertOperatorDropped(t, "glyph", charProcs.Entries.Get("g1").(pdf.PDFDict))
+}
