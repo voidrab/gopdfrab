@@ -2240,21 +2240,6 @@ func TestInfoDictionaryNameValuedEntries(t *testing.T) {
 	}
 }
 
-// usageStream returns a content stream dictionary holding raw.
-func usageStream(raw string) pdf.PDFDict {
-	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(raw)
-	return d
-}
-
-// brokenUsageStream returns a stream whose Flate data cannot be decoded.
-func brokenUsageStream() pdf.PDFDict {
-	d := usageStream("not a zlib stream")
-	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	return d
-}
-
 // TestComputeContentUsageCompleteness checks, for each way content-stream
 // usage can be read, whether ComputeContentUsage vouches for its result. Any
 // stream it could not decode must withdraw that guarantee, because every
@@ -2279,16 +2264,16 @@ func TestComputeContentUsageCompleteness(t *testing.T) {
 		return d
 	}
 	form := func(raw string) pdf.PDFDict {
-		f := usageStream(raw)
+		f := streamDict(raw)
 		f.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 		return f
 	}
 	shading := pdf.NewPDFDict()
 	shading.Entries.Set("PatternType", pdf.PDFInteger(2))
-	broken := brokenUsageStream()
-	tiling := usageStream("BT /F0 12 Tf (A) Tj ET")
+	broken := brokenStreamDict()
+	tiling := streamDict("BT /F0 12 Tf (A) Tj ET")
 	tiling.Entries.Set("PatternType", pdf.PDFInteger(1))
-	brokenTiling := brokenUsageStream()
+	brokenTiling := brokenStreamDict()
 	brokenTiling.Entries.Set("PatternType", pdf.PDFInteger(1))
 
 	for _, tc := range []struct {
@@ -2301,30 +2286,30 @@ func TestComputeContentUsageCompleteness(t *testing.T) {
 		// find in the page's resources because it has none of its own.
 		wantCodeA bool
 	}{
-		{"scn without operands", usageStream("scn"), withRes(nil), nil, true, false},
-		{"pattern name without Pattern resources", usageStream("/P0 scn"), withRes(nil), nil, true, false},
-		{"shading pattern has no content", usageStream("/P0 scn"),
+		{"scn without operands", streamDict("scn"), withRes(nil), nil, true, false},
+		{"pattern name without Pattern resources", streamDict("/P0 scn"), withRes(nil), nil, true, false},
+		{"shading pattern has no content", streamDict("/P0 scn"),
 			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", shading)}), nil, true, false},
-		{"tiling pattern", usageStream("/P0 scn"),
+		{"tiling pattern", streamDict("/P0 scn"),
 			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", tiling), "Font": fonts}), nil, true, true},
-		{"undecodable tiling pattern", usageStream("/P0 scn"),
+		{"undecodable tiling pattern", streamDict("/P0 scn"),
 			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", brokenTiling)}), nil, false, false},
-		{"Do with a non-name operand", usageStream("5 Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
-		{"Do naming a missing XObject", usageStream("/Nope Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
-		{"undecodable form XObject", usageStream("/Fm Do"),
+		{"Do with a non-name operand", streamDict("5 Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
+		{"Do naming a missing XObject", streamDict("/Nope Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
+		{"undecodable form XObject", streamDict("/Fm Do"),
 			withRes(map[string]pdf.PDFValue{"XObject": dictOf("Fm", func() pdf.PDFValue {
-				f := brokenUsageStream()
+				f := brokenStreamDict()
 				f.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 				return f
 			}())}), nil, false, false},
 		{"undecodable page content", broken, withRes(nil), nil, false, false},
-		{"undecodable part of a Contents array", pdf.PDFArray{usageStream("q Q"), broken}, withRes(nil), nil, false, false},
-		{"non-dictionary annotation", usageStream("q Q"), withRes(nil), pdf.PDFArray{pdf.PDFInteger(1)}, true, false},
-		{"annotation with undecodable appearance stream", usageStream("q Q"), withRes(nil),
+		{"undecodable part of a Contents array", pdf.PDFArray{streamDict("q Q"), broken}, withRes(nil), nil, false, false},
+		{"non-dictionary annotation", streamDict("q Q"), withRes(nil), pdf.PDFArray{pdf.PDFInteger(1)}, true, false},
+		{"annotation with undecodable appearance stream", streamDict("q Q"), withRes(nil),
 			pdf.PDFArray{dictOf("AP", dictOf("N", broken))}, false, false},
-		{"annotation with undecodable appearance state", usageStream("q Q"), withRes(nil),
+		{"annotation with undecodable appearance state", streamDict("q Q"), withRes(nil),
 			pdf.PDFArray{dictOf("AP", dictOf("N", dictOf("On", broken)))}, false, false},
-		{"annotation with decodable appearance state", usageStream("q Q"), withRes(nil),
+		{"annotation with decodable appearance state", streamDict("q Q"), withRes(nil),
 			pdf.PDFArray{dictOf("AP", dictOf("N", dictOf("On", form("q Q"))))}, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

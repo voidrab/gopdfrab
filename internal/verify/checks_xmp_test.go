@@ -1313,3 +1313,28 @@ func TestXMPExifFlashStructFields(t *testing.T) {
 		}
 	}
 }
+
+// TestXMPTablesAgree cross-checks the property tables: every property that
+// carries a value rule or a LangAlt requirement must exist in the container
+// table, with a shape the rule can apply to.
+func TestXMPTablesAgree(t *testing.T) {
+	for ns, rules := range xmpValueRules {
+		for name := range rules {
+			kind, ok := xmpNSSchemas[ns][name]
+			if !ok {
+				t.Errorf("value rule for %s %s, which xmpNSSchemas does not define", ns, name)
+				continue
+			}
+			if kind != xmpKindScalar && kind != xmpKindBag && kind != xmpKindSeq {
+				t.Errorf("value rule for %s %s, but its container kind %v carries no checked text", ns, name, kind)
+			}
+		}
+	}
+	for ns, props := range xmpLangAltProps {
+		for name := range props {
+			if xmpNSSchemas[ns][name] != xmpKindAlt {
+				t.Errorf("%s %s is marked LangAlt but is not an Alt in xmpNSSchemas", ns, name)
+			}
+		}
+	}
+}
