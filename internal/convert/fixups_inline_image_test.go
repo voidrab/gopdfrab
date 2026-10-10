@@ -1,9 +1,12 @@
 package convert
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -314,5 +317,155 @@ func TestInlineImageFixersLeaveUnrecognisedShapesAlone(t *testing.T) {
 		if !keep || changed || len(op.Operands) != len(operands) {
 			t.Errorf("LZW %s: keep=%v changed=%v len=%d want unchanged len %d", label, keep, changed, len(op.Operands), len(operands))
 		}
+	}
+}
+
+// inlineImageDecoded reads an inline-image op's rewritten params back as a
+// stream: the filter names it now declares and the result of running that
+// chain over its data. For a chain ending in an image codec, data is the
+// codec's still-encoded input and image names the codec.
+func inlineImageDecoded(t *testing.T, operands []pdf.PDFValue) (filters []string, data []byte, image string) {
+	t.Helper()
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
+	if !ok {
+		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
+	}
+	d := pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: raw.Data}
+	for i := 0; i+1 < len(params); i += 2 {
+		if key, ok := params[i].(pdf.PDFName); ok {
+			switch key.Value {
+			case "F", "Filter":
+				d.Entries.Set("Filter", params[i+1])
+				filters = pdf.FilterNames(params[i+1])
+			case "DP", "DecodeParms":
+				d.Entries.Set("DecodeParms", params[i+1])
+			}
+		}
+	}
+	s, err := pdf.DecodeStreamFull(d, pdf.DecodeOptions{})
+	if err != nil {
+		t.Fatalf("rewritten chain %v does not decode: %v", filters, err)
+	}
+	if s.IsImage() {
+		image = s.Image.Name
+	}
+	return filters, s.Data, image
+}
+
+// TestFixInlineImageLZWArrayForms covers the /F and /Filter array spellings
+// the verifier also flags: LZW alone, ahead of or behind other decoders, and
+// ahead of an image codec, whose input is left encoded.
+func TestFixInlineImageLZWArrayForms(t *testing.T) {
+	plain := []byte("-----A---B-----A---B")
+	jpeg := []byte("\xff\xd8not really a jpeg\xff\xd9")
+	lzw := func(b []byte) []byte { return encodeLZW(t, b) }
+
+	tests := []struct {
+		name        string
+		key         string
+		chain       pdf.PDFArray
+		data        []byte
+		wantFilters []string
+		wantData    []byte
+		wantImage   string
+	}{
+		{"single-element array", "F", pdf.PDFArray{name("LZW")}, lzw(plain), []string{"Fl"}, plain, ""},
+		{"long key and name", "Filter", pdf.PDFArray{name("LZWDecode")}, lzw(plain), []string{"Fl"}, plain, ""},
+		{"LZW then AHx", "F", pdf.PDFArray{name("LZW"), name("AHx")}, lzw(encodeASCIIHex(plain)), []string{"Fl", "AHx"}, plain, ""},
+		{"A85 then LZW", "F", pdf.PDFArray{name("A85"), name("LZW")}, encodeASCII85(lzw(plain)), []string{"Fl"}, plain, ""},
+		{"LZW then DCT", "F", pdf.PDFArray{name("LZW"), name("DCT")}, lzw(jpeg), []string{"Fl", "DCT"}, jpeg, "DCTDecode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			operands := inlineImageOperands(tt.data, name(tt.key), tt.chain)
+			var changed bool
+			op, keep := fixInlineImageLZW("INLINEIMAGE", operands, &changed)
+			if !keep || !changed {
+				t.Fatalf("keep=%v changed=%v, want the chain repaired", keep, changed)
+			}
+			filters, data, image := inlineImageDecoded(t, op.Operands)
+			if strings.Join(filters, ",") != strings.Join(tt.wantFilters, ",") {
+				t.Errorf("filters = %v, want %v", filters, tt.wantFilters)
+			}
+			if string(data) != string(tt.wantData) {
+				t.Errorf("decoded data = %q, want %q", data, tt.wantData)
+			}
+			if image != tt.wantImage {
+				t.Errorf("image codec = %q, want %q", image, tt.wantImage)
+			}
+			params, _, _ := pdf.InlineImageRawOperand(op.Operands)
+			if hasInlineImageKey(params, "DP") || hasInlineImageKey(params, "DecodeParms") {
+				t.Errorf("no tail filter takes parameters, yet DP survived: %#v", params)
+			}
+		})
+	}
+}
+
+// TestConvertClearsArrayFormInlineImageLZW converts documents whose inline
+// image names LZW inside a /F array -- alone, or chained with other decoders --
+// and checks the finding is repaired in place. Conversion has a last resort
+// that rasterizes a page it cannot otherwise clear, which would also remove the
+// finding while destroying the vector content, so the page must still carry its
+// inline image.
+func TestConvertClearsArrayFormInlineImageLZW(t *testing.T) {
+	pixels := []byte{0x10, 0x40, 0x80, 0xF0}
+	tests := []struct {
+		name   string
+		filter string
+		data   []byte
+	}{
+		{"single-element array", "[/LZW]", encodeLZW(t, pixels)},
+		{"LZW then AHx", "[/LZW /AHx]", encodeLZW(t, encodeASCIIHex(pixels))},
+		{"A85 then LZW", "[/A85 /LZW]", encodeASCII85(encodeLZW(t, pixels))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var content bytes.Buffer
+			content.WriteString("q 20 0 0 20 10 10 cm\nBI /W 2 /H 2 /BPC 8 /CS /G /F " + tt.filter + "\nID ")
+			content.Write(tt.data)
+			content.WriteString("\nEI Q\n")
+
+			doc := onePageDoc(content.String())
+			before, err := verify.VerifyBytes(doc, pdf.PDFA1B, nil)
+			if err != nil {
+				t.Fatalf("VerifyBytes: %v", err)
+			}
+			flagged := false
+			for _, iss := range before.Issues {
+				flagged = flagged || iss.Check() == pdf.Checks.Structure.InlineImageLZWFilter
+			}
+			if !flagged {
+				t.Fatalf("input is not flagged with InlineImageLZWFilter; the fixture proves nothing")
+			}
+
+			cr, err := ConvertBytes(doc, pdf.PDFA1B, Options{})
+			if err != nil {
+				t.Fatalf("ConvertBytes: %v", err)
+			}
+			defer cr.Close()
+			for _, iss := range cr.Residual() {
+				if iss.Check() == pdf.Checks.Structure.InlineImageLZWFilter {
+					t.Errorf("array-form LZW inline image survived conversion: %v", iss)
+				}
+			}
+
+			r, err := pdf.OpenBytes(mustOutput(t, cr))
+			if err != nil {
+				t.Fatalf("reopen output: %v", err)
+			}
+			defer r.Close()
+			graph, err := r.ResolveGraph()
+			if err != nil {
+				t.Fatalf("ResolveGraph: %v", err)
+			}
+			page := assertOnePageGraph(t, graph)
+			stream, ok := page.Entries.Get("Contents").(pdf.PDFDict)
+			if !ok {
+				t.Fatalf("page /Contents = %v, want a single stream", page.Entries.Get("Contents"))
+			}
+			if got := contentBytesOf(t, stream); !bytes.Contains(got, []byte("BI")) {
+				t.Errorf("converted page content lost its inline image (rasterized?): %q", got)
+			}
+		})
 	}
 }
