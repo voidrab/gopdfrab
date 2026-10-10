@@ -46,3 +46,21 @@ func TestParseCIDWidthsMalformedEntries(t *testing.T) {
 		t.Errorf("ParseCIDWidths(non-numeric width) = %v, want nil", got)
 	}
 }
+
+func TestParseCIDWidthsRealsAndTrailingCID(t *testing.T) {
+	// Real-valued widths and CIDs are truncated to integers.
+	w := pdf.PDFArray{pdf.PDFReal(3.9), pdf.PDFArray{pdf.PDFReal(500.7)}}
+	got := ParseCIDWidths(w)
+	if len(got) != 1 || got[0] != [2]int{3, 500} {
+		t.Errorf("ParseCIDWidths(reals) = %v, want [[3 500]]", got)
+	}
+	// A lone CID at the end has nothing to pair with.
+	if got := ParseCIDWidths(pdf.PDFArray{pdf.PDFInteger(1)}); got != nil {
+		t.Errorf("ParseCIDWidths(lone CID) = %v, want nil", got)
+	}
+	// Non-numeric entries inside a width list are skipped; positions still advance.
+	got = ParseCIDWidths(pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFName{Value: "x"}, pdf.PDFInteger(600)}})
+	if len(got) != 1 || got[0] != [2]int{2, 600} {
+		t.Errorf("ParseCIDWidths(mixed list) = %v, want [[2 600]]", got)
+	}
+}
