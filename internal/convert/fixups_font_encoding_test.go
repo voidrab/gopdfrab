@@ -1,7 +1,9 @@
 package convert
 
 import (
+	"bytes"
 	"encoding/binary"
+	"strconv"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
@@ -133,6 +135,98 @@ func TestRepairNonSymbolicTrueTypeCmapEdges(t *testing.T) {
 	repairNonSymbolicTrueTypeCmap(d)
 	ff := d.Entries.Get("FontDescriptor").(pdf.PDFDict).Entries.Get("FontFile2").(pdf.PDFDict)
 	if string(ff.RawStream) != "not zlib" {
+		t.Error("undecodable program was rewritten")
+	}
+}
+
+// type1Encrypt is the Type 1 cipher with lead zero filler bytes prepended.
+func type1Encrypt(plain []byte, key uint16, lead int) []byte {
+	R := key
+	in := append(make([]byte, lead), plain...)
+	out := make([]byte, len(in))
+	for i, p := range in {
+		out[i] = p ^ byte(R>>8)
+		R = (uint16(out[i])+R)*52845 + 22719
+	}
+	return out
+}
+
+// TestInlineType1WidthSubrsInFont: a Type 1 glyph whose hsbw sits in a subr
+// ("0 280 0 callsubr endchar", subr 0 = "hsbw return") is rewritten to carry
+// hsbw itself, the shape of zenodo 21261940's AlegreyaSans-Italic /f, which
+// veraPDF reads as width 0 because it does not follow callsubr.
+func TestInlineType1WidthSubrsInFont(t *testing.T) {
+	subr := type1Encrypt([]byte{13, 11}, 4330, 4)
+	glyph := type1Encrypt([]byte{139, 247, 172, 139, 10, 14}, 4330, 4)
+	private := "dup /Private 8 dict dup begin\n/Subrs 1 array\ndup 0 " + strconv.Itoa(len(subr)) + " RD " + string(subr) +
+		" NP\n2 index /CharStrings 1 dict dup begin\n/f " + strconv.Itoa(len(glyph)) + " RD " + string(glyph) + " ND\nend\n"
+	header := "%!PS-AdobeFont-1.0: T\n/Encoding StandardEncoding def\ncurrentfile eexec\n"
+	eexec := type1Encrypt([]byte(private), 55665, 4)
+	program := append([]byte(header), eexec...)
+
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.RawStream = program
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(header)))
+	ff.Entries.Set("Length2", pdf.PDFInteger(len(eexec)))
+	ff.Entries.Set("Length3", pdf.PDFInteger(0))
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("FontFile", ff)
+	d := pdf.NewPDFDict()
+	d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	d.Entries.Set("FontDescriptor", desc)
+
+	inlineType1WidthSubrsInFont(d)
+
+	ff = desc.Entries.Get("FontFile").(pdf.PDFDict)
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l1, l2 := ff.Entries.Get("Length1").(pdf.PDFInteger), ff.Entries.Get("Length2").(pdf.PDFInteger); int(l1+l2) != len(data) {
+		t.Errorf("Length1 %d + Length2 %d != program length %d", l1, l2, len(data))
+	}
+	section, lenIV := fontprog.Type1CharStringsSection(data, fontprog.Type1EexecBinStart(data))
+	m := fontprog.Type1CharStringRe.FindSubmatchIndex(section)
+	n, _ := strconv.Atoi(string(section[m[4]:m[5]]))
+	if got := fontprog.DecryptType1CharString(section[m[1]:m[1]+n], lenIV); !bytes.Equal(got, []byte{139, 247, 172, 13, 14}) {
+		t.Errorf("/f = %v, want 0 280 hsbw endchar", got)
+	}
+
+	// Length1/Length2 missing or wrong: left alone.
+	for _, drop := range []string{"Length1", "Length2"} {
+		ff := pdf.NewPDFDict()
+		ff.HasStream = true
+		ff.RawStream = program
+		ff.Entries.Set("Length1", pdf.PDFInteger(len(header)))
+		ff.Entries.Set("Length2", pdf.PDFInteger(len(eexec)))
+		ff.Entries.Del(drop)
+		desc := pdf.NewPDFDict()
+		desc.Entries.Set("FontFile", ff)
+		d := pdf.NewPDFDict()
+		d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+		d.Entries.Set("FontDescriptor", desc)
+		inlineType1WidthSubrsInFont(d)
+		if got := desc.Entries.Get("FontFile").(pdf.PDFDict).RawStream; !bytes.Equal(got, program) {
+			t.Errorf("no %s: program rewritten", drop)
+		}
+	}
+}
+
+func TestInlineType1WidthSubrsInFontUndecodable(t *testing.T) {
+	ff := pdf.NewPDFDict()
+	ff.HasStream = true
+	ff.RawStream = []byte("not zlib")
+	ff.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	ff.Entries.Set("Length1", pdf.PDFInteger(1))
+	ff.Entries.Set("Length2", pdf.PDFInteger(4))
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("FontFile", ff)
+	d := pdf.NewPDFDict()
+	d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	d.Entries.Set("FontDescriptor", desc)
+	inlineType1WidthSubrsInFont(d)
+	if got := desc.Entries.Get("FontFile").(pdf.PDFDict).RawStream; string(got) != "not zlib" {
 		t.Error("undecodable program was rewritten")
 	}
 }

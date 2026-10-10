@@ -30,6 +30,45 @@ func init() {
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return repairNonSymbolicTrueTypeCmap
 	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return inlineType1WidthSubrsInFont
+	})
+}
+
+// inlineType1WidthSubrsInFont rewrites a Type 1 font's embedded FontFile so
+// every glyph carries its hsbw/sbw itself rather than in a called subr
+// (fontprog.InlineType1WidthSubrs). Rendering is unchanged; veraPDF, which
+// does not follow callsubr when reading a width, otherwise reads 0 and reports
+// 6.3.5/6.3.6 against a correct font.
+func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
+	switch d.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Type1"}, pdf.PDFName{Value: "MMType1"}:
+	default:
+		return
+	}
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	length1, ok1 := ff.Entries.Get("Length1").(pdf.PDFInteger)
+	length2, ok2 := ff.Entries.Get("Length2").(pdf.PDFInteger)
+	if !ok1 || !ok2 {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	rewritten, newLength2, changed := fontprog.InlineType1WidthSubrs(data, int(length1), int(length2))
+	if !changed {
+		return
+	}
+	ff.Entries.Set("Length2", pdf.PDFInteger(newLength2))
+	if err := writer.SetStreamFlate(&ff, rewritten); err != nil {
+		return
+	}
+	desc.Entries.Set("FontFile", ff)
 }
 
 // repairNonSymbolicTrueTypeCmap gives a non-symbolic (encoded) simple
