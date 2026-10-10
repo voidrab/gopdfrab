@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -1458,20 +1459,83 @@ func TestValidateICCProfileStream(t *testing.T) {
 	}
 }
 
-// TestVerifyCrossReferenceTablePrevChain walks a real incrementally-updated
-// PDF (a /Prev-chained xref) through verifyCrossReferenceTable's loop, which
-// single-generation fixtures elsewhere in this file never exercise.
-func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
-	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.10 Filters/veraPDF test suite 6-1-10-t01-fail-a.pdf"
-	doc, err := pdf.Open(path)
+// xrefChainDoc builds a small document with an extra, hand-written cross
+// reference section embedded in its body, and returns a reader whose trailer
+// /Prev points at that section. section receives the section's own offset so
+// it can chain onward to itself.
+func xrefChainDoc(t *testing.T, section func(self int64) string) *pdf.Reader {
+	t.Helper()
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+	prev := b.Len()
+	b.WriteString(section(prev))
+	d, err := pdf.OpenBytes(b.FinishClassic("<< /Size 3 /Root 1 0 R >>"))
 	if err != nil {
-		t.Skipf("corpus file not available: %v", err)
+		t.Fatalf("OpenBytes: %v", err)
 	}
-	defer doc.Close()
-	// Not asserting a specific outcome: this file's xref sections may or may
-	// not themselves be spec-conformant. The point is exercising the Prev-walk
-	// loop (and its visited-offset cycle guard) without panicking.
-	_ = verifyCrossReferenceTable(doc)
+	t.Cleanup(func() { d.Close() })
+	d.Trailer().Entries.Set("Prev", pdf.PDFInteger(prev))
+	return d
+}
+
+// TestVerifyCrossReferenceTablePrevChain walks a /Prev-linked chain of
+// well-formed sections and checks that the walk stops, without findings, at
+// a chain that loops back on itself or on the current section.
+func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
+	const entry = "0000000000 65535 f \n"
+	for _, tc := range []struct {
+		name    string
+		section func(self int64) string
+	}{
+		{"section ending the chain", func(int64) string {
+			return "xref\n0 1\n" + entry + "trailer\n<< /Size 1 >>\n"
+		}},
+		{"section chaining to itself", func(self int64) string {
+			return fmt.Sprintf("xref\n0 1\n%strailer\n<< /Size 1 /Prev %d >>\n", entry, self)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if errs := verifyCrossReferenceTable(xrefChainDoc(t, tc.section)); len(errs) != 0 {
+				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
+			}
+		})
+	}
+
+	t.Run("Prev pointing back at the current section", func(t *testing.T) {
+		d := xrefChainDoc(t, func(int64) string { return "" })
+		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefOffset()))
+		if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+			t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
+		}
+	})
+}
+
+// TestVerifyCrossReferenceTablePrevSectionFindings checks that a defect in an
+// earlier section is reported, and that an earlier section whose format passes
+// but whose trailer cannot be parsed ends the walk quietly.
+func TestVerifyCrossReferenceTablePrevSectionFindings(t *testing.T) {
+	d := xrefChainDoc(t, func(int64) string {
+		return "xref\n 0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n"
+	})
+	errs := verifyCrossReferenceTable(d)
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
+		t.Errorf("verifyCrossReferenceTable = %v, want XRefSubsectionHeaderFormat from the Prev section", errs)
+	}
+
+	for name, section := range map[string]string{
+		"trailer is not a dictionary": "xref\n0 1\n0000000000 65535 f \ntrailer\n42\n",
+		// The count promises far more entries than the file holds, so the
+		// entry loop runs into the end of the file.
+		"entry count past end of file": "xref\n0 100000\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := xrefChainDoc(t, func(int64) string { return section })
+			if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
+			}
+		})
+	}
 }
 
 func TestComputeContentUsageFullFlow(t *testing.T) {
@@ -2151,5 +2215,150 @@ func TestVerifyEncryptedPasswordRequired(t *testing.T) {
 	}
 	if _, err := VerifyBytes(data, pdf.PDFA1B, nil); !errors.Is(err, pdf.ErrPasswordRequired) {
 		t.Fatalf("err=%v, want ErrPasswordRequired", err)
+	}
+}
+
+// TestInfoDictionaryNameValuedEntries covers 6.1.5's value types: only Trapped
+// may be a name; a name-valued text entry is a type mismatch.
+func TestInfoDictionaryNameValuedEntries(t *testing.T) {
+	trailerWith := func(key string) pdf.PDFDict {
+		info := pdf.NewPDFDict()
+		info.Entries.Set(key, pdf.PDFName{Value: "True"})
+		trailer := pdf.NewPDFDict()
+		trailer.Entries.Set("Info", info)
+		return trailer
+	}
+	if errs := verifyDocumentInformationDictionary(trailerWith("Trapped")); len(errs) != 0 {
+		t.Errorf("name-valued Trapped reported %v, want no findings", errs)
+	}
+	errs := verifyDocumentInformationDictionary(trailerWith("Title"))
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.InfoDictXMPMismatch {
+		t.Fatalf("name-valued Title reported %v, want one InfoDictXMPMismatch", errs)
+	}
+	if msg := errs[0].Messages(); len(msg) != 1 || !strings.Contains(msg[0], "Title") {
+		t.Errorf("messages = %v, want one naming Title", msg)
+	}
+}
+
+// usageStream returns a content stream dictionary holding raw.
+func usageStream(raw string) pdf.PDFDict {
+	d := pdf.NewPDFDict()
+	d.HasStream = true
+	d.RawStream = []byte(raw)
+	return d
+}
+
+// brokenUsageStream returns a stream whose Flate data cannot be decoded.
+func brokenUsageStream() pdf.PDFDict {
+	d := usageStream("not a zlib stream")
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	return d
+}
+
+// TestComputeContentUsageCompleteness checks, for each way content-stream
+// usage can be read, whether ComputeContentUsage vouches for its result. Any
+// stream it could not decode must withdraw that guarantee, because every
+// caller uses the usage sets to suppress checks; content that merely refers to
+// nothing usable must not.
+func TestComputeContentUsageCompleteness(t *testing.T) {
+	font := pdf.NewPDFDict()
+	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F0", font)
+
+	withRes := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
+		res := pdf.NewPDFDict()
+		for k, v := range entries {
+			res.Entries.Set(k, v)
+		}
+		return res
+	}
+	dictOf := func(name string, v pdf.PDFValue) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.Entries.Set(name, v)
+		return d
+	}
+	form := func(raw string) pdf.PDFDict {
+		f := usageStream(raw)
+		f.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+		return f
+	}
+	shading := pdf.NewPDFDict()
+	shading.Entries.Set("PatternType", pdf.PDFInteger(2))
+	broken := brokenUsageStream()
+	tiling := usageStream("BT /F0 12 Tf (A) Tj ET")
+	tiling.Entries.Set("PatternType", pdf.PDFInteger(1))
+	brokenTiling := brokenUsageStream()
+	brokenTiling.Entries.Set("PatternType", pdf.PDFInteger(1))
+
+	for _, tc := range []struct {
+		name         string
+		content      pdf.PDFValue
+		resources    pdf.PDFDict
+		annots       pdf.PDFArray
+		wantComplete bool
+		// wantCodeA: the tiling pattern shows "A" in F0, which it can only
+		// find in the page's resources because it has none of its own.
+		wantCodeA bool
+	}{
+		{"scn without operands", usageStream("scn"), withRes(nil), nil, true, false},
+		{"pattern name without Pattern resources", usageStream("/P0 scn"), withRes(nil), nil, true, false},
+		{"shading pattern has no content", usageStream("/P0 scn"),
+			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", shading)}), nil, true, false},
+		{"tiling pattern", usageStream("/P0 scn"),
+			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", tiling), "Font": fonts}), nil, true, true},
+		{"undecodable tiling pattern", usageStream("/P0 scn"),
+			withRes(map[string]pdf.PDFValue{"Pattern": dictOf("P0", brokenTiling)}), nil, false, false},
+		{"Do with a non-name operand", usageStream("5 Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
+		{"Do naming a missing XObject", usageStream("/Nope Do"), withRes(map[string]pdf.PDFValue{"XObject": pdf.NewPDFDict()}), nil, true, false},
+		{"undecodable form XObject", usageStream("/Fm Do"),
+			withRes(map[string]pdf.PDFValue{"XObject": dictOf("Fm", func() pdf.PDFValue {
+				f := brokenUsageStream()
+				f.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+				return f
+			}())}), nil, false, false},
+		{"undecodable page content", broken, withRes(nil), nil, false, false},
+		{"undecodable part of a Contents array", pdf.PDFArray{usageStream("q Q"), broken}, withRes(nil), nil, false, false},
+		{"non-dictionary annotation", usageStream("q Q"), withRes(nil), pdf.PDFArray{pdf.PDFInteger(1)}, true, false},
+		{"annotation with undecodable appearance stream", usageStream("q Q"), withRes(nil),
+			pdf.PDFArray{dictOf("AP", dictOf("N", broken))}, false, false},
+		{"annotation with undecodable appearance state", usageStream("q Q"), withRes(nil),
+			pdf.PDFArray{dictOf("AP", dictOf("N", dictOf("On", broken)))}, false, false},
+		{"annotation with decodable appearance state", usageStream("q Q"), withRes(nil),
+			pdf.PDFArray{dictOf("AP", dictOf("N", dictOf("On", form("q Q"))))}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := pdf.NewPDFDict()
+			page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+			page.Entries.Set("Resources", tc.resources)
+			page.Entries.Set("Contents", tc.content)
+			if tc.annots != nil {
+				page.Entries.Set("Annots", tc.annots)
+			}
+			ctx := &ValidationContext{}
+			_, _, usedCodes, _, complete := ComputeContentUsage(page, ctx)
+			if complete != tc.wantComplete {
+				t.Errorf("complete = %v, want %v (issues %v)", complete, tc.wantComplete, ctx.Issues())
+			}
+			if got := usedCodes[pdf.ValuePointer(font.Entries)][int('A')]; got != tc.wantCodeA {
+				t.Errorf("code 'A' recorded for F0 = %v, want %v", got, tc.wantCodeA)
+			}
+		})
+	}
+}
+
+// TestValidateHexStringIgnoresWhitespace checks 6.1.6: white-space inside a
+// hexadecimal string neither counts as a digit nor as an invalid character.
+func TestValidateHexStringIgnoresWhitespace(t *testing.T) {
+	ctx := &ValidationContext{}
+	validateHexString(pdf.PDFHexString{Value: "00 4\n1\t"}, pdf.NewPDFDict(), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("even-length hex string with white-space reported %v", ctx.Issues())
+	}
+
+	// An odd digit count is still odd once the white-space is discounted.
+	validateHexString(pdf.PDFHexString{Value: "00 4"}, pdf.NewPDFDict(), ctx)
+	if len(ctx.errs) != 1 {
+		t.Errorf("odd hex digit count reported %v, want one finding", ctx.Issues())
 	}
 }
