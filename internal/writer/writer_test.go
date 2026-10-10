@@ -171,9 +171,7 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	contents := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 5}}),
 	}
-	if err := SetStreamFlate(&contents, []byte("0 0 0 rg 0 0 100 100 re f")); err != nil {
-		t.Fatalf("SetStreamFlate: %v", err)
-	}
+	SetStreamFlate(&contents, []byte("0 0 0 rg 0 0 100 100 re f"))
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		pdf.RefKey: pdf.PDFRef{ObjNum: 2},
@@ -507,9 +505,7 @@ func TestSetStreamFlateVariants(t *testing.T) {
 	want := []byte("0 0 0 rg 0 0 100 100 re f")
 
 	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if err := SetStreamFlateFast(&d, want); err != nil {
-		t.Fatalf("SetStreamFlateFast: %v", err)
-	}
+	SetStreamFlateFast(&d, want)
 	assertFlateDecodes(t, d, want)
 
 	rows := [][]byte{[]byte("row0\n"), []byte("row1\n"), []byte("row2\n")}
@@ -518,29 +514,19 @@ func TestSetStreamFlateVariants(t *testing.T) {
 		joined = append(joined, r...)
 	}
 	d2 := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if err := SetStreamFlateRows(&d2, len(rows), func(i int) []byte { return rows[i] }); err != nil {
-		t.Fatalf("SetStreamFlateRows: %v", err)
-	}
+	SetStreamFlateRows(&d2, len(rows), func(i int) []byte { return rows[i] })
 	assertFlateDecodes(t, d2, joined)
 }
 
-// TestDeflateZlib covers DeflateZlib (success) and deflateZlibLevel's
-// invalid-level error branch.
+// TestDeflateZlib covers DeflateZlib.
 func TestDeflateZlib(t *testing.T) {
 	data := []byte("hello deflate")
-	compressed, err := DeflateZlib(data)
-	if err != nil {
-		t.Fatalf("DeflateZlib: %v", err)
-	}
+	compressed := DeflateZlib(data)
 	d := pdf.PDFDict{
 		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}),
 		HasStream: true, RawStream: compressed,
 	}
 	assertFlateDecodes(t, d, data)
-
-	if _, err := deflateZlibLevel(data, 99); err == nil {
-		t.Error("expected error for an invalid compression level")
-	}
 }
 
 // assertFlateDecodes checks that d is a FlateDecode stream decoding to want.

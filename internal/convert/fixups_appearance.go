@@ -211,9 +211,7 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool, fon
 		}
 	}
 	xobj.Entries.Set("Resources", resources)
-	if err := writer.SetStreamFlate(&xobj, content); err != nil {
-		return xobj
-	}
+	writer.SetStreamFlate(&xobj, content)
 	return xobj
 }
 

@@ -97,6 +97,49 @@ func TestType0FontFixerCIDSystemInfo(t *testing.T) {
 	}
 }
 
+// TestType0FontFixerWMode drives the CMap /WMode reconciliation: a stream that
+// declares a different WMode wins over the dictionary entry, and every
+// condition that makes the fixer leave the CMap alone is reported unchanged.
+func TestType0FontFixerWMode(t *testing.T) {
+	cmapStream := func(entries map[string]pdf.PDFValue, body string) pdf.PDFDict {
+		d := pdf.PDFDict{Entries: pdf.DictOf(entries), HasStream: true, RawStream: []byte(body)}
+		return d
+	}
+	tests := []struct {
+		name    string
+		cmap    pdf.PDFValue
+		want    pdf.PDFValue
+		changed bool
+	}{
+		{"encoding is a name, not a CMap dictionary", pdf.PDFName{Value: "Identity-H"}, nil, false},
+		{"dictionary has no integer WMode", cmapStream(map[string]pdf.PDFValue{"WMode": pdf.PDFName{Value: "x"}}, "/WMode 1 def"), pdf.PDFName{Value: "x"}, false},
+		{"stream cannot be decoded", cmapStream(map[string]pdf.PDFValue{
+			"WMode": pdf.PDFInteger(0), "Filter": pdf.PDFName{Value: "FlateDecode"},
+		}, "not a zlib stream"), pdf.PDFInteger(0), false},
+		{"stream declares no WMode", cmapStream(map[string]pdf.PDFValue{"WMode": pdf.PDFInteger(0)}, "begincmap endcmap"), pdf.PDFInteger(0), false},
+		{"stream and dictionary agree", cmapStream(map[string]pdf.PDFValue{"WMode": pdf.PDFInteger(1)}, "/WMode 1 def"), pdf.PDFInteger(1), false},
+		{"stream wins over dictionary", cmapStream(map[string]pdf.PDFValue{"WMode": pdf.PDFInteger(0)}, "/WMode 1 def"), pdf.PDFInteger(1), true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type0"},
+				"Encoding": tc.cmap,
+			})}
+			trailer := trailerWith("F1", font)
+			changed, err := type0FontFixer{}.Fix(&trailer, nil)
+			if err != nil || changed != tc.changed {
+				t.Fatalf("Fix = %v, %v; want changed=%v", changed, err, tc.changed)
+			}
+			if cmap, ok := tc.cmap.(pdf.PDFDict); ok {
+				if got := cmap.Entries.Get("WMode"); got != tc.want {
+					t.Errorf("WMode = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
 func TestBaseFontFixerAppliesOnlyToFontBaseFont(t *testing.T) {
 	fixer := baseFontFixer{}
 	for _, c := range pdf.AllChecks() {

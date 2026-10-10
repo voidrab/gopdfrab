@@ -202,10 +202,7 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 		return writer.ContentOp{Op: op, Operands: operands}, true
 	}
 	fixedParams = removeInlineImageKeys(fixedParams, "DP", "DecodeParms")
-	compressed, err := writer.DeflateZlib(plain)
-	if err != nil {
-		return writer.ContentOp{Op: op, Operands: operands}, true
-	}
+	compressed := writer.DeflateZlib(plain)
 	newBytes, err := writer.BuildInlineImageBytes(fixedParams, compressed)
 	if err != nil {
 		return writer.ContentOp{Op: op, Operands: operands}, true

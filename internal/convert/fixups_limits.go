@@ -668,9 +668,7 @@ func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
 	if !ok {
 		return d, false
 	}
-	if err := writer.SetStreamFlate(&d, clamped); err != nil {
-		return d, false
-	}
+	writer.SetStreamFlate(&d, clamped)
 	return d, true
 }
 
@@ -832,8 +830,6 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 		return dict, false
 	}
 
-	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, cw.Bytes())
 	return dict, true
 }

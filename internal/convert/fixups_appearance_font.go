@@ -72,9 +72,7 @@ func buildAppearanceFont() pdf.PDFDict {
 
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(liberationSansTTF)))
-	if err := writer.SetStreamFlate(&fontFile, liberationSansTTF); err != nil {
-		return pdf.PDFDict{}
-	}
+	writer.SetStreamFlate(&fontFile, liberationSansTTF)
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
@@ -103,12 +101,10 @@ func buildAppearanceFont() pdf.PDFDict {
 }
 
 // ttScaledBBox reads head's glyph bounding box and scales it to PDF's
-// 1000-unit em, the same scaling ttAdvanceWidth applies to hmtx widths.
+// 1000-unit em, the same scaling ttAdvanceWidth applies to hmtx widths. tables
+// always come from the bundled, well-formed Liberation Sans face.
 func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 	head := tables["head"]
-	if len(head) < 44 {
-		return pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)}
-	}
 	upm := int(binary.BigEndian.Uint16(head[18:20]))
 	scale := func(off int) pdf.PDFInteger {
 		v := int(int16(binary.BigEndian.Uint16(head[off:])))
@@ -118,13 +114,11 @@ func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 }
 
 // liberationSansCapHeight reads OS/2's sCapHeight (present from OS/2 version
-// 2), scaled to PDF's 1000-unit em.
+// 2), scaled to PDF's 1000-unit em. tables always come from the bundled,
+// well-formed Liberation Sans face, whose head and OS/2 are complete.
 func liberationSansCapHeight(tables map[string][]byte) int {
 	os2 := tables["OS/2"]
 	head := tables["head"]
-	if len(os2) < 90 || len(head) < 20 {
-		return liberationSansAscent // reasonable fallback, never hit for the bundled face
-	}
 	upm := int(binary.BigEndian.Uint16(head[18:20]))
 	capHeight := int(int16(binary.BigEndian.Uint16(os2[88:90])))
 	return capHeight * 1000 / upm

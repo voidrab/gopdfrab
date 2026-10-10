@@ -175,9 +175,7 @@ func rewriteContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 		return dict, false
 	}
 
-	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, cw.Bytes())
 	return dict, true
 }
 

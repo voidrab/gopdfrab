@@ -179,52 +179,39 @@ func NumberObjects(trailer pdf.PDFDict, hint int) map[int]pdf.PDFValue {
 
 // SetStreamFlate compresses decoded content with FlateDecode and stores the
 // result directly, so the writer emits the stream as-is without re-deflating.
-func SetStreamFlate(d *pdf.PDFDict, decoded []byte) error {
-	return setStreamFlateLevel(d, decoded, zlib.DefaultCompression)
+// It cannot fail: see newZlibWriter.
+func SetStreamFlate(d *pdf.PDFDict, decoded []byte) {
+	setFlateStream(d, deflateZlibLevel(decoded, zlib.DefaultCompression))
 }
 
 // SetStreamFlateFast is SetStreamFlate at the fastest compression level.
-func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) error {
-	return setStreamFlateLevel(d, decoded, zlib.BestSpeed)
+func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) {
+	setFlateStream(d, deflateZlibLevel(decoded, zlib.BestSpeed))
 }
 
-func setStreamFlateLevel(d *pdf.PDFDict, decoded []byte, level int) error {
-	compressed, err := deflateZlibLevel(decoded, level)
-	if err != nil {
-		return err
-	}
+func setFlateStream(d *pdf.PDFDict, compressed []byte) {
 	d.RawStream = compressed
 	d.HasStream = true
 	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	d.Entries.Del("DecodeParms")
 	d.Entries.Del("DP")
-	return nil
 }
 
 // SetStreamFlateRows fast-compresses numRows rows fed one at a time by row(i),
 // storing the result as a FlateDecode stream. Streaming avoids materializing a
 // single full-raster buffer per call, sparing the garbage collector the large
 // transient allocations the flattener's parallel workers would otherwise make.
-func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) error {
+// It cannot fail: see newZlibWriter.
+func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) {
 	var buf bytes.Buffer
-	zw, err := zlib.NewWriterLevel(&buf, zlib.BestSpeed)
-	if err != nil {
-		return err
-	}
+	zw := newZlibWriter(&buf, zlib.BestSpeed)
 	for i := range numRows {
-		if _, err := zw.Write(row(i)); err != nil {
-			return err
-		}
+		// bytes.Buffer.Write never returns an error.
+		_, _ = zw.Write(row(i))
 	}
-	if err := zw.Close(); err != nil {
-		return err
-	}
-	d.RawStream = buf.Bytes()
-	d.HasStream = true
-	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	d.Entries.Del("DecodeParms")
-	d.Entries.Del("DP")
-	return nil
+	// Close only reports errors from the underlying writer, a bytes.Buffer.
+	_ = zw.Close()
+	setFlateStream(d, buf.Bytes())
 }
 
 // objectIdentity is the dedup key WriteDocument uses to recognise that two
@@ -683,22 +670,25 @@ func (c *countingWriter) WriteString(s string) (int, error) {
 }
 
 // DeflateZlib encodes data as a zlib (FlateDecode) stream, the inverse of
-// content.go's inflateZlib.
-func DeflateZlib(data []byte) ([]byte, error) {
+// content.go's inflateZlib. It cannot fail: see newZlibWriter.
+func DeflateZlib(data []byte) []byte {
 	return deflateZlibLevel(data, zlib.DefaultCompression)
 }
 
-func deflateZlibLevel(data []byte, level int) ([]byte, error) {
+// newZlibWriter wraps a bytes.Buffer in a zlib writer. zlib.NewWriterLevel
+// returns an error only for a level outside [HuffmanOnly, BestCompression];
+// every level passed here is a zlib package constant, so the error is
+// impossible and discarded. Writes to a bytes.Buffer never fail either, so
+// callers of the returned writer ignore Write and Close errors.
+func newZlibWriter(out *bytes.Buffer, level int) *zlib.Writer {
+	zw, _ := zlib.NewWriterLevel(out, level)
+	return zw
+}
+
+func deflateZlibLevel(data []byte, level int) []byte {
 	var out bytes.Buffer
-	zw, err := zlib.NewWriterLevel(&out, level)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := zw.Write(data); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	zw := newZlibWriter(&out, level)
+	_, _ = zw.Write(data)
+	_ = zw.Close()
+	return out.Bytes()
 }

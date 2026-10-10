@@ -161,9 +161,7 @@ func rewriteAlphaStream(dict, resources pdf.PDFDict, state *alphaState) (pdf.PDF
 	if !r.changed || !cs.Complete() || cw.Err() != nil {
 		return dict, false
 	}
-	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, cw.Bytes())
 	return dict, true
 }
 
