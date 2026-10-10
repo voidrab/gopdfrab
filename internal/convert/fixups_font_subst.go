@@ -521,18 +521,14 @@ func buildToUnicodeStream(codeUnicode map[int]uint16) (pdf.PDFDict, bool) {
 	b.WriteString("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
 
 	toUni := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&toUni, []byte(b.String())); err != nil {
-		return pdf.PDFDict{}, false
-	}
+	writer.SetStreamFlate(&toUni, []byte(b.String()))
 	return toUni, true
 }
 
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face fontsubst.Face) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(program)))
-	if err := writer.SetStreamFlate(&fontFile, program); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&fontFile, program)
 
 	for _, k := range []string{"FontFile", "FontFile2", "FontFile3", "CharSet", "FontFamily"} {
 		desc.Entries.Del(k)
@@ -902,9 +898,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	if err := writer.SetStreamFlate(&ff, trimmed); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&ff, trimmed)
 	desc.Entries.Set("FontFile2", ff)
 	return true
 }

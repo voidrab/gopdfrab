@@ -159,9 +159,7 @@ func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 		if err != nil {
 			return d, false
 		}
-		if err := writer.SetStreamFlate(&d, plaintext); err != nil {
-			return d, false
-		}
+		writer.SetStreamFlate(&d, plaintext)
 		changed = true
 		return d, true
 	})

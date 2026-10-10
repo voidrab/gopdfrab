@@ -72,9 +72,7 @@ func buildAppearanceFont() pdf.PDFDict {
 
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(liberationSansTTF)))
-	if err := writer.SetStreamFlate(&fontFile, liberationSansTTF); err != nil {
-		return pdf.PDFDict{}
-	}
+	writer.SetStreamFlate(&fontFile, liberationSansTTF)
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})

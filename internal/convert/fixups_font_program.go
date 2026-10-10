@@ -65,9 +65,7 @@ func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
 		return
 	}
 	ff.Entries.Set("Length2", pdf.PDFInteger(newLength2))
-	if err := writer.SetStreamFlate(&ff, rewritten); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&ff, rewritten)
 	desc.Entries.Set("FontFile", ff)
 }
 
@@ -122,9 +120,7 @@ func repairNonSymbolicTrueTypeCmap(d pdf.PDFDict) {
 		return
 	}
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
-	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&ff, repaired)
 	desc.Entries.Set("FontFile2", ff)
 }
 
@@ -158,9 +154,7 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 		return
 	}
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
-	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&ff, repaired)
 	desc.Entries.Set("FontFile2", ff)
 }
 
@@ -260,9 +254,7 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 		}
 		// A bare CFF that only misnames itself needs no re-encoding.
 		if len(cff) != len(data) {
-			if err := writer.SetStreamFlate(&ff, cff); err != nil {
-				return false
-			}
+			writer.SetStreamFlate(&ff, cff)
 		}
 		ff.Entries.Set("Subtype", pdf.PDFName{Value: want})
 		desc.Entries.Set("FontFile3", ff)
@@ -281,9 +273,7 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 	}
 	ff.Entries.Del("Subtype")
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(data)))
-	if err := writer.SetStreamFlate(&ff, data); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&ff, data)
 	desc.Entries.Set("FontFile2", ff)
 	desc.Entries.Del("FontFile3")
 	return true
@@ -887,9 +877,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids))
 	desc.Entries.Set("CIDSet", stream)
 	return true
 }
@@ -933,9 +921,7 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids))
 	desc.Entries.Set("CIDSet", stream)
 	return true
 }

@@ -504,9 +504,7 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 			return d, false
 		}
 		fixed := d
-		if err := setStreamRGBFlate(&fixed, canvas); err != nil {
-			return d, false
-		}
+		setStreamRGBFlate(&fixed, canvas)
 		fixed.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 		fixed.Entries.Set("Width", pdf.PDFInteger(canvas.Bounds().Dx()))
 		fixed.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
