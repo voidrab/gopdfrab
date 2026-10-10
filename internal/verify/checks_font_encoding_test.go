@@ -108,3 +108,31 @@ func TestSimpleTrueTypeMetricsMacCmapResolvesThroughGlyphNames(t *testing.T) {
 		t.Errorf("matching eacute width reported: %v", issueKeys(ctx.Issues()))
 	}
 }
+
+// TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap: a font with /Encoding is
+// non-symbolic, and ISO 32000-1 9.6.6.4 resolves its codes through (3,1) and
+// (1,0) only. A glyph reachable solely through the (3,0) cmap by raw code is
+// missing (6.3.5), as veraPDF also reports.
+func TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap(t *testing.T) {
+	head := make([]byte, 54)
+	binary.BigEndian.PutUint16(head[18:], 1000)
+	sub := make([]byte, 262)
+	binary.BigEndian.PutUint16(sub[2:], 262)
+	sub[6+0xB0] = 1                                     // raw code 0xB0 only
+	cmap := []byte{0, 0, 0, 1, 0, 3, 0, 0, 0, 0, 0, 12} // one (3,0) record
+	ff := streamDict(string(fontprog.PackSfnt(map[string][]byte{
+		"head": head, "maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": append(cmap, sub...),
+	})))
+
+	ctx := &ValidationContext{}
+	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(pdf.PDFName{Value: "WinAnsiEncoding"}), ff, 0xB0, 0xB0, pdf.PDFArray{pdf.PDFInteger(400)}, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Error("WinAnsi degree resolvable only through (3,0) was not reported")
+	}
+	// Without /Encoding the font is symbolic and (3,0) applies.
+	ctx = &ValidationContext{}
+	ValidateSimpleTrueTypeSubset(pdf.NewPDFDict(), ff, 0xB0, 0xB0, pdf.PDFArray{pdf.PDFInteger(400)}, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("symbolic (3,0) lookup reported: %v", issueKeys(ctx.Issues()))
+	}
+}
