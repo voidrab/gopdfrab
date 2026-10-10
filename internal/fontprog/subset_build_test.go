@@ -440,21 +440,22 @@ func TestPackSfntChecksums(t *testing.T) {
 		t.Errorf("zzzz checksum = %#x, want %#x", zzzzSum, want)
 	}
 
-	// head's directory checksum covers the table as stored, adjustment
-	// included. That is current behavior: the adjustment itself is computed
-	// from the file before head's directory entry is refreshed, so the
-	// whole-file sum is not 0xB1B0AFBA.
+	// Per the OpenType spec, head's directory checksum is taken with
+	// checkSumAdjustment as 0, and the adjustment makes the whole file sum
+	// to 0xB1B0AFBA.
 	headEntry := out[12 : 12+16]
 	headOff := binary.BigEndian.Uint32(headEntry[8:])
 	adj := binary.BigEndian.Uint32(out[headOff+8:])
 	if adj == 0 {
 		t.Error("checkSumAdjustment was not written")
 	}
-	if got, want := binary.BigEndian.Uint32(headEntry[4:]), tableChecksum(tables["head"]); got != want {
-		t.Errorf("head directory checksum = %#x, want %#x", got, want)
+	zeroed := append([]byte(nil), tables["head"]...)
+	binary.BigEndian.PutUint32(zeroed[8:], 0)
+	if got, want := binary.BigEndian.Uint32(headEntry[4:]), tableChecksum(zeroed); got != want {
+		t.Errorf("head directory checksum = %#x, want %#x (adjustment zeroed)", got, want)
 	}
-	if tableChecksum(out) == sfntChecksumAdjustmentMagic {
-		t.Error("whole-file checksum now matches the magic: the adjustment ordering changed, update this test and the suspected-bug note")
+	if got := tableChecksum(out); got != sfntChecksumAdjustmentMagic {
+		t.Errorf("whole-file checksum = %#x, want %#x", got, uint32(sfntChecksumAdjustmentMagic))
 	}
 }
 

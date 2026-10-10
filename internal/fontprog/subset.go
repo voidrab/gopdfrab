@@ -627,19 +627,20 @@ func PackSfnt(tables map[string][]byte) []byte {
 			headOffset = e.offset
 		}
 	}
-	patchChecksums := func() {
-		for i, e := range entries {
-			cs := tableChecksum(buf[e.offset : e.offset+len(e.padded)])
-			binary.BigEndian.PutUint32(buf[12+i*16+4:12+i*16+8], cs)
-		}
-	}
-	patchChecksums()
-
-	if headOffset >= 0 && headOffset+12 <= len(buf) {
+	// Every checksum, head's included, is taken with checkSumAdjustment
+	// zeroed; the adjustment is then patched in last so the whole file sums
+	// to the magic. Re-checksumming head afterwards would break both.
+	hasHead := headOffset >= 0 && headOffset+12 <= len(buf)
+	if hasHead {
 		binary.BigEndian.PutUint32(buf[headOffset+8:headOffset+12], 0)
+	}
+	for i, e := range entries {
+		cs := tableChecksum(buf[e.offset : e.offset+len(e.padded)])
+		binary.BigEndian.PutUint32(buf[12+i*16+4:12+i*16+8], cs)
+	}
+	if hasHead {
 		adjustment := sfntChecksumAdjustmentMagic - tableChecksum(buf)
 		binary.BigEndian.PutUint32(buf[headOffset+8:headOffset+12], adjustment)
-		patchChecksums() // head's own bytes changed, so its directory checksum must be redone
 	}
 	return buf
 }
