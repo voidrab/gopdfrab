@@ -662,6 +662,8 @@ func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	spaces := pdf.NewPDFDict()
 	spaces.Entries.Set("A", g1)
 	spaces.Entries.Set("B", g2)
+	rgbSep := sep("DeviceRGB")
+	spaces.Entries.Set("R", rgbSep)
 	spaces.Entries.Set("C", indexed)
 	spaces.Entries.Set("D", numHead)
 	spaces.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
@@ -683,6 +685,9 @@ func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	}
 	if pdf.ValuePointer(g1[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries) != pdf.ValuePointer(g2[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries) {
 		t.Error("the two gray replacements do not share one profile stream")
+	}
+	if n, _ := rgbSep[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries.Get("N").(pdf.PDFInteger); n != 3 {
+		t.Errorf("rgb replacement N = %v, want 3", n)
 	}
 	if indexed[1] != (pdf.PDFName{Value: "DeviceGray"}) {
 		t.Errorf("Indexed base touched: %v", indexed[1])

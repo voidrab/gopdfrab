@@ -141,7 +141,7 @@ func TestAnnotColourFixerCmykAndGrayModels(t *testing.T) {
 	rgb := mk(pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)})
 	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"OutputIntents": pdf.PDFArray{pdf.PDFInteger(1), cmykOI},
-		"A": cmyk, "B": gray, "R": rgb,
+		"A":             cmyk, "B": gray, "R": rgb,
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 	changed, err := annotColourFixer{}.Fix(&trailer, nil)
