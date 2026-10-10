@@ -1178,22 +1178,16 @@ const (
 	maxOverpaintedFiles = 1
 	maxOverpaintedPages = 2
 
-	// fidelityWorkerMemory is the memory one survey worker is budgeted. Pages
-	// are rendered one at a time, so a worker holds the parsed graphs of the
-	// input and the output and little else -- but that is a gigabyte for the
-	// largest scanned books. Sixteen workers peaked at 14.3 GB on the full
-	// corpus, while several of those books were in flight together.
+	// fidelityWorkerMemory is the memory budget per survey worker.
+	// 16 workers peaked at 14.3 GB on the full corpus.
 	fidelityWorkerMemory = 1536 << 20
 
-	// fidelityFallbackWorkers is the worker count when the available memory
-	// cannot be read: few enough for any machine the survey is run on.
+	// fidelityFallbackWorkers applies when available memory is unknown.
 	fidelityFallbackWorkers = 4
 )
 
-// fidelitySurveyWorkers picks how many files the survey renders at once: one
-// per core, but no more than the available memory budgets for, so a
-// many-core machine with little memory is not run out of it.
-// GOPDFRAB_REALWORLD_FIDELITY_WORKERS overrides the choice.
+// fidelitySurveyWorkers returns the survey's worker count, bounded by cores and
+// available memory. GOPDFRAB_REALWORLD_FIDELITY_WORKERS overrides it.
 func fidelitySurveyWorkers(t *testing.T) int {
 	t.Helper()
 	if spec := os.Getenv("GOPDFRAB_REALWORLD_FIDELITY_WORKERS"); spec != "" {
@@ -1214,8 +1208,7 @@ func fidelitySurveyWorkers(t *testing.T) int {
 	return n
 }
 
-// availableMemory reports the memory the kernel can hand out without
-// swapping, or false where that is not known (anywhere but Linux).
+// availableMemory returns MemAvailable in bytes, or false off Linux.
 func availableMemory() (int64, bool) {
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {
@@ -1225,7 +1218,7 @@ func availableMemory() (int64, bool) {
 	return parseMemAvailable(f)
 }
 
-// parseMemAvailable reads the MemAvailable line of /proc/meminfo, in bytes.
+// parseMemAvailable parses MemAvailable from /proc/meminfo, in bytes.
 func parseMemAvailable(r io.Reader) (int64, bool) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -1518,10 +1511,8 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	}
 }
 
-// TestFidelitySurveyWorkers covers the survey's worker count: the override
-// wins, a bad override fails, and the default never exceeds the core count.
-// parseMemAvailable is fed meminfo text directly, since the real file is
-// Linux-only.
+// TestFidelitySurveyWorkers covers the env override, the core bound and
+// meminfo parsing.
 func TestFidelitySurveyWorkers(t *testing.T) {
 	t.Setenv("GOPDFRAB_REALWORLD_FIDELITY_WORKERS", "")
 	if n := fidelitySurveyWorkers(t); n < 1 || n > runtime.NumCPU() {
