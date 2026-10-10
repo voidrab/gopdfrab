@@ -825,3 +825,18 @@ func (f faultySave) Close() error {
 	}
 	return err
 }
+
+// TestRunCancelledBeforeFirstIteration: a context already cancelled when the
+// run starts stops it at the first loop check, before any verify. Without this
+// the check is only reached by chance, when a ConvertEach abort lands mid-run.
+func TestRunCancelledBeforeFirstIteration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cr, err := ConvertBytesContext(ctx, lzwPDF(), pdf.PDFA1B, Options{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if cr.Iterations != 0 {
+		t.Errorf("Iterations = %d, want 0 (nothing ran)", cr.Iterations)
+	}
+}

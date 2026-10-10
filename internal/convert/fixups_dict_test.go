@@ -397,3 +397,76 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 		t.Error("second pass reported a change, want idempotent")
 	}
 }
+
+func TestClearJSNameTreeReachesNestedDicts(t *testing.T) {
+	action := pdf.NewPDFDict()
+	action.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
+	action.Entries.Set("JS", pdf.PDFString{Value: "x"})
+	node := pdf.NewPDFDict()
+	node.Entries.Set("Child", action) // a dict-valued entry, not an array element
+	root := pdf.NewPDFDict()
+	root.Entries.Set("Sub", node)
+
+	changed := false
+	clearJSNameTree(root, &changed)
+	if !changed || action.Entries.Get("JS") != nil {
+		t.Errorf("changed=%v, JS=%v; want the nested action cleared", changed, action.Entries.Get("JS"))
+	}
+}
+
+func TestDeadAction(t *testing.T) {
+	typed := func(s string) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.Entries.Set("S", pdf.PDFName{Value: s})
+		return d
+	}
+	for name, tc := range map[string]struct {
+		v    pdf.PDFValue
+		want bool
+	}{
+		"not a dict":       {pdf.PDFInteger(1), false},
+		"allowed action":   {typed("GoTo"), false},
+		"forbidden action": {typed("JavaScript"), true},
+		"no /S (emptied)":  {pdf.NewPDFDict(), true},
+		"/S not a name":    {func() pdf.PDFDict { d := pdf.NewPDFDict(); d.Entries.Set("S", pdf.PDFInteger(1)); return d }(), true},
+	} {
+		if got := deadAction(tc.v); got != tc.want {
+			t.Errorf("%s: deadAction = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// TestImageSampleDepthFixerLeavesWhatItCannotRewrite: an image with no depth to
+// repair, and a 16-bit one that cannot be decoded, are both left exactly as
+// they were.
+func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
+	noDepth := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+		}),
+		HasStream: true, RawStream: []byte{0},
+	}
+	undecodable := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(0), "Height": pdf.PDFInteger(2),
+			"BitsPerComponent": pdf.PDFInteger(16), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+		}),
+		HasStream: true, RawStream: []byte{0, 0, 0, 0}, // a zero /Width is invalid
+	}
+	if _, err := raster.DecodeImageRGBA(undecodable, pdf.PDFDict{}); err == nil {
+		t.Fatal("fixture decodes; it must not for this test to exercise the failure path")
+	}
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("A", noDepth)
+	xobjects.Entries.Set("B", undecodable)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("XObject", xobjects)
+
+	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	if err != nil || changed {
+		t.Errorf("Fix = %v, %v; want no change", changed, err)
+	}
+	if bpc := xobjects.Entries.Get("B").(pdf.PDFDict).Entries.Get("BitsPerComponent"); bpc != pdf.PDFInteger(16) {
+		t.Errorf("undecodable image BitsPerComponent = %v, want it left at 16", bpc)
+	}
+}
