@@ -47,6 +47,36 @@ Subcommands are `verify`, `convert`, `version` and `help`. Exit codes are `0`
 conformant, `1` non-conformant, `2` error, so it drops into scripts and CI
 directly. `verify` walks directories recursively.
 
+`verify` prints a fixed layout that scripts can parse:
+
+```text
+profile: pdfa1b
+
+FAIL  issues=107 distinct=8  docs/leistungsverzeichnis.pdf
+  6.1.2/2    page=1    obj=-    count=1    "header must be followed by comment, but was: 3 0 obj"
+  6.1.3/1    page=doc  obj=-    count=1    "trailer does not contain the required ID keyword"
+  6.2.3.3/2  page=1    obj=4.0  count=100  "device colour (gray) used in content stream without matching OutputIntent"
+  6.3.4/1    page=1    obj=6.0  count=1    "font Helvetica-Bold is not embedded"
+  ...
+PASS  docs/ok.pdf
+ERROR docs/broken.pdf
+  error "failed to parse structure: pdf: not a PDF document: no %PDF- header"
+
+summary: pass=1 fail=1 error=1 files=3
+```
+
+- A file line starts with `PASS`, `FAIL` or `ERROR`; the path is the rest of the
+  line. `FAIL` gives the number of issues and of distinct lines.
+- Indented lines belong to the file above. An issue line is clause[/subclause],
+  `page=<n|doc>`, `obj=<num>.<gen>` or `obj=-`, `count=<n>`, and the messages as
+  one Go-quoted string. Repeats of the same issue fold into one line, so `count`
+  says how often it was reported.
+- `convert` prints `profile:`, `input:`, `output:`, `iterations:`, an optional
+  `lost: objects=<n> distinct=<n>` and `result: conformant` or
+  `result: residual issues=<n> distinct=<n>`, with the same issue lines beneath.
+
+`--json` reports every occurrence unfolded.
+
 Both subcommands take:
 
 | Flag | Meaning |

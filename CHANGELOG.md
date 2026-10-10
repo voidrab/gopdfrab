@@ -29,6 +29,11 @@ notice.
 ### Changed
 
 - Font parsing and the renderer moved into their own internal packages.
+- CLI: repeats of the same issue on a file fold into one line with `count=N`.
+- CLI: the profile is named once in a `profile:` header instead of
+  `PDF/A violation` on every issue line.
+- CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
+  described in the README. `--json` is unchanged.
 
 ### Fixed
 
