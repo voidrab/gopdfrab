@@ -510,10 +510,9 @@ func TestSortedChecksOrdering(t *testing.T) {
 // targeted-fixer error or a mid-run cancellation can be provoked on any input
 // that has issues.
 type failingFixer struct {
-	check    pdf.Check
-	err      error
-	targeted bool
-	onFix    func()
+	check pdf.Check
+	err   error
+	onFix func()
 }
 
 func (f failingFixer) Applies(c pdf.Check) bool { return c == f.check }
