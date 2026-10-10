@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -120,10 +121,10 @@ func TestVerifyReportsPerFileErrors(t *testing.T) {
 	}
 
 	code, stdout, _ := runCLI("verify", path)
-	if code != exitError || !strings.Contains(stdout, "[ERROR]") {
+	if code != exitError || !strings.Contains(stdout, "\nERROR ") {
 		t.Errorf("verify garbage: exit=%d stdout=%q", code, stdout)
 	}
-	if !strings.Contains(stdout, "0 pass, 0 fail, 1 error(s)") {
+	if !strings.Contains(stdout, "summary: pass=0 fail=0 error=1 files=1") {
 		t.Errorf("verify garbage summary missing from %q", stdout)
 	}
 
@@ -236,13 +237,13 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	cr := nonConformantResult(t)
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", cr, &stdout); code != exitInvalid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", cr, &stdout); code != exitInvalid {
 		t.Errorf("printConvertText: exit=%d, want %d", code, exitInvalid)
 	}
-	if !strings.Contains(stdout.String(), "residual issue(s)") {
+	if !strings.Contains(stdout.String(), "result: residual issues=") {
 		t.Errorf("printConvertText output = %q, want a residual count", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), cr.Residual()[0].String()) {
+	if !strings.Contains(stdout.String(), strconv.Quote(cr.Residual()[0].Messages()[0])) {
 		t.Errorf("printConvertText did not list the residual issue: %q", stdout.String())
 	}
 
@@ -272,11 +273,11 @@ func TestConvertPrintersReportLostContent(t *testing.T) {
 	}
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", cr, &stdout); code != exitValid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", cr, &stdout); code != exitValid {
 		t.Errorf("printConvertText: exit=%d, want %d for a conformant output", code, exitValid)
 	}
-	if !strings.Contains(stdout.String(), "lost: 1 object(s)") ||
-		!strings.Contains(stdout.String(), lost[0].String()) {
+	if !strings.Contains(stdout.String(), "lost: objects=1 distinct=1") ||
+		!strings.Contains(stdout.String(), strconv.Quote(lost[0].Messages()[0])) {
 		t.Errorf("printConvertText output = %q, want the lost object reported", stdout.String())
 	}
 
