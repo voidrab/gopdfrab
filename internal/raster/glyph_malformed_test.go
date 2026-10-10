@@ -273,9 +273,15 @@ func type1Font(private []byte) []byte {
 	return append([]byte("%!PS-AdobeFont-1.0: Test\ncurrentfile eexec\n"), type1Encrypt(private, 55665, 4)...)
 }
 
-func TestGlyphOutlineFromType1(t *testing.T) {
+// type1SquareCharstring is the encrypted charstring of a 100-unit square whose
+// lower-left corner is at (10, 10), in a font with lenIV 4.
+func type1SquareCharstring() []byte {
 	n := b139
-	square := type1Encrypt([]byte{n(0), n(500), 13, n(10), n(10), 21, n(100), 6, n(100), 7, n(-100), 6, 14}, 4330, 4)
+	return type1Encrypt([]byte{n(0), n(500), 13, n(10), n(10), 21, n(100), 6, n(100), 7, n(-100), 6, 14}, 4330, 4)
+}
+
+func TestGlyphOutlineFromType1(t *testing.T) {
+	square := type1SquareCharstring()
 	priv := []byte("dup /Private 4 dict dup begin\n/lenIV 4 def\n2 index /CharStrings 4 dict dup begin\n")
 	priv = append(priv, []byte("/other 1 RD x ND\n")...)
 	priv = append(priv, []byte("/sq "+strconv.Itoa(len(square))+" RD ")...)

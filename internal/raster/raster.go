@@ -852,9 +852,6 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 	// invisible.
 	invisible := gs.renderMode == 3 || gs.renderMode == 7
 	fi := r.fontInfoFor(gs.font)
-	if fi == nil {
-		return
-	}
 	i := 0
 	for i < len(raw) {
 		var code int
@@ -1380,11 +1377,7 @@ func (r *renderer) paintMeshShading(sh *shading, shadingToDevice Matrix, alpha f
 	}
 	target := r.canvas
 	if area != r.canvas.Bounds() {
-		sub, ok := r.canvas.SubImage(area).(*image.RGBA)
-		if !ok {
-			return
-		}
-		target = sub
+		target = r.canvas.SubImage(area).(*image.RGBA)
 	}
 
 	mp := &meshPainter{canvas: target, toDevice: shadingToDevice, alpha: alpha}

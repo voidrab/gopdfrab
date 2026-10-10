@@ -198,3 +198,58 @@ func TestIsPatternColorSpace(t *testing.T) {
 		})
 	}
 }
+
+// shiftedAxial is axialPattern with the given /Matrix and, unless extend, no
+// extension past the gradient's ends (so pixels outside are unpainted).
+func shiftedAxial(matrix pdf.PDFValue, extend bool) pdf.PDFDict {
+	p := axialPattern()
+	if matrix != nil {
+		p.Entries.Set("Matrix", matrix)
+	}
+	if !extend {
+		sh := p.Entries.Get("Shading").(pdf.PDFDict)
+		sh.Entries.Del("Extend")
+		sh.Entries.Set("Coords", numArray(8, 0, 12, 0))
+	}
+	return p
+}
+
+// TestShadingPatternMatrix: a pattern's /Matrix places its gradient relative
+// to the page, so shifting it 10 units right slides the red end with it.
+func TestShadingPatternMatrix(t *testing.T) {
+	const content = "/Pattern cs /P1 scn 0 0 20 20 re f"
+	plain, _ := renderPattern(t, content, axialPattern())
+	shifted, _ := renderPattern(t, content, shiftedAxial(numArray(1, 0, 0, 1, 10, 0), true))
+	if p, s := nrgbaAt(t, plain, 4, 10), nrgbaAt(t, shifted, 4, 10); s.R <= p.R {
+		t.Errorf("at x=4 the shifted gradient (%v) is not redder than the unshifted one (%v)", s, p)
+	}
+	if s := nrgbaAt(t, shifted, 4, 10); s.R != 255 || s.B != 0 {
+		t.Errorf("at x=4, left of the shifted gradient, got %v, want its extended red end", s)
+	}
+}
+
+// TestShadingPatternPaintsOnlyWhereTheShadingDoes: without Extend a gradient
+// leaves the pixels beyond its ends alone.
+func TestShadingPatternPaintsOnlyWhereTheShadingDoes(t *testing.T) {
+	img, _ := renderPattern(t, "/Pattern cs /P1 scn 0 0 20 20 re f", shiftedAxial(nil, false))
+	if got := nrgbaAt(t, img, 10, 10); got.R == 255 && got.G == 255 && got.B == 255 {
+		t.Error("inside the gradient's span nothing was painted")
+	}
+	assertUnpainted(t, img, 3, 10, "before the gradient starts")
+	assertUnpainted(t, img, 17, 10, "after the gradient ends")
+}
+
+// TestShadingPatternWithSingularMatrixPaintsNothing: a /Matrix that cannot be
+// inverted gives no way to look up a pixel's colour, for fills and strokes.
+func TestShadingPatternWithSingularMatrixPaintsNothing(t *testing.T) {
+	pattern := shiftedAxial(numArray(0, 0, 0, 0, 0, 0), true)
+	for name, content := range map[string]string{
+		"fill":   "/Pattern cs /P1 scn 0 0 20 20 re f",
+		"stroke": "/Pattern CS /P1 SCN 4 w 0 10 m 20 10 l S",
+	} {
+		img, _ := renderPattern(t, content, pattern)
+		if n, _, _, _, _ := ink(img); n != 0 {
+			t.Errorf("%s: %d pixels painted through a singular pattern matrix", name, n)
+		}
+	}
+}
