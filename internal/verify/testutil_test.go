@@ -80,3 +80,19 @@ func clauseMatches(got, expected string) bool {
 	return strings.HasPrefix(got+".", expected+".") ||
 		strings.HasPrefix(expected+".", got+".")
 }
+
+// streamDict returns a stream dictionary whose (unfiltered) data is raw.
+func streamDict(raw string) pdf.PDFDict {
+	d := pdf.NewPDFDict()
+	d.HasStream = true
+	d.RawStream = []byte(raw)
+	return d
+}
+
+// brokenStreamDict returns a stream whose Flate data cannot be decoded, so any
+// check that reads it reports StreamUndecodable.
+func brokenStreamDict() pdf.PDFDict {
+	d := streamDict("not a zlib stream")
+	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	return d
+}

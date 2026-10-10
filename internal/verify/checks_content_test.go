@@ -418,3 +418,29 @@ func TestScanContentDictPredictorEncoded(t *testing.T) {
 		t.Error("predictor-encoded content stream: expected the rg device-colour violation to be reported")
 	}
 }
+
+// TestInlineImageParamsIgnoreNonNameKeys checks that a malformed BI parameter
+// list whose key slot is not a name is skipped instead of misread.
+func TestInlineImageParamsIgnoreNonNameKeys(t *testing.T) {
+	params := []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(2), pdf.PDFBoolean(true)}
+	ctx := &ValidationContext{hasOutputIntent: true}
+	checkInlineImageColour(pdf.PDFDict{}, params, pdf.NewPDFDict(), ctx)
+	checkInlineImageOther(pdf.PDFDict{}, params, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("non-name keys produced issues: %v", ctx.Issues())
+	}
+}
+
+// TestScanAnnotAppearancesSkipsNonDictAnnotations checks that a non-dictionary
+// /Annots entry is skipped while the annotations after it are still scanned.
+func TestScanAnnotAppearancesSkipsNonDictAnnotations(t *testing.T) {
+	page, _ := buildAPWithRGB(t)
+	annots := page.Entries.Get("Annots").(pdf.PDFArray)
+	page.Entries.Set("Annots", append(pdf.PDFArray{pdf.PDFInteger(7)}, annots...))
+
+	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	scanAnnotAppearances(page, ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("the annotation after a non-dictionary entry was not scanned")
+	}
+}

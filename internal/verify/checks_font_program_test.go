@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
@@ -1410,5 +1411,598 @@ func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 	validateType1Metrics(pdf.PDFDict{}, pdf.PDFDict{}, ff, 65, pdf.PDFArray{pdf.PDFInteger(500)}, encoding, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("expected AdvanceWidthMismatch when /Widths ignores the /Differences remapping")
+	}
+}
+
+// type1CoverageFixture returns a descriptor embedding buildType1Font's program
+// (one glyph, /A, 500 wide) with the given CharSet, and a font dictionary with
+// the given /Encoding.
+func type1CoverageFixture(charSet pdf.PDFValue, encoding pdf.PDFValue) (v, desc pdf.PDFDict) {
+	desc = pdf.NewPDFDict()
+	desc.Entries.Set("FontFile", streamDict(string(buildType1Font())))
+	desc.Entries.Set("CharSet", charSet)
+	v = pdf.NewPDFDict()
+	if encoding != nil {
+		v.Entries.Set("Encoding", encoding)
+	}
+	return v, desc
+}
+
+// TestType1SubsetCharSetHexString covers 6.3.5: CharSet is a string, and a
+// hexadecimal string is as valid as a literal one. A CharSet written in hex
+// that omits a glyph the program defines must be reported just like the
+// literal form.
+func TestType1SubsetCharSetHexString(t *testing.T) {
+	winAnsi := pdf.PDFName{Value: "WinAnsiEncoding"}
+	widths := pdf.PDFArray{pdf.PDFInteger(500)} // code 65, /A
+
+	// "/Zzz" in hex: lists glyphs, but not /A.
+	v, desc := type1CoverageFixture(pdf.PDFHexString{Value: "2F5A7A7A"}, winAnsi)
+	ctx := &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 65, widths, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.Type1SubsetCharSet) {
+		t.Error("a hex-string CharSet omitting /A was not reported")
+	}
+
+	// "/A" in hex lists the glyph: consistent.
+	v, desc = type1CoverageFixture(pdf.PDFHexString{Value: "2F41"}, winAnsi)
+	ctx = &ValidationContext{}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 65, widths, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("a consistent hex-string CharSet was reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1SubsetCoverageSkipsWhatItCannotJudge covers the inputs the 6.3.5
+// Type 1 check leaves alone: a CharSet that is not a string, and an /Encoding
+// that does not resolve to glyph names.
+func TestType1SubsetCoverageSkipsWhatItCannotJudge(t *testing.T) {
+	widthsMissingGlyph := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(500)} // code 66 /B: not in the program
+	for _, tc := range []struct {
+		name     string
+		charSet  pdf.PDFValue
+		encoding pdf.PDFValue
+	}{
+		{"CharSet is a name", pdf.PDFName{Value: "A"}, pdf.PDFName{Value: "WinAnsiEncoding"}},
+		{"font has no Encoding", pdf.PDFString{Value: "/A"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, desc := type1CoverageFixture(tc.charSet, tc.encoding)
+			ctx := &ValidationContext{}
+			ValidateType1SubsetCoverage(v, v, desc, 65, 66, widthsMissingGlyph, ctx)
+			if len(ctx.errs) != 0 {
+				t.Errorf("reported %v", issueKeys(ctx.Issues()))
+			}
+		})
+	}
+}
+
+// TestType1SubsetCoverageCodeFilters covers which character codes the Widths
+// fallback examines: codes outside 0..255 and codes with no glyph name are
+// passed over, real-valued widths count, and the scan goes on to later codes.
+func TestType1SubsetCoverageCodeFilters(t *testing.T) {
+	enc := pdf.NewPDFDict()
+	enc.Entries.Set("BaseEncoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(70), pdf.PDFName{Value: ".notdef"}})
+
+	run := func(first int, widths pdf.PDFArray) *ValidationContext {
+		v, desc := type1CoverageFixture(pdf.PDFString{Value: "/A"}, enc)
+		ctx := &ValidationContext{}
+		ValidateType1SubsetCoverage(v, v, desc, first, first+len(widths)-1, widths, ctx)
+		return ctx
+	}
+	nonZero := pdf.PDFInteger(500)
+
+	// Code 256 lies outside the byte range and is passed over.
+	if ctx := run(255, pdf.PDFArray{pdf.PDFInteger(0), nonZero}); len(ctx.errs) != 0 {
+		t.Errorf("code 256 reported: %v", issueKeys(ctx.Issues()))
+	}
+	// Code 1 has no glyph name in WinAnsiEncoding; code 70 is explicitly .notdef.
+	if ctx := run(1, pdf.PDFArray{nonZero}); len(ctx.errs) != 0 {
+		t.Errorf("code without a glyph name reported: %v", issueKeys(ctx.Issues()))
+	}
+	if ctx := run(70, pdf.PDFArray{nonZero}); len(ctx.errs) != 0 {
+		t.Errorf("code named .notdef reported: %v", issueKeys(ctx.Issues()))
+	}
+	// /A is fine, code 70 is .notdef, then /G (71) is absent from the program:
+	// the scan reaches it, and does so for a real-valued width as well.
+	ctx := run(65, pdf.PDFArray{nonZero, pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), nonZero, pdf.PDFReal(500.5)})
+	if got := extMessages(ctx.Issues(), pdf.Checks.Font.SubsetGlyphCoverage); !strings.Contains(got, "code 71") {
+		t.Errorf("missing glyph at code 71 not reported: %v", issueKeys(ctx.Issues()))
+	}
+	ctx = run(65, pdf.PDFArray{nonZero, pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFReal(500.5)})
+	if got := extMessages(ctx.Issues(), pdf.Checks.Font.SubsetGlyphCoverage); !strings.Contains(got, "code 71") {
+		t.Errorf("real-valued width at code 71 not examined: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1CMetricsSkipsCodesItCannotCompare covers the Widths entries the
+// Type1C width check passes over, one per reason, each followed by a genuine
+// mismatch on /A that must still be found.
+func TestType1CMetricsSkipsCodesItCannotCompare(t *testing.T) {
+	cff := buildMinimalCFF()
+	ff := streamDict(string(cff))
+	aWidth := int(fontprog.CFFAdvanceWidths(cff)["A"])
+
+	// Codes -1..65: -1 is out of range, 0..64 are either unnamed in
+	// WinAnsiEncoding or named glyphs the program lacks; only code 65 can be
+	// compared, and it is wrong.
+	widths := make(pdf.PDFArray, 67)
+	for i := range widths {
+		widths[i] = pdf.PDFInteger(aWidth + 300)
+	}
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	ctx := &ValidationContext{}
+	validateType1CMetrics(v, v, ff, -1, widths, ctx)
+	got := extMessages(ctx.Issues(), pdf.Checks.Font.AdvanceWidthMismatch)
+	if !strings.Contains(got, "character code 65 (/A)") {
+		t.Errorf("messages %q: want the mismatch reported at code 65", got)
+	}
+
+	// Past the byte range nothing can be compared.
+	ctx = &ValidationContext{}
+	validateType1CMetrics(v, v, ff, 255, pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(1)}, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("code 256 reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	// An encoding that names no glyphs leaves nothing to compare against.
+	bare := pdf.NewPDFDict()
+	ctx = &ValidationContext{}
+	validateType1CMetrics(bare, bare, ff, 65, pdf.PDFArray{pdf.PDFInteger(aWidth + 300)}, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("font without Encoding reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestCIDCFFMetricsSkipsUnshownCIDs checks that, once the CIDs a document shows
+// are known, a /W width for a CID it never shows is not compared.
+func TestCIDCFFMetricsSkipsUnshownCIDs(t *testing.T) {
+	ff := streamDict(string(buildMinimalCIDCFF())) // CID 1 is 600 wide, CID 2 is 700
+	font := pdf.NewPDFDict()
+	w := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(650), pdf.PDFInteger(700)}} // CID 1 is wrong
+
+	shown := func(cids map[int]bool) *ValidationContext {
+		return &ValidationContext{UsedCIDs: map[uintptr]map[int]bool{pdf.ValuePointer(font.Entries): cids}}
+	}
+	ctx := shown(map[int]bool{2: true})
+	validateCIDCFFMetrics(font, font, ff, w, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("width of an unshown CID compared: %v", issueKeys(ctx.Issues()))
+	}
+	ctx = shown(map[int]bool{1: true})
+	validateCIDCFFMetrics(font, font, ff, w, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("width of a shown CID not compared")
+	}
+}
+
+// TestEmbeddedType1GlyphNamesUndecodable checks that a Type 1 program whose
+// stream will not decode yields no glyph names, and does not fall through to
+// the FontFile3 lookup.
+func TestEmbeddedType1GlyphNamesUndecodable(t *testing.T) {
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("FontFile", brokenStreamDict())
+	desc.Entries.Set("FontFile3", streamDict(string(buildMinimalCFF())))
+	ctx := &ValidationContext{}
+	if names := embeddedType1GlyphNames(desc, ctx); names != nil {
+		t.Errorf("names = %v, want nil", names)
+	}
+
+	// A FontFile3 that will not decode likewise yields none.
+	desc = pdf.NewPDFDict()
+	desc.Entries.Set("FontFile3", brokenStreamDict())
+	if names := embeddedType1GlyphNames(desc, ctx); names != nil {
+		t.Errorf("names = %v, want nil", names)
+	}
+}
+
+// corruptCFFCharset returns a copy of a CFF program with the format byte of
+// its charset set to a value no format uses, so the charset cannot be parsed.
+func corruptCFFCharset(t *testing.T, cff []byte) []byte {
+	t.Helper()
+	td, ok := fontprog.ParseCFFTopDict(cff)
+	if !ok || td.CharsetOffset <= 2 {
+		t.Fatalf("fixture has no explicit charset: %+v", td)
+	}
+	out := append([]byte(nil), cff...)
+	out[td.CharsetOffset] = 9
+	return out
+}
+
+// TestCIDCFFSubsetUsageAndKinds covers the 6.3.5 CFF coverage check for the
+// two kinds of CFF program a CIDFontType0 may embed.
+func TestCIDCFFSubsetUsageAndKinds(t *testing.T) {
+	font := pdf.NewPDFDict()
+	withUsage := func(cids ...int) *ValidationContext {
+		used := map[int]bool{}
+		for _, c := range cids {
+			used[c] = true
+		}
+		return &ValidationContext{UsedCIDs: map[uintptr]map[int]bool{pdf.ValuePointer(font.Entries): used}}
+	}
+	widthFor := func(cid int) pdf.PDFArray {
+		return pdf.PDFArray{pdf.PDFInteger(cid), pdf.PDFArray{pdf.PDFInteger(600)}}
+	}
+
+	t.Run("CID-keyed program", func(t *testing.T) {
+		ff := streamDict(string(buildMinimalCIDCFF())) // CIDs 0, 1 and 2 have glyphs
+		// CID 5 has no glyph, but a document that never shows it is unaffected.
+		ctx := withUsage(1)
+		ValidateCIDCFFSubset(font, ff, widthFor(5), ctx)
+		if len(ctx.errs) != 0 {
+			t.Errorf("unshown CID 5 reported: %v", issueKeys(ctx.Issues()))
+		}
+		ctx = withUsage(5)
+		ValidateCIDCFFSubset(font, ff, widthFor(5), ctx)
+		if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+			t.Error("shown CID 5 not reported")
+		}
+	})
+
+	t.Run("CID-keyed program with an unreadable charset", func(t *testing.T) {
+		ff := streamDict(string(corruptCFFCharset(t, buildMinimalCIDCFF())))
+		ctx := &ValidationContext{}
+		ValidateCIDCFFSubset(font, ff, widthFor(5), ctx)
+		if len(ctx.errs) != 0 {
+			t.Errorf("reported %v; an unparseable charset is not a coverage verdict", issueKeys(ctx.Issues()))
+		}
+	})
+
+	t.Run("name-keyed program", func(t *testing.T) {
+		// Without CID keying a CID is a glyph index; the program has 2 CharStrings.
+		ff := streamDict(string(buildMinimalCFF()))
+		ctx := &ValidationContext{}
+		ValidateCIDCFFSubset(font, ff, widthFor(1), ctx)
+		if len(ctx.errs) != 0 {
+			t.Errorf("CID 1 reported: %v", issueKeys(ctx.Issues()))
+		}
+		ctx = &ValidationContext{}
+		ValidateCIDCFFSubset(font, ff, widthFor(2), ctx)
+		if got := extMessages(ctx.Issues(), pdf.Checks.Font.SubsetGlyphCoverage); !strings.Contains(got, "CID 2") || !strings.Contains(got, "count=2") {
+			t.Errorf("messages %q: want CID 2 reported against a CharStrings count of 2", got)
+		}
+		ctx = withUsage(1)
+		ValidateCIDCFFSubset(font, ff, widthFor(2), ctx)
+		if len(ctx.errs) != 0 {
+			t.Errorf("unshown CID 2 reported: %v", issueKeys(ctx.Issues()))
+		}
+	})
+}
+
+// TestCIDSetBitmapGuards checks the inputs on which the CIDSet bitmap check
+// stays silent, each against a control that proves the same fixture does
+// report once the input is repaired.
+func TestCIDSetBitmapGuards(t *testing.T) {
+	cidKeyed := buildMinimalCIDCFF()
+	emptyBitmap := func() pdf.PDFDict {
+		desc := pdf.NewPDFDict()
+		desc.Entries.Set("CIDSet", streamDict("\x00"))
+		return desc
+	}
+	run := func(desc, ff pdf.PDFDict) *ValidationContext {
+		ctx := &ValidationContext{}
+		validateCIDSetBitmap(pdf.NewPDFDict(), desc, ff, ctx)
+		return ctx
+	}
+
+	if !hasCheck(run(emptyBitmap(), streamDict(string(cidKeyed))), pdf.Checks.Font.CIDSubsetCIDSet) {
+		t.Fatal("control: an empty CIDSet over a CID-keyed program was not reported")
+	}
+	for _, tc := range []struct {
+		name     string
+		desc, ff pdf.PDFDict
+	}{
+		{"CIDSet that will not decode", func() pdf.PDFDict {
+			d := pdf.NewPDFDict()
+			d.Entries.Set("CIDSet", brokenStreamDict())
+			return d
+		}(), streamDict(string(cidKeyed))},
+		{"program that will not decode", emptyBitmap(), brokenStreamDict()},
+		{"program without CID keying", emptyBitmap(), streamDict(string(buildMinimalCFF()))},
+		{"program with an unreadable charset", emptyBitmap(), streamDict(string(corruptCFFCharset(t, cidKeyed)))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if ctx := run(tc.desc, tc.ff); hasCheck(ctx, pdf.Checks.Font.CIDSubsetCIDSet) {
+				t.Errorf("reported %v", issueKeys(ctx.Issues()))
+			}
+		})
+	}
+}
+
+// renameSfntTable returns a copy of an sfnt program with the table tagged old
+// renamed to new in the table directory, which makes the table invisible to
+// the lookups without disturbing the rest of the file.
+func renameSfntTable(t *testing.T, sfnt []byte, old, new string) []byte {
+	t.Helper()
+	n := int(binary.BigEndian.Uint16(sfnt[4:6]))
+	out := append([]byte(nil), sfnt...)
+	for i := range n {
+		rec := out[12+16*i:]
+		if string(rec[:4]) == old {
+			copy(rec[:4], new)
+			return out
+		}
+	}
+	t.Fatalf("sfnt has no %q table", old)
+	return nil
+}
+
+// TestCIDSetTrueTypeGuards checks the inputs on which the TrueType CIDSet
+// check stays silent, against a control that does report.
+func TestCIDSetTrueTypeGuards(t *testing.T) {
+	ttf := loadTTF(t)
+	tables, _ := fontprog.ParseSfnt(ttf)
+	rendered := 0
+	hasGlyph := fontprog.TTLocaHasGlyph(tables)
+	for cid := 1; cid < fontprog.TTNumGlyphs(tables); cid++ {
+		if hasGlyph(cid) {
+			rendered = cid
+			break
+		}
+	}
+	font := pdf.NewPDFDict()
+	usage := map[uintptr]map[int]bool{pdf.ValuePointer(font.Entries): {rendered: true}}
+	desc := func(bitmap pdf.PDFDict) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.Entries.Set("CIDSet", bitmap)
+		return d
+	}
+	run := func(d, ff pdf.PDFDict) *ValidationContext {
+		ctx := &ValidationContext{UsedCIDs: usage}
+		validateCIDSetTrueType(font, d, ff, ctx)
+		return ctx
+	}
+
+	good := streamDict(string(ttf))
+	if !hasCheck(run(desc(streamDict("\x00")), good), pdf.Checks.Font.CIDSubsetCIDSet) {
+		t.Fatal("control: an empty CIDSet for a rendered glyph was not reported")
+	}
+	if ctx := run(desc(brokenStreamDict()), good); len(ctx.errs) != 1 || !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Errorf("undecodable CIDSet: %v, want only StreamUndecodable", issueKeys(ctx.Issues()))
+	}
+	if ctx := run(desc(streamDict("\x00")), brokenStreamDict()); len(ctx.errs) != 1 || !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Errorf("undecodable program: %v, want only StreamUndecodable", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestCIDDefaultWidthReal covers a real-valued /DW.
+func TestCIDDefaultWidthReal(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.Entries.Set("DW", pdf.PDFReal(750.9))
+	if got := cidDefaultWidth(d); got != 750 {
+		t.Errorf("cidDefaultWidth = %d, want 750", got)
+	}
+}
+
+// TestTrueTypeCmapSubtablesUnavailable covers every way the cmap subtable count
+// cannot be determined.
+func TestTrueTypeCmapSubtablesUnavailable(t *testing.T) {
+	ttf := loadTTF(t)
+	for _, tc := range []struct {
+		name string
+		ff   pdf.PDFDict
+	}{
+		{"stream will not decode", brokenStreamDict()},
+		{"not a font", streamDict("not a font")},
+		{"no cmap table", streamDict(string(renameSfntTable(t, ttf, "cmap", "cmax")))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := pdf.NewPDFDict()
+			desc.Entries.Set("FontFile2", tc.ff)
+			if n, ok := trueTypeCmapSubtables(&ValidationContext{}, desc); ok {
+				t.Errorf("trueTypeCmapSubtables = %d, true; want unavailable", n)
+			}
+		})
+	}
+}
+
+// TestSimpleTrueTypeSubsetWidthsFallback covers the Widths-driven scan used when
+// no usage information exists: only codes with a positive (integer or real)
+// width are examined, the scan stops at the first code without a glyph, and a
+// font with no positive width has nothing to examine. Liberation Sans has no
+// glyph for the control codes 1..7 (nor for 127) under WinAnsiEncoding.
+func TestSimpleTrueTypeSubsetWidthsFallback(t *testing.T) {
+	ff := streamDict(string(loadTTF(t)))
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+
+	run := func(first int, widths pdf.PDFArray) *ValidationContext {
+		ctx := &ValidationContext{}
+		ValidateSimpleTrueTypeSubset(v, ff, first, first+len(widths)-1, widths, ctx)
+		return ctx
+	}
+	reportedAt := func(ctx *ValidationContext) string {
+		return extMessages(ctx.Issues(), pdf.Checks.Font.SubsetGlyphCoverage)
+	}
+
+	// Two absent codes: only the first is reported.
+	ctx := run(1, pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500)})
+	if n := len(ctx.errs); n != 1 || !strings.Contains(reportedAt(ctx), "code 1 ") {
+		t.Errorf("integer widths: %v, want exactly one finding at code 1", issueKeys(ctx.Issues()))
+	}
+	// A real width counts as used too.
+	ctx = run(1, pdf.PDFArray{pdf.PDFReal(500.5)})
+	if !strings.Contains(reportedAt(ctx), "code 1 ") {
+		t.Errorf("real-valued width at code 1 not examined: %v", issueKeys(ctx.Issues()))
+	}
+	// A zero or negative width means the code is not used.
+	ctx = run(1, pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFReal(0), pdf.PDFInteger(-5)})
+	if len(ctx.errs) != 0 {
+		t.Errorf("unused codes reported: %v", issueKeys(ctx.Issues()))
+	}
+	// Unused codes before a used absent one are skipped, and the scan goes on.
+	ctx = run(0, pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(500)})
+	if !strings.Contains(reportedAt(ctx), "code 2 ") {
+		t.Errorf("used code 2 not reached: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare covers the Widths entries
+// the hmtx comparison passes over -- non-numeric, zero, unmapped by any cmap,
+// or in a font with no usable horizontal metrics -- each followed by a genuine
+// mismatch on 'A' that must still be found.
+func TestSimpleTrueTypeMetricsSkipsWhatItCannotCompare(t *testing.T) {
+	ttf := loadTTF(t)
+	tables, _ := fontprog.ParseSfnt(ttf)
+	gidA := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))['A']
+	wrongA := pdf.PDFInteger(int(fontprog.TTAdvanceWidth(tables, int(gidA))) + 500)
+
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	check := func(ff pdf.PDFDict, first int, widths pdf.PDFArray) *ValidationContext {
+		ctx := &ValidationContext{}
+		validateSimpleTrueTypeMetrics(v, ff, first, widths, ctx)
+		return ctx
+	}
+	good := streamDict(string(ttf))
+
+	// Code 1 has no glyph in any cmap, code 2 holds a name instead of a
+	// number, codes 3..64 have zero width; only 'A' (65) can be compared.
+	widths := make(pdf.PDFArray, 65)
+	for i := range widths {
+		widths[i] = pdf.PDFInteger(0)
+	}
+	widths[0] = pdf.PDFReal(5000.5)
+	widths[1] = pdf.PDFName{Value: "x"}
+	widths[64] = wrongA
+	ctx := check(good, 1, widths)
+	if got := extMessages(ctx.Issues(), pdf.Checks.Font.AdvanceWidthMismatch); !strings.Contains(got, "character code 65") {
+		t.Errorf("messages %q: want the mismatch at code 65 after the skipped entries", got)
+	}
+	widths[64] = pdf.PDFInteger(0)
+	if ctx := check(good, 1, widths); len(ctx.errs) != 0 {
+		t.Errorf("uncomparable entries reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	// A character the font's (3,1) cmap does not cover (U+4E2D, named by
+	// Differences) cannot be located in hmtx, whatever width the PDF claims.
+	cjk := pdf.NewPDFDict()
+	cjk.Entries.Set("BaseEncoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	cjk.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "uni4E2D"}})
+	vCJK := pdf.NewPDFDict()
+	vCJK.Entries.Set("Encoding", cjk)
+	ctx = &ValidationContext{}
+	validateSimpleTrueTypeMetrics(vCJK, good, 65, pdf.PDFArray{wrongA}, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("character absent from the cmap reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	// A font whose horizontal metrics are unusable has no advance to compare.
+	noMetrics := streamDict(string(renameSfntTable(t, ttf, "hmtx", "hmtz")))
+	ctx = check(noMetrics, 65, pdf.PDFArray{wrongA})
+	if len(ctx.errs) != 0 {
+		t.Errorf("font without hmtx reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1MetricsSkipsWhatItCannotCompare covers the Widths entries the Type 1
+// width comparison passes over -- a code out of range, one without a glyph name,
+// a non-numeric or zero width -- each ahead of a real-valued mismatch on /A
+// (code 65) that must still be found.
+func TestType1MetricsSkipsWhatItCannotCompare(t *testing.T) {
+	ff := streamDict(string(buildType1Font())) // /A is 500 wide
+	v := pdf.NewPDFDict()
+	enc := pdf.PDFName{Value: "StandardEncoding"}
+	v.Entries.Set("Encoding", enc)
+	run := func(first int, widths pdf.PDFArray) *ValidationContext {
+		ctx := &ValidationContext{}
+		validateType1Metrics(v, pdf.NewPDFDict(), ff, first, widths, enc, ctx)
+		return ctx
+	}
+
+	// Codes -1..65. Code -1 is out of range; code 0 names no glyph in
+	// StandardEncoding; code 1 holds a name rather than a number; codes
+	// 2..64 are zero.
+	widths := make(pdf.PDFArray, 67)
+	for i := range widths {
+		widths[i] = pdf.PDFInteger(0)
+	}
+	widths[0] = pdf.PDFInteger(900)
+	widths[1] = pdf.PDFInteger(900)
+	widths[2] = pdf.PDFName{Value: "x"}
+	widths[66] = pdf.PDFReal(999.5)
+	ctx := run(-1, widths)
+	if got := extMessages(ctx.Issues(), pdf.Checks.Font.AdvanceWidthMismatch); !strings.Contains(got, "character code 65 (/A): PDF width 999") {
+		t.Errorf("messages %q: want the real-valued mismatch at code 65", got)
+	}
+	widths[66] = pdf.PDFReal(500.5)
+	if ctx := run(-1, widths); len(ctx.errs) != 0 {
+		t.Errorf("uncomparable entries reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	// Beyond the byte range there is nothing to compare.
+	if ctx := run(255, pdf.PDFArray{pdf.PDFInteger(900), pdf.PDFInteger(900)}); len(ctx.errs) != 0 {
+		t.Errorf("code 256 reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1MetricsShownCodesOutsideWidths covers shown codes that fall outside
+// /Widths and so take /MissingWidth: a code without a glyph name, one whose
+// glyph the program lacks, and one within the 1-unit tolerance are all fine;
+// one that really differs is reported.
+func TestType1MetricsShownCodesOutsideWidths(t *testing.T) {
+	ff := streamDict(string(buildType1Font())) // /A is 500 wide
+	v := pdf.NewPDFDict()
+	enc := pdf.PDFName{Value: "StandardEncoding"}
+	v.Entries.Set("Encoding", enc)
+
+	run := func(missingWidth int, shown ...int) *ValidationContext {
+		desc := pdf.NewPDFDict()
+		desc.Entries.Set("MissingWidth", pdf.PDFInteger(missingWidth))
+		used := map[int]bool{}
+		for _, cc := range shown {
+			used[cc] = true
+		}
+		ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{pdf.ValuePointer(v.Entries): used}}
+		// Widths cover only code 70, so every shown code is outside them.
+		validateType1Metrics(v, desc, ff, 70, pdf.PDFArray{pdf.PDFInteger(0)}, enc, ctx)
+		return ctx
+	}
+	// Code 1 names no glyph; code 66 (/B) is not in the program; both precede /A.
+	ctx := run(999, 1, 66, 65)
+	if got := extMessages(ctx.Issues(), pdf.Checks.Font.AdvanceWidthMismatch); !strings.Contains(got, "character code 65 (/A): PDF width 999") {
+		t.Errorf("messages %q: want the MissingWidth mismatch at code 65", got)
+	}
+	if ctx := run(500, 1, 66, 65); len(ctx.errs) != 0 {
+		t.Errorf("a MissingWidth equal to the program's width reported: %v", issueKeys(ctx.Issues()))
+	}
+	if ctx := run(501, 65); len(ctx.errs) != 0 {
+		t.Errorf("a width within the 1-unit tolerance reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestCMapWModeSilentCases covers the embedded CMaps for which no WMode
+// comparison is possible, against a control that does report.
+func TestCMapWModeSilentCases(t *testing.T) {
+	mk := func(wmode pdf.PDFValue, stream pdf.PDFDict) pdf.PDFDict {
+		if wmode != nil {
+			stream.Entries.Set("WMode", wmode)
+		}
+		return stream
+	}
+	run := func(cmap pdf.PDFDict) *ValidationContext {
+		ctx := &ValidationContext{}
+		validateCMapWMode(pdf.NewPDFDict(), cmap, ctx)
+		return ctx
+	}
+	if !hasCheck(run(mk(pdf.PDFInteger(1), streamDict("/WMode 0 def"))), pdf.Checks.Font.CMapWModeInconsistent) {
+		t.Fatal("control: disagreeing WModes were not reported")
+	}
+	broken := brokenStreamDict()
+	for _, tc := range []struct {
+		name string
+		cmap pdf.PDFDict
+	}{
+		{"dictionary WMode is not an integer", mk(pdf.PDFName{Value: "1"}, streamDict("/WMode 0 def"))},
+		{"stream will not decode", mk(pdf.PDFInteger(1), broken)},
+		{"stream declares no WMode", mk(pdf.PDFInteger(1), streamDict("/CMapName /X def"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if ctx := run(tc.cmap); hasCheck(ctx, pdf.Checks.Font.CMapWModeInconsistent) {
+				t.Errorf("reported %v", issueKeys(ctx.Issues()))
+			}
+		})
 	}
 }

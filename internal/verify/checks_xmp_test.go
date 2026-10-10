@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // firstFileMatching returns the first entry in dir whose name contains glob,
@@ -1004,5 +1005,336 @@ func TestXMPNoCorrespondingTypeSkipsBOM(t *testing.T) {
 	xmp := "\xef\xbb\xbf\n  " + extValueTypeXMP("Integer", `<custom:myProp>not a number</custom:myProp>`)
 	if !hasXMPCheck(checkExtensionSchemas(xmp), pdf.Checks.Metadata.XMPNoCorrespondingType) {
 		t.Error("expected XMPNoCorrespondingType in a packet with leading bytes before the XML")
+	}
+}
+
+// extSchemaDoc assembles a PDF/A extension-schema XMP packet from fragments
+// of the pdfaExtension:schemas structure. The fragments are concatenated
+// as given, and no closing tags are added, so a caller can end the packet at
+// any depth to model a truncated stream.
+func extSchemaDoc(fragments ...string) string {
+	return `<x:xmpmeta xmlns:x="adobe:ns:meta/">` +
+		`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"` +
+		` xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"` +
+		` xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"` +
+		` xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#"` +
+		` xmlns:pdfaType="http://www.aiim.org/pdfa/ns/type#"` +
+		` xmlns:pdfaField="http://www.aiim.org/pdfa/ns/field#">` +
+		`<rdf:Description rdf:about="">` + strings.Join(fragments, "")
+}
+
+// Fragments of a complete, valid extension schema, in document order.
+const (
+	extFrSchemasOpen = `<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType="Resource">`
+	extFrIdentity    = `<pdfaSchema:schema>S</pdfaSchema:schema>` +
+		`<pdfaSchema:namespaceURI>http://example.com/e/</pdfaSchema:namespaceURI>` +
+		`<pdfaSchema:prefix>e</pdfaSchema:prefix>`
+	extFrPropertyOpen = `<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType="Resource">`
+	extFrPropertyName = `<pdfaProperty:name>p</pdfaProperty:name>`
+	extFrPropertyRest = `<pdfaProperty:valueType>Text</pdfaProperty:valueType>` +
+		`<pdfaProperty:category>external</pdfaProperty:category>` +
+		`<pdfaProperty:description>d</pdfaProperty:description>`
+	extFrPropertyClose = `</rdf:li></rdf:Seq></pdfaSchema:property>`
+	extFrTypeOpen      = `<pdfaSchema:valueType><rdf:Seq><rdf:li rdf:parseType="Resource">`
+	extFrTypeHead      = `<pdfaType:type>T</pdfaType:type>`
+	extFrTypeRest      = `<pdfaType:namespaceURI>http://example.com/t/</pdfaType:namespaceURI>` +
+		`<pdfaType:prefix>t</pdfaType:prefix><pdfaType:description>d</pdfaType:description>`
+	extFrFieldOpen  = `<pdfaType:field><rdf:Seq><rdf:li rdf:parseType="Resource">`
+	extFrFieldName  = `<pdfaField:name>f</pdfaField:name>`
+	extFrFieldRest  = `<pdfaField:valueType>Text</pdfaField:valueType><pdfaField:description>d</pdfaField:description>`
+	extFrFieldClose = `</rdf:li></rdf:Seq></pdfaType:field>`
+	extFrTypeClose  = `</rdf:li></rdf:Seq></pdfaSchema:valueType>`
+	extFrSchemaTail = `</rdf:li></rdf:Bag></pdfaExtension:schemas>`
+)
+
+// extMessages flattens the messages of errs that violate c.
+func extMessages(errs []pdf.PDFError, c pdf.Check) string {
+	var out []string
+	for _, e := range errs {
+		if e.Check() == c {
+			out = append(out, e.Messages()...)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// TestExtSchemasUnknownElementsAreSkipped checks that unrecognised elements at
+// every level of the extension-schema structure are skipped whole, so the
+// recognised entries around them are still read and a valid schema stays
+// valid.
+func TestExtSchemasUnknownElementsAreSkipped(t *testing.T) {
+	junk := func(name string) string { return `<junk:` + name + `><deep>text</deep></junk:` + name + `>` }
+	xmp := extSchemaDoc(
+		`<pdfaExtension:schemas><rdf:Bag>`+junk("bag"),
+		`<rdf:li rdf:parseType="Resource">`,
+		extFrIdentity,
+		extFrPropertyOpen[:len(`<pdfaSchema:property><rdf:Seq>`)]+junk("prop"),
+		`<rdf:li rdf:parseType="Resource">`, extFrPropertyName, extFrPropertyRest, extFrPropertyClose,
+		`<pdfaSchema:valueType><rdf:Seq>`+junk("type"),
+		`<rdf:li rdf:parseType="Resource">`, extFrTypeHead, extFrTypeRest,
+		`<pdfaType:field><rdf:Seq>`+junk("field"),
+		`<rdf:li rdf:parseType="Resource">`, extFrFieldName, extFrFieldRest, extFrFieldClose, extFrTypeClose,
+		extFrSchemaTail,
+		`<e:p>value</e:p></rdf:Description></rdf:RDF></x:xmpmeta>`,
+	)
+	if errs := checkExtensionSchemas(xmp); len(errs) != 0 {
+		t.Errorf("a valid schema with unknown sibling elements reported %v", issueKeys(errs))
+	}
+}
+
+// TestExtSchemasPhraseWithoutElement checks that the text "pdfaExtension:schemas"
+// appearing somewhere other than as the schemas element (here a comment) does
+// not yield findings.
+func TestExtSchemasPhraseWithoutElement(t *testing.T) {
+	xmp := extSchemaDoc(`<!-- pdfaExtension:schemas -->`, `</rdf:Description></rdf:RDF></x:xmpmeta>`)
+	if errs := checkExtensionSchemas(xmp); len(errs) != 0 {
+		t.Errorf("reported %v", issueKeys(errs))
+	}
+}
+
+// TestExtSchemasTruncatedStreams checks that an XMP packet cut off at any depth
+// of the extension-schema structure is judged on what was read before the cut:
+// the entry being read when the data ran out is kept, with its missing parts
+// reported.
+func TestExtSchemasTruncatedStreams(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		fragments []string
+		check     pdf.Check
+		want      string // substring of the messages; "" means no finding at all
+	}{
+		{"inside the schemas bag", []string{`<pdfaExtension:schemas><rdf:Bag>`}, pdf.Checks.Metadata.ExtSchemaNamespace, ""},
+		{"inside a schema entry", []string{extFrSchemasOpen, `<pdfaSchema:schema>S`}, pdf.Checks.Metadata.ExtSchemaNamespace, ""},
+		{"inside the property sequence", []string{extFrSchemasOpen, extFrIdentity, `<pdfaSchema:property><rdf:Seq>`}, pdf.Checks.Metadata.ExtPropertyMissingField, ""},
+		{"inside a property entry", []string{extFrSchemasOpen, extFrIdentity, extFrPropertyOpen, extFrPropertyName},
+			pdf.Checks.Metadata.ExtPropertyMissingField, "pdfaProperty p missing valueType"},
+		{"inside a property name", []string{extFrSchemasOpen, extFrIdentity, extFrPropertyOpen, `<pdfaProperty:name>p`},
+			pdf.Checks.Metadata.ExtPropertyMissingField, "pdfaProperty p missing valueType"},
+		{"inside an unknown property child", []string{extFrSchemasOpen, extFrIdentity, extFrPropertyOpen, `<pdfaProperty:other><a>`},
+			pdf.Checks.Metadata.ExtPropertyMissingField, "pdfaProperty entry missing name"},
+		{"inside the type sequence", []string{extFrSchemasOpen, extFrIdentity, `<pdfaSchema:valueType><rdf:Seq>`}, pdf.Checks.Metadata.ExtTypeInvalid, ""},
+		{"inside a type entry", []string{extFrSchemasOpen, extFrIdentity, extFrTypeOpen, extFrTypeHead},
+			pdf.Checks.Metadata.ExtTypeInvalid, "pdfaType T missing namespaceURI"},
+		{"inside the field sequence", []string{extFrSchemasOpen, extFrIdentity, extFrTypeOpen, extFrTypeHead, extFrTypeRest, `<pdfaType:field><rdf:Seq>`},
+			pdf.Checks.Metadata.ExtFieldInvalid, ""},
+		{"inside a field entry", []string{extFrSchemasOpen, extFrIdentity, extFrTypeOpen, extFrTypeHead, extFrTypeRest, extFrFieldOpen, extFrFieldName},
+			pdf.Checks.Metadata.ExtFieldInvalid, "pdfaField f missing valueType"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := checkExtensionSchemas(extSchemaDoc(tc.fragments...))
+			got := extMessages(errs, tc.check)
+			if tc.want == "" {
+				if got != "" {
+					t.Errorf("%v findings %q, want none", tc.check.Clause(), got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("messages %q do not contain %q (all: %v)", got, tc.want, issueKeys(errs))
+			}
+		})
+	}
+}
+
+// TestExtSchemaIncompleteEntries covers the findings for extension-schema
+// entries that lack their required parts (6.7.8).
+func TestExtSchemaIncompleteEntries(t *testing.T) {
+	xmp := extSchemaDoc(
+		extFrSchemasOpen, extFrIdentity,
+		// Two names; and a second property with no name at all.
+		extFrPropertyOpen, extFrPropertyName, `<pdfaProperty:name>again</pdfaProperty:name>`, extFrPropertyRest, `</rdf:li>`,
+		`<rdf:li rdf:parseType="Resource">`, `<pdfaProperty:valueType>Text</pdfaProperty:valueType>`, extFrPropertyClose,
+		// A type with only a field, and that field with only a valueType.
+		extFrTypeOpen, extFrFieldOpen, `<pdfaField:valueType>Text</pdfaField:valueType>`, extFrFieldClose, extFrTypeClose,
+		extFrSchemaTail, `</rdf:Description></rdf:RDF></x:xmpmeta>`,
+	)
+	errs := checkExtensionSchemas(xmp)
+
+	for _, tc := range []struct {
+		check pdf.Check
+		want  string
+	}{
+		{pdf.Checks.Metadata.ExtPropertyMultipleName, "multiple pdfaProperty:name"},
+		{pdf.Checks.Metadata.ExtPropertyMissingField, "pdfaProperty entry missing name"},
+		{pdf.Checks.Metadata.ExtTypeInvalid, "pdfaType entry missing type name"},
+		{pdf.Checks.Metadata.ExtTypeInvalid, "missing namespaceURI"},
+		{pdf.Checks.Metadata.ExtTypeInvalid, "missing prefix"},
+		{pdf.Checks.Metadata.ExtTypeInvalid, "missing description"},
+		{pdf.Checks.Metadata.ExtFieldInvalid, "pdfaField entry missing name"},
+		{pdf.Checks.Metadata.ExtFieldInvalid, "missing description"},
+	} {
+		if got := extMessages(errs, tc.check); !strings.Contains(got, tc.want) {
+			t.Errorf("%s messages %q do not contain %q", tc.check.Clause(), got, tc.want)
+		}
+	}
+	if got := extMessages(errs, pdf.Checks.Metadata.ExtFieldInvalid); strings.Contains(got, "missing valueType") {
+		t.Errorf("a field with a valueType was reported as lacking one: %q", got)
+	}
+}
+
+// TestExtSchemaRDFPrefixIgnoresStructuralElements checks that when a schema
+// claims the rdf prefix, the packet's own rdf:Description and rdf:RDF
+// elements are not reported as undocumented properties.
+func TestExtSchemaRDFPrefixIgnoresStructuralElements(t *testing.T) {
+	xmp := strings.Replace(extSchemaDoc(
+		extFrSchemasOpen, extFrIdentity, extFrPropertyOpen, extFrPropertyName, extFrPropertyRest, extFrPropertyClose,
+		extFrSchemaTail, `</rdf:Description></rdf:RDF></x:xmpmeta>`,
+	), `<pdfaSchema:prefix>e</pdfaSchema:prefix>`, `<pdfaSchema:prefix>rdf</pdfaSchema:prefix>`, 1)
+	got := extMessages(checkExtensionSchemas(xmp), pdf.Checks.Metadata.ExtPropertyUndocumented)
+	if got == "" {
+		t.Fatal("expected the other rdf: elements to be reported as undocumented")
+	}
+	for _, structural := range []string{"rdf:Description", "rdf:RDF"} {
+		if strings.Contains(got, structural+" used") {
+			t.Errorf("%s reported as an undocumented property: %q", structural, got)
+		}
+	}
+}
+
+// TestExtSchemaNameIgnoresNestedElementText checks that only the text directly
+// inside a name element is read; text of an element nested within it is not
+// part of the name.
+func TestExtSchemaNameIgnoresNestedElementText(t *testing.T) {
+	xmp := extSchemaDoc(extFrSchemasOpen, extFrIdentity, extFrPropertyOpen,
+		`<pdfaProperty:name>a<b>x</b>c</pdfaProperty:name>`)
+	got := extMessages(checkExtensionSchemas(xmp), pdf.Checks.Metadata.ExtPropertyMissingField)
+	if !strings.Contains(got, "pdfaProperty ac missing valueType") {
+		t.Errorf("messages %q: want the property named \"ac\"", got)
+	}
+}
+
+// TestCheckXMPPropertySchemasTruncated checks that a property cut off by the
+// end of the packet is judged on what precedes the cut, for container and
+// struct forms alike.
+func TestCheckXMPPropertySchemasTruncated(t *testing.T) {
+	const head = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	  xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmlns:dc="http://purl.org/dc/elements/1.1/"
+	  xmlns:exif="http://ns.adobe.com/exif/1.0/"><rdf:Description>`
+	for _, tc := range []struct {
+		name, body string
+		wantErr    bool
+	}{
+		{"unclosed container property", `<dc:subject><rdf:Bag><rdf:li>keyword`, false},
+		{"unclosed struct property", `<xmpMM:DerivedFrom rdf:parseType="Resource"><xmpMM:InstanceID>`, false},
+		{"unclosed property with a bad item", `<exif:ISOSpeedRatings><rdf:Seq><rdf:li>abc</rdf:li><rdf:li>`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := checkXMPPropertySchemas([]byte(head + tc.body))
+			if (len(errs) != 0) != tc.wantErr {
+				t.Errorf("errs = %v, want error: %v", issueKeys(errs), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestCheckXMPPropertySchemasEmptySeqItem checks that an empty rdf:li inside a
+// typed Seq is skipped like an empty scalar, while the items around it are
+// still checked.
+func TestCheckXMPPropertySchemasEmptySeqItem(t *testing.T) {
+	seq := func(items string) []byte {
+		return []byte(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	  xmlns:exif="http://ns.adobe.com/exif/1.0/"><rdf:Description>
+	  <exif:ISOSpeedRatings><rdf:Seq>` + items + `</rdf:Seq></exif:ISOSpeedRatings>
+	</rdf:Description></rdf:RDF>`)
+	}
+	if errs := checkXMPPropertySchemas(seq(`<rdf:li></rdf:li><rdf:li>100</rdf:li>`)); len(errs) != 0 {
+		t.Errorf("empty item reported: %v", issueKeys(errs))
+	}
+	if errs := checkXMPPropertySchemas(seq(`<rdf:li></rdf:li><rdf:li>x</rdf:li>`)); len(errs) != 1 {
+		t.Errorf("non-integer item after an empty one: %v, want one finding", issueKeys(errs))
+	}
+}
+
+// TestVerifyXMPMetadataUndecodableStream checks that a catalog Metadata stream
+// whose filter chain is broken is reported as filtered (6.7.2) and unreadable,
+// and that no content check runs on the bytes that could not be read.
+func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Metadata 3 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+	b.StreamObj(3, "<< /Type /Metadata /Subtype /XML /Filter /FlateDecode", []byte("not a zlib stream"))
+	doc, err := pdf.OpenBytes(b.FinishClassic("<< /Size 4 /Root 1 0 R >>"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+
+	errs := verifyXMPMetadata(doc)
+	if len(errs) != 2 ||
+		!hasXMPCheck(errs, pdf.Checks.Metadata.MetadataFiltered) ||
+		!hasXMPCheck(errs, pdf.Checks.Metadata.XMPStreamUnreadable) {
+		t.Errorf("verifyXMPMetadata = %v, want exactly MetadataFiltered and XMPStreamUnreadable", issueKeys(errs))
+	}
+}
+
+// TestCheckNonCatalogXMPStreamsRootNotDictionary checks that a graph whose
+// Root is not a dictionary has no catalog to compare against and is ignored.
+func TestCheckNonCatalogXMPStreamsRootNotDictionary(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", pdf.PDFArray{})
+	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{}); errs != nil {
+		t.Errorf("checkNonCatalogXMPStreams = %v, want nil", errs)
+	}
+}
+
+// TestVerifyReportsNonCatalogXMPWithoutXPacket drives 6.7.5 end to end: a page
+// carrying its own Metadata stream without an xpacket wrapper is reported.
+func TestVerifyReportsNonCatalogXMPWithoutXPacket(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Metadata 4 0 R >>")
+	b.StreamObj(4, "<< /Type /Metadata /Subtype /XML", []byte("<x:xmpmeta xmlns:x='adobe:ns:meta/'/>"))
+	res, err := VerifyBytes(b.FinishClassic("<< /Size 5 /Root 1 0 R >>"), pdf.PDFA1B, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if !resultHasCheck(res, pdf.Checks.Metadata.ObjectXMPNoXPacket) {
+		t.Errorf("ObjectXMPNoXPacket not reported; issues %v", issueKeys(res.Issues))
+	}
+}
+
+// TestXMPExifFlashStructFields checks that every field of the exif Flash
+// structure (Fired, Return, Mode, Function, RedEyeMode) is a defined exif
+// property; the table once carried "pdf.Function" for Function after a
+// mechanical package-prefix rename.
+func TestXMPExifFlashStructFields(t *testing.T) {
+	const exif = "http://ns.adobe.com/exif/1.0/"
+	for _, field := range []string{"Fired", "Return", "Mode", "Function", "RedEyeMode"} {
+		if errs := xmpValidateProp(exif, field, xmpKindScalar, "", nil); len(errs) != 0 {
+			t.Errorf("exif:%s reported as %v", field, issueKeys(errs))
+		}
+	}
+	for ns, props := range xmpNSSchemas {
+		for name := range props {
+			if strings.ContainsAny(name, ". ") {
+				t.Errorf("namespace %s defines property %q, which is not a valid XML local name", ns, name)
+			}
+		}
+	}
+}
+
+// TestXMPTablesAgree cross-checks the property tables: every property that
+// carries a value rule or a LangAlt requirement must exist in the container
+// table, with a shape the rule can apply to.
+func TestXMPTablesAgree(t *testing.T) {
+	for ns, rules := range xmpValueRules {
+		for name := range rules {
+			kind, ok := xmpNSSchemas[ns][name]
+			if !ok {
+				t.Errorf("value rule for %s %s, which xmpNSSchemas does not define", ns, name)
+				continue
+			}
+			if kind != xmpKindScalar && kind != xmpKindBag && kind != xmpKindSeq {
+				t.Errorf("value rule for %s %s, but its container kind %v carries no checked text", ns, name, kind)
+			}
+		}
+	}
+	for ns, props := range xmpLangAltProps {
+		for name := range props {
+			if xmpNSSchemas[ns][name] != xmpKindAlt {
+				t.Errorf("%s %s is marked LangAlt but is not an Alt in xmpNSSchemas", ns, name)
+			}
+		}
 	}
 }
