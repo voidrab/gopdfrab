@@ -800,3 +800,22 @@ func TestRenderFormRendersOnNothing(t *testing.T) {
 		t.Errorf("an empty page renders %+v, want opaque white", px)
 	}
 }
+
+func TestType3WordSpaceAppliesOnlyToCode32(t *testing.T) {
+	gs := &renderState{wordSpace: 7}
+	if got := type3WordSpace(32, gs); got != 7 {
+		t.Errorf("code 32 word space = %v, want 7", got)
+	}
+	if got := type3WordSpace(65, gs); got != 0 {
+		t.Errorf("code 65 word space = %v, want 0", got)
+	}
+}
+
+func TestBuildType3FontInfoWidthsDefaultFirstChar(t *testing.T) {
+	font := type3Font("0 0 m", 0.001, 500, "a")
+	font.Entries.Del("FirstChar")
+	fi := buildType3FontInfo(font)
+	if got := fi.widths[0]; got != 500 {
+		t.Errorf("width of code 0 = %v, want 500 (FirstChar defaults to 0)", got)
+	}
+}

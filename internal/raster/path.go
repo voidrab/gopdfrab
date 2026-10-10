@@ -173,11 +173,8 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 		return
 	}
 	er, eg, eb, ea := float64(pix[off])/255, float64(pix[off+1])/255, float64(pix[off+2])/255, float64(pix[off+3])/255
+	// Every caller skips alpha <= 0, so outA is always positive.
 	outA := alpha + ea*(1-alpha)
-	if outA <= 0 {
-		storeRGBA64(pix, off, 0, 0, 0, 0)
-		return
-	}
 	blend := func(c, ec float64) float64 { return (c*alpha + ec*ea*(1-alpha)) / outA }
 	storeRGBA64(pix, off, blend(rgb[0], er), blend(rgb[1], eg), blend(rgb[2], eb), outA)
 }
