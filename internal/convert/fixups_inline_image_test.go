@@ -125,32 +125,15 @@ func TestInlineImageRawOperandEdgeCases(t *testing.T) {
 	}
 }
 
-func TestHasInlineImageKey(t *testing.T) {
-	params := []pdf.PDFValue{pdf.PDFName{Value: "W"}, pdf.PDFInteger(1), pdf.PDFName{Value: "H"}, pdf.PDFInteger(2)}
-	if !hasInlineImageKey(params, "H") {
-		t.Error("hasInlineImageKey(H) = false, want true")
+// hasInlineImageKey reports whether key appears among params' (key, value)
+// pairs, regardless of its value.
+func hasInlineImageKey(params []pdf.PDFValue, key string) bool {
+	for i := 0; i+1 < len(params); i += 2 {
+		if n, ok := params[i].(pdf.PDFName); ok && n.Value == key {
+			return true
+		}
 	}
-	if hasInlineImageKey(params, "BPC") {
-		t.Error("hasInlineImageKey(BPC) = true, want false (key absent)")
-	}
-}
-
-// TestInlineImageDecodeParms covers the absent, single-dict (already exercised
-// elsewhere), and array-of-dicts forms, mirroring streamDecodeParms.
-func TestInlineImageDecodeParms(t *testing.T) {
-	if got := inlineImageDecodeParms(nil); got.Entries != nil {
-		t.Errorf("inlineImageDecodeParms(nil) = %#v, want zero-value dict", got)
-	}
-
-	dp := pdf.PDFArray{
-		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Ignored": pdf.PDFInteger(1)})},
-		pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(12)})},
-	}
-	params := []pdf.PDFValue{pdf.PDFName{Value: "DecodeParms"}, dp}
-	got := inlineImageDecodeParms(params)
-	if pdf.DictInt(got, "Predictor", 1) != 12 {
-		t.Errorf("inlineImageDecodeParms(array form) = %#v, want the last dict entry (Predictor=12)", got)
-	}
+	return false
 }
 
 // TestInlineImagePredictorNoPredictorAndPNG covers the predictor==1
@@ -159,7 +142,7 @@ func TestInlineImageDecodeParms(t *testing.T) {
 // exercised by TestFixInlineImageLZWUndoesPredictor.
 func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 	data := []byte{1, 2, 3, 4}
-	got, err := pdf.UndoStreamPredictor(data, inlineImageDecodeParms(nil), pdf.DecodeOptions{})
+	got, err := pdf.UndoStreamPredictor(data, pdf.PDFDict{}, pdf.DecodeOptions{})
 	if err != nil || string(got) != string(data) {
 		t.Errorf("UndoStreamPredictor(no params) = (%v, %v), want (%v, nil)", got, err, data)
 	}
@@ -169,8 +152,7 @@ func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 	parms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
 	})}
-	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
-	got, err = pdf.UndoStreamPredictor(predicted, inlineImageDecodeParms(params), pdf.DecodeOptions{})
+	got, err = pdf.UndoStreamPredictor(predicted, parms, pdf.DecodeOptions{})
 	if err != nil {
 		t.Fatalf("UndoStreamPredictor (PNG): %v", err)
 	}
@@ -183,8 +165,7 @@ func TestInlineImagePredictorNoPredictorAndPNG(t *testing.T) {
 // >= 10) error branch.
 func TestInlineImagePredictorUnsupported(t *testing.T) {
 	parms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})}
-	params := []pdf.PDFValue{pdf.PDFName{Value: "DP"}, parms}
-	if _, err := pdf.UndoStreamPredictor([]byte{1, 2, 3, 4}, inlineImageDecodeParms(params), pdf.DecodeOptions{}); err == nil {
+	if _, err := pdf.UndoStreamPredictor([]byte{1, 2, 3, 4}, parms, pdf.DecodeOptions{}); err == nil {
 		t.Error("UndoStreamPredictor with predictor=3 = nil error, want an error")
 	}
 }
@@ -310,6 +291,12 @@ func TestInlineImageFixersLeaveUnrecognisedShapesAlone(t *testing.T) {
 		"unsupported DP":       lzw(name("DP"), pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})}),
 		"filter not a name":    inlineImageOperands([]byte{0}, name("F"), pdf.PDFInteger(5)),
 		"undecodable LZW data": inlineImageOperands([]byte{0xFF, 0xFF, 0xFF, 0xFF}, name("F"), name("LZW")),
+		"no filter at all":     inlineImageOperands([]byte{0}, name("W"), pdf.PDFInteger(1)),
+		"both filter keys":     lzw(name("Filter"), name("LZW")),
+		"non-name in array":    inlineImageOperands([]byte{0}, name("F"), pdf.PDFArray{name("LZW"), pdf.PDFInteger(1)}),
+		"unknown filter ahead": inlineImageOperands([]byte{0}, name("F"), pdf.PDFArray{name("Bogus"), name("LZW")}),
+		"image codec ahead":    inlineImageOperands([]byte{0}, name("F"), pdf.PDFArray{name("DCT"), name("LZW")}),
+		"no LZW in array":      inlineImageOperands([]byte{0}, name("F"), pdf.PDFArray{name("Fl"), name("AHx")}),
 	}
 	for label, operands := range cases {
 		changed = false
@@ -468,4 +455,52 @@ func TestConvertClearsArrayFormInlineImageLZW(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFixInlineImageLZWKeepsTailParameters checks that parameters of the
+// filters left in the chain survive, still aligned with their filter, while the
+// LZW stage's own predictor is undone and dropped.
+func TestFixInlineImageLZWKeepsTailParameters(t *testing.T) {
+	// Two rows of four TIFF-predicted bytes (each byte stored as the delta from
+	// its left neighbour), which the LZW stage's /DP undoes.
+	predicted := []byte{1, 1, 1, 1, 5, 0, 0, 0}
+	want := []byte{1, 2, 3, 4, 5, 5, 5, 5}
+	lzwParms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Predictor": pdf.PDFInteger(2), "Columns": pdf.PDFInteger(4),
+	})}
+	tailParms := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": pdf.PDFInteger(-1)})}
+	operands := inlineImageOperands(encodeLZW(t, predicted),
+		name("F"), pdf.PDFArray{name("LZW"), name("CCF")},
+		name("DP"), pdf.PDFArray{lzwParms, tailParms})
+
+	var changed bool
+	op, keep := fixInlineImageLZW("INLINEIMAGE", operands, &changed)
+	if !keep || !changed {
+		t.Fatalf("keep=%v changed=%v, want the chain repaired", keep, changed)
+	}
+	params, _, _ := pdf.InlineImageRawOperand(op.Operands)
+	filters, data, image := inlineImageDecoded(t, op.Operands)
+	if strings.Join(filters, ",") != "Fl,CCF" || image != "CCITTFaxDecode" {
+		t.Errorf("filters = %v, image = %q, want [Fl CCF] ending in CCITTFaxDecode", filters, image)
+	}
+	if string(data) != string(want) {
+		t.Errorf("input to the image codec = %v, want the un-predicted %v", data, want)
+	}
+	for i := 0; i+1 < len(params); i += 2 {
+		if key, _ := params[i].(pdf.PDFName); key.Value != "DP" {
+			continue
+		}
+		dp, ok := params[i+1].(pdf.PDFArray)
+		if !ok || len(dp) != 2 {
+			t.Fatalf("DP = %#v, want a two-entry array aligned with [Fl CCF]", params[i+1])
+		}
+		if first := dp[0].(pdf.PDFDict); first.Entries.Len() != 0 {
+			t.Errorf("DP[0] = %v, want empty: the Flate stage carries no predictor", first)
+		}
+		if k := pdf.DictInt(dp[1].(pdf.PDFDict), "K", 0); k != -1 {
+			t.Errorf("DP[1] /K = %d, want -1 carried over", k)
+		}
+		return
+	}
+	t.Fatalf("tail parameters were dropped: %#v", params)
 }
