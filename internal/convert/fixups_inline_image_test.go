@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // TestInlineImageFixersClearViolations runs the inline-image fixers
@@ -248,6 +249,70 @@ func TestFixInlineImageLZWUndoesPredictor(t *testing.T) {
 			if name, ok := params[i+1].(pdf.PDFName); !ok || name.Value != "Fl" {
 				t.Errorf("filter = %#v, want /Fl", params[i+1])
 			}
+		}
+	}
+}
+
+// inlineImageOperands builds an INLINEIMAGE op's operands directly from
+// params, bypassing the scanner so params can carry values it never emits.
+func inlineImageOperands(data []byte, params ...pdf.PDFValue) []pdf.PDFValue {
+	return append(append([]pdf.PDFValue{}, params...), pdf.InlineImageRaw{Bytes: []byte("BI ID x EI"), Data: data})
+}
+
+func name(s string) pdf.PDFName { return pdf.PDFName{Value: s} }
+
+// TestInlineImageFixersLeaveUnrecognisedShapesAlone covers each way the three
+// inline-image rewriters decline: operands without the raw-image operand, and
+// parameter lists that cannot be re-serialised (an indirect reference has no
+// place in a content stream, so the rebuilt BI...EI cannot be written).
+func TestInlineImageFixersLeaveUnrecognisedShapesAlone(t *testing.T) {
+	unwritable := pdf.PDFArray{pdf.PDFRef{ObjNum: 1}}
+	noRaw := []pdf.PDFValue{pdf.PDFInteger(1)}
+
+	if _, ok := fixInlineImageRenderingIntent(noRaw); ok {
+		t.Error("RenderingIntent: ok = true for operands without raw image data")
+	}
+	if _, ok := fixInlineImageRenderingIntent(inlineImageOperands([]byte{0},
+		name("Intent"), name("Bogus"), name("X"), unwritable)); ok {
+		t.Error("RenderingIntent: ok = true although the rebuilt image cannot be written")
+	}
+
+	fixers := map[string]func(string, []pdf.PDFValue, *bool) (writer.ContentOp, bool){
+		"Interpolate": fixInlineImageInterpolate,
+		"LZW":         fixInlineImageLZW,
+	}
+	for label, fix := range fixers {
+		var changed bool
+		op, keep := fix("INLINEIMAGE", noRaw, &changed)
+		if !keep || changed || len(op.Operands) != 1 {
+			t.Errorf("%s: operands without raw image data: keep=%v changed=%v op=%v", label, keep, changed, op)
+		}
+	}
+
+	// Interpolate true, plus an unwritable parameter.
+	var changed bool
+	if op, keep := fixInlineImageInterpolate("INLINEIMAGE", inlineImageOperands([]byte{0},
+		name("I"), pdf.PDFBoolean(true), name("X"), unwritable), &changed); !keep || changed || len(op.Operands) != 5 {
+		t.Errorf("Interpolate with unwritable params: keep=%v changed=%v op=%v", keep, changed, op)
+	}
+
+	// LZW: unwritable params, bad LZW data, unsupported predictor, and a
+	// filter value that is not a name.
+	lzw := func(extra ...pdf.PDFValue) []pdf.PDFValue {
+		return inlineImageOperands([]byte{0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01},
+			append([]pdf.PDFValue{name("F"), name("LZW")}, extra...)...)
+	}
+	cases := map[string][]pdf.PDFValue{
+		"unwritable params":    lzw(name("X"), unwritable),
+		"unsupported DP":       lzw(name("DP"), pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})}),
+		"filter not a name":    inlineImageOperands([]byte{0}, name("F"), pdf.PDFInteger(5)),
+		"undecodable LZW data": inlineImageOperands([]byte{0xFF, 0xFF, 0xFF, 0xFF}, name("F"), name("LZW")),
+	}
+	for label, operands := range cases {
+		changed = false
+		op, keep := fixInlineImageLZW("INLINEIMAGE", operands, &changed)
+		if !keep || changed || len(op.Operands) != len(operands) {
+			t.Errorf("LZW %s: keep=%v changed=%v len=%d want unchanged len %d", label, keep, changed, len(op.Operands), len(operands))
 		}
 	}
 }

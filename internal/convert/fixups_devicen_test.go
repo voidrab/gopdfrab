@@ -186,6 +186,10 @@ func TestIsOversizedDeviceN(t *testing.T) {
 	if isOversizedDeviceN(pdf.PDFName{Value: "DeviceRGB"}) {
 		t.Error("non-array should not be oversized")
 	}
+	notDeviceN := pdf.PDFArray{pdf.PDFName{Value: "Separation"}, oversizedDeviceN()[1], pdf.PDFName{Value: "DeviceRGB"}}
+	if isOversizedDeviceN(notDeviceN) {
+		t.Error("a non-DeviceN array with a long names list should not be oversized")
+	}
 }
 
 // TestDeviceNRewritePreservesUntouchedOperators pins that operators the
@@ -222,5 +226,53 @@ func TestDeviceNRewritePreservesUntouchedOperators(t *testing.T) {
 	}
 	if strings.Contains(got, "scn") || strings.Contains(got, "/DN cs") {
 		t.Errorf("oversized DeviceN not removed\ngot: %s", got)
+	}
+}
+
+// TestDeviceNFixerLeavesUnrewritableThingsAlone: an undecodable page content
+// stream, non-stream /Contents items, an Image whose pixels cannot be decoded,
+// an Image in a small DeviceN space, and a small DeviceN resource entry are
+// all left as they are; only the oversized resource entry is pruned.
+func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
+	small := pdf.PDFArray{pdf.PDFName{Value: "DeviceN"}, pdf.PDFArray{pdf.PDFName{Value: "a"}}, pdf.PDFName{Value: "DeviceRGB"}}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Big": oversizedDeviceN(), "Small": small,
+		})},
+	})}
+	bad := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), HasStream: true, RawStream: []byte("not flate")}
+	brokenImage := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "ColorSpace": oversizedDeviceN(),
+	}), HasStream: true, RawStream: []byte{1, 2, 3}}
+	smallImage := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "ColorSpace": small,
+	}), HasStream: true, RawStream: []byte{1}}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"Resources": resources,
+		"Contents":  pdf.PDFArray{pdf.PDFInteger(1), pdf.NewPDFDict(), bad},
+		"Im":        pdf.PDFArray{brokenImage, smallImage},
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
+
+	changed, err := deviceNColorantsFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Error("changed = false, want true (the oversized resource entry is pruned)")
+	}
+	cs := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
+	if _, ok := cs.Entries.Lookup("Big"); ok {
+		t.Error("oversized DeviceN entry not pruned")
+	}
+	if _, ok := cs.Entries.Lookup("Small"); !ok {
+		t.Error("small DeviceN entry pruned")
+	}
+	if string(bad.RawStream) != "not flate" {
+		t.Errorf("undecodable content stream rewritten: %q", bad.RawStream)
+	}
+	if _, isName := brokenImage.Entries.Get("ColorSpace").(pdf.PDFName); isName {
+		t.Error("image with undecodable pixels was converted to a device space")
 	}
 }

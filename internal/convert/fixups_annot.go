@@ -62,18 +62,6 @@ func (f annotColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 
 func (annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	hasOutputIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
-	allowed := func(model string) bool {
-		switch model {
-		case "rgb":
-			return rgbCovered
-		case "cmyk":
-			return cmykCovered
-		case "gray":
-			return hasOutputIntent
-		}
-		return true
-	}
-
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 			return
@@ -83,18 +71,18 @@ func (annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.P
 			if !ok {
 				continue
 			}
-			var model string
+			var covered bool
 			switch len(arr) {
-			case 1:
-				model = "gray"
-			case 3:
-				model = "rgb"
-			case 4:
-				model = "cmyk"
+			case 1: // gray
+				covered = hasOutputIntent
+			case 3: // rgb
+				covered = rgbCovered
+			case 4: // cmyk
+				covered = cmykCovered
 			default:
 				continue
 			}
-			if !allowed(model) {
+			if !covered {
 				d.Entries.Del(key)
 				*changed = true
 			}
