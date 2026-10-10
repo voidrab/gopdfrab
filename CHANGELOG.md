@@ -24,6 +24,16 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
+## [Unreleased]
+
+### Changed
+
+- Internal restructuring, with no change to the public API or behaviour: font
+  parsing moved to `internal/fontprog`, the bundled substitute fonts to
+  `internal/fontsubst`, and the renderer to `internal/raster`. The allowed
+  imports between internal packages are documented in `ARCHITECTURE.md` and
+  enforced by a test.
+
 ## [1.1.0] - 2026-10-10
 
 ### Added
