@@ -18,6 +18,10 @@ import (
 // exercise the spill path on small inputs. Ignored where spillSupported is false.
 var spillThreshold = 8 << 20 // 8 MB
 
+// createTempFile creates the spill file. A var so tests can hand back a file
+// whose writes fail, which a real temp directory cannot be made to do portably.
+var createTempFile = os.CreateTemp
+
 // errNoOutput is returned by the backing accessors when there is nothing to
 // read -- the zero backing, or one already closed.
 var errNoOutput = errors.New("convert: no output")
@@ -67,7 +71,7 @@ func (s *spillWriter) Write(p []byte) (int, error) {
 
 // spill creates the temp file and flushes the in-memory buffer into it.
 func (s *spillWriter) spill() error {
-	f, err := os.CreateTemp("", "gopdfrab-out-*.pdf")
+	f, err := createTempFile("", "gopdfrab-out-*.pdf")
 	if err != nil {
 		return err
 	}
