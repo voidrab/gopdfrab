@@ -50,7 +50,7 @@ func type1LenIV(plain []byte) int {
 		return 4
 	}
 	n, err := strconv.Atoi(string(m[1]))
-	if err != nil || n < 0 {
+	if err != nil {
 		return 4
 	}
 	return n
