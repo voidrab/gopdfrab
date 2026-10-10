@@ -838,8 +838,8 @@ func TestBuildPageIndex(t *testing.T) {
 		t.Error("expected error for nil Pages")
 	}
 
-	page1 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, "_ref": PDFRef{ObjNum: 10}})}
-	page2 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, "_ref": PDFRef{ObjNum: 20}})}
+	page1 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 10}})}
+	page2 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 20}})}
 	kids := PDFDict{Entries: DictOf(map[string]PDFValue{"Kids": PDFArray{page1, page2}})}
 	graph := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{"Pages": kids})},
@@ -1281,7 +1281,7 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
 	d.framingChecked = map[int]bool{1: true}
-	d.streamChecked = map[string]bool{"x": true}
+	d.streamChecked = map[streamCheckKey]bool{{1, Checks.Structure.EndstreamEOL}: true}
 	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
 
 	d.ReleaseCaches()

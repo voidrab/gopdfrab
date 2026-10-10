@@ -168,13 +168,15 @@ var Checks = pdf.Checks
 // gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
 // ErrUnresolvableGraph: Convert could not resolve the object graph even with
 // per-object degradation, so no output could be produced (the ConvertResult
-// still carries the best-effort verify Result).
+// still carries the best-effort verify Result). ErrInternal: a defect in
+// gopdfrab, recovered from a panic; please report it with the input file.
 var (
 	ErrNotPDF            = pdf.ErrNotPDF
 	ErrDamaged           = pdf.ErrDamaged
 	ErrEncrypted         = pdf.ErrEncrypted
 	ErrPasswordRequired  = pdf.ErrPasswordRequired
 	ErrUnresolvableGraph = pdf.ErrUnresolvableGraph
+	ErrInternal          = pdf.ErrInternal
 )
 
 // Options configures a Verify or Convert call. The zero value is the default
@@ -183,7 +185,7 @@ var (
 //
 // Fields not relevant to an operation are ignored: Verify uses only Password;
 // RasterDPI and MaxIterations apply to Convert; Workers applies to the batch
-// convert entry points (ConvertAll, ConvertEach). Password applies at the open
+// entry points (VerifyAllContext, ConvertAll, ConvertEach). Password applies at the open
 // step, so it has no effect on the *Document methods, whose file is already
 // open (use OpenWithPassword for those).
 //
@@ -202,8 +204,8 @@ type Options struct {
 	// ConvertResult.Fidelity with a per-page comparison. Off by default (it
 	// roughly doubles the work). Verify ignores it.
 	CheckFidelity bool
-	// Workers bounds the concurrency of the batch convert entry points ConvertAll
-	// and ConvertEach. 0 selects the default (runtime.NumCPU).
+	// Workers bounds the concurrency of the batch entry points VerifyAllContext,
+	// ConvertAll and ConvertEach. 0 selects the default (runtime.NumCPU).
 	Workers int
 }
 
@@ -267,10 +269,11 @@ func VerifyAll(paths []string, p *Profile) ([]FileResult[Result], error) {
 	return verify.VerifyAll(paths, p, nil)
 }
 
-// VerifyAllContext is VerifyAll honouring ctx cancellation; a cancelled ctx
-// records ctx.Err() for files not yet started.
+// VerifyAllContext is VerifyAll honouring ctx cancellation and o; a cancelled
+// ctx records ctx.Err() for files not yet started. o.Workers bounds how many
+// files are verified at once, and so how many documents are held in memory.
 func VerifyAllContext(ctx context.Context, paths []string, p *Profile, o Options) ([]FileResult[Result], error) {
-	return verify.VerifyAllContext(ctx, paths, p, o.Password)
+	return verify.VerifyAllContext(ctx, paths, p, o.Password, o.Workers)
 }
 
 // VerifyObjectModel opens, checks, and closes a single file against the
@@ -292,7 +295,7 @@ func Convert(path string, p *Profile) (ConvertResult, error) {
 }
 
 // ConvertContext is Convert honouring ctx cancellation (checked before each
-// verify/fix iteration and each raster pass) and o.
+// verify/fix iteration and between page renders) and o.
 func ConvertContext(ctx context.Context, path string, p *Profile, o Options) (ConvertResult, error) {
 	return convert.ConvertContext(ctx, path, p, o.convert())
 }
@@ -387,7 +390,8 @@ func OpenBytesWithPassword(data, password []byte) (*Document, error) {
 	return &Document{r: r}, nil
 }
 
-// Close ensures the file handle is released.
+// Close releases the file handle and any memory mapping. Calls after the
+// first return nil.
 func (d *Document) Close() error { return d.r.Close() }
 
 // Verify verifies d against the checks enabled in profile p.
@@ -431,7 +435,7 @@ func (d *Document) Convert(p *Profile) (ConvertResult, error) {
 }
 
 // ConvertContext is Convert honouring ctx cancellation (checked before each
-// verify/fix iteration and each raster pass) and o. Options.Password is ignored
+// verify/fix iteration and between page renders) and o. Options.Password is ignored
 // (the file is already open); RasterDPI and MaxIterations apply.
 func (d *Document) ConvertContext(ctx context.Context, p *Profile, o Options) (ConvertResult, error) {
 	return convert.RunContext(ctx, d.r, p, o.convert())

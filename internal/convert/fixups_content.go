@@ -318,36 +318,5 @@ func fixHexStringValue(s string) string {
 // via fix when fix reports a change. The dict/array-element counterpart to
 // walkDicts (which only ever invokes its callback on pdf.PDFDict nodes).
 func walkScalars(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFValue) (pdf.PDFValue, bool)) {
-	switch val := v.(type) {
-	case pdf.PDFDict:
-		ptr := pdf.ValuePointer(val.Entries)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for k, child := range val.Entries.All() {
-			if k == "_ref" || k == "_dirty" {
-				continue
-			}
-			if updated, ok := fix(child); ok {
-				val.Entries.Set(k, updated)
-				child = updated
-			}
-			walkScalars(child, visited, fix)
-		}
-
-	case pdf.PDFArray:
-		ptr := pdf.ArrayPointer(val)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for i, child := range val {
-			if updated, ok := fix(child); ok {
-				val[i] = updated
-				child = updated
-			}
-			walkScalars(child, visited, fix)
-		}
-	}
+	walkGraph(v, visited, nil, fix)
 }

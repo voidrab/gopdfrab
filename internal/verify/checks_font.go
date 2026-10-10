@@ -15,7 +15,7 @@ var predefinedCMaps = map[string]bool{
 	"Identity-H": true, "Identity-V": true,
 }
 
-// hasEmbeddedProgram reports whether a font descriptor embeds a font program via
+// HasEmbeddedProgram reports whether a font descriptor embeds a font program via
 // any of the given FontFile keys.
 func HasEmbeddedProgram(desc pdf.PDFDict, keys ...string) bool {
 	if desc.Entries == nil {

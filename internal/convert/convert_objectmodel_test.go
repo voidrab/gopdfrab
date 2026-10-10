@@ -2,6 +2,7 @@ package convert
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -19,25 +20,25 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	contents := pdf.NewPDFDict()
 	contents.HasStream = true
 	contents.RawStream = []byte(onePageContent)
-	contents.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	contents.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("Parent", pages)
 	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
 	page.Entries.Set("Contents", contents)
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
@@ -97,7 +98,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		info := pdf.NewPDFDict()
 		info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
 		// enum allows True/False/Unknown
-		info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+		info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 		trailer.Entries.Set("Info", info)
 	})
 
@@ -142,4 +143,44 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 		}
 	}
 	return false
+}
+
+// TestConvertObjectModelExpandsFilterArrayAbbrev: a content stream whose
+// /Filter array names the inline-image abbreviation /AHx fails the element
+// enum check. The repair expands it to /ASCIIHexDecode in place -- deleting
+// it, or replacing it with some other enum value, would leave the hex bytes
+// read as operators -- so the page content survives byte-identical.
+func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
+		contents := page.Entries.Get("Contents").(pdf.PDFDict)
+		contents.RawStream = []byte(hex.EncodeToString([]byte(onePageContent)) + ">")
+		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
+		page.Entries.Set("Contents", contents) // RawStream lives on the copy
+	})
+
+	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid || !hasIssueForCheck(res.Issues, pdf.Checks.ObjectModel.DisallowedValue) {
+		t.Fatalf("fixture must fail with a DisallowedValue, got %v", res.Issues)
+	}
+
+	cr, err := ConvertBytes(data, pdf.PDF, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid || len(cr.Residual()) != 0 {
+		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
+	}
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	graph, err := out.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph(output): %v", err)
+	}
+	assertContentStream(t, assertOnePageGraph(t, graph), onePageContent)
 }

@@ -1,6 +1,9 @@
 package pdf
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // buildObjStmDict returns a minimal valid object-stream dict containing two
 // objects: object 1 = true (boolean), object 2 = 42 (integer).
@@ -88,8 +91,12 @@ func TestDecodeObjStm(t *testing.T) {
 			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
-		if _, err := d.decodeObjStm(5); err == nil {
-			t.Error("expected error for an out-of-range object offset")
+		entries, err := d.decodeObjStm(5)
+		if err != nil {
+			t.Fatalf("decodeObjStm: %v (a bad entry must fail only itself)", err)
+		}
+		if len(entries) != 1 || entries[0].err == nil {
+			t.Errorf("entries = %+v, want one entry carrying an out-of-range error", entries)
 		}
 	})
 
@@ -101,8 +108,12 @@ func TestDecodeObjStm(t *testing.T) {
 			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}),
 		}
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
-		if _, err := d.decodeObjStm(5); err == nil {
-			t.Error("expected error for a malformed nested object")
+		entries, err := d.decodeObjStm(5)
+		if err != nil {
+			t.Fatalf("decodeObjStm: %v (a bad entry must fail only itself)", err)
+		}
+		if len(entries) != 1 || entries[0].err == nil {
+			t.Errorf("entries = %+v, want one entry carrying a parse error", entries)
 		}
 	})
 
@@ -136,7 +147,7 @@ func TestDecodeObjStm(t *testing.T) {
 			t.Fatalf("decodeObjStm: %v", err)
 		}
 		got, ok := entries[0].value.(PDFDict)
-		if !ok || !EqualPDFValue(got.Entries.Get("_ref"), PDFRef{ObjNum: 7}) {
+		if !ok || !EqualPDFValue(got.Entries.Get(RefKey), PDFRef{ObjNum: 7}) {
 			t.Errorf("nested dict = %#v, want _ref stamped to 7", entries[0].value)
 		}
 	})
@@ -152,10 +163,38 @@ func TestResolveCompressedObject(t *testing.T) {
 		}
 	})
 
-	t.Run("index out of range", func(t *testing.T) {
+	t.Run("object absent from the stream", func(t *testing.T) {
 		d := &Reader{objCache: map[int]PDFValue{5: buildObjStmDict()}}
-		if _, err := d.resolveCompressedObject(PDFRef{ObjNum: 1}, compressedXrefEntry{streamObjNum: 5, index: 99}); err == nil {
-			t.Error("expected error for an out-of-range index")
+		if _, err := d.resolveCompressedObject(PDFRef{ObjNum: 3}, compressedXrefEntry{streamObjNum: 5, index: 99}); err == nil {
+			t.Error("expected error for an object the stream does not declare")
+		}
+	})
+
+	// A wrong xref index used to return whichever object sat there.
+	for _, index := range []int{0, 99, -1} {
+		t.Run(fmt.Sprintf("wrong index %d found by number", index), func(t *testing.T) {
+			d := &Reader{objCache: map[int]PDFValue{5: buildObjStmDict()}}
+			got, err := d.resolveCompressedObject(PDFRef{ObjNum: 2}, compressedXrefEntry{streamObjNum: 5, index: index})
+			if err != nil || got != PDFInteger(42) {
+				t.Errorf("got %v, %v; want object 2's value 42", got, err)
+			}
+		})
+	}
+
+	t.Run("malformed neighbour fails only itself", func(t *testing.T) {
+		header := "1 0 2 5"
+		region := "[1 2 true"
+		dict := PDFDict{
+			HasStream: true, RawStream: []byte(header + " " + region),
+			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(2), "First": PDFInteger(len(header) + 1)}),
+		}
+		d := &Reader{objCache: map[int]PDFValue{5: dict}}
+		if _, err := d.resolveCompressedObject(PDFRef{ObjNum: 1}, compressedXrefEntry{streamObjNum: 5, index: 0}); err == nil {
+			t.Error("expected object 1's own parse error")
+		}
+		got, err := d.resolveCompressedObject(PDFRef{ObjNum: 2}, compressedXrefEntry{streamObjNum: 5, index: 1})
+		if err != nil || got != PDFBoolean(true) {
+			t.Errorf("object 2 = %v, %v; want true despite its broken neighbour", got, err)
 		}
 	})
 

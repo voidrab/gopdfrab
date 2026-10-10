@@ -40,7 +40,7 @@ func init() {
 func nextAvailableObjNum(trailer pdf.PDFDict) int {
 	max := 0
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries.Get("_ref").(pdf.PDFRef); ok && ref.ObjNum > max {
+		if ref, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok && ref.ObjNum > max {
 			max = ref.ObjNum
 		}
 	})
@@ -154,7 +154,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
 		}
 		visited[ptr] = true
 		for k, e := range t.Entries.All() {
-			if k == "_ref" || k == "Parent" || k == "P" {
+			if k == pdf.RefKey || k == "Parent" || k == "P" {
 				continue
 			}
 			if hasOversizedArray(e, visited) {
@@ -175,7 +175,7 @@ func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int) 
 	for i := 0; i < len(kids); i += pagesTreeChunkSize {
 		chunk := append(pdf.PDFArray{}, kids[i:min(i+pagesTreeChunkSize, len(kids))]...)
 		node := pdf.NewPDFDict()
-		node.Entries.Set("_ref", pdf.PDFRef{ObjNum: *nextObjNum})
+		node.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
 		*nextObjNum++
 		node.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 		node.Entries.Set("Parent", parent)
@@ -216,7 +216,7 @@ func countPageLeaves(items pdf.PDFArray) int {
 
 // maxDictEntries mirrors the 4095-entry ceiling validateArchitecturalLimits
 // (verifier.go) enforces for any PDF dictionary (6.1.12/6), excluding the
-// synthetic "_ref" bookkeeping key the same way that check does.
+// synthetic pdf.RefKey bookkeeping key the same way that check does.
 const maxDictEntries = 4095
 
 // resourceCategories are the /Resources sub-dictionary keys whose entries
@@ -255,10 +255,10 @@ func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 }
 
 // dictRealEntryCount mirrors validateArchitecturalLimits' own count
-// (verifier.go): every entry except the synthetic "_ref" bookkeeping key.
+// (verifier.go): every entry except the synthetic pdf.RefKey bookkeeping key.
 func dictRealEntryCount(d pdf.PDFDict) int {
 	n := d.Entries.Len()
-	if _, ok := d.Entries.Lookup("_ref"); ok {
+	if _, ok := d.Entries.Lookup(pdf.RefKey); ok {
 		n--
 	}
 	return n
@@ -278,7 +278,7 @@ func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool) bool {
 	}
 	candidates := make([]string, 0, sub.Entries.Len())
 	for k := range sub.Entries.All() {
-		if k == "_ref" || k == "_dirty" || used[k] {
+		if k == pdf.RefKey || used[k] {
 			continue
 		}
 		candidates = append(candidates, k)
@@ -310,37 +310,14 @@ type resourceUsage struct {
 // inside a pattern's paint procedure isn't tracked here.
 func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 	ru := &resourceUsage{used: map[uintptr]map[string]bool{}, visitedForm: map[uintptr]bool{}}
-	visited := map[uintptr]bool{}
-
-	var walk func(v pdf.PDFValue)
-	walk = func(v pdf.PDFValue) {
-		switch val := v.(type) {
-		case pdf.PDFDict:
-			ptr := pdf.ValuePointer(val.Entries)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			if val.Entries.Get("Type") == (pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
-				collectResourceUsageFromContents(val.Entries.Get("Contents"), resources, ru)
-				return
-			}
-			for _, child := range val.Entries.All() {
-				walk(child)
-			}
-		case pdf.PDFArray:
-			ptr := pdf.ArrayPointer(val)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			for _, item := range val {
-				walk(item)
-			}
+	walkGraph(graph, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
+			return true
 		}
-	}
-	walk(graph)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		collectResourceUsageFromContents(d.Entries.Get("Contents"), resources, ru)
+		return false
+	}, nil)
 	return ru.used
 }
 
@@ -539,7 +516,7 @@ func truncateOverlongName(v pdf.PDFValue) (pdf.PDFValue, bool) {
 func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bool {
 	var overlong []string
 	for k := range d.Entries.All() {
-		if k != "_ref" && k != "_dirty" && len(k) > maxNameLength {
+		if k != pdf.RefKey && len(k) > maxNameLength {
 			overlong = append(overlong, k)
 		}
 	}
@@ -772,38 +749,15 @@ type resourceOpRewriter func(op string, operands []pdf.PDFValue, resources pdf.P
 // recursed into, matching computeResourceUsage's same scope.
 func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) bool {
 	changed := false
-	visited := map[uintptr]bool{}
 	visitedForm := map[uintptr]bool{}
-
-	var walk func(v pdf.PDFValue)
-	walk = func(v pdf.PDFValue) {
-		switch val := v.(type) {
-		case pdf.PDFDict:
-			ptr := pdf.ValuePointer(val.Entries)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			if val.Entries.Get("Type") == (pdf.PDFName{Value: "Page"}) {
-				resources, _ := val.Entries.Get("Resources").(pdf.PDFDict)
-				rewritePageContents(val, resources, rewrite, visitedForm, &changed)
-				return
-			}
-			for _, child := range val.Entries.All() {
-				walk(child)
-			}
-		case pdf.PDFArray:
-			ptr := pdf.ArrayPointer(val)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			for _, item := range val {
-				walk(item)
-			}
+	walkGraph(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
+			return true
 		}
-	}
-	walk(*trailer)
+		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		rewritePageContents(d, resources, rewrite, visitedForm, &changed)
+		return false
+	}, nil)
 	return changed
 }
 

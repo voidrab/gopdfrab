@@ -569,3 +569,13 @@ func TestInflateZlibTruncatedKeepsPrefix(t *testing.T) {
 		t.Errorf("prefix = %q, want %q", out, msg)
 	}
 }
+
+// TestInflateZlibCorruptFromTheStart pins that a stream that fails before
+// inflating a single byte is an error, unlike a truncated one, whose prefix
+// is kept.
+func TestInflateZlibCorruptFromTheStart(t *testing.T) {
+	// A valid zlib header followed by a reserved (invalid) deflate block type.
+	if out, err := InflateZlib([]byte{0x78, 0x9c, 0xff, 0xff, 0xff}); err == nil {
+		t.Fatalf("InflateZlib = %q, nil; want an error", out)
+	}
+}

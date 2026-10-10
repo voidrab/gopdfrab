@@ -124,6 +124,10 @@ var (
 	// ErrUnresolvableGraph reports that the object graph could not be resolved
 	// even with per-object degradation, so no converted output can be produced.
 	ErrUnresolvableGraph = errors.New("pdf: object graph could not be resolved")
+
+	// ErrInternal reports a defect in gopdfrab itself, recovered from a panic
+	// so one bad input cannot crash the caller. The message carries the stack.
+	ErrInternal = errors.New("pdf: internal error")
 )
 
 // DecodeOptions supplies context a stream dictionary alone does not carry.

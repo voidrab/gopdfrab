@@ -36,11 +36,22 @@ func TestProfileByName(t *testing.T) {
 }
 
 func TestPasswordBytes(t *testing.T) {
+	t.Setenv(passwordEnv, "")
 	if got := passwordBytes(""); got != nil {
 		t.Errorf("passwordBytes(\"\") = %v, want nil", got)
 	}
 	if got := passwordBytes("secret"); string(got) != "secret" {
 		t.Errorf("passwordBytes(\"secret\") = %q, want \"secret\"", got)
+	}
+
+	// The environment variable keeps the password out of the process list;
+	// an explicit flag still wins over it.
+	t.Setenv(passwordEnv, "fromenv")
+	if got := passwordBytes(""); string(got) != "fromenv" {
+		t.Errorf("passwordBytes with $%s set = %q, want \"fromenv\"", passwordEnv, got)
+	}
+	if got := passwordBytes("flag"); string(got) != "flag" {
+		t.Errorf("flag value = %q, want it to win over the environment", got)
 	}
 }
 
@@ -159,6 +170,13 @@ func TestConvertFlagErrors(t *testing.T) {
 	}
 	if code, _, _ := runCLI("convert"); code != exitError {
 		t.Errorf("convert with no input: exit=%d, want %d", code, exitError)
+	}
+	// A second output used to be silently ignored in favour of -o.
+	if code, _, stderr := runCLI("convert", "-o", "a.pdf", "x.pdf", "b.pdf"); code != exitError || !strings.Contains(stderr, "output path once") {
+		t.Errorf("convert with -o and a positional output: exit=%d stderr=%q", code, stderr)
+	}
+	if code, _, stderr := runCLI("convert", "x.pdf", "b.pdf", "c.pdf"); code != exitError || !strings.Contains(stderr, "output path once") {
+		t.Errorf("convert with three positionals: exit=%d stderr=%q", code, stderr)
 	}
 }
 

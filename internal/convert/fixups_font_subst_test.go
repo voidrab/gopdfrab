@@ -121,18 +121,15 @@ func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 func TestCloneFontDescriptor(t *testing.T) {
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "FontDescriptor"}, "Flags": pdf.PDFInteger(4),
-		"_ref": pdf.PDFRef{ObjNum: 1}, "_dirty": pdf.PDFBoolean(true),
+		pdf.RefKey: pdf.PDFRef{ObjNum: 1},
 	})}
 	next := 42
 	clone := cloneFontDescriptor(desc, &next)
 	if clone.Entries.Get("Flags") != pdf.PDFInteger(4) {
 		t.Error("clone did not copy Flags")
 	}
-	if ref, _ := clone.Entries.Get("_ref").(pdf.PDFRef); ref.ObjNum != 42 {
-		t.Errorf("clone _ref = %v, want ObjNum 42", clone.Entries.Get("_ref"))
-	}
-	if _, ok := clone.Entries.Lookup("_dirty"); ok {
-		t.Error("clone should not carry _dirty")
+	if ref, _ := clone.Entries.Get(pdf.RefKey).(pdf.PDFRef); ref.ObjNum != 42 {
+		t.Errorf("clone _ref = %v, want ObjNum 42", clone.Entries.Get(pdf.RefKey))
 	}
 	if next != 43 {
 		t.Errorf("nextObjNum = %d, want 43", next)

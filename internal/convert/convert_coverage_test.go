@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -107,6 +108,103 @@ func TestRasterBackstopVerifyErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// countdownCtx reports cancellation from its (n+1)th Err call on, so a test
+// can cancel at each successive check of a run in turn.
+type countdownCtx struct {
+	context.Context
+	left atomic.Int64
+}
+
+func newCountdownCtx(n int64) *countdownCtx {
+	c := &countdownCtx{Context: context.Background()}
+	c.left.Store(n)
+	return c
+}
+
+func (c *countdownCtx) Err() error {
+	if c.left.Add(-1) < 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestRasterBackstopCancelledMidPass covers both raster blocks' post-pass
+// cancellation checks: a context cancelled while pages were being rasterized
+// abandons the run before re-verifying, even though the graph changed. Each
+// countdown cancels at a later check -- inside the pass, where it simply
+// changes nothing, or after it; some countdown must land on the check right
+// after the pass.
+func TestRasterBackstopCancelledMidPass(t *testing.T) {
+	c := pdf.Checks.Colour.OutputIntentNotArray
+	fixers := map[pdf.Check]Fixer{c: nil}
+	for name, page := range map[string]int{"pageTargeted": 1, "docWide": 0} {
+		t.Run(name, func(t *testing.T) {
+			for n := int64(1); n < 64; n++ {
+				trailer := onePageTrailer()
+				cr := &ConvertResult{Result: pdf.Result{
+					Valid:  false,
+					Issues: []pdf.PDFError{pdf.NewError(c, []error{errors.New("synthetic")}, page, nil)},
+				}}
+				doc := openTrailer(t, trailer)
+				var lastParts verify.Parts
+				graphClean := true
+				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
+				if err == nil && cr.Iterations > 0 {
+					t.Fatalf("countdown %d: ran to completion without seeing the cancellation", n)
+				}
+				if err == nil {
+					continue // the pass itself saw the cancellation and changed nothing
+				}
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("countdown %d: err = %v, want context.Canceled", n, err)
+				}
+				pg := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
+				if _, rastered := pg.Entries.Get("Resources").(pdf.PDFDict); rastered {
+					if cr.Iterations != 0 || !graphClean {
+						t.Fatalf("countdown %d: a cancelled pass still counted an iteration (%d) or dirtied the graph", n, cr.Iterations)
+					}
+					return
+				}
+			}
+			t.Fatal("no countdown cancelled right after a completed raster pass")
+		})
+	}
+}
+
+// TestRunContextCancelledBeforeOutput pins Run's last check: a cancellation
+// that lands after the fix loop and backstop, but before the output is
+// serialized, still fails the run. A document already valid under pdf.PDF
+// polls a fixed number of times; cancelling on the last poll must fail it,
+// and one poll later it must succeed.
+func TestRunContextCancelledBeforeOutput(t *testing.T) {
+	data := buildOnePageDoc(t, func(_, _, _ pdf.PDFDict) {})
+	run := func(ctx context.Context) (ConvertResult, error) {
+		doc, err := pdf.OpenBytes(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer doc.Close()
+		return RunContext(ctx, doc, pdf.PDF, Options{})
+	}
+	const budget = 1 << 20
+	counter := newCountdownCtx(budget)
+	cr, err := run(counter)
+	if err != nil || !cr.Result.Valid {
+		t.Fatalf("uncancelled run: err=%v valid=%v", err, cr.Result.Valid)
+	}
+	cr.Close()
+	polls := budget - counter.left.Load()
+
+	if _, err := run(newCountdownCtx(polls - 1)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled on the last of %d polls: err = %v, want context.Canceled", polls, err)
+	}
+	cr, err = run(newCountdownCtx(polls))
+	if err != nil {
+		t.Fatalf("cancelled after the last poll: err = %v, want success", err)
+	}
+	cr.Close()
 }
 
 // TestRasterBackstopSkipsUnfixableIssues pins the no-op guard.
@@ -335,7 +433,7 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 		{dict: shared, mediaBox: box}, // the same object again
 		{dict: unrenderable, mediaBox: [4]float64{0, 0, 0, 0}},
 	}
-	drops, rasterized, changed := flattenPagesParallel(pages, []int{1, 2, 3, 4}, 72)
+	drops, rasterized, changed := flattenPagesParallel(context.Background(), pages, []int{1, 2, 3, 4}, 72)
 
 	if !changed {
 		t.Fatal("changed = false, want true")
@@ -348,7 +446,7 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 	}
 
 	// A batch with nothing in it reports no change rather than an empty rewrite.
-	if _, _, changed := flattenPagesParallel(nil, nil, 72); changed {
+	if _, _, changed := flattenPagesParallel(context.Background(), nil, nil, 72); changed {
 		t.Error("an empty page batch reported changed = true")
 	}
 }

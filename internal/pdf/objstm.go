@@ -13,10 +13,12 @@ type compressedXrefEntry struct {
 }
 
 // objStmEntry is one decoded object from a compressed object stream, paired
-// with the object number /N declares it as.
+// with the object number the stream's header declares it as. err is set when
+// that one object failed to parse; its neighbours are unaffected.
 type objStmEntry struct {
 	objNum int
 	value  PDFValue
+	err    error
 }
 
 // resolveCompressedObject returns the value of a compressed object recorded
@@ -26,10 +28,26 @@ func (d *Reader) resolveCompressedObject(ref PDFRef, entry compressedXrefEntry) 
 	if err != nil {
 		return nil, fmt.Errorf("object %d: %w", ref.ObjNum, err)
 	}
-	if entry.index < 0 || entry.index >= len(entries) {
-		return nil, fmt.Errorf("object %d: index %d out of range in object stream %d", ref.ObjNum, entry.index, entry.streamObjNum)
+	e, ok := findObjStmEntry(entries, entry.index, ref.ObjNum)
+	if !ok {
+		return nil, fmt.Errorf("object %d: not in object stream %d", ref.ObjNum, entry.streamObjNum)
 	}
-	return entries[entry.index].value, nil
+	return e.value, e.err
+}
+
+// findObjStmEntry returns the entry for objNum: the one at index when its
+// declared number agrees, else the first declaring objNum. A wrong xref index
+// must not hand back -- and stamp _ref on -- some other object.
+func findObjStmEntry(entries []objStmEntry, index, objNum int) (objStmEntry, bool) {
+	if index >= 0 && index < len(entries) && entries[index].objNum == objNum {
+		return entries[index], true
+	}
+	for _, e := range entries {
+		if e.objNum == objNum {
+			return e, true
+		}
+	}
+	return objStmEntry{}, false
 }
 
 // decodeObjStm decodes the object stream with object number streamObjNum
@@ -88,8 +106,12 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		if i+1 < len(pairs) {
 			end = first + pairs[i+1].offset
 		}
+		// One malformed object fails only itself, not every object the
+		// stream holds.
 		if start < 0 || end > len(data) || start > end {
-			return nil, fmt.Errorf("object stream %d: object %d has an out-of-range offset", streamObjNum, p.objNum)
+			entries = append(entries, objStmEntry{objNum: p.objNum,
+				err: fmt.Errorf("object stream %d: object %d has an out-of-range offset", streamObjNum, p.objNum)})
+			continue
 		}
 
 		objLex := NewLexerBytes(data[start:end], 0)
@@ -97,7 +119,9 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		val, err := parseObject(objLex, tok)
 		objLex.Release()
 		if err != nil {
-			return nil, fmt.Errorf("object stream %d: object %d: %w", streamObjNum, p.objNum, err)
+			entries = append(entries, objStmEntry{objNum: p.objNum,
+				err: fmt.Errorf("object stream %d: object %d: %w", streamObjNum, p.objNum, err)})
+			continue
 		}
 
 		// Compressed objects may not themselves be streams (ISO 32000-1
@@ -106,7 +130,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		// same as resolver.go's parseClassicReference does for
 		// classically-stored objects.
 		if dictVal, ok := val.(PDFDict); ok {
-			dictVal.Entries.Set("_ref", PDFRef{ObjNum: p.objNum})
+			dictVal.Entries.Set(RefKey, PDFRef{ObjNum: p.objNum})
 			val = dictVal
 		}
 

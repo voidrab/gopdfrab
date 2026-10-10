@@ -11,49 +11,54 @@ func newXRefTestFileReader(data []byte) fileSource {
 	return bytesFileSource{bytes.NewReader(data)}
 }
 
+// parseIndirectObjectAtBytes runs parseIndirectObjectAt over an in-memory file.
+func parseIndirectObjectAtBytes(data []byte, offset int64) (int, PDFDict, error) {
+	return parseIndirectObjectAt(newXRefTestFileReader(data), int64(len(data)), offset)
+}
+
 // TestParseIndirectObjectAtErrors covers every malformed-input error branch:
 // a bad seek offset, each malformed header token, a dictionary parse error,
 // a non-integer or negative /Length, a missing EOL after 'stream', and a
 // truncated stream body.
 func TestParseIndirectObjectAtErrors(t *testing.T) {
 	t.Run("seek error", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 0 obj")), -1); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("1 0 obj"), -1); err == nil {
 			t.Error("expected a seek error for a negative offset")
 		}
 	})
 
 	t.Run("bad object number", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("X 0 obj\n<<>>\nendobj\n")), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("X 0 obj\n<<>>\nendobj\n"), 0); err == nil {
 			t.Error("expected error for a non-integer object number")
 		}
 	})
 
 	t.Run("bad generation number", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 X obj\n<<>>\nendobj\n")), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("1 X obj\n<<>>\nendobj\n"), 0); err == nil {
 			t.Error("expected error for a non-integer generation number")
 		}
 	})
 
 	t.Run("missing obj keyword", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 0 XXX\n<<>>\nendobj\n")), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("1 0 XXX\n<<>>\nendobj\n"), 0); err == nil {
 			t.Error("expected error for a missing 'obj' keyword")
 		}
 	})
 
 	t.Run("missing dictionary", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 0 obj\n42\nendobj\n")), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("1 0 obj\n42\nendobj\n"), 0); err == nil {
 			t.Error("expected error when the object body is not a dictionary")
 		}
 	})
 
 	t.Run("dictionary parse error", func(t *testing.T) {
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 0 obj\n<< /A 1\nendobj\n")), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes([]byte("1 0 obj\n<< /A 1\nendobj\n"), 0); err == nil {
 			t.Error("expected error for an unterminated dictionary")
 		}
 	})
 
 	t.Run("no stream body: unread and return dict", func(t *testing.T) {
-		objNum, dict, err := parseIndirectObjectAt(newXRefTestFileReader([]byte("1 0 obj\n<< /A 1 >>\nendobj\n")), 0)
+		objNum, dict, err := parseIndirectObjectAtBytes([]byte("1 0 obj\n<< /A 1 >>\nendobj\n"), 0)
 		if err != nil {
 			t.Fatalf("parseIndirectObjectAt: %v", err)
 		}
@@ -64,28 +69,28 @@ func TestParseIndirectObjectAtErrors(t *testing.T) {
 
 	t.Run("Length not a direct integer", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Length /X >>\nstream\ndata\nendstream\nendobj\n")
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader(data), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes(data, 0); err == nil {
 			t.Error("expected error for a non-integer /Length")
 		}
 	})
 
 	t.Run("negative Length", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Length -1 >>\nstream\ndata\nendstream\nendobj\n")
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader(data), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes(data, 0); err == nil {
 			t.Error("expected error for a negative /Length")
 		}
 	})
 
 	t.Run("skipEOL hits EOF right after stream keyword", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Length 4 >>\nstream")
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader(data), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes(data, 0); err == nil {
 			t.Error("expected error when EOF follows the 'stream' keyword directly")
 		}
 	})
 
 	t.Run("truncated stream body", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Length 100 >>\nstream\nshort\nendstream\nendobj\n")
-		if _, _, err := parseIndirectObjectAt(newXRefTestFileReader(data), 0); err == nil {
+		if _, _, err := parseIndirectObjectAtBytes(data, 0); err == nil {
 			t.Error("expected error reading a stream body past EOF")
 		}
 	})
@@ -126,7 +131,7 @@ func itoa(n int) string {
 func TestTryParseXRefStream(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 3]")
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		dict, err := d.tryParseXRefStream(0, false)
 		if err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
@@ -150,6 +155,7 @@ func TestTryParseXRefStream(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 3]")
 		d := &Reader{
 			file:           newXRefTestFileReader(data),
+			size:           int64(len(data)),
 			xrefTable:      map[int]int64{1: 999},
 			compressedXref: map[int]compressedXrefEntry{2: {streamObjNum: 1, index: 1}},
 		}
@@ -173,7 +179,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("no stream body", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /XRef >>\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error: object has no stream body")
 		}
@@ -181,7 +187,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("not a cross-reference stream", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /Other /Length 4 >>\nstream\ndata\nendstream\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error: not a /Type /XRef object")
 		}
@@ -189,7 +195,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("decode failure", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /XRef /Filter /JPXDecode /Length 4 >>\nstream\ndata\nendstream\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error decoding an unsupported filter")
 		}
@@ -197,7 +203,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("malformed W", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /Index [0 3]") // no /W at all
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for missing /W")
 		}
@@ -205,7 +211,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("malformed Index", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0]") // odd length
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for a malformed /Index")
 		}
@@ -213,7 +219,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("truncated entry table", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 10]") // claims 10 entries, only has 3
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for a truncated entry table")
 		}
@@ -221,7 +227,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("zero-width /W fields", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [0 0 0] /Index [0 3]")
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for all-zero /W field widths")
 		}
@@ -240,7 +246,7 @@ func TestTryParseXRefStream(t *testing.T) {
 		data := append([]byte("1 0 obj\n"+body), raw...)
 		data = append(data, []byte("\nendstream\nendobj\n")...)
 
-		d := &Reader{file: newXRefTestFileReader(data)}
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
 		if _, err := d.tryParseXRefStream(0, false); err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
 		}
@@ -332,4 +338,38 @@ func TestBeUint(t *testing.T) {
 			t.Errorf("beUint(%v) = %d, want %d", tc.b, got, tc.want)
 		}
 	}
+}
+
+// TestXRefStreamHostileFields pins the two bounds on untrusted cross-reference
+// stream input: a bootstrap /Length past the end of the file errors before it
+// sizes an allocation, and an 8-byte offset field too large for int64 is
+// dropped rather than wrapped into a negative offset that panics the lexer.
+func TestXRefStreamHostileFields(t *testing.T) {
+	t.Run("bootstrap Length past EOF", func(t *testing.T) {
+		data := []byte("1 0 obj\n<< /Type /XRef /Length 99999999999 >>\nstream\nabc\nendstream\nendobj\n")
+		if _, _, err := parseIndirectObjectAtBytes(data, 0); err == nil {
+			t.Fatal("expected error for a /Length past the end of the file")
+		}
+	})
+
+	t.Run("offset field overflows int64", func(t *testing.T) {
+		raw := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // object 0: free
+			1, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, // object 1: offset 2^64-1
+		}
+		body := "<< /Type /XRef /W [1 8 1] /Index [0 2] /Length " + itoa(len(raw)) + " >>\nstream\n"
+		data := append([]byte("1 0 obj\n"+body), raw...)
+		data = append(data, []byte("\nendstream\nendobj\n")...)
+		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data)), xrefTable: map[int]int64{}}
+		if _, err := d.tryParseXRefStream(0, false); err != nil {
+			t.Fatalf("tryParseXRefStream: %v", err)
+		}
+		if off, ok := d.xrefTable[1]; ok {
+			t.Fatalf("xrefTable[1] = %d, want the overflowing entry dropped", off)
+		}
+		// Even if a negative offset reaches the resolver, it must error, not panic.
+		if _, err := d.parseClassicAt(PDFRef{ObjNum: 1}, -5); err == nil {
+			t.Fatal("expected error for a negative object offset")
+		}
+	})
 }

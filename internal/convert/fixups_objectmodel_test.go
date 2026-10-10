@@ -20,10 +20,10 @@ func TestIndirectRequiredFixerPromotesDirectDicts(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
-	if _, ok := info.Entries.Get("_ref").(pdf.PDFRef); !ok {
+	if _, ok := info.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok {
 		t.Error("direct trailer Info was not promoted to an indirect object")
 	}
-	if _, ok := custom.Entries.Lookup("_ref"); ok {
+	if _, ok := custom.Entries.Lookup(pdf.RefKey); ok {
 		t.Error("a key outside the indirect-required set must stay direct")
 	}
 
@@ -39,7 +39,7 @@ func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
 	direct := pdf.NewPDFDict()
 	direct.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	already := pdf.NewPDFDict()
-	already.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	already.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	owner.Entries.Set("Kids", pdf.PDFArray{direct, already, pdf.PDFInteger(1), pdf.PDFDict{}})
 	unlisted := pdf.NewPDFDict()
 	owner.Entries.Set("ZZ", pdf.PDFArray{unlisted})
@@ -51,13 +51,13 @@ func TestIndirectRequiredFixerPromotesArrayElements(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("Fix: changed=%v err=%v, want changed", changed, err)
 	}
-	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok {
 		t.Error("a direct dict inside an indirect-required array was not promoted")
 	}
-	if got := already.Entries.Get("_ref"); got != (pdf.PDFRef{ObjNum: 3}) {
+	if got := already.Entries.Get(pdf.RefKey); got != (pdf.PDFRef{ObjNum: 3}) {
 		t.Errorf("an already-indirect element's ref = %v, want untouched 3", got)
 	}
-	if _, ok := unlisted.Entries.Lookup("_ref"); ok {
+	if _, ok := unlisted.Entries.Lookup(pdf.RefKey); ok {
 		t.Error("an array under a key outside the element-indirect set must stay direct")
 	}
 
@@ -73,7 +73,7 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 	xmap := pdf.NewPDFDict()
 	direct := pdf.NewPDFDict()
 	xmap.Entries.Set("Fx0", direct)
-	xmap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	xmap.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XMap", xmap)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -84,7 +84,7 @@ func TestIndirectRequiredFixerTargetedWildcardKey(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok {
 		t.Error("the wildcard-keyed direct dict was not promoted")
 	}
 
@@ -99,9 +99,9 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 	xmap.Entries.Set("Scalar", pdf.PDFInteger(1))
 	xmap.Entries.Set("NilDict", pdf.PDFDict{})
 	already := pdf.NewPDFDict()
-	already.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	already.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
 	xmap.Entries.Set("Already", already)
-	xmap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	xmap.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XMap", xmap)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -124,7 +124,7 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
 	}
-	if got := already.Entries.Get("_ref"); got != (pdf.PDFRef{ObjNum: 7}) {
+	if got := already.Entries.Get(pdf.RefKey); got != (pdf.PDFRef{ObjNum: 7}) {
 		t.Errorf("Already ref = %v, want untouched 7", got)
 	}
 }
@@ -134,7 +134,7 @@ func TestIndirectRequiredFixerTargetedSkips(t *testing.T) {
 // a fully valid rewrite.
 func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
-		page.Entries.Del("_ref")
+		page.Entries.Del(pdf.RefKey)
 	})
 
 	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
@@ -158,7 +158,7 @@ func TestArrayElemTargetFailsClosed(t *testing.T) {
 	owner := pdf.NewPDFDict()
 	owner.Entries.Set("Arr", pdf.PDFArray{pdf.PDFInteger(1)})
 	owner.Entries.Set("NotArr", pdf.PDFInteger(1))
-	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	owner.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -187,7 +187,7 @@ func TestArrayElemTargetFailsClosed(t *testing.T) {
 func TestWrongValueTypeFixerCoercesArrayElement(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFString{Value: "0"}, pdf.PDFInteger(612), pdf.NewPDFDict()})
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("P", page)
 	ref := pdf.PDFRef{ObjNum: 3}
@@ -225,7 +225,7 @@ func TestDisallowedValueFixerRepairsArrayElements(t *testing.T) {
 	owner.Entries.Set("CS", pdf.PDFArray{pdf.PDFName{Value: "Bogus"}, pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(300), pdf.PDFString{Value: "x"}})
 	owner.Entries.Set("Gamma", pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFReal(1), pdf.PDFReal(1)})
 	owner.Entries.Set("WP", pdf.PDFArray{pdf.PDFReal(-1), pdf.PDFInteger(2), pdf.PDFReal(1.089), nil})
-	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	owner.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -274,7 +274,7 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 	direct := pdf.NewPDFDict()
 	owner.Entries.Set("MyArr", pdf.PDFArray{direct, pdf.PDFInteger(1)})
 	owner.Entries.Set("Nums", pdf.PDFArray{pdf.PDFInteger(1)})
-	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	owner.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("O", owner)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -291,7 +291,7 @@ func TestIndirectRequiredFixerPromotesTargetedArrayElement(t *testing.T) {
 	if err != nil || !changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (true, true, nil)", changed, handled, err)
 	}
-	if _, ok := direct.Entries.Get("_ref").(pdf.PDFRef); !ok {
+	if _, ok := direct.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok {
 		t.Error("the direct array element was not promoted")
 	}
 
@@ -313,7 +313,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 			pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceRGB"},
 			pdf.PDFInteger(300), pdf.PDFString{Value: "lookup"},
 		})
-		csMap.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+		csMap.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 		resources := pdf.NewPDFDict()
 		resources.Entries.Set("ColorSpace", csMap)
 		page.Entries.Set("Resources", resources)
@@ -366,7 +366,7 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("UserUnit", pdf.PDFReal(2))
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("P", page)
 	ref := pdf.PDFRef{ObjNum: 3}
@@ -378,7 +378,7 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 		objModelIssue(c, &ref, "PageObject", "UserUnit"),
 		// Skip cases: _ref and array-index detail keys, no detail, no ref,
 		// dead ref, already-absent key.
-		objModelIssue(c, &ref, "PageObject", "_ref"),
+		objModelIssue(c, &ref, "PageObject", pdf.RefKey),
 		objModelIssue(c, &ref, "ArrayOf_4Numbers", "2"),
 		pdf.NewError(c, nil, 0, &ref),
 		objModelIssue(c, nil, "PageObject", "UserUnit"),
@@ -392,7 +392,7 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 	if _, ok := page.Entries.Lookup("UserUnit"); ok {
 		t.Error("the reported post-1.4 key must be deleted")
 	}
-	if _, ok := page.Entries.Get("_ref").(pdf.PDFRef); !ok {
+	if _, ok := page.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok {
 		t.Error("_ref must never be deleted")
 	}
 
@@ -496,7 +496,7 @@ func objModelElemIssue(c pdf.Check, ref *pdf.PDFRef, typeName, entry, key string
 
 func TestMissingRequiredKeyFixerInjectsSingleEnum(t *testing.T) {
 	catalog := pdf.NewPDFDict()
-	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
 	ref := pdf.PDFRef{ObjNum: 1}
@@ -523,7 +523,7 @@ func TestMissingRequiredKeyFixerInjectsPinnedValue(t *testing.T) {
 	enc.Entries.Set("V", pdf.PDFInteger(1))
 	enc.Entries.Set("R", nil)
 	// an explicit null is equivalent to absent and must be overwritten
-	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	enc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Encrypt", enc)
 	ref := pdf.PDFRef{ObjNum: 3}
@@ -542,7 +542,7 @@ func TestMissingRequiredKeyFixerInjectsPinnedValue(t *testing.T) {
 func TestMissingRequiredKeyFixerSkipsUnsynthesizable(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("P", page)
 	pageRef := pdf.PDFRef{ObjNum: 2}
@@ -674,7 +674,7 @@ func TestWrongValueTypeFixerCoercesAndDeletes(t *testing.T) {
 	// wildcard row: text string
 	info.Entries.Set("CustomDict", pdf.NewPDFDict())
 	// uncoercible optional: delete
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -710,12 +710,12 @@ func TestWrongValueTypeFixerNeverDeletesRequiredOrConditional(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pdf.PDFInteger(3))
 	// required, uncoercible
-	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 	tr := pdf.NewPDFDict()
 	tr.Entries.Set("Root", catalog)
 	tr.Entries.Set("ID", pdf.PDFInteger(4))
 	// FileTrailer.ID: required-when-Encrypt, uncoercible
-	tr.Entries.Set("_ref", pdf.PDFRef{ObjNum: 8})
+	tr.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 8})
 	cref := pdf.PDFRef{ObjNum: 1}
 	tref := pdf.PDFRef{ObjNum: 8}
 	pass := &fixPass{trailer: &tr, objs: map[int]pdf.PDFValue{1: catalog, 8: tr}}
@@ -745,7 +745,7 @@ func TestWrongValueTypeFixerSkipsStaleAndUntargetable(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Trapped", pdf.PDFName{Value: "True"})
 	// already conformant
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -801,7 +801,7 @@ func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 	meta.Entries.Set("Type", pdf.PDFName{Value: "Bogus"})
 	// Metadata.Type has the single legal value /Metadata
 	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
-	meta.Entries.Set("_ref", pdf.PDFRef{ObjNum: 6})
+	meta.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 6})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("M", meta)
 	ref := pdf.PDFRef{ObjNum: 6}
@@ -827,7 +827,7 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	enc := pdf.NewPDFDict()
 	enc.Entries.Set("V", pdf.PDFInteger(2))
 	enc.Entries.Set("R", pdf.PDFInteger(2))
-	enc.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	enc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Encrypt", enc)
 	ref := pdf.PDFRef{ObjNum: 7}
@@ -846,7 +846,7 @@ func TestDisallowedValueFixerEnforcesPinnedValue(t *testing.T) {
 	// replacement, and R is required -- must stay a residual.
 	enc2 := pdf.NewPDFDict()
 	enc2.Entries.Set("R", pdf.PDFInteger(9))
-	enc2.Entries.Set("_ref", pdf.PDFRef{ObjNum: 8})
+	enc2.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 8})
 	pass = &fixPass{trailer: &trailer, objs: map[int]pdf.PDFValue{8: enc2}}
 	ref2 := pdf.PDFRef{ObjNum: 8}
 	issues = []pdf.PDFError{objModelIssue(pdf.Checks.ObjectModel.DisallowedValue, &ref2, "EncryptionStandard", "R")}
@@ -863,7 +863,7 @@ func TestDisallowedValueFixerClampsRanges(t *testing.T) {
 	gs := pdf.NewPDFDict()
 	gs.Entries.Set("CA", pdf.PDFReal(1.5))
 	gs.Entries.Set("ca", pdf.PDFReal(-0.25))
-	gs.Entries.Set("_ref", pdf.PDFRef{ObjNum: 9})
+	gs.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("G", gs)
 	ref := pdf.PDFRef{ObjNum: 9}
@@ -890,7 +890,7 @@ func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
 	// targeted path must still prefer negation over clamping to zero.
 	fd := pdf.NewPDFDict()
 	fd.Entries.Set("Descent", pdf.PDFInteger(205))
-	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	fd.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
@@ -909,7 +909,7 @@ func TestDisallowedValueFixerNegatesUntypedDescent(t *testing.T) {
 func TestDisallowedValueFixerDeletesOptionalEnum(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -1005,7 +1005,7 @@ func TestRepairDisallowedValueFallbacks(t *testing.T) {
 func TestDisallowedValueFixerSkipsNullValue(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Trapped", nil)
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Info", info)
 	ref := pdf.PDFRef{ObjNum: 5}
@@ -1027,7 +1027,7 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 	fd := pdf.NewPDFDict()
 	fd.Entries.Set("Flags", pdf.PDFInteger(32+1<<14))
 	// Nonsymbolic + reserved bit 15
-	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	fd.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
@@ -1053,12 +1053,12 @@ func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 	pad.HasStream = true
 	pad.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
 	pad.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
-	pad.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	pad.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trim := pdf.NewPDFDict()
 	trim.HasStream = true
 	trim.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}})
 	trim.Entries.Set("DecodeParms", pdf.PDFArray{nil, nil, nil})
-	trim.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	trim.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("A", pad)
 	trailer.Entries.Set("B", trim)
@@ -1092,7 +1092,7 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 	ff2.HasStream = true
 	fd.Entries.Set("FontFile", ff)
 	fd.Entries.Set("FontFile2", ff2)
-	fd.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	fd.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("FD", fd)
 	ref := pdf.PDFRef{ObjNum: 4}
@@ -1120,7 +1120,7 @@ func TestConstraintFixerClampsLength1(t *testing.T) {
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
 	ff.Entries.Set("Length1", pdf.PDFInteger(-5))
-	ff.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	ff.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("FF", ff)
 	ref := pdf.PDFRef{ObjNum: 4}
@@ -1142,7 +1142,7 @@ func TestConstraintFixerLeavesMustBeSetResidual(t *testing.T) {
 	btn := pdf.NewPDFDict()
 	btn.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 	btn.Entries.Set("Ff", pdf.PDFInteger(0))
-	btn.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	btn.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("F", btn)
 	ref := pdf.PDFRef{ObjNum: 4}
@@ -1276,14 +1276,14 @@ func TestConstraintHelperEdges(t *testing.T) {
 func TestRepairOutlineTreeSuppliesParentAndTitle(t *testing.T) {
 	// second <- (Prev) - first, and second holds a child of its own.
 	child := pdf.NewPDFDict()
-	child.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 
 	second := pdf.NewPDFDict()
-	second.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	second.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	second.Entries.Set("First", child)
 
 	first := pdf.NewPDFDict()
-	first.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	first.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 	first.Entries.Set("Title", pdf.PDFString{Value: "Abstract"})
 	first.Entries.Set("Prev", second)
 
@@ -1391,5 +1391,48 @@ func TestRepairTrailerInfoReplacesStream(t *testing.T) {
 	trailer.Entries.Set("Info", good)
 	if repairTrailerInfo(&trailer) {
 		t.Error("a valid Info dictionary was replaced")
+	}
+}
+
+// TestExpandFilterAbbrevs covers each value shape: a lone name, an array
+// mixing abbreviations with full names and non-names, an array with nothing
+// to expand, and a value that is neither.
+func TestExpandFilterAbbrevs(t *testing.T) {
+	name := func(s string) pdf.PDFName { return pdf.PDFName{Value: s} }
+	if got, ok := expandFilterAbbrevs(name("Fl")); !ok || got != name("FlateDecode") {
+		t.Errorf("/Fl -> %v, %v; want /FlateDecode, true", got, ok)
+	}
+	in := pdf.PDFArray{name("AHx"), name("FlateDecode"), pdf.PDFInteger(3)}
+	got, ok := expandFilterAbbrevs(in)
+	want := pdf.PDFArray{name("ASCIIHexDecode"), name("FlateDecode"), pdf.PDFInteger(3)}
+	if !ok || !pdf.EqualPDFValue(got, want) {
+		t.Errorf("%v -> %v, %v; want %v, true", in, got, ok, want)
+	}
+	if in[0] != name("AHx") {
+		t.Error("expandFilterAbbrevs modified its input array")
+	}
+	if _, ok := expandFilterAbbrevs(pdf.PDFArray{name("FlateDecode")}); ok {
+		t.Error("an array of full names reported a change")
+	}
+	if _, ok := expandFilterAbbrevs(pdf.PDFInteger(1)); ok {
+		t.Error("a non-name, non-array value reported a change")
+	}
+}
+
+// TestStreamDataKey pins which keys the schema fixers may never delete: only a
+// stream's decoding keys, and only on a stream.
+func TestStreamDataKey(t *testing.T) {
+	stream := pdf.NewPDFDict()
+	stream.HasStream = true
+	for _, key := range []string{"Filter", "DecodeParms", "F", "FFilter", "FDecodeParms"} {
+		if !streamDataKey(stream, key) {
+			t.Errorf("streamDataKey(stream, %q) = false, want true", key)
+		}
+	}
+	if streamDataKey(stream, "Length1") {
+		t.Error("streamDataKey(stream, \"Length1\") = true, want false")
+	}
+	if streamDataKey(pdf.NewPDFDict(), "Filter") {
+		t.Error("streamDataKey on a non-stream dict = true, want false")
 	}
 }

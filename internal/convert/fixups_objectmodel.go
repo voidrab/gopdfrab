@@ -72,16 +72,16 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	changed := false
 	promote := func(v pdf.PDFValue) {
 		child, ok := v.(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries.Get("_ref") != nil {
+		if !ok || child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
 			return
 		}
-		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: next})
+		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
 		next++
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == "_ref" {
+			if k == pdf.RefKey {
 				continue
 			}
 			if indirectRequiredKeys[k] {
@@ -101,10 +101,10 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
 	promote := func(child pdf.PDFDict) bool {
-		if child.Entries == nil || child.Entries.Get("_ref") != nil {
+		if child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
 			return false
 		}
-		child.Entries.Set("_ref", pdf.PDFRef{ObjNum: next})
+		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
 		next++
 		return true
 	}
@@ -163,7 +163,7 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	changed := false
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || detail.Key == "_ref" || isArrayIndexKey(detail.Key) {
+		if !ok || detail.Key == pdf.RefKey || isArrayIndexKey(detail.Key) {
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -726,7 +726,7 @@ func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool,
 			changed = true
 			continue
 		}
-		if deletableKey(kd) {
+		if deletableKey(kd) && !streamDataKey(d, detail.Key) {
 			d.Entries.Del(detail.Key)
 			changed = true
 		}
@@ -889,6 +889,12 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if key == "Descent" && negateDescent(d) {
 		return true // a descriptor without /Type, missed by the whole-graph pass
 	}
+	if key == "Filter" && d.HasStream {
+		if nv, ok := expandFilterAbbrevs(d.Entries.Get(key)); ok {
+			d.Entries.Set(key, nv)
+			return true
+		}
+	}
 	val := d.Entries.Get(key)
 	violated := false
 
@@ -928,11 +934,56 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 		}
 	}
 
-	if violated && deletableKey(kd) {
+	if violated && deletableKey(kd) && !streamDataKey(d, key) {
 		d.Entries.Del(key)
 		return true
 	}
 	return false
+}
+
+// streamDataKey reports whether key on d says how d's stream bytes are to be
+// read. Deleting one is never a repair: without its /Filter the compressed
+// bytes are read as they stand -- as content-stream operators, say -- so the
+// schema fixers leave such a violation as a residual instead.
+func streamDataKey(d pdf.PDFDict, key string) bool {
+	if !d.HasStream {
+		return false
+	}
+	switch key {
+	case "Filter", "DecodeParms", "F", "FFilter", "FDecodeParms":
+		return true
+	}
+	return false
+}
+
+// expandFilterAbbrevs rewrites inline-image filter abbreviations in a stream's
+// /Filter (a name or an array of names) to the full names a stream dictionary
+// must use: /Fl to /FlateDecode, /AHx to /ASCIIHexDecode, and so on. ok is
+// false when nothing was abbreviated.
+func expandFilterAbbrevs(v pdf.PDFValue) (pdf.PDFValue, bool) {
+	expand := func(n pdf.PDFName) (pdf.PDFName, bool) {
+		if info, ok := pdf.LookupFilter(n.Value); ok && info.Name != n.Value {
+			return pdf.PDFName{Value: info.Name}, true
+		}
+		return n, false
+	}
+	switch f := v.(type) {
+	case pdf.PDFName:
+		return expand(f)
+	case pdf.PDFArray:
+		out := make(pdf.PDFArray, len(f))
+		changed := false
+		for i, e := range f {
+			out[i] = e
+			if n, ok := e.(pdf.PDFName); ok {
+				if full, ok := expand(n); ok {
+					out[i], changed = full, true
+				}
+			}
+		}
+		return out, changed
+	}
+	return v, false
 }
 
 // repairDisallowedElement applies the schema-derived repair to a DisallowedValue array
@@ -943,6 +994,14 @@ func repairDisallowedElement(p *fixPass, iss pdf.PDFError) bool {
 	arr, kd, idx, ok := arrayElemTarget(p, iss)
 	if !ok || arr[idx] == nil {
 		return false // unresolvable, or a null element (null matches everything)
+	}
+	if detail, _ := iss.ObjModelDetail(); detail.Entry == "Filter" {
+		if n, isName := arr[idx].(pdf.PDFName); isName {
+			if full, ok := expandFilterAbbrevs(n); ok {
+				arr[idx] = full
+				return true
+			}
+		}
 	}
 	if !kd.Predicated.Values && len(kd.PossibleValues) == 1 {
 		if s, ok := verify.EnumString(arr[idx]); ok && s != kd.PossibleValues[0] {

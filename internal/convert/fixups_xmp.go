@@ -167,7 +167,7 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 	// is dropped (real-world producers park integers/names here, e.g. /SPDF).
 	info.Entries.DeleteFunc(func(key string, v pdf.PDFValue) bool {
 		switch key {
-		case "_ref", "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
+		case pdf.RefKey, "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
 			"Trapped", "CreationDate", "ModDate":
 			return false
 		}

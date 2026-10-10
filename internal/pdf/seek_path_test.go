@@ -38,7 +38,7 @@ func openSeekFile(t *testing.T, data []byte) *Reader {
 // must succeed or fail exactly as the byte-slice path does and expose the same
 // full bytes, driven from both an in-memory source (OpenBytesSeek) and a real
 // *os.File, on clean, generated, and damaged inputs. The damaged case exercises
-// the ReadAt-backed brute-force recovery scan (scanForObjectHeader/fullBytes).
+// the chunked ReadAt-backed brute-force recovery scan (scanObjectHeaders).
 // Deep graph-content equivalence is proven end-to-end by the verify-result
 // parity test (internal/verify), which is cycle-safe where a page graph is not.
 func TestSeekPathParsesLikeBytes(t *testing.T) {

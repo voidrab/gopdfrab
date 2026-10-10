@@ -125,25 +125,31 @@ func (l *Lexer) NextToken() Token {
 		return t
 	}
 
-	l.skipWhitespace()
-
-	ch, err := l.readByte()
-	if err == io.EOF {
-		return Token{Type: TokenEOF}
-	}
-	if err != nil {
-		return Token{Type: TokenError, Value: err.Error()}
-	}
-
-	switch ch {
-	case '%':
+	// Skip whitespace and comments in a loop: recursing once per comment
+	// made stack depth grow with the number of consecutive comment lines.
+	var ch byte
+	for {
+		l.skipWhitespace()
+		var err error
+		ch, err = l.readByte()
+		if err == io.EOF {
+			return Token{Type: TokenEOF}
+		}
+		if err != nil {
+			return Token{Type: TokenError, Value: err.Error()}
+		}
+		if ch != '%' {
+			break
+		}
 		for {
 			b, err := l.readByte()
 			if err != nil || b == '\n' || b == '\r' {
 				break
 			}
 		}
-		return l.NextToken()
+	}
+
+	switch ch {
 	case '/':
 		return l.readName()
 	case '(':

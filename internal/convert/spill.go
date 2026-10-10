@@ -83,6 +83,17 @@ func (s *spillWriter) spill() error {
 	return nil
 }
 
+// abort discards the writer's output, removing the temp file if it spilled.
+// For a failed write; the writer must not be used afterwards.
+func (s *spillWriter) abort() {
+	if s.spilled {
+		s.file.Close()
+		os.Remove(s.path)
+		s.spilled = false
+	}
+	s.buf = bytes.Buffer{}
+}
+
 // finish seals the writer into a backing, flushing and closing the temp file if
 // one was used. The writer must not be used afterwards.
 func (s *spillWriter) finish() (*outputBacking, error) {

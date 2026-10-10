@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -28,11 +28,10 @@ func Verify(d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
 	return VerifyContext(context.Background(), d, p)
 }
 
-// VerifyContext is Verify honouring ctx cancellation. Verification is bounded
-// by the parser's resource caps, so ctx is checked at entry; callers needing
-// finer cancellation should prefer the batch or convert entry points, which
-// check per file and per fix/raster pass.
-func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (pdf.Result, error) {
+// VerifyContext is Verify honouring ctx cancellation: ctx is checked at entry
+// and polled during the graph walk, and a cancelled run returns ctx.Err().
+func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Result, err error) {
+	defer pdf.RecoverAsError(&err)
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -45,7 +44,10 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (pdf.Resu
 
 	var issues []pdf.PDFError
 	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		issues = verifyPdfA1b(d, p)
+		issues = verifyPdfA1bParts(ctx, d, p).Issues()
+	}
+	if err := ctx.Err(); err != nil {
+		return pdf.Result{}, err
 	}
 	issues = filterByProfile(issues, p)
 
@@ -90,7 +92,8 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // profile-filtered. Convert's fix loop uses it so its final output
 // verification can reuse the last in-loop graph verdicts (see
 // serializeAndVerify) while re-running only the byte-level checks.
-func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
+	defer pdf.RecoverAsError(&err)
 	if p == nil {
 		return Parts{}, fmt.Errorf("nil profile")
 	}
@@ -99,7 +102,7 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 	}
 	var pt Parts
 	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		pt = verifyPdfA1bParts(d, p)
+		pt = verifyPdfA1bParts(context.Background(), d, p)
 	}
 	return pt.filter(p), nil
 }
@@ -109,7 +112,8 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
 // It exists for convert's final output verification: when the serialized
 // graph is byte-for-byte the graph the last in-loop verify already checked,
 // only these byte-level checks can produce new findings against the output.
-func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (Parts, error) {
+func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
+	defer pdf.RecoverAsError(&err)
 	if p == nil {
 		return Parts{}, fmt.Errorf("nil profile")
 	}
@@ -133,43 +137,31 @@ func ResultFromIssues(p *pdf.Profile, issues []pdf.PDFError) pdf.Result {
 	return pdf.Result{Type: p.Level, Valid: true}
 }
 
-// VerifyAll opens and verifies multiple PDF files concurrently.
+// VerifyAll opens and verifies multiple PDF files concurrently on
+// runtime.NumCPU workers.
 func VerifyAll(paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
-	return VerifyAllContext(context.Background(), paths, p, password)
+	return VerifyAllContext(context.Background(), paths, p, password, 0)
 }
 
-// VerifyAllContext is VerifyAll honouring ctx cancellation: a cancelled ctx
-// stops dispatching further files and records ctx.Err() for those not started.
-func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte) ([]pdf.FileResult[pdf.Result], error) {
+// VerifyAllContext is VerifyAll honouring ctx cancellation, on up to workers
+// goroutines (0 means runtime.NumCPU): a cancelled ctx stops dispatching
+// further files and records ctx.Err() for those not started.
+func VerifyAllContext(ctx context.Context, paths []string, p *pdf.Profile, password []byte, workers int) ([]pdf.FileResult[pdf.Result], error) {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
 	results := make([]pdf.FileResult[pdf.Result], len(paths))
-
-	workers := min(runtime.NumCPU(), len(paths))
-	if workers < 1 {
-		return results, nil
-	}
-
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for range workers {
-		go func() {
-			defer wg.Done()
-			for i := range jobs {
-				res, err := VerifyFileContext(ctx, paths[i], p, password)
-				results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
-			}
-		}()
-	}
+	started := make([]bool, len(paths))
+	pdf.ParallelFor(ctx, len(paths), workers, func(i int) {
+		started[i] = true
+		res, err := VerifyFileContext(ctx, paths[i], p, password)
+		results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Result: res, Err: err}
+	})
 	for i := range paths {
-		if err := ctx.Err(); err != nil {
-			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: err}
-			continue
+		if !started[i] {
+			results[i] = pdf.FileResult[pdf.Result]{Path: paths[i], Err: ctx.Err()}
 		}
-		jobs <- i
 	}
-	close(jobs)
-	wg.Wait()
-
 	return results, nil
 }
 
@@ -245,10 +237,6 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 
 // PDF/A-1b (ISO 19005-1:2005)
 
-func verifyPdfA1b(d *pdf.Reader, p *pdf.Profile) []pdf.PDFError {
-	return verifyPdfA1bParts(d, p).Issues()
-}
-
 // structuralPreIssues runs the byte-level checks that lead the A-1b issue
 // list: file header, linearized ID consistency, trailer, and xref format.
 func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
@@ -267,7 +255,9 @@ func structuralPostIssues(d *pdf.Reader) []pdf.PDFError {
 	return append(issues, d.StructErrors()...)
 }
 
-func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
+// verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
+// partial parts; the caller checks run.Err() and discards them.
+func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -310,10 +300,14 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 		return pt
 	}
 
+	if run.Err() != nil {
+		return pt
+	}
 	ctx := &ValidationContext{
 		PageIndex:  pageIndex,
 		reader:     d,
 		schemaOnly: schemaOnly,
+		run:        run,
 	}
 	if !schemaOnly {
 		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
@@ -343,6 +337,9 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	}
 
 	verifyDocument(graph, ctx)
+	if ctx.stopped() || run.Err() != nil {
+		return pt
+	}
 	issues = append(issues, ctx.errs...)
 	if schemaOnly {
 		pt.Graph = issues
@@ -374,21 +371,32 @@ func verifyPdfA1bParts(d *pdf.Reader, p *pdf.Profile) Parts {
 	return pt
 }
 
-func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
-	xrefTable := d.XRefTable()
-	if len(xrefTable) == 0 {
-		return []pdf.PDFError{pdf.NewError(
-			pdf.Checks.Structure.IndirectObjectsExceeded,
-			[]error{fmt.Errorf("number of indirect objects exceeds 8,388,607")},
-			1,
-			nil,
-		)}
+// indirectObjectLimit reports n indirect objects against maxIndirectObjects.
+func indirectObjectLimit(n int) []pdf.PDFError {
+	if n <= maxIndirectObjects {
+		return nil
 	}
+	return []pdf.PDFError{pdf.NewError(
+		pdf.Checks.Structure.IndirectObjectsExceeded,
+		[]error{fmt.Errorf("%d indirect objects exceed the limit of 8,388,607", n)},
+		1,
+		nil,
+	)}
+}
 
-	for objNum := range d.XRefTable() {
+// maxIndirectObjects is the PDF/A-1 implementation limit on indirect objects
+// in a file (6.1.12, ISO 32000-1 Annex C).
+const maxIndirectObjects = 8388607
+
+func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
+	issues := indirectObjectLimit(d.IndirectObjectCount())
+
+	// Resolution records framing diagnostics as a side effect, so walk in
+	// object order: map order would make StructErrors nondeterministic.
+	for _, objNum := range slices.Sorted(maps.Keys(d.XRefTable())) {
 		d.ResolveReference(pdf.PDFRef{ObjNum: objNum})
 	}
-	return nil
+	return issues
 }
 
 // 6.1 File Structure
@@ -751,7 +759,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
 	var typeErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == "_ref" || !slices.Contains(allowedFields, k) {
+		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
 			continue
 		}
 		switch v.(type) {
@@ -774,7 +782,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// PDF Reference 4th ed. are checked for emptiness.
 	var emptyErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == "_ref" || !slices.Contains(allowedFields, k) {
+		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
 			continue
 		}
 		var s string
@@ -828,7 +836,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 		if node == nil {
 			return
 		}
-		if depth > maxWalkDepth {
+		if depth > maxWalkDepth || ctx.stopped() {
 			return
 		}
 
@@ -850,7 +858,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-				if ref, ok := v.Entries.Get("_ref").(pdf.PDFRef); ok {
+				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 			}
@@ -891,7 +899,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			keysBase := len(ctx.keyScratch)
 			for _, k := range ctx.sortedKeys(v.Entries) {
-				if k == "_ref" {
+				if k == pdf.RefKey {
 					// Synthetic bookkeeping, not a PDF entry.
 					continue
 				}
@@ -1068,7 +1076,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				// decode failure here would be reported as document-level.
 				// Restored afterwards so nothing outside the page inherits it.
 				prevPage := ctx.CurrentPage
-				if ref, ok := val.Entries.Get("_ref").(pdf.PDFRef); ok {
+				if ref, ok := val.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 				resources := inheritedResources(val)
@@ -1139,7 +1147,7 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
 			for k, sv := range v.Entries.All() {
-				if k == "_ref" {
+				if k == pdf.RefKey {
 					continue
 				}
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
@@ -1475,7 +1483,7 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 	case pdf.PDFDict:
 		// 6.1.12: maximum number of entries in a dictionary is 4095.
 		realCount := v.Entries.Len()
-		if _, has := v.Entries.Lookup("_ref"); has {
+		if _, has := v.Entries.Lookup(pdf.RefKey); has {
 			realCount--
 		}
 		if realCount > 4095 {

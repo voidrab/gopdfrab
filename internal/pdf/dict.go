@@ -3,6 +3,7 @@ package pdf
 import (
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -43,20 +44,10 @@ func NewDictCap(n int) Dict {
 // result does not depend on map iteration order.
 func DictOf(m map[string]PDFValue) Dict {
 	d := NewDictCap(len(m))
-	for _, k := range slices.Sorted(maps_Keys(m)) {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
 		d.Set(k, m[k])
 	}
 	return d
-}
-
-func maps_Keys(m map[string]PDFValue) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 // find returns the index of key k, or -1.
@@ -96,6 +87,11 @@ func (d Dict) Lookup(k string) (PDFValue, bool) {
 }
 
 // Set stores v under k, replacing any existing value and otherwise appending.
+//
+// Set panics on a nil Dict: there is no receiver to allocate into. The zero
+// PDFDict has nil Entries, so a PDFDict returned alongside an error must not
+// be written to; build a writable one with NewPDFDict. (A panic reaching a
+// public entry point is returned as ErrInternal, not a crash.)
 func (d Dict) Set(k string, v PDFValue) {
 	if d == nil {
 		panic("pdf: Set on a nil Dict")
@@ -112,15 +108,24 @@ func (d Dict) Set(k string, v PDFValue) {
 	}
 }
 
-// Del removes k if present, preserving the order of the rest.
+// Del removes k if present, preserving the order of the rest. It costs
+// O(entries after k); to remove several keys, DeleteFunc does it in one pass.
 func (d Dict) Del(k string) {
 	i := d.find(k)
 	if i < 0 {
 		return
 	}
-	d.ent = append(d.ent[:i], d.ent[i+1:]...)
+	last := len(d.ent) - 1
+	copy(d.ent[i:], d.ent[i+1:])
+	d.ent[last] = DictEntry{} // do not keep the shifted-out value alive
+	d.ent = d.ent[:last]
 	if d.idx != nil {
-		d.reindex()
+		// Only the entries after i moved; renumber those in place rather
+		// than rebuilding the whole index map.
+		delete(d.idx, k)
+		for j := i; j < len(d.ent); j++ {
+			d.idx[d.ent[j].Key] = j
+		}
 	}
 }
 

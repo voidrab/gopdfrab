@@ -344,7 +344,7 @@ func objModelFixture(t *testing.T) []byte {
 	font.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
 	font.Entries.Set("BaseFont", pdf.PDFName{Value: "Helvetica"})
 	font.Entries.Set("FontDescriptor", desc)
-	font.Entries.Set("_ref", pdf.PDFRef{ObjNum: 5})
+	font.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
 
 	fontMap := pdf.NewPDFDict()
 	fontMap.Entries.Set("F1", font)
@@ -354,12 +354,12 @@ func objModelFixture(t *testing.T) []byte {
 	contents := pdf.NewPDFDict()
 	contents.HasStream = true
 	contents.RawStream = []byte("BT /F1 12 Tf 72 720 Td (x) Tj ET")
-	contents.Entries.Set("_ref", pdf.PDFRef{ObjNum: 4})
+	contents.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set("_ref", pdf.PDFRef{ObjNum: 2})
+	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
@@ -367,13 +367,13 @@ func objModelFixture(t *testing.T) []byte {
 	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
 	page.Entries.Set("Resources", resources)
 	page.Entries.Set("Contents", contents)
-	page.Entries.Set("_ref", pdf.PDFRef{ObjNum: 3})
+	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set("_ref", pdf.PDFRef{ObjNum: 1})
+	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)

@@ -8,9 +8,11 @@ import (
 	"unsafe"
 )
 
-// ValuePointer returns the identity pointer of a PDFDict's Entries map or a
+// ValuePointer returns the identity pointer of a PDFDict's Entries or a
 // PDFArray's backing slice, used to detect cycles and dedupe visits when
-// walking the object graph.
+// walking the object graph. Other pointer-shaped values (maps, slices,
+// pointers) report their pointer; anything without an identity -- a scalar,
+// a nil interface -- reports 0 rather than panicking.
 func ValuePointer(v PDFValue) uintptr {
 	switch x := v.(type) {
 	case Dict:
@@ -19,15 +21,20 @@ func ValuePointer(v PDFValue) uintptr {
 	case PDFArray:
 		// A slice header starts with the data pointer.
 		return *(*uintptr)(unsafe.Pointer(&x))
-	default:
-		return reflect.ValueOf(v).Pointer()
+	case nil:
+		return 0
 	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return rv.Pointer()
+	}
+	return 0
 }
 
 // ArrayPointer is ValuePointer for a PDFArray, without the interface
 // parameter. A slice is three words, so passing one to ValuePointer's PDFValue
 // parameter boxes it onto the heap -- once per array per graph walk, which the
-// walkers do constantly. A map is pointer-shaped and rides in the interface
+// walkers do constantly. A Dict is pointer-shaped and rides in the interface
 // directly, so dicts need no such variant.
 func ArrayPointer(a PDFArray) uintptr {
 	return *(*uintptr)(unsafe.Pointer(&a))

@@ -52,7 +52,7 @@ Both subcommands take:
 | Flag | Meaning |
 |---|---|
 | `--profile` | `pdfa1b` (default), `legacy1b`, or `pdf` |
-| `--password` | password for an encrypted input |
+| `--password` | password for an encrypted input. It is visible to other users in `ps`; set `GOPDFRAB_PASSWORD` instead to keep it out of the process list |
 | `--max-decoded-mb` | cap a single stream's decoded output in MB (0 = default 256) |
 | `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64) |
 | `--json` | emit machine-readable JSON |
@@ -204,6 +204,7 @@ inspecting message text:
 | `gopdfrab.ErrEncrypted` | an encryption scheme gopdfrab does not implement |
 | `gopdfrab.ErrPasswordRequired` | a correct password is required to open the file |
 | `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced |
+| `gopdfrab.ErrInternal` | a defect in gopdfrab itself, recovered from a panic; please report it with the input file |
 
 An individual object that fails to parse — a wrong cross-reference offset, a
 corrupt body — does not fail the whole document. The object is re-located by

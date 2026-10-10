@@ -52,7 +52,7 @@ func parseFunction(v PDFValue, depth int) (Function, error) {
 	}
 }
 
-// floatArray converts a PDFArray of PDFInteger/PDFReal values to []float64.
+// FloatArray converts a PDFArray of PDFInteger/PDFReal values to []float64.
 func FloatArray(v PDFValue) ([]float64, error) {
 	arr, ok := v.(PDFArray)
 	if !ok {
@@ -69,7 +69,7 @@ func FloatArray(v PDFValue) ([]float64, error) {
 	return out, nil
 }
 
-// pdfNumberToFloat extracts a float64 from a PDFInteger/PDFReal value, the
+// PDFNumberToFloat extracts a float64 from a PDFInteger/PDFReal value, the
 // float counterpart of pdfNumberToInt.
 func PDFNumberToFloat(v PDFValue) (float64, bool) {
 	switch x := v.(type) {
@@ -385,7 +385,7 @@ func (f *sampledFunction) sampleAt(idx []int) []float64 {
 	return out
 }
 
-// readBits reads an n-bit (n<=32) big-endian unsigned field starting at the
+// ReadBits reads an n-bit (n<=32) big-endian unsigned field starting at the
 // given bit offset, the sample-unpacking primitive shared by Type 0
 // functions and image sample decoding.
 func ReadBits(data []byte, bitOffset, n int) uint64 {

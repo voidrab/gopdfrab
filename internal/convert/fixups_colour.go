@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"runtime"
@@ -140,7 +141,7 @@ func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (boo
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == "_ref" {
+			if k == pdf.RefKey {
 				continue
 			}
 			visit(v)
@@ -278,26 +279,11 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 	})
 
 	locals := make([]map[string]int, len(jobs))
-	if workers := min(runtime.NumCPU(), len(jobs)); workers > 0 {
-		ch := make(chan int)
-		var wg sync.WaitGroup
-		wg.Add(workers)
-		for range workers {
-			go func() {
-				defer wg.Done()
-				for i := range ch {
-					local := map[string]int{}
-					scanContent(jobs[i].dict, jobs[i].resources, local)
-					locals[i] = local
-				}
-			}()
-		}
-		for i := range jobs {
-			ch <- i
-		}
-		close(ch)
-		wg.Wait()
-	}
+	pdf.ParallelFor(context.Background(), len(jobs), runtime.NumCPU(), func(i int) {
+		local := map[string]int{}
+		scanContent(jobs[i].dict, jobs[i].resources, local)
+		locals[i] = local
+	})
 	for _, l := range locals {
 		for k, v := range l {
 			counts[k] += v
@@ -401,42 +387,12 @@ func (iccBasedProfileFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, e
 // collects before editing so nothing is rewritten mid-walk.
 func collectICCBasedSpaces(trailer pdf.PDFDict) []pdf.PDFArray {
 	var out []pdf.PDFArray
-	visited := map[uintptr]bool{}
-
-	var walk func(v pdf.PDFValue)
-	consider := func(child pdf.PDFValue) {
+	walkGraph(trailer, map[uintptr]bool{}, nil, func(child pdf.PDFValue) (pdf.PDFValue, bool) {
 		if arr, ok := child.(pdf.PDFArray); ok && isICCBasedSpace(arr) {
 			out = append(out, arr)
 		}
-	}
-	walk = func(v pdf.PDFValue) {
-		switch val := v.(type) {
-		case pdf.PDFDict:
-			ptr := pdf.ValuePointer(val.Entries)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			for k, child := range val.Entries.All() {
-				if k == "_ref" || k == "_dirty" {
-					continue
-				}
-				consider(child)
-				walk(child)
-			}
-		case pdf.PDFArray:
-			ptr := pdf.ArrayPointer(val)
-			if visited[ptr] {
-				return
-			}
-			visited[ptr] = true
-			for _, child := range val {
-				consider(child)
-				walk(child)
-			}
-		}
-	}
-	walk(trailer)
+		return nil, false
+	})
 	return out
 }
 

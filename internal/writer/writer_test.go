@@ -92,27 +92,27 @@ func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want s
 // both sides of the cycle rather than being duplicated.
 func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	contents := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 10}, "Length": pdf.PDFInteger(4)}),
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 10}, "Length": pdf.PDFInteger(4)}),
 		HasStream: true,
 		RawStream: []byte("q\nQ\n"),
 	}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref":     pdf.PDFRef{ObjNum: 3},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 3},
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(200), pdf.PDFInteger(300)},
 		"Contents": contents,
 	})}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref":  pdf.PDFRef{ObjNum: 2},
-		"Type":  pdf.PDFName{Value: "Pages"},
-		"Kids":  pdf.PDFArray{page},
-		"Count": pdf.PDFInteger(1),
+		pdf.RefKey: pdf.PDFRef{ObjNum: 2},
+		"Type":     pdf.PDFName{Value: "Pages"},
+		"Kids":     pdf.PDFArray{page},
+		"Count":    pdf.PDFInteger(1),
 	})}
 	page.Entries.Set("Parent", pages) // cycle: Page -> Pages -> Kids[0] -> Page
 	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref":  pdf.PDFRef{ObjNum: 1},
-		"Type":  pdf.PDFName{Value: "Catalog"},
-		"Pages": pages,
+		pdf.RefKey: pdf.PDFRef{ObjNum: 1},
+		"Type":     pdf.PDFName{Value: "Catalog"},
+		"Pages":    pages,
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": catalog,
@@ -157,8 +157,8 @@ func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	if !ok {
 		t.Fatalf("Root/Pages did not resolve to a dict")
 	}
-	parentRef, _ := gotParent.Entries.Get("_ref").(pdf.PDFRef)
-	pagesRef, _ := gotPages.Entries.Get("_ref").(pdf.PDFRef)
+	parentRef, _ := gotParent.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	pagesRef, _ := gotPages.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	if parentRef != pagesRef {
 		t.Errorf("Page/Parent _ref = %v, want it to match Root/Pages _ref = %v (shared object was duplicated)", parentRef, pagesRef)
 	}
@@ -169,22 +169,22 @@ func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 // back to the original content.
 func TestWriterRoundTripDirtyStream(t *testing.T) {
 	contents := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}}),
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 5}}),
 	}
 	if err := SetStreamFlate(&contents, []byte("0 0 0 rg 0 0 100 100 re f")); err != nil {
 		t.Fatalf("SetStreamFlate: %v", err)
 	}
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref":     pdf.PDFRef{ObjNum: 2},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 2},
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(100)},
 		"Contents": contents,
 	})}
 	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref":  pdf.PDFRef{ObjNum: 1},
-		"Type":  pdf.PDFName{Value: "Catalog"},
-		"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 1},
+		"Type":     pdf.PDFName{Value: "Catalog"},
+		"Pages":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})},
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 
@@ -329,7 +329,7 @@ func TestIdentityOfPointerBranch(t *testing.T) {
 // writeDictEntries, writeValue, writeOperand, and writeIndirectObject by
 // failing the underlying writer at every successive offset.
 func TestWriteErrorPropagation(t *testing.T) {
-	target := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 5}})}
+	target := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 5}})}
 	wr := &pdfWriter{
 		numbers: map[objectIdentity]int{identityOf(target): 1},
 		visited: map[uintptr]bool{},
@@ -352,11 +352,11 @@ func TestWriteErrorPropagation(t *testing.T) {
 	}
 
 	streamObj := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 1}}),
+		Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 1}}),
 		HasStream: true, RawStream: []byte("xyz"),
 	}
 	plainObj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "X"},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "X"},
 	})}
 	for n := 0; n < 25; n++ {
 		_ = wr.writeIndirectObject(&countingWriter{w: &errAfter{n: n}}, 1, streamObj)
@@ -384,7 +384,7 @@ func TestWriteOperandShapes(t *testing.T) {
 		{"array", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFName{Value: "X"}}, "[1 /X]"},
 		{"nested-array", pdf.PDFArray{pdf.PDFArray{pdf.PDFInteger(1)}}, "[[1]]"},
 		{"dict", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"A": pdf.PDFInteger(1), "_ref": pdf.PDFRef{ObjNum: 9}, "_dirty": pdf.PDFBoolean(true),
+			"A": pdf.PDFInteger(1), pdf.RefKey: pdf.PDFRef{ObjNum: 9},
 		})}, "<< /A 1 >>"},
 	}
 	for _, c := range cases {
@@ -417,7 +417,7 @@ func TestWriteValueErrorBranches(t *testing.T) {
 		t.Error("expected error writing an unresolved PDFRef")
 	}
 
-	undiscovered := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 7}})}
+	undiscovered := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 7}})}
 	if err := wr.writeValue(cw, undiscovered); err == nil {
 		t.Error("expected error writing an undiscovered indirect dict")
 	}
@@ -475,12 +475,12 @@ func TestWriteContentStreamErrors(t *testing.T) {
 // 1-based number and a matching _ref.
 func TestNumberObjects(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
 	})}
 	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
+		pdf.RefKey: pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
 		"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"_ref": pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
+			pdf.RefKey: pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
 			"Kids": pdf.PDFArray{page},
 		})},
 	})}
@@ -495,8 +495,8 @@ func TestNumberObjects(t *testing.T) {
 		if !ok {
 			t.Fatalf("objs[%d] is not a dict", n)
 		}
-		if ref, _ := d.Entries.Get("_ref").(pdf.PDFRef); ref.ObjNum != n {
-			t.Errorf("objs[%d] _ref = %v, want ObjNum %d", n, d.Entries.Get("_ref"), n)
+		if ref, _ := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ref.ObjNum != n {
+			t.Errorf("objs[%d] _ref = %v, want ObjNum %d", n, d.Entries.Get(pdf.RefKey), n)
 		}
 	}
 }
@@ -564,16 +564,16 @@ func assertFlateDecodes(t *testing.T, d pdf.PDFDict, want []byte) {
 func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 	build := func() pdf.PDFDict {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"_ref": pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
+			pdf.RefKey: pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Page"},
 			"Contents": pdf.PDFDict{
-				Entries:   pdf.DictOf(map[string]pdf.PDFValue{"_ref": pdf.PDFRef{ObjNum: 4}}),
+				Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 4}}),
 				HasStream: true, RawStream: []byte("BT ET"),
 			},
 		})}
 		catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"_ref": pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
+			pdf.RefKey: pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
 			"Pages": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"_ref": pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
+				pdf.RefKey: pdf.PDFRef{ObjNum: 3}, "Type": pdf.PDFName{Value: "Pages"},
 				"Kids": pdf.PDFArray{page},
 			})},
 		})}

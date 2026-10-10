@@ -16,7 +16,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	profileName := fs.String("profile", "pdfa1b", "target profile: pdfa1b, legacy1b, or pdf")
-	password := fs.String("password", "", "password for an encrypted input")
+	password := fs.String("password", "", passwordFlagHelp)
 	dpi := fs.Int("dpi", 0, "raster fallback resolution in DPI (0 = default 150)")
 	maxIter := fs.Int("max-iterations", 0, "verify/fix loop bound (0 = default 4)")
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
@@ -42,9 +42,13 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return exitError
 	}
 
+	if fs.NArg() > 2 || (fs.NArg() == 2 && *outPath != "") {
+		fmt.Fprintln(stderr, "gopdfrab: give the output path once, as -o or as the second argument")
+		return exitError
+	}
 	input := fs.Arg(0)
 	output := *outPath
-	if output == "" && fs.NArg() >= 2 {
+	if output == "" && fs.NArg() == 2 {
 		output = fs.Arg(1)
 	}
 	if output == "" {

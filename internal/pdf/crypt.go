@@ -100,6 +100,8 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	switch h.v {
 	case 1:
 		h.keyLen = 5
+	case 4:
+		h.keyLen = v4KeyLen(enc)
 	case 5:
 		h.keyLen = 32
 	default:
@@ -126,6 +128,29 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	return h, nil
 }
 
+// v4KeyLen is the file key length in bytes for a V4 handler. The key length
+// belongs to the crypt filter: its /Length, which the spec gives in bytes but
+// writers also give in bits (so a value of at most 16 is read as bytes). The
+// Encrypt dict's own /Length, in bits, is the fallback. With neither, the
+// key is 128 bits -- the only size AESV2 has, and what V4 writers produce --
+// not the 40-bit default of V1-3, which failed authentication outright.
+func v4KeyLen(enc PDFDict) int {
+	cf, _ := enc.Entries.Get("CF").(PDFDict)
+	stmf, _ := dictName(enc, "StmF")
+	if filt, ok := cf.Entries.Get(stmf).(PDFDict); ok {
+		if n := DictInt(filt, "Length", 0); n > 0 {
+			if n <= 16 {
+				return n
+			}
+			return n / 8
+		}
+	}
+	if n := DictInt(enc, "Length", 0); n > 0 {
+		return n / 8
+	}
+	return 16
+}
+
 // cryptFilterMethod maps a StmF/StrF name to its cipher via the /CF dict.
 func cryptFilterMethod(name string, cf PDFDict) cryptMethod {
 	if name == "" || name == "Identity" {
@@ -150,7 +175,7 @@ func cryptFilterMethod(name string, cf PDFDict) cryptMethod {
 
 func (h *stdSecurityHandler) authenticate(password []byte) error {
 	if h.r >= 5 {
-		key, err := h.deriveKeyR6(password)
+		key, err := h.deriveKeyAES256(password)
 		if err != nil {
 			return err
 		}
@@ -274,25 +299,38 @@ func rc4XORWithKeyByte(data, key []byte, b byte) []byte {
 	return out
 }
 
-// deriveKeyR6 retrieves the 32-byte file key for R6 (ISO 32000-2 Algorithm 2.A),
-// trying the user password then the owner password.
-func (h *stdSecurityHandler) deriveKeyR6(pw []byte) ([]byte, error) {
+// deriveKeyAES256 retrieves the 32-byte file key for R5 and R6 (ISO 32000-2
+// Algorithm 2.A), trying the user password then the owner password. The two
+// revisions differ only in the hash: R6 uses the hardened Algorithm 2.B, R5
+// (Adobe Extension Level 3, deprecated but still produced) a single SHA-256.
+func (h *stdSecurityHandler) deriveKeyAES256(pw []byte) ([]byte, error) {
 	if len(pw) > 127 {
 		pw = pw[:127]
 	}
+	hash := hash2B
+	if h.r == 5 {
+		hash = hashR5
+	}
 	if len(h.u) >= 48 {
-		if bytes.Equal(hash2B(pw, h.u[32:40], nil), h.u[:32]) {
-			ik := hash2B(pw, h.u[40:48], nil)
+		if bytes.Equal(hash(pw, h.u[32:40], nil), h.u[:32]) {
+			ik := hash(pw, h.u[40:48], nil)
 			return aesCBCNoPadZeroIV(ik, h.ue)
 		}
 	}
 	if len(h.o) >= 48 && len(h.u) >= 48 {
-		if bytes.Equal(hash2B(pw, h.o[32:40], h.u[:48]), h.o[:32]) {
-			ik := hash2B(pw, h.o[40:48], h.u[:48])
+		if bytes.Equal(hash(pw, h.o[32:40], h.u[:48]), h.o[:32]) {
+			ik := hash(pw, h.o[40:48], h.u[:48])
 			return aesCBCNoPadZeroIV(ik, h.oe)
 		}
 	}
 	return nil, ErrPasswordRequired
+}
+
+// hashR5 is the R5 password hash: SHA-256 of password, salt and (for the
+// owner password) the 48-byte /U, with no further rounds.
+func hashR5(pw, salt, udata []byte) []byte {
+	s := sha256.Sum256(concat(pw, salt, udata))
+	return s[:]
 }
 
 // hash2B is the R6 hardened hash (ISO 32000-2 Algorithm 2.B).
@@ -493,7 +531,7 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 		}
 	case PDFDict:
 		for k, val := range t.Entries.All() {
-			if k == "_ref" {
+			if k == RefKey {
 				continue
 			}
 			t.Entries.Set(k, d.decryptStrings(val, ref))
@@ -502,9 +540,15 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 	return v
 }
 
+// decryptStr decrypts one string of object ref. A string that does not
+// decrypt (AES ciphertext that is not block-aligned) is kept as stored --
+// one bad string should not cost the whole object -- but recorded, so the
+// garbage it now holds does not reach the XMP/Info checks unremarked.
 func (d *Reader) decryptStr(b []byte, ref PDFRef) []byte {
 	out, err := d.crypt.decrypt(b, ref.ObjNum, ref.GenNum, true)
 	if err != nil {
+		d.recordObjectOnce(ref.ObjNum, Checks.Structure.GraphResolutionFailure,
+			fmt.Sprintf("object %d: a string could not be decrypted (%v); kept as stored", ref.ObjNum, err))
 		return b
 	}
 	return out

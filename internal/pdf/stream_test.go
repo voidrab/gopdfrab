@@ -132,8 +132,21 @@ func TestValidateStream(t *testing.T) {
 		d := &Reader{data: data}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
+		if err := d.validateStream(l, &dict, 1); err != nil {
+			t.Fatalf("validateStream: %v", err)
+		}
+		if string(dict.RawStream) != "Hello" {
+			t.Errorf("RawStream = %q, want the extent recovered from endstream", dict.RawStream)
+		}
+	})
+
+	t.Run("no endstream anywhere", func(t *testing.T) {
+		data := []byte("\nHello\nendobj")
+		d := &Reader{data: data}
+		l := NewLexerBytes(data, 0)
+		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
-			t.Error("expected error when Length extends past EOF")
+			t.Error("expected error when no endstream keyword follows the body")
 		}
 	})
 

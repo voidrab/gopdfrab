@@ -1116,7 +1116,7 @@ func CFFGlyphNames(cff []byte) []string {
 	return names
 }
 
-// validateCIDCFFSubset checks that all CIDs referenced in the W array are
+// ValidateCIDCFFSubset checks that all CIDs referenced in the W array are
 // defined in the embedded CFF program (6.3.5). CIDs only used to declare a
 // width, never shown, are exempt when usage info is available.
 func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
@@ -1403,7 +1403,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	}
 }
 
-// validateSimpleTrueTypeSubset checks that all referenced character codes have
+// ValidateSimpleTrueTypeSubset checks that all referenced character codes have
 // a corresponding glyph in the embedded TrueType program (6.3.5).
 func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
@@ -1649,7 +1649,7 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 	return true
 }
 
-// validateFontProgram flags a damaged embedded font program (6.3.2) and an
+// ValidateFontProgram flags a damaged embedded font program (6.3.2) and an
 // embedded font file in a format PDF 1.4 does not define (6.3.2).
 func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *ValidationContext) {
 	for _, key := range []string{"FontFile", "FontFile2", "FontFile3"} {

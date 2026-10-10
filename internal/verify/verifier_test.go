@@ -560,7 +560,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFHexString{Value: "XXXX"})
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -593,7 +593,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFHexString{Value: "AAA"})
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -629,7 +629,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("F", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -663,7 +663,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("FFilter", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -697,7 +697,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("FDecodeParms", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -735,7 +735,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
-	stream.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -770,7 +770,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("EF", pdf.PDFHexString{Value: "aaaa"})
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -803,7 +803,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("EmbeddedFiles", pdf.PDFHexString{Value: "aaaa"})
-	info.Entries.Set("_ref", pdf.PDFRef{ObjNum: 90})
+	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -1237,7 +1237,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 // threading through arrays -- so convert's targeted fixers can resolve them.
 func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
 	owner := pdf.NewPDFDict()
-	owner.Entries.Set("_ref", pdf.PDFRef{ObjNum: 7})
+	owner.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
 	owner.Entries.Set("Big", pdf.PDFInteger(3_000_000_000))
 	owner.Entries.Set("List", pdf.PDFArray{pdf.PDFName{Value: strings.Repeat("x", 130)}})
 	owner.Entries.Set("Hex", pdf.PDFHexString{Value: "abc"})
@@ -2097,7 +2097,7 @@ func TestUndecodableContentReportsItsPage(t *testing.T) {
 		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 		p.Entries.Set("Contents", contents)
 		p.Entries.Set("Resources", pdf.NewPDFDict())
-		p.Entries.Set("_ref", pdf.PDFRef{ObjNum: obj})
+		p.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: obj})
 		return p
 	}
 	pages := pdf.NewPDFDict()

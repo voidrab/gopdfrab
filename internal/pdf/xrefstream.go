@@ -3,6 +3,7 @@ package pdf
 import (
 	"fmt"
 	"io"
+	"math"
 )
 
 // xrefRange is one (start, count) pair from a cross-reference stream's
@@ -18,7 +19,7 @@ type xrefRange struct {
 // path (parseClassicReference) cannot run yet. Per ISO 32000-1 7.5.8.2, a
 // cross-reference stream's own /Length must be a direct integer, which this
 // function relies on to read the stream body without resolving anything.
-func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFDict, err error) {
+func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dict PDFDict, err error) {
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
 		return 0, PDFDict{}, err
 	}
@@ -70,6 +71,10 @@ func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFD
 		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
 	}
 
+	// Bound before allocating: /Length is untrusted.
+	if int64(length) > size-l.pos {
+		return 0, PDFDict{}, fmt.Errorf("object %d: stream body extends past end of file", objNum)
+	}
 	data := make([]byte, length)
 	if _, err := file.ReadAt(data, l.pos); err != nil {
 		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
@@ -94,7 +99,7 @@ func parseIndirectObjectAt(file fileSource, offset int64) (objNum int, dict PDFD
 // conformant file never reaches this path; it exists purely so arbitrary
 // modern input PDFs (e.g. for conversion) using one can still be read.
 func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) {
-	_, dict, err := parseIndirectObjectAt(d.file, offset)
+	_, dict, err := parseIndirectObjectAt(d.file, d.sourceSize(), offset)
 	if err != nil {
 		return PDFDict{}, err
 	}
@@ -163,6 +168,11 @@ func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) 
 			case 0: // free entry
 				continue
 			case 1: // in use: f2 = byte offset, f3 = generation
+				// An 8-byte field can exceed int64; such an offset is past
+				// any file and would wrap negative, so leave it unrecorded.
+				if f2 > uint64(math.MaxInt64-d.pdfStart) {
+					continue
+				}
 				d.xrefTable[objNum] = int64(f2) + d.pdfStart
 			case 2: // compressed: f2 = container object-stream number, f3 = index within it
 				if d.compressedXref == nil {

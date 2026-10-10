@@ -26,7 +26,7 @@ const (
 	errCCITTEOL ccittError = "ccitt: end-of-line"
 )
 
-// decodeCCITT decodes a CCITT-encoded bitstream into packed 1-bit-per-pixel
+// DecodeCCITT decodes a CCITT-encoded bitstream into packed 1-bit-per-pixel
 // Rows (row-padded to a byte boundary), with each pixel's bit set per the
 // BlackIs1 convention. K<0 is pure 2D (Group 4), K==0 pure 1D (Group 3 1D),
 // K>0 mixed (Group 3 2D).

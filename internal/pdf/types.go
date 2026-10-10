@@ -20,6 +20,16 @@ type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue
 
+// RefKey is the synthetic entry the reader stamps on every indirect object's
+// dict, holding the object's own reference. It marks the dict as an indirect
+// object for the writer and fixers, and is never written out.
+//
+// The leading space makes it a key no parsed document can contain: a space
+// ends a name token, and an escaped one stays "#20" in the Value. Spelled
+// "_ref", a genuine /_ref key in the input was overwritten on indirect
+// objects, and made a direct dict carrying one look indirect to the writer.
+const RefKey = " ref"
+
 type PDFDict struct {
 	Entries   Dict
 	HasStream bool

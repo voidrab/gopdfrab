@@ -98,7 +98,7 @@ func gray(comps []float64) (r, g, b float64) {
 	return v, v, v
 }
 
-// cmykToRGB applies the PDF specification's default (non-ICC) CMYK -> RGB
+// CMYKToRGB applies the PDF specification's default (non-ICC) CMYK -> RGB
 // approximation: R = 1-min(1,C+K), and likewise for G/B.
 func CMYKToRGB(comps []float64) (r, g, b float64) {
 	if len(comps) < 4 {
@@ -141,7 +141,7 @@ func resolveICCBased(arr PDFArray, comps []float64) (r, g, b float64) {
 	return placeholderRGB(comps)
 }
 
-// colorSpaceComponents returns the number of colour components a (non-
+// ColorSpaceComponents returns the number of colour components a (non-
 // Indexed) base colour space takes.
 func ColorSpaceComponents(cs PDFValue) int {
 	switch v := cs.(type) {
