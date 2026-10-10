@@ -28,11 +28,7 @@ notice.
 
 ### Changed
 
-- Internal restructuring, with no change to the public API or behaviour: font
-  parsing moved to `internal/fontprog`, the bundled substitute fonts to
-  `internal/fontsubst`, and the renderer to `internal/raster`. The allowed
-  imports between internal packages are documented in `ARCHITECTURE.md` and
-  enforced by a test.
+- Font parsing and the renderer moved into their own internal packages.
 
 ## [1.1.0] - 2026-10-10
 
