@@ -24,7 +24,7 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
-## [1.1.0] - 2026-10-09
+## [1.1.0] - 2026-10-10
 
 ### Added
 
