@@ -621,3 +621,167 @@ func TestSimpleNotEmbedded_LegacyStrictness(t *testing.T) {
 		t.Error("expected SimpleNotEmbedded in strict mode for non-embedded font, got none")
 	}
 }
+
+// type3Font builds a Type3 font dictionary with one glyph /g65 at code 65
+// whose charproc is the given stream (or non-stream value when proc has no
+// stream).
+func type3Font(proc pdf.PDFDict, widths pdf.PDFArray) pdf.PDFDict {
+	charProcs := pdf.NewPDFDict()
+	charProcs.Entries.Set("g65", proc)
+	enc := pdf.NewPDFDict()
+	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}})
+
+	v := pdf.NewPDFDict()
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65))
+	v.Entries.Set("Widths", widths)
+	v.Entries.Set("CharProcs", charProcs)
+	v.Entries.Set("Encoding", enc)
+	return v
+}
+
+func type3Proc(content string) pdf.PDFDict {
+	proc := pdf.NewPDFDict()
+	proc.HasStream = true
+	proc.RawStream = []byte(content)
+	return proc
+}
+
+// TestType3GlyphWidthReal covers a real-valued wx operand.
+func TestType3GlyphWidthReal(t *testing.T) {
+	if w := Type3GlyphWidth([]byte("250.5 0 d0\n")); w != 250.5 {
+		t.Errorf("Type3GlyphWidth(real wx) = %g, want 250.5", w)
+	}
+}
+
+// TestValidateType3MetricsRealWidths checks that a real-valued Widths entry is
+// compared against the glyph's d0 width like an integer one.
+func TestValidateType3MetricsRealWidths(t *testing.T) {
+	proc := type3Proc("500 0 d0\n")
+	ctx := &ValidationContext{}
+	validateType3Metrics(type3Font(proc, pdf.PDFArray{pdf.PDFReal(500.4)}), ctx)
+	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("a real width within tolerance was reported")
+	}
+	ctx = &ValidationContext{}
+	validateType3Metrics(type3Font(proc, pdf.PDFArray{pdf.PDFReal(520.5)}), ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Error("a real width off by 20.5 was not reported")
+	}
+}
+
+// TestValidateType3MetricsSkipsUncheckableGlyphs checks that every way a
+// glyph's width can be unverifiable skips the glyph without a report.
+func TestValidateType3MetricsSkipsUncheckableGlyphs(t *testing.T) {
+	broken := type3Proc("not a zlib stream")
+	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+
+	for _, tc := range []struct {
+		name string
+		mod  func(v pdf.PDFDict) pdf.PDFDict
+	}{
+		{"missing FirstChar", func(v pdf.PDFDict) pdf.PDFDict { v.Entries.Del("FirstChar"); return v }},
+		{"no Differences", func(v pdf.PDFDict) pdf.PDFDict {
+			v.Entries.Set("Encoding", pdf.NewPDFDict())
+			return v
+		}},
+		{"Widths longer than LastChar", func(v pdf.PDFDict) pdf.PDFDict {
+			// Code 66 has a glyph whose d0 disagrees with its width, but lies
+			// past LastChar and so is not part of the font.
+			v.Entries.Set("Widths", pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(999)})
+			cp := v.Entries.Get("CharProcs").(pdf.PDFDict)
+			cp.Entries.Set("g66", type3Proc("500 0 d0\n"))
+			enc := v.Entries.Get("Encoding").(pdf.PDFDict)
+			enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "g65"}, pdf.PDFName{Value: "g66"}})
+			return v
+		}},
+		{"code without a glyph name", func(v pdf.PDFDict) pdf.PDFDict {
+			v.Entries.Set("FirstChar", pdf.PDFInteger(64))
+			v.Entries.Set("LastChar", pdf.PDFInteger(64))
+			return v
+		}},
+		{"charproc is not a stream", func(v pdf.PDFDict) pdf.PDFDict {
+			cp := v.Entries.Get("CharProcs").(pdf.PDFDict)
+			cp.Entries.Set("g65", pdf.PDFInteger(1))
+			return v
+		}},
+		{"charproc does not decode", func(v pdf.PDFDict) pdf.PDFDict {
+			cp := v.Entries.Get("CharProcs").(pdf.PDFDict)
+			cp.Entries.Set("g65", broken)
+			return v
+		}},
+		{"charproc has no d0 or d1", func(v pdf.PDFDict) pdf.PDFDict {
+			cp := v.Entries.Get("CharProcs").(pdf.PDFDict)
+			cp.Entries.Set("g65", type3Proc("q Q\n"))
+			return v
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := tc.mod(type3Font(type3Proc("500 0 d0\n"), pdf.PDFArray{pdf.PDFInteger(900)}))
+			ctx := &ValidationContext{}
+			validateType3Metrics(v, ctx)
+			if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+				t.Error("AdvanceWidthMismatch reported for a glyph whose width cannot be checked")
+			}
+		})
+	}
+}
+
+// TestEmbeddedProgramMatchesSubtypeOtherSubtypes covers subtypes with no
+// specific program kind (Type3, Type0, missing): any embedded program counts.
+func TestEmbeddedProgramMatchesSubtypeOtherSubtypes(t *testing.T) {
+	embedded := pdf.NewPDFDict()
+	embedded.Entries.Set("FontFile2", pdf.NewPDFDict())
+	for _, subtype := range []string{"Type3", "Type0", ""} {
+		if !EmbeddedProgramMatchesSubtype(subtype, embedded) {
+			t.Errorf("subtype %q with FontFile2: want embedded", subtype)
+		}
+		if EmbeddedProgramMatchesSubtype(subtype, pdf.NewPDFDict()) {
+			t.Errorf("subtype %q with no program: want not embedded", subtype)
+		}
+	}
+}
+
+// TestValidateFontDictMissingBaseFont covers 6.3.5's requirement that a
+// non-Type3 font names itself.
+func TestValidateFontDictMissingBaseFont(t *testing.T) {
+	v := buildType1FontDict("Test")
+	v.Entries.Del("BaseFont")
+	ctx := &ValidationContext{}
+	ValidateFontDict(v, ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.FontBaseFont) {
+		t.Error("expected FontBaseFont for a Type1 font without BaseFont")
+	}
+}
+
+// TestSameCIDSystemInfoNonStringFields checks that a Registry or Ordering that
+// is not a string reads as empty, so it differs from a real value.
+func TestSameCIDSystemInfoNonStringFields(t *testing.T) {
+	a := pdf.NewPDFDict()
+	a.Entries.Set("Registry", pdf.PDFString{Value: "Adobe"})
+	a.Entries.Set("Ordering", pdf.PDFString{Value: "Identity"})
+	b := pdf.NewPDFDict()
+	b.Entries.Set("Registry", pdf.PDFInteger(1))
+	b.Entries.Set("Ordering", pdf.PDFString{Value: "Identity"})
+	if SameCIDSystemInfo(a, b) {
+		t.Error("a non-string Registry must not equal a string Registry")
+	}
+}
+
+// TestValidateCMapStreamUndecodable checks that a CMap whose filter chain is
+// broken is reported as undecodable and not scanned.
+func TestValidateCMapStreamUndecodable(t *testing.T) {
+	cmap := pdf.NewPDFDict()
+	cmap.Entries.Set("Type", pdf.PDFName{Value: "CMap"})
+	cmap.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	cmap.HasStream = true
+	cmap.RawStream = []byte("not a zlib stream")
+	ctx := &ValidationContext{}
+	validateCMapStream(cmap, ctx)
+	if !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {
+		t.Error("expected StreamUndecodable for a broken CMap stream")
+	}
+	if hasCheck(ctx, pdf.Checks.Structure.CMapCIDOutOfRange) {
+		t.Error("a broken CMap stream must not be scanned")
+	}
+}

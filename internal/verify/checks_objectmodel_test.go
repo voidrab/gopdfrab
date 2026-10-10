@@ -1543,3 +1543,29 @@ func TestExportedFixerHelpers(t *testing.T) {
 		t.Errorf("EvalCondArray(hival 300) = (%v, %v), want (false, true)", legal, ok)
 	}
 }
+
+// TestEnumString covers the enum-literal formatting shared with the convert
+// fixers: names, integers and booleans format as their PDF literal; any other
+// value has no enum form.
+func TestEnumString(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		val    pdf.PDFValue
+		want   string
+		wantOK bool
+	}{
+		{"name", pdf.PDFName{Value: "Btn"}, "Btn", true},
+		{"integer", pdf.PDFInteger(-3), "-3", true},
+		{"true", pdf.PDFBoolean(true), "true", true},
+		{"false", pdf.PDFBoolean(false), "false", true},
+		{"real", pdf.PDFReal(1.5), "", false},
+		{"nil", nil, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := EnumString(tc.val)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("EnumString(%v) = (%q, %v), want (%q, %v)", tc.val, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}

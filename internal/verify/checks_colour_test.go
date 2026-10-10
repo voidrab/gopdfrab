@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 func TestDeviceColourModel(t *testing.T) {
@@ -393,5 +394,45 @@ func TestICCColourSpaceComponents(t *testing.T) {
 	}
 	if _, ok := ICCColourSpaceComponents("5CLR"); ok {
 		t.Error("ICCColourSpaceComponents(5CLR) = ok, want false")
+	}
+}
+
+// TestComputeColourCoverageSkipsMalformedIntents checks that a malformed
+// OutputIntents entry never marks a colour model as covered.
+func TestComputeColourCoverageSkipsMalformedIntents(t *testing.T) {
+	build := func(intents, extra string) *pdf.Reader {
+		b := pdfgen.NewBuilder("%PDF-1.4\n")
+		b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /OutputIntents "+intents+" >>")
+		b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+		b.Obj(4, extra)
+		doc, err := pdf.OpenBytes(b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+		t.Cleanup(func() { doc.Close() })
+		return doc
+	}
+	for _, tc := range []struct {
+		name, intents, extra string
+		wantIntent           bool
+	}{
+		{"OutputIntents is not an array", "4 0 R", "<< /S /GTS_PDFA1 >>", false},
+		{"intent is not a dictionary", "[42]", "null", false},
+		{"intent has no profile", "[4 0 R]", "<< /S /GTS_PDFA1 >>", true},
+		{"profile is not a dictionary", "[4 0 R]", "<< /S /GTS_PDFA1 /DestOutputProfile (x) >>", true},
+		{"profile N is not an integer", "[4 0 R]", "<< /S /GTS_PDFA1 /DestOutputProfile << /N /Three >> >>", true},
+		{"profile N is not 1, 3 or 4", "[4 0 R]", "<< /S /GTS_PDFA1 /DestOutputProfile << /N 2 >> >>", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			computeColourCoverage(build(tc.intents, tc.extra), ctx)
+			if ctx.hasOutputIntent != tc.wantIntent {
+				t.Errorf("hasOutputIntent = %v, want %v", ctx.hasOutputIntent, tc.wantIntent)
+			}
+			if ctx.grayCovered || ctx.rgbCovered || ctx.cmykCovered {
+				t.Errorf("no colour model should be covered, got gray=%v rgb=%v cmyk=%v",
+					ctx.grayCovered, ctx.rgbCovered, ctx.cmykCovered)
+			}
+		})
 	}
 }
