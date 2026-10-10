@@ -1148,6 +1148,8 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 		switch e.Value {
 		case "WinAnsiEncoding":
 			names = fontprog.WinAnsiGlyphName
+		case "MacRomanEncoding":
+			names = fontprog.MacRomanGlyphName
 		default:
 			names = fontprog.StandardEncoding
 		}
@@ -1156,6 +1158,8 @@ func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
 		switch base.Value {
 		case "WinAnsiEncoding":
 			names = fontprog.WinAnsiGlyphName
+		case "MacRomanEncoding":
+			names = fontprog.MacRomanGlyphName
 		default:
 			names = fontprog.StandardEncoding
 		}
