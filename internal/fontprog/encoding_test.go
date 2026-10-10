@@ -329,3 +329,42 @@ func mustTable(d pdf.PDFDict) [256]uint16 {
 	table, _ := OriginalSimpleFontCodeToUnicode(d)
 	return table
 }
+
+func TestMacRomanGlyphNameMatchesUnicodeTable(t *testing.T) {
+	// Every defined name must map back to the code's MacRomanToUnicode
+	// codepoint. 0xCA is the exception: Annex D names it space, the Mac OS
+	// set maps it to no-break space.
+	defined := 0
+	for code, name := range MacRomanGlyphName {
+		if name == "" {
+			continue
+		}
+		defined++
+		u, ok := GlyphNameToUnicode(name)
+		want := MacRomanToUnicode[code]
+		if code == 0xCA {
+			want = 0x20
+		}
+		if !ok || u != want {
+			t.Errorf("MacRomanGlyphName[%#x] = %q -> U+%04X (ok=%v), want U+%04X", code, name, u, ok, want)
+		}
+	}
+	// 95 printable ASCII codes plus 128 high codes, less the 15 Annex D
+	// leaves undefined.
+	if want := 95 + 128 - 15; defined != want {
+		t.Errorf("%d defined codes, want %d", defined, want)
+	}
+}
+
+func TestWinAnsiGlyphNameMatchesUnicodeTable(t *testing.T) {
+	// 0xAD is the exception: Annex D names the soft hyphen hyphen, which
+	// maps back to U+002D.
+	for code, name := range WinAnsiGlyphName {
+		if name == "" || code == 0xAD {
+			continue
+		}
+		if u, ok := GlyphNameToUnicode(name); !ok || u != WinAnsiToUnicode[code] {
+			t.Errorf("WinAnsiGlyphName[%#x] = %q -> U+%04X (ok=%v), want U+%04X", code, name, u, ok, WinAnsiToUnicode[code])
+		}
+	}
+}
