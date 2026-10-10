@@ -108,6 +108,12 @@ func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 
 // TTWindowsBMPCmap finds the platform 3 encoding 1 cmap subtable, or nil.
 func TTWindowsBMPCmap(tables map[string][]byte) []byte {
+	return TTCmapSubtable(tables, 3, 1)
+}
+
+// TTCmapSubtable returns the first cmap subtable for the given platform and
+// encoding IDs, sliced from its offset to the end of the cmap table, or nil.
+func TTCmapSubtable(tables map[string][]byte, platform, encoding uint16) []byte {
 	cmap := tables["cmap"]
 	if len(cmap) < 4 {
 		return nil
@@ -118,10 +124,8 @@ func TTWindowsBMPCmap(tables map[string][]byte) []byte {
 		if len(rec) < 8 {
 			break
 		}
-		platform := binary.BigEndian.Uint16(rec[0:2])
-		encoding := binary.BigEndian.Uint16(rec[2:4])
 		offset := int(binary.BigEndian.Uint32(rec[4:8]))
-		if platform == 3 && encoding == 1 && offset+2 <= len(cmap) {
+		if binary.BigEndian.Uint16(rec[0:2]) == platform && binary.BigEndian.Uint16(rec[2:4]) == encoding && offset+2 <= len(cmap) {
 			return cmap[offset:]
 		}
 	}
@@ -174,36 +178,6 @@ func ParseCmapFormat4(sub []byte) map[uint16]uint16 {
 		}
 	}
 	return result
-}
-
-// TTSymbolicCmap finds a platform-3/encoding-0 (Windows symbol) or
-// platform-1/encoding-0 (Mac) cmap subtable, preferring the Windows variant.
-func TTSymbolicCmap(tables map[string][]byte) []byte {
-	cmap := tables["cmap"]
-	if len(cmap) < 4 {
-		return nil
-	}
-	n := int(binary.BigEndian.Uint16(cmap[2:4]))
-	var mac []byte
-	for i := range n {
-		rec := cmap[4+i*8:]
-		if len(rec) < 8 {
-			break
-		}
-		platform := binary.BigEndian.Uint16(rec[0:2])
-		encoding := binary.BigEndian.Uint16(rec[2:4])
-		offset := int(binary.BigEndian.Uint32(rec[4:8]))
-		if offset+2 > len(cmap) {
-			continue
-		}
-		if platform == 3 && encoding == 0 {
-			return cmap[offset:]
-		}
-		if platform == 1 && encoding == 0 && mac == nil {
-			mac = cmap[offset:]
-		}
-	}
-	return mac
 }
 
 // ParseCmapFormat0 decodes a format-0 (byte array) cmap subtable into a code→GID map.

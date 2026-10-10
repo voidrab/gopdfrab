@@ -953,8 +953,8 @@ func TestTrueTypeCmapSubtablesAndSymbolicCmap(t *testing.T) {
 		}
 	}
 	if !found31 && found10 {
-		if fontprog.TTSymbolicCmap(tables) == nil {
-			t.Error("TTSymbolicCmap should fall back to the (1,0) subtable")
+		if fontprog.TTCmapSubtable(tables, 1, 0) == nil {
+			t.Error("TTCmapSubtable should find the (1,0) subtable")
 		}
 	}
 }

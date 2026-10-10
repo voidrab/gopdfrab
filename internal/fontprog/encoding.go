@@ -339,6 +339,25 @@ func init() {
 	}
 }
 
+// macOSRomanCode inverts MacRomanToUnicode.
+var macOSRomanCode = map[uint16]byte{}
+
+func init() {
+	for code, u := range MacRomanToUnicode {
+		if u != 0 {
+			macOSRomanCode[u] = byte(code)
+		}
+	}
+}
+
+// MacOSRomanCode returns the Mac OS Roman character code for Unicode value u:
+// the code ISO 32000-1 9.6.6.4 looks up in a TrueType font's (1,0) cmap once
+// a character code has been mapped to a glyph name.
+func MacOSRomanCode(u uint16) (byte, bool) {
+	code, ok := macOSRomanCode[u]
+	return code, ok
+}
+
 // StandardToUnicode maps StandardEncoding character codes 0–255 to Unicode,
 // derived from the StandardEncoding glyph names.
 var StandardToUnicode [256]uint16

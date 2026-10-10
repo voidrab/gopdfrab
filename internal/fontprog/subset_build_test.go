@@ -124,7 +124,7 @@ func TestSubsetTrueTypeSymbolic(t *testing.T) {
 	if n := TTNumGlyphs(tables); n != 4 { // 0, 1, 2, and B's component 4
 		t.Errorf("glyph count = %d, want 4", n)
 	}
-	sym := ParseCmapFormat4(TTSymbolicCmap(tables))
+	sym := ParseCmapFormat4(TTCmapSubtable(tables, 3, 0))
 	want := map[uint16]uint16{1: 1, 0xF001: 1, 2: 2, 0xF002: 2}
 	if !reflect.DeepEqual(sym, want) {
 		t.Errorf("symbolic cmap = %v, want %v", sym, want)

@@ -368,3 +368,14 @@ func TestWinAnsiGlyphNameMatchesUnicodeTable(t *testing.T) {
 		}
 	}
 }
+
+func TestMacOSRomanCode(t *testing.T) {
+	for u, want := range map[uint16]byte{'A': 0x41, 0x00E9: 0x8E, 0x2260: 0xAD, 0x00A0: 0xCA} {
+		if got, ok := MacOSRomanCode(u); !ok || got != want {
+			t.Errorf("MacOSRomanCode(U+%04X) = %#x, %v; want %#x", u, got, ok, want)
+		}
+	}
+	if _, ok := MacOSRomanCode(0x0141); ok { // Lslash
+		t.Error("U+0141 has no Mac OS Roman code")
+	}
+}

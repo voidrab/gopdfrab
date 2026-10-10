@@ -278,25 +278,13 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	codeToUnicode := fontprog.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
-	winGIDMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
-	symGIDMap := fontprog.ParseCmapSubtable(fontprog.TTSymbolicCmap(tables))
+	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
 
 	codeToGID := func(cc int) (int, bool) {
-		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			if gid, ok := winGIDMap[u]; ok {
-				return int(gid), true
-			}
-			return 0, false
+		if gid, tried, found := r.Windows(cc); tried {
+			return gid, found
 		}
-		if symGIDMap != nil {
-			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
-				if gid, ok := symGIDMap[candidate]; ok {
-					return int(gid), true
-				}
-			}
-		}
-		return 0, false
+		return r.Fallback(cc)
 	}
 
 	changed := false
