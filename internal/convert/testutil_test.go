@@ -90,6 +90,18 @@ func mustOutput(t *testing.T, cr ConvertResult) []byte {
 	return b
 }
 
+// assertNotRasterized fails the test if the conversion fell back to
+// rasterizing any page. That fallback clears every residual on the pages it
+// rebuilds, so an end-to-end test asserting only that a check is gone passes
+// even when the fixer under test did nothing; this makes it prove the repair
+// happened in place.
+func assertNotRasterized(t *testing.T, cr ConvertResult) {
+	t.Helper()
+	if len(cr.RasterizedPages) != 0 {
+		t.Errorf("pages %v were rasterized; the violation should have been repaired in place", cr.RasterizedPages)
+	}
+}
+
 // inMemoryResult builds a ConvertResult holding data in memory, for tests that
 // construct a result directly rather than via a conversion.
 func inMemoryResult(data []byte) ConvertResult {

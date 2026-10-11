@@ -29,6 +29,7 @@ func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
 			t.Errorf("DeviceColourContentStream still present after conversion: %v", iss)
 		}
 	}
+	assertNotRasterized(t, cr)
 }
 
 // buildNestedAPPage constructs a page with one widget annotation whose AP/N
@@ -640,5 +641,43 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	onRes, _ := states.Entries.Get("On").(pdf.PDFDict).Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("rgb", onRes) {
 		t.Error("DefaultRGB not injected into the appearance-state stream")
+	}
+}
+
+// TestDeviceColourFixerInjectsIntoTilingPatternResources covers a tiling
+// pattern the page paints with scn: like a form XObject it is checked in its
+// own /Resources, so the page's DefaultCMYK does not excuse the CMYK in its
+// cell and the pattern needs the entry too. Missing it left the violation to
+// the raster fallback, which cannot draw tiling patterns and dropped the fill.
+func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
+	pattern := streamDict("0 0 0 1 k\n0 0 10 10 re f")
+	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
+	pattern.Entries.Set("Resources", pdf.NewPDFDict())
+	patterns := pdf.NewPDFDict()
+	patterns.Entries.Set("P0", pattern)
+
+	pageCS := pdf.NewPDFDict()
+	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
+	pageRes := pdf.NewPDFDict()
+	pageRes.Entries.Set("ColorSpace", pageCS)
+	pageRes.Entries.Set("Pattern", patterns)
+
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", pageRes)
+	page.Entries.Set("Contents", streamDict("/Pattern cs /P0 scn 0 0 100 100 re f"))
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Pages", pdf.PDFArray{page})
+
+	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	if err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if !changed {
+		t.Fatal("Fix reported no change")
+	}
+	patRes, _ := pattern.Entries.Get("Resources").(pdf.PDFDict)
+	if !verify.DefaultColorSpaceDefined("cmyk", patRes) {
+		t.Error("DefaultCMYK not injected into the tiling pattern's own resources")
 	}
 }

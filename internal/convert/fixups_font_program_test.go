@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -871,5 +872,62 @@ func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
 	}
 	if changed {
 		t.Error("changed = true, want false: the wrapper carries no font program")
+	}
+}
+
+// fractionalNominalCFF is buildMinimalCFF with nominalWidthX 0.5, a real some
+// readers truncate.
+func fractionalNominalCFF() []byte {
+	cff := buildMinimalCFF()
+	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
+	// The Private DICT grew from 4 to 6 bytes: its size is the 5-byte operand
+	// after the CharStrings and charset entries of the Top DICT.
+	binary.BigEndian.PutUint32(cff[31:35], 6)
+	return cff
+}
+
+// TestNormalizeCFFWidthDefaultsInFont: a bare CFF program with a fractional
+// width default is rewritten to whole ones; anything else is left as it was.
+func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
+	descriptor := func(ff pdf.PDFValue) pdf.PDFDict {
+		return dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "FontDescriptor"}, "FontFile3": ff})
+	}
+	program := func(subtype string, data []byte) pdf.PDFDict {
+		ff := streamOf(data)
+		ff.Entries.Set("Subtype", pdf.PDFName{Value: subtype})
+		return ff
+	}
+
+	d := descriptor(program("Type1C", fractionalNominalCFF()))
+	normalizeCFFWidthDefaultsInFont(d)
+	data, err := pdf.DecodeStream(d.Entries.Get("FontFile3").(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if bytes.Equal(data, fractionalNominalCFF()) {
+		t.Fatal("the program was not rewritten")
+	}
+	if _, changed := fontprog.NormalizeCFFWidthDefaults(data); changed {
+		t.Error("the rewritten program still has a fractional width default")
+	}
+
+	undecodable := undecodableStream()
+	undecodable.Entries.Set("Subtype", pdf.PDFName{Value: "Type1C"})
+	for name, ff := range map[string]pdf.PDFValue{
+		"OpenType":       program("OpenType", fractionalNominalCFF()),
+		"whole defaults": program("Type1C", buildMinimalCFF()),
+		"undecodable":    undecodable,
+		"not a stream":   dictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Type1C"}}),
+		"none":           nil,
+	} {
+		d := descriptor(ff)
+		if ff == nil {
+			d.Entries.Del("FontFile3")
+		}
+		before := d.Entries.Get("FontFile3")
+		normalizeCFFWidthDefaultsInFont(d)
+		if after := d.Entries.Get("FontFile3"); !reflect.DeepEqual(before, after) {
+			t.Errorf("%s: FontFile3 changed", name)
+		}
 	}
 }
