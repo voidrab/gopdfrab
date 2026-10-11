@@ -26,11 +26,9 @@ func WritePDF(r *pdf.Reader, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	trailer, ok := graph.(pdf.PDFDict)
-	if !ok {
-		return fmt.Errorf("writer: resolved graph is not a dictionary")
-	}
-	return WriteDocument(w, trailer, r.Footprint().Objects)
+	// ResolveGraph resolves the trailer dictionary in place and so always
+	// returns a PDFDict.
+	return WriteDocument(w, graph.(pdf.PDFDict), r.Footprint().Objects)
 }
 
 // WriteDocumentIndexed serializes a fully-resolved PDF object graph to w and
@@ -51,9 +49,9 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 
 	// 6.1.2: version line followed by a binary-marker comment line (at least
 	// four bytes, each > 127) on its own line.
-	if _, err = io.WriteString(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n"); err != nil {
-		return nil, err
-	}
+	// The buffer is empty, so this small write cannot fail; any destination
+	// error surfaces from a later write or the final Flush.
+	_, _ = io.WriteString(cw, "%PDF-1.4\n%\xc2\xb5\xc2\xb6\xc2\xb7\xc2\xb8\n")
 
 	offsets := make([]int64, len(wr.order)+1) // index 0 (the free-list head) is unused
 	for i, obj := range wr.order {
