@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -38,6 +39,31 @@ func TestVersion(t *testing.T) {
 	code, out, _ := runCLI("version")
 	if code != exitValid || strings.TrimSpace(out) == "" {
 		t.Errorf("version: exit=%d out=%q", code, out)
+	}
+}
+
+// TestMainExitsWithRunCode runs main in-process with the exit seam swapped out, checking
+// that it hands os.Args to run and exits with run's code.
+func TestMainExitsWithRunCode(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldArgs, oldStdout, oldExit := os.Args, os.Stdout, exit
+	t.Cleanup(func() { os.Args, os.Stdout, exit = oldArgs, oldStdout, oldExit })
+	code := -1
+	exit = func(c int) { code = c }
+	os.Args = []string{"gopdfrab", "version"}
+	os.Stdout = w
+
+	main()
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != exitValid || strings.TrimSpace(string(out)) != version() {
+		t.Errorf("main with version: exit=%d out=%q, want %d and %q", code, out, exitValid, version())
 	}
 }
 

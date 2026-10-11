@@ -25,10 +25,13 @@ const (
 	exitError   = 2 // usage, open, or I/O error
 )
 
+// exit is os.Exit, swapped out by the test that runs main in-process.
+var exit = os.Exit
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
+	exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // run is the testable entry point: it dispatches a subcommand and returns the
