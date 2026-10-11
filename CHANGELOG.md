@@ -47,6 +47,9 @@ notice.
 ### Fixed
 
 - `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
+- A profile whose level is not `A1B` or `ObjectModel` (for example
+  `NewProfile("A-2b")`, or a zero-value `Profile`) ran no checks and verified
+  as `Valid`; Verify and Convert now return an error for it.
 - JPEG 2000, JBIG2 and undecodable CCITT images painted as a gray box by the
   raster fallback are now reported in `RasterDrops`.
 - 6.3.5: text after `Q`, or in a form XObject using its caller's font, was

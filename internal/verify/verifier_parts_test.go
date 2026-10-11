@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -212,5 +213,24 @@ func TestVerifyContextCancelledBeforeStart(t *testing.T) {
 	cancel()
 	if _, err := VerifyContext(ctx, openPartsTestDoc(t), pdf.PDFA1B); !errors.Is(err, context.Canceled) {
 		t.Errorf("VerifyContext(cancelled) error = %v, want context.Canceled", err)
+	}
+}
+
+// TestUnsupportedLevelRejected: every verify entry point refuses a level it
+// has no checks for, naming it, instead of running nothing.
+func TestUnsupportedLevelRejected(t *testing.T) {
+	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
+	for _, level := range []pdf.LevelType{"A-2b", ""} {
+		p := pdf.NewFullProfile(level)
+		want := fmt.Sprintf("unsupported conformance level %q", string(level))
+		if _, err := Verify(d, p); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Verify(%q) err = %v, want %q", level, err, want)
+		}
+		if _, err := VerifyParts(d, p); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("VerifyParts(%q) err = %v, want %q", level, err, want)
+		}
+		if _, err := VerifyStructural(d, p); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("VerifyStructural(%q) err = %v, want %q", level, err, want)
+		}
 	}
 }

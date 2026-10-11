@@ -35,17 +35,11 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
-	if p == nil {
-		return pdf.Result{}, fmt.Errorf("nil profile")
-	}
-	if p.Level == pdf.Undefined {
-		return pdf.Result{Type: p.Level, Valid: false}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	if err := checkProfile(p); err != nil {
+		return pdf.Result{}, err
 	}
 
-	var issues []pdf.PDFError
-	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		issues = verifyPdfA1bParts(ctx, d, p).Issues()
-	}
+	issues := verifyPdfA1bParts(ctx, d, p).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -55,6 +49,22 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}, nil
 	}
 	return pdf.Result{Type: p.Level, Valid: true}, nil
+}
+
+// checkProfile rejects a profile there is nothing to verify against: nil, the
+// Undefined level, or a level this verifier has no checks for. The last
+// includes the empty level of a zero-value Profile; any of them would
+// otherwise run no checks and report the file Valid.
+func checkProfile(p *pdf.Profile) error {
+	switch {
+	case p == nil:
+		return fmt.Errorf("nil profile")
+	case p.Level == pdf.Undefined:
+		return fmt.Errorf("cannot verify PDF to undefined conformance level")
+	case p.Level != pdf.A1B && p.Level != pdf.ObjectModel:
+		return fmt.Errorf("cannot verify PDF to unsupported conformance level %q", string(p.Level))
+	}
+	return nil
 }
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
@@ -94,17 +104,10 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // serializeAndVerify) while re-running only the byte-level checks.
 func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	defer pdf.RecoverAsError(&err)
-	if p == nil {
-		return Parts{}, fmt.Errorf("nil profile")
+	if err := checkProfile(p); err != nil {
+		return Parts{}, err
 	}
-	if p.Level == pdf.Undefined {
-		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
-	}
-	var pt Parts
-	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		pt = verifyPdfA1bParts(context.Background(), d, p)
-	}
-	return pt.filter(p), nil
+	return verifyPdfA1bParts(context.Background(), d, p).filter(p), nil
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -114,14 +117,11 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 // only these byte-level checks can produce new findings against the output.
 func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	defer pdf.RecoverAsError(&err)
-	if p == nil {
-		return Parts{}, fmt.Errorf("nil profile")
-	}
-	if p.Level == pdf.Undefined {
-		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	if err := checkProfile(p); err != nil {
+		return Parts{}, err
 	}
 	var pt Parts
-	if (p.Level == pdf.A1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
+	if !p.OnlyObjectModelChecks() {
 		pt.PreStructural = structuralPreIssues(d)
 		pt.PostStructural = structuralPostIssues(d)
 	}

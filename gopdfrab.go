@@ -49,7 +49,8 @@ type (
 
 	// LevelType is a conformance level: A1B for PDF/A-1b, ObjectModel for the
 	// generic ISO 32000 checks, Undefined for neither. It is Profile.Level and
-	// Result.Type.
+	// Result.Type. Verify and Convert return an error for any other level,
+	// including Undefined and the empty level of a zero-value Profile.
 	LevelType = pdf.LevelType
 
 	// Check is one named, selectable validation rule, identified by the ISO
@@ -219,7 +220,8 @@ func (o Options) convert() convert.Options {
 	}
 }
 
-// NewProfile returns an empty profile for the given conformance level.
+// NewProfile returns an empty profile for the given conformance level, which
+// must be A1B or ObjectModel for Verify and Convert to accept it.
 func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 
 // ObjectModelOnly returns a fresh profile equal to [PDF]: only the generic ISO
