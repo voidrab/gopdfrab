@@ -199,9 +199,6 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					if strings.Contains(iss.Error(), "inline image") {
 						continue
 					}
-					if strings.Contains(iss.Error(), "q/Q nesting depth") {
-						continue
-					}
 					if (c == pdf.Checks.Font.SubsetGlyphCoverage || c == pdf.Checks.Font.CIDNotEmbedded) &&
 						strings.Contains(iss.Error(), "CID") && !cidSubstitutionPossible(t, path) {
 						continue
@@ -540,8 +537,6 @@ var expectedRasterized = map[string]string{
 	// so a substitute cannot know what to draw for it (substituteCIDFont).
 	"isartor-6-3-5-t01-fail-a.pdf": "used CID with no glyph and no ToUnicode mapping",
 	"isartor-6-3-5-t01-fail-b.pdf": "used CID with no glyph and no ToUnicode mapping",
-	// q/Q nesting is left to the raster fallback by design (fixups_content.go).
-	"veraPDF test suite 6-1-12-t08-fail-a.pdf": "q/Q nesting deeper than 28",
 }
 
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora

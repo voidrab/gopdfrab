@@ -22,10 +22,8 @@ import (
 // is repaired by rescaling the geometry (fixups_geometry.go), which runs in
 // the same pass and leaves the clamp only what it cannot move.
 //
-// GraphicsStateNesting (q/Q nesting depth, checks_content.go) is claimed here
-// only so it counts as fixer-addressable and triggers the rasterization
-// backstop; it is a structural defect, not a clampable operand, so the
-// in-place pass leaves it untouched and rasterization repairs it. The inline-image /Intent flavour
+// GraphicsStateNesting (q/Q nesting depth) is not an operand limit; it is
+// repaired by qNestingFixer (fixups_qnesting.go). The inline-image /Intent flavour
 // of RenderingIntent is fixed here (this file already owns that Check and
 // already walks every INLINEIMAGE op); the other inline-image-specific
 // fixes (ImageInterpolate, InlineImageLZWFilter) live in
@@ -46,7 +44,7 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	case pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Colour.RenderingIntent,
 		pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.HexStringInvalidChar,
 		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
-		pdf.Checks.Structure.StringTooLong, pdf.Checks.Structure.GraphicsStateNesting:
+		pdf.Checks.Structure.StringTooLong:
 		return true
 	}
 	return false
