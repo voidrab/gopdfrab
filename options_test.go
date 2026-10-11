@@ -50,14 +50,14 @@ func TestOptionsPassword(t *testing.T) {
 }
 
 // TestOptionsRasterDPI confirms Options.RasterDPI changes the rasterizer's
-// output: the canonical q/Q-nesting fixture can only reach conformance by
-// rasterizing, so a higher DPI produces a larger (more pixels) converted
-// document.
+// output: a CJK font that is not embedded and that no bundled face can stand
+// in for can only reach conformance by rasterizing, so a higher DPI produces a
+// larger (more pixels) converted document.
 func TestOptionsRasterDPI(t *testing.T) {
-	path := filepath.Join("tests", "veraPDF", "PDF_A-1b", "6.1 File structure",
-		"6.1.12 Implementation limits", "veraPDF test suite 6-1-12-t08-fail-a.pdf")
+	path := filepath.Join("tests", "Isartor", "PDFA-1b", "6.3 Fonts",
+		"6.3.4 Embedded font programs", "isartor-6-3-4-t01-fail-c.pdf")
 	if _, err := os.Stat(path); err != nil {
-		t.Skip("veraPDF suite not present")
+		t.Skip("Isartor suite not present")
 	}
 
 	low, err := gopdfrab.ConvertContext(context.Background(), path, gopdfrab.PDFA1B,
