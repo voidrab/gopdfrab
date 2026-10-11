@@ -2049,3 +2049,111 @@ func TestType1SubsetCoverageMacRomanEncoding(t *testing.T) {
 		t.Error("MacRomanEncoding code 0x80 /Adieresis not reported")
 	}
 }
+
+// type1CFontDict returns a Type1 font dictionary embedding buildMinimalCFF as
+// FontFile3, with Widths covering codes 65..65+len(widths)-1.
+func type1CFontDict(baseFont string, widths ...int) pdf.PDFDict {
+	desc := pdf.NewPDFDict()
+	desc.Entries.Set("FontFile3", streamDict(string(buildMinimalCFF())))
+	desc.Entries.Set("CharSet", pdf.PDFString{Value: "/A"})
+
+	w := make(pdf.PDFArray, len(widths))
+	for i, x := range widths {
+		w[i] = pdf.PDFInteger(x)
+	}
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Type", pdf.PDFName{Value: "Font"})
+	v.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
+	v.Entries.Set("BaseFont", pdf.PDFName{Value: baseFont})
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	v.Entries.Set("FirstChar", pdf.PDFInteger(65))
+	v.Entries.Set("LastChar", pdf.PDFInteger(65+len(widths)-1))
+	v.Entries.Set("Widths", w)
+	v.Entries.Set("FontDescriptor", desc)
+	return v
+}
+
+// TestValidateFontDictType1WithType1CProgram pins that a Type1 font embedding
+// its program as FontFile3 is held to the CFF advance widths (6.3.6).
+func TestValidateFontDictType1WithType1CProgram(t *testing.T) {
+	aWidth := int(fontprog.CFFAdvanceWidths(buildMinimalCFF())["A"])
+
+	ctx := &ValidationContext{}
+	ValidateFontDict(type1CFontDict("Test", aWidth+50), ctx)
+	if !hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Errorf("a wrong width against a FontFile3 program was not reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	ctx = &ValidationContext{}
+	ValidateFontDict(type1CFontDict("Test", aWidth), ctx)
+	if hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
+		t.Errorf("a matching width was reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestValidateFontDictType1SubsetWithType1CProgram pins that the subset glyph
+// coverage check (6.3.5) works for a FontFile3 program, where the glyph names
+// come from the font dictionary's own encoding rather than a Type 1 program.
+func TestValidateFontDictType1SubsetWithType1CProgram(t *testing.T) {
+	aWidth := int(fontprog.CFFAdvanceWidths(buildMinimalCFF())["A"])
+
+	ctx := &ValidationContext{}
+	ValidateFontDict(type1CFontDict("ABCDEF+Test", aWidth, 500), ctx) // code 66 /B is not in the program
+	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
+		t.Errorf("a used glyph missing from the FontFile3 subset was not reported: %v", issueKeys(ctx.Issues()))
+	}
+
+	ctx = &ValidationContext{}
+	ValidateFontDict(type1CFontDict("ABCDEF+Test", aWidth), ctx)
+	if hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) || hasCheck(ctx, pdf.Checks.Font.Type1SubsetCharSet) {
+		t.Errorf("a complete subset was reported: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1SubsetCoverageUsedCodesStopAtFirstViolation pins that, when usage
+// is known, only shown codes are examined, in code order, and the first
+// offending one ends the scan.
+func TestType1SubsetCoverageUsedCodesStopAtFirstViolation(t *testing.T) {
+	v, desc := type1CoverageFixture(pdf.PDFString{Value: "/A"}, pdf.PDFName{Value: "WinAnsiEncoding"})
+	widths := pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500), pdf.PDFInteger(500)} // /A /B /C
+
+	ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{pdf.ValuePointer(v.Entries): {67: true, 66: true}}}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 67, widths, ctx)
+	if len(ctx.errs) != 1 || !strings.Contains(extMessages(ctx.Issues(), pdf.Checks.Font.SubsetGlyphCoverage), "code 66") {
+		t.Errorf("want exactly one finding, for code 66: %v", issueKeys(ctx.Issues()))
+	}
+
+	ctx = &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{pdf.ValuePointer(v.Entries): {65: true}}}
+	ValidateType1SubsetCoverage(v, v, desc, 65, 67, widths, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("unshown codes 66/67 were examined: %v", issueKeys(ctx.Issues()))
+	}
+}
+
+// TestType1CMetricsSkipsUnusedCodes pins that a Type1C width is compared only
+// for codes the document shows, when usage is known.
+func TestType1CMetricsSkipsUnusedCodes(t *testing.T) {
+	cff := buildMinimalCFF()
+	ff := streamDict(string(cff))
+	aWidth := int(fontprog.CFFAdvanceWidths(cff)["A"])
+	v := pdf.NewPDFDict()
+	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	widths := pdf.PDFArray{pdf.PDFInteger(aWidth + 50)}
+
+	for _, tc := range []struct {
+		name string
+		used int
+		want bool
+	}{
+		{"code never shown", 66, false},
+		{"code shown", 65, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{UsedCharCodes: map[uintptr]map[int]bool{pdf.ValuePointer(v.Entries): {tc.used: true}}}
+			validateType1CMetrics(v, v, ff, 65, widths, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch); got != tc.want {
+				t.Errorf("AdvanceWidthMismatch reported = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

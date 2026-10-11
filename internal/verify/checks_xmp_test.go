@@ -1338,3 +1338,60 @@ func TestXMPTablesAgree(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckPDFAIdentifierMissingPartAndConformance pins that an identifier
+// namespace with neither a part nor a conformance level reports each as a
+// separate PDFAIdentifierMissing finding (6.7.11).
+func TestCheckPDFAIdentifierMissingPartAndConformance(t *testing.T) {
+	errs := checkPDFAIdentifier(`<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"/>`)
+	if len(errs) != 2 {
+		t.Fatalf("got %d findings, want 2: %v", len(errs), errs)
+	}
+	for _, e := range errs {
+		if e.Check() != pdf.Checks.Metadata.PDFAIdentifierMissing {
+			t.Errorf("finding %v has check %v, want PDFAIdentifierMissing", e, e.Check())
+		}
+	}
+	if !strings.Contains(errs[0].Error(), "part") || !strings.Contains(errs[1].Error(), "conformance") {
+		t.Errorf("messages do not name the part then the conformance level: %v", errs)
+	}
+}
+
+// TestXmpWellFormedSkipsLeadingBytes pins that bytes before the first '<'
+// (such as stray non-XML bytes) do not make an otherwise well-formed packet
+// malformed.
+func TestXmpWellFormedSkipsLeadingBytes(t *testing.T) {
+	if !xmpWellFormed([]byte("\xff<a><b/></a>")) {
+		t.Error("leading bytes before the first '<' made a well-formed packet malformed")
+	}
+}
+
+// TestXmpValidatePropValueErrors pins the findings for a non-integer scalar in
+// an integer property, a malformed date scalar, and a bad item inside an integer Seq.
+func TestXmpValidatePropValueErrors(t *testing.T) {
+	errs := xmpValidateProp("http://ns.adobe.com/xap/1.0/mm/", "SaveID", xmpKindScalar, "abc", nil)
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.MetadataFiltered ||
+		!strings.Contains(errs[0].Error(), "must be an integer") {
+		t.Errorf("non-integer scalar: %v", errs)
+	}
+	if errs := xmpValidateProp("http://ns.adobe.com/xap/1.0/mm/", "SaveID", xmpKindScalar, "42", nil); len(errs) != 0 {
+		t.Errorf("integer scalar reported: %v", errs)
+	}
+
+	errs = xmpValidateProp("http://ns.adobe.com/xap/1.0/", "CreateDate", xmpKindScalar, "not a date", nil)
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "CreateDate") {
+		t.Errorf("bad date scalar: %v", errs)
+	}
+	if errs := xmpValidateProp("http://ns.adobe.com/xap/1.0/", "CreateDate", xmpKindScalar, "2024-01-02T03:04:05Z", nil); len(errs) != 0 {
+		t.Errorf("valid date scalar reported: %v", errs)
+	}
+
+	const tiff = "http://ns.adobe.com/tiff/1.0/"
+	errs = xmpValidateProp(tiff, "BitsPerSample", xmpKindSeq, "", []xmpPropItem{{text: "8"}, {text: ""}, {text: "x"}})
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "item") {
+		t.Errorf("bad Seq item: %v", errs)
+	}
+	if errs := xmpValidateProp(tiff, "BitsPerSample", xmpKindSeq, "", []xmpPropItem{{text: "8"}, {text: ""}}); len(errs) != 0 {
+		t.Errorf("valid Seq items reported: %v", errs)
+	}
+}
