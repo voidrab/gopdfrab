@@ -524,6 +524,35 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 // TestRenderPageEmbeddedSimpleText renders text with an embedded simple
 // TrueType font, exercising showText/showTextArray and the glyph-outline path.
 func TestRenderPageEmbeddedSimpleText(t *testing.T) {
+	resources := embeddedSimpleFontResources(t)
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
+			RawStream: []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")},
+	})}
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
+		t.Fatalf("RenderPage: %v", err)
+	}
+}
+
+// TestRenderTextHonoursClip: glyphs paint only inside the clip in force, like
+// paths do.
+func TestRenderTextHonoursClip(t *testing.T) {
+	resources := embeddedSimpleFontResources(t)
+	const text = "BT /F1 20 Tf 0 0 0 rg 5 15 Td (ABC) Tj ET"
+	free, _ := renderSized(t, 120, 40, text, resources)
+	if _, _, _, maxX, _ := ink(free); maxX <= 20 {
+		t.Fatalf("unclipped text ends at x %d, want past 20 for the clip to bite", maxX)
+	}
+	clipped, _ := renderSized(t, 120, 40, "0 0 20 40 re W n "+text, resources)
+	if n, _, _, maxX, _ := ink(clipped); n == 0 || maxX >= 20 {
+		t.Errorf("clipped text: %d ink pixels ending at x %d, want some, all left of 20", n, maxX)
+	}
+}
+
+// embeddedSimpleFontResources is a page /Resources with an embedded TrueType
+// LiberationSans, WinAnsi-encoded, as /F1.
+func embeddedSimpleFontResources(t *testing.T) pdf.PDFDict {
+	t.Helper()
 	ff := loadEmbeddableTTF(t)
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "FontDescriptor"}, "FontName": pdf.PDFName{Value: "LiberationSans"},
@@ -539,16 +568,9 @@ func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 		"FirstChar": pdf.PDFInteger(32), "LastChar": pdf.PDFInteger(126),
 		"Widths": widths, "FontDescriptor": desc,
 	})}
-	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
-	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")},
-	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
-		t.Fatalf("RenderPage: %v", err)
-	}
 }
 
 // TestRenderPageEmbeddedCIDText renders text with an embedded Type0/CIDFontType2

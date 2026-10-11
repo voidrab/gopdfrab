@@ -210,6 +210,40 @@ func TestFormXObjectBehaviour(t *testing.T) {
 		}
 	})
 
+	t.Run("paints only inside its /BBox", func(t *testing.T) {
+		form := formXObject("0 0 20 20 re f", map[string]pdf.PDFValue{"BBox": numArray(5, 5, 10, 10)})
+		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
+		img := render20(t, "0 0 0 rg /Fm Do", resources)
+		// User y 5..10 is device y 10..15.
+		if !isBlack(t, img, 7, 12) {
+			t.Error("form did not paint inside its /BBox")
+		}
+		for _, p := range [][2]int{{2, 12}, {17, 12}, {7, 5}, {7, 18}} {
+			if !isWhite(t, img, p[0], p[1]) {
+				t.Errorf("form painted outside its /BBox at %v", p)
+			}
+		}
+	})
+
+	t.Run("/BBox is in form space, mapped through /Matrix", func(t *testing.T) {
+		form := formXObject("0 0 20 20 re f", map[string]pdf.PDFValue{
+			"BBox": numArray(0, 0, 5, 5), "Matrix": numArray(1, 0, 0, 1, 10, 0),
+		})
+		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
+		img := render20(t, "0 0 0 rg /Fm Do", resources)
+		if !isBlack(t, img, 12, 17) || !isWhite(t, img, 2, 17) || !isWhite(t, img, 17, 17) || !isWhite(t, img, 12, 10) {
+			t.Error("/BBox was not clipped at the form's translated position")
+		}
+	})
+
+	t.Run("a /BBox disjoint from the clip in force paints nothing", func(t *testing.T) {
+		form := formXObject("0 0 20 20 re f", map[string]pdf.PDFValue{"BBox": numArray(10, 10, 20, 20)})
+		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
+		if n, _, _, _, _ := ink(render20(t, "0 0 5 5 re W n 0 0 0 rg /Fm Do", resources)); n != 0 {
+			t.Errorf("form painted %d pixels through an empty clip", n)
+		}
+	})
+
 	t.Run("undecodable content paints nothing", func(t *testing.T) {
 		form := formXObject("", map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}})
 		form.RawStream = []byte{0xFF, 0xFF, 0xFF}

@@ -511,14 +511,7 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	if len(contours) == 0 {
 		return
 	}
-	clipped := clipToBounds(r.canvas.Bounds(), gs.clip)
-	target := r.canvas
-	if clipped != r.canvas.Bounds() {
-		sub, ok := r.canvas.SubImage(clipped).(*image.RGBA)
-		if ok {
-			target = sub
-		}
-	}
+	target := r.clipTarget(gs)
 
 	evenOdd := op == "f*" || op == "B*" || op == "b*"
 	// Under a Pattern colour space there is no numeric fill colour, so an
@@ -551,9 +544,27 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	}
 }
 
+// clipTarget is the canvas restricted to gs's clip: a sub-image sharing its
+// pixels, or the canvas itself when the clip doesn't restrict it.
+func (r *renderer) clipTarget(gs *renderState) *image.RGBA {
+	clipped := clipToBounds(r.canvas.Bounds(), gs.clip)
+	if clipped == r.canvas.Bounds() {
+		return r.canvas
+	}
+	if sub, ok := r.canvas.SubImage(clipped).(*image.RGBA); ok {
+		return sub
+	}
+	return r.canvas
+}
+
 // clipToBounds intersects bounds with a device-space rect, returning bounds
-// unchanged if rect doesn't actually restrict it.
+// unchanged if rect doesn't actually restrict it. An inverted rect -- what
+// intersecting two disjoint clips leaves -- is empty, not swapped round the
+// way image.Rect would canonicalize it.
 func clipToBounds(bounds image.Rectangle, rect [4]float64) image.Rectangle {
+	if rect[0] >= rect[2] || rect[1] >= rect[3] {
+		return image.Rectangle{}
+	}
 	r := image.Rect(int(math.Floor(rect[0])), int(math.Floor(rect[1])), int(math.Ceil(rect[2])), int(math.Ceil(rect[3])))
 	return bounds.Intersect(r)
 }
@@ -657,6 +668,14 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
 			fm := Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 			childGS.ctm = fm.Mul(gs.ctm)
+		}
+		// The form paints only inside its /BBox (ISO 32000-1 8.10.1), mapped
+		// through Matrix and CTM -- like a W clip, as its device-space bounds.
+		if bbox, err := pdf.FloatArray(xobj.Entries.Get("BBox")); err == nil && len(bbox) == 4 {
+			var box pathBuilder
+			box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
+			minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(childGS.ctm))
+			childGS.clip = intersectRect(childGS.clip, [4]float64{minX, minY, maxX, maxY})
 		}
 		data, err := pdf.DecodeStream(xobj)
 		if err != nil {
@@ -895,7 +914,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 				}
 				contours[ci] = dc
 			}
-			FillPath(r.canvas, contours, gs.fillRGB, gs.fillAlpha, false)
+			FillPath(r.clipTarget(gs), contours, gs.fillRGB, gs.fillAlpha, false)
 		}
 
 		ws := 0.0
