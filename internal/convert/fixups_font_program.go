@@ -38,11 +38,12 @@ func init() {
 	})
 }
 
-// normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program whose
-// nominalWidthX or defaultWidthX is fractional so both are whole and every
-// glyph keeps its width (fontprog.NormalizeCFFWidthDefaults). veraPDF
-// truncates a real nominalWidthX, so it otherwise reads every width off by the
-// fraction and reports 6.3.6 against a correct /Widths.
+// normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program,
+// name-keyed or CID-keyed, whose nominalWidthX or defaultWidthX is fractional
+// so every one is whole and every glyph keeps its width
+// (fontprog.NormalizeCFFWidthDefaults). veraPDF truncates a real
+// nominalWidthX, so it otherwise reads every width off by the fraction and
+// reports 6.3.6 against a correct /Widths or /W.
 // d is any dict: only a font descriptor carries /FontFile3.
 func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
 	ff, ok := d.Entries.Get("FontFile3").(pdf.PDFDict)

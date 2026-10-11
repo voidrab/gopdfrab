@@ -886,6 +886,18 @@ func fractionalNominalCFF() []byte {
 	return cff
 }
 
+// fractionalNominalCIDCFF is buildMinimalCIDCFF with nominalWidthX 0.5 in
+// its one Font DICT's Private DICT.
+func fractionalNominalCIDCFF() []byte {
+	cff := buildMinimalCIDCFF()
+	td, _ := fontprog.ParseCFFTopDict(cff)
+	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
+	// The Private DICT grew from 4 to 6 bytes: its size is the Font DICT's
+	// first operand, after the 3-byte FDArray INDEX header and 2 offsets.
+	binary.BigEndian.PutUint32(cff[td.FDArrayOffset+6:], 6)
+	return cff
+}
+
 // TestNormalizeCFFWidthDefaultsInFont: a bare CFF program with a fractional
 // width default is rewritten to whole ones; anything else is left as it was.
 func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
@@ -898,17 +910,22 @@ func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 		return ff
 	}
 
-	d := descriptor(program("Type1C", fractionalNominalCFF()))
-	normalizeCFFWidthDefaultsInFont(d)
-	data, err := pdf.DecodeStream(d.Entries.Get("FontFile3").(pdf.PDFDict))
-	if err != nil {
-		t.Fatalf("DecodeStream: %v", err)
-	}
-	if bytes.Equal(data, fractionalNominalCFF()) {
-		t.Fatal("the program was not rewritten")
-	}
-	if _, changed := fontprog.NormalizeCFFWidthDefaults(data); changed {
-		t.Error("the rewritten program still has a fractional width default")
+	for subtype, src := range map[string][]byte{
+		"Type1C":        fractionalNominalCFF(),
+		"CIDFontType0C": fractionalNominalCIDCFF(),
+	} {
+		d := descriptor(program(subtype, src))
+		normalizeCFFWidthDefaultsInFont(d)
+		data, err := pdf.DecodeStream(d.Entries.Get("FontFile3").(pdf.PDFDict))
+		if err != nil {
+			t.Fatalf("%s: DecodeStream: %v", subtype, err)
+		}
+		if bytes.Equal(data, src) {
+			t.Fatalf("%s: the program was not rewritten", subtype)
+		}
+		if _, changed := fontprog.NormalizeCFFWidthDefaults(data); changed {
+			t.Errorf("%s: the rewritten program still has a fractional width default", subtype)
+		}
 	}
 
 	undecodable := undecodableStream()
