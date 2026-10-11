@@ -7,7 +7,7 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "release/**" ]
   schedule:
     # Nightly, 03:17 UTC -- drives the extended fuzz job.
     - cron: '17 3 * * *'
@@ -39,6 +39,12 @@ jobs:
           -coverpkg="$(echo "$PKGS" | paste -sd,)" \
           -coverprofile=coverage.txt \
           $PKGS
+
+    # The rounded percentage can read 100.0% with statements still uncovered;
+    # this fails on any block that never ran.
+    - name: Require full coverage (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      run: ./scripts/check-coverage.sh coverage.txt
 
     # shell: bash is required -- the Windows runner defaults to PowerShell,
     # which cannot parse the assignment or the pipeline below.

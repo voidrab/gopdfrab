@@ -582,6 +582,31 @@ func TestRunWrapsPreemptiveFixupError(t *testing.T) {
 	}
 }
 
+// stalledFixer claims to have changed the document on every pass without
+// touching it, the way a fixer that cannot make headway looks to the loop.
+type stalledFixer struct{ check pdf.Check }
+
+func (f stalledFixer) Applies(c pdf.Check) bool                     { return c == f.check }
+func (stalledFixer) Fix(*pdf.PDFDict, []pdf.PDFError) (bool, error) { return true, nil }
+
+// TestRunStopsWhenFixesMakeNoProgress: a pass whose fixers report changes but
+// leave the same issues behind ends the loop on the next iteration rather
+// than running to the iteration cap.
+func TestRunStopsWhenFixesMakeNoProgress(t *testing.T) {
+	replaceAllFixers(t, func(c pdf.Check) Fixer { return stalledFixer{check: c} })
+
+	const limit = 10
+	cr, err := ConvertBytes(lzwPDF(), pdf.PDFA1B, Options{MaxIterations: limit})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	// Two loop iterations, then the raster backstop's own.
+	if cr.Iterations >= limit {
+		t.Errorf("Iterations = %d, want the loop to stop well before the cap of %d", cr.Iterations, limit)
+	}
+}
+
 // TestRunCancelledDuringFixPassSkipsBackstop cancels the context from inside a
 // fixer that changes nothing: the loop ends, and the raster backstop must
 // notice the cancellation before it rasterizes anything.

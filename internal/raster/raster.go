@@ -552,10 +552,8 @@ func (r *renderer) clipTarget(gs *renderState) *image.RGBA {
 	if clipped == r.canvas.Bounds() {
 		return r.canvas
 	}
-	if sub, ok := r.canvas.SubImage(clipped).(*image.RGBA); ok {
-		return sub
-	}
-	return r.canvas
+	// SubImage of an *image.RGBA is always an *image.RGBA.
+	return r.canvas.SubImage(clipped).(*image.RGBA)
 }
 
 // clipToBounds intersects bounds with a device-space rect, returning bounds
