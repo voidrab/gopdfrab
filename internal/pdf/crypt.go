@@ -110,6 +110,11 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	if h.v != 5 && (h.keyLen < 5 || h.keyLen > 16) {
 		return nil, fmt.Errorf("%w: invalid key length %d", ErrEncrypted, h.keyLen*8)
 	}
+	// A V5 key is 32 bytes; only the R5/R6 derivation produces one, the
+	// R2-R4 MD5 derivation tops out at 16.
+	if h.v == 5 && h.r < 5 {
+		return nil, fmt.Errorf("%w: V5 requires revision 5 or 6, got %d", ErrEncrypted, h.r)
+	}
 
 	if h.v >= 4 {
 		cf, _ := enc.Entries.Get("CF").(PDFDict)
