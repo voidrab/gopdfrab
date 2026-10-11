@@ -871,11 +871,6 @@ func fileSize(path string) int64 {
 // that gopdfrab is right to reject. Each entry has to make that case, and a
 // listed file that starts verifying clean fails the test, so a deviation cannot
 // outlive the reason for it.
-//
-// Check the attribution before adding one: arXiv 2008.01611 was listed here
-// because the usage scan, which did not restore the font on Q, charged a table
-// cell's '0' to a subset lacking that glyph. The cell draws in the font
-// inherited from outside its q/Q, which has the glyph, and veraPDF was right.
 var shouldPassDeviations = map[string]string{}
 
 // checkShouldPass verifies each file against PDF/A-1b and returns the paths
