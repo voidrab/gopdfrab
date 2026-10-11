@@ -1308,7 +1308,8 @@ func TestCollectAPEntryUsage(t *testing.T) {
 	// Subdictionary-of-states form (Btn widget).
 	states := pdf.NewPDFDict()
 	states.Entries.Set("On", direct)
-	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
+	states.Entries.Set("Off", pdf.NewPDFDict())           // no stream: skipped
+	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9}) // indirect dict: not a state
 	reachable2 := map[uintptr]bool{}
 	collectAPEntryUsage(ctx, states, reachable2, fu)
 	if !reachable2[xobjPtr] {
@@ -2447,5 +2448,202 @@ func TestValidateHexStringIgnoresWhitespace(t *testing.T) {
 	validateHexString(pdf.PDFHexString{Value: "00 4"}, pdf.NewPDFDict(), ctx)
 	if len(ctx.errs) != 1 {
 		t.Errorf("odd hex digit count reported %v, want one finding", ctx.Issues())
+	}
+}
+
+// TestArchitecturalLimitsScalarsAndDicts pins the remaining 6.1.12 limits on
+// the generic walk: real magnitude, string length and dictionary size.
+func TestArchitecturalLimitsScalarsAndDicts(t *testing.T) {
+	owner := pdf.NewPDFDict()
+	big := pdf.NewPDFDict()
+	for i := 0; i < 4096; i++ {
+		big.Entries.Set(fmt.Sprintf("K%d", i), pdf.PDFInteger(i))
+	}
+	atLimit := pdf.NewPDFDict()
+	for i := 0; i < 4095; i++ {
+		atLimit.Entries.Set(fmt.Sprintf("K%d", i), pdf.PDFInteger(i))
+	}
+	atLimit.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3}) // not counted
+
+	for _, tc := range []struct {
+		name string
+		node pdf.PDFValue
+		want pdf.Check
+	}{
+		{"real above 32767", pdf.PDFReal(32768.5), pdf.Checks.Structure.RealOutOfRange},
+		{"real below -32767", pdf.PDFReal(-40000), pdf.Checks.Structure.RealOutOfRange},
+		{"string over 65535 bytes", pdf.PDFString{Value: strings.Repeat("a", 65536)}, pdf.Checks.Structure.StringTooLong},
+		{"dictionary over 4095 entries", big, pdf.Checks.Structure.DictTooLarge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			validateArchitecturalLimits(tc.node, owner, ctx)
+			if !hasCheck(ctx, tc.want) || len(ctx.errs) != 1 {
+				t.Errorf("reported %v, want exactly %s", ctx.Issues(), tc.want.Name())
+			}
+		})
+	}
+
+	for name, node := range map[string]pdf.PDFValue{
+		"real at limit":             pdf.PDFReal(32767),
+		"string at limit":           pdf.PDFString{Value: strings.Repeat("a", 65535)},
+		"dictionary of 4095 + ref":  atLimit,
+		"integer at 32-bit maximum": pdf.PDFInteger(2_147_483_647),
+		"integer at 32-bit minimum": pdf.PDFInteger(-2_147_483_648),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := &ValidationContext{}
+			validateArchitecturalLimits(node, owner, ctx)
+			if len(ctx.errs) != 0 {
+				t.Errorf("reported %v, want none", ctx.Issues())
+			}
+		})
+	}
+}
+
+// rawReaderWithTrailer returns a reader over an empty file whose trailer is
+// the given dictionary, for checks that resolve paths from the catalogue.
+func rawReaderWithTrailer(t *testing.T, trailer pdf.PDFDict) *pdf.Reader {
+	t.Helper()
+	f, err := os.Create(filepath.Join(t.TempDir(), "empty.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	t.Cleanup(func() { doc.Close() })
+	return doc
+}
+
+// TestOutputIntentDifferingProfilesReported pins 6.2.2: every intent's
+// DestOutputProfile must be the same object.
+func TestOutputIntentDifferingProfilesReported(t *testing.T) {
+	intent := func(n int) pdf.PDFDict {
+		profile := pdf.NewPDFDict()
+		profile.Entries.Set("N", pdf.PDFInteger(n))
+		d := pdf.NewPDFDict()
+		d.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+		d.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+		d.Entries.Set("DestOutputProfile", profile)
+		return d
+	}
+	run := func(a, b pdf.PDFDict) []pdf.PDFError {
+		root := pdf.NewPDFDict()
+		root.Entries.Set("OutputIntents", pdf.PDFArray{a, b})
+		trailer := pdf.NewPDFDict()
+		trailer.Entries.Set("Root", root)
+		return verifyOutputIntent(rawReaderWithTrailer(t, trailer))
+	}
+
+	errs := run(intent(3), intent(1))
+	multi := 0
+	for _, e := range errs {
+		if e.Check() == pdf.Checks.Colour.OutputIntentMultipleProfiles {
+			multi++
+		}
+	}
+	if multi != 1 {
+		t.Errorf("differing profiles: %d OutputIntentMultipleProfiles findings in %v, want 1", multi, issueKeys(errs))
+	}
+	for _, e := range run(intent(3), intent(3)) {
+		if e.Check() == pdf.Checks.Colour.OutputIntentMultipleProfiles {
+			t.Errorf("identical profiles reported: %v", e)
+		}
+	}
+}
+
+// TestInformationDictionaryValueKinds pins how each kind of standard-entry
+// value is treated by 6.1.5: null counts as absent, a non-string, non-name
+// value or a name outside Trapped is a type violation, and an empty hex
+// string is an empty value.
+func TestInformationDictionaryValueKinds(t *testing.T) {
+	run := func(key string, v pdf.PDFValue) []pdf.PDFError {
+		info := pdf.NewPDFDict()
+		info.Entries.Set(key, v)
+		trailer := pdf.NewPDFDict()
+		trailer.Entries.Set("Info", info)
+		return verifyDocumentInformationDictionary(trailer)
+	}
+	check := func(errs []pdf.PDFError, want pdf.Check) bool {
+		return len(errs) == 1 && errs[0].Check() == want
+	}
+
+	if errs := run("Title", nil); len(errs) != 0 {
+		t.Errorf("null value: %v, want none", issueKeys(errs))
+	}
+	if errs := run("Title", pdf.PDFInteger(5)); !check(errs, pdf.Checks.Structure.InfoDictXMPMismatch) {
+		t.Errorf("integer value: %v, want one InfoDictXMPMismatch", issueKeys(errs))
+	}
+	if errs := run("Title", pdf.PDFName{Value: "N"}); !check(errs, pdf.Checks.Structure.InfoDictXMPMismatch) {
+		t.Errorf("name value for Title: %v, want one InfoDictXMPMismatch", issueKeys(errs))
+	}
+	if errs := run("Title", pdf.PDFHexString{Value: ""}); !check(errs, pdf.Checks.Structure.InfoDictEmptyValues) {
+		t.Errorf("empty hex string: %v, want one InfoDictEmptyValues", issueKeys(errs))
+	}
+	if errs := run("Title", pdf.PDFHexString{Value: "4142"}); len(errs) != 0 {
+		t.Errorf("non-empty hex string: %v, want none", issueKeys(errs))
+	}
+}
+
+// TestVerifyReportsInformationDictionaryFindings pins that the full verify
+// surfaces a 6.1.5 finding from the trailer's Info dictionary.
+func TestVerifyReportsInformationDictionaryFindings(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
+	b.Obj(4, "<< /Title () >>")
+	d, err := pdf.OpenBytes(b.FinishClassic("<< /Size 5 /Root 1 0 R /Info 4 0 R >>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	res, err := Verify(d, pdf.PDFA1B)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range res.Issues {
+		if e.Check() == pdf.Checks.Structure.InfoDictEmptyValues {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Verify did not report the empty Title: %v", issueKeys(res.Issues))
+	}
+}
+
+// TestXRefSectionBlankLineBeforeFirstHeader pins 6.1.4: a blank line between
+// the xref keyword and the first subsection header is reported.
+func TestXRefSectionBlankLineBeforeFirstHeader(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "xref.pdf")
+	if err := os.WriteFile(path, []byte("xref\n\n0 1\n0000000000 65535 f\ntrailer\n<< /Size 1 >>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0), 0)
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeader {
+		t.Errorf("blank line before the first header: %v, want one XRefSubsectionHeader", issueKeys(errs))
+	}
+}
+
+// TestOutputIntentWithoutProfileReported pins 6.2.2: an intent whose
+// OutputConditionIdentifier does not name a registered condition (here
+// "Custom") must carry a DestOutputProfile.
+func TestOutputIntentWithoutProfileReported(t *testing.T) {
+	intent := pdf.NewPDFDict()
+	intent.Entries.Set("S", pdf.PDFName{Value: "GTS_PDFA1"})
+	intent.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Custom"})
+	root := pdf.NewPDFDict()
+	root.Entries.Set("OutputIntents", pdf.PDFArray{intent})
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", root)
+
+	errs := verifyOutputIntent(rawReaderWithTrailer(t, trailer))
+	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Colour.OutputIntentUnresolvedProfile {
+		t.Errorf("got %v, want one OutputIntentUnresolvedProfile", issueKeys(errs))
 	}
 }
