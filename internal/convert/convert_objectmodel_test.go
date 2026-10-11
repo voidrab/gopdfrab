@@ -117,6 +117,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
@@ -173,6 +174,7 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
 		t.Fatalf("OpenBytes(output): %v", err)

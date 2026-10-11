@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -90,6 +91,16 @@ func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	return fontprog.SimpleFontCodeToUnicode(enc)
 }
 
+// noBreakSpaceAlias returns U+0020 for U+00A0 and 0 otherwise. ISO 32000-1
+// Annex D reads WinAnsi 0240 and MacRoman 0312 as the glyph "space" while
+// other tables read them as "nbspace", so a substitute is given both.
+func noBreakSpaceAlias(u uint16) uint16 {
+	if u == 0x00A0 {
+		return 0x0020
+	}
+	return 0
+}
+
 // simpleFontUsedUnicodes resolves the Unicode values a simple font dict
 // actually needs to render.
 func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, codeToUnicode [256]uint16) []uint16 {
@@ -103,9 +114,15 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 		if cc < 0 || cc > 255 {
 			return
 		}
-		if u := codeToUnicode[cc]; u != 0 && !seen[u] {
-			seen[u] = true
-			result = append(result, u)
+		u := codeToUnicode[cc]
+		if u == 0 {
+			return
+		}
+		for _, v := range []uint16{u, noBreakSpaceAlias(u)} {
+			if v != 0 && !seen[v] {
+				seen[v] = true
+				result = append(result, v)
+			}
 		}
 	}
 	if codes != nil {
@@ -262,14 +279,11 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
 	face := fontsubst.Pick(desc, baseFont.Value)
-	subset, err := fontprog.SubsetTrueType(face.Data, unicodes)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(subset)
-	if !ok {
-		return false
-	}
+	// face is a bundled Liberation face, which TestBundledFacesSupportSubsetting
+	// pins to parse and carry a (3,1) cmap: that is all SubsetTrueType can fail
+	// on, and its output is a packed sfnt that always parses.
+	subset, _ := fontprog.SubsetTrueType(face.Data, unicodes)
+	tables, _ := fontprog.ParseSfnt(subset)
 	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	if !substituteCoversUsage(d, usedCodes, codeToUnicode, cmap, tables) {
@@ -316,15 +330,13 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 	return true
 }
 
-// symbolicSubsetCoversCodes confirms every code resolves to a real glyph with
-// a usable advance width through the subset's own (3,0) cmap.
-func symbolicSubsetCoversCodes(tables map[string][]byte, gidMap map[uint16]uint16, codeUnicode map[int]uint16) bool {
+// symbolicSubsetCoversCodes confirms every code resolves to a real glyph
+// through the subset's own (3,0) cmap. Every gid that cmap names is below the
+// subset's glyph count and so has an hmtx entry: no advance-width check needed.
+func symbolicSubsetCoversCodes(gidMap map[uint16]uint16, codeUnicode map[int]uint16) bool {
 	for cc := range codeUnicode {
 		gid, ok := gidMap[0xF000|uint16(cc)]
 		if !ok || gid == 0 {
-			return false
-		}
-		if fontprog.TTAdvanceWidth(tables, int(gid)) < 0 {
 			return false
 		}
 	}
@@ -369,19 +381,13 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
 		{fontsubst.NotoSymbols, "NotoSansSymbols"},
 	} {
-		s, err := fontprog.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
-		if err != nil {
-			continue
-		}
-		t, ok := fontprog.ParseSfnt(s)
-		if !ok {
-			continue
-		}
-		_, _, gm, ok := fontprog.FirstFormat4CmapSubtable(t)
-		if !ok {
-			continue
-		}
-		if !symbolicSubsetCoversCodes(t, gm, codeUnicode) {
+		// Every candidate is a bundled face (see TestBundledFacesSupportSubsetting),
+		// so the subsetter cannot fail; its packed output parses and carries the
+		// format-4 (3,0) cmap it wrote.
+		s, _ := fontprog.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
+		t, _ := fontprog.ParseSfnt(s)
+		_, _, gm, _ := fontprog.FirstFormat4CmapSubtable(t)
+		if !symbolicSubsetCoversCodes(gm, codeUnicode) {
 			continue
 		}
 		subset, tables, gidOf, family = s, t, gm, cand.family
@@ -521,18 +527,14 @@ func buildToUnicodeStream(codeUnicode map[int]uint16) (pdf.PDFDict, bool) {
 	b.WriteString("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
 
 	toUni := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&toUni, []byte(b.String())); err != nil {
-		return pdf.PDFDict{}, false
-	}
+	writer.SetStreamFlate(&toUni, []byte(b.String()))
 	return toUni, true
 }
 
 func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, program []byte, face fontsubst.Face) {
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(program)))
-	if err := writer.SetStreamFlate(&fontFile, program); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&fontFile, program)
 
 	for _, k := range []string{"FontFile", "FontFile2", "FontFile3", "CharSet", "FontFamily"} {
 		desc.Entries.Del(k)
@@ -570,6 +572,60 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 		return nil, false
 	}
 	return cidToUnicode, true
+}
+
+// drawsNotdef reports whether the embedded program of a CIDFont certainly has
+// no glyph for cid, so a viewer draws the font's .notdef in its place. Only a
+// program that can be read and an Identity CID-to-glyph mapping are trusted;
+// anything less certain is false.
+func drawsNotdef(cid, desc pdf.PDFDict, c int) bool {
+	if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
+		if !verify.IdentityCIDToGIDMap(cid) {
+			return false
+		}
+		data, err := pdf.DecodeStream(ff)
+		if err != nil {
+			return false
+		}
+		tables, ok := fontprog.ParseSfnt(data)
+		return ok && !fontprog.TTGlyphPresent(tables)(c)
+	}
+	ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	td, ok := fontprog.ParseCFFTopDict(data)
+	if !ok {
+		return false
+	}
+	lens := fontprog.ParseCFFCharStringLengths(data, td.CSOffset)
+	if lens == nil {
+		return false
+	}
+	if !td.IsCIDKeyed {
+		return c >= len(lens)
+	}
+	cids := fontprog.ParseCFFCharsetCIDs(data, td.CharsetOffset, len(lens))
+	return cids != nil && !slices.Contains(cids, c)
+}
+
+// cidWidth is the width a CIDFont gives cid: its /W entry, else /DW, else
+// the spec default 1000.
+func cidWidth(cid pdf.PDFDict, c int) float64 {
+	w, _ := cid.Entries.Get("W").(pdf.PDFArray)
+	for _, pair := range fontprog.ParseCIDWidths(w) {
+		if pair[0] == c {
+			return float64(pair[1])
+		}
+	}
+	if dw, ok := numericValue(cid.Entries.Get("DW")); ok {
+		return dw
+	}
+	return 1000
 }
 
 // cidFontNeedsSubstitution mirrors simpleFontNeedsSubstitution for composite
@@ -636,17 +692,25 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 
 	// Every rendered CID must survive the substitution; CID 0 (.notdef) needs
 	// no mapping. A CID with no recoverable meaning would silently lose its
-	// glyph, so refuse and leave the page to raster fallback.
+	// glyph, so refuse and leave the page to raster fallback -- unless the
+	// program being replaced has no glyph for it either. Then what it drew was
+	// the missing-glyph shape, which the substitute's own .notdef stands in
+	// for, advancing by the same width so the text after it stays put.
 	targetCIDs := map[uint16][]int{}
+	notdef := map[int]float64{}
 	for c := range cids {
 		if c == 0 {
 			continue
 		}
 		u, ok := cidToUnicode[c]
-		if !ok {
+		switch {
+		case ok:
+			targetCIDs[u] = append(targetCIDs[u], c)
+		case drawsNotdef(cid, desc, c):
+			notdef[c] = cidWidth(cid, c)
+		default:
 			return false
 		}
-		targetCIDs[u] = append(targetCIDs[u], c)
 	}
 	if len(targetCIDs) == 0 {
 		return false
@@ -666,14 +730,10 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		{fontsubst.NotoSymbols2, "NotoSansSymbols2"},
 		{fontsubst.NotoSymbols, "NotoSansSymbols"},
 	} {
-		faceTables, ok := fontprog.ParseSfnt(cand.data)
-		if !ok {
-			continue
-		}
+		// Every candidate is a bundled face with a format-4 (3,1) cmap (see
+		// TestBundledFacesSupportSubsetting).
+		faceTables, _ := fontprog.ParseSfnt(cand.data)
 		faceCmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(faceTables))
-		if faceCmap == nil {
-			continue
-		}
 		covered := true
 		for u := range targetCIDs {
 			if _, ok := faceCmap[u]; !ok {
@@ -690,26 +750,27 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 		return false
 	}
 
-	subset, err := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs)
-	if err != nil {
-		return false
-	}
-	tables, ok := fontprog.ParseSfnt(subset)
-	if !ok {
-		return false
-	}
+	// faceData passed the cmap check above, the only thing the subsetter can
+	// fail on, and its packed output always parses.
+	subset, _ := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs, notdef)
+	tables, _ := fontprog.ParseSfnt(subset)
 
 	var widthPairs [][2]int
-	for _, cidList := range targetCIDs {
-		for _, c := range cidList {
-			if aw := fontprog.TTAdvanceWidth(tables, c); aw >= 0 {
-				widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
-			}
+	addWidth := func(c int) {
+		if aw := fontprog.TTAdvanceWidth(tables, c); aw >= 0 {
+			widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
 		}
 	}
-	if len(widthPairs) == 0 {
-		return false
+	for _, cidList := range targetCIDs {
+		for _, c := range cidList {
+			addWidth(c)
+		}
 	}
+	for c := range notdef {
+		addWidth(c)
+	}
+	// targetCIDs is non-empty and every CID in it is below the subset's glyph
+	// count, with an hmtx entry of its own, so widthPairs is never empty.
 	sort.Slice(widthPairs, func(i, j int) bool { return widthPairs[i][0] < widthPairs[j][0] })
 
 	if sharedDescs[pdf.ValuePointer(desc.Entries)] {
@@ -902,9 +963,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	if err := writer.SetStreamFlate(&ff, trimmed); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&ff, trimmed)
 	desc.Entries.Set("FontFile2", ff)
 	return true
 }

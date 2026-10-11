@@ -800,3 +800,45 @@ func TestRenderFormRendersOnNothing(t *testing.T) {
 		t.Errorf("an empty page renders %+v, want opaque white", px)
 	}
 }
+
+func TestType3WordSpaceAppliesOnlyToCode32(t *testing.T) {
+	gs := &renderState{wordSpace: 7}
+	if got := type3WordSpace(32, gs); got != 7 {
+		t.Errorf("code 32 word space = %v, want 7", got)
+	}
+	if got := type3WordSpace(65, gs); got != 0 {
+		t.Errorf("code 65 word space = %v, want 0", got)
+	}
+}
+
+func TestBuildType3FontInfoWidthsDefaultFirstChar(t *testing.T) {
+	font := type3Font("0 0 m", 0.001, 500, "a")
+	font.Entries.Del("FirstChar")
+	fi := buildType3FontInfo(font)
+	if got := fi.widths[0]; got != 500 {
+		t.Errorf("width of code 0 = %v, want 500 (FirstChar defaults to 0)", got)
+	}
+}
+
+// TestRenderType3GlyphThatShowsItselfStops: a CharProc that shows its own font
+// would recurse forever; the shared nesting guard ends it, leaving the outer
+// glyph painted.
+func TestRenderType3GlyphThatShowsItselfStops(t *testing.T) {
+	font := type3Font("0 0 750 750 re f BT /F1 1000 Tf (A) Tj ET", 0.001, 750, "square")
+	img, _ := renderType3(t, "0 0 1 rg BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
+	if got := nrgbaAt(t, img, 10, 10); got.B != 255 || got.R != 0 {
+		t.Errorf("inside the outer glyph = %v, want the blue fill colour", got)
+	}
+}
+
+// TestRenderType3UndecodableCharProcDrops: a glyph procedure whose stream
+// cannot be decoded is reported like a missing one.
+func TestRenderType3UndecodableCharProcDrops(t *testing.T) {
+	font := type3Font("", 0.001, 750, "square")
+	proc := undecodableStream()
+	font.Entries.Get("CharProcs").(pdf.PDFDict).Entries.Set("square", proc)
+	_, drops := renderType3(t, "BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
+	if !hasDrop(drops, dropType3) {
+		t.Errorf("drops = %v, want %q", drops, dropType3)
+	}
+}

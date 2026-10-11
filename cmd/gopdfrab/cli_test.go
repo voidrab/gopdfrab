@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -95,6 +96,27 @@ func TestCollectPDFsWalksDirectories(t *testing.T) {
 
 	if _, err := collectPDFs([]string{filepath.Join(dir, "gone")}); err == nil {
 		t.Error("collectPDFs on a missing path returned no error")
+	}
+}
+
+// TestCollectPDFsUnreadableSubdirectory checks that a directory the walk
+// cannot read fails the whole collection rather than being skipped silently.
+func TestCollectPDFsUnreadableSubdirectory(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions enforced for the current user")
+	}
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	if got, err := collectPDFs([]string{dir}); !errors.Is(err, os.ErrPermission) || got != nil {
+		t.Errorf("collectPDFs over an unreadable subdirectory = %v, %v; want nil, a permission error", got, err)
 	}
 }
 

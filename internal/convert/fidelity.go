@@ -199,13 +199,9 @@ func coveredFraction(before, after [fidelityGrid * fidelityGrid]float64) float64
 
 // summarizeReaderPages resolves r's graph and measures every page in order.
 func summarizeReaderPages(r *pdf.Reader, dpi int) ([]pageSummary, error) {
-	graph, err := r.ResolveGraph()
+	trailer, err := resolveTrailer(r)
 	if err != nil {
 		return nil, err
-	}
-	trailer, ok := graph.(pdf.PDFDict)
-	if !ok {
-		return nil, fmt.Errorf("resolved graph is not a dictionary")
 	}
 	return summarizeTrailerPages(trailer, dpi), nil
 }

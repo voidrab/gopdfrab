@@ -77,15 +77,13 @@ func (f undecodableStreamFixer) fixType3CharProcs(trailer pdf.PDFDict) bool {
 			if _, err := pdf.DecodeStream(proc); err == nil {
 				continue
 			}
-			content, err := writer.WriteContentStream([]writer.ContentOp{{
-				Op:       "d0",
-				Operands: []pdf.PDFValue{pdf.PDFReal(widths[name]), pdf.PDFReal(0)},
-			}})
-			if err != nil {
-				continue
-			}
+			// WriteOp fails only on an operand type it cannot serialize; the
+			// operands here are two PDFReals, which it always writes (a
+			// non-finite advance is written as 0), into an in-memory buffer.
+			var cw writer.ContentStreamWriter
+			_ = cw.WriteOp("d0", []pdf.PDFValue{pdf.PDFReal(widths[name]), pdf.PDFReal(0)})
 			dropFilters(&proc)
-			proc.RawStream = content
+			proc.RawStream = cw.Bytes()
 			procs.Entries.Set(name, proc)
 			changed = true
 			if f.lost != nil {
@@ -159,9 +157,7 @@ func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 		if err != nil {
 			return d, false
 		}
-		if err := writer.SetStreamFlate(&d, plaintext); err != nil {
-			return d, false
-		}
+		writer.SetStreamFlate(&d, plaintext)
 		changed = true
 		return d, true
 	})

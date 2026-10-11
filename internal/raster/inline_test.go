@@ -154,3 +154,22 @@ func TestRenderInlineImageUndecodableDrops(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderStrayInlineImageOperatorDrops: the scanner only ever produces
+// INLINEIMAGE with its raw image attached, but a content stream can spell the
+// operator itself with nothing behind it. That is reported, not drawn.
+func TestRenderStrayInlineImageOperatorDrops(t *testing.T) {
+	for name, content := range map[string]string{
+		"no operands":     "INLINEIMAGE",
+		"plain operands":  "1 2 INLINEIMAGE",
+		"inside a q pair": "q 5 INLINEIMAGE Q",
+	} {
+		_, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+		if err != nil {
+			t.Fatalf("%s: RenderPage: %v", name, err)
+		}
+		if !hasDrop(drops, dropInlineImage) {
+			t.Errorf("%s: drops = %v, want %q", name, drops, dropInlineImage)
+		}
+	}
+}

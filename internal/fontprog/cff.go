@@ -15,6 +15,12 @@ import (
 // operator with the operands collected before it (escape operators are passed
 // as 1200+n). Returns false on malformed data.
 func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
+	return cffDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
+}
+
+// cffDictNumbersAt is cffDictNumbers that also passes, with each operator,
+// the offset just past it -- where the next entry starts.
+func cffDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
 	var stack []float64
 	for i := 0; i < len(dict); {
 		b := int(dict[i])
@@ -57,11 +63,11 @@ func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool
 			if i+1 >= len(dict) {
 				return false
 			}
-			op(1200+int(dict[i+1]), stack)
+			op(1200+int(dict[i+1]), stack, i+2)
 			stack = nil
 			i += 2
 		default:
-			op(b, stack)
+			op(b, stack, i+1)
 			stack = nil
 			i++
 		}
@@ -274,13 +280,12 @@ func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 
 	// The width operand is stack[0] when the count exceeds the terminator's
 	// arity: stem/hintmask operators take an even count, moveto forms 1-2,
-	// endchar 0 (or the deprecated 4-argument seac form).
+	// endchar 0 (or the deprecated 4-argument seac form). run only returns the
+	// terminators listed here, and each "extra" test below implies a non-empty
+	// stack.
 	widthFor := func(extra bool) (float64, bool, bool) {
 		if !extra {
 			return 0, false, true
-		}
-		if len(stack) == 0 {
-			return 0, false, false
 		}
 		return stack[0], true, true
 	}
@@ -289,8 +294,6 @@ func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 		return widthFor(len(stack)%2 == 1)
 	case 21:
 		return widthFor(len(stack) > 2)
-	case 4, 22:
-		return widthFor(len(stack) > 1)
 	case 14:
 		if len(stack) == 1 || len(stack) == 5 {
 			return stack[0], true, true
@@ -299,8 +302,9 @@ func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 			return 0, false, true
 		}
 		return 0, false, false
+	default: // 4, 22: vmoveto, hmoveto
+		return widthFor(len(stack) > 1)
 	}
-	return 0, false, false
 }
 
 // cffCharstringWidth extracts one glyph's advance width given the width

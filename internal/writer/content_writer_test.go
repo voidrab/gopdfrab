@@ -107,3 +107,31 @@ func TestWriteContentStreamRoundTripsInlineImage(t *testing.T) {
 		}
 	}
 }
+
+// TestContentStreamWriterErrorIsSticky checks that after a failed WriteOp the
+// error is kept: Err reports it and later WriteOps return it without writing.
+func TestContentStreamWriterErrorIsSticky(t *testing.T) {
+	var w ContentStreamWriter
+	if err := w.WriteOp("q", nil); err != nil {
+		t.Fatalf("WriteOp(q): %v", err)
+	}
+	if w.Err() != nil {
+		t.Fatalf("Err() = %v before any failure, want nil", w.Err())
+	}
+
+	first := w.WriteOp("Tj", []pdf.PDFValue{pdf.PDFRef{ObjNum: 1}})
+	if first == nil {
+		t.Fatal("expected an error for an unserializable operand")
+	}
+	if w.Err() != first {
+		t.Errorf("Err() = %v, want the first failure %v", w.Err(), first)
+	}
+
+	before := string(w.Bytes())
+	if err := w.WriteOp("Q", nil); err != first {
+		t.Errorf("WriteOp after failure = %v, want the sticky %v", err, first)
+	}
+	if string(w.Bytes()) != before {
+		t.Errorf("WriteOp after failure changed output: %q -> %q", before, w.Bytes())
+	}
+}

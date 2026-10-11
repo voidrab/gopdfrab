@@ -71,9 +71,7 @@ func rescaleContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 	if !ok {
 		return dict, false
 	}
-	if err := writer.SetStreamFlate(&dict, rewritten); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, rewritten)
 	return dict, true
 }
 

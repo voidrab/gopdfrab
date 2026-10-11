@@ -265,6 +265,21 @@ func TestInvalidKeyLengthRejected(t *testing.T) {
 	}
 }
 
+// V5 means a 32-byte AES-256 file key, which only the R5/R6 algorithms
+// produce; the R2-R4 MD5 derivation yields at most 16 bytes.
+func TestV5WithPreR5RevisionRejected(t *testing.T) {
+	for _, r := range []int{2, 3, 4} {
+		enc := PDFDict{Entries: DictOf(map[string]PDFValue{
+			"Filter": PDFName{Value: "Standard"},
+			"V":      PDFInteger(5),
+			"R":      PDFInteger(r),
+		})}
+		if _, err := newStdSecurityHandler(enc, nil, 1, nil); !errors.Is(err, ErrEncrypted) {
+			t.Errorf("R=%d: err=%v, want ErrEncrypted", r, err)
+		}
+	}
+}
+
 func TestObjectKeyR6IsFileKey(t *testing.T) {
 	h := &stdSecurityHandler{r: 6, fileKey: bytes.Repeat([]byte{0xAB}, 32)}
 	if !bytes.Equal(h.objectKey(3, 0, cryptAESV3), h.fileKey) {

@@ -291,9 +291,6 @@ func (l *Lexer) readByte() (byte, error) {
 
 func (l *Lexer) unreadByte() error {
 	if l.data != nil {
-		if l.pos <= 0 {
-			return io.ErrUnexpectedEOF
-		}
 		l.pos--
 		return nil
 	}
@@ -563,10 +560,7 @@ func (l *Lexer) requireEOL() error {
 		return nil
 	}
 
-	err = l.unreadByte()
-	if err != nil {
-		return err
-	}
+	l.unreadByte() // cannot fail straight after a successful readByte
 	return fmt.Errorf("expected EOL, got 0x%02X", b)
 }
 

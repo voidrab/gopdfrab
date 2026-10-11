@@ -588,11 +588,7 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 		return fadeSoftMaskIntoImage(img, smaskDict, smask, resources)
 	}
 
-	stencil, ok := stencilFromCoverage(smask, maskChannel, shapeCutoff)
-	if !ok {
-		return img, false
-	}
-	img.Entries.Set("Mask", stencil)
+	img.Entries.Set("Mask", stencilFromCoverage(smask, maskChannel, shapeCutoff))
 	img.Entries.Del("SMask")
 	return img, true
 }
@@ -600,9 +596,6 @@ func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool)
 // maskIsFaint reports a soft mask no stencil can carry: every sample of it is
 // more transparent than not, so thresholding masks every pixel out.
 func maskIsFaint(smask *image.RGBA) bool {
-	if smask.Bounds().Dx() == 0 || smask.Bounds().Dy() == 0 {
-		return false
-	}
 	for i := maskChannel; i < len(smask.Pix); i += 4 {
 		if int(smask.Pix[i]) >= shapeCutoff {
 			return false
@@ -638,9 +631,6 @@ func fadeSoftMaskIntoImage(img, smaskDict pdf.PDFDict, smask *image.RGBA, resour
 	}
 	w, h := base.Bounds().Dx(), base.Bounds().Dy()
 	mw, mh := smask.Bounds().Dx(), smask.Bounds().Dy()
-	if w == 0 || h == 0 || mw == 0 || mh == 0 {
-		return img, false
-	}
 	matte, premultiplied := matteColour(smaskDict)
 
 	for y := 0; y < h; y++ {
@@ -667,16 +657,10 @@ func fadeSoftMaskIntoImage(img, smaskDict pdf.PDFDict, smask *image.RGBA, resour
 	// stencil.
 	img.Entries.Del("Mask")
 	if hasClearPixels(smask) {
-		stencil, ok := stencilFromCoverage(smask, maskChannel, clearCutoff)
-		if !ok {
-			return img, false
-		}
-		img.Entries.Set("Mask", stencil)
+		img.Entries.Set("Mask", stencilFromCoverage(smask, maskChannel, clearCutoff))
 	}
 
-	if err := setStreamRGBFlate(&img, base); err != nil {
-		return img, false
-	}
+	setStreamRGBFlate(&img, base)
 	img.Entries.Set("Width", pdf.PDFInteger(w))
 	img.Entries.Set("Height", pdf.PDFInteger(h))
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
@@ -716,11 +700,10 @@ const (
 // stencilFromCoverage builds the stencil that stands in for per-pixel opacity:
 // a bit per pixel, set where the image is less opaque than cutoff in channel,
 // which is the value that masks the pixel out under the default /Decode.
-func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) (pdf.PDFDict, bool) {
+// smask must have at least one pixel; every caller's raster does (see
+// TestStencilCallersNeverSeeAnEmptyRaster).
+func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) pdf.PDFDict {
 	w, h := smask.Bounds().Dx(), smask.Bounds().Dy()
-	if w == 0 || h == 0 {
-		return pdf.PDFDict{}, false
-	}
 	rowBytes := (w + 7) / 8
 	row := make([]byte, rowBytes)
 
@@ -731,7 +714,7 @@ func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) (pdf.PDFDict, b
 	stencil.Entries.Set("Height", pdf.PDFInteger(h))
 	stencil.Entries.Set("BitsPerComponent", pdf.PDFInteger(1))
 	stencil.Entries.Set("ImageMask", pdf.PDFBoolean(true))
-	if err := writer.SetStreamFlateRows(&stencil, h, func(y int) []byte {
+	writer.SetStreamFlateRows(&stencil, h, func(y int) []byte {
 		clear(row)
 		off := smask.PixOffset(smask.Bounds().Min.X, smask.Bounds().Min.Y+y)
 		for x := 0; x < w; x++ {
@@ -740,10 +723,8 @@ func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) (pdf.PDFDict, b
 			}
 		}
 		return row
-	}); err != nil {
-		return pdf.PDFDict{}, false
-	}
-	return stencil, true
+	})
+	return stencil
 }
 
 // coverageIsOpaque reports whether a rendered canvas painted everywhere, so it
@@ -820,15 +801,9 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
 	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
 	if !coverageIsOpaque(canvas) {
-		stencil, ok := stencilFromCoverage(canvas, alphaChannel, shapeCutoff)
-		if !ok {
-			return form, nil, false
-		}
-		img.Entries.Set("Mask", stencil)
+		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, shapeCutoff))
 	}
-	if err := setStreamRGBFlate(&img, canvas); err != nil {
-		return form, nil, false
-	}
+	setStreamRGBFlate(&img, canvas)
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Im0", img)
@@ -845,16 +820,13 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}},
 		{Op: "Q"},
 	}
-	data, err := writer.WriteContentStream(ops)
-	if err != nil {
-		return form, nil, false
-	}
+	// Cannot fail: ops holds only operators with integer, real and name
+	// operands, which the content writer always serialises.
+	data, _ := writer.WriteContentStream(ops)
 
 	form.Entries.Del("Group")
 	form.Entries.Set("Resources", formResources)
-	if err := writer.SetStreamFlate(&form, data); err != nil {
-		return form, nil, false
-	}
+	writer.SetStreamFlate(&form, data)
 	return form, drops, true
 }
 
@@ -879,9 +851,7 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
-	if err := setStreamRGBFlate(&img, canvas); err != nil {
-		return nil, false
-	}
+	setStreamRGBFlate(&img, canvas)
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Im0", img)
@@ -901,14 +871,11 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}},
 		{Op: "Q"},
 	}
-	data, err := writer.WriteContentStream(ops)
-	if err != nil {
-		return nil, false
-	}
+	// Cannot fail: ops holds only operators with integer, real and name
+	// operands, which the content writer always serialises.
+	data, _ := writer.WriteContentStream(ops)
 	contents := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&contents, data); err != nil {
-		return nil, false
-	}
+	writer.SetStreamFlate(&contents, data)
 
 	page.Entries.Del("Group")
 	page.Entries.Del("Rotate")
@@ -921,11 +888,11 @@ func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]flo
 // each row's RGB triples on the fly so no whole-raster RGB buffer is allocated
 // (one reused row buffer per call instead). The same tight 8-bit row-major
 // packing packRGBSamples produces.
-func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) error {
+func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) {
 	bounds := canvas.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	rowRGB := make([]byte, w*3)
-	return writer.SetStreamFlateRows(d, h, func(i int) []byte {
+	writer.SetStreamFlateRows(d, h, func(i int) []byte {
 		off := canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i)
 		src := canvas.Pix[off : off+w*4 : off+w*4]
 		for x, j := 0, 0; x < len(src); x, j = x+4, j+3 {

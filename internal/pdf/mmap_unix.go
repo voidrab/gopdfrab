@@ -11,7 +11,9 @@ import (
 // The caller must call unmap() after all reads are done (typically in Close).
 func mmapFile(f *os.File, size int64) (data []byte, unmap func() error, err error) {
 	if size == 0 {
-		return nil, func() error { return nil }, nil
+		// Nothing to map or unmap. (newDocument rejects the empty file at its
+		// header read, so no Reader is ever built around this result.)
+		return nil, nil, nil
 	}
 	data, err = syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_PRIVATE)
 	if err != nil {

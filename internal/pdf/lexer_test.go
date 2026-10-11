@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -336,5 +337,58 @@ func TestNextTokenReportsReadError(t *testing.T) {
 	defer l.Release()
 	if tok := l.NextToken(); tok.Type != TokenError || tok.Value != "disk on fire" {
 		t.Fatalf("NextToken = %+v, want TokenError \"disk on fire\"", tok)
+	}
+}
+
+// TestSkipEOLCarriageReturn: a CR is a complete EOL, and a CRLF pair is
+// consumed whole.
+func TestSkipEOLCarriageReturn(t *testing.T) {
+	for _, tc := range []struct {
+		data string
+		next byte
+	}{{"\rX", 'X'}, {"\r\nX", 'X'}} {
+		l := NewLexerBytes([]byte(tc.data), 0)
+		if err := l.skipEOL(); err != nil {
+			t.Errorf("skipEOL(%q) = %v", tc.data, err)
+		}
+		if b, _ := l.readByte(); b != tc.next {
+			t.Errorf("skipEOL(%q) left next byte %q, want %q", tc.data, b, tc.next)
+		}
+		l.Release()
+	}
+}
+
+// TestPeekByteReaderAtEOF: peeking an exhausted reader reports no byte.
+func TestPeekByteReaderAtEOF(t *testing.T) {
+	l := NewLexer(strings.NewReader(""))
+	defer l.Release()
+	if b, ok := l.peekByte(); ok {
+		t.Errorf("peekByte = %q, true; want false", b)
+	}
+}
+
+// TestObjectFramingSpacing covers the header's two separators and the EOL
+// before endobj, each reported without stopping the parse.
+func TestObjectFramingSpacing(t *testing.T) {
+	l := NewLexerBytes([]byte("1  0 obj\n"), 0)
+	if num, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
+		t.Errorf("double space after object number: num=%d errs=%v", num, errs)
+	}
+	l = NewLexerBytes([]byte("1 0  obj\n"), 0)
+	if num, errs := l.validateObjectStart(); num != 1 || len(errs) != 1 {
+		t.Errorf("double space after generation: num=%d errs=%v", num, errs)
+	}
+	l = NewLexerBytes([]byte("endobj\n"), 0)
+	if errs := l.validateEndObj(); len(errs) != 1 {
+		t.Errorf("endobj with no preceding EOL: errs=%v, want 1", errs)
+	}
+}
+
+// TestStringLiteralEndsAfterBackslash: an escape with nothing after it is an
+// unterminated string.
+func TestStringLiteralEndsAfterBackslash(t *testing.T) {
+	l := NewLexerBytes([]byte(`(abc\`), 0)
+	if tok := l.NextToken(); tok.Type != TokenError || !strings.Contains(tok.Value, "Unterminated String") {
+		t.Errorf("token = %+v, want an unterminated-string error", tok)
 	}
 }

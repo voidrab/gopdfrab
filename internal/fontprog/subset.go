@@ -3,6 +3,7 @@ package fontprog
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sort"
 )
 
@@ -151,7 +152,11 @@ func SubsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 // expected to have already filtered for resolvability). Any output GID in
 // [0, max(targetGID)] not assigned a glyph this way becomes an empty
 // placeholder, since /W only ever references the CIDs the caller asked for.
-func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, error) {
+//
+// notdef names CIDs that drew the missing-glyph shape in the font being
+// replaced: each gets src's .notdef outline at that glyph ID, advancing by
+// the given width (1/1000 em) instead of the .notdef's own.
+func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, notdef map[int]float64) ([]byte, error) {
 	tables, ok := ParseSfnt(src)
 	if !ok {
 		return nil, fmt.Errorf("SubsetTrueTypeForCID: not a valid sfnt")
@@ -171,6 +176,9 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 			}
 		}
 	}
+	for cid := range notdef {
+		maxGID = max(maxGID, cid)
+	}
 	nextClosureGID := maxGID + 1
 	var queue []int
 	place := func(oldGID, newGID int) {
@@ -185,6 +193,9 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 			}
 		}
 	}
+	for cid := range notdef {
+		place(0, cid)
+	}
 	for len(queue) > 0 {
 		oldGID := queue[0]
 		queue = queue[1:]
@@ -198,6 +209,13 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int) ([]byte, erro
 
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
 	out["cmap"] = buildCmapFormat4Table(3, 1, nil)
+	if head := out["head"]; len(head) >= 20 {
+		upm := float64(binary.BigEndian.Uint16(head[18:20]))
+		// buildSubsetTables writes a full hmtx: one long metric per glyph.
+		for cid, width := range notdef {
+			binary.BigEndian.PutUint16(out["hmtx"][cid*4:], uint16(math.Round(width*upm/1000)))
+		}
+	}
 	return PackSfnt(out), nil
 }
 
@@ -627,19 +645,20 @@ func PackSfnt(tables map[string][]byte) []byte {
 			headOffset = e.offset
 		}
 	}
-	patchChecksums := func() {
-		for i, e := range entries {
-			cs := tableChecksum(buf[e.offset : e.offset+len(e.padded)])
-			binary.BigEndian.PutUint32(buf[12+i*16+4:12+i*16+8], cs)
-		}
-	}
-	patchChecksums()
-
-	if headOffset >= 0 && headOffset+12 <= len(buf) {
+	// Every checksum, head's included, is taken with checkSumAdjustment
+	// zeroed; the adjustment is then patched in last so the whole file sums
+	// to the magic. Re-checksumming head afterwards would break both.
+	hasHead := headOffset >= 0 && headOffset+12 <= len(buf)
+	if hasHead {
 		binary.BigEndian.PutUint32(buf[headOffset+8:headOffset+12], 0)
+	}
+	for i, e := range entries {
+		cs := tableChecksum(buf[e.offset : e.offset+len(e.padded)])
+		binary.BigEndian.PutUint32(buf[12+i*16+4:12+i*16+8], cs)
+	}
+	if hasHead {
 		adjustment := sfntChecksumAdjustmentMagic - tableChecksum(buf)
 		binary.BigEndian.PutUint32(buf[headOffset+8:headOffset+12], adjustment)
-		patchChecksums() // head's own bytes changed, so its directory checksum must be redone
 	}
 	return buf
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // TestValidateActionsOwnerWithoutS covers what emptying a forbidden action in
@@ -611,5 +612,31 @@ func TestIsAllowedBlendMode(t *testing.T) {
 	}
 	if IsAllowedBlendMode(pdf.PDFInteger(1)) {
 		t.Error("non-name/array should be false")
+	}
+}
+
+// TestResolveInheritedFTCyclicParentChain checks that a Parent cycle without
+// any FT terminates with no field type rather than looping.
+func TestResolveInheritedFTCyclicParentChain(t *testing.T) {
+	a := pdf.NewPDFDict()
+	a.Entries.Set("Parent", a)
+	if got := resolveInheritedFT(a); got != nil {
+		t.Errorf("resolveInheritedFT on a Parent cycle = %v, want nil", got)
+	}
+}
+
+// TestVerifyInteractiveFormsIgnoresNonDictAcroForm checks that an /AcroForm
+// that is not a dictionary is treated as absent.
+func TestVerifyInteractiveFormsIgnoresNonDictAcroForm(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /AcroForm [1 2] >>")
+	b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+	doc, err := pdf.OpenBytes(b.FinishClassic("<< /Size 3 /Root 1 0 R >>"))
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+	if errs := verifyInteractiveForms(doc); errs != nil {
+		t.Errorf("verifyInteractiveForms = %v, want nil", errs)
 	}
 }

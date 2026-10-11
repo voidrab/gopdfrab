@@ -65,12 +65,6 @@ func (w *ContentStreamWriter) Err() error { return w.err }
 // Bytes returns the serialized stream; meaningful only when Err is nil.
 func (w *ContentStreamWriter) Bytes() []byte { return w.buf.Bytes() }
 
-// Reset discards everything written, including a sticky error.
-func (w *ContentStreamWriter) Reset() {
-	w.buf.Reset()
-	w.err = nil
-}
-
 // WriteContentStream serializes ops back to content-stream bytes, the
 // inverse of NewContentScanner(...).scan. An "INLINEIMAGE" op (the scanner's
 // pseudo-operator for a BI...EI sequence) is re-emitted by writing its

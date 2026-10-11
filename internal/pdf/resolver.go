@@ -10,15 +10,6 @@ func (d *Reader) ResolveObject(obj PDFValue) (PDFValue, error) {
 	return d.resolveInPlace(obj)
 }
 
-// resolveShallow dereferences obj if it is a PDFRef, without recursing into
-// the result's own entries.
-func (d *Reader) resolveShallow(obj PDFValue) (PDFValue, error) {
-	if ref, ok := obj.(PDFRef); ok {
-		return d.ResolveReference(ref)
-	}
-	return obj, nil
-}
-
 // ResolveReference resolves an indirect reference to its object, parsing it
 // from disk at most once per object number.
 func (d *Reader) ResolveReference(ref PDFRef) (PDFValue, error) {

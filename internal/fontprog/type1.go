@@ -50,7 +50,7 @@ func type1LenIV(plain []byte) int {
 		return 4
 	}
 	n, err := strconv.Atoi(string(m[1]))
-	if err != nil || n < 0 {
+	if err != nil {
 		return 4
 	}
 	return n
@@ -387,6 +387,8 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 		return StandardEncoding, true
 	case "WinAnsiEncoding":
 		return WinAnsiGlyphName, true
+	case "MacRomanEncoding":
+		return MacRomanGlyphName, true
 	default:
 		return enc, false
 	}

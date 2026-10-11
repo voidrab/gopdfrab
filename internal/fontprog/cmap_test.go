@@ -78,3 +78,55 @@ func TestCmapTokenizeAndParseInt(t *testing.T) {
 		t.Error("CmapParseInt should reject an empty token")
 	}
 }
+
+func TestParseToUnicodeCMapSkipsUnusableEntries(t *testing.T) {
+	cmap := []byte(`
+2 beginbfchar
+<FFFFFFFFFF> <0041>
+<42> <43>
+endbfchar
+2 beginbfrange
+<FFFFFFFFFF> <FFFFFFFFFE> <0041>
+<50> <51> <41>
+<60> <61> <>
+endbfrange
+`)
+	// Code overflowing 32 bits, a one-byte destination, and range forms that
+	// lack a usable destination are all dropped.
+	if got := ParseToUnicodeCMap(cmap); len(got) != 0 {
+		t.Errorf("ParseToUnicodeCMap = %v, want nothing", got)
+	}
+
+	// A destination array shorter than the range maps only what it has, and
+	// one with an unusable entry skips just that code.
+	got := ParseToUnicodeCMap([]byte("1 beginbfrange\n<10> <14> [<0041> <42> <0043>]\nendbfrange"))
+	want := map[int]uint16{0x10: 0x41, 0x12: 0x43}
+	if len(got) != len(want) || got[0x10] != 0x41 || got[0x12] != 0x43 {
+		t.Errorf("ParseToUnicodeCMap(array) = %v, want %v", got, want)
+	}
+}
+
+func TestCmapTokenizeEdges(t *testing.T) {
+	texts := func(src string) []string {
+		var out []string
+		for _, tok := range CmapTokenize([]byte(src)) {
+			out = append(out, tok.Text)
+		}
+		return out
+	}
+	// Trailing whitespace ends the scan; unterminated hex and nested literal
+	// strings are taken to the end or the matching parenthesis.
+	if got := texts("a  \n "); len(got) != 1 || got[0] != "a" {
+		t.Errorf("trailing whitespace: %q", got)
+	}
+	if got := texts("<00 41"); len(got) != 1 || got[0] != "<00 41" {
+		t.Errorf("unterminated hex: %q", got)
+	}
+	if got := texts("(a(b)c) d"); len(got) != 2 || got[0] != "(a(b)c)" || got[1] != "d" {
+		t.Errorf("nested literal: %q", got)
+	}
+	toks := CmapTokenize([]byte("ab <cd>"))
+	if len(toks) != 2 || toks[1].Start != 3 || toks[1].End != 7 {
+		t.Errorf("token ranges = %+v", toks)
+	}
+}

@@ -392,3 +392,86 @@ func TestUndecodableStreamFixerRebuildsType3Glyph(t *testing.T) {
 		t.Errorf("loss reported for %v, want object 21", ref)
 	}
 }
+
+// TestUndecodableStreamFixerType3Guards walks the Type 3 shapes that need no
+// rebuilding or have no declared advance to rebuild from.
+func TestUndecodableStreamFixerType3Guards(t *testing.T) {
+	undecodable := func() pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.HasStream = true
+		d.RawStream = []byte("this was never deflate")
+		d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+		return d
+	}
+	fine := pdf.NewPDFDict()
+	fine.HasStream = true
+	fine.RawStream = []byte("0 0 d0")
+
+	type3 := func() pdf.PDFDict {
+		f := pdf.NewPDFDict()
+		f.Entries.Set("Subtype", pdf.PDFName{Value: "Type3"})
+		return f
+	}
+	noProcs := type3()
+
+	noEncoding := type3()
+	procsA := pdf.NewPDFDict()
+	procsA.Entries.Set("a", pdf.PDFInteger(1)) // not a stream dict
+	procsA.Entries.Set("b", fine)              // decodes: left alone
+	procsA.Entries.Set("c", undecodable())     // rebuilt, with no advance known
+	noEncoding.Entries.Set("CharProcs", procsA)
+
+	noDifferences := type3()
+	procsB := pdf.NewPDFDict()
+	procsB.Entries.Set("d", undecodable())
+	noDifferences.Entries.Set("CharProcs", procsB)
+	noDifferences.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
+	withEncoding := type3()
+	procsC := pdf.NewPDFDict()
+	procsC.Entries.Set("e", undecodable())
+	withEncoding.Entries.Set("CharProcs", procsC)
+	encDict := pdf.NewPDFDict()
+	withEncoding.Entries.Set("Encoding", encDict) // a dict, but without /Differences
+
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("F0", noProcs)
+	trailer.Entries.Set("F1", noEncoding)
+	trailer.Entries.Set("F2", noDifferences)
+	trailer.Entries.Set("F3", withEncoding)
+
+	changed, err := (undecodableStreamFixer{}).Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want changed", changed, err)
+	}
+	if got := string(procsA.Entries.Get("b").(pdf.PDFDict).RawStream); got != "0 0 d0" {
+		t.Errorf("decodable glyph was rewritten: %q", got)
+	}
+	for _, tc := range []struct {
+		procs pdf.PDFDict
+		name  string
+	}{{procsA, "c"}, {procsB, "d"}, {procsC, "e"}} {
+		data, err := pdf.DecodeStream(tc.procs.Entries.Get(tc.name).(pdf.PDFDict))
+		if err != nil || strings.TrimSpace(string(data)) != "0 0 d0" {
+			t.Errorf("glyph %s = %q, %v; want the zero-advance \"0 0 d0\"", tc.name, data, err)
+		}
+	}
+}
+
+func TestLZWStreamFixerLeavesUndecodableStream(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.HasStream = true
+	d.RawStream = []byte{0xff, 0xff, 0xff, 0xff}
+	d.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
+	if _, err := pdf.DecodeStream(d); err == nil {
+		t.Fatal("fixture decodes; it must not")
+	}
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("S", d)
+	changed, err := (lzwStreamFixer{}).Fix(&trailer, nil)
+	if err != nil || changed {
+		t.Errorf("Fix = %v, %v; want no change", changed, err)
+	}
+	if d.Entries.Get("Filter") != (pdf.PDFName{Value: "LZWDecode"}) {
+		t.Error("the filter of a stream that could not be decoded was changed")
+	}
+}

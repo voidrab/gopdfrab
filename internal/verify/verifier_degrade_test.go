@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -213,5 +214,66 @@ func TestDegradedCatalogSurfacesPostStructural(t *testing.T) {
 	}
 	if !doc || !perObject {
 		t.Errorf("GraphResolutionFailure issues = %v, want both the bail and the object-1 degradation", graphRes)
+	}
+}
+
+// TestVerifyReportsGraphResolutionFailure checks that a document whose graph
+// cannot be resolved at all (here a reference chain deeper than the resolver's
+// recursion cap) yields a GraphResolutionFailure issue instead of an error or a
+// clean verdict, and that the byte-level checks still run.
+func TestVerifyReportsGraphResolutionFailure(t *testing.T) {
+	// Each link adds two levels of resolver recursion (the reference and
+	// the dictionary it names), so this exceeds the cap of 1<<17.
+	const chain = 1<<16 + 8
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Chain 4 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>")
+	for i := 0; i < chain; i++ {
+		b.Obj(4+i, fmt.Sprintf("<< /Next %d 0 R >>", 4+i+1))
+	}
+	b.Obj(4+chain, "<< /End true >>")
+	data := b.FinishClassic(fmt.Sprintf("<< /Size %d /Root 1 0 R >>", 5+chain))
+
+	res, err := VerifyBytes(data, pdf.PDFA1B, nil)
+	if err != nil {
+		t.Fatalf("VerifyBytes: %v", err)
+	}
+	if res.Valid {
+		t.Fatal("an unresolvable document verified clean")
+	}
+	_, graphRes := splitGraphResolution(res.Issues)
+	if len(graphRes) != 1 || !strings.Contains(graphRes[0].Messages()[0], "depth") {
+		t.Fatalf("GraphResolutionFailure issues = %v, want exactly one depth-limit failure", graphRes)
+	}
+	if !resultHasCheck(res, pdf.Checks.Structure.FileHeaderComment) {
+		t.Error("byte-level checks did not run after the graph failed to resolve")
+	}
+}
+
+// TestVerifyReportsUnresolvedReferenceInSeededGraph checks that a reference
+// left in a graph the verifier did not resolve itself (convert seeds readers
+// with in-memory graphs) is reported rather than silently skipped, which
+// would verify the unexamined subtree as clean.
+func TestVerifyReportsUnresolvedReferenceInSeededGraph(t *testing.T) {
+	d, err := pdf.OpenBytes(partsTestDoc())
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer d.Close()
+	g, err := d.ResolveGraph()
+	if err != nil {
+		t.Fatalf("ResolveGraph: %v", err)
+	}
+	root := g.(pdf.PDFDict).Entries.Get("Root").(pdf.PDFDict)
+	root.Entries.Set("Dangling", pdf.PDFRef{ObjNum: 9, GenNum: 2})
+
+	res, err := Verify(d, pdf.PDFA1B)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	_, graphRes := splitGraphResolution(res.Issues)
+	if len(graphRes) != 1 || !strings.Contains(graphRes[0].Messages()[0], "unresolved reference 9 2 R") {
+		t.Errorf("GraphResolutionFailure issues = %v, want one naming reference 9 2 R", graphRes)
 	}
 }

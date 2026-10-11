@@ -217,16 +217,3 @@ func (d Dict) Keys() []string {
 	}
 	return out
 }
-
-// Clone returns a shallow copy: a new Dict with the same keys pointing at the
-// same values.
-func (d Dict) Clone() Dict {
-	if d == nil {
-		return nil
-	}
-	c := &DictBody{ent: slices.Clone(d.ent)}
-	if d.idx != nil {
-		c.reindex()
-	}
-	return c
-}

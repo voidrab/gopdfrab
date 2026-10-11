@@ -113,10 +113,8 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 
 // isIdentityDecode reports whether decode is the natural [0,1] range for every
 // one of ncomp components, i.e. the sample maps to its colour value unchanged.
+// decode always holds 2*ncomp entries (imageDecodeArray guarantees it).
 func isIdentityDecode(decode []float64, ncomp int) bool {
-	if len(decode) != 2*ncomp {
-		return false
-	}
 	for c := range ncomp {
 		if decode[2*c] != 0 || decode[2*c+1] != 1 {
 			return false

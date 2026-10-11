@@ -89,8 +89,8 @@ func TestTrueTypeTableGuards(t *testing.T) {
 	if TTWindowsBMPCmap(map[string][]byte{"cmap": {0, 0, 0, 1}}) != nil {
 		t.Error("TTWindowsBMPCmap should be nil when no (3,1) subtable exists")
 	}
-	if TTSymbolicCmap(map[string][]byte{}) != nil {
-		t.Error("TTSymbolicCmap should be nil with no cmap table")
+	if TTCmapSubtable(map[string][]byte{}, 3, 0) != nil {
+		t.Error("TTCmapSubtable should be nil with no cmap table")
 	}
 
 	if ParseCmapFormat4([]byte{0, 4}) != nil {

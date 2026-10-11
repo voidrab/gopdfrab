@@ -565,3 +565,150 @@ func TestBundledProfilesAreUsable(t *testing.T) {
 		})
 	}
 }
+
+func iccProfileStream(n pdf.PDFValue, data []byte) pdf.PDFDict {
+	p := pdf.NewPDFDict()
+	p.HasStream = true
+	p.RawStream = data
+	if n != nil {
+		p.Entries.Set("N", n)
+	}
+	return p
+}
+
+func outputIntentDict(s string, identifier bool, profile pdf.PDFValue) pdf.PDFDict {
+	oi := pdf.NewPDFDict()
+	oi.Entries.Set("S", pdf.PDFName{Value: s})
+	if identifier {
+		oi.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "sRGB"})
+	}
+	if profile != nil {
+		oi.Entries.Set("DestOutputProfile", profile)
+	}
+	return oi
+}
+
+// TestValidPDFAOutputIntentN walks every rejection path of the "is there
+// already a usable PDF/A OutputIntent, and for which N" probe.
+func TestValidPDFAOutputIntentN(t *testing.T) {
+	good := iccProfileStream(pdf.PDFInteger(3), srgbICCProfile)
+	rootOf := func(items ...pdf.PDFValue) pdf.PDFDict {
+		r := pdf.NewPDFDict()
+		if items != nil {
+			r.Entries.Set("OutputIntents", pdf.PDFArray(items))
+		}
+		return r
+	}
+	cases := []struct {
+		name  string
+		root  pdf.PDFDict
+		wantN int
+		want  bool
+	}{
+		{"no OutputIntents", rootOf(), 0, false},
+		{"valid after a non-dict entry", rootOf(pdf.PDFInteger(1), outputIntentDict("GTS_PDFA1", true, good)), 3, true},
+		{"different profile objects", rootOf(
+			outputIntentDict("GTS_PDFA1", true, good),
+			outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(4), cmykICCProfile))), 0, false},
+		{"non-dict entry only", rootOf(pdf.PDFInteger(1)), 0, false},
+		{"wrong subtype S", rootOf(outputIntentDict("GTS_PDFX", true, good)), 0, false},
+		{"missing identifier", rootOf(outputIntentDict("GTS_PDFA1", false, good)), 0, false},
+		{"no profile", rootOf(outputIntentDict("GTS_PDFA1", true, nil)), 0, false},
+		{"profile not a stream", rootOf(outputIntentDict("GTS_PDFA1", true, pdf.NewPDFDict())), 0, false},
+		{"missing N", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(nil, srgbICCProfile))), 0, false},
+		{"N not 1/3/4", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(2), srgbICCProfile))), 0, false},
+		{"profile bytes invalid", rootOf(outputIntentDict("GTS_PDFA1", true, iccProfileStream(pdf.PDFInteger(3), []byte("junk")))), 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n, ok := validPDFAOutputIntentN(tc.root)
+			if n != tc.wantN || ok != tc.want {
+				t.Errorf("validPDFAOutputIntentN = %d, %v; want %d, %v", n, ok, tc.wantN, tc.want)
+			}
+		})
+	}
+}
+
+func TestInjectOutputIntentRejectsNonDictRoot(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	if err := injectOutputIntent(&trailer, nil); err == nil {
+		t.Error("injectOutputIntent with no Root = nil error, want one")
+	}
+}
+
+func TestDecoderForWithoutReaderIsPlainDecode(t *testing.T) {
+	s := pdf.NewPDFDict()
+	s.HasStream = true
+	s.RawStream = []byte("q Q")
+	got, err := decoderFor(nil)(s)
+	if err != nil || string(got) != "q Q" {
+		t.Errorf("decoderFor(nil)(stream) = %q, %v; want %q", got, err, "q Q")
+	}
+}
+
+// TestSeparationAlternateFixerGrayAndSharedSpaces: a gray alternate becomes
+// the bundled gray profile when no OutputIntent exists, two colourants of one
+// model share a single replacement space, and arrays that are not
+// Separation/DeviceN (wrong head, non-name head, too short, or an Indexed
+// space with four elements) are left alone, as is a RefKey entry.
+func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
+	tint := pdf.NewPDFDict()
+	sep := func(alt string) pdf.PDFArray {
+		return pdf.PDFArray{pdf.PDFName{Value: "Separation"}, pdf.PDFName{Value: "S"}, pdf.PDFName{Value: alt}, tint}
+	}
+	g1, g2 := sep("DeviceGray"), sep("DeviceGray")
+	indexed := pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, pdf.PDFName{Value: "DeviceGray"}, pdf.PDFInteger(1), pdf.PDFString{Value: "ab"}}
+	numHead := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2), pdf.PDFInteger(3), pdf.PDFInteger(4)}
+	spaces := pdf.NewPDFDict()
+	spaces.Entries.Set("A", g1)
+	spaces.Entries.Set("B", g2)
+	rgbSep := sep("DeviceRGB")
+	spaces.Entries.Set("R", rgbSep)
+	spaces.Entries.Set("C", indexed)
+	spaces.Entries.Set("D", numHead)
+	spaces.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Spaces", spaces)
+
+	changed, err := (separationAlternateFixer{}).Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v; want true", changed, err)
+	}
+	for i, g := range []pdf.PDFArray{g1, g2} {
+		alt, ok := g[2].(pdf.PDFArray)
+		if !ok || len(alt) != 2 || (alt[0] != pdf.PDFName{Value: "ICCBased"}) {
+			t.Fatalf("gray alternate %d = %v, want ICCBased", i, g[2])
+		}
+		if n, _ := alt[1].(pdf.PDFDict).Entries.Get("N").(pdf.PDFInteger); n != 1 {
+			t.Errorf("gray replacement N = %v, want 1", n)
+		}
+	}
+	if pdf.ValuePointer(g1[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries) != pdf.ValuePointer(g2[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries) {
+		t.Error("the two gray replacements do not share one profile stream")
+	}
+	if n, _ := rgbSep[2].(pdf.PDFArray)[1].(pdf.PDFDict).Entries.Get("N").(pdf.PDFInteger); n != 3 {
+		t.Errorf("rgb replacement N = %v, want 3", n)
+	}
+	if indexed[1] != (pdf.PDFName{Value: "DeviceGray"}) {
+		t.Errorf("Indexed base touched: %v", indexed[1])
+	}
+}
+
+// TestDeviceColourModelDomain guards separationAlternateFixer's assumption
+// that verify.DeviceColourModel only returns "rgb", "cmyk", "gray" or "".
+func TestDeviceColourModelDomain(t *testing.T) {
+	names := []string{"DeviceRGB", "RGB", "DeviceGray", "G", "DeviceCMYK", "CMYK", "Pattern", "CalRGB", "ICCBased", "Foo"}
+	var inputs []pdf.PDFValue
+	for _, n := range names {
+		nm := pdf.PDFName{Value: n}
+		inputs = append(inputs, nm, pdf.PDFArray{nm}, pdf.PDFArray{pdf.PDFName{Value: "Indexed"}, nm, pdf.PDFInteger(1), pdf.PDFString{}})
+	}
+	inputs = append(inputs, nil, pdf.PDFInteger(1), pdf.PDFArray{}, pdf.PDFArray{pdf.PDFInteger(1)})
+	for _, in := range inputs {
+		switch m := verify.DeviceColourModel(in); m {
+		case "", "rgb", "cmyk", "gray":
+		default:
+			t.Errorf("DeviceColourModel(%v) = %q, outside {rgb, cmyk, gray, \"\"}", in, m)
+		}
+	}
+}

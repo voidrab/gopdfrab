@@ -40,7 +40,7 @@ func init() {
 		142: "Zcaron", 145: "quoteleft", 146: "quoteright", 147: "quotedblleft",
 		148: "quotedblright", 149: "bullet", 150: "endash", 151: "emdash",
 		152: "tilde", 153: "trademark", 154: "scaron", 155: "guilsinglright",
-		156: "oe", 158: "zcaron", 159: "ydieresis",
+		156: "oe", 158: "zcaron", 159: "Ydieresis",
 		160: "nbspace", 161: "exclamdown", 162: "cent", 163: "sterling",
 		164: "currency", 165: "yen", 166: "brokenbar", 167: "section",
 		168: "dieresis", 169: "copyright", 170: "ordfeminine", 171: "guillemotleft",
@@ -185,14 +185,15 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 }
 
 // namedEncodingTable resolves a modelled base encoding to its code->glyph-name
-// table. MacRomanEncoding is absent: this package carries it only as a
-// code->Unicode map, so there are no glyph names to compare against.
+// table. MacExpertEncoding is not modelled.
 func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 	switch name {
 	case "StandardEncoding":
 		return StandardEncoding, true
 	case "WinAnsiEncoding":
 		return WinAnsiGlyphName, true
+	case "MacRomanEncoding":
+		return MacRomanGlyphName, true
 	}
 	return glyphNames, false
 }
@@ -301,6 +302,61 @@ func init() {
 	for i, u := range high {
 		MacRomanToUnicode[0x80+i] = u
 	}
+}
+
+// MacRomanGlyphName maps MacRomanEncoding character codes 0–255 to glyph
+// names, per PDF 32000-1 Annex D.2. Unlike the Mac OS character set behind
+// MacRomanToUnicode, the PDF encoding leaves the fifteen mathematical and
+// Apple-logo codes (notequal, infinity, ..., apple) undefined, and puts
+// space at 0xCA and currency at 0xDB.
+var MacRomanGlyphName [256]string
+
+func init() {
+	for i := 0x20; i <= 0x7E; i++ {
+		MacRomanGlyphName[i] = StandardEncoding[i]
+	}
+	MacRomanGlyphName[0x27] = "quotesingle"
+	MacRomanGlyphName[0x60] = "grave"
+	high := [128]string{
+		"Adieresis", "Aring", "Ccedilla", "Eacute", "Ntilde", "Odieresis", "Udieresis", "aacute", // 0x80
+		"agrave", "acircumflex", "adieresis", "atilde", "aring", "ccedilla", "eacute", "egrave",
+		"ecircumflex", "edieresis", "iacute", "igrave", "icircumflex", "idieresis", "ntilde", "oacute", // 0x90
+		"ograve", "ocircumflex", "odieresis", "otilde", "uacute", "ugrave", "ucircumflex", "udieresis",
+		"dagger", "degree", "cent", "sterling", "section", "bullet", "paragraph", "germandbls", // 0xA0
+		"registered", "copyright", "trademark", "acute", "dieresis", "", "AE", "Oslash",
+		"", "plusminus", "", "", "yen", "mu", "", "", // 0xB0
+		"", "", "", "ordfeminine", "ordmasculine", "", "ae", "oslash",
+		"questiondown", "exclamdown", "logicalnot", "", "florin", "", "", "guillemotleft", // 0xC0
+		"guillemotright", "ellipsis", "space", "Agrave", "Atilde", "Otilde", "OE", "oe",
+		"endash", "emdash", "quotedblleft", "quotedblright", "quoteleft", "quoteright", "divide", "", // 0xD0
+		"ydieresis", "Ydieresis", "fraction", "currency", "guilsinglleft", "guilsinglright", "fi", "fl",
+		"daggerdbl", "periodcentered", "quotesinglbase", "quotedblbase", "perthousand", "Acircumflex", "Ecircumflex", "Aacute", // 0xE0
+		"Edieresis", "Egrave", "Iacute", "Icircumflex", "Idieresis", "Igrave", "Oacute", "Ocircumflex",
+		"", "Ograve", "Uacute", "Ucircumflex", "Ugrave", "dotlessi", "circumflex", "tilde", // 0xF0
+		"macron", "breve", "dotaccent", "ring", "cedilla", "hungarumlaut", "ogonek", "caron",
+	}
+	for i, name := range high {
+		MacRomanGlyphName[0x80+i] = name
+	}
+}
+
+// macOSRomanCode inverts MacRomanToUnicode.
+var macOSRomanCode = map[uint16]byte{}
+
+func init() {
+	for code, u := range MacRomanToUnicode {
+		if u != 0 {
+			macOSRomanCode[u] = byte(code)
+		}
+	}
+}
+
+// MacOSRomanCode returns the Mac OS Roman character code for Unicode value u:
+// the code ISO 32000-1 9.6.6.4 looks up in a TrueType font's (1,0) cmap once
+// a character code has been mapped to a glyph name.
+func MacOSRomanCode(u uint16) (byte, bool) {
+	code, ok := macOSRomanCode[u]
+	return code, ok
 }
 
 // StandardToUnicode maps StandardEncoding character codes 0–255 to Unicode,

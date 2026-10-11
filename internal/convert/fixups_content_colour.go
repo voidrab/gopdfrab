@@ -292,16 +292,27 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 		return changed
 	}
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
-		if op != "Do" || len(operands) != 1 {
+		// The same streams scanContentColour descends into: Do form XObjects
+		// and scn tiling patterns, each checked in its own resources.
+		var category string
+		switch op {
+		case "Do":
+			category = "XObject"
+		case "scn", "SCN":
+			category = "Pattern"
+		default:
 			return
 		}
-		name, ok := operands[0].(pdf.PDFName)
+		if len(operands) == 0 {
+			return
+		}
+		name, ok := operands[len(operands)-1].(pdf.PDFName)
 		if !ok {
 			return
 		}
-		xobjects, _ := scope.Entries.Get("XObject").(pdf.PDFDict)
-		if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
-			if in.run(xobj, resourcesOf(xobj, scope)) {
+		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
+		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.HasStream {
+			if in.run(sub, resourcesOf(sub, scope)) {
 				changed = true
 			}
 		}

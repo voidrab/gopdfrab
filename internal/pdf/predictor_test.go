@@ -161,3 +161,17 @@ func TestDecodeStreamPredictorInChain(t *testing.T) {
 		t.Error("expected error for an unsupported predictor")
 	}
 }
+
+// TestPaethPredictorPicksNearest covers all three outcomes: the left byte, the
+// byte above, and the upper-left byte, whichever is closest to a+b-c.
+func TestPaethPredictorPicksNearest(t *testing.T) {
+	for _, tc := range []struct{ a, b, c, want int }{
+		{10, 0, 10, 0}, // p=0: b is exact
+		{10, 20, 20, 10},
+		{0, 10, 5, 5}, // p=5: c is exact
+	} {
+		if got := paethPredictor(tc.a, tc.b, tc.c); got != tc.want {
+			t.Errorf("paethPredictor(%d,%d,%d) = %d, want %d", tc.a, tc.b, tc.c, got, tc.want)
+		}
+	}
+}

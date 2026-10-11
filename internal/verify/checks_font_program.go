@@ -26,6 +26,8 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 	switch cs := charSetVal.(type) {
 	case pdf.PDFString:
 		charSetStr = cs.Value
+	case pdf.PDFHexString:
+		charSetStr = string(pdf.DecodePDFHexStringBytes(cs.Value))
 	default:
 		return
 	}
@@ -57,7 +59,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		}
 	}
 
-	glyphNames, ok := fontprog.SimpleFontGlyphNameTable(v)
+	glyphNames, ok := type1SubsetGlyphNames(v, desc, ctx)
 	if !ok {
 		return
 	}
@@ -193,6 +195,19 @@ func validateCIDCFFMetrics(obj pdf.PDFValue, v pdf.PDFDict, ff pdf.PDFDict, w pd
 	}
 }
 
+// type1SubsetGlyphNames resolves the code->glyph-name table for the 6.3.5
+// Type 1 coverage check. With an embedded FontFile program, an absent
+// /Encoding or /BaseEncoding means the program's built-in encoding (ISO
+// 32000-1 9.6.6.1); the font dictionary alone cannot say what that is.
+func type1SubsetGlyphNames(v, desc pdf.PDFDict, ctx *ValidationContext) ([256]string, bool) {
+	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
+		if data, err := ctx.decodeStreamCached(ff); err == nil {
+			return fontprog.Type1GlyphNameTable(data, v.Entries.Get("Encoding"))
+		}
+	}
+	return fontprog.SimpleFontGlyphNameTable(v)
+}
+
 // embeddedType1GlyphNames returns the glyph names defined by a descriptor's
 // embedded Type1 (FontFile) or Type1C (FontFile3) program, or nil when no
 // program is present or it cannot be parsed.
@@ -325,7 +340,7 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 // When usage is unknown (an undecodable content stream, a degraded object) the
 // check does not run at all rather than falling back to the glyph table, on the
 // item-1 rule that an incomplete usage set must not drive a report.
-func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
+func validateCIDSetTrueType(obj pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
 		return
@@ -363,12 +378,8 @@ func validateCIDSetTrueType(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, 
 
 // cidsRenderedBy returns the CIDs the document shows from the CIDFont obj, in
 // ascending order, and whether usage is known at all.
-func cidsRenderedBy(obj pdf.PDFValue, ctx *ValidationContext) (cids []int, known bool) {
-	d, ok := obj.(pdf.PDFDict)
-	if !ok {
-		return nil, false
-	}
-	used, known := ctx.usedCIDsFor(d)
+func cidsRenderedBy(obj pdf.PDFDict, ctx *ValidationContext) (cids []int, known bool) {
+	used, known := ctx.usedCIDsFor(obj)
 	if !known {
 		return nil, false
 	}
@@ -440,7 +451,7 @@ func ValidateCIDTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray,
 // validateCIDTrueTypeMetrics checks that CID advance widths match the embedded
 // TrueType hmtx table (6.3.6): every W entry, plus rendered CIDs that fall back
 // to the default width DW because they are absent from W.
-func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
+func validateCIDTrueTypeMetrics(obj pdf.PDFDict, ff pdf.PDFDict, w pdf.PDFArray, ctx *ValidationContext) {
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
 		return
@@ -474,11 +485,7 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 	}
 
 	// Rendered CIDs absent from W take the default width DW.
-	desc, ok := obj.(pdf.PDFDict)
-	if !ok {
-		return
-	}
-	used, known := ctx.usedCIDsFor(desc)
+	used, known := ctx.usedCIDsFor(obj)
 	if !known {
 		return
 	}
@@ -496,6 +503,13 @@ func validateCIDTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray
 			return
 		}
 	}
+}
+
+// fontEncoding returns a font dictionary's /Encoding entry, or nil (also for
+// a non-dictionary, whose zero Entries is nil-safe).
+func fontEncoding(obj pdf.PDFValue) pdf.PDFValue {
+	fontDict, _ := obj.(pdf.PDFDict)
+	return fontDict.Entries.Get("Encoding")
 }
 
 // ValidateSimpleTrueTypeSubset checks that all referenced character codes have
@@ -524,56 +538,33 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 		return
 	}
 
-	// Build encoding-aware code→unicode table from the font's /Encoding.
-	var enc pdf.PDFValue
-	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries.Get("Encoding")
-	}
-	codeToUnicode := fontprog.SimpleFontCodeToUnicode(enc)
-
-	winCmap := fontprog.TTWindowsBMPCmap(tables)
-	var winGIDMap map[uint16]uint16
-	if winCmap != nil {
-		winGIDMap = fontprog.ParseCmapFormat4(winCmap)
-	}
-	symGIDMap := fontprog.ParseCmapSubtable(fontprog.TTSymbolicCmap(tables))
+	r := fontprog.NewSimpleTrueTypeCmaps(fontEncoding(obj), tables)
 	numGlyphs := fontprog.TTNumGlyphs(tables)
 
-	// codeToGID resolves a char code to a GID; returns (gid, true) when known.
-	codeToGID := func(cc int) (int, bool) {
-		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			if gid, exists := winGIDMap[u]; exists {
-				return int(gid), true
-			}
-			// A (3,1) miss is not the end of the lookup. ISO 32000-1 9.6.6.4
-			// has a viewer try the (1,0) Macintosh cmap next, and subsetters
-			// prune (3,1) entries for characters the document does not use
-			// while leaving (1,0) intact -- so treating a miss as definitive
-			// rejected real PDF/A (Word-produced subsets in an arXiv paper)
-			// whose glyphs resolve perfectly well through (1,0).
+	// codeToGID resolves a char code to a GID; 0 (.notdef) when no cmap maps it.
+	codeToGID := func(cc int) int {
+		if gid, _, found := r.Windows(cc); found {
+			return gid
 		}
-		// Fall back to symbolic (3,0)/(1,0) cmap with raw code or PUA offset.
-		if symGIDMap != nil {
-			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
-				if gid, exists := symGIDMap[candidate]; exists {
-					return int(gid), true
-				}
-			}
-		}
-		// Neither cmap maps the code, so whatever the font's flags say, the
+		// A (3,1) miss is not the end of the lookup. ISO 32000-1 9.6.6.4
+		// has a viewer try the (1,0) Macintosh cmap next, and subsetters
+		// prune (3,1) entries for characters the document does not use
+		// while leaving (1,0) intact -- so treating a miss as definitive
+		// rejected real PDF/A (Word-produced subsets in an arXiv paper)
+		// whose glyphs resolve perfectly well through (1,0).
+		//
+		// If no cmap maps the code, whatever the font's flags say, the
 		// viewer has nothing left to resolve it with and renders .notdef.
 		// Skipping the symbolic case here meant a code shown from a symbolic
 		// subset whose cmaps do not carry it went unreported.
-		return 0, true
+		gid, _ := r.Fallback(cc)
+		return gid
 	}
 
 	checkCode := func(cc int) bool {
-		gid, known := codeToGID(cc)
-		if !known {
-			return true
-		}
+		gid := codeToGID(cc)
 		if gid == 0 || (numGlyphs > 0 && gid >= numGlyphs) {
-			u := codeToUnicode[cc]
+			u := r.CodeToUnicode[cc]
 			ctx.Report(pdf.Checks.Font.SubsetGlyphCoverage, obj, fmt.Sprintf("character code %d (U+%04X) has no glyph in embedded font program", cc, u))
 			return false
 		}
@@ -630,35 +621,13 @@ func validateSimpleTrueTypeMetrics(obj pdf.PDFValue, ff pdf.PDFDict, firstChar i
 		return
 	}
 
-	var enc pdf.PDFValue
-	if fontDict, ok2 := obj.(pdf.PDFDict); ok2 {
-		enc = fontDict.Entries.Get("Encoding")
-	}
-	codeToUnicode := fontprog.SimpleFontCodeToUnicode(enc)
-
-	winCmap := fontprog.TTWindowsBMPCmap(tables)
-	var winGIDMap map[uint16]uint16
-	if winCmap != nil {
-		winGIDMap = fontprog.ParseCmapFormat4(winCmap)
-	}
-	symGIDMap := fontprog.ParseCmapSubtable(fontprog.TTSymbolicCmap(tables))
+	r := fontprog.NewSimpleTrueTypeCmaps(fontEncoding(obj), tables)
 
 	codeToGID := func(cc int) (int, bool) {
-		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			gid, exists := winGIDMap[u]
-			if exists {
-				return int(gid), true
-			}
-			return 0, false // Missing from cmap — width cannot be verified.
+		if gid, tried, found := r.Windows(cc); tried {
+			return gid, found // a (3,1) miss: the width cannot be verified
 		}
-		if symGIDMap != nil {
-			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
-				if gid, exists := symGIDMap[candidate]; exists {
-					return int(gid), true
-				}
-			}
-		}
-		return 0, false
+		return r.Fallback(cc)
 	}
 
 	for i, w := range widths {

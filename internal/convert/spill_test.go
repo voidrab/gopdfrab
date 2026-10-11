@@ -264,3 +264,73 @@ func TestSpillWriterGrow(t *testing.T) {
 		b.close()
 	}
 }
+
+// TestSpillWriterDegradesWhenFlushToTempFails hands the writer a temp file that
+// is already closed, so flushing the buffered bytes into it fails. The writer
+// must fall back to memory, lose nothing, and leave no temp file behind.
+func TestSpillWriterDegradesWhenFlushToTempFails(t *testing.T) {
+	dir := t.TempDir()
+	old := createTempFile
+	createTempFile = func(_, pattern string) (tempFile, error) {
+		f, err := os.CreateTemp(dir, pattern)
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
+		return f, nil
+	}
+	t.Cleanup(func() { createTempFile = old })
+
+	// Larger than bufio's buffer so the flush reaches the (closed) file.
+	data := bytes.Repeat([]byte("x"), 16<<10)
+	setSpillThreshold(t, 10<<10)
+
+	b := seal(t, data)
+	if b.path != "" {
+		t.Fatalf("spilled to %q despite a failing temp file, want in-memory fallback", b.path)
+	}
+	got, err := b.bytes()
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("bytes() = %d bytes, %v; want the %d bytes written", len(got), err, len(data))
+	}
+	assertEmptyDir(t, dir)
+}
+
+// TestSpillWriterFinishReportsTempFileErrors breaks the spill file underneath
+// the writer: a flush failure and a close failure must each surface from finish
+// and remove the temp file.
+func TestSpillWriterFinishReportsTempFileErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		write []byte
+	}{
+		{"flush fails", []byte("tiny")},                    // sits in bufio, flush hits the closed file
+		{"close fails", bytes.Repeat([]byte("y"), 16<<10)}, // already written through; only Close fails
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := isolateTempDir(t)
+			setSpillThreshold(t, 1)
+			var sw spillWriter
+			if _, err := sw.Write([]byte("ab")); err != nil { // crosses the threshold, spills
+				t.Fatal(err)
+			}
+			if !sw.spilled {
+				t.Skip("spilling unsupported here")
+			}
+			if _, err := sw.Write(tc.write); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "close fails" {
+				if err := sw.bw.Flush(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sw.file.Close() // sabotage
+			if b, err := sw.finish(); err == nil {
+				b.close()
+				t.Fatal("finish succeeded on a broken temp file")
+			}
+			assertEmptyDir(t, dir)
+		})
+	}
+}
