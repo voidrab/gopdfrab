@@ -436,3 +436,34 @@ func TestComputeColourCoverageSkipsMalformedIntents(t *testing.T) {
 		})
 	}
 }
+
+// TestComputeColourCoverageByProfileN pins which device model each OutputIntent
+// profile component count covers (6.2.2 / 6.2.3.3).
+func TestComputeColourCoverageByProfileN(t *testing.T) {
+	for _, tc := range []struct {
+		n               int
+		gray, rgb, cmyk bool
+	}{
+		{1, true, false, false},
+		{3, false, true, false},
+		{4, false, false, true},
+	} {
+		t.Run(fmt.Sprintf("N=%d", tc.n), func(t *testing.T) {
+			b := pdfgen.NewBuilder("%PDF-1.4\n")
+			b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /OutputIntents [4 0 R] >>")
+			b.Obj(2, "<< /Type /Pages /Kids [] /Count 0 >>")
+			b.Obj(4, fmt.Sprintf("<< /S /GTS_PDFA1 /DestOutputProfile << /N %d >> >>", tc.n))
+			doc, err := pdf.OpenBytes(b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
+			if err != nil {
+				t.Fatalf("OpenBytes: %v", err)
+			}
+			defer doc.Close()
+			ctx := &ValidationContext{}
+			computeColourCoverage(doc, ctx)
+			if ctx.grayCovered != tc.gray || ctx.rgbCovered != tc.rgb || ctx.cmykCovered != tc.cmyk {
+				t.Errorf("gray=%v rgb=%v cmyk=%v, want gray=%v rgb=%v cmyk=%v",
+					ctx.grayCovered, ctx.rgbCovered, ctx.cmykCovered, tc.gray, tc.rgb, tc.cmyk)
+			}
+		})
+	}
+}
