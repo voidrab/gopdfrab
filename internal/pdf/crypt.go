@@ -115,6 +115,10 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	if h.v == 5 && h.r < 5 {
 		return nil, fmt.Errorf("%w: V5 requires revision 5 or 6, got %d", ErrEncrypted, h.r)
 	}
+	// And the reverse: R5/R6 derive a 32-byte key, which only V5 is sized for.
+	if h.r >= 5 && h.v != 5 {
+		return nil, fmt.Errorf("%w: revision %d requires V5, got V%d", ErrEncrypted, h.r, h.v)
+	}
 
 	if h.v >= 4 {
 		cf, _ := enc.Entries.Get("CF").(PDFDict)
@@ -572,7 +576,9 @@ func isCleartextMetadata(m PDFDict, h *stdSecurityHandler) bool {
 func aesCBCNoPadZeroIV(key, data []byte) ([]byte, error) {
 	// key is a hash2B/hashR5 digest of 32 bytes, always a valid AES key size.
 	block, _ := aes.NewCipher(key)
-	if len(data) == 0 || len(data)%aes.BlockSize != 0 {
+	// data is /UE or /OE, which wrap the 32-byte file key. Its length is the
+	// file's word, and the decrypted key is used as is.
+	if len(data) != 32 {
 		return nil, fmt.Errorf("%w: bad key material", ErrEncrypted)
 	}
 	out := make([]byte, len(data))
