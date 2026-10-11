@@ -15,6 +15,12 @@ import (
 // operator with the operands collected before it (escape operators are passed
 // as 1200+n). Returns false on malformed data.
 func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
+	return cffDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
+}
+
+// cffDictNumbersAt is cffDictNumbers that also passes, with each operator,
+// the offset just past it -- where the next entry starts.
+func cffDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
 	var stack []float64
 	for i := 0; i < len(dict); {
 		b := int(dict[i])
@@ -57,11 +63,11 @@ func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool
 			if i+1 >= len(dict) {
 				return false
 			}
-			op(1200+int(dict[i+1]), stack)
+			op(1200+int(dict[i+1]), stack, i+2)
 			stack = nil
 			i += 2
 		default:
-			op(b, stack)
+			op(b, stack, i+1)
 			stack = nil
 			i++
 		}

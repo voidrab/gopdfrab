@@ -1299,7 +1299,7 @@ func TestCollectAPEntryUsage(t *testing.T) {
 
 	ctx := &ValidationContext{}
 	reachable := map[uintptr]bool{}
-	fu := &fontUsage{visible: map[uintptr]bool{}, invisible: map[uintptr]bool{}, usedCodes: map[uintptr]map[int]bool{}, usedCIDs: map[uintptr]map[int]bool{}}
+	fu := newFontUsage()
 	collectAPEntryUsage(ctx, direct, reachable, fu)
 	if !reachable[xobjPtr] {
 		t.Error("expected the Do-invoked XObject to be marked reachable via a direct AP/N stream")
@@ -1687,6 +1687,108 @@ func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
 	}
 }
 
+// TestComputeContentUsageRestoresFontOnQ: the font Tf selects is part of the
+// graphics state, so Q puts back the one in force at the matching q. Text
+// shown after it is in that font. Keeping the inner font instead read a simple
+// font's text as two-byte CIDs of a composite font -- inventing glyphs it
+// lacked -- and left the simple font's codes unused, so a substitute for it
+// was built without them.
+func TestComputeContentUsageRestoresFontOnQ(t *testing.T) {
+	simple := pdf.NewPDFDict()
+	simple.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	descendant := pdf.NewPDFDict()
+	composite := pdf.NewPDFDict()
+	composite.Entries.Set("Subtype", pdf.PDFName{Value: "Type0"})
+	composite.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-H"})
+	composite.Entries.Set("DescendantFonts", pdf.PDFArray{descendant})
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F1", simple)
+	fonts.Entries.Set("F2", composite)
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("Font", fonts)
+
+	tf := func(name string) writer.ContentOp {
+		return writer.ContentOp{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: name}, pdf.PDFInteger(12)}}
+	}
+	tj := func(s string) writer.ContentOp {
+		return writer.ContentOp{Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: s}}}
+	}
+	data, err := writer.WriteContentStream([]writer.ContentOp{
+		{Op: "BT"}, tf("F1"), {Op: "ET"},
+		{Op: "q"}, {Op: "BT"}, tf("F2"), tj("\x00\x03"), {Op: "ET"}, {Op: "Q"},
+		{Op: "BT"}, tj("DO"), {Op: "ET"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", pdf.PDFDict{HasStream: true, RawStream: data, Entries: pdf.NewPDFDict().Entries})
+
+	_, _, usedCodes, usedCIDs, _ := ComputeContentUsage(page, &ValidationContext{})
+	codes := usedCodes[pdf.ValuePointer(simple.Entries)]
+	if !codes['D'] || !codes['O'] {
+		t.Errorf("text after Q not attributed to the restored simple font: codes %v", codes)
+	}
+	cids := usedCIDs[pdf.ValuePointer(descendant.Entries)]
+	if !cids[3] || cids[0x444F] {
+		t.Errorf("composite font CIDs = %v, want only 3", cids)
+	}
+}
+
+// TestComputeContentUsageFormInheritsFont: a form XObject starts in the
+// graphics state in force at Do, so text it shows without a Tf of its own is
+// in the caller's font. A form drawn under two fonts uses both; drawn twice
+// under the same one it is scanned once.
+func TestComputeContentUsageFormInheritsFont(t *testing.T) {
+	f1, f2 := pdf.NewPDFDict(), pdf.NewPDFDict()
+	f1.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	f2.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F1", f1)
+	fonts.Entries.Set("F2", f2)
+
+	stream := func(ops []writer.ContentOp) []byte {
+		t.Helper()
+		data, err := writer.WriteContentStream(ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	form := pdf.NewPDFDict()
+	form.HasStream = true
+	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
+	form.RawStream = stream([]writer.ContentOp{
+		{Op: "BT"}, {Op: "Tj", Operands: []pdf.PDFValue{pdf.PDFString{Value: "AB"}}}, {Op: "ET"},
+	})
+	xobjects := pdf.NewPDFDict()
+	xobjects.Entries.Set("Fm", form)
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("Font", fonts)
+	resources.Entries.Set("XObject", xobjects)
+
+	do := writer.ContentOp{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Fm"}}}
+	tf := func(name string) writer.ContentOp {
+		return writer.ContentOp{Op: "Tf", Operands: []pdf.PDFValue{pdf.PDFName{Value: name}, pdf.PDFInteger(12)}}
+	}
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", pdf.PDFDict{HasStream: true, Entries: pdf.NewPDFDict().Entries, RawStream: stream([]writer.ContentOp{
+		{Op: "BT"}, tf("F1"), {Op: "ET"}, do, do,
+		{Op: "BT"}, tf("F2"), {Op: "ET"}, do,
+	})})
+
+	_, _, usedCodes, _, _ := ComputeContentUsage(page, &ValidationContext{})
+	for name, f := range map[string]pdf.PDFDict{"F1": f1, "F2": f2} {
+		if codes := usedCodes[pdf.ValuePointer(f.Entries)]; !codes['A'] || !codes['B'] {
+			t.Errorf("%s: form text not attributed to the inherited font: %v", name, codes)
+		}
+	}
+}
+
 // TestInheritedResourcesStopsOnACycle: a /Parent chain that points back at
 // itself must not spin.
 func TestInheritedResourcesStopsOnACycle(t *testing.T) {
@@ -1781,7 +1883,7 @@ func TestCollectAnnotAppearanceUsageAndContentUsage(t *testing.T) {
 
 	ctx := &ValidationContext{}
 	reachable := map[uintptr]bool{}
-	fu := &fontUsage{visible: map[uintptr]bool{}, invisible: map[uintptr]bool{}, usedCodes: map[uintptr]map[int]bool{}, usedCIDs: map[uintptr]map[int]bool{}}
+	fu := newFontUsage()
 	collectAnnotAppearanceUsage(ctx, page, reachable, fu)
 	if !reachable[xobjPtr] {
 		t.Error("expected the annotation's Do-invoked XObject to be marked reachable")

@@ -1050,13 +1050,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 ) {
 	complete = true
 	reachable = map[uintptr]bool{}
-	fu := &fontUsage{
-		visible:         map[uintptr]bool{},
-		invisible:       map[uintptr]bool{},
-		usedCodes:       map[uintptr]map[int]bool{},
-		usedCIDs:        map[uintptr]map[int]bool{},
-		scannedPatterns: map[uintptr]bool{},
-	}
+	fu := newFontUsage()
 	visitedPtrs := map[uintptr]bool{}
 
 	var walkGraph func(v pdf.PDFValue)
@@ -1196,9 +1190,15 @@ func collectContentUsage(
 // usageState is the text state a content stream carries from operator to
 // operator: the rendering mode and the font Tf selected. Held outside
 // collectUsageFromBytes so a /Contents array can be scanned as one stream.
+// Both are graphics state, so q saves them and Q restores them.
 type usageState struct {
+	usageText
+	saved []usageText
+}
+
+// usageText is the part of usageState that q/Q save and restore.
+type usageText struct {
 	renderMode        int
-	modeStack         []int
 	currentFontPtrs   []uintptr
 	simpleFontPtr     uintptr
 	haveSimpleFont    bool
@@ -1208,13 +1208,37 @@ type usageState struct {
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
-// scannedPatterns dedupes tiling-pattern content streams across the walk.
+// scannedPatterns dedupes tiling-pattern content streams across the walk;
+// scannedForms dedupes form XObjects by the text state they are drawn in.
 type fontUsage struct {
 	visible         map[uintptr]bool
 	invisible       map[uintptr]bool
 	usedCodes       map[uintptr]map[int]bool
 	usedCIDs        map[uintptr]map[int]bool
 	scannedPatterns map[uintptr]bool
+	scannedForms    map[formScan]bool
+}
+
+// newFontUsage returns an empty fontUsage ready to record into.
+func newFontUsage() *fontUsage {
+	return &fontUsage{
+		visible:         map[uintptr]bool{},
+		invisible:       map[uintptr]bool{},
+		usedCodes:       map[uintptr]map[int]bool{},
+		usedCIDs:        map[uintptr]map[int]bool{},
+		scannedPatterns: map[uintptr]bool{},
+		scannedForms:    map[formScan]bool{},
+	}
+}
+
+// formScan is a form XObject together with the text state it inherits at Do.
+// A form that shows text without its own Tf draws in the caller's font, so
+// one drawn under two fonts uses both, and each needs its own scan.
+type formScan struct {
+	form                 uintptr
+	simple, composite    uintptr
+	haveSimple, haveComp bool
+	renderMode           int
 }
 
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage, st *usageState) (ok bool) {
@@ -1224,11 +1248,12 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	err := ctx.scanStream(dict, func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "q":
-			st.modeStack = append(st.modeStack, st.renderMode)
+			// Tf replaces currentFontPtrs rather than appending to it, so the
+			// saved copy shares no backing array that a later Tf writes to.
+			st.saved = append(st.saved, st.usageText)
 		case "Q":
-			if len(st.modeStack) > 0 {
-				st.renderMode = st.modeStack[len(st.modeStack)-1]
-				st.modeStack = st.modeStack[:len(st.modeStack)-1]
+			if n := len(st.saved); n > 0 {
+				st.usageText, st.saved = st.saved[n-1], st.saved[:n-1]
 			}
 		case "Tr":
 			if len(operands) > 0 {
@@ -1338,16 +1363,27 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
-			alreadyReachable := reachable[ptr]
 			reachable[ptr] = true
-			if alreadyReachable || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 				return
 			}
+			key := formScan{
+				form:   ptr,
+				simple: st.simpleFontPtr, haveSimple: st.haveSimpleFont,
+				composite: st.compositeFontPtr, haveComp: st.haveCompositeFont,
+				renderMode: st.renderMode,
+			}
+			if fu.scannedForms[key] {
+				return
+			}
+			fu.scannedForms[key] = true
 			subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu, &usageState{}) {
+			// The form starts in the graphics state in force at Do, font
+			// included (ISO 32000-1 8.10.1).
+			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu, &usageState{usageText: st.usageText}) {
 				complete = false
 			}
 		}
