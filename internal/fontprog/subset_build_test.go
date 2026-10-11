@@ -154,7 +154,7 @@ func TestSubsetTrueTypeForCID(t *testing.T) {
 		'A': {3},
 		'B': {6},
 		'Q': {8}, // absent from the source cmap, but still sizes the output
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,12 +184,40 @@ func TestSubsetTrueTypeForCID(t *testing.T) {
 		t.Errorf("cmap = %v, want an empty (3,1) table", m)
 	}
 
-	if _, err := SubsetTrueTypeForCID([]byte("nope"), nil); err == nil {
+	if _, err := SubsetTrueTypeForCID([]byte("nope"), nil, nil); err == nil {
 		t.Error("garbage input should be an error")
 	}
 	srcFont.cmap = nil
-	if _, err := SubsetTrueTypeForCID(srcFont.build(), nil); err == nil {
+	if _, err := SubsetTrueTypeForCID(srcFont.build(), nil, nil); err == nil {
 		t.Error("a source without a (3,1) cmap should be an error")
+	}
+}
+
+// TestSubsetTrueTypeForCIDNotdef: a CID given in notdef gets the source's
+// .notdef outline at exactly that glyph ID, advancing by the width asked for
+// rather than the .notdef's own -- the CID drew the missing-glyph shape in the
+// font being replaced, and the text after it must not move.
+func TestSubsetTrueTypeForCIDNotdef(t *testing.T) {
+	src := subsetSource().build()
+	srcTables := tt(t, src)
+	out, err := SubsetTrueTypeForCID(src, map[uint16][]int{'A': {3}}, map[int]float64{12: 1000, 2: 333.4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := tt(t, out)
+	if n := TTNumGlyphs(tables); n != 13 {
+		t.Fatalf("glyph count = %d, want 13 (the notdef CID 12 sizes the output)", n)
+	}
+	for cid, want := range map[int]float64{12: 1000, 2: 333} {
+		if got := GlyfRecord(tables, cid); !bytes.Equal(got, GlyfRecord(srcTables, 0)) {
+			t.Errorf("glyph %d = %v, want the source .notdef", cid, got)
+		}
+		if aw := TTAdvanceWidth(tables, cid); aw != want {
+			t.Errorf("glyph %d advance = %v, want %v", cid, aw, want)
+		}
+	}
+	if aw := TTAdvanceWidth(tables, 3); aw != 600 {
+		t.Errorf("glyph 3 advance = %v, want the source 'A' width 600", aw)
 	}
 }
 

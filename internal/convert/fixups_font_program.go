@@ -33,6 +33,37 @@ func init() {
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return inlineType1WidthSubrsInFont
 	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return normalizeCFFWidthDefaultsInFont
+	})
+}
+
+// normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program whose
+// nominalWidthX or defaultWidthX is fractional so both are whole and every
+// glyph keeps its width (fontprog.NormalizeCFFWidthDefaults). veraPDF
+// truncates a real nominalWidthX, so it otherwise reads every width off by the
+// fraction and reports 6.3.6 against a correct /Widths.
+// d is any dict: only a font descriptor carries /FontFile3.
+func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
+	ff, ok := d.Entries.Get("FontFile3").(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	switch ff.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Type1C"}, pdf.PDFName{Value: "CIDFontType0C"}:
+	default:
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	rewritten, changed := fontprog.NormalizeCFFWidthDefaults(data)
+	if !changed {
+		return
+	}
+	writer.SetStreamFlate(&ff, rewritten)
+	d.Entries.Set("FontFile3", ff)
 }
 
 // inlineType1WidthSubrsInFont rewrites a Type 1 font's embedded FontFile so

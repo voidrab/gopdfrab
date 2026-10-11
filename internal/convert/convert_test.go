@@ -536,10 +536,6 @@ var expectedRasterized = map[string]string{
 	"isartor-6-3-3-3-t02-fail-a.pdf":           "CJK CID font, glyph missing, not substitutable",
 	"isartor-6-3-4-t01-fail-c.pdf":             "CJK CID font not embedded, not substitutable",
 	"veraPDF test suite 6-1-12-t10-fail-a.pdf": "CJK CID font, glyph missing, not substitutable",
-	// The content draws a CID that has neither a glyph nor a ToUnicode entry,
-	// so a substitute cannot know what to draw for it (substituteCIDFont).
-	"isartor-6-3-5-t01-fail-a.pdf": "used CID with no glyph and no ToUnicode mapping",
-	"isartor-6-3-5-t01-fail-b.pdf": "used CID with no glyph and no ToUnicode mapping",
 	// q/Q nesting is left to the raster fallback by design (fixups_content.go).
 	"veraPDF test suite 6-1-12-t08-fail-a.pdf": "q/Q nesting deeper than 28",
 }

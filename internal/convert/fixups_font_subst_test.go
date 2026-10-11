@@ -390,7 +390,7 @@ func TestBundledFacesSupportSubsetting(t *testing.T) {
 			outputs := map[string]func() ([]byte, error){
 				"SubsetTrueType":         func() ([]byte, error) { return fontprog.SubsetTrueType(data, []uint16{'A'}) },
 				"SubsetTrueTypeSymbolic": func() ([]byte, error) { return fontprog.SubsetTrueTypeSymbolic(data, map[int]uint16{65: 'A'}) },
-				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontprog.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}) },
+				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontprog.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}, nil) },
 			}
 			for fn, run := range outputs {
 				out, err := run()
