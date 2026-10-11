@@ -220,8 +220,10 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, notdef map[in
 }
 
 // PromoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
-// outline) glyph becomes an explicit zero-contour record, leaving all real
-// outlines, metrics and every other sfnt table byte-for-byte identical.
+// outline) glyph becomes an explicit zero-contour record, and every
+// zero-contour record cut short of its instructionLength is padded to full
+// length (completeEmptyGlyph). All real outlines, metrics and every other
+// sfnt table stay byte-for-byte identical.
 func PromoteEmptyGlyphs(data []byte) ([]byte, bool) {
 	tables, ok := ParseSfnt(data)
 	if !ok {
@@ -236,11 +238,8 @@ func PromoteEmptyGlyphs(data []byte) ([]byte, bool) {
 	loca := make([]byte, 4*(n+1))
 	for gid := range n {
 		binary.BigEndian.PutUint32(loca[gid*4:], uint32(len(glyf)))
-		rec := GlyfRecord(tables, gid)
-		if len(rec) == 0 {
-			rec = emptyGlyfRecord
-			changed = true
-		}
+		rec, completed := completeEmptyGlyph(GlyfRecord(tables, gid))
+		changed = changed || completed
 		glyf = append(glyf, rec...)
 		if len(glyf)%2 != 0 {
 			glyf = append(glyf, 0)
@@ -508,6 +507,26 @@ func ttRawHMetric(tables map[string][]byte, gid int) (advance uint16, lsb int16,
 // bbox, and an explicit instructionLength=0 -- a valid, explicit way to say
 // "this glyph has no outline," used in place of a zero-length loca span.
 var emptyGlyfRecord = make([]byte, 12)
+
+// completeEmptyGlyph returns rec as a full-length record when it says "no
+// outline" in fewer bytes than emptyGlyfRecord: zero-length, too short to hold
+// numberOfContours, or a zero-contour header missing its instructionLength (a
+// 10-byte .notdef some producers write). The latter keeps its bbox. Strict
+// parsers -- BFO's -- read the absent instructionLength from the next glyph
+// and reject the font, while lenient ones, veraPDF and gopdfrab included,
+// accept it, so the defect passes every other check. Any other record,
+// however short, has outline data and is returned as it is.
+func completeEmptyGlyph(rec []byte) ([]byte, bool) {
+	switch {
+	case len(rec) < 2:
+		return emptyGlyfRecord, true
+	case len(rec) < len(emptyGlyfRecord) && binary.BigEndian.Uint16(rec) == 0:
+		full := make([]byte, len(emptyGlyfRecord))
+		copy(full, rec)
+		return full, true
+	}
+	return rec, false
+}
 
 // minimalPostTable returns a format 3.0 'post' table (no per-glyph names),
 // the simplest spec-valid form -- safe regardless of how many glyphs the

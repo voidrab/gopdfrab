@@ -265,6 +265,43 @@ func TestPromoteEmptyGlyphs(t *testing.T) {
 	}
 }
 
+// TestPromoteEmptyGlyphsPadsTruncatedRecords: a zero-contour record cut short
+// of its instructionLength -- 10 bytes, as some producers write .notdef -- is
+// padded to the full 12, keeping its bbox. BFO's glyf parser otherwise reads
+// past it and reports the font's glyphs missing and its widths inconsistent.
+func TestPromoteEmptyGlyphsPadsTruncatedRecords(t *testing.T) {
+	truncated := make([]byte, 10)
+	binary.BigEndian.PutUint16(truncated[2:], 5) // xMin, kept
+	binary.BigEndian.PutUint16(truncated[6:], 7) // xMax, kept
+	shortOutline := simpleGlyph(10, 3)           // has a contour: not ours to touch
+	full := make([]byte, 12)                     // already complete
+	data := ttFont{glyphs: []ttGlyph{
+		{rec: truncated, aw: 1000}, {rec: simpleGlyph(14, 1), aw: 500},
+		{rec: shortOutline}, {rec: full}, {rec: []byte{0}},
+	}}.build()
+
+	out, changed := PromoteEmptyGlyphs(data)
+	if !changed {
+		t.Fatal("a truncated zero-contour record should be padded")
+	}
+	before, after := tt(t, data), tt(t, out)
+	want := map[int][]byte{
+		0: append(append([]byte(nil), truncated...), 0, 0),
+		1: GlyfRecord(before, 1),
+		2: shortOutline,
+		3: full,
+		4: emptyGlyfRecord, // too short to hold numberOfContours at all
+	}
+	for gid, w := range want {
+		if got := GlyfRecord(after, gid); !bytes.Equal(got, w) {
+			t.Errorf("glyph %d = %v, want %v", gid, got, w)
+		}
+	}
+	if !bytes.Equal(after["hmtx"], before["hmtx"]) {
+		t.Error("hmtx must be byte-for-byte identical")
+	}
+}
+
 func TestPromoteEmptyGlyphsShortHead(t *testing.T) {
 	// A head table too short to carry indexToLocFormat is left as it is.
 	tables := map[string][]byte{
