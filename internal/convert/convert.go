@@ -101,7 +101,8 @@ type ConvertResult struct {
 	OverpaintedPages []int
 	// RasterDrops records content the raster fallback could not render when it
 	// flattened a page or a transparency group (an unusable shading, an
-	// undecodable inline image, a missing Type 3 glyph, a tiling pattern), so a
+	// undecodable inline image, a JPEG 2000 or JBIG2 image painted as a gray
+	// box, a missing Type 3 glyph, a tiling pattern), so a
 	// rasterized conversion does not silently lose it. Empty when nothing was
 	// dropped -- including when a page was rasterized losslessly, which
 	// RasterizedPages reports instead.

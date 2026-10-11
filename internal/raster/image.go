@@ -17,8 +17,11 @@ import (
 // (Group 3/4, ccitt.go) are supported. JBIG2Decode/JPXDecode have no decoder
 // in this codebase -- those JBIG2/JPEG2000 codecs are large standalone
 // efforts out of scope here -- so an image using one of them, or a CCITT
-// image that fails to decode, is painted as a flat mid-gray placeholder
-// instead of failing the page.
+// image that fails to decode, comes back as a flat mid-gray placeholder
+// together with a *PlaceholderError. The renderer paints the placeholder
+// rather than failing the page and reports the image as dropped; a caller
+// that would store the samples treats it like any other decode failure, so
+// the gray never takes the picture's place in the file.
 func DecodeImageRGBA(dict pdf.PDFDict, resources pdf.PDFDict) (*image.RGBA, error) {
 	width := pdf.DictInt(dict, "Width", 0)
 	height := pdf.DictInt(dict, "Height", 0)
@@ -38,9 +41,11 @@ func DecodeImageRGBA(dict pdf.PDFDict, resources pdf.PDFDict) (*image.RGBA, erro
 			if img, err := decodeCCITTImage(dict, resources, s, width, height); err == nil {
 				return img, nil
 			}
-			return placeholderImage(width, height), nil
-		default: // JBIG2, JPX
-			return placeholderImage(width, height), nil
+			return placeholderImage(width, height), &PlaceholderError{Codec: "CCITT"}
+		case pdf.FilterJBIG2:
+			return placeholderImage(width, height), &PlaceholderError{Codec: "JBIG2"}
+		default: // JPX
+			return placeholderImage(width, height), &PlaceholderError{Codec: "JPEG 2000"}
 		}
 	}
 	return unpackSamplesToRGBA(dict, resources, s.Data, width, height)
@@ -51,6 +56,20 @@ type imageDecodeError string
 func (e imageDecodeError) Error() string { return string(e) }
 
 const errInvalidImageDims = imageDecodeError("raster_image: invalid /Width or /Height")
+
+// PlaceholderError reports that DecodeImageRGBA could not decode an image's
+// codec and returned the gray placeholder in its place. Codec names it the
+// way a reader would ("JPEG 2000", "JBIG2", "CCITT").
+type PlaceholderError struct {
+	Codec string
+}
+
+func (e *PlaceholderError) Error() string {
+	return "raster_image: cannot decode " + e.Codec + " image, placeholder painted"
+}
+
+// dropFeature is the raster-drop name the image is reported under.
+func (e *PlaceholderError) dropFeature() string { return e.Codec + " image" }
 
 // unpackSamplesToRGBA reads width*height pixels of packed component samples
 // (bitsPerComponent-wide, row-padded to a byte boundary per the PDF spec)

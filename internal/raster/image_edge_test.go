@@ -2,6 +2,8 @@ package raster
 
 import (
 	"bytes"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -19,8 +21,11 @@ func TestDecodeImageRGBARejectsInvalidDimensions(t *testing.T) {
 	}
 }
 
+// TestDecodeImageRGBAUndecodableCodecsPlaceholder: a codec with no decoder
+// comes back as the placeholder and a PlaceholderError naming the codec, so
+// the gray is paintable but never mistaken for the picture.
 func TestDecodeImageRGBAUndecodableCodecsPlaceholder(t *testing.T) {
-	for _, filter := range []string{"JBIG2Decode", "JPXDecode"} {
+	for filter, codec := range map[string]string{"JBIG2Decode": "JBIG2", "JPXDecode": "JPEG 2000"} {
 		t.Run(filter, func(t *testing.T) {
 			dict := imageDict(map[string]pdf.PDFValue{
 				"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2),
@@ -28,8 +33,12 @@ func TestDecodeImageRGBAUndecodableCodecsPlaceholder(t *testing.T) {
 				"Filter": pdf.PDFName{Value: filter},
 			}, []byte{0})
 			img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
-			if err != nil {
-				t.Fatalf("DecodeImageRGBA: %v", err)
+			var ph *PlaceholderError
+			if !errors.As(err, &ph) || ph.Codec != codec {
+				t.Fatalf("DecodeImageRGBA err = %v, want a PlaceholderError for %s", err, codec)
+			}
+			if !strings.Contains(err.Error(), codec) {
+				t.Errorf("error %q does not name the codec %s", err, codec)
 			}
 			if r, g, b := pixelAt(t, img, 1, 1); r != 127 || g != 127 || b != 127 {
 				t.Errorf("pixel = (%d,%d,%d), want the mid-gray placeholder", r, g, b)

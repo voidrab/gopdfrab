@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
@@ -318,4 +319,73 @@ func TestRenderType3Invisible(t *testing.T) {
 	if got := inkFraction(hidden); got >= inkThreshold {
 		t.Errorf("mode 3 (invisible) painted ink fraction %.4f, want ~0", got)
 	}
+}
+
+// TestConvertReportsJPXImageDrop: PDF/A-1 forbids JPXDecode and nothing here
+// decodes JPEG 2000, so the page is rasterized with the image as a gray
+// placeholder. The conversion is conformant, so the loss has to be in
+// RasterDrops or it is invisible.
+func TestConvertReportsJPXImageDrop(t *testing.T) {
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte("q 150 0 0 150 25 25 cm /Im0 Do Q"))
+	b.StreamObj(5, "<< /Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /JPXDecode", []byte("not a codestream"))
+	cr, err := ConvertBytes(b.FinishClassic("<< /Size 6 /Root 1 0 R >>"), pdf.PDFA1B, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("setup: conversion not conformant: %v", cr.Result.Issues)
+	}
+	if !slices.Equal(cr.RasterizedPages, []int{1}) {
+		t.Fatalf("RasterizedPages = %v, want [1]", cr.RasterizedPages)
+	}
+	if len(cr.RasterDrops) != 1 || cr.RasterDrops[0].Page != 1 || !hasDrop(cr.RasterDrops[0].Features, "JPEG 2000 image") {
+		t.Errorf("RasterDrops = %v, want page 1 dropping %q", cr.RasterDrops, "JPEG 2000 image")
+	}
+}
+
+// TestFixersDoNotStorePlaceholderSamples: a fixer that rewrites an image's
+// samples must not write the gray placeholder back in the picture's place.
+// Each image here decodes only to the placeholder, so each is left as it was
+// for the raster fallback to report.
+func TestFixersDoNotStorePlaceholderSamples(t *testing.T) {
+	jbig2 := func(extra map[string]pdf.PDFValue) pdf.PDFDict {
+		entries := map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2),
+			"BitsPerComponent": pdf.PDFInteger(1), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+			"Filter": pdf.PDFName{Value: "JBIG2Decode"},
+		}
+		for k, v := range extra {
+			entries[k] = v
+		}
+		return pdf.PDFDict{Entries: pdf.DictOf(entries), HasStream: true, RawStream: []byte{0}}
+	}
+
+	t.Run("sample depth", func(t *testing.T) {
+		xobjects := pdf.NewPDFDict()
+		xobjects.Entries.Set("Im0", jbig2(map[string]pdf.PDFValue{"BitsPerComponent": pdf.PDFInteger(16)}))
+		trailer := pdf.NewPDFDict()
+		trailer.Entries.Set("XObject", xobjects)
+		if changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil); err != nil || changed {
+			t.Errorf("Fix = %v, %v; want no change", changed, err)
+		}
+	})
+
+	t.Run("soft mask", func(t *testing.T) {
+		img := pdf.PDFDict{
+			Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+				"SMask": jbig2(nil),
+			}),
+			HasStream: true, RawStream: []byte{0},
+		}
+		if _, ok := bakeSoftMaskOut(img, pdf.PDFDict{}); ok {
+			t.Error("bakeSoftMaskOut baked a placeholder soft mask")
+		}
+	})
 }
