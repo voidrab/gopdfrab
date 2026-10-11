@@ -25,7 +25,6 @@ const (
 	exitError   = 2 // usage, open, or I/O error
 )
 
-// exit is os.Exit, swapped out by the test that runs main in-process.
 var exit = os.Exit
 
 func main() {
