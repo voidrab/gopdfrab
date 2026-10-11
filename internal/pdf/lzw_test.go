@@ -189,3 +189,35 @@ func TestLZWBitReaderRead(t *testing.T) {
 		t.Error("read(9) on a single byte should report ok=false")
 	}
 }
+
+// TestDecodeLZWWidthGrowsThroughEveryBoundary feeds enough literal codes to
+// push the table past 512, 1024 and 2048 entries, so the code width has to
+// grow 9 -> 10 -> 11 -> 12 for the stream to stay in step.
+func TestDecodeLZWWidthGrowsThroughEveryBoundary(t *testing.T) {
+	const n = 2200
+	codes := make([]int, 0, n+1)
+	widths := make([]int, 0, n+1)
+	var want []byte
+	for j := range n {
+		next := lzwFirstCode + max(j-1, 0) // table size once j codes are read
+		w := 9
+		switch {
+		case next+1 >= 2048:
+			w = 12
+		case next+1 >= 1024:
+			w = 11
+		case next+1 >= 512:
+			w = 10
+		}
+		codes = append(codes, j%256)
+		widths = append(widths, w)
+		want = append(want, byte(j%256))
+	}
+	codes = append(codes, lzwEOD)
+	widths = append(widths, 12)
+
+	got, err := DecodeLZW(packLZWCodesVarWidth(codes, widths))
+	if err != nil || !bytes.Equal(got, want) {
+		t.Errorf("decoded %d bytes (err %v), want %d matching bytes", len(got), err, len(want))
+	}
+}
