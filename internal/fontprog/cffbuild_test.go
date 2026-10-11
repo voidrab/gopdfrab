@@ -87,6 +87,7 @@ type cffFD struct {
 	matrix    bool     // the Font DICT declares its own FontMatrix
 	noPrivate bool     // omit the Private operator
 	garbage   bool     // append an operand cffDictNumbers cannot decode
+	extra     []byte   // further entries, after Private
 }
 
 // cffSpec describes a synthetic CFF program. The zero value is a name-keyed
@@ -101,11 +102,13 @@ type cffSpec struct {
 	private       []byte
 	lsubrs        [][]byte
 	noPrivate     bool
+	cidPrivate    bool // a CID-keyed Top DICT with a Private operator all the same
 	gsubrs        [][]byte
 	fds           []cffFD
 	fdSelect      []byte // raw FDSelect table; nil omits the operator
 	charsetRaw    []byte // replaces the generated charset table
 	noCharset     bool
+	encoding      []byte // custom Encoding table, placed after the charset
 	csRaw         []byte // replaces the generated CharStrings INDEX
 	noCS          bool
 	noFDArray     bool
@@ -139,11 +142,15 @@ func (s cffSpec) assemble() []byte {
 			top = append(top, cffInt32(off["charset"])...)
 			top = append(top, 15)
 		}
+		if s.encoding != nil {
+			top = append(top, cffInt32(off["encoding"])...)
+			top = append(top, 16)
+		}
 		if !s.noCS {
 			top = append(top, cffInt32(off["cs"])...)
 			top = append(top, 17)
 		}
-		if !s.cid && !s.noPrivate {
+		if (!s.cid || s.cidPrivate) && !s.noPrivate {
 			pd, _ := s.privateBlock()
 			top = append(top, cffInt32(len(pd))...)
 			top = append(top, cffInt32(off["priv"])...)
@@ -185,6 +192,8 @@ func (s cffSpec) assemble() []byte {
 		set := func(name string) { off[name] = len(out) }
 		set("charset")
 		out = append(out, charset...)
+		set("encoding")
+		out = append(out, s.encoding...)
 		set("cs")
 		out = append(out, cs...)
 		if !s.cid {
@@ -210,6 +219,7 @@ func (s cffSpec) assemble() []byte {
 					d = append(d, cffInt32(base+len(blob))...)
 					d = append(d, 18)
 				}
+				d = append(d, fd.extra...)
 				if fd.matrix {
 					d = append(d, cffRealOperand("0.001")...)
 					d = append(d, cffRealOperand("0")...)
