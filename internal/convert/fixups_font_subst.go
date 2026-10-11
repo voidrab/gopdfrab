@@ -91,6 +91,16 @@ func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	return fontprog.SimpleFontCodeToUnicode(enc)
 }
 
+// noBreakSpaceAlias returns U+0020 for U+00A0 and 0 otherwise. ISO 32000-1
+// Annex D reads WinAnsi 0240 and MacRoman 0312 as the glyph "space" while
+// other tables read them as "nbspace", so a substitute is given both.
+func noBreakSpaceAlias(u uint16) uint16 {
+	if u == 0x00A0 {
+		return 0x0020
+	}
+	return 0
+}
+
 // simpleFontUsedUnicodes resolves the Unicode values a simple font dict
 // actually needs to render.
 func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, codeToUnicode [256]uint16) []uint16 {
@@ -104,9 +114,15 @@ func simpleFontUsedUnicodes(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, c
 		if cc < 0 || cc > 255 {
 			return
 		}
-		if u := codeToUnicode[cc]; u != 0 && !seen[u] {
-			seen[u] = true
-			result = append(result, u)
+		u := codeToUnicode[cc]
+		if u == 0 {
+			return
+		}
+		for _, v := range []uint16{u, noBreakSpaceAlias(u)} {
+			if v != 0 && !seen[v] {
+				seen[v] = true
+				result = append(result, v)
+			}
 		}
 	}
 	if codes != nil {

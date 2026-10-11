@@ -3,6 +3,7 @@ package convert
 import (
 	"bytes"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,6 +51,20 @@ func TestSimpleFontUsedUnicodes(t *testing.T) {
 	d = dictOf(map[string]pdf.PDFValue{"FirstChar": pdf.PDFInteger(255), "Widths": ints(600, 600)})
 	if got = simpleFontUsedUnicodes(d, nil, table); len(got) != 0 {
 		t.Errorf("Widths beyond code 255 = %v, want none", got)
+	}
+}
+
+// TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace: ISO 32000-1 Annex D
+// reads WinAnsi 0240 and MacRoman 0312 as the glyph "space", other tables as
+// "nbspace". A substitute holding only U+00A0 left a reader of the first kind
+// (veraPDF among them) with no glyph, so U+0020 comes along with it.
+func TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace(t *testing.T) {
+	var table [256]uint16
+	table[160] = 0x00A0
+	d := dictOf(nil)
+	got := simpleFontUsedUnicodes(d, usageOf(d, 160), table)
+	if !slices.Contains(got, 0x00A0) || !slices.Contains(got, 0x0020) {
+		t.Errorf("unicodes = %v, want both U+00A0 and U+0020", got)
 	}
 }
 
