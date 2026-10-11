@@ -301,9 +301,6 @@ func DecodeASCII85(data []byte) ([]byte, error) {
 				i++
 			}
 		}
-		if n == 0 {
-			break
-		}
 		// A group of n digits decodes to n-1 bytes; capture that before padding
 		// n up to a full group of 5.
 		outBytes := n - 1
