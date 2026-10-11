@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -351,5 +353,145 @@ func TestTrueTypeEncodingFixerSkipsAndLeavesUnrepairable(t *testing.T) {
 func TestTrueTypeCmapSubtableCountTinyCmap(t *testing.T) {
 	if _, ok := trueTypeCmapSubtableCount(wrapInSfnt(0x00010000, map[string][]byte{"cmap": {0, 0}})); ok {
 		t.Error("cmap shorter than its header reported a count")
+	}
+}
+
+// tinyTrueType is a two-glyph TrueType program (.notdef and 'A') cut from
+// Liberation Sans, so any CID from 2 up has no glyph in it.
+func tinyTrueType(t *testing.T) []byte {
+	t.Helper()
+	data, err := fontprog.SubsetTrueType(fontsubst.LiberationSansRegular, []uint16{'A'})
+	if err != nil {
+		t.Fatalf("SubsetTrueType: %v", err)
+	}
+	return data
+}
+
+// TestSubstituteCIDFontKeepsGlyphlessCID covers a used CID with no Unicode
+// value that the replaced program has no glyph for: it drew the missing-glyph
+// box, so instead of refusing the whole font, the substitute draws its own
+// .notdef there at the width the font gave the CID.
+func TestSubstituteCIDFontKeepsGlyphlessCID(t *testing.T) {
+	next := 100
+	w := pdf.PDFArray{pdf.PDFInteger(0), ints(500, 600), pdf.PDFInteger(7), ints(640)}
+	type0, cid := type0WithToUnicode(w, map[int]uint16{1: 'A'})
+	cid.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+Foo"})
+	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(tinyTrueType(t))}))
+
+	if !substituteCIDFont(type0, cid, nil, nil, &next) {
+		t.Fatal("substituteCIDFont = false, want true")
+	}
+	got := map[int]int{}
+	for _, pair := range fontprog.ParseCIDWidths(cid.Entries.Get("W").(pdf.PDFArray)) {
+		got[pair[0]] = pair[1]
+	}
+	if got[7] != 640 {
+		t.Errorf("width of CID 7 = %d, want the original 640; widths %v", got[7], got)
+	}
+	desc := cid.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	program, err := pdf.DecodeStream(desc.Entries.Get("FontFile2").(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	tables, _ := fontprog.ParseSfnt(program)
+	face, _ := fontprog.ParseSfnt(fontsubst.LiberationSansRegular)
+	if !bytes.Equal(fontprog.GlyfRecord(tables, 7), fontprog.GlyfRecord(face, 0)) {
+		t.Error("CID 7 does not draw the substitute's .notdef")
+	}
+}
+
+// TestSubstituteCIDFontRefusesUnmappedDrawnCID: a CID with no Unicode value
+// that the replaced program does draw cannot be carried over -- nothing says
+// what it showed -- so the font is still left to the raster fallback.
+func TestSubstituteCIDFontRefusesUnmappedDrawnCID(t *testing.T) {
+	next := 100
+	w := pdf.PDFArray{pdf.PDFInteger(1), ints(600), pdf.PDFInteger(7), ints(750)}
+	type0, cid := type0WithToUnicode(w, map[int]uint16{7: 'A'})
+	cid.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+Foo"})
+	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(tinyTrueType(t))}))
+	if substituteCIDFont(type0, cid, nil, nil, &next) {
+		t.Error("substituted although CID 1 has a glyph and no Unicode value")
+	}
+}
+
+// TestDrawsNotdef covers which programs are trusted to lack a glyph: only a
+// readable TrueType program under an Identity mapping, or a readable CFF.
+func TestDrawsNotdef(t *testing.T) {
+	cff := buildMinimalCFF()       // glyphs 0 and 1
+	cidCFF := buildMinimalCIDCFF() // CIDs 0, 1 and 2
+	td, _ := fontprog.ParseCFFTopDict(cidCFF)
+	badCharset := bytes.Clone(cidCFF)
+	badCharset[td.CharsetOffset] = 9
+	plainTD, _ := fontprog.ParseCFFTopDict(cff)
+	noCharStrings := bytes.Clone(cff)
+	noCharStrings[plainTD.CSOffset], noCharStrings[plainTD.CSOffset+1] = 0, 0
+
+	identity := dictOf(nil)
+	mapped := dictOf(map[string]pdf.PDFValue{"CIDToGIDMap": streamOf([]byte{0, 0, 0, 1})})
+	ff2 := func(v pdf.PDFValue) pdf.PDFDict { return dictOf(map[string]pdf.PDFValue{"FontFile2": v}) }
+	ff3 := func(v pdf.PDFValue) pdf.PDFDict { return dictOf(map[string]pdf.PDFValue{"FontFile3": v}) }
+	tiny := streamOf(tinyTrueType(t))
+
+	for _, tc := range []struct {
+		name      string
+		cid, desc pdf.PDFDict
+		c         int
+		want      bool
+	}{
+		{"TrueType glyph absent", identity, ff2(tiny), 7, true},
+		{"TrueType glyph present", identity, ff2(tiny), 1, false},
+		{"stream CIDToGIDMap", mapped, ff2(tiny), 7, false},
+		{"TrueType undecodable", identity, ff2(undecodableStream()), 7, false},
+		{"TrueType not an sfnt", identity, ff2(streamOf([]byte("nope"))), 7, false},
+		{"not embedded", identity, dictOf(nil), 7, false},
+		{"CFF undecodable", identity, ff3(undecodableStream()), 7, false},
+		{"CFF unparseable", identity, ff3(streamOf([]byte("nope"))), 7, false},
+		{"CFF without charstrings", identity, ff3(streamOf(noCharStrings)), 7, false},
+		{"name-keyed CFF glyph absent", identity, ff3(streamOf(cff)), 2, true},
+		{"name-keyed CFF glyph present", identity, ff3(streamOf(cff)), 1, false},
+		{"CID-keyed CFF glyph absent", identity, ff3(streamOf(cidCFF)), 5, true},
+		{"CID-keyed CFF glyph present", identity, ff3(streamOf(cidCFF)), 2, false},
+		{"CID-keyed CFF bad charset", identity, ff3(streamOf(badCharset)), 5, false},
+	} {
+		if got := drawsNotdef(tc.cid, tc.desc, tc.c); got != tc.want {
+			t.Errorf("%s: drawsNotdef = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestCIDWidth: a CID's width comes from /W, then /DW, then 1000.
+func TestCIDWidth(t *testing.T) {
+	font := dictOf(map[string]pdf.PDFValue{"W": pdf.PDFArray{pdf.PDFInteger(3), ints(420)}, "DW": pdf.PDFInteger(880)})
+	if got := cidWidth(font, 3); got != 420 {
+		t.Errorf("width from /W = %v, want 420", got)
+	}
+	if got := cidWidth(font, 4); got != 880 {
+		t.Errorf("width from /DW = %v, want 880", got)
+	}
+	if got := cidWidth(dictOf(nil), 4); got != 1000 {
+		t.Errorf("default width = %v, want 1000", got)
+	}
+}
+
+// TestConvertSubstitutesFontWithGlyphlessCID converts the Isartor fixture
+// whose ArialMT subset is drawn with CID 1674, a CID with neither a glyph nor
+// a Unicode value. The font is substituted in place rather than the page
+// rasterized, and the page keeps its ink.
+func TestConvertSubstitutesFontWithGlyphlessCID(t *testing.T) {
+	path := "../../tests/Isartor/PDFA-1b/6.3 Fonts/6.3.5 Font subsets/isartor-6-3-5-t01-fail-b.pdf"
+	if _, err := os.Stat(path); err != nil {
+		t.Skip("Isartor suite not present")
+	}
+	cr, err := Convert(path, pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	defer cr.Close()
+	if !cr.Result.Valid {
+		t.Fatalf("converted output not conformant: %v", issueClauses(cr.Residual()))
+	}
+	assertNotRasterized(t, cr)
+	if len(cr.BlankedPages) != 0 {
+		t.Errorf("pages %v lost their content", cr.BlankedPages)
 	}
 }

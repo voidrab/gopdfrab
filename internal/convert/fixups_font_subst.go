@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -557,6 +558,60 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 	return cidToUnicode, true
 }
 
+// drawsNotdef reports whether the embedded program of a CIDFont certainly has
+// no glyph for cid, so a viewer draws the font's .notdef in its place. Only a
+// program that can be read and an Identity CID-to-glyph mapping are trusted;
+// anything less certain is false.
+func drawsNotdef(cid, desc pdf.PDFDict, c int) bool {
+	if ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict); ok {
+		if !verify.IdentityCIDToGIDMap(cid) {
+			return false
+		}
+		data, err := pdf.DecodeStream(ff)
+		if err != nil {
+			return false
+		}
+		tables, ok := fontprog.ParseSfnt(data)
+		return ok && !fontprog.TTGlyphPresent(tables)(c)
+	}
+	ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict)
+	if !ok {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	td, ok := fontprog.ParseCFFTopDict(data)
+	if !ok {
+		return false
+	}
+	lens := fontprog.ParseCFFCharStringLengths(data, td.CSOffset)
+	if lens == nil {
+		return false
+	}
+	if !td.IsCIDKeyed {
+		return c >= len(lens)
+	}
+	cids := fontprog.ParseCFFCharsetCIDs(data, td.CharsetOffset, len(lens))
+	return cids != nil && !slices.Contains(cids, c)
+}
+
+// cidWidth is the width a CIDFont gives cid: its /W entry, else /DW, else
+// the spec default 1000.
+func cidWidth(cid pdf.PDFDict, c int) float64 {
+	w, _ := cid.Entries.Get("W").(pdf.PDFArray)
+	for _, pair := range fontprog.ParseCIDWidths(w) {
+		if pair[0] == c {
+			return float64(pair[1])
+		}
+	}
+	if dw, ok := numericValue(cid.Entries.Get("DW")); ok {
+		return dw
+	}
+	return 1000
+}
+
 // cidFontNeedsSubstitution mirrors simpleFontNeedsSubstitution for composite
 // fonts.
 func cidFontNeedsSubstitution(cid, desc pdf.PDFDict, usedCIDs map[uintptr]map[int]bool) bool {
@@ -621,17 +676,25 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 
 	// Every rendered CID must survive the substitution; CID 0 (.notdef) needs
 	// no mapping. A CID with no recoverable meaning would silently lose its
-	// glyph, so refuse and leave the page to raster fallback.
+	// glyph, so refuse and leave the page to raster fallback -- unless the
+	// program being replaced has no glyph for it either. Then what it drew was
+	// the missing-glyph shape, which the substitute's own .notdef stands in
+	// for, advancing by the same width so the text after it stays put.
 	targetCIDs := map[uint16][]int{}
+	notdef := map[int]float64{}
 	for c := range cids {
 		if c == 0 {
 			continue
 		}
 		u, ok := cidToUnicode[c]
-		if !ok {
+		switch {
+		case ok:
+			targetCIDs[u] = append(targetCIDs[u], c)
+		case drawsNotdef(cid, desc, c):
+			notdef[c] = cidWidth(cid, c)
+		default:
 			return false
 		}
-		targetCIDs[u] = append(targetCIDs[u], c)
 	}
 	if len(targetCIDs) == 0 {
 		return false
@@ -673,16 +736,22 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 
 	// faceData passed the cmap check above, the only thing the subsetter can
 	// fail on, and its packed output always parses.
-	subset, _ := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs)
+	subset, _ := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs, notdef)
 	tables, _ := fontprog.ParseSfnt(subset)
 
 	var widthPairs [][2]int
+	addWidth := func(c int) {
+		if aw := fontprog.TTAdvanceWidth(tables, c); aw >= 0 {
+			widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
+		}
+	}
 	for _, cidList := range targetCIDs {
 		for _, c := range cidList {
-			if aw := fontprog.TTAdvanceWidth(tables, c); aw >= 0 {
-				widthPairs = append(widthPairs, [2]int{c, int(math.Round(aw))})
-			}
+			addWidth(c)
 		}
+	}
+	for c := range notdef {
+		addWidth(c)
 	}
 	// targetCIDs is non-empty and every CID in it is below the subset's glyph
 	// count, with an hmtx entry of its own, so widthPairs is never empty.
