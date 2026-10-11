@@ -97,24 +97,6 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 	})
 }
 
-// TestResolveShallow covers both of resolveShallow's branches directly: a
-// PDFRef is dereferenced via ResolveReference, anything else passes through
-// unchanged. (resolvePath's own eager top-level ResolveObject call fully
-// resolves the graph before this ever runs, so a raw PDFRef never reaches
-// resolveShallow through that path in practice -- this is a direct unit test.)
-func TestResolveShallow(t *testing.T) {
-	d := &Reader{objCache: map[int]PDFValue{5: PDFInteger(9)}}
-	got, err := d.resolveShallow(PDFRef{ObjNum: 5})
-	if err != nil || got != PDFInteger(9) {
-		t.Errorf("resolveShallow(ref) = %v, %v; want 9", got, err)
-	}
-
-	got2, err2 := d.resolveShallow(PDFInteger(3))
-	if err2 != nil || got2 != PDFInteger(3) {
-		t.Errorf("resolveShallow(non-ref) = %v, %v; want 3", got2, err2)
-	}
-}
-
 // TestParseClassicReferenceDictBranches covers the file-backed Seek error,
 // the parseDictionary error, the validateStream error, the leadingWS/preEOL
 // framing diagnostics before "endobj", and the "neither stream nor endobj

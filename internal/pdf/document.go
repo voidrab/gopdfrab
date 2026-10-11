@@ -1160,13 +1160,9 @@ func (d *Reader) resolvePath(node PDFValue, path []string) (PDFValue, error) {
 		return nil, err
 	}
 
+	// ResolveObject resolved the whole subtree in place, so no step of the walk
+	// can meet an unresolved reference.
 	for _, key := range path {
-
-		current, err = d.resolveShallow(current)
-		if err != nil {
-			return nil, err
-		}
-
 		if arr, ok := current.(PDFArray); ok {
 			idx, err := strconv.Atoi(key)
 			if err != nil {

@@ -3,6 +3,7 @@ package pdf
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
@@ -48,3 +49,81 @@ type bufWriter struct{ b *pdfgen.Builder }
 func (w bufWriter) Write(p []byte) (int, error) { w.b.Write(p); return len(p), nil }
 
 var _ = errors.New
+
+// TestResolvePathStopsAtUnparseableObject: a path whose subtree holds a
+// reference to an object that cannot be parsed reports the error instead of a
+// value.
+func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
+	doc := "1 0 obj\n<< /A 2 0 R >>\nendobj\n2 0 obj\n<< /B\nendobj\n"
+	d := &Reader{data: []byte(doc), size: int64(len(doc)), xrefTable: map[int]int64{
+		1: 0, 2: int64(len("1 0 obj\n<< /A 2 0 R >>\nendobj\n")),
+	}}
+	root := PDFDict{Entries: DictOf(map[string]PDFValue{"A": PDFRef{ObjNum: 2}})}
+	if v, err := d.resolvePath(root, []string{"A", "B"}); err == nil {
+		t.Errorf("resolvePath = %#v, want an error", v)
+	}
+}
+
+// TestObjectHeaderExistsWithoutAnyHeader: when the file holds no "N G obj"
+// header at all, absence proves nothing and the answer is "not scanned".
+func TestObjectHeaderExistsWithoutAnyHeader(t *testing.T) {
+	d := &Reader{data: []byte("no objects in here"), size: 18}
+	if exists, scanned := d.objectHeaderExists(1); exists || scanned {
+		t.Errorf("objectHeaderExists = %v, %v; want false, false", exists, scanned)
+	}
+}
+
+func TestRecordDiagnosticsOncePerObject(t *testing.T) {
+	d := &Reader{}
+	d.recordDegraded(7, errors.New("a"))
+	d.recordDegraded(7, errors.New("b"))
+	if len(d.degradedDiags) != 1 || len(d.parseDiagnostics) != 1 {
+		t.Errorf("degraded: %d diags, %d parse diags; want 1 each", len(d.degradedDiags), len(d.parseDiagnostics))
+	}
+	d = &Reader{}
+	d.recordRecovered(7, 10, 20, errors.New("a"))
+	d.recordRecovered(7, 11, 21, errors.New("b"))
+	if len(d.parseDiagnostics) != 1 {
+		t.Errorf("recovered: %d parse diags, want 1", len(d.parseDiagnostics))
+	}
+}
+
+func TestAdoptStreamCachesSharesDecodeErrors(t *testing.T) {
+	key := StreamKey{ptr: 1, len: 2}
+	src := &Reader{decodeErrs: map[StreamKey]error{key: errors.New("bad")}}
+	d := &Reader{}
+	d.AdoptStreamCaches(src)
+	if d.decodeErrs[key] == nil {
+		t.Error("decode errors not adopted")
+	}
+}
+
+func TestNegativeXRefOffsetIsAnError(t *testing.T) {
+	d := &Reader{data: []byte("x"), size: 1, xrefTable: map[int]int64{3: -1}}
+	if _, err := d.ResolveReference(PDFRef{ObjNum: 3}); err == nil || !strings.Contains(err.Error(), "negative offset") {
+		t.Errorf("err = %v, want a negative-offset error", err)
+	}
+}
+
+// TestEncryptedBareObjectsAreDecrypted: strings in an object whose body is a
+// bare string or an array are decrypted too, not only those inside dictionaries.
+func TestEncryptedBareObjectsAreDecrypted(t *testing.T) {
+	h := &stdSecurityHandler{r: 3, v: 2, keyLen: 5, fileKey: []byte{1, 2, 3, 4, 5},
+		stmMethod: cryptRC4, strMethod: cryptRC4, encryptObjNum: 99}
+	seal := func(objNum int, plain string) string {
+		out := make([]byte, len(plain))
+		newRC4(h.objectKey(objNum, 0, cryptRC4)).XORKeyStream(out, []byte(plain))
+		return fmt.Sprintf("<%x>", out)
+	}
+	doc := fmt.Sprintf("5 0 obj\n%s\nendobj\n6 0 obj\n[%s]\nendobj\n", seal(5, "secret"), seal(6, "hidden"))
+	d := &Reader{data: []byte(doc), size: int64(len(doc)), crypt: h, xrefTable: map[int]int64{
+		5: 0, 6: int64(strings.Index(doc, "6 0 obj")),
+	}}
+	if v, err := d.ResolveReference(PDFRef{ObjNum: 5}); err != nil || v != (PDFString{Value: "secret"}) {
+		t.Errorf("object 5 = %#v, %v; want the decrypted string", v, err)
+	}
+	v, err := d.ResolveReference(PDFRef{ObjNum: 6})
+	if arr, ok := v.(PDFArray); err != nil || !ok || len(arr) != 1 || arr[0] != (PDFString{Value: "hidden"}) {
+		t.Errorf("object 6 = %#v, %v; want [(hidden)]", v, err)
+	}
+}

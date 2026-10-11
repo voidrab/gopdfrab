@@ -253,3 +253,13 @@ func TestCheckEndstreamFramingStartPastWindow(t *testing.T) {
 		t.Errorf("expected no diagnostic when start is past the available window, got %d", len(d.parseDiagnostics))
 	}
 }
+
+// TestCheckEndstreamFramingNoKeywordInWindow: with no endstream in the window
+// there is nothing to frame-check, so no diagnostic is recorded.
+func TestCheckEndstreamFramingNoKeywordInWindow(t *testing.T) {
+	d := &Reader{data: []byte("0123456789")}
+	d.checkEndstreamFraming(1, 0, 4)
+	if len(d.parseDiagnostics) != 0 {
+		t.Errorf("got %d diagnostics, want none", len(d.parseDiagnostics))
+	}
+}
