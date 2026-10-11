@@ -108,10 +108,8 @@ func UndoPNGPredictor(data []byte, columns, colors, bpc int) ([]byte, error) {
 		return nil, fmt.Errorf("invalid predictor parameters: columns=%d colors=%d bpc=%d", columns, colors, bpc)
 	}
 	bpp := max(1, (colors*bpc+7)/8)
+	// The bounds above cap columns*colors*bpc at 2^30, so rowBytes >= 1.
 	rowBytes := (columns*colors*bpc + 7) / 8
-	if rowBytes <= 0 {
-		return nil, fmt.Errorf("invalid predictor parameters: columns=%d colors=%d bpc=%d", columns, colors, bpc)
-	}
 
 	out := make([]byte, 0, len(data))
 	prev := make([]byte, rowBytes)

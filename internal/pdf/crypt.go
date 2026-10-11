@@ -110,6 +110,11 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 	if h.v != 5 && (h.keyLen < 5 || h.keyLen > 16) {
 		return nil, fmt.Errorf("%w: invalid key length %d", ErrEncrypted, h.keyLen*8)
 	}
+	// A V5 key is 32 bytes; only the R5/R6 derivation produces one, the
+	// R2-R4 MD5 derivation tops out at 16.
+	if h.v == 5 && h.r < 5 {
+		return nil, fmt.Errorf("%w: V5 requires revision 5 or 6, got %d", ErrEncrypted, h.r)
+	}
 
 	if h.v >= 4 {
 		cf, _ := enc.Entries.Get("CF").(PDFDict)
@@ -227,10 +232,7 @@ func (h *stdSecurityHandler) deriveKeyR234(pw []byte) []byte {
 // authUserR234 checks key against /U (Algorithm 4 for R2, Algorithm 5 for R3+).
 func (h *stdSecurityHandler) authUserR234(key []byte) bool {
 	if h.r == 2 {
-		c, err := rc4.NewCipher(key)
-		if err != nil {
-			return false
-		}
+		c := newRC4(key)
 		out := make([]byte, 32)
 		c.XORKeyStream(out, passwordPad)
 		return len(h.u) >= 32 && bytes.Equal(out, h.u[:32])
@@ -239,10 +241,7 @@ func (h *stdSecurityHandler) authUserR234(key []byte) bool {
 	hsh.Write(passwordPad)
 	hsh.Write(h.idBytes)
 	out := hsh.Sum(nil)
-	c, err := rc4.NewCipher(key)
-	if err != nil {
-		return false
-	}
+	c := newRC4(key)
 	c.XORKeyStream(out, out)
 	for i := 1; i <= 19; i++ {
 		out = rc4XORWithKeyByte(out, key, byte(i))
@@ -268,11 +267,7 @@ func (h *stdSecurityHandler) authOwnerR234(pw []byte) ([]byte, bool) {
 	user := make([]byte, len(h.o))
 	copy(user, h.o)
 	if h.r == 2 {
-		c, err := rc4.NewCipher(rc4Key)
-		if err != nil {
-			return nil, false
-		}
-		c.XORKeyStream(user, user)
+		newRC4(rc4Key).XORKeyStream(user, user)
 	} else {
 		for i := 19; i >= 0; i-- {
 			user = rc4XORWithKeyByte(user, rc4Key, byte(i))
@@ -290,13 +285,18 @@ func rc4XORWithKeyByte(data, key []byte, b byte) []byte {
 	for j := range key {
 		k[j] = key[j] ^ b
 	}
-	c, err := rc4.NewCipher(k)
-	if err != nil {
-		return data
-	}
 	out := make([]byte, len(data))
-	c.XORKeyStream(out, data)
+	newRC4(k).XORKeyStream(out, data)
 	return out
+}
+
+// newRC4 returns an RC4 cipher for key. RC4 only rejects keys of 0 or more
+// than 256 bytes; every key here is a file or object key of 5 to 32 bytes
+// (newStdSecurityHandler bounds keyLen to 5..16 for V != 5, and V5 keys are
+// 32), so the error cannot occur.
+func newRC4(key []byte) *rc4.Cipher {
+	c, _ := rc4.NewCipher(key)
+	return c
 }
 
 // deriveKeyAES256 retrieves the 32-byte file key for R5 and R6 (ISO 32000-2
@@ -340,10 +340,7 @@ func hash2B(pw, salt, udata []byte) []byte {
 	var e []byte
 	for i := 0; i < 64 || int(e[len(e)-1]) > i-32; i++ {
 		k1 := bytes.Repeat(concat(pw, k, udata), 64)
-		cb, err := aes.NewCipher(k[:16])
-		if err != nil {
-			return nil
-		}
+		cb, _ := aes.NewCipher(k[:16]) // a 16-byte key is always valid
 		e = make([]byte, len(k1))
 		cipher.NewCBCEncrypter(cb, k[16:32]).CryptBlocks(e, k1)
 		sum := 0
@@ -408,12 +405,8 @@ func (h *stdSecurityHandler) decrypt(data []byte, objNum, genNum int, isString b
 	case cryptIdentity:
 		return append([]byte(nil), data...), nil
 	case cryptRC4:
-		c, err := rc4.NewCipher(h.objectKey(objNum, genNum, m))
-		if err != nil {
-			return nil, err
-		}
 		out := make([]byte, len(data))
-		c.XORKeyStream(out, data)
+		newRC4(h.objectKey(objNum, genNum, m)).XORKeyStream(out, data)
 		return out, nil
 	case cryptAESV2, cryptAESV3:
 		return aesCBCDecrypt(h.objectKey(objNum, genNum, m), data)
@@ -577,10 +570,8 @@ func isCleartextMetadata(m PDFDict, h *stdSecurityHandler) bool {
 
 // aesCBCNoPadZeroIV decrypts key material (UE/OE) with a zero IV and no padding.
 func aesCBCNoPadZeroIV(key, data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
+	// key is a hash2B/hashR5 digest of 32 bytes, always a valid AES key size.
+	block, _ := aes.NewCipher(key)
 	if len(data) == 0 || len(data)%aes.BlockSize != 0 {
 		return nil, fmt.Errorf("%w: bad key material", ErrEncrypted)
 	}

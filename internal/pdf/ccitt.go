@@ -71,10 +71,8 @@ func DecodeCCITT(data []byte, p CCITTParams) ([]byte, error) {
 
 		is2D := pureG4
 		if p.K > 0 {
-			bit, ok := br.readBit()
-			if !ok {
-				break
-			}
+			// Not at EOF (checked above), so a bit is available.
+			bit, _ := br.readBit()
 			is2D = bit == 0
 		}
 
@@ -408,9 +406,6 @@ func packCCITTRow(trans []int, Columns int, BlackIs1 bool) []byte {
 	}
 	prev, color := 0, 0
 	for _, t := range trans {
-		if t > Columns {
-			t = Columns
-		}
 		set(prev, t, color)
 		prev = t
 		color ^= 1
