@@ -490,19 +490,22 @@ func OpenWithPassword(path string, password []byte) (*Reader, error) {
 		return nil, err
 	}
 
+	var (
+		size  int64
+		data  []byte
+		unmap func() error
+	)
 	info, err := f.Stat()
+	if err == nil {
+		size = info.Size()
+		data, unmap, err = mmapFile(f, size)
+	}
 	if err != nil {
 		f.Close()
 		return nil, err
 	}
 
-	data, unmap, err := mmapFile(f, info.Size())
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-
-	return newDocument(f, info.Size(), data, unmap, password)
+	return newDocument(f, size, data, unmap, password)
 }
 
 // bytesFileSource adapts a *bytes.Reader (which has no Close) to fileSource.
