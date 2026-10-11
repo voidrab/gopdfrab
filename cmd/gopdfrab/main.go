@@ -74,7 +74,13 @@ Run "gopdfrab verify -h" or "gopdfrab convert -h" for command flags.
 // version reports the module version when built with the module cache (e.g.
 // "go install ...@v1.2.3"), or "dev" for a local build.
 func version() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
+	return versionOf(debug.ReadBuildInfo())
+}
+
+// versionOf is version's decision, split from the build-info read so the
+// module-cache case can be tested: a test binary is always a "(devel)" build.
+func versionOf(bi *debug.BuildInfo, ok bool) string {
+	if ok {
 		if v := bi.Main.Version; v != "" && v != "(devel)" {
 			return v
 		}

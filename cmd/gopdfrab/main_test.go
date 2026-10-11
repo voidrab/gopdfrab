@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -37,6 +38,24 @@ func TestVersion(t *testing.T) {
 	code, out, _ := runCLI("version")
 	if code != exitValid || strings.TrimSpace(out) == "" {
 		t.Errorf("version: exit=%d out=%q", code, out)
+	}
+}
+
+func TestVersionOf(t *testing.T) {
+	info := func(v string) *debug.BuildInfo { return &debug.BuildInfo{Main: debug.Module{Version: v}} }
+	for _, c := range []struct {
+		bi   *debug.BuildInfo
+		ok   bool
+		want string
+	}{
+		{info("v1.2.3"), true, "v1.2.3"},
+		{info("(devel)"), true, "dev"},
+		{info(""), true, "dev"},
+		{nil, false, "dev"},
+	} {
+		if got := versionOf(c.bi, c.ok); got != c.want {
+			t.Errorf("versionOf(%+v, %v) = %q, want %q", c.bi, c.ok, got, c.want)
+		}
 	}
 }
 
