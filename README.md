@@ -76,8 +76,11 @@ summary: pass=1 fail=1 error=1 files=3
 - `--detail` lists every location instead, one line per page and object:
   clause, `page=<n|doc>`, `obj=<num>.<gen>` or `obj=-`, `count=<n>` repeats there,
   and the messages.
-- `convert` prints `profile:`, `input:`, `output:`, `iterations:`, an optional
-  `lost: objects=<n> distinct=<n>` and `result: conformant` or
+- `convert` prints `profile:`, `input:`, `output:`, `iterations:`, then
+  optionally `rasterized: pages=<ranges>` for pages rebuilt as an image,
+  `dropped: pages=<ranges> features=<n>` with one `pages=<ranges>` line per
+  feature the rasterizer could not draw (the feature Go-quoted), and
+  `lost: objects=<n> distinct=<n>`, and last `result: conformant` or
   `result: residual issues=<n> distinct=<n>`, with the same issue lines beneath.
 
 `--json` reports every occurrence, ungrouped.

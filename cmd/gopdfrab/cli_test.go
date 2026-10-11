@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -325,5 +326,56 @@ func TestConvertJSONEncodeError(t *testing.T) {
 	}
 	if stderr.String() == "" {
 		t.Error("printConvertJSON did not report the write failure on stderr")
+	}
+}
+
+// TestConvertPrintersReportRasterization: a conformant conversion that
+// rebuilt pages as images, and could not draw everything on them, says so in
+// both outputs. Without it a page whose picture became a gray box reads as a
+// clean conversion.
+func TestConvertPrintersReportRasterization(t *testing.T) {
+	cr := gopdfrab.ConvertResult{
+		Result:          gopdfrab.Result{Valid: true},
+		Iterations:      3,
+		RasterizedPages: []int{1, 2, 3, 7},
+		RasterDrops: []gopdfrab.RasterDrop{
+			{Page: 7, Features: []string{"tiling pattern"}},
+			{Page: 2, Features: []string{"tiling pattern", "JPEG 2000 image"}},
+			{Page: 3, Features: []string{"JPEG 2000 image"}},
+		},
+	}
+
+	var stdout strings.Builder
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitValid {
+		t.Errorf("printConvertText: exit=%d, want %d", code, exitValid)
+	}
+	want := "profile: pdfa1b\n\n" +
+		"input: in.pdf\noutput: out.pdf\niterations: 3\n" +
+		"rasterized: pages=1-3,7\n" +
+		"dropped: pages=2-3,7 features=2\n" +
+		"  pages=2-3  \"JPEG 2000 image\"\n" +
+		"  pages=2,7  \"tiling pattern\"\n" +
+		"result: conformant\n"
+	if stdout.String() != want {
+		t.Errorf("printConvertText output =\n%s\nwant\n%s", stdout.String(), want)
+	}
+
+	stdout.Reset()
+	var stderr strings.Builder
+	if code := printConvertJSON("in.pdf", "out.pdf", cr, &stdout, &stderr); code != exitValid {
+		t.Errorf("printConvertJSON: exit=%d, want %d", code, exitValid)
+	}
+	var row convertJSON
+	if err := json.Unmarshal([]byte(stdout.String()), &row); err != nil {
+		t.Fatalf("printConvertJSON output is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if !slices.Equal(row.RasterizedPages, cr.RasterizedPages) || len(row.RasterDrops) != 3 ||
+		row.RasterDrops[1].Page != 2 || !slices.Equal(row.RasterDrops[1].Features, []string{"tiling pattern", "JPEG 2000 image"}) {
+		t.Errorf("printConvertJSON row = %+v, want the rasterized pages and every drop", row)
+	}
+	for _, key := range []string{`"rasterizedPages"`, `"rasterDrops"`, `"page"`, `"features"`} {
+		if !strings.Contains(stdout.String(), key) {
+			t.Errorf("JSON lacks key %s:\n%s", key, stdout.String())
+		}
 	}
 }

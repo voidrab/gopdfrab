@@ -29,6 +29,10 @@ notice.
 ### Added
 
 - CLI: `--detail` on `verify` and `convert` lists every location of an issue.
+- CLI: `convert` reports the pages it rasterized and what it could not draw
+  on them (`rasterized:` and `dropped:` lines, `rasterizedPages` and
+  `rasterDrops` in `--json`). A conversion that turned an image into a gray
+  box used to print only `result: conformant`.
 
 ### Changed
 
@@ -37,7 +41,7 @@ notice.
 - CLI: the profile is named once in a `profile:` header instead of
   `PDF/A violation` on every issue line.
 - CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
-  described in the README. `--json` is unchanged.
+  described in the README. `--json` keeps its existing fields.
 - Convert repairs more pages in place instead of rasterizing them: graphics
   state nested past the 28-level limit, tiling patterns painting in a device
   colour space the output intent does not cover, inline images with an
