@@ -871,15 +871,12 @@ func fileSize(path string) int64 {
 // that gopdfrab is right to reject. Each entry has to make that case, and a
 // listed file that starts verifying clean fails the test, so a deviation cannot
 // outlive the reason for it.
-var shouldPassDeviations = map[string]string{
-	// arXiv 2008.01611: a Word-produced subset of TimesNewRomanPS-BoldMT is
-	// shown with character code 48 ('0'), and the embedded program has no
-	// glyph for it -- no (3,1), (0,3), (3,0) or (1,0) cmap entry, and `post` is
-	// version 3.0, so none of ISO 32000-1 9.6.6.4's three lookup paths resolves
-	// it. The page renders .notdef, which 6.3.5 exists to prevent. veraPDF
-	// passes the file; verified by hand against the font's tables.
-	"0e1ac7d3fec6acb516bec480c4b9f9d6021b1cd3d018f4900cfc69369b2d6d57": "veraPDF false negative: shown glyph absent from the embedded subset (6.3.5)",
-}
+//
+// Check the attribution before adding one: arXiv 2008.01611 was listed here
+// because the usage scan, which did not restore the font on Q, charged a table
+// cell's '0' to a subset lacking that glyph. The cell draws in the font
+// inherited from outside its q/Q, which has the glyph, and veraPDF was right.
+var shouldPassDeviations = map[string]string{}
 
 // checkShouldPass verifies each file against PDF/A-1b and returns the paths
 // gopdfrab wrongly rejected. These are real files a tool and veraPDF both call
