@@ -152,6 +152,7 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestArrayElemTargetFailsClosed(t *testing.T) {
@@ -334,6 +335,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
@@ -428,6 +430,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
@@ -629,6 +632,7 @@ func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestCoerceScalar(t *testing.T) {
@@ -793,6 +797,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
@@ -1193,6 +1198,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 // TestConstraintHelperEdges covers the helper branches the fixer-level tests

@@ -29,6 +29,7 @@ func TestDeviceColourFixerClearsContentStreamViolation(t *testing.T) {
 			t.Errorf("DeviceColourContentStream still present after conversion: %v", iss)
 		}
 	}
+	assertNotRasterized(t, cr)
 }
 
 // buildNestedAPPage constructs a page with one widget annotation whose AP/N

@@ -47,6 +47,7 @@ func TestInlineImageFixersClearViolations(t *testing.T) {
 					t.Errorf("check %s still present after conversion: %v", tt.check.Name(), iss)
 				}
 			}
+			assertNotRasterized(t, cr)
 		})
 	}
 }
@@ -435,6 +436,7 @@ func TestConvertClearsArrayFormInlineImageLZW(t *testing.T) {
 					t.Errorf("array-form LZW inline image survived conversion: %v", iss)
 				}
 			}
+			assertNotRasterized(t, cr)
 
 			r, err := pdf.OpenBytes(mustOutput(t, cr))
 			if err != nil {
