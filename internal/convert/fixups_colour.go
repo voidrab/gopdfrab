@@ -101,9 +101,9 @@ func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (boo
 	// One shared space per model, so the writer emits a single ICC stream
 	// however many colourants the document defines.
 	shared := map[string]pdf.PDFArray{}
-	spaceFor := func(model string) (pdf.PDFArray, bool) {
+	spaceFor := func(model string) pdf.PDFArray {
 		if cs, ok := shared[model]; ok {
-			return cs, true
+			return cs
 		}
 		var cs pdf.PDFArray
 		switch model {
@@ -111,13 +111,11 @@ func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (boo
 			cs = iccBasedColourSpace(3, srgbICCProfile)
 		case "cmyk":
 			cs = iccBasedColourSpace(4, cmykICCProfile)
-		case "gray":
+		default: // "gray": verify.DeviceColourModel only ever returns rgb, cmyk, gray or ""
 			cs = iccBasedColourSpace(1, grayICCProfile)
-		default:
-			return nil, false
 		}
 		shared[model] = cs
-		return cs, true
+		return cs
 	}
 
 	changed := false
@@ -134,10 +132,8 @@ func (separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (boo
 		if model == "" || covered[model] {
 			return
 		}
-		if cs, ok := spaceFor(model); ok {
-			arr[2] = cs
-			changed = true
-		}
+		arr[2] = spaceFor(model)
+		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {

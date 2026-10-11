@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -26,6 +27,133 @@ func init() {
 	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
 		return promoteEmptyGlyphsInFont
 	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return repairNonSymbolicTrueTypeCmap
+	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return inlineType1WidthSubrsInFont
+	})
+	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
+		return normalizeCFFWidthDefaultsInFont
+	})
+}
+
+// normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program,
+// name-keyed or CID-keyed, whose nominalWidthX or defaultWidthX is fractional
+// so every one is whole and every glyph keeps its width
+// (fontprog.NormalizeCFFWidthDefaults). veraPDF truncates a real
+// nominalWidthX, so it otherwise reads every width off by the fraction and
+// reports 6.3.6 against a correct /Widths or /W.
+// d is any dict: only a font descriptor carries /FontFile3.
+func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
+	ff, ok := d.Entries.Get("FontFile3").(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	switch ff.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Type1C"}, pdf.PDFName{Value: "CIDFontType0C"}:
+	default:
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	rewritten, changed := fontprog.NormalizeCFFWidthDefaults(data)
+	if !changed {
+		return
+	}
+	writer.SetStreamFlate(&ff, rewritten)
+	d.Entries.Set("FontFile3", ff)
+}
+
+// inlineType1WidthSubrsInFont rewrites a Type 1 font's embedded FontFile so
+// every glyph carries its hsbw/sbw itself rather than in a called subr
+// (fontprog.InlineType1WidthSubrs). Rendering is unchanged; veraPDF, which
+// does not follow callsubr when reading a width, otherwise reads 0 and reports
+// 6.3.5/6.3.6 against a correct font.
+func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
+	switch d.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Type1"}, pdf.PDFName{Value: "MMType1"}:
+	default:
+		return
+	}
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict)
+	if !ok || !ff.HasStream {
+		return
+	}
+	length1, ok1 := ff.Entries.Get("Length1").(pdf.PDFInteger)
+	length2, ok2 := ff.Entries.Get("Length2").(pdf.PDFInteger)
+	if !ok1 || !ok2 {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	rewritten, newLength2, changed := fontprog.InlineType1WidthSubrs(data, int(length1), int(length2))
+	if !changed {
+		return
+	}
+	ff.Entries.Set("Length2", pdf.PDFInteger(newLength2))
+	writer.SetStreamFlate(&ff, rewritten)
+	desc.Entries.Set("FontFile", ff)
+}
+
+// repairNonSymbolicTrueTypeCmap gives a non-symbolic (encoded) simple
+// TrueType font a (3,1) cmap mapping for every code in FirstChar..LastChar
+// that ISO 32000-1 9.6.6.4 cannot resolve but the raw-code lookup lenient
+// viewers fall back to can. Strict readers -- verify, veraPDF -- otherwise
+// render .notdef and report 6.3.5 for a glyph the font has; the mapping points
+// at the very glyph lenient viewers already show, so no page changes.
+func repairNonSymbolicTrueTypeCmap(d pdf.PDFDict) {
+	if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "TrueType"}) {
+		return
+	}
+	enc := d.Entries.Get("Encoding")
+	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if enc == nil || !ok || !ff.HasStream {
+		return
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return
+	}
+	r := fontprog.NewSimpleTrueTypeCmaps(enc, tables)
+	first, lo := d.Entries.Get("FirstChar").(pdf.PDFInteger)
+	last, hi := d.Entries.Get("LastChar").(pdf.PDFInteger)
+	if !lo || !hi {
+		first, last = 0, 255
+	}
+	add := map[uint16]uint16{}
+	for cc := max(int(first), 0); cc <= min(int(last), 255); cc++ {
+		u := r.CodeToUnicode[cc]
+		if u == 0 {
+			continue
+		}
+		if _, _, found := r.Windows(cc); found {
+			continue
+		}
+		if _, found := r.Fallback(cc); found {
+			continue
+		}
+		if gid, found := r.RawCode(cc); found && gid != 0 {
+			add[u] = uint16(gid)
+		}
+	}
+	repaired, changed := fontprog.AddWindowsUnicodeCmap(data, add)
+	if !changed {
+		return
+	}
+	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
+	writer.SetStreamFlate(&ff, repaired)
+	desc.Entries.Set("FontFile2", ff)
 }
 
 // promoteEmptyGlyphsInFonts rewrites every CIDFontType2's embedded TrueType
@@ -53,14 +181,12 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 	if err != nil {
 		return
 	}
-	repaired, changed := promoteEmptyGlyphs(data)
+	repaired, changed := fontprog.PromoteEmptyGlyphs(data)
 	if !changed {
 		return
 	}
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(repaired)))
-	if err := writer.SetStreamFlate(&ff, repaired); err != nil {
-		return
-	}
+	writer.SetStreamFlate(&ff, repaired)
 	desc.Entries.Set("FontFile2", ff)
 }
 
@@ -152,17 +278,15 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 		return false
 	}
 
-	if cff := extractCFFBytes(data); cff != nil {
+	if cff := fontprog.ExtractCFFBytes(data); cff != nil {
 		want := "Type1C"
-		td, ok := verify.ParseCFFTopDict(cff)
+		td, ok := fontprog.ParseCFFTopDict(cff)
 		if fontSubtype == "CIDFontType0" || (ok && td.IsCIDKeyed) {
 			want = "CIDFontType0C"
 		}
 		// A bare CFF that only misnames itself needs no re-encoding.
 		if len(cff) != len(data) {
-			if err := writer.SetStreamFlate(&ff, cff); err != nil {
-				return false
-			}
+			writer.SetStreamFlate(&ff, cff)
 		}
 		ff.Entries.Set("Subtype", pdf.PDFName{Value: want})
 		desc.Entries.Set("FontFile3", ff)
@@ -175,15 +299,13 @@ func unwrapFontFile3(desc, ff pdf.PDFDict, fontSubtype string) bool {
 	if fontSubtype != "TrueType" && fontSubtype != "CIDFontType2" {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok || tables["glyf"] == nil {
 		return false
 	}
 	ff.Entries.Del("Subtype")
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(data)))
-	if err := writer.SetStreamFlate(&ff, data); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&ff, data)
 	desc.Entries.Set("FontFile2", ff)
 	desc.Entries.Del("FontFile3")
 	return true
@@ -272,30 +394,18 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
 
-	codeToUnicode := verify.SimpleFontCodeToUnicode(v.Entries.Get("Encoding"))
-	winGIDMap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
-	symGIDMap := verify.ParseCmapSubtable(verify.TTSymbolicCmap(tables))
+	r := fontprog.NewSimpleTrueTypeCmaps(v.Entries.Get("Encoding"), tables)
 
 	codeToGID := func(cc int) (int, bool) {
-		if u := codeToUnicode[cc]; u != 0 && winGIDMap != nil {
-			if gid, ok := winGIDMap[u]; ok {
-				return int(gid), true
-			}
-			return 0, false
+		if gid, tried, found := r.Windows(cc); tried {
+			return gid, found
 		}
-		if symGIDMap != nil {
-			for _, candidate := range [2]uint16{uint16(cc) | 0xF000, uint16(cc)} {
-				if gid, ok := symGIDMap[candidate]; ok {
-					return int(gid), true
-				}
-			}
-		}
-		return 0, false
+		return r.Fallback(cc)
 	}
 
 	changed := false
@@ -312,7 +422,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		if !known {
 			continue
 		}
-		fontWidth := verify.TTAdvanceWidth(tables, gid)
+		fontWidth := fontprog.TTAdvanceWidth(tables, gid)
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pdfWidth)) <= 1 {
 			continue
 		}
@@ -335,11 +445,11 @@ func fixType1Widths(v pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, encoding pd
 	if err != nil || len(fontData) == 0 {
 		return false
 	}
-	enc, ok := verify.Type1GlyphNameTable(fontData, encoding)
+	enc, ok := fontprog.Type1GlyphNameTable(fontData, encoding)
 	if !ok {
 		return false
 	}
-	glyphWidths := verify.Type1GlyphWidths(fontData)
+	glyphWidths := fontprog.Type1GlyphWidths(fontData)
 	if len(glyphWidths) == 0 {
 		return false
 	}
@@ -432,11 +542,11 @@ func fixType1CWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil || len(data) == 0 {
 		return false
 	}
-	glyphWidths := verify.CFFAdvanceWidths(data)
+	glyphWidths := fontprog.CFFAdvanceWidths(data)
 	if len(glyphWidths) == 0 {
 		return false
 	}
-	glyphNames, ok := verify.SimpleFontGlyphNameTable(v)
+	glyphNames, ok := fontprog.SimpleFontGlyphNameTable(v)
 	if !ok {
 		return false
 	}
@@ -477,12 +587,12 @@ func fixCIDCFFWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	cidWidths := verify.CFFCIDAdvanceWidths(data)
+	cidWidths := fontprog.CFFCIDAdvanceWidths(data)
 	if len(cidWidths) == 0 {
 		return false
 	}
 
-	pairs := verify.ParseCIDWidths(w)
+	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
 		csWidth, found := cidWidths[pair[0]]
@@ -511,15 +621,15 @@ func fixCIDTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
 
-	pairs := verify.ParseCIDWidths(w)
+	pairs := fontprog.ParseCIDWidths(w)
 	changed := false
 	for i, pair := range pairs {
-		fontWidth := verify.TTAdvanceWidth(tables, pair[0])
+		fontWidth := fontprog.TTAdvanceWidth(tables, pair[0])
 		if fontWidth < 0 || math.Abs(fontWidth-float64(pair[1])) <= 1 {
 			continue
 		}
@@ -605,7 +715,7 @@ func fixType3Widths(v pdf.PDFDict) bool {
 			continue
 		}
 		procWidth := verify.Type3GlyphWidth(data)
-		if procWidth < 0 || verify.Abs64(procWidth-pdfWidth) <= 1.0 {
+		if procWidth < 0 || math.Abs(procWidth-pdfWidth) <= 1.0 {
 			continue
 		}
 		if _, isInt := w.(pdf.PDFInteger); isInt {
@@ -666,7 +776,7 @@ func fixFontSubsetMetaDict(d pdf.PDFDict) bool {
 		return false
 	}
 	baseFont, _ := d.Entries.Get("BaseFont").(pdf.PDFName)
-	if !verify.SubsetTagRe.MatchString(baseFont.Value) {
+	if !fontprog.SubsetTagRe.MatchString(baseFont.Value) {
 		return false
 	}
 	desc, ok := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
@@ -704,14 +814,14 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 		if err != nil || len(fontData) == 0 {
 			return false
 		}
-		names = verify.Type1GlyphNames(fontData)
+		names = fontprog.Type1GlyphNames(fontData)
 	case desc.Entries.Get("FontFile3") != nil:
 		ff := desc.Entries.Get("FontFile3").(pdf.PDFDict)
 		data, err := pdf.DecodeStream(ff)
 		if err != nil {
 			return false
 		}
-		names = verify.CFFGlyphNames(data)
+		names = fontprog.CFFGlyphNames(data)
 	default:
 		return false
 	}
@@ -735,7 +845,7 @@ func fixType1CharSet(desc pdf.PDFDict) bool {
 // the embedded program defines (extra names are tolerated, per 6.3.5-2).
 func charSetConsistent(charSet string, programNames []string) bool {
 	listed := map[string]bool{".notdef": true}
-	for _, part := range verify.SplitCharSetNames(charSet) {
+	for _, part := range fontprog.SplitCharSetNames(charSet) {
 		listed[part] = true
 	}
 	for _, n := range programNames {
@@ -782,12 +892,12 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	td, ok := verify.ParseCFFTopDict(data)
+	td, ok := fontprog.ParseCFFTopDict(data)
 	if !ok || !td.IsCIDKeyed || td.CSOffset < 0 || td.CSOffset+2 > len(data) {
 		return false
 	}
 	csCount := int(binary.BigEndian.Uint16(data[td.CSOffset : td.CSOffset+2]))
-	cids := verify.ParseCFFCharsetCIDs(data, td.CharsetOffset, csCount)
+	cids := fontprog.ParseCFFCharsetCIDs(data, td.CharsetOffset, csCount)
 	if cids == nil {
 		return false
 	}
@@ -799,9 +909,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids))
 	desc.Entries.Set("CIDSet", stream)
 	return true
 }
@@ -819,23 +927,22 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		return false
 	}
-	numGlyphs := verify.TTNumGlyphs(tables)
+	numGlyphs := fontprog.TTNumGlyphs(tables)
 	if numGlyphs <= 0 {
 		return false
 	}
-	glyphPresent := verify.TTGlyphPresent(tables)
+	// numGlyphs > 0, so gid 0 is in range and TTGlyphPresent accepts every
+	// gid in [0, numGlyphs): cids is never empty.
+	glyphPresent := fontprog.TTGlyphPresent(tables)
 	var cids []int
 	for gid := range numGlyphs {
 		if glyphPresent(gid) {
 			cids = append(cids, gid)
 		}
-	}
-	if len(cids) == 0 {
-		return false
 	}
 
 	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
@@ -845,9 +952,7 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	}
 
 	stream := pdf.NewPDFDict()
-	if err := writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids)); err != nil {
-		return false
-	}
+	writer.SetStreamFlate(&stream, buildCIDSetBitmap(cids))
 	desc.Entries.Set("CIDSet", stream)
 	return true
 }

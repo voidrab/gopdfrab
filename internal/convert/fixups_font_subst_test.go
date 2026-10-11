@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -181,54 +183,6 @@ func TestCIDFontSubstitutionEligible(t *testing.T) {
 	}
 }
 
-// TestHexToUnicode covers the direct-value and too-short-to-decode paths.
-func TestHexToUnicode(t *testing.T) {
-	if got, ok := hexToUnicode("0041"); !ok || got != 0x0041 {
-		t.Errorf("hexToUnicode(0041) = (%04X, %v), want (0041, true)", got, ok)
-	}
-	if _, ok := hexToUnicode("41"); ok {
-		t.Error("hexToUnicode(41) (single byte) ok = true, want false")
-	}
-}
-
-// TestParseToUnicodeCMap covers all three bfchar/bfrange forms the parser
-// supports (single bfchar entries are already exercised via
-// assertSymbolicSubstitute): a bfrange with a single hex base (incrementing
-// per code), a bfrange with a destination array (one hex value per code),
-// and the malformed entries that must be skipped rather than panic.
-func TestParseToUnicodeCMap(t *testing.T) {
-	cmap := []byte(`
-1 beginbfchar
-<41> <0041>
-endbfchar
-2 beginbfrange
-<42> <44> <0042>
-<61> <63> [<0061> <0062> <0063>]
-<FF> <10> <2000>
-endbfrange
-`)
-	got := parseToUnicodeCMap(cmap)
-
-	want := map[int]uint16{
-		0x41: 0x0041, // bfchar
-		0x42: 0x0042, // bfrange, base hex
-		0x43: 0x0043,
-		0x44: 0x0044,
-		0x61: 0x0061, // bfrange, destination array
-		0x62: 0x0062,
-		0x63: 0x0063,
-	}
-	for code, u := range want {
-		if got[code] != u {
-			t.Errorf("parseToUnicodeCMap[%02X] = %04X, want %04X", code, got[code], u)
-		}
-	}
-	// <FF> <10> has hi < lo and must be skipped, not produce entries.
-	if _, ok := got[0xFF]; ok {
-		t.Errorf("parseToUnicodeCMap produced an entry for a hi<lo range: %v", got)
-	}
-}
-
 func TestStemVFor(t *testing.T) {
 	if got := stemVFor(false); got != 80 {
 		t.Errorf("stemVFor(false) = %d, want 80", got)
@@ -240,56 +194,19 @@ func TestStemVFor(t *testing.T) {
 
 func TestSubstituteFlags(t *testing.T) {
 	cases := []struct {
-		face liberationFace
+		face fontsubst.Face
 		want pdf.PDFInteger
 	}{
-		{liberationFace{}, 32},
-		{liberationFace{serif: true}, 32 | 0x2},
-		{liberationFace{fixedPitch: true}, 32 | 0x1},
-		{liberationFace{italic: true}, 32 | 0x40},
-		{liberationFace{serif: true, fixedPitch: true, italic: true}, 32 | 0x2 | 0x1 | 0x40},
+		{fontsubst.Face{}, 32},
+		{fontsubst.Face{Serif: true}, 32 | 0x2},
+		{fontsubst.Face{FixedPitch: true}, 32 | 0x1},
+		{fontsubst.Face{Italic: true}, 32 | 0x40},
+		{fontsubst.Face{Serif: true, FixedPitch: true, Italic: true}, 32 | 0x2 | 0x1 | 0x40},
 	}
 	for _, c := range cases {
 		if got := substituteFlags(c.face); got != c.want {
 			t.Errorf("substituteFlags(%+v) = %d, want %d", c.face, got, c.want)
 		}
-	}
-}
-
-// TestPickLiberationFace covers pickLiberationFace's serif/fixed-pitch/
-// italic/bold detection, both via FontDescriptor /Flags and /FontWeight and
-// via BaseFont name heuristics.
-func TestPickLiberationFace(t *testing.T) {
-	flagsDict := func(flags int) pdf.PDFDict {
-		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags)})}
-	}
-	empty := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-
-	cases := []struct {
-		name                            string
-		desc                            pdf.PDFDict
-		baseFont                        string
-		serif, fixedPitch, italic, bold bool
-	}{
-		{"plain", empty, "Arial", false, false, false, false},
-		{"serif flag", flagsDict(0x2), "Foo", true, false, false, false},
-		{"serif name", empty, "Times New Roman", true, false, false, false},
-		{"fixed flag", flagsDict(0x1), "Foo", false, true, false, false},
-		{"fixed name", empty, "Courier", false, true, false, false},
-		{"italic flag", flagsDict(0x40), "Foo", false, false, true, false},
-		{"italic name", empty, "Foo-Italic", false, false, true, false},
-		{"bold flag", flagsDict(0x40000), "Foo", false, false, false, true},
-		{"bold name", empty, "Foo-Bold", false, false, false, true},
-		{"bold weight", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontWeight": pdf.PDFInteger(700)})}, "Foo", false, false, false, true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := pickLiberationFace(c.desc, c.baseFont)
-			if got.serif != c.serif || got.fixedPitch != c.fixedPitch || got.italic != c.italic || got.bold != c.bold {
-				t.Errorf("pickLiberationFace(%v, %q) = %+v, want serif=%v fixedPitch=%v italic=%v bold=%v",
-					c.desc.Entries, c.baseFont, got, c.serif, c.fixedPitch, c.italic, c.bold)
-			}
-		})
 	}
 }
 
@@ -299,11 +216,11 @@ func TestPickLiberationFace(t *testing.T) {
 // uncovered code, using the bundled Liberation Sans face as a real cmap.
 func TestSubstituteCoversUsage(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
-	tables, ok := verify.ParseSfnt(ttf)
+	tables, ok := fontprog.ParseSfnt(ttf)
 	if !ok {
-		t.Fatal("verify.ParseSfnt failed")
+		t.Fatal("fontprog.ParseSfnt failed")
 	}
-	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	var codeToUnicode [256]uint16
 	codeToUnicode['A'] = 'A'
@@ -338,15 +255,15 @@ func TestSubstituteCoversUsage(t *testing.T) {
 
 func TestLiberationFamilyName(t *testing.T) {
 	cases := []struct {
-		face liberationFace
+		face fontsubst.Face
 		want string
 	}{
-		{liberationFace{}, "LiberationSans"},
-		{liberationFace{bold: true}, "LiberationSans-Bold"},
-		{liberationFace{italic: true}, "LiberationSans-Italic"},
-		{liberationFace{bold: true, italic: true}, "LiberationSans-BoldItalic"},
-		{liberationFace{serif: true}, "LiberationSerif"},
-		{liberationFace{fixedPitch: true, bold: true}, "LiberationMono-Bold"},
+		{fontsubst.Face{}, "LiberationSans"},
+		{fontsubst.Face{Bold: true}, "LiberationSans-Bold"},
+		{fontsubst.Face{Italic: true}, "LiberationSans-Italic"},
+		{fontsubst.Face{Bold: true, Italic: true}, "LiberationSans-BoldItalic"},
+		{fontsubst.Face{Serif: true}, "LiberationSerif"},
+		{fontsubst.Face{FixedPitch: true, Bold: true}, "LiberationMono-Bold"},
 	}
 	for _, c := range cases {
 		if got := liberationFamilyName(c.face); got != c.want {
@@ -393,7 +310,7 @@ func TestTrueTypeCmapSubtableCount(t *testing.T) {
 		t.Error("trueTypeCmapSubtableCount(garbage) ok = true, want false")
 	}
 
-	data, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
 	if err != nil {
 		t.Skipf("bundled font not present: %v", err)
 	}
@@ -407,7 +324,7 @@ func TestTrueTypeCmapSubtableCount(t *testing.T) {
 // trimmed to one, and re-running against that already-trimmed output (now
 // n==1) is a no-op.
 func TestTrimSymbolicCmap(t *testing.T) {
-	data, err := os.ReadFile("assets/fonts/LiberationSans-Regular.ttf")
+	data, err := os.ReadFile("../fontsubst/fonts/LiberationSans-Regular.ttf")
 	if err != nil {
 		t.Skipf("bundled font not present: %v", err)
 	}
@@ -437,5 +354,81 @@ func TestTrimSymbolicCmap(t *testing.T) {
 	})}
 	if trimSymbolicCmap(desc2) {
 		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")
+	}
+}
+
+// TestBundledFacesSupportSubsetting pins what the substitution code relies on
+// instead of re-checking at run time: every face it can embed (the twelve
+// Liberation styles Pick returns and the two Noto symbol faces) parses, has a
+// format-4 (3,1) cmap and full head/hhea tables, so the subsetters cannot fail
+// on them and their packed output parses back with a format-4 cmap.
+func TestBundledFacesSupportSubsetting(t *testing.T) {
+	faces := map[string][]byte{"NotoSymbols2": fontsubst.NotoSymbols2, "NotoSymbols": fontsubst.NotoSymbols}
+	for _, flags := range []int{0, 0x2, 0x1} {
+		for _, style := range []int{0, 0x40, 0x40000, 0x40 | 0x40000} {
+			face := fontsubst.Pick(dictOf(map[string]pdf.PDFValue{"Flags": pdf.PDFInteger(flags | style)}), "")
+			faces[liberationFamilyName(face)] = face.Data
+		}
+	}
+	if len(faces) != 14 {
+		t.Fatalf("collected %d distinct faces, want 12 Liberation + 2 Noto", len(faces))
+	}
+
+	for name, data := range faces {
+		t.Run(name, func(t *testing.T) {
+			tables, ok := fontprog.ParseSfnt(data)
+			if !ok {
+				t.Fatal("face does not parse")
+			}
+			if len(tables["head"]) < 54 || len(tables["hhea"]) < 36 || len(tables["OS/2"]) < 90 {
+				t.Errorf("short head/hhea/OS-2 tables: %d/%d/%d", len(tables["head"]), len(tables["hhea"]), len(tables["OS/2"]))
+			}
+			if fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables)) == nil {
+				t.Fatal("face has no format-4 (3,1) cmap")
+			}
+
+			outputs := map[string]func() ([]byte, error){
+				"SubsetTrueType":         func() ([]byte, error) { return fontprog.SubsetTrueType(data, []uint16{'A'}) },
+				"SubsetTrueTypeSymbolic": func() ([]byte, error) { return fontprog.SubsetTrueTypeSymbolic(data, map[int]uint16{65: 'A'}) },
+				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontprog.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}, nil) },
+			}
+			for fn, run := range outputs {
+				out, err := run()
+				if err != nil {
+					t.Fatalf("%s: %v", fn, err)
+				}
+				outTables, ok := fontprog.ParseSfnt(out)
+				if !ok {
+					t.Fatalf("%s output does not parse", fn)
+				}
+				if _, _, gm, ok := fontprog.FirstFormat4CmapSubtable(outTables); !ok || gm == nil {
+					t.Errorf("%s output has no format-4 cmap", fn)
+				}
+			}
+		})
+	}
+}
+
+// TestTTScaledAscentDescent covers the short-table and zero-unitsPerEm
+// fallbacks alongside the scaled reading.
+func TestTTScaledAscentDescent(t *testing.T) {
+	head := make([]byte, 20)
+	binary.BigEndian.PutUint16(head[18:20], 2000) // unitsPerEm
+	hhea := make([]byte, 8)
+	binary.BigEndian.PutUint16(hhea[4:6], 1600)           // ascender
+	binary.BigEndian.PutUint16(hhea[6:8], uint16(0xFC18)) // descender -1000
+
+	for name, tc := range map[string]struct {
+		tables          map[string][]byte
+		ascent, descent int
+	}{
+		"short hhea": {map[string][]byte{"hhea": make([]byte, 4), "head": head}, 0, 0},
+		"short head": {map[string][]byte{"hhea": hhea, "head": make([]byte, 4)}, 0, 0},
+		"zero upm":   {map[string][]byte{"hhea": hhea, "head": make([]byte, 20)}, 0, 0},
+		"scaled":     {map[string][]byte{"hhea": hhea, "head": head}, 800, -500},
+	} {
+		if a, d := ttScaledAscentDescent(tc.tables); a != tc.ascent || d != tc.descent {
+			t.Errorf("%s: ttScaledAscentDescent = %d, %d; want %d, %d", name, a, d, tc.ascent, tc.descent)
+		}
 	}
 }

@@ -5,8 +5,6 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // PDF/A-1 forbids transparency, and the repair for an opacity below 1 is to
@@ -113,7 +111,7 @@ func hasTransparentExtGState(trailer pdf.PDFDict) bool {
 
 // isTransparent reports whether v is an opacity of anything less than 1.
 func isTransparent(v pdf.PDFValue) bool {
-	f, num := verify.AsFloat(v)
+	f, num := pdf.PDFNumberToFloat(v)
 	return num && f < 1-invisibleAlpha
 }
 
@@ -163,9 +161,7 @@ func rewriteAlphaStream(dict, resources pdf.PDFDict, state *alphaState) (pdf.PDF
 	if !r.changed || !cs.Complete() || cw.Err() != nil {
 		return dict, false
 	}
-	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, cw.Bytes())
 	return dict, true
 }
 
@@ -295,7 +291,7 @@ func (r *alphaRewriter) setColour(op string, operands []pdf.PDFValue, space pdf.
 	// operator.
 	ops := make([]pdf.PDFValue, 0, len(operands))
 	for _, v := range operands {
-		if _, num := verify.AsFloat(v); !num {
+		if _, num := pdf.PDFNumberToFloat(v); !num {
 			return colourState{space: space}
 		}
 		ops = append(ops, v)
@@ -355,7 +351,7 @@ func (r *alphaRewriter) emitColour(c colourState, alpha float64) bool {
 	ops := make([]pdf.PDFValue, len(c.ops))
 	same := true
 	for i, v := range c.ops {
-		f, _ := verify.AsFloat(v)
+		f, _ := pdf.PDFNumberToFloat(v)
 		blended := alpha*f + (1-alpha)*white
 		if blended != f {
 			same = false
@@ -440,10 +436,10 @@ func (r *alphaRewriter) applyExtGState(operands []pdf.PDFValue) {
 	if !ok {
 		return
 	}
-	if f, num := verify.AsFloat(egs.Entries.Get("ca")); num {
+	if f, num := pdf.PDFNumberToFloat(egs.Entries.Get("ca")); num {
 		r.state.fillAlpha = f
 	}
-	if f, num := verify.AsFloat(egs.Entries.Get("CA")); num {
+	if f, num := pdf.PDFNumberToFloat(egs.Entries.Get("CA")); num {
 		r.state.strokeAlpha = f
 	}
 }

@@ -152,6 +152,7 @@ func TestConvertObjectModelPromotesDirectKid(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestArrayElemTargetFailsClosed(t *testing.T) {
@@ -334,6 +335,7 @@ func TestConvertObjectModelClampsIndexedHival(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
@@ -428,6 +430,7 @@ func TestConvertObjectModelDeletesPost14Key(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {
@@ -629,6 +632,7 @@ func TestConvertObjectModelInjectsMissingType(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestCoerceScalar(t *testing.T) {
@@ -793,6 +797,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
@@ -1193,6 +1198,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 	if !cr.Result.Valid || len(cr.Residual()) != 0 {
 		t.Fatalf("Valid=%v, residual %v", cr.Result.Valid, issueClauses(cr.Residual()))
 	}
+	assertNotRasterized(t, cr)
 }
 
 // TestConstraintHelperEdges covers the helper branches the fixer-level tests
@@ -1434,5 +1440,105 @@ func TestStreamDataKey(t *testing.T) {
 	}
 	if streamDataKey(pdf.NewPDFDict(), "Filter") {
 		t.Error("streamDataKey on a non-stream dict = true, want false")
+	}
+}
+
+func TestPruneEmptyPageTreeNodesGuards(t *testing.T) {
+	if pruneEmptyPageTreeNodes(pdf.NewPDFDict()) {
+		t.Error("a trailer without Root reported a change")
+	}
+	catalog := pdf.NewPDFDict()
+	noPages := pdf.NewPDFDict()
+	noPages.Entries.Set("Root", catalog)
+	if pruneEmptyPageTreeNodes(noPages) {
+		t.Error("a catalog without Pages reported a change")
+	}
+
+	// A Pages node whose /Kids is not an array has nothing to prune.
+	broken := pdf.NewPDFDict()
+	broken.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	broken.Entries.Set("Kids", pdf.PDFInteger(3))
+	catalog.Entries.Set("Pages", broken)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", catalog)
+	if pruneEmptyPageTreeNodes(trailer) {
+		t.Error("a Pages node with non-array Kids reported a change")
+	}
+
+	// A node reachable twice (shared, and here also cyclic) is visited once and
+	// kept, rather than looping or being pruned.
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	shared := pdf.NewPDFDict()
+	shared.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	shared.Entries.Set("Kids", pdf.PDFArray{page, nil})
+	shared.Entries.Get("Kids").(pdf.PDFArray)[1] = shared
+	top := pdf.NewPDFDict()
+	top.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	top.Entries.Set("Kids", pdf.PDFArray{shared, shared})
+	catalog.Entries.Set("Pages", top)
+	if pruneEmptyPageTreeNodes(trailer) {
+		t.Error("a shared, cyclic but non-empty subtree reported a change")
+	}
+	if kids := top.Entries.Get("Kids").(pdf.PDFArray); len(kids) != 2 {
+		t.Errorf("top Kids = %d, want both references to the shared node kept", len(kids))
+	}
+}
+
+func TestRepairOutlineTreeGuards(t *testing.T) {
+	if repairOutlineTree(pdf.NewPDFDict()) {
+		t.Error("a trailer without Root reported a change")
+	}
+	trailer := trailerWith("Pages", pdf.NewPDFDict())
+	if repairOutlineTree(trailer) {
+		t.Error("a catalog without Outlines reported a change")
+	}
+}
+
+// TestObjectModelFixersRunDocumentRepairs: the Outlines and trailer-Info repairs
+// run from the targeted fixers when an issue names their Arlington type, even
+// though the issue itself carries no object reference.
+func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
+	stub := pdf.NewPDFDict()
+	outlines := pdf.NewPDFDict()
+	outlines.Entries.Set("First", stub)
+	outlines.Entries.Set("Last", stub)
+	trailer := trailerWith("Outlines", outlines)
+	pass := &fixPass{trailer: &trailer}
+
+	issue := objModelIssue(pdf.Checks.ObjectModel.MissingRequiredKey, nil, "OutlineItem", "Title")
+	changed, handled, err := missingRequiredKeyFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil || !changed || !handled {
+		t.Fatalf("missingRequiredKeyFixer.fixTargeted = %v, %v, %v; want changed and handled", changed, handled, err)
+	}
+	if _, ok := stub.Entries.Get("Title").(pdf.PDFString); !ok {
+		t.Error("the stub outline item did not get a Title")
+	}
+
+	metadata := pdf.NewPDFDict()
+	metadata.HasStream = true
+	trailer.Entries.Set("Info", metadata)
+	issue = objModelIssue(pdf.Checks.ObjectModel.WrongValueType, nil, "FileTrailer", "Info")
+	changed, handled, err = wrongValueTypeFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	if err != nil || !changed || !handled {
+		t.Fatalf("wrongValueTypeFixer.fixTargeted = %v, %v, %v; want changed and handled", changed, handled, err)
+	}
+	if info, ok := trailer.Entries.Get("Info").(pdf.PDFDict); !ok || info.HasStream {
+		t.Error("Info stream was not replaced by a plain dictionary")
+	}
+}
+
+// TestRepairDisallowedValueExpandsStreamFilterName: an inline-image filter
+// abbreviation used as a stream's /Filter is expanded in place, before the
+// schema-derived repairs (hence the nil key definition) get a say.
+func TestRepairDisallowedValueExpandsStreamFilterName(t *testing.T) {
+	d := pdf.NewPDFDict()
+	d.HasStream = true
+	d.Entries.Set("Filter", pdf.PDFName{Value: "AHx"})
+	if !repairDisallowedValue(d, "Filter", nil) {
+		t.Fatal("repairDisallowedValue reported no change")
+	}
+	if got := d.Entries.Get("Filter"); got != (pdf.PDFName{Value: "ASCIIHexDecode"}) {
+		t.Errorf("Filter = %v, want /ASCIIHexDecode", got)
 	}
 }

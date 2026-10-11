@@ -17,12 +17,10 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 	if !ok {
 		return
 	}
+	// ResolveGraphByPath resolved the array in place, so its elements and
+	// their entries are final values rather than references.
 	for _, it := range intents {
-		itResolved, err := d.ResolveObject(it)
-		if err != nil {
-			continue
-		}
-		intent, ok := itResolved.(pdf.PDFDict)
+		intent, ok := it.(pdf.PDFDict)
 		if !ok {
 			continue
 		}
@@ -31,15 +29,7 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		}
 		ctx.hasOutputIntent = true
 
-		destRef := intent.Entries.Get("DestOutputProfile")
-		if destRef == nil {
-			continue
-		}
-		profileObj, err := d.ResolveObject(destRef)
-		if err != nil {
-			continue
-		}
-		profile, ok := profileObj.(pdf.PDFDict)
+		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
 		if !ok {
 			continue
 		}

@@ -300,3 +300,54 @@ func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 		t.Error("null custom key must survive as null")
 	}
 }
+
+func TestRegenerateXMPRequiresCatalogDict(t *testing.T) {
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", pdf.PDFInteger(1))
+	if err := regenerateXMP(&trailer, nil); err == nil || !strings.Contains(err.Error(), "Root is not a dictionary") {
+		t.Errorf("regenerateXMP err = %v, want a Root-is-not-a-dictionary error", err)
+	}
+}
+
+func TestStripEmbeddedMetadataIgnoresNonDictMetadata(t *testing.T) {
+	root := pdf.NewPDFDict()
+	odd := pdf.NewPDFDict()
+	odd.Entries.Set("Metadata", pdf.PDFName{Value: "NotAStream"})
+	plain := pdf.NewPDFDict()
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Root", root)
+	trailer.Entries.Set("Odd", odd)
+	trailer.Entries.Set("Plain", plain)
+
+	if err := stripEmbeddedMetadata(&trailer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if odd.Entries.Get("Metadata") != (pdf.PDFName{Value: "NotAStream"}) {
+		t.Error("a non-dict /Metadata value was removed; only embedded streams are stripped")
+	}
+}
+
+func TestNormalizeInfoDictDropsUnparseableDate(t *testing.T) {
+	info := pdf.NewPDFDict()
+	info.Entries.Set("CreationDate", pdf.PDFString{Value: "last Tuesday"})
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Info", info)
+	normalizeInfoDict(&trailer)
+	if _, ok := info.Entries.Lookup("CreationDate"); ok {
+		t.Error("an unparseable CreationDate was kept")
+	}
+}
+
+func TestStripEmbeddedMetadataWithoutCatalogIsNoOp(t *testing.T) {
+	odd := pdf.NewPDFDict()
+	meta := pdf.NewPDFDict()
+	odd.Entries.Set("Metadata", meta)
+	trailer := pdf.NewPDFDict()
+	trailer.Entries.Set("Odd", odd)
+	if err := stripEmbeddedMetadata(&trailer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if odd.Entries.Get("Metadata") == nil {
+		t.Error("Metadata stripped although there is no catalog metadata to protect")
+	}
+}

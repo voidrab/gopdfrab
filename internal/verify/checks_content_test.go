@@ -285,6 +285,9 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	states := pdf.NewPDFDict()
 	states.Entries.Set("On", onState)
 	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
+	// An indirect state dictionary carries the reader's synthetic ref entry,
+	// which is not an appearance state.
+	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 
 	ctx := &ValidationContext{}
 	scanAPEntry(states, ctx)
@@ -416,5 +419,54 @@ func TestScanContentDictPredictorEncoded(t *testing.T) {
 	scanContentDict(stream, pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("predictor-encoded content stream: expected the rg device-colour violation to be reported")
+	}
+}
+
+// TestInlineImageParamsIgnoreNonNameKeys checks that a malformed BI parameter
+// list whose key slot is not a name is skipped instead of misread.
+func TestInlineImageParamsIgnoreNonNameKeys(t *testing.T) {
+	params := []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(2), pdf.PDFBoolean(true)}
+	ctx := &ValidationContext{hasOutputIntent: true}
+	checkInlineImageColour(pdf.PDFDict{}, params, pdf.NewPDFDict(), ctx)
+	checkInlineImageOther(pdf.PDFDict{}, params, ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("non-name keys produced issues: %v", ctx.Issues())
+	}
+}
+
+// TestScanAnnotAppearancesSkipsNonDictAnnotations checks that a non-dictionary
+// /Annots entry is skipped while the annotations after it are still scanned.
+func TestScanAnnotAppearancesSkipsNonDictAnnotations(t *testing.T) {
+	page, _ := buildAPWithRGB(t)
+	annots := page.Entries.Get("Annots").(pdf.PDFArray)
+	page.Entries.Set("Annots", append(pdf.PDFArray{pdf.PDFInteger(7)}, annots...))
+
+	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	scanAnnotAppearances(page, ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("the annotation after a non-dictionary entry was not scanned")
+	}
+}
+
+// TestScanContentColourSpaceOperatorUsesNamedModel pins that cs/CS with a name
+// that resolves to a device model is held to the same OutputIntent rule as the
+// direct colour operators, and that an unresolvable name is not reported.
+func TestScanContentColourSpaceOperatorUsesNamedModel(t *testing.T) {
+	ctx := &ValidationContext{}
+	scanRaw([]byte("/DeviceRGB cs\n"), pdf.NewPDFDict(), ctx)
+	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("/DeviceRGB cs without an OutputIntent was not reported")
+	}
+
+	covered := &ValidationContext{hasOutputIntent: true, rgbCovered: true}
+	scanRaw([]byte("/DeviceRGB cs\n"), pdf.NewPDFDict(), covered)
+	if hasCheck(covered, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("/DeviceRGB cs covered by an RGB OutputIntent was reported")
+	}
+
+	unknown := &ValidationContext{}
+	scanRaw([]byte("/Unresolvable CS\n"), pdf.NewPDFDict(), unknown)
+	if hasCheck(unknown, pdf.Checks.Colour.DeviceColourContentStream) {
+		t.Error("an unresolvable colour space name was reported")
 	}
 }

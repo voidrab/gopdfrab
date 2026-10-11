@@ -5,6 +5,7 @@ import (
 	"image"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
 // Fidelity compares the rendered appearance of a converted document against its
@@ -198,13 +199,9 @@ func coveredFraction(before, after [fidelityGrid * fidelityGrid]float64) float64
 
 // summarizeReaderPages resolves r's graph and measures every page in order.
 func summarizeReaderPages(r *pdf.Reader, dpi int) ([]pageSummary, error) {
-	graph, err := r.ResolveGraph()
+	trailer, err := resolveTrailer(r)
 	if err != nil {
 		return nil, err
-	}
-	trailer, ok := graph.(pdf.PDFDict)
-	if !ok {
-		return nil, fmt.Errorf("resolved graph is not a dictionary")
 	}
 	return summarizeTrailerPages(trailer, dpi), nil
 }
@@ -217,7 +214,7 @@ func summarizeTrailerPages(trailer pdf.PDFDict, dpi int) []pageSummary {
 	pages := orderedPages(trailer)
 	out := make([]pageSummary, len(pages))
 	for i, p := range pages {
-		if img, _, err := RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
+		if img, _, err := raster.RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
 			out[i] = summarize(img)
 		}
 	}

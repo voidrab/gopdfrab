@@ -1,24 +1,21 @@
 package convert
 
 import (
-	_ "embed"
 	"encoding/binary"
 	"math"
 	"sync"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // liberationSansTTF is the Liberation Sans (SIL OFL 1.1) regular face,
 // metric-compatible with Helvetica/Arial, used to render text into
 // synthesized form-field appearance streams (fixups_appearance.go). See
-// assets/fonts/OFL.txt.
-//
-//go:embed assets/fonts/LiberationSans-Regular.ttf
-var liberationSansTTF []byte
+// internal/fontsubst/fonts/OFL.txt.
+var liberationSansTTF = fontsubst.LiberationSansRegular
 
 // Liberation Sans FontDescriptor metrics with no programmatic source (head/
 // OS2/post cover FontBBox/ItalicAngle/CapHeight; these don't map to any
@@ -56,16 +53,16 @@ func (s *appearanceFontSource) font() pdf.PDFDict {
 }
 
 func buildAppearanceFont() pdf.PDFDict {
-	tables, _ := verify.ParseSfnt(liberationSansTTF)
-	cmap := verify.ParseCmapFormat4(verify.TTWindowsBMPCmap(tables))
+	tables, _ := fontprog.ParseSfnt(liberationSansTTF)
+	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
 	const firstChar, lastChar = 32, 255
 	widths := make(pdf.PDFArray, lastChar-firstChar+1)
 	for cc := firstChar; cc <= lastChar; cc++ {
 		w := 0
-		if unicode := verify.WinAnsiToUnicode[cc]; unicode != 0 {
+		if unicode := fontprog.WinAnsiToUnicode[cc]; unicode != 0 {
 			if gid, ok := cmap[unicode]; ok {
-				if aw := verify.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
+				if aw := fontprog.TTAdvanceWidth(tables, int(gid)); aw >= 0 {
 					w = int(math.Round(aw))
 				}
 			}
@@ -75,9 +72,7 @@ func buildAppearanceFont() pdf.PDFDict {
 
 	fontFile := pdf.NewPDFDict()
 	fontFile.Entries.Set("Length1", pdf.PDFInteger(len(liberationSansTTF)))
-	if err := writer.SetStreamFlate(&fontFile, liberationSansTTF); err != nil {
-		return pdf.PDFDict{}
-	}
+	writer.SetStreamFlate(&fontFile, liberationSansTTF)
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("Type", pdf.PDFName{Value: "FontDescriptor"})
@@ -106,12 +101,10 @@ func buildAppearanceFont() pdf.PDFDict {
 }
 
 // ttScaledBBox reads head's glyph bounding box and scales it to PDF's
-// 1000-unit em, the same scaling ttAdvanceWidth applies to hmtx widths.
+// 1000-unit em, the same scaling ttAdvanceWidth applies to hmtx widths. tables
+// always come from the bundled, well-formed Liberation Sans face.
 func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 	head := tables["head"]
-	if len(head) < 44 {
-		return pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(0)}
-	}
 	upm := int(binary.BigEndian.Uint16(head[18:20]))
 	scale := func(off int) pdf.PDFInteger {
 		v := int(int16(binary.BigEndian.Uint16(head[off:])))
@@ -121,13 +114,11 @@ func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 }
 
 // liberationSansCapHeight reads OS/2's sCapHeight (present from OS/2 version
-// 2), scaled to PDF's 1000-unit em.
+// 2), scaled to PDF's 1000-unit em. tables always come from the bundled,
+// well-formed Liberation Sans face, whose head and OS/2 are complete.
 func liberationSansCapHeight(tables map[string][]byte) int {
 	os2 := tables["OS/2"]
 	head := tables["head"]
-	if len(os2) < 90 || len(head) < 20 {
-		return liberationSansAscent // reasonable fallback, never hit for the bundled face
-	}
 	upm := int(binary.BigEndian.Uint16(head[18:20]))
 	capHeight := int(int16(binary.BigEndian.Uint16(os2[88:90])))
 	return capHeight * 1000 / upm

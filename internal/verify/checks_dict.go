@@ -2,6 +2,7 @@ package verify
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -21,24 +22,6 @@ func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 var AllowedIntents = map[string]bool{
 	"AbsoluteColorimetric": true, "RelativeColorimetric": true,
 	"Saturation": true, "Perceptual": true,
-}
-
-// AsFloat returns the numeric value of a PDF integer or real.
-func AsFloat(v pdf.PDFValue) (float64, bool) {
-	switch n := v.(type) {
-	case pdf.PDFInteger:
-		return float64(n), true
-	case pdf.PDFReal:
-		return float64(n), true
-	}
-	return 0, false
-}
-
-func Abs64(f float64) float64 {
-	if f < 0 {
-		return -f
-	}
-	return f
 }
 
 // --- 6.6 Actions ---
@@ -177,12 +160,12 @@ func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	if ca, ok := v.Entries.Lookup("CA"); ok {
 		// Allow values within 1e-5 of 1.0 to handle floating-point rounding
 		// (e.g. 1.0000001 or 0.9999999 round to 1.0 in practice).
-		if f, num := AsFloat(ca); num && Abs64(f-1.0) > 1e-5 {
+		if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 			ctx.Report(pdf.Checks.Transparency.StrokingAlpha, v, "ExtGState stroking alpha (CA) shall be 1.0")
 		}
 	}
 	if ca, ok := v.Entries.Lookup("ca"); ok {
-		if f, num := AsFloat(ca); num && Abs64(f-1.0) > 1e-5 {
+		if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 			ctx.Report(pdf.Checks.Transparency.NonStrokingAlpha, v, "ExtGState non-stroking alpha (ca) shall be 1.0")
 		}
 	}
@@ -369,7 +352,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 
 	if ca, ok := v.Entries.Lookup("CA"); ok {
-		if f, num := AsFloat(ca); num && f != 1.0 {
+		if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
 			ctx.Report(pdf.Checks.Annotation.OpacityNotOne, v, "annotation opacity (CA) shall be 1.0")
 		}
 	}

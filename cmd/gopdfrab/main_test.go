@@ -5,8 +5,10 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -40,6 +42,49 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+// TestMainExitsWithRunCode runs main in-process with the exit seam swapped out, checking
+// that it hands os.Args to run and exits with run's code.
+func TestMainExitsWithRunCode(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldArgs, oldStdout, oldExit := os.Args, os.Stdout, exit
+	t.Cleanup(func() { os.Args, os.Stdout, exit = oldArgs, oldStdout, oldExit })
+	code := -1
+	exit = func(c int) { code = c }
+	os.Args = []string{"gopdfrab", "version"}
+	os.Stdout = w
+
+	main()
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != exitValid || strings.TrimSpace(string(out)) != version() {
+		t.Errorf("main with version: exit=%d out=%q, want %d and %q", code, out, exitValid, version())
+	}
+}
+
+func TestVersionOf(t *testing.T) {
+	info := func(v string) *debug.BuildInfo { return &debug.BuildInfo{Main: debug.Module{Version: v}} }
+	for _, c := range []struct {
+		bi   *debug.BuildInfo
+		ok   bool
+		want string
+	}{
+		{info("v1.2.3"), true, "v1.2.3"},
+		{info("(devel)"), true, "dev"},
+		{info(""), true, "dev"},
+		{nil, false, "dev"},
+	} {
+		if got := versionOf(c.bi, c.ok); got != c.want {
+			t.Errorf("versionOf(%+v, %v) = %q, want %q", c.bi, c.ok, got, c.want)
+		}
+	}
+}
+
 func TestVerifyBadProfileAndMissingArgs(t *testing.T) {
 	if code, _, err := runCLI("verify", "--profile", "bogus", "x.pdf"); code != exitError || !strings.Contains(err, "unknown profile") {
 		t.Errorf("bad profile: exit=%d err=%q", code, err)
@@ -68,10 +113,10 @@ func veraFixture(t *testing.T) (pass, fail string) {
 func TestVerifyPassFailExitCodes(t *testing.T) {
 	pass, fail := veraFixture(t)
 
-	if code, out, _ := runCLI("verify", pass); code != exitValid || !strings.Contains(out, "[PASS]") {
+	if code, out, _ := runCLI("verify", pass); code != exitValid || !strings.HasPrefix(out, "profile: pdfa1b\n") || !strings.Contains(out, "\nPASS  ") {
 		t.Errorf("verify pass: exit=%d out=%q", code, out)
 	}
-	if code, out, _ := runCLI("verify", fail); code != exitInvalid || !strings.Contains(out, "[FAIL]") {
+	if code, out, _ := runCLI("verify", fail); code != exitInvalid || !strings.Contains(out, "\nFAIL  issues=") {
 		t.Errorf("verify fail: exit=%d out=%q", code, out)
 	}
 }

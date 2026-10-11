@@ -35,17 +35,11 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
-	if p == nil {
-		return pdf.Result{}, fmt.Errorf("nil profile")
-	}
-	if p.Level == pdf.Undefined {
-		return pdf.Result{Type: p.Level, Valid: false}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	if err := checkProfile(p); err != nil {
+		return pdf.Result{}, err
 	}
 
-	var issues []pdf.PDFError
-	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		issues = verifyPdfA1bParts(ctx, d, p).Issues()
-	}
+	issues := verifyPdfA1bParts(ctx, d, p).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -55,6 +49,22 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 		return pdf.Result{Type: p.Level, Valid: false, Issues: issues}, nil
 	}
 	return pdf.Result{Type: p.Level, Valid: true}, nil
+}
+
+// checkProfile rejects a profile there is nothing to verify against: nil, the
+// Undefined level, or a level this verifier has no checks for. The last
+// includes the empty level of a zero-value Profile; any of them would
+// otherwise run no checks and report the file Valid.
+func checkProfile(p *pdf.Profile) error {
+	switch {
+	case p == nil:
+		return fmt.Errorf("nil profile")
+	case p.Level == pdf.Undefined:
+		return fmt.Errorf("cannot verify PDF to undefined conformance level")
+	case p.Level != pdf.A1B && p.Level != pdf.ObjectModel:
+		return fmt.Errorf("cannot verify PDF to unsupported conformance level %q", string(p.Level))
+	}
+	return nil
 }
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
@@ -94,17 +104,10 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // serializeAndVerify) while re-running only the byte-level checks.
 func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	defer pdf.RecoverAsError(&err)
-	if p == nil {
-		return Parts{}, fmt.Errorf("nil profile")
+	if err := checkProfile(p); err != nil {
+		return Parts{}, err
 	}
-	if p.Level == pdf.Undefined {
-		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
-	}
-	var pt Parts
-	if p.Level == pdf.A1B || p.Level == pdf.ObjectModel {
-		pt = verifyPdfA1bParts(context.Background(), d, p)
-	}
-	return pt.filter(p), nil
+	return verifyPdfA1bParts(context.Background(), d, p).filter(p), nil
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -114,14 +117,11 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 // only these byte-level checks can produce new findings against the output.
 func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	defer pdf.RecoverAsError(&err)
-	if p == nil {
-		return Parts{}, fmt.Errorf("nil profile")
-	}
-	if p.Level == pdf.Undefined {
-		return Parts{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	if err := checkProfile(p); err != nil {
+		return Parts{}, err
 	}
 	var pt Parts
-	if (p.Level == pdf.A1B || p.Level == pdf.ObjectModel) && !p.OnlyObjectModelChecks() {
+	if !p.OnlyObjectModelChecks() {
 		pt.PreStructural = structuralPreIssues(d)
 		pt.PostStructural = structuralPostIssues(d)
 	}
@@ -1050,13 +1050,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 ) {
 	complete = true
 	reachable = map[uintptr]bool{}
-	fu := &fontUsage{
-		visible:         map[uintptr]bool{},
-		invisible:       map[uintptr]bool{},
-		usedCodes:       map[uintptr]map[int]bool{},
-		usedCIDs:        map[uintptr]map[int]bool{},
-		scannedPatterns: map[uintptr]bool{},
-	}
+	fu := newFontUsage()
 	visitedPtrs := map[uintptr]bool{}
 
 	var walkGraph func(v pdf.PDFValue)
@@ -1196,9 +1190,15 @@ func collectContentUsage(
 // usageState is the text state a content stream carries from operator to
 // operator: the rendering mode and the font Tf selected. Held outside
 // collectUsageFromBytes so a /Contents array can be scanned as one stream.
+// Both are graphics state, so q saves them and Q restores them.
 type usageState struct {
+	usageText
+	saved []usageText
+}
+
+// usageText is the part of usageState that q/Q save and restore.
+type usageText struct {
 	renderMode        int
-	modeStack         []int
 	currentFontPtrs   []uintptr
 	simpleFontPtr     uintptr
 	haveSimpleFont    bool
@@ -1208,13 +1208,37 @@ type usageState struct {
 
 // fontUsage tracks visible vs. invisible-only rendering per font, plus the
 // character codes (simple fonts) and CIDs (Identity-H/V fonts) actually shown.
-// scannedPatterns dedupes tiling-pattern content streams across the walk.
+// scannedPatterns dedupes tiling-pattern content streams across the walk;
+// scannedForms dedupes form XObjects by the text state they are drawn in.
 type fontUsage struct {
 	visible         map[uintptr]bool
 	invisible       map[uintptr]bool
 	usedCodes       map[uintptr]map[int]bool
 	usedCIDs        map[uintptr]map[int]bool
 	scannedPatterns map[uintptr]bool
+	scannedForms    map[formScan]bool
+}
+
+// newFontUsage returns an empty fontUsage ready to record into.
+func newFontUsage() *fontUsage {
+	return &fontUsage{
+		visible:         map[uintptr]bool{},
+		invisible:       map[uintptr]bool{},
+		usedCodes:       map[uintptr]map[int]bool{},
+		usedCIDs:        map[uintptr]map[int]bool{},
+		scannedPatterns: map[uintptr]bool{},
+		scannedForms:    map[formScan]bool{},
+	}
+}
+
+// formScan is a form XObject together with the text state it inherits at Do.
+// A form that shows text without its own Tf draws in the caller's font, so
+// one drawn under two fonts uses both, and each needs its own scan.
+type formScan struct {
+	form                 uintptr
+	simple, composite    uintptr
+	haveSimple, haveComp bool
+	renderMode           int
 }
 
 func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage, st *usageState) (ok bool) {
@@ -1224,11 +1248,12 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 	err := ctx.scanStream(dict, func(op string, operands []pdf.PDFValue) {
 		switch op {
 		case "q":
-			st.modeStack = append(st.modeStack, st.renderMode)
+			// Tf replaces currentFontPtrs rather than appending to it, so the
+			// saved copy shares no backing array that a later Tf writes to.
+			st.saved = append(st.saved, st.usageText)
 		case "Q":
-			if len(st.modeStack) > 0 {
-				st.renderMode = st.modeStack[len(st.modeStack)-1]
-				st.modeStack = st.modeStack[:len(st.modeStack)-1]
+			if n := len(st.saved); n > 0 {
+				st.usageText, st.saved = st.saved[n-1], st.saved[:n-1]
 			}
 		case "Tr":
 			if len(operands) > 0 {
@@ -1279,7 +1304,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCodes[st.simpleFontPtr] = set
 				}
-				for _, b := range ShownStringBytes(op, operands) {
+				for _, b := range pdf.ShownStringBytes(op, operands) {
 					set[int(b)] = true
 				}
 			}
@@ -1289,7 +1314,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCIDs[st.compositeFontPtr] = set
 				}
-				shown := ShownStringBytes(op, operands)
+				shown := pdf.ShownStringBytes(op, operands)
 				for i := 0; i+1 < len(shown); i += 2 {
 					set[int(shown[i])<<8|int(shown[i+1])] = true
 				}
@@ -1338,16 +1363,27 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
-			alreadyReachable := reachable[ptr]
 			reachable[ptr] = true
-			if alreadyReachable || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
 				return
 			}
+			key := formScan{
+				form:   ptr,
+				simple: st.simpleFontPtr, haveSimple: st.haveSimpleFont,
+				composite: st.compositeFontPtr, haveComp: st.haveCompositeFont,
+				renderMode: st.renderMode,
+			}
+			if fu.scannedForms[key] {
+				return
+			}
+			fu.scannedForms[key] = true
 			subResources, _ := xobj.Entries.Get("Resources").(pdf.PDFDict)
 			if subResources.Entries == nil {
 				subResources = resources
 			}
-			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu, &usageState{}) {
+			// The form starts in the graphics state in force at Do, font
+			// included (ISO 32000-1 8.10.1).
+			if !collectUsageFromBytes(ctx, xobj, subResources, reachable, fu, &usageState{usageText: st.usageText}) {
 				complete = false
 			}
 		}
@@ -1356,35 +1392,6 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 		return false // reported as StreamUndecodable by scanStream
 	}
 	return complete
-}
-
-// ShownStringBytes returns the decoded bytes of all string operands a
-// text-showing operator passes to the font.
-func ShownStringBytes(op string, operands []pdf.PDFValue) []byte {
-	var out []byte
-	appendOperand := func(v pdf.PDFValue) {
-		switch s := v.(type) {
-		case pdf.PDFString:
-			out = append(out, s.Value...)
-		case pdf.PDFHexString:
-			out = append(out, pdf.DecodePDFHexStringBytes(s.Value)...)
-		}
-	}
-	switch op {
-	case "TJ":
-		if len(operands) > 0 {
-			if arr, ok := operands[len(operands)-1].(pdf.PDFArray); ok {
-				for _, item := range arr {
-					appendOperand(item)
-				}
-			}
-		}
-	default: // Tj, ', "
-		if len(operands) > 0 {
-			appendOperand(operands[len(operands)-1])
-		}
-	}
-	return out
 }
 
 // validateHexString validates requirements outlined in 6.1.6, reporting
@@ -1608,19 +1615,9 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			}
 		}
 
-		profile, err := d.ResolveObject(destOutputProfile)
-		if err != nil {
-			err := pdf.NewError(
-				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
-				[]error{fmt.Errorf("unable to resolve DestOutputProfile: %v", err)},
-				0,
-				nil,
-			)
-			errs = append(errs, err)
-			continue
-		}
-
-		profileMap, ok := profile.(pdf.PDFDict)
+		// ResolveGraphByPath resolved the array in place, so the profile is
+		// already a final value rather than a reference.
+		profileMap, ok := destOutputProfile.(pdf.PDFDict)
 		if !ok {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentInvalidProfile,

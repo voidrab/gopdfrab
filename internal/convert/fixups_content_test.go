@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
 // TestContentLimitsFixerClearsViolations runs contentLimitsFixer's targeted
@@ -436,7 +437,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	}
 	// cm scale, then cm divided, composes as divided x scale.
 	m := matrixOf(t, divided).Mul(matrixOf(t, scale))
-	want := Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
+	want := raster.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
 	if m != want {
 		t.Errorf("the two matrices compose to %+v, want %+v", m, want)
 	}
@@ -470,7 +471,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 }
 
 // matrixOf reads six operands back as a matrix.
-func matrixOf(t *testing.T, operands []pdf.PDFValue) Matrix {
+func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
 	t.Helper()
 	var f [6]float64
 	for i, v := range operands {
@@ -480,7 +481,7 @@ func matrixOf(t *testing.T, operands []pdf.PDFValue) Matrix {
 		}
 		f[i] = n
 	}
-	return Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
+	return raster.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
 }
 
 // TestRescaleKeepsAnImageWhereItWasPlaced is the regression the corpus found:
@@ -513,4 +514,44 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	if want := 487680 * 0.001968504; scale < want*0.999 || scale > want*1.001 {
 		t.Errorf("the unit square ends up %g wide, want %g", scale, want)
 	}
+}
+
+// TestRewriteContentStreamDictUndecodable: rewriteContentStreamDict leaves a
+// stream it cannot decode exactly as it is.
+func TestRewriteContentStreamDictUndecodable(t *testing.T) {
+	dict := pdf.NewPDFDict()
+	dict.HasStream = true
+	dict.RawStream = []byte("not flate data")
+	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
+	fixed, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits)
+	if changed || string(fixed.RawStream) != "not flate data" {
+		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.RawStream)
+	}
+}
+
+// TestWalkContentStreamsSkipsNonStreamEntries: array Page /Contents items and
+// Type3 CharProcs values that are not streams are skipped, while their
+// stream siblings are still rewritten.
+func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
+	good := undefinedOpStream()
+	glyph := undefinedOpStream()
+	charProcs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"bad": pdf.PDFInteger(1), "noStream": pdf.NewPDFDict(), "g1": glyph,
+	})}
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Type3"}, "CharProcs": charProcs,
+	})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":     pdf.PDFName{Value: "Page"},
+		"Contents": pdf.PDFArray{pdf.PDFInteger(7), pdf.NewPDFDict(), good},
+		"Font":     font,
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
+
+	if !walkContentStreams(&trailer, rewriteOperatorsAndLimits) {
+		t.Fatal("no change reported")
+	}
+	contents := page.Entries.Get("Contents").(pdf.PDFArray)
+	assertOperatorDropped(t, "Contents[2]", contents[2].(pdf.PDFDict))
+	assertOperatorDropped(t, "glyph", charProcs.Entries.Get("g1").(pdf.PDFDict))
 }

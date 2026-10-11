@@ -24,6 +24,58 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
+## [1.2.0] - 2026-10-11
+
+### Added
+
+- CLI: `--detail` on `verify` and `convert` lists every location of an issue.
+- CLI: `convert` reports the pages it rasterized and what it could not draw
+  on them (`rasterized:` and `dropped:` lines, `rasterizedPages` and
+  `rasterDrops` in `--json`). A conversion that turned an image into a gray
+  box used to print only `result: conformant`.
+
+### Changed
+
+- CLI: issues are grouped into one line per check and message, with a count,
+  the pages as ranges and the number of objects.
+- CLI: the profile is named once in a `profile:` header instead of
+  `PDF/A violation` on every issue line.
+- CLI: the text output of `verify` and `convert` has a fixed, parseable layout,
+  described in the README. `--json` keeps its existing fields.
+- Convert repairs more pages in place instead of rasterizing them: graphics
+  state nested past the 28-level limit, tiling patterns painting in a device
+  colour space the output intent does not cover, inline images with an
+  array-form LZW filter, and CID fonts whose text draws an unmapped CID the
+  font has no glyph for.
+
+### Fixed
+
+- `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
+- A profile whose level is not `A1B` or `ObjectModel` (for example
+  `NewProfile("A-2b")`, or a zero-value `Profile`) ran no checks and verified
+  as `Valid`; Verify and Convert now return an error for it.
+- JPEG 2000, JBIG2 and undecodable CCITT images painted as a gray box by the
+  raster fallback are now reported in `RasterDrops`.
+- 6.3.5: text after `Q`, or in a form XObject using its caller's font, was
+  checked against the wrong font, giving false missing-glyph reports and
+  needlessly rasterized pages.
+- 6.3.5 missed used glyphs absent from a Type 1 subset when the font had no
+  `/Encoding` (built-in encoding) or a hexadecimal `/CharSet`.
+- 6.3.5/6.3.6: simple TrueType codes resolve through `/Encoding` and the
+  (3,1) and (1,0) cmaps as ISO 32000-1 9.6.6.4 says, not by raw code, which
+  both missed and invented findings.
+- XMP: the `exif:Flash` field `Function` was rejected as undefined.
+- Converted files that veraPDF or BFO rejected: CFF fonts with fractional
+  default widths (including CID-keyed), Type 1 glyphs that take their width
+  from a subroutine, substitute fonts without a glyph for code 160, and
+  TrueType programs with a truncated empty-glyph record or wrong checksums.
+- Raster fallback: `MacRomanEncoding` fonts drew wrong glyphs for 0x27, 0x60
+  and codes above 0x7F, WinAnsi 0x9F drew ÿ instead of Ÿ, form XObjects were
+  not clipped to their `/BBox`, and text ignored the clip.
+- Encrypted files with an inconsistent `/V` and `/R` (V5 with R2–R4, R5/R6
+  without V5) or a `/UE`/`/OE` that is not 32 bytes failed with `ErrInternal`;
+  they now return `ErrEncrypted`.
+
 ## [1.1.0] - 2026-10-10
 
 ### Added

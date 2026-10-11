@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -28,7 +29,7 @@ type ValidationContext struct {
 
 	// type1Cache memoizes the per-font-program CharStrings extraction shared
 	// by the CharSet and metrics checks; see type1ProgramFor.
-	type1Cache map[*byte]type1Program
+	type1Cache map[*byte]fontprog.Type1Program
 
 	// OutputIntent colour-model coverage (6.2.2 / 6.2.3.3). hasOutputIntent is
 	// true when a GTS_PDFA1 output intent exists; the *Covered flags indicate the

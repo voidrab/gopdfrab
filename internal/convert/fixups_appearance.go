@@ -2,9 +2,11 @@ package convert
 
 import (
 	"encoding/hex"
+	"math"
 	"strings"
 	"sync"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
@@ -209,9 +211,7 @@ func buildAppearanceXObject(trailer *pdf.PDFDict, d pdf.PDFDict, isBtn bool, fon
 		}
 	}
 	xobj.Entries.Set("Resources", resources)
-	if err := writer.SetStreamFlate(&xobj, content); err != nil {
-		return xobj
-	}
+	writer.SetStreamFlate(&xobj, content)
 	return xobj
 }
 
@@ -230,13 +230,13 @@ func annotBBox(d pdf.PDFDict) (w, h float64) {
 	}
 	var v [4]float64
 	for i, e := range arr {
-		f, ok := verify.AsFloat(e)
+		f, ok := pdf.PDFNumberToFloat(e)
 		if !ok {
 			return 0, 0
 		}
 		v[i] = f
 	}
-	return verify.Abs64(v[2] - v[0]), verify.Abs64(v[3] - v[1])
+	return math.Abs(v[2] - v[0]), math.Abs(v[3] - v[1])
 }
 
 // climbField looks up key on d, falling back to its /Parent chain (cycle
@@ -293,15 +293,15 @@ var (
 )
 
 // winAnsiForUnicode returns the WinAnsiEncoding code for a Unicode code
-// point, built lazily from verify.WinAnsiToUnicode (checks_font_program.go) on
+// point, built lazily from fontprog.WinAnsiToUnicode on
 // first use rather than as a package-level var initializer, since Go
 // initializes package-level vars before running any init() func -- the one
-// that actually populates verify.WinAnsiToUnicode would not have run yet.
+// that actually populates fontprog.WinAnsiToUnicode would not have run yet.
 func winAnsiForUnicode(u uint16) (byte, bool) {
 	unicodeToWinAnsiOnce.Do(func() {
 		unicodeToWinAnsiMap = make(map[uint16]byte, 224)
 		for cc := 0x20; cc <= 0xFF; cc++ {
-			if uc := verify.WinAnsiToUnicode[cc]; uc != 0 {
+			if uc := fontprog.WinAnsiToUnicode[cc]; uc != 0 {
 				if _, exists := unicodeToWinAnsiMap[uc]; !exists {
 					unicodeToWinAnsiMap[uc] = byte(cc)
 				}
@@ -350,7 +350,7 @@ func parseDA(da string) (size float64, colorOps []writer.ContentOp) {
 		switch op {
 		case "Tf":
 			if len(operands) == 2 {
-				if f, ok := verify.AsFloat(operands[1]); ok {
+				if f, ok := pdf.PDFNumberToFloat(operands[1]); ok {
 					size = f
 				}
 			}

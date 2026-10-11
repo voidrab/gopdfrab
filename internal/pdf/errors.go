@@ -63,7 +63,7 @@ func (e PDFError) String() string {
 	}
 
 	if e.objectRef != nil {
-		fmt.Fprintf(&b, ", ref %v", e.objectRef)
+		fmt.Fprintf(&b, ", ref %d %d R", e.objectRef.ObjNum, e.objectRef.GenNum)
 	}
 
 	if len(e.errs) > 0 {

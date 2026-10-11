@@ -199,9 +199,6 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 					if strings.Contains(iss.Error(), "inline image") {
 						continue
 					}
-					if strings.Contains(iss.Error(), "q/Q nesting depth") {
-						continue
-					}
 					if (c == pdf.Checks.Font.SubsetGlyphCoverage || c == pdf.Checks.Font.CIDNotEmbedded) &&
 						strings.Contains(iss.Error(), "CID") && !cidSubstitutionPossible(t, path) {
 						continue
@@ -473,6 +470,7 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 			if !cr.Result.Valid {
 				t.Errorf("conformant input is no longer conformant after Convert: %v", issueClauses(cr.Residual()))
 			}
+			assertNotRasterized(t, cr)
 		})
 	}
 }
@@ -520,6 +518,23 @@ func TestConvertIsDeterministic(t *testing.T) {
 // so its RC4 streams re-encode as real content and the output is conformant.
 const minConvertedFully = 510
 
+// expectedRasterized lists the "fail" fixtures whose conversion is meant to
+// end in the raster fallback, each with why no fixer can repair it in place.
+// The fallback clears whatever residual is on the pages it rebuilds, so a
+// conformant verdict alone cannot tell a working fixer from one that silently
+// declined; TestConvertCorpusEndToEnd fails on any fixture that rasterizes
+// without being listed here, and on any listed one that no longer does.
+var expectedRasterized = map[string]string{
+	// No bundled face covers CJK, and none of these fonts has the Identity
+	// encoding plus ToUnicode map CID substitution needs.
+	"isartor-6-3-3-1-t01-fail-a.pdf":           "CJK CID font, glyph missing, not substitutable",
+	"isartor-6-3-3-1-t01-fail-b.pdf":           "CJK CID font, glyph missing, not substitutable",
+	"isartor-6-3-3-3-t01-fail-a.pdf":           "CJK CID font, glyph missing, not substitutable",
+	"isartor-6-3-3-3-t02-fail-a.pdf":           "CJK CID font, glyph missing, not substitutable",
+	"isartor-6-3-4-t01-fail-c.pdf":             "CJK CID font not embedded, not substitutable",
+	"veraPDF test suite 6-1-12-t10-fail-a.pdf": "CJK CID font, glyph missing, not substitutable",
+}
+
 // TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
 // through Convert and tallies the outcome.
 func TestConvertCorpusEndToEnd(t *testing.T) {
@@ -535,6 +550,13 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 			t.Errorf("Convert(%s): %v", path, err)
 			errored++
 			continue
+		}
+		reason, expected := expectedRasterized[filepath.Base(path)]
+		switch rasterized := len(cr.RasterizedPages) != 0; {
+		case rasterized && !expected:
+			t.Errorf("%s: pages %v were rasterized; a fixer declined or missed a violation the fallback then hid", filepath.Base(path), cr.RasterizedPages)
+		case !rasterized && expected:
+			t.Errorf("%s: no longer rasterized (was: %s); drop it from expectedRasterized", filepath.Base(path), reason)
 		}
 		if cr.Result.Valid {
 			fullyValid++
@@ -810,6 +832,7 @@ func TestConvertDecryptsEmptyPasswordFile(t *testing.T) {
 	if !cr.Result.Valid {
 		t.Errorf("converted output not conformant: %v", cr.Result.Issues)
 	}
+	assertNotRasterized(t, cr)
 }
 
 // TestConvertRefusesPasswordProtectedFile confirms Convert fails fast with

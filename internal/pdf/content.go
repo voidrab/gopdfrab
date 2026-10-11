@@ -301,9 +301,6 @@ func DecodeASCII85(data []byte) ([]byte, error) {
 				i++
 			}
 		}
-		if n == 0 {
-			break
-		}
 		// A group of n digits decodes to n-1 bytes; capture that before padding
 		// n up to a full group of 5.
 		outBytes := n - 1
@@ -531,4 +528,59 @@ func (cs *ContentScanner) skipToEI() (dataEnd int64) {
 		}
 		prev = b
 	}
+}
+
+// InlineImageRawOperand splits an INLINEIMAGE op's operands into its
+// (key, value) params and its trailing InlineImageRaw, or ok=false if the
+// last operand isn't the expected raw marker.
+func InlineImageRawOperand(operands []PDFValue) (params []PDFValue, raw InlineImageRaw, ok bool) {
+	if len(operands) == 0 {
+		return nil, InlineImageRaw{}, false
+	}
+	raw, ok = operands[len(operands)-1].(InlineImageRaw)
+	if !ok {
+		return nil, InlineImageRaw{}, false
+	}
+	return operands[:len(operands)-1], raw, true
+}
+
+// NumericOperands returns the numeric operands of an operator as float64s,
+// skipping any operand that is not a number.
+func NumericOperands(operands []PDFValue) []float64 {
+	var out []float64
+	for _, v := range operands {
+		if f, ok := PDFNumberToFloat(v); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ShownStringBytes returns the decoded bytes of all string operands a
+// text-showing operator passes to the font.
+func ShownStringBytes(op string, operands []PDFValue) []byte {
+	var out []byte
+	appendOperand := func(v PDFValue) {
+		switch s := v.(type) {
+		case PDFString:
+			out = append(out, s.Value...)
+		case PDFHexString:
+			out = append(out, DecodePDFHexStringBytes(s.Value)...)
+		}
+	}
+	switch op {
+	case "TJ":
+		if len(operands) > 0 {
+			if arr, ok := operands[len(operands)-1].(PDFArray); ok {
+				for _, item := range arr {
+					appendOperand(item)
+				}
+			}
+		}
+	default: // Tj, ', "
+		if len(operands) > 0 {
+			appendOperand(operands[len(operands)-1])
+		}
+	}
+	return out
 }

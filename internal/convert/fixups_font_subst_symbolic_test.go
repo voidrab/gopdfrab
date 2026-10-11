@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // assertSymbolicSubstitute checks that font is a conformant symbolic TrueType
@@ -33,14 +33,14 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if err != nil {
 		t.Fatalf("decoding FontFile2: %v", err)
 	}
-	tables, ok := verify.ParseSfnt(data)
+	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
 		t.Fatalf("FontFile2 is not a valid sfnt")
 	}
 	if n, ok := trueTypeCmapSubtableCount(data); !ok || n != 1 {
 		t.Errorf("cmap subtable count = %d, want exactly 1", n)
 	}
-	platform, encID, gidMap, ok := firstFormat4CmapSubtable(tables)
+	platform, encID, gidMap, ok := fontprog.FirstFormat4CmapSubtable(tables)
 	if !ok {
 		t.Fatalf("no format-4 cmap subtable")
 	}
@@ -51,7 +51,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if !ok || gid == 0 {
 		t.Fatalf("code %d has no glyph via 0xF0xx alias", code)
 	}
-	if aw := verify.TTAdvanceWidth(tables, int(gid)); aw <= 0 {
+	if aw := fontprog.TTAdvanceWidth(tables, int(gid)); aw <= 0 {
 		t.Errorf("glyph for code %v has advance %v, want > 0", code, aw)
 	}
 
@@ -63,7 +63,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if err != nil {
 		t.Fatalf("decoding ToUnicode: %v", err)
 	}
-	if got := parseToUnicodeCMap(tuData)[code]; got != unicode {
+	if got := fontprog.ParseToUnicodeCMap(tuData)[code]; got != unicode {
 		t.Errorf("ToUnicode[%d] = %04X, want %04X", code, got, unicode)
 	}
 }
@@ -124,6 +124,7 @@ func TestConvertPreservesDingbatCheckmark(t *testing.T) {
 	if !cr.Result.Valid {
 		t.Fatalf("converted fixture is not conformant: %v", cr.Residual())
 	}
+	assertNotRasterized(t, cr)
 
 	out, err := pdf.OpenBytes(mustOutput(t, cr))
 	if err != nil {

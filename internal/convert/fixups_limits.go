@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // This file registers fixers for 6.1.12 architectural-limit
@@ -669,9 +668,7 @@ func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
 	if !ok {
 		return d, false
 	}
-	if err := writer.SetStreamFlate(&d, clamped); err != nil {
-		return d, false
-	}
+	writer.SetStreamFlate(&d, clamped)
 	return d, true
 }
 
@@ -680,7 +677,7 @@ func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
 // bytes (preserving everything else byte-for-byte) so it never needs to
 // re-serialize the surrounding PostScript.
 func clampCMapCIDs(data []byte) ([]byte, bool) {
-	tokens := verify.CmapTokenize(data)
+	tokens := fontprog.CmapTokenize(data)
 	type span struct{ start, end int }
 	var spans []span
 
@@ -707,7 +704,7 @@ func clampCMapCIDs(data []byte) ([]byte, bool) {
 			}
 			pos++
 			if pos == target {
-				if cid, ok := verify.CmapParseInt(tok.Text); ok && cid > maxCMapCID {
+				if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCMapCID {
 					spans = append(spans, span{tok.Start, tok.End})
 				}
 				pos = 0
@@ -833,8 +830,6 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 		return dict, false
 	}
 
-	if err := writer.SetStreamFlate(&dict, cw.Bytes()); err != nil {
-		return dict, false
-	}
+	writer.SetStreamFlate(&dict, cw.Bytes())
 	return dict, true
 }

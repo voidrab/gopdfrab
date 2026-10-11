@@ -101,7 +101,8 @@ type ConvertResult struct {
 	OverpaintedPages []int
 	// RasterDrops records content the raster fallback could not render when it
 	// flattened a page or a transparency group (an unusable shading, an
-	// undecodable inline image, a missing Type 3 glyph, a tiling pattern), so a
+	// undecodable inline image, a JPEG 2000 or JBIG2 image painted as a gray
+	// box, a missing Type 3 glyph, a tiling pattern), so a
 	// rasterized conversion does not silently lose it. Empty when nothing was
 	// dropped -- including when a page was rasterized losslessly, which
 	// RasterizedPages reports instead.
@@ -184,7 +185,7 @@ func (r ConvertResult) Save(path string) (err error) {
 			mode = info.Mode().Perm()
 		}
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".gopdfrab-save-*.pdf")
+	f, err := createSaveFile(filepath.Dir(path), ".gopdfrab-save-*.pdf")
 	if err != nil {
 		return err
 	}
@@ -207,6 +208,24 @@ func (r ConvertResult) Save(path string) (err error) {
 		return err
 	}
 	return os.Rename(f.Name(), path)
+}
+
+// saveFile is the slice of *os.File Save uses on its temp file.
+type saveFile interface {
+	tempFile
+	Chmod(mode os.FileMode) error
+	Sync() error
+}
+
+// createSaveFile creates Save's temp file. A var so tests can inject a chmod,
+// sync or close failure, which a real file system cannot be made to produce
+// portably.
+var createSaveFile = func(dir, pattern string) (saveFile, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // Close releases the converted output, removing the spill temp file if one was
@@ -363,7 +382,7 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 // iteration and each raster pass.
 func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (_ ConvertResult, err error) {
 	defer pdf.RecoverAsError(&err)
-	graph, err := doc.ResolveGraph()
+	trailer, err := resolveTrailer(doc)
 	if err != nil {
 		// Per-object degradation makes this rare (pathological cases like the
 		// resolve-depth cap). A best-effort verify Result still rides along,
@@ -375,10 +394,6 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 			return ConvertResult{}, werr
 		}
 		return ConvertResult{Result: res}, werr
-	}
-	trailer, ok := graph.(pdf.PDFDict)
-	if !ok {
-		return ConvertResult{}, fmt.Errorf("convert: resolved graph is not a dictionary")
 	}
 
 	// Capture the input's appearance before any fixup mutates the graph, so
@@ -553,12 +568,8 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 // fidelity DPI, returning nil on any resolve failure (the comparison then has
 // no output baseline and reports the pages as lost).
 func summarizeTrailerPagesOf(out *pdf.Reader) []pageSummary {
-	graph, err := out.ResolveGraph()
+	trailer, err := resolveTrailer(out)
 	if err != nil {
-		return nil
-	}
-	trailer, ok := graph.(pdf.PDFDict)
-	if !ok {
 		return nil
 	}
 	return summarizeTrailerPages(trailer, fidelityDPI)
@@ -813,8 +824,10 @@ func flattenPagesParallel(ctx context.Context, pages []pageTarget, pageNums []in
 	return drops, rasterized, changed
 }
 
-// sortedChecks returns counts' keys ordered by clause, subclause, and name,
-// giving the fixer loop a stable application order.
+// sortedChecks returns counts' keys ordered by clause, then subclause, giving
+// the fixer loop a stable application order. A (clause, subclause) pair
+// identifies one check -- pdf's newCheck panics on a duplicate -- so that
+// ordering is total and needs no name tie-break.
 func sortedChecks(counts map[pdf.Check]int) []pdf.Check {
 	checks := make([]pdf.Check, 0, len(counts))
 	for c := range counts {
@@ -824,10 +837,7 @@ func sortedChecks(counts map[pdf.Check]int) []pdf.Check {
 		if checks[i].Clause() != checks[j].Clause() {
 			return checks[i].Clause() < checks[j].Clause()
 		}
-		if checks[i].Subclause() != checks[j].Subclause() {
-			return checks[i].Subclause() < checks[j].Subclause()
-		}
-		return checks[i].Name() < checks[j].Name()
+		return checks[i].Subclause() < checks[j].Subclause()
 	})
 	return checks
 }
@@ -873,4 +883,17 @@ func sameMultiset(a, b map[pdf.Check]int) bool {
 		}
 	}
 	return true
+}
+
+// resolveTrailer resolves doc's object graph and returns its trailer. The
+// graph root is the Reader's effective trailer, a PDFDict that resolves in
+// place to itself (and SeedResolvedGraph only accepts a PDFDict), so the type
+// assertion cannot fail; TestResolveGraphRootIsAlwaysADict guards that
+// assumption for both a parsed and a seeded Reader.
+func resolveTrailer(doc *pdf.Reader) (pdf.PDFDict, error) {
+	graph, err := doc.ResolveGraph()
+	if err != nil {
+		return pdf.PDFDict{}, err
+	}
+	return graph.(pdf.PDFDict), nil
 }

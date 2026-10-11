@@ -396,3 +396,24 @@ func failFixturesByExpectedClause(t *testing.T) map[string]string {
 	}
 	return out
 }
+
+// TestUnsupportedLevelIsAnError: a profile whose level has no checks behind it
+// -- one the library does not know, or the empty level of a zero-value
+// Profile -- used to run nothing and report the file Valid. Verify and Convert
+// must refuse it instead, even with every check enabled.
+func TestUnsupportedLevelIsAnError(t *testing.T) {
+	data := []byte(plainPDF)
+	for name, p := range map[string]*Profile{
+		"unknown level": NewProfile("A-2b").AddCheck(AllChecks()...),
+		"zero value":    {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if res, err := VerifyBytes(data, p); err == nil || res.Valid {
+				t.Errorf("VerifyBytes = (Valid %v, %v), want an error", res.Valid, err)
+			}
+			if cr, err := ConvertBytes(data, p); err == nil || cr.Result.Valid {
+				t.Errorf("ConvertBytes = (Valid %v, %v), want an error", cr.Result.Valid, err)
+			}
+		})
+	}
+}

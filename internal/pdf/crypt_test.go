@@ -265,6 +265,65 @@ func TestInvalidKeyLengthRejected(t *testing.T) {
 	}
 }
 
+// V5 means a 32-byte AES-256 file key, which only the R5/R6 algorithms
+// produce; the R2-R4 MD5 derivation yields at most 16 bytes.
+func TestV5WithPreR5RevisionRejected(t *testing.T) {
+	for _, r := range []int{2, 3, 4} {
+		enc := PDFDict{Entries: DictOf(map[string]PDFValue{
+			"Filter": PDFName{Value: "Standard"},
+			"V":      PDFInteger(5),
+			"R":      PDFInteger(r),
+		})}
+		if _, err := newStdSecurityHandler(enc, nil, 1, nil); !errors.Is(err, ErrEncrypted) {
+			t.Errorf("R=%d: err=%v, want ErrEncrypted", r, err)
+		}
+	}
+}
+
+// The reverse mismatch: R5/R6 derive a 32-byte AES-256 file key, which only a
+// V5 handler is built to use.
+func TestR5PlusWithPreV5VersionRejected(t *testing.T) {
+	for _, v := range []int{1, 2, 3, 4} {
+		for _, r := range []int{5, 6} {
+			enc := PDFDict{Entries: DictOf(map[string]PDFValue{
+				"Filter": PDFName{Value: "Standard"},
+				"V":      PDFInteger(v),
+				"R":      PDFInteger(r),
+			})}
+			if _, err := newStdSecurityHandler(enc, nil, 1, nil); !errors.Is(err, ErrEncrypted) {
+				t.Errorf("V=%d R=%d: err=%v, want ErrEncrypted", v, r, err)
+			}
+		}
+	}
+}
+
+// The R5/R6 file key is /UE (or /OE) decrypted, so its length is whatever the
+// file says. A /UE longer than 256 bytes made a key RC4 rejects, and the
+// discarded error left a nil cipher that panicked on the first decrypt.
+func TestR5WrappedKeyMustBe32Bytes(t *testing.T) {
+	salt := []byte("saltsalt")
+	u := concat(hashR5(nil, salt, nil), salt, make([]byte, 8))
+	for _, n := range []int{16, 48, 272} {
+		enc := PDFDict{Entries: DictOf(map[string]PDFValue{
+			"Filter": PDFName{Value: "Standard"},
+			"V":      PDFInteger(5),
+			"R":      PDFInteger(5),
+			"U":      PDFString{Value: string(u)},
+			"UE":     PDFString{Value: string(make([]byte, n))},
+			"StmF":   PDFName{Value: "StdCF"},
+			"StrF":   PDFName{Value: "StdCF"},
+			"CF": PDFDict{Entries: DictOf(map[string]PDFValue{
+				"StdCF": PDFDict{Entries: DictOf(map[string]PDFValue{
+					"CFM": PDFName{Value: "V2"},
+				})},
+			})},
+		})}
+		if _, err := newStdSecurityHandler(enc, nil, 1, nil); !errors.Is(err, ErrEncrypted) {
+			t.Errorf("/UE of %d bytes: err=%v, want ErrEncrypted", n, err)
+		}
+	}
+}
+
 func TestObjectKeyR6IsFileKey(t *testing.T) {
 	h := &stdSecurityHandler{r: 6, fileKey: bytes.Repeat([]byte{0xAB}, 32)}
 	if !bytes.Equal(h.objectKey(3, 0, cryptAESV3), h.fileKey) {

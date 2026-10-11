@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -97,6 +100,27 @@ func TestCollectPDFsWalksDirectories(t *testing.T) {
 	}
 }
 
+// TestCollectPDFsUnreadableSubdirectory checks that a directory the walk
+// cannot read fails the whole collection rather than being skipped silently.
+func TestCollectPDFsUnreadableSubdirectory(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions enforced for the current user")
+	}
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	if got, err := collectPDFs([]string{dir}); !errors.Is(err, os.ErrPermission) || got != nil {
+		t.Errorf("collectPDFs over an unreadable subdirectory = %v, %v; want nil, a permission error", got, err)
+	}
+}
+
 func TestVerifyFlagParseError(t *testing.T) {
 	if code, _, _ := runCLI("verify", "--nosuchflag", "x.pdf"); code != exitError {
 		t.Errorf("verify --nosuchflag: exit=%d, want %d", code, exitError)
@@ -120,10 +144,10 @@ func TestVerifyReportsPerFileErrors(t *testing.T) {
 	}
 
 	code, stdout, _ := runCLI("verify", path)
-	if code != exitError || !strings.Contains(stdout, "[ERROR]") {
+	if code != exitError || !strings.Contains(stdout, "\nERROR ") {
 		t.Errorf("verify garbage: exit=%d stdout=%q", code, stdout)
 	}
-	if !strings.Contains(stdout, "0 pass, 0 fail, 1 error(s)") {
+	if !strings.Contains(stdout, "summary: pass=0 fail=0 error=1 files=1") {
 		t.Errorf("verify garbage summary missing from %q", stdout)
 	}
 
@@ -236,13 +260,13 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	cr := nonConformantResult(t)
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", cr, &stdout); code != exitInvalid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitInvalid {
 		t.Errorf("printConvertText: exit=%d, want %d", code, exitInvalid)
 	}
-	if !strings.Contains(stdout.String(), "residual issue(s)") {
+	if !strings.Contains(stdout.String(), "result: residual issues=") {
 		t.Errorf("printConvertText output = %q, want a residual count", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), cr.Residual()[0].String()) {
+	if !strings.Contains(stdout.String(), strconv.Quote(cr.Residual()[0].Messages()[0])) {
 		t.Errorf("printConvertText did not list the residual issue: %q", stdout.String())
 	}
 
@@ -272,11 +296,11 @@ func TestConvertPrintersReportLostContent(t *testing.T) {
 	}
 
 	var stdout strings.Builder
-	if code := printConvertText("in.pdf", "out.pdf", cr, &stdout); code != exitValid {
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitValid {
 		t.Errorf("printConvertText: exit=%d, want %d for a conformant output", code, exitValid)
 	}
-	if !strings.Contains(stdout.String(), "lost: 1 object(s)") ||
-		!strings.Contains(stdout.String(), lost[0].String()) {
+	if !strings.Contains(stdout.String(), "lost: objects=1 distinct=1") ||
+		!strings.Contains(stdout.String(), strconv.Quote(lost[0].Messages()[0])) {
 		t.Errorf("printConvertText output = %q, want the lost object reported", stdout.String())
 	}
 
@@ -302,5 +326,56 @@ func TestConvertJSONEncodeError(t *testing.T) {
 	}
 	if stderr.String() == "" {
 		t.Error("printConvertJSON did not report the write failure on stderr")
+	}
+}
+
+// TestConvertPrintersReportRasterization: a conformant conversion that
+// rebuilt pages as images, and could not draw everything on them, says so in
+// both outputs. Without it a page whose picture became a gray box reads as a
+// clean conversion.
+func TestConvertPrintersReportRasterization(t *testing.T) {
+	cr := gopdfrab.ConvertResult{
+		Result:          gopdfrab.Result{Valid: true},
+		Iterations:      3,
+		RasterizedPages: []int{1, 2, 3, 7},
+		RasterDrops: []gopdfrab.RasterDrop{
+			{Page: 7, Features: []string{"tiling pattern"}},
+			{Page: 2, Features: []string{"tiling pattern", "JPEG 2000 image"}},
+			{Page: 3, Features: []string{"JPEG 2000 image"}},
+		},
+	}
+
+	var stdout strings.Builder
+	if code := printConvertText("in.pdf", "out.pdf", "pdfa1b", false, cr, &stdout); code != exitValid {
+		t.Errorf("printConvertText: exit=%d, want %d", code, exitValid)
+	}
+	want := "profile: pdfa1b\n\n" +
+		"input: in.pdf\noutput: out.pdf\niterations: 3\n" +
+		"rasterized: pages=1-3,7\n" +
+		"dropped: pages=2-3,7 features=2\n" +
+		"  pages=2-3  \"JPEG 2000 image\"\n" +
+		"  pages=2,7  \"tiling pattern\"\n" +
+		"result: conformant\n"
+	if stdout.String() != want {
+		t.Errorf("printConvertText output =\n%s\nwant\n%s", stdout.String(), want)
+	}
+
+	stdout.Reset()
+	var stderr strings.Builder
+	if code := printConvertJSON("in.pdf", "out.pdf", cr, &stdout, &stderr); code != exitValid {
+		t.Errorf("printConvertJSON: exit=%d, want %d", code, exitValid)
+	}
+	var row convertJSON
+	if err := json.Unmarshal([]byte(stdout.String()), &row); err != nil {
+		t.Fatalf("printConvertJSON output is not valid JSON: %v\n%s", err, stdout.String())
+	}
+	if !slices.Equal(row.RasterizedPages, cr.RasterizedPages) || len(row.RasterDrops) != 3 ||
+		row.RasterDrops[1].Page != 2 || !slices.Equal(row.RasterDrops[1].Features, []string{"tiling pattern", "JPEG 2000 image"}) {
+		t.Errorf("printConvertJSON row = %+v, want the rasterized pages and every drop", row)
+	}
+	for _, key := range []string{`"rasterizedPages"`, `"rasterDrops"`, `"page"`, `"features"`} {
+		if !strings.Contains(stdout.String(), key) {
+			t.Errorf("JSON lacks key %s:\n%s", key, stdout.String())
+		}
 	}
 }

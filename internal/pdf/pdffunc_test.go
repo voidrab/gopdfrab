@@ -192,3 +192,15 @@ func TestRollStack(t *testing.T) {
 		}
 	}
 }
+
+func TestPDFNumberToFloat(t *testing.T) {
+	if f, ok := PDFNumberToFloat(PDFInteger(5)); !ok || f != 5 {
+		t.Errorf("PDFNumberToFloat(PDFInteger) = %g, %v", f, ok)
+	}
+	if f, ok := PDFNumberToFloat(PDFReal(2.5)); !ok || f != 2.5 {
+		t.Errorf("PDFNumberToFloat(PDFReal) = %g, %v", f, ok)
+	}
+	if _, ok := PDFNumberToFloat(PDFName{Value: "x"}); ok {
+		t.Error("PDFNumberToFloat should be false for a non-numeric value")
+	}
+}

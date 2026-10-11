@@ -41,6 +41,15 @@ go test -short -race ./...    # CI runs this too
 `-short` skips the slow corpus sweeps. A full run without it takes a while and
 needs the real-world corpus (below).
 
+Every statement is covered by the `-short` suite, and CI fails if one is not.
+To check locally the way CI does:
+
+```bash
+PKGS=$(go list ./... | grep -vE '/benchmarks/|/benchmarks$|/main$')
+go test -short -coverpkg="$(echo "$PKGS" | paste -sd,)" -coverprofile=coverage.txt $PKGS
+scripts/check-coverage.sh coverage.txt
+```
+
 Linting uses [golangci-lint](https://golangci-lint.run) v2.12.2, configured in
 `.golangci.yml` — `govet`, `staticcheck` (SA checks only), `ineffassign` and
 `unused`:

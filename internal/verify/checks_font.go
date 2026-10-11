@@ -2,13 +2,11 @@ package verify
 
 import (
 	"fmt"
-	"regexp"
+	"math"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
-
-// SubsetTagRe matches a font subset prefix such as "ABCDEF+".
-var SubsetTagRe = regexp.MustCompile(`^[A-Z]{6}\+`)
 
 // predefinedCMaps are the CMap names that need not be embedded (6.3.3.3).
 var predefinedCMaps = map[string]bool{
@@ -98,7 +96,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 		ctx.Report(pdf.Checks.Font.FontBaseFont, v, "font dictionary lacks BaseFont")
 	}
 
-	subset := SubsetTagRe.MatchString(baseFont.Value)
+	subset := fontprog.SubsetTagRe.MatchString(baseFont.Value)
 
 	switch subtype.Value {
 	case "Type1", "MMType1", "TrueType":
@@ -238,7 +236,7 @@ func validateType3Metrics(v pdf.PDFDict, ctx *ValidationContext) {
 		if procWidth < 0 {
 			continue // no d0/d1 found
 		}
-		if Abs64(procWidth-pdfWidth) > 1.0 {
+		if math.Abs(procWidth-pdfWidth) > 1.0 {
 			ctx.Report(pdf.Checks.Font.AdvanceWidthMismatch, v, fmt.Sprintf("Type3 glyph /%s: Widths entry %g does not match d0/d1 width %g", glyphName, pdfWidth, procWidth))
 			return
 		}
@@ -376,7 +374,7 @@ func validateCMapStream(v pdf.PDFDict, ctx *ValidationContext) {
 
 // checkCMapCIDLimits scans CMap PostScript content for CID values > 65535.
 func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
-	tokens := CmapTokenize(data)
+	tokens := fontprog.CmapTokenize(data)
 	const maxCID = 65535
 
 	inCIDRange := false
@@ -404,7 +402,7 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				// cidrange entries: <start-code> <end-code> start-CID (repeat).
 				pos++
 				if pos == 3 {
-					if cid, ok := CmapParseInt(tok.Text); ok && cid > maxCID {
+					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCID {
 						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
@@ -413,7 +411,7 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				// cidchar entries: <code> CID (repeat).
 				pos++
 				if pos == 2 {
-					if cid, ok := CmapParseInt(tok.Text); ok && cid > maxCID {
+					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCID {
 						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
 					}
 					pos = 0
@@ -421,90 +419,4 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 			}
 		}
 	}
-}
-
-// CmapToken pairs a CmapTokenize token with its byte range in the source
-// data, so a fixer can splice a replacement in place (fixups_limits.go)
-// without disturbing anything else (comments, whitespace, formatting).
-type CmapToken struct {
-	Text       string
-	Start, End int
-}
-
-// CmapTokenize splits CMap PostScript content into tokens, skipping comments.
-func CmapTokenize(data []byte) []CmapToken {
-	var tokens []CmapToken
-	i := 0
-	for i < len(data) {
-		for i < len(data) && pdf.IsWhitespace(data[i]) {
-			i++
-		}
-		if i >= len(data) {
-			break
-		}
-		if data[i] == '%' {
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			continue
-		}
-		start := i
-		if data[i] == '<' {
-			// hex string token: <...> (stop at first >)
-			j := i + 1
-			for j < len(data) && data[j] != '>' {
-				j++
-			}
-			if j < len(data) {
-				j++
-			}
-			tokens = append(tokens, CmapToken{string(data[i:j]), start, j})
-			i = j
-		} else if data[i] == '(' {
-			// literal string: skip to matching ')'
-			j := i + 1
-			depth := 1
-			for j < len(data) && depth > 0 {
-				if data[j] == '\\' {
-					j += 2
-					continue
-				}
-				switch data[j] {
-				case '(':
-					depth++
-				case ')':
-					depth--
-				}
-				j++
-			}
-			tokens = append(tokens, CmapToken{string(data[i:j]), start, j})
-			i = j
-		} else {
-			// regular token: read until whitespace or delimiter
-			j := i
-			for j < len(data) && !pdf.IsWhitespace(data[j]) && data[j] != '<' && data[j] != '(' && data[j] != ')' {
-				j++
-			}
-			if j > i {
-				tokens = append(tokens, CmapToken{string(data[i:j]), start, j})
-			}
-			i = j
-		}
-	}
-	return tokens
-}
-
-// CmapParseInt parses a decimal integer token from a CMap stream.
-func CmapParseInt(tok string) (int64, bool) {
-	if len(tok) == 0 {
-		return 0, false
-	}
-	var n int64
-	for _, c := range []byte(tok) {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		n = n*10 + int64(c-'0')
-	}
-	return n, true
 }
