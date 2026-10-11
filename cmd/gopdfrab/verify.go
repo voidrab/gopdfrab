@@ -50,11 +50,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 
 	opts := gopdfrab.Options{Password: passwordBytes(*password)}
-	results, err := gopdfrab.VerifyAllContext(ctx, paths, profile, opts)
-	if err != nil {
-		fmt.Fprintf(stderr, "gopdfrab: %v\n", err)
-		return exitError
-	}
+	// VerifyAllContext records every failure, cancellation included, in its
+	// file's result; its error return exists for API uniformity and is nil.
+	results, _ := gopdfrab.VerifyAllContext(ctx, paths, profile, opts)
 
 	if *jsonOut {
 		return printVerifyJSON(results, stdout, stderr)
