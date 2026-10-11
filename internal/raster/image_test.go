@@ -2,6 +2,7 @@ package raster
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -188,8 +189,9 @@ func TestDecodeImageRGBAUnsupportedCodecPlaceholder(t *testing.T) {
 		RawStream: []byte{0x00},
 	}
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
-	if err != nil {
-		t.Fatalf("DecodeImageRGBA: %v", err)
+	var ph *PlaceholderError
+	if !errors.As(err, &ph) || ph.Codec != "CCITT" {
+		t.Fatalf("DecodeImageRGBA err = %v, want a PlaceholderError for CCITT", err)
 	}
 	r, g, b := pixelAt(t, img, 1, 1)
 	if r != 127 || g != 127 || b != 127 {

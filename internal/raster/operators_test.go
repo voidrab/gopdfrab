@@ -299,9 +299,6 @@ func TestImageXObjectEdgeCases(t *testing.T) {
 	if img := draw(gray(map[string]pdf.PDFValue{"Mask": badMask}, 0), full); !isBlack(t, img, 10, 10) {
 		t.Error("an undecodable /Mask stopped the image painting")
 	}
-	if got := StencilAlpha(badMask, pdf.PDFDict{}); got != nil {
-		t.Error("StencilAlpha of an undecodable mask was not nil")
-	}
 
 	// Rotated 45 degrees, the image's bounding box has corners outside the
 	// image itself, which stay unpainted.

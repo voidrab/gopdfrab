@@ -39,6 +39,11 @@ notice.
 ### Fixed
 
 - `PDFError.String` printed an issue's object as `ref &{4 0}`; it is `ref 4 0 R` now.
+- A rasterized page with a JPEG 2000 or JBIG2 image, or a CCITT image that
+  fails to decode, showed the image as a gray box and reported nothing. The
+  image is now listed in `RasterDrops` (`JPEG 2000 image`, `JBIG2 image`,
+  `CCITT image`), and fixers that rewrite image samples no longer store the
+  gray box in the picture's place.
 
 ## [1.1.0] - 2026-10-10
 

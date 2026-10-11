@@ -433,16 +433,14 @@ func TestBakeSoftMaskOutStencils(t *testing.T) {
 		t.Errorf("stencil bits = % x, want 0x40 (paint, then mask out)", bits)
 	}
 
-	// And the renderer reads it back as the opacity it stands for.
-	alpha := raster.StencilAlpha(stencil, pdf.PDFDict{})
-	if alpha == nil {
-		t.Fatal("the stencil does not read back as an opacity")
+	// And the renderer reads it back as the opacity it stands for: a stencil
+	// decodes opaque where it paints and clear where it masks out.
+	alpha, err := raster.DecodeImageRGBA(stencil, pdf.PDFDict{})
+	if err != nil {
+		t.Fatalf("the stencil does not read back as an opacity: %v", err)
 	}
-	if alpha.Pix[0] != 255 || alpha.Pix[4] != 0 {
-		t.Errorf("stencil opacities = %d, %d; want opaque then clear", alpha.Pix[0], alpha.Pix[4])
-	}
-	if raster.StencilAlpha(pdf.PDFDict{}, pdf.PDFDict{}) != nil {
-		t.Error("a stencil that does not decode should read back as nothing")
+	if alpha.Pix[3] != 255 || alpha.Pix[7] != 0 {
+		t.Errorf("stencil opacities = %d, %d; want opaque then clear", alpha.Pix[3], alpha.Pix[7])
 	}
 }
 

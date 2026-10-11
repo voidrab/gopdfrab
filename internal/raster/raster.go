@@ -2,6 +2,7 @@ package raster
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"image"
 	"math"
@@ -691,13 +692,17 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 // composites it through the CTM.
 func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *renderState) {
 	img, err := DecodeImageRGBA(xobj, resources)
-	if err != nil {
+	if err != nil && !r.dropPlaceholder(err) {
 		return
 	}
+	// A mask that only decodes to the placeholder is left off: a flat gray
+	// opacity would fade the whole picture, where no mask at least shows it.
 	var smask *image.RGBA
 	if sm, ok := xobj.Entries.Get("SMask").(pdf.PDFDict); ok {
 		if decoded, err := DecodeImageRGBA(sm, resources); err == nil {
 			smask = decoded
+		} else {
+			r.dropPlaceholder(err)
 		}
 	}
 	// A stencil /Mask says the same thing with two values instead of 256:
@@ -705,19 +710,32 @@ func (r *renderer) paintImage(xobj pdf.PDFDict, resources pdf.PDFDict, gs *rende
 	// mask, which takes precedence (ISO 32000-1 8.9.6.4).
 	if smask == nil {
 		if m, ok := xobj.Entries.Get("Mask").(pdf.PDFDict); ok {
-			smask = StencilAlpha(m, resources)
+			if decoded, err := DecodeImageRGBA(m, resources); err == nil {
+				smask = stencilAlpha(decoded)
+			} else {
+				r.dropPlaceholder(err)
+			}
 		}
 	}
 	r.compositeImage(img, smask, isImageMask(xobj), gs)
 }
 
-// StencilAlpha reads a stencil mask as the opacity it stands for, in the shape
-// compositeImage samples a soft mask in: the first channel is the opacity.
-func StencilAlpha(mask pdf.PDFDict, resources pdf.PDFDict) *image.RGBA {
-	decoded, err := DecodeImageRGBA(mask, resources)
-	if err != nil {
-		return nil
+// dropPlaceholder reports, as a drop, an image DecodeImageRGBA could only
+// stand in for with its placeholder, so the page that paints the gray says
+// what it lost. It returns whether err was such a placeholder.
+func (r *renderer) dropPlaceholder(err error) bool {
+	var ph *PlaceholderError
+	if !errors.As(err, &ph) {
+		return false
 	}
+	r.drop(ph.dropFeature())
+	return true
+}
+
+// stencilAlpha reads a decoded stencil mask as the opacity it stands for, in
+// the shape compositeImage samples a soft mask in: the first channel is the
+// opacity.
+func stencilAlpha(decoded *image.RGBA) *image.RGBA {
 	// A stencil decodes to black where it paints and transparent where it does
 	// not, so its own alpha channel is the opacity, and the first channel is
 	// where compositeImage looks for one.
@@ -1216,7 +1234,7 @@ func (r *renderer) paintInlineImage(operands []pdf.PDFValue, resources pdf.PDFDi
 		return
 	}
 	img, err := DecodeImageRGBA(dict, resources)
-	if err != nil {
+	if err != nil && !r.dropPlaceholder(err) {
 		r.drop(dropInlineImage)
 		return
 	}
