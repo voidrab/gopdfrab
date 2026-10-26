@@ -507,7 +507,7 @@ role map, natural language), is registered but left out of the table: all five
 of its checks are PDF/A-1a only. `AllChecks()` returns 159 checks over all
 eleven groups, 154 over the ten above.
 
-Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. `gopdfrab.CheckByClause("6.3.4", 1)` and `gopdfrab.ChecksForClause("6.3.4")` look up checks by clause directly.
+Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. A clause names a check only within a conformance level, so the lookups take one: `gopdfrab.CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)` and `gopdfrab.ChecksForClauseIn(gopdfrab.A1B, "6.3.4")`, and `check.ClauseIn(level)` gives a check's clause under a level. The older `CheckByClause` and `ChecksForClause` read PDF/A-1 clauses and are deprecated.
 
 ## PDF Object-Model Conformance
 

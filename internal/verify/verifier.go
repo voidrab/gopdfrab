@@ -223,12 +223,11 @@ func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
 	return VerifyObjectModel(doc)
 }
 
-// filterByProfile removes from issues any PDFError whose (clause, subclause)
-// pair is registered in the catalog but disabled in p.
+// filterByProfile keeps the issues whose check p enables.
 func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 	out := make([]pdf.PDFError, 0, len(issues))
 	for _, e := range issues {
-		if p.Allows(e.Check().Clause(), e.Check().Subclause()) {
+		if p.Has(e.Check()) {
 			out = append(out, e)
 		}
 	}

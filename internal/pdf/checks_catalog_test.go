@@ -103,9 +103,8 @@ func TestChecksForClause(t *testing.T) {
 // clause/subclause pair is a programming error caught at init, by panic.
 func TestNewCheckRejectsDuplicateRegistration(t *testing.T) {
 	existing := AllChecks()[0]
-	savedCounter, savedLen := checkIDCounter, len(allChecksCatalog)
+	savedLen := len(allChecksCatalog)
 	defer func() {
-		checkIDCounter = savedCounter
 		if r := recover(); r == nil {
 			t.Error("newCheck did not panic on a duplicate clause/subclause")
 		}
@@ -113,5 +112,5 @@ func TestNewCheckRejectsDuplicateRegistration(t *testing.T) {
 			t.Errorf("catalog grew from %d to %d on a rejected registration", savedLen, len(allChecksCatalog))
 		}
 	}()
-	newCheck("Duplicate", "duplicates "+existing.Name(), existing.Clause(), existing.Subclause())
+	newCheck(1<<20, "Duplicate", "duplicates "+existing.Name(), existing.Clause(), existing.Subclause())
 }

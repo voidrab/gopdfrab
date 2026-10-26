@@ -67,6 +67,23 @@ func TestRegistryPassthroughs(t *testing.T) {
 	}
 }
 
+// TestLevelQualifiedLookups: a clause names a check only within a level.
+func TestLevelQualifiedLookups(t *testing.T) {
+	c := Checks.Font.SimpleNotEmbedded
+	if clause, sub, ok := c.ClauseIn(A1B); !ok || clause != "6.3.4" || sub != 1 {
+		t.Errorf("ClauseIn(A1B) = %s/%d, %v", clause, sub, ok)
+	}
+	if got, ok := CheckByClauseIn(A1B, "6.3.4", 1); !ok || got != c {
+		t.Errorf("CheckByClauseIn(A1B, 6.3.4, 1) = %s, %v", got.Name(), ok)
+	}
+	if _, ok := CheckByClauseIn(ObjectModel, "6.3.4", 1); ok {
+		t.Error("CheckByClauseIn(ObjectModel, 6.3.4, 1) found a check; 6.3.4 is a PDF/A clause")
+	}
+	if got := ChecksForClauseIn(A1B, "6.3.4"); len(got) != 2 {
+		t.Errorf("ChecksForClauseIn(A1B, 6.3.4) = %v, want the two embedding checks", got)
+	}
+}
+
 // TestVerifyWrappers exercises the file, in-memory, and batch verify facades.
 func TestVerifyWrappers(t *testing.T) {
 	paths := passFixtures(t)

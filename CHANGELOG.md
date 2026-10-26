@@ -26,6 +26,16 @@ notice.
 
 ## [Unreleased]
 
+### Added
+
+- `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
+  `Check.AppliesTo` look checks up by clause within a conformance level.
+
+### Deprecated
+
+- `CheckByClause`, `ChecksForClause` and `Profile.Allows`, which read PDF/A-1
+  clauses only. Use the level-qualified lookups and `Profile.Has`.
+
 ### Fixed
 
 - Convert rewrote a stream referenced from several places through only one of

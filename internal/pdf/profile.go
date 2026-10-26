@@ -183,8 +183,11 @@ func (p *Profile) OnlyObjectModelChecks() bool {
 	return true
 }
 
-// Allows reports whether the check registered for the given clause and
-// subclause is enabled. A clause not in the catalog is allowed.
+// Allows reports whether the check registered for the given PDF/A-1 clause
+// and subclause is enabled. A clause not in the catalog is allowed.
+//
+// Deprecated: a clause identifies a check only within a conformance level;
+// use Has with the check itself.
 func (p *Profile) Allows(clause string, subclause int) bool {
 	c, inCatalog := CheckByClause(clause, subclause)
 	if !inCatalog {

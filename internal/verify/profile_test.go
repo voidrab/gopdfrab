@@ -104,36 +104,6 @@ func TestProfile_ChecksOrder(t *testing.T) {
 	}
 }
 
-func TestProfile_AllowsUnknownPairs(t *testing.T) {
-	empty := pdf.NewProfile(pdf.A1B)
-	if !empty.Allows("99.99.99", 999) {
-		t.Error("unknown pair should be allowed in an empty profile")
-	}
-	full := pdf.NewFullProfile(pdf.A1B)
-	if !full.Allows("99.99.99", 999) {
-		t.Error("unknown pair should be allowed in a full profile")
-	}
-}
-
-func TestProfile_AllowsCatalogPairs(t *testing.T) {
-	chk := pdf.Checks.Transparency.ImageWithSoftMask
-
-	full := pdf.NewFullProfile(pdf.A1B)
-	if !full.Allows(chk.Clause(), chk.Subclause()) {
-		t.Error("enabled check pair should be allowed")
-	}
-
-	p := full.RemoveCheck(chk)
-	if p.Allows(chk.Clause(), chk.Subclause()) {
-		t.Error("removed check pair should not be allowed")
-	}
-
-	p2 := p.AddCheck(chk)
-	if !p2.Allows(chk.Clause(), chk.Subclause()) {
-		t.Error("re-added check pair should be allowed")
-	}
-}
-
 const header61dir = isartorDir + "/6.1 File structure/6.1.2 File header"
 
 // header61checks returns the four 6.1.2 file-header checks.
@@ -397,5 +367,22 @@ func TestPatternFontUsageCollected(t *testing.T) {
 	}
 	if hasNotEmbedded(buildPatternFontDoc(false)) {
 		t.Error("font inside a never-set pattern flagged despite SkipUnusedSimpleFonts")
+	}
+}
+
+// TestFilterByProfileKeepsExactlyEnabledChecks: the filter asks the profile
+// about the check itself, never about its clause. An issue whose check the
+// profile does not enable is dropped, even one of no registered clause.
+func TestFilterByProfileKeepsExactlyEnabledChecks(t *testing.T) {
+	enabled := pdf.Checks.Transparency.BlendMode
+	p := pdf.NewProfile(pdf.A1B).AddCheck(enabled)
+	issues := []pdf.PDFError{
+		pdf.NewError(enabled, nil, 1, nil),
+		pdf.NewError(pdf.Checks.Transparency.StrokingAlpha, nil, 1, nil),
+		pdf.NewError(pdf.Check{}, nil, 1, nil),
+	}
+	got := filterByProfile(issues, p)
+	if len(got) != 1 || got[0].Check() != enabled {
+		t.Errorf("filterByProfile kept %v, want only the %s issue", got, enabled.Name())
 	}
 }
