@@ -155,15 +155,6 @@ const Type1SubrDepth = 10
 // used to read as having no glyphs at all.
 var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
 
-// Type1CharStringsSection decrypts a Type1 program's eexec section and
-// returns the decrypted bytes starting at "/CharStrings", or nil if absent,
-// together with the /lenIV each charstring in it is padded with. binStart is
-// the byte offset of the first encrypted byte after "eexec".
-func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
-	section, lenIV, _ = type1Sections(fontData, binStart)
-	return section, lenIV
-}
-
 // type1SubrRe matches one entry of a decrypted Type1 Subrs array.
 var type1SubrRe = regexp.MustCompile(`dup (\d+) (\d+) (?:RD|-\|) `)
 

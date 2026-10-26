@@ -18,7 +18,12 @@ func callsubr32(idx byte) []byte { return []byte{255, 0, 0, 0, idx, 10} }
 // without its lenIV padding.
 func glyphPlain(t *testing.T, p []byte, name string) []byte {
 	t.Helper()
-	section, lenIV := fontprog.Type1CharStringsSection(p, fontprog.Type1EexecBinStart(p))
+	plain := fontprog.DecryptType1Block(p[fontprog.Type1EexecBinStart(p):], 55665)
+	cs := bytes.Index(plain, []byte("/CharStrings"))
+	if cs < 0 {
+		t.Fatal("no /CharStrings in the eexec section")
+	}
+	section, lenIV := plain[cs:], fontprog.Type1LenIV(plain[:cs])
 	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(section, -1) {
 		if string(section[m[2]:m[3]]) != name {
 			continue

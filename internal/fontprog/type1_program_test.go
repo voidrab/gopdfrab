@@ -165,7 +165,7 @@ func TestExtractType1ProgramRejectsBadInput(t *testing.T) {
 	// Encrypted section without /CharStrings.
 	s := newType1()
 	s.noChars = true
-	if sec, iv := Type1CharStringsSection(s.build(), Type1EexecBinStart(s.build())); sec != nil || iv != 4 {
+	if sec, iv, _ := type1Sections(s.build(), Type1EexecBinStart(s.build())); sec != nil || iv != 4 {
 		t.Errorf("no CharStrings: %v, %d, want nil, 4", sec, iv)
 	}
 	// Garbage after eexec decrypts to something without /CharStrings.
@@ -175,11 +175,11 @@ func TestExtractType1ProgramRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestType1CharStringsSection(t *testing.T) {
+func TestType1Sections(t *testing.T) {
 	s := widthFont()
 	s.lenIV = 2
 	data := s.build()
-	sec, lenIV := Type1CharStringsSection(data, Type1EexecBinStart(data))
+	sec, lenIV, _ := type1Sections(data, Type1EexecBinStart(data))
 	if lenIV != 2 || !bytes.HasPrefix(sec, []byte("/CharStrings")) {
 		t.Errorf("section starts %q with lenIV %d, want /CharStrings and 2", sec[:min(12, len(sec))], lenIV)
 	}

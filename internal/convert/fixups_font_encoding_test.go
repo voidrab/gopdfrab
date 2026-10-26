@@ -187,7 +187,12 @@ func TestInlineType1WidthSubrsInFont(t *testing.T) {
 	if l1, l2 := ff.Entries.Get("Length1").(pdf.PDFInteger), ff.Entries.Get("Length2").(pdf.PDFInteger); int(l1+l2) != len(data) {
 		t.Errorf("Length1 %d + Length2 %d != program length %d", l1, l2, len(data))
 	}
-	section, lenIV := fontprog.Type1CharStringsSection(data, fontprog.Type1EexecBinStart(data))
+	plain := fontprog.DecryptType1Block(data[fontprog.Type1EexecBinStart(data):], 55665)
+	cs := bytes.Index(plain, []byte("/CharStrings"))
+	if cs < 0 {
+		t.Fatal("no /CharStrings in the eexec section")
+	}
+	section, lenIV := plain[cs:], fontprog.Type1LenIV(plain[:cs])
 	m := fontprog.Type1CharStringRe.FindSubmatchIndex(section)
 	n, _ := strconv.Atoi(string(section[m[4]:m[5]]))
 	if got := fontprog.DecryptType1CharString(section[m[1]:m[1]+n], lenIV); !bytes.Equal(got, []byte{139, 247, 172, 13, 14}) {
