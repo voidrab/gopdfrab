@@ -92,6 +92,10 @@ type ValidationContext struct {
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
 
+	// stream collects the reports made while one content stream is checked;
+	// see collapsingStreamReports. Nil outside a stream.
+	stream *streamReports
+
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
 	// cache, so unchanged content streams stay decoded at most once across
 	// convert's fixer iterations (which reuse the same Reader). Nil for
@@ -258,7 +262,55 @@ func (ctx *ValidationContext) report(err pdf.PDFError) {
 
 // Report records a single violation of c against obj.
 func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) {
+	if ctx.stream != nil {
+		ctx.stream.add(c, obj, msg)
+		return
+	}
 	ctx.report(ctx.newError(c, obj, []error{errors.New(msg)}))
+}
+
+// streamReports holds one content stream's reports, one per check: the first
+// occurrence and how many more followed it.
+type streamReports struct {
+	order []pdf.Check
+	first map[pdf.Check]streamReport
+}
+
+type streamReport struct {
+	obj  pdf.PDFValue
+	msg  string
+	more int
+}
+
+func (s *streamReports) add(c pdf.Check, obj pdf.PDFValue, msg string) {
+	if r, seen := s.first[c]; seen {
+		r.more++
+		s.first[c] = r
+		return
+	}
+	s.order = append(s.order, c)
+	s.first[c] = streamReport{obj: obj, msg: msg}
+}
+
+// collapsingStreamReports runs check, the checks of one content stream, and
+// records each check it reports once: at its first occurrence, with a message
+// counting the rest. A stream repeats an operator as often as it likes, so one
+// issue per operator would grow without bound -- a drawing with millions of
+// out-of-range coordinates ran verify out of memory -- while saying nothing
+// the first one does not.
+func (ctx *ValidationContext) collapsingStreamReports(check func()) {
+	s := &streamReports{first: map[pdf.Check]streamReport{}}
+	ctx.stream = s
+	check()
+	ctx.stream = nil
+	for _, c := range s.order {
+		r := s.first[c]
+		msg := r.msg
+		if r.more > 0 {
+			msg = fmt.Sprintf("%s (and %d more in this content stream)", msg, r.more)
+		}
+		ctx.Report(c, r.obj, msg)
+	}
 }
 
 // ReportObjModel records a violation of c against obj carrying the Arlington

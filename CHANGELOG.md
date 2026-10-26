@@ -28,6 +28,10 @@ notice.
 
 ### Fixed
 
+- A content stream that repeats a violation in every operator is now one
+  issue per check, whose message counts the repeats. A page plotting millions
+  of out-of-range coordinates used to produce one issue per number and ran
+  verify out of memory.
 - Convert rewrote a stream referenced from several places through only one of
   them, writing a corrupt stream into output it reported conformant.
 - An issue after a link annotation was attributed to the link's destination
