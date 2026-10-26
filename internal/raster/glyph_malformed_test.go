@@ -232,8 +232,7 @@ func TestType1CharstringEdgeOperators(t *testing.T) {
 		n(10), n(10), 21, // rmoveto
 		n(1), n(0), 12, 12, // div by zero drops both operands
 		n(4), n(2), 12, 12, // 4 2 div -> 2 (hlineto length)
-		6,     // hlineto
-		12, 6, // seac: composition unsupported, skipped
+		6,            // hlineto
 		n(1), 12, 99, // unknown escape
 		2,                             // unassigned operator
 		n(5), n(5), n(5), n(5), 12, 7, // sbw

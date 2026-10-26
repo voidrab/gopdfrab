@@ -2,6 +2,7 @@ package raster
 
 import (
 	"encoding/binary"
+	"math"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
@@ -308,20 +309,31 @@ func ttCompositeContours(tables map[string][]byte, rec []byte, depth int) ([][]P
 	return contours, true
 }
 
-// glyphOutlineFromCFF extracts gid's outline from a bare CFF table's
-// CharStrings INDEX, interpreting the Type2 charstring moveto/lineto/curveto
-// subset (hstem/vstem/hintmask hints are parsed and discarded).
-func glyphOutlineFromCFF(cff []byte, gid int) (GlyphPath, bool) {
+// cffProgram is a CFF program parsed once per font: its charstrings and the
+// subroutines they call.
+type cffProgram struct {
+	charStrings [][]byte
+	subrs       fontprog.CFFSubrs
+}
+
+func parseCFFProgram(cff []byte) (*cffProgram, bool) {
 	td, ok := fontprog.ParseCFFTopDict(cff)
 	if !ok || td.CSOffset < 0 {
-		return GlyphPath{}, false
+		return nil, false
 	}
 	entries, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
-	if gid < 0 || gid >= len(entries) {
+	return &cffProgram{charStrings: entries, subrs: fontprog.ParseCFFSubrs(cff, td, len(entries))}, true
+}
+
+// outline returns glyph gid's outline.
+func (p *cffProgram) outline(gid int) (GlyphPath, bool) {
+	if gid < 0 || gid >= len(p.charStrings) {
 		return GlyphPath{}, false
 	}
-	contours := interpretType2Charstring(entries[gid])
-	return GlyphPath{Contours: contours}, true
+	in := &type2Interp{gsubrs: p.subrs.Global, lsubrs: p.subrs.Local(gid)}
+	in.run(p.charStrings[gid], 0)
+	in.closeContour()
+	return GlyphPath{Contours: in.contours}, true
 }
 
 // type2Interp holds the running state of a Type2 charstring interpreter.
@@ -332,13 +344,21 @@ type type2Interp struct {
 	cur         []Point
 	nStems      int
 	widthParsed bool
+	// gsubrs and lsubrs are the global and local subroutines callgsubr and
+	// callsubr index into.
+	gsubrs, lsubrs [][]byte
 }
 
-// interpretType2Charstring runs a CFF Type2 charstring and returns its
-// outline as flattened polygon contours in glyph-space units.
+// maxType2SubrDepth is the subroutine nesting limit the Type2 charstring
+// format sets.
+const maxType2SubrDepth = 10
+
+// interpretType2Charstring runs a CFF Type2 charstring that calls no
+// subroutines and returns its outline as flattened polygon contours in
+// glyph-space units.
 func interpretType2Charstring(cs []byte) [][]Point {
 	in := &type2Interp{}
-	in.run(cs)
+	in.run(cs, 0)
 	in.closeContour()
 	return in.contours
 }
@@ -381,7 +401,10 @@ func (in *type2Interp) maybeWidth(expectedArgs int) {
 	}
 }
 
-func (in *type2Interp) run(cs []byte) {
+// run interprets cs, depth subroutine calls deep. It reports whether the
+// glyph ended -- endchar, or a call that could not be followed -- as opposed
+// to cs returning to its caller.
+func (in *type2Interp) run(cs []byte, depth int) (ended bool) {
 	i := 0
 	for i < len(cs) {
 		b := cs[i]
@@ -390,7 +413,27 @@ func (in *type2Interp) run(cs []byte) {
 			v, n := readType2Number(cs[i:])
 			in.stack = append(in.stack, v)
 			i += n
-		case b == 12: // two-byte escape operators -- none affect outline geometry
+		case b == 10, b == 29: // callsubr, callgsubr
+			if len(in.stack) == 0 || depth >= maxType2SubrDepth {
+				return true
+			}
+			subrs := in.lsubrs
+			if b == 29 {
+				subrs = in.gsubrs
+			}
+			sub, ok := fontprog.CFFSubr(subrs, int(in.stack[len(in.stack)-1]))
+			in.stack = in.stack[:len(in.stack)-1]
+			if !ok || in.run(sub, depth+1) {
+				return true
+			}
+			i++
+		case b == 11: // return
+			return false
+		case b == 12: // two-byte escape: the flex family draws; the rest
+			// (arithmetic, storage) do not touch the outline
+			if i+1 < len(cs) {
+				in.flex(cs[i+1])
+			}
 			in.stack = in.stack[:0]
 			i += 2
 		case b == 1, b == 3, b == 18, b == 23: // hstem/vstem/hstemhm/vstemhm
@@ -481,11 +524,57 @@ func (in *type2Interp) run(cs []byte) {
 		case b == 14: // endchar
 			in.maybeWidth(0)
 			in.stack = in.stack[:0]
-			i++
+			return true
 		default:
 			in.stack = in.stack[:0]
 			i++
 		}
+	}
+	return false
+}
+
+// flex draws the two curves of a flex escape operator (12 34-37), whose
+// operands are relative to the current point like rrcurveto's. The flex depth
+// argument only matters for hinting, so the curves are always drawn.
+func (in *type2Interp) flex(op byte) {
+	a := in.stack
+	var d [12]float64 // dx1 dy1 ... dx6 dy6
+	switch op {
+	case 35: // flex: dx1 dy1 ... dx6 dy6 fd
+		if len(a) < 12 {
+			return
+		}
+		copy(d[:], a[:12])
+	case 34: // hflex: dx1 dx2 dy2 dx3 dx4 dx5 dx6
+		if len(a) < 7 {
+			return
+		}
+		d = [12]float64{a[0], 0, a[1], a[2], a[3], 0, a[4], 0, a[5], -a[2], a[6], 0}
+	case 36: // hflex1: dx1 dy1 dx2 dy2 dx3 dx4 dx5 dy5 dx6
+		if len(a) < 9 {
+			return
+		}
+		d = [12]float64{a[0], a[1], a[2], a[3], a[4], 0, a[5], 0, a[6], a[7], a[8], -(a[1] + a[3] + a[7])}
+	case 37: // flex1: dx1 dy1 ... dx5 dy5 d6
+		if len(a) < 11 {
+			return
+		}
+		copy(d[:10], a[:10])
+		var dx, dy float64
+		for j := 0; j < 10; j += 2 {
+			dx += a[j]
+			dy += a[j+1]
+		}
+		if math.Abs(dx) > math.Abs(dy) {
+			d[10], d[11] = a[10], -dy
+		} else {
+			d[10], d[11] = -dx, a[10]
+		}
+	default:
+		return
+	}
+	for j := 0; j < 12; j += 6 {
+		in.curveTo(in.x+d[j], in.y+d[j+1], in.x+d[j]+d[j+2], in.y+d[j+1]+d[j+3], in.x+d[j]+d[j+2]+d[j+4], in.y+d[j+1]+d[j+3]+d[j+5])
 	}
 }
 
@@ -609,40 +698,31 @@ func readType2Number(b []byte) (float64, int) {
 	return 0, 1
 }
 
-// glyphOutlineFromType1 extracts a named glyph's outline from a decrypted
-// Type1 font program, interpreting the Type1 charstring moveto/lineto/curveto
-// subset (hint operators are parsed and discarded).
-func glyphOutlineFromType1(fontData []byte, glyphName string) (GlyphPath, bool) {
-	binStart := fontprog.Type1EexecBinStart(fontData)
-	cs, lenIV := fontprog.Type1CharStringsSection(fontData, binStart)
-	if cs == nil {
-		return GlyphPath{}, false
-	}
-	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(cs, -1) {
-		name := string(cs[m[2]:m[3]])
-		if name != glyphName {
-			continue
-		}
-		n := atoiSafe(string(cs[m[4]:m[5]]))
-		if n <= 0 || m[1]+n > len(cs) {
-			return GlyphPath{}, false
-		}
-		dec := fontprog.DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
-		contours := interpretType1Charstring(dec)
-		return GlyphPath{Contours: contours}, true
-	}
-	return GlyphPath{}, false
+// type1Program is a Type1 font program decrypted once per font: its glyphs'
+// charstrings by name and the Subrs they call.
+type type1Program struct {
+	glyphs map[string][]byte
+	subrs  [][]byte
 }
 
-func atoiSafe(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return -1
-		}
-		n = n*10 + int(c-'0')
+func parseType1Program(fontData []byte) (*type1Program, bool) {
+	glyphs, subrs, ok := fontprog.Type1Charstrings(fontData)
+	if !ok {
+		return nil, false
 	}
-	return n
+	return &type1Program{glyphs: glyphs, subrs: subrs}, true
+}
+
+// outline returns the named glyph's outline.
+func (p *type1Program) outline(name string) (GlyphPath, bool) {
+	cs, ok := p.glyphs[name]
+	if !ok {
+		return GlyphPath{}, false
+	}
+	in := &type1Interp{prog: p}
+	in.run(cs, 0)
+	in.closeContour()
+	return GlyphPath{Contours: in.contours}, true
 }
 
 // type1Interp holds the running state of a Type1 charstring interpreter.
@@ -652,13 +732,34 @@ type type1Interp struct {
 	sbx      float64
 	contours [][]Point
 	cur      []Point
+
+	// prog supplies Subrs and, for seac, the base and accent glyphs; nil
+	// interprets a lone charstring.
+	prog *type1Program
+	// ox, oy offset the glyph: seac places its accent this way.
+	ox, oy float64
+	// inSeac stops a seac component from composing another.
+	inSeac bool
+	// ps is the PostScript operand stack callothersubr leaves results on
+	// for pop.
+	ps []float64
+	// flexing collects the flex points OtherSubrs 1 starts and 0 draws:
+	// inside a flex, rmoveto records a point instead of moving.
+	flexing   bool
+	flexStart Point
+	flexPts   []Point
 }
 
-// interpretType1Charstring runs a (decrypted) Type1 charstring and returns
-// its outline as flattened polygon contours in glyph-space units.
+// maxType1SubrDepth bounds callsubr nesting, so subrs calling each other in
+// a cycle cannot spin.
+const maxType1SubrDepth = 10
+
+// interpretType1Charstring runs a (decrypted) Type1 charstring that calls no
+// subroutines and returns its outline as flattened polygon contours in
+// glyph-space units.
 func interpretType1Charstring(cs []byte) [][]Point {
 	in := &type1Interp{}
-	in.run(cs)
+	in.run(cs, 0)
 	in.closeContour()
 	return in.contours
 }
@@ -671,6 +772,11 @@ func (in *type1Interp) closeContour() {
 }
 
 func (in *type1Interp) moveTo(x, y float64) {
+	if in.flexing {
+		in.x, in.y = x, y
+		in.flexPts = append(in.flexPts, Point{x, y})
+		return
+	}
 	in.closeContour()
 	in.x, in.y = x, y
 	in.cur = []Point{{x, y}}
@@ -688,7 +794,21 @@ func (in *type1Interp) curveTo(x1, y1, x2, y2, x3, y3 float64) {
 	in.x, in.y = x3, y3
 }
 
-func (in *type1Interp) run(cs []byte) {
+// pop removes and returns the top n operands, oldest first, or nil when the
+// stack holds fewer.
+func (in *type1Interp) pop(n int) []float64 {
+	if len(in.stack) < n {
+		return nil
+	}
+	args := in.stack[len(in.stack)-n:]
+	in.stack = in.stack[:len(in.stack)-n]
+	return args
+}
+
+// run interprets cs, depth subroutine calls deep. It reports whether the
+// glyph ended -- endchar, seac, or a call that could not be followed -- as
+// opposed to cs returning to its caller.
+func (in *type1Interp) run(cs []byte, depth int) (ended bool) {
 	i := 0
 	for i < len(cs) {
 		b := cs[i]
@@ -734,18 +854,25 @@ func (in *type1Interp) run(cs []byte) {
 		case b == 9: // closepath
 			in.stack = in.stack[:0]
 			i++
-		case b == 10: // callsubr -- subroutines (incl. flex/hints) aren't resolvable
-			// without the Subrs array; drop the subr number and continue.
-			if len(in.stack) > 0 {
-				in.stack = in.stack[:len(in.stack)-1]
+		case b == 10: // callsubr
+			a := in.pop(1)
+			if a == nil || in.prog == nil || depth >= maxType1SubrDepth {
+				return true
+			}
+			n := int(a[0])
+			if n < 0 || n >= len(in.prog.subrs) || in.prog.subrs[n] == nil {
+				return true
+			}
+			if in.run(in.prog.subrs[n], depth+1) {
+				return true
 			}
 			i++
 		case b == 11: // return
-			i++
+			return false
 		case b == 13: // hsbw: sbx wx
 			if len(in.stack) >= 2 {
 				in.sbx = in.stack[0]
-				in.x, in.y = in.sbx, 0
+				in.x, in.y = in.ox+in.sbx, in.oy
 			}
 			in.stack = in.stack[:0]
 			i++
@@ -778,39 +905,128 @@ func (in *type1Interp) run(cs []byte) {
 		case b == 12: // two-byte escape
 			i++
 			if i >= len(cs) {
-				return
+				return true
 			}
 			esc := cs[i]
 			i++
-			switch esc {
-			case 12: // div
-				if len(in.stack) >= 2 {
-					a := in.stack[:len(in.stack)-2]
-					num, den := in.stack[len(in.stack)-2], in.stack[len(in.stack)-1]
-					if den != 0 {
-						in.stack = append(a, num/den)
-					} else {
-						in.stack = a
-					}
-				}
-			case 6: // seac (accented char) -- composition unsupported, skip
-				in.stack = in.stack[:0]
-			case 7: // sbw
-				if len(in.stack) >= 4 {
-					in.sbx = in.stack[0]
-					in.x, in.y = in.sbx, in.stack[1]
-				}
-				in.stack = in.stack[:0]
-			default:
-				in.stack = in.stack[:0]
+			if in.escape(esc) {
+				return true
 			}
 		case b == 14: // endchar
 			in.stack = in.stack[:0]
-			return
+			return true
 		default:
 			in.stack = in.stack[:0]
 			i++
 		}
+	}
+	return false
+}
+
+// escape runs a two-byte escape operator and reports whether it ended the
+// glyph.
+func (in *type1Interp) escape(esc byte) (ended bool) {
+	switch esc {
+	case 12: // div
+		if a := in.pop(2); a != nil {
+			if a[1] != 0 {
+				in.stack = append(in.stack, a[0]/a[1])
+			}
+		}
+		return false
+	case 6: // seac: asb adx ady bchar achar
+		a := in.pop(5)
+		in.stack = in.stack[:0]
+		if a != nil {
+			in.seac(a[0], a[1], a[2], int(a[3]), int(a[4]))
+		}
+		return true
+	case 7: // sbw: sbx sby wx wy
+		if len(in.stack) >= 4 {
+			in.sbx = in.stack[0]
+			in.x, in.y = in.ox+in.sbx, in.oy+in.stack[1]
+		}
+	case 16: // callothersubr: arg1 ... argn n othersubr#
+		in.callOtherSubr()
+		return false
+	case 17: // pop: move a callothersubr result onto the stack
+		v := 0.0
+		if n := len(in.ps); n > 0 {
+			v, in.ps = in.ps[n-1], in.ps[:n-1]
+		}
+		in.stack = append(in.stack, v)
+		return false
+	case 33: // setcurrentpoint: x y
+		if a := in.pop(2); a != nil {
+			in.x, in.y = a[0], a[1]
+		}
+	}
+	in.stack = in.stack[:0]
+	return false
+}
+
+// callOtherSubr runs the OtherSubrs every Type1 program defines the same
+// way: 1 starts a flex, 2 marks one of its points, 0 draws it, and 3 (hint
+// replacement) hands its subr number back for pop. Any other leaves its
+// arguments for pop, as an unknown PostScript procedure would be assumed to.
+func (in *type1Interp) callOtherSubr() {
+	head := in.pop(2)
+	if head == nil {
+		in.stack = in.stack[:0]
+		return
+	}
+	n, which := int(head[0]), int(head[1])
+	args := in.pop(max(n, 0))
+	in.stack = in.stack[:0]
+	switch which {
+	case 1:
+		in.flexing, in.flexStart, in.flexPts = true, Point{in.x, in.y}, nil
+		return
+	case 2:
+		return
+	case 0:
+		// The first of the seven points is the flex's reference point, which
+		// only matters for hinting; the other six are the two curves' control
+		// and end points, drawn from where the flex started.
+		if in.flexing && len(in.flexPts) == 7 {
+			p := in.flexPts
+			in.x, in.y = in.flexStart.X, in.flexStart.Y
+			in.curveTo(p[1].X, p[1].Y, p[2].X, p[2].Y, p[3].X, p[3].Y)
+			in.curveTo(p[4].X, p[4].Y, p[5].X, p[5].Y, p[6].X, p[6].Y)
+		}
+		in.flexing = false
+		// pop pop setcurrentpoint follows, taking the end point x then y.
+		if len(args) == 3 {
+			in.ps = append(in.ps, args[2], args[1])
+		}
+		return
+	}
+	for j := len(args) - 1; j >= 0; j-- {
+		in.ps = append(in.ps, args[j])
+	}
+}
+
+// seac composes a standard accented character: the base glyph bchar at the
+// origin and the accent achar offset by (adx-asb, ady), both named through
+// StandardEncoding.
+func (in *type1Interp) seac(asb, adx, ady float64, bchar, achar int) {
+	if in.prog == nil || in.inSeac || bchar < 0 || bchar > 255 || achar < 0 || achar > 255 {
+		return
+	}
+	in.closeContour()
+	for _, part := range []struct {
+		code   int
+		ox, oy float64
+	}{{bchar, in.ox, in.oy}, {achar, in.ox + adx - asb, in.oy + ady}} {
+		cs, ok := in.prog.glyphs[fontprog.StandardEncoding[part.code]]
+		if !ok {
+			continue
+		}
+		sub := &type1Interp{prog: in.prog, ox: part.ox, oy: part.oy, inSeac: true}
+		sub.x, sub.y = part.ox, part.oy
+		sub.run(cs, 0)
+		sub.closeContour()
+		in.contours = append(in.contours, sub.contours...)
 	}
 }
 
