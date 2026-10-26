@@ -106,19 +106,26 @@ Both subcommands take:
 
 ## WebAssembly
 
-`wasm/` is a `syscall/js` wrapper that runs verification and conversion in the
-browser, with no server involved:
+`wasm/` holds two `syscall/js` builds that run in the browser, with no server
+involved:
 
 ```bash
+# verify only: about 7.8 MB
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab-verify.wasm ./wasm/verify
+# verify and convert: about 16.7 MB
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
 ```
 
-It registers two globals, both taking a `Uint8Array` and returning a Promise:
+The verify-only module is built on `gopdfrab/verify` and links none of the
+converter, so a page can load it up front and fetch the full module only when
+the user asks for a conversion. Both register their globals, each taking a
+`Uint8Array` and returning a Promise, then post `{type: "ready", module}` to
+the host, where `module` is `"verify"` or `"convert"`:
 
-- `gopdfrabVerify(bytes)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
-- `gopdfrabConvert(bytes)` resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, where `output` is the converted PDF as a `Uint8Array`.
+- `gopdfrabVerify(bytes)` (both modules) resolves to `{valid, summary, profile, issueCount, doc, issues}`.
+- `gopdfrabConvert(bytes)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, where `output` is the converted PDF as a `Uint8Array`.
 
-Each issue carries `{clause, subclause, name, description, group, page, documentLevel, messages}`; `doc` reports what the file says about itself (`pageCount`, `version`, `claimedPart`, `claimedLevel`, `title`, `author`), each field best-effort. The doc comments in `wasm/main.go` are the full reference.
+Each issue carries `{clause, subclause, name, description, group, page, documentLevel, messages}`; `doc` reports what the file says about itself (`pageCount`, `version`, `claimedPart`, `claimedLevel`, `title`, `author`), each field best-effort. The doc comments in `wasm/main.go` and `wasm/internal/jsapi` are the full reference.
 
 On js/wasm there is no filesystem, so only the `*Bytes` entry points apply.
 
@@ -156,7 +163,8 @@ res, err := verify.VerifyBytes(data, verify.PDFA1B)
 Go's linker already drops most converter code a verify-only caller of the root
 package leaves unused, so the saving there is moderate: about 16% of a small
 verifying binary (4.8 MB instead of 5.7 MB). It is largest next to a build that
-also converts, such as the WebAssembly modules below.
+also converts: the verify-only WebAssembly module below is less than half the
+size of the full one.
 
 ### Initialize a Document
 

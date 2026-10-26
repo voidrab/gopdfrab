@@ -32,6 +32,10 @@ notice.
 - `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
   the same names and over the same types, for programs that never convert.
   It does not compile or link the converter.
+- WebAssembly: a verify-only module, `./wasm/verify` (about 7.8 MB against
+  the full module's 16.7 MB), so a page can load it first and fetch the full
+  module only to convert. Both modules now say which one is ready:
+  `{type: "ready", module: "verify" | "convert"}`.
 
 ### Fixed
 

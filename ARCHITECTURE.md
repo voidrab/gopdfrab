@@ -43,7 +43,7 @@ fontprog, fontsubst, writer → pdf
 
 `verify/` is the second public package: the verification half of that API, under the same names and over the same type aliases, for programs that never convert. It imports only `internal/pdf` and `internal/verify`, so it never reaches the converter. `TestVerifyPackageIsLight` (`layering_test.go`) fails if any chain of imports from it reaches `convert`, `fontedit`, `fontsubst`, `raster` or `writer`, and `TestVerifyAPIParity` (`verify_api_test.go`) fails if its API drifts from the root package's verification half. `Limits` is defined there and aliased at the root, so there is one type.
 
-`cmd/gopdfrab` provides the CLI, while `wasm/main.go` provides the browser build.
+`cmd/gopdfrab` provides the CLI. `wasm/main.go` is the full browser build and `wasm/verify/main.go` the verify-only one, built on `gopdfrab/verify`; both share the JavaScript bridge in `wasm/internal/jsapi`.
 
 ## internal/pdf — the parser and object model
 
