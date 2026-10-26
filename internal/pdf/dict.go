@@ -145,6 +145,20 @@ func (d Dict) Len() int {
 	return len(d.ent)
 }
 
+// Clone returns a dictionary holding d's entries in a body of its own, so
+// editing the clone leaves d -- and everything reading it -- as it was. The
+// values themselves are shared, not copied.
+func (d Dict) Clone() Dict {
+	return &DictBody{ent: slices.Clone(d.ent), idx: maps.Clone(d.idx)}
+}
+
+// Assign makes d hold exactly src's entries. Every value sharing d's body,
+// which is every reference to the object, sees the change: the way to publish
+// an edit prepared on a Clone.
+func (d Dict) Assign(src Dict) {
+	*d = DictBody{ent: slices.Clone(src.ent), idx: maps.Clone(src.idx)}
+}
+
 // All iterates in insertion order. Safe on a nil Dict.
 //
 // Do not Set a new key or Del during iteration: unlike a Go map, removing an
