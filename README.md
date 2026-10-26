@@ -87,22 +87,22 @@ summary: pass=1 fail=1 error=1 files=3
 
 Both subcommands take:
 
-| Flag | Meaning |
-|---|---|
-| `--profile` | `pdfa1b` (default), `legacy1b`, or `pdf` |
-| `--password` | password for an encrypted input. It is visible to other users in `ps`; set `GOPDFRAB_PASSWORD` instead to keep it out of the process list |
-| `--max-decoded-mb` | cap a single stream's decoded output in MB (0 = default 256) |
-| `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64) |
-| `--json` | emit machine-readable JSON |
-| `--detail` | list every page and object an issue was found on, instead of grouping by check and message |
+| Flag                | Meaning                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `--profile`         | `pdfa1b` (default), `legacy1b`, or `pdf`                                                                                                  |
+| `--password`        | password for an encrypted input. It is visible to other users in `ps`; set `GOPDFRAB_PASSWORD` instead to keep it out of the process list |
+| `--max-decoded-mb`  | cap a single stream's decoded output in MB (0 = default 256)                                                                              |
+| `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64)                                                                                |
+| `--json`            | emit machine-readable JSON                                                                                                                |
+| `--detail`          | list every page and object an issue was found on, instead of grouping by check and message                                                |
 
 `convert` also takes:
 
-| Flag | Meaning |
-|---|---|
-| `--dpi` | raster fallback resolution (0 = default 150) |
-| `--max-iterations` | verify/fix loop bound (0 = default 4) |
-| `-o` | output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
+| Flag               | Meaning                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `--dpi`            | raster fallback resolution (0 = default 150)                            |
+| `--max-iterations` | verify/fix loop bound (0 = default 4)                                   |
+| `-o`               | output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
 
 ## WebAssembly
 
@@ -264,14 +264,14 @@ for _, r := range results {
 Open, verify and convert failures can be matched with `errors.Is` instead of
 inspecting message text:
 
-| Error | Meaning |
-|---|---|
-| `gopdfrab.ErrNotPDF` | the input is not a PDF (no `%PDF-` header) |
-| `gopdfrab.ErrDamaged` | a PDF whose cross-reference or trailer structure could not be parsed |
-| `gopdfrab.ErrEncrypted` | an encryption scheme gopdfrab does not implement |
-| `gopdfrab.ErrPasswordRequired` | a correct password is required to open the file |
-| `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced |
-| `gopdfrab.ErrInternal` | a defect in gopdfrab itself, recovered from a panic; please report it with the input file |
+| Error                           | Meaning                                                                                   |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `gopdfrab.ErrNotPDF`            | the input is not a PDF (no `%PDF-` header)                                                |
+| `gopdfrab.ErrDamaged`           | a PDF whose cross-reference or trailer structure could not be parsed                      |
+| `gopdfrab.ErrEncrypted`         | an encryption scheme gopdfrab does not implement                                          |
+| `gopdfrab.ErrPasswordRequired`  | a correct password is required to open the file                                           |
+| `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced                   |
+| `gopdfrab.ErrInternal`          | a defect in gopdfrab itself, recovered from a panic; please report it with the input file |
 
 An individual object that fails to parse — a wrong cross-reference offset, a
 corrupt body — does not fail the whole document. The object is re-located by
@@ -443,7 +443,7 @@ for _, iss := range residual {
 
 ### Fidelity
 
-Conforming to PDF/A is not the same as *looking* like the input — a page blanked
+Conforming to PDF/A is not the same as _looking_ like the input — a page blanked
 during conversion still verifies clean. `Options.CheckFidelity` renders the input
 and the output and reports a per-page comparison so you can catch that:
 
@@ -517,18 +517,18 @@ res, err := doc.Verify(p)
 
 ### Available check groups
 
-| Registry field | Spec area |
-|---|---|
-| `Checks.Structure` | 6.1.x — file header, trailer, xref, object framing, limits |
-| `Checks.Colour` | 6.2.2 OutputIntent, 6.2.3.x device colours, 6.2.9–10 |
-| `Checks.Image` | 6.2.4–6.2.7 image/form/PostScript XObjects |
-| `Checks.Transparency` | 6.2.8 transfer functions, 6.4 soft masks/blend modes/alpha |
-| `Checks.Font` | 6.3.x embedding, subsets, metrics, encoding |
-| `Checks.Annotation` | 6.5.x annotation types and dictionaries |
-| `Checks.Action` | 6.6.x action types and additional actions |
-| `Checks.Metadata` | 6.7.x XMP metadata, extension schemas, PDF/A identifier |
-| `Checks.Form` | 6.9 interactive forms |
-| `Checks.ObjectModel` | Generic ISO 32000 object-model conformance, independent of PDF/A — see below |
+| Registry field        | Spec area                                                                    |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `Checks.Structure`    | 6.1.x — file header, trailer, xref, object framing, limits                   |
+| `Checks.Colour`       | 6.2.2 OutputIntent, 6.2.3.x device colours, 6.2.9–10                         |
+| `Checks.Image`        | 6.2.4–6.2.7 image/form/PostScript XObjects                                   |
+| `Checks.Transparency` | 6.2.8 transfer functions, 6.4 soft masks/blend modes/alpha                   |
+| `Checks.Font`         | 6.3.x embedding, subsets, metrics, encoding                                  |
+| `Checks.Annotation`   | 6.5.x annotation types and dictionaries                                      |
+| `Checks.Action`       | 6.6.x action types and additional actions                                    |
+| `Checks.Metadata`     | 6.7.x XMP metadata, extension schemas, PDF/A identifier                      |
+| `Checks.Form`         | 6.9 interactive forms                                                        |
+| `Checks.ObjectModel`  | Generic ISO 32000 object-model conformance, independent of PDF/A — see below |
 
 An eleventh group, `Checks.LogicalStructure` (6.8.x tagging, structure tree,
 role map, natural language), is registered but left out of the table: all five
@@ -573,13 +573,13 @@ cr, err := doc.ConvertObjectModel()
 
 gopdfrab's PDF/A-1b verification performance is (unfairly) measured against the Java-based [veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/) on the combined Isartor + veraPDF corpora (773 files); see `benchmarks/README.md` for methodology.
 
-| Benchmark | gopdfrab vs veraPDF | gopdfrab vs PDFBox Preflight |
-|---|---|---|
-| Startup time | 149x faster | 22x faster |
-| Single file (cold, median file) | 160x faster | 50x faster |
-| Batch throughput | 20x faster | 15x faster |
-| Batch peak memory | 11x smaller | 15x smaller |
-| Deployment footprint | 9x smaller | 3x smaller |
+| Benchmark                       | gopdfrab vs veraPDF | gopdfrab vs PDFBox Preflight |
+| ------------------------------- | ------------------- | ---------------------------- |
+| Startup time                    | 149x faster         | 22x faster                   |
+| Single file (cold, median file) | 160x faster         | 50x faster                   |
+| Batch throughput                | 20x faster          | 15x faster                   |
+| Batch peak memory               | 11x smaller         | 15x smaller                  |
+| Deployment footprint            | 9x smaller          | 3x smaller                   |
 
 Absolute numbers from the same run: the full 773-file batch verifies in 0.29 s (2749 files/s) at 67 MB peak RSS, and a cold single-file verification of the median corpus file takes ~5 ms including process startup.
 
@@ -632,7 +632,7 @@ To actively hunt for new crashes locally:
 go test -run '^$' -fuzz=FuzzOpenBytes        -fuzztime=60s ./internal/pdf/
 go test -run '^$' -fuzz=FuzzParseFunction    -fuzztime=60s ./internal/pdf/
 go test -run '^$' -fuzz=FuzzConvertRoundTrip -fuzztime=60s .
-go test -race -run 'TestGeneratedCorpusRace|TestConcurrentDecodeIsSafe' ./... 
+go test -race -run 'TestGeneratedCorpusRace|TestConcurrentDecodeIsSafe' ./...
 ```
 
 ## Security
