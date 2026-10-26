@@ -857,9 +857,16 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				visitedTyped[typedVisit{ptr, expectedType}] = true
 			}
 
+			// A page sets the page for its own subtree only. Left set, a page
+			// reached mid-walk -- a link annotation's /Dest, say, which sorts
+			// before /Contents and /Resources -- took over every issue still to
+			// come on the page that linked to it, and the raster fallback picks
+			// pages by these numbers.
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+					savedPage := ctx.CurrentPage
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
+					defer func() { ctx.CurrentPage = savedPage }()
 				}
 			}
 
