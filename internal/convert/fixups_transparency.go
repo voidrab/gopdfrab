@@ -87,11 +87,17 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		return false
 	}
 
+	// Workers edit a clone of each target's entries, never the target itself:
+	// other workers' renders may read it (a form drawn inside another, an
+	// image inside a form), and an edit mid-render is a data race. The edits
+	// are published serially once every render is done.
 	pdf.ParallelFor(f.runCtx(), len(unique), runtime.NumCPU(), func(i int) {
 		t := unique[i]
+		work := t.dict
+		work.Entries = t.dict.Entries.Clone()
 		switch t.kind {
 		case "image":
-			fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
+			fixed, ok := bakeSoftMaskOut(work, t.resources)
 			results[i] = result{fixed: fixed, ok: ok}
 		case "form":
 			// A provably transparency-free group composites the same
@@ -101,7 +107,7 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 				results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 				return
 			}
-			fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
+			fixed, drops, ok := flattenFormToImage(work, t.resources, f.renderDPI(), t.inherited)
 			results[i] = result{fixed: fixed, ok: ok, drops: drops}
 		case "page":
 			// Only note it: Del shifts the page dict's entries, and other
@@ -124,7 +130,12 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 
 	byDict := make(map[uintptr]result, len(unique))
 	for i, t := range unique {
-		byDict[pdf.ValuePointer(t.dict.Entries)] = results[i]
+		r := &results[i]
+		if r.ok && !r.dropGroup {
+			t.dict.Entries.Assign(r.fixed.Entries)
+			r.fixed.Entries = t.dict.Entries
+		}
+		byDict[pdf.ValuePointer(t.dict.Entries)] = *r
 	}
 	changed := false
 	for _, t := range targets {

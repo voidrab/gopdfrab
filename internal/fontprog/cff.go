@@ -484,29 +484,11 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 		fdIndex = make([]int, len(charStrings))
 	}
 
-	type fdInfo struct {
-		defaultWidthX, nominalWidthX float64
-		lsubrs                       [][]byte
-		ok                           bool
-	}
-	infos := make([]fdInfo, len(fds))
-	for i, fd := range fds {
-		var privOff, privSize int
-		privOff, privSize = -1, -1
-		hasMatrix := false
-		if !cffDictNumbers(fd, func(operator int, operands []float64) {
-			switch {
-			case operator == 18 && len(operands) > 1:
-				privSize = int(operands[0])
-				privOff = int(operands[1])
-			case operator == 1207:
-				hasMatrix = true
-			}
-		}) || hasMatrix {
-			continue
-		}
-		d, n, ls, ok := cffPrivateInfo(cff, privOff, privSize)
-		infos[i] = fdInfo{d, n, ls, ok}
+	// A Font DICT with its own FontMatrix scales its glyphs' widths by a
+	// matrix this path does not apply, so its glyphs are skipped.
+	infos := cffFontDictPrivates(cff, fds)
+	for i := range infos {
+		infos[i].ok = infos[i].ok && !infos[i].hasMatrix
 	}
 	gsubrs := cffGlobalSubrs(cff)
 
@@ -519,7 +501,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 			continue
 		}
 		info := infos[fd]
-		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.lsubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
+		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.localSubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
 			widths[cids[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++

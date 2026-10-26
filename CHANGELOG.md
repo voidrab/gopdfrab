@@ -24,6 +24,23 @@ notice.
   comment naming its replacement, kept for at least one subsequent minor release,
   and removed no earlier than the next major version.
 
+## [Unreleased]
+
+### Fixed
+
+- Convert rewrote a stream referenced from several places through only one of
+  them, writing a corrupt stream into output it reported conformant.
+- An issue after a link annotation was attributed to the link's destination
+  page, so the raster fallback could rasterize the wrong page.
+- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
+  `seac` came out with segments missing.
+- When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
+  the last fix pass had already repaired.
+- An image claiming a size its data does not back could make the raster
+  fallback allocate gigabytes; it is now a reported `oversized image` drop.
+- The parallel transparency flattener had a data race on forms and images
+  drawn inside other flattened forms.
+
 ## [1.2.0] - 2026-10-11
 
 ### Added

@@ -215,27 +215,26 @@ func TestType2CharstringEscapeAndHintmask(t *testing.T) {
 	}
 }
 
-// TestType1CharstringSubrEscapes covers callsubr/return and the div/seac/sbw
-// two-byte escapes, none of which are exercised by the other Type1 tests.
+// TestType1CharstringSubrEscapes covers the div and sbw escapes, and that a
+// callsubr with no Subrs to resolve against ends the glyph.
 func TestType1CharstringSubrEscapes(t *testing.T) {
 	var p []byte
 	add := func(bs ...byte) { p = append(p, bs...) }
 
-	add(b139(0), b139(100), 13)                             // hsbw: sbx=0 wx=100
-	add(b139(10), b139(10), 21)                             // rmoveto (10,10)
-	add(b139(5), 10)                                        // push 5, callsubr (drops it)
-	add(11)                                                 // return, no-op
-	add(b139(10), b139(2), 12, 12)                          // div: 10 2 -> 5.0
-	add(22)                                                 // hmoveto consumes the div result
-	add(b139(1), b139(2), b139(3), b139(4), b139(5), 12, 6) // seac: unsupported, stack cleared
-	add(b139(0), b139(0), b139(50), b139(0), 12, 7)         // sbw: sbx=0 sby=0 -> x,y=(0,0)
-	add(b139(20), b139(20), 21)                             // rmoveto for a real contour
-	add(b139(50), 6)                                        // hlineto
-	add(9, 14)                                              // closepath, endchar
+	add(b139(0), b139(100), 13)                     // hsbw: sbx=0 wx=100
+	add(b139(10), b139(10), 21)                     // rmoveto (10,10)
+	add(b139(10), b139(2), 12, 12)                  // div: 10 2 -> 5.0
+	add(22)                                         // hmoveto consumes the div result
+	add(b139(0), b139(0), b139(50), b139(0), 12, 7) // sbw: sbx=0 sby=0 -> x,y=(0,0)
+	add(b139(20), b139(20), 21)                     // rmoveto for a real contour
+	add(b139(50), 6)                                // hlineto
+	add(9)                                          // closepath
+	add(b139(5), 10)                                // callsubr: a lone charstring has no Subrs, so the glyph ends
+	add(b139(50), 7)                                // never drawn
 
 	contours := interpretType1Charstring(p)
-	if len(contours) == 0 {
-		t.Fatal("interpretType1Charstring produced no contours")
+	if len(contours) != 1 || len(contours[0]) != 2 {
+		t.Fatalf("contours = %v, want the one 2-point contour drawn before the unresolvable callsubr", contours)
 	}
 }
 
@@ -317,18 +316,6 @@ func TestTTCompositeContoursByteArgScaleVariants(t *testing.T) {
 				t.Fatalf("got %d contours, want 1 with 3 points", len(contours))
 			}
 		})
-	}
-}
-
-func TestAtoiSafe(t *testing.T) {
-	if atoiSafe("123") != 123 {
-		t.Error("atoiSafe(123)")
-	}
-	if atoiSafe("") != 0 {
-		t.Error("atoiSafe(empty)")
-	}
-	if atoiSafe("12x") != -1 {
-		t.Error("atoiSafe(non-digit) should be -1")
 	}
 }
 

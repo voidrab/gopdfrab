@@ -1022,10 +1022,9 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc2.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			cff := fontprog.ExtractCFFBytes(data)
-			if cff != nil {
+			if prog, ok := parseCFFProgram(fontprog.ExtractCFFBytes(data)); ok {
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					return glyphOutlineFromCFF(cff, cidToGID(code))
+					return prog.outline(cidToGID(code))
 				}
 				return fi
 			}
@@ -1062,11 +1061,13 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff)
 		if err == nil {
+			// Decrypted once here, not once per glyph drawn.
+			prog, ok := parseType1Program(data)
 			fi.glyphFor = func(code int) (GlyphPath, bool) {
-				if code < 0 || code > 255 || names[code] == "" {
+				if !ok || code < 0 || code > 255 || names[code] == "" {
 					return GlyphPath{}, false
 				}
-				return glyphOutlineFromType1(data, names[code])
+				return prog.outline(names[code])
 			}
 			return fi
 		}
@@ -1086,11 +1087,11 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			if cff := fontprog.ExtractCFFBytes(data); cff != nil {
+			if prog, ok := parseCFFProgram(fontprog.ExtractCFFBytes(data)); ok {
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
 					// No charset-based name->GID resolution is implemented;
 					// falling back to code-as-GID is a documented approximation.
-					return glyphOutlineFromCFF(cff, code)
+					return prog.outline(code)
 				}
 				return fi
 			}

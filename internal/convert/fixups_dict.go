@@ -43,7 +43,7 @@ func init() {
 // dict's Entries map in place (delete/set keys); since walkDicts passes each
 // pdf.PDFDict by value, only edits to its Entries map (a reference type) take
 // effect on the shared graph -- replacing fn's own copy's HasStream/RawStream
-// fields would not propagate.
+// fields would not propagate. Use walkStreamDicts for that.
 func walkDicts(v pdf.PDFValue, visited map[uintptr]bool, fn func(pdf.PDFDict)) {
 	walkGraph(v, visited, func(d pdf.PDFDict) bool { fn(d); return true }, nil)
 }
@@ -61,12 +61,40 @@ const maxGraphWalkDepth = 1 << 17
 // a replacement it returns is written back into that slot -- the way a fixer
 // changes a stream's RawStream, which no in-place edit of Entries can -- and
 // the walk descends into the replacement.
+//
+// A stream referenced from several slots is one object, but each slot holds
+// its own pdf.PDFDict copy: Entries is shared, RawStream is not. So a stream
+// replacement is written into every slot holding that object -- the ones
+// already passed and, without calling edit again, the ones still ahead.
+// Patching only the slot it came through left the others with the new
+// Entries (a new /Filter, say) over the old bytes, and the writer emits
+// whichever copy it meets first.
 func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict) bool, edit func(pdf.PDFValue) (pdf.PDFValue, bool)) {
 	var walk func(v pdf.PDFValue, depth int)
+	streamSlots := map[uintptr][]func(pdf.PDFValue){}
+	replaced := map[uintptr]pdf.PDFValue{}
 	descend := func(child pdf.PDFValue, set func(pdf.PDFValue), depth int) {
 		if edit != nil {
+			slots := []func(pdf.PDFValue){set}
+			var ptr uintptr
+			cd, isStream := child.(pdf.PDFDict)
+			if isStream = isStream && cd.HasStream; isStream {
+				ptr = pdf.ValuePointer(cd.Entries)
+				if r, done := replaced[ptr]; done {
+					set(r)
+					return
+				}
+				streamSlots[ptr] = append(streamSlots[ptr], set)
+				slots = streamSlots[ptr]
+			}
 			if updated, ok := edit(child); ok {
-				set(updated)
+				if isStream {
+					replaced[ptr] = updated
+					delete(streamSlots, ptr)
+				}
+				for _, s := range slots {
+					s(updated)
+				}
 				child = updated
 			}
 		}

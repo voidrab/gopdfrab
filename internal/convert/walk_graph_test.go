@@ -59,3 +59,34 @@ func TestWalkGraphDepthCap(t *testing.T) {
 		return true
 	}, nil)
 }
+
+// TestWalkGraphSharedStreamReplacement pins that a stream replaced through one
+// slot is replaced in every slot holding the same object: those already
+// passed, and those still ahead without edit running again. Each slot holds
+// its own copy of RawStream, so patching one slot left the others with the
+// new Entries over the old bytes.
+func TestWalkGraphSharedStreamReplacement(t *testing.T) {
+	s := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "X"}}), HasStream: true, RawStream: []byte("old")}
+	arr := pdf.PDFArray{s, s, s}
+	var calls int
+	walkGraph(arr, map[uintptr]bool{}, nil, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
+		d, ok := v.(pdf.PDFDict)
+		if !ok {
+			return nil, false
+		}
+		calls++
+		if calls != 2 { // fire on the middle slot, so one copy lies behind it
+			return nil, false
+		}
+		d.RawStream = []byte("new")
+		return d, true
+	})
+	for i, v := range arr {
+		if got := string(v.(pdf.PDFDict).RawStream); got != "new" {
+			t.Errorf("slot %d holds %q, want the replacement's bytes", i, got)
+		}
+	}
+	if calls != 2 {
+		t.Errorf("edit ran %d times, want 2 (not again on a slot already replaced)", calls)
+	}
+}
