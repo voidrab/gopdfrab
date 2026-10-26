@@ -83,8 +83,3 @@ func GlyfComponents(rec []byte) []int {
 // bbox, and an explicit instructionLength=0 -- a valid, explicit way to say
 // "this glyph has no outline," used in place of a zero-length loca span.
 var EmptyGlyfRecord = make([]byte, 12)
-
-// SfntChecksumAdjustmentMagic is the constant every TrueType font's
-// head.checkSumAdjustment is defined relative to: adjustment = magic -
-// (checksum of the whole file with checkSumAdjustment itself zeroed).
-const SfntChecksumAdjustmentMagic = 0xB1B0AFBA

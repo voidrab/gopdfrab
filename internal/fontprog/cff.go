@@ -307,9 +307,9 @@ func Type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 	}
 }
 
-// CFFCharstringWidth extracts one glyph's advance width given the width
+// cffCharstringWidth extracts one glyph's advance width given the width
 // defaults and subrs in effect for it, or -1 when it cannot be followed.
-func CFFCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
+func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
 	w, hasWidth, ok := Type2CharstringWidth(cs, gsubrs, lsubrs)
 	if !ok {
 		return -1
@@ -430,7 +430,7 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]float64, WidthStats) {
 	stats := WidthStats{GlyphsTotal: len(charStrings) - 1}
 	widths := make(map[string]float64, len(names))
 	for gid := 1; gid < len(charStrings); gid++ {
-		if w := CFFCharstringWidth(charStrings[gid], gsubrs, lsubrs, defaultWidthX, nominalWidthX); w >= 0 {
+		if w := cffCharstringWidth(charStrings[gid], gsubrs, lsubrs, defaultWidthX, nominalWidthX); w >= 0 {
 			widths[names[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++
@@ -501,7 +501,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 			continue
 		}
 		info := infos[fd]
-		if w := CFFCharstringWidth(charStrings[gid], gsubrs, info.localSubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
+		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.localSubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
 			widths[cids[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++

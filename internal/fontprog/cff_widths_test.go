@@ -249,13 +249,13 @@ func TestCffWidthScaleAndScaleWidth(t *testing.T) {
 }
 
 func TestCffCharstringWidth(t *testing.T) {
-	if got := CFFCharstringWidth([]byte{139, 9}, nil, nil, 500, 600); got != -1 {
+	if got := cffCharstringWidth([]byte{139, 9}, nil, nil, 500, 600); got != -1 {
 		t.Errorf("unfollowable charstring = %v, want -1", got)
 	}
-	if got := CFFCharstringWidth([]byte{14}, nil, nil, 500, 600); got != 500 {
+	if got := cffCharstringWidth([]byte{14}, nil, nil, 500, 600); got != 500 {
 		t.Errorf("no width operand = %v, want defaultWidthX 500", got)
 	}
-	if got := CFFCharstringWidth([]byte{144, 14}, nil, nil, 500, 600); got != 605 {
+	if got := cffCharstringWidth([]byte{144, 14}, nil, nil, 500, 600); got != 605 {
 		t.Errorf("width operand 5 = %v, want nominalWidthX+5 = 605", got)
 	}
 }

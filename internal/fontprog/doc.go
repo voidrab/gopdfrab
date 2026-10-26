@@ -4,8 +4,7 @@
 //
 // It is shared by the verifier, which uses it to check subset completeness
 // (6.3.5) and width consistency (6.3.6), and by the converter, whose font
-// rewriting lives one layer up in fontedit. PackSfnt and BuildCmapFormat4Table
-// are the only writers here: the sfnt container codec both layers build on.
-// Every parser is defensive: malformed input yields a zero value or ok=false,
-// never a panic.
+// rewriting -- the sfnt writer included -- lives one layer up in fontedit. It
+// writes nothing. Every parser is defensive: malformed input yields a zero
+// value or ok=false, never a panic.
 package fontprog

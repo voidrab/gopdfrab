@@ -383,7 +383,7 @@ func TestExtractCFFBytes(t *testing.T) {
 		t.Errorf("bare CFF passthrough = %x, want %x", got, cff)
 	}
 
-	otf := PackSfnt(map[string][]byte{"CFF ": cff})
+	otf := packSfnt(map[string][]byte{"CFF ": cff})
 	if got := ExtractCFFBytes(otf); string(got) != string(cff) {
 		t.Errorf("OpenType-wrapped CFF extraction = %x, want %x", got, cff)
 	}

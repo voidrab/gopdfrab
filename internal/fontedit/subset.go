@@ -3,9 +3,10 @@ package fontedit
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"math"
 	"sort"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // SubsetTrueType returns a minimal valid sfnt program derived from src,
@@ -69,8 +70,8 @@ func SubsetTrueType(src []byte, unicodes []uint16) ([]byte, error) {
 	}
 
 	out := buildSubsetTables(tables, len(oldGIDs), oldGIDOf, remap)
-	out["cmap"] = fontprog.BuildCmapFormat4Table(3, 1, newCmap)
-	return fontprog.PackSfnt(out), nil
+	out["cmap"] = BuildCmapFormat4Table(3, 1, newCmap)
+	return PackSfnt(out), nil
 }
 
 // SubsetTrueTypeSymbolic returns a minimal sfnt program for a symbolic simple
@@ -139,8 +140,8 @@ func SubsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 	}
 
 	out := buildSubsetTables(tables, len(oldGIDs), oldGIDOf, remap)
-	out["cmap"] = fontprog.BuildCmapFormat4Table(3, 0, newCmap)
-	return fontprog.PackSfnt(out), nil
+	out["cmap"] = BuildCmapFormat4Table(3, 0, newCmap)
+	return PackSfnt(out), nil
 }
 
 // SubsetTrueTypeForCID rebuilds src so that the glyph for each unicode in
@@ -209,7 +210,7 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, notdef map[in
 	}
 
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
-	out["cmap"] = fontprog.BuildCmapFormat4Table(3, 1, nil)
+	out["cmap"] = BuildCmapFormat4Table(3, 1, nil)
 	if head := out["head"]; len(head) >= 20 {
 		upm := float64(binary.BigEndian.Uint16(head[18:20]))
 		// buildSubsetTables writes a full hmtx: one long metric per glyph.
@@ -217,7 +218,7 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, notdef map[in
 			binary.BigEndian.PutUint16(out["hmtx"][cid*4:], uint16(math.Round(width*upm/1000)))
 		}
 	}
-	return fontprog.PackSfnt(out), nil
+	return PackSfnt(out), nil
 }
 
 // PromoteEmptyGlyphs rewrites a TrueType program so every zero-length (empty
@@ -257,7 +258,7 @@ func PromoteEmptyGlyphs(data []byte) ([]byte, bool) {
 		binary.BigEndian.PutUint16(head[50:52], 1) // long loca format
 	}
 	tables["head"] = head
-	return fontprog.PackSfnt(tables), true
+	return PackSfnt(tables), true
 }
 
 // buildSubsetTables rebuilds glyf/loca/hmtx/hhea/maxp/head for an output
@@ -344,8 +345,8 @@ func TrimTrueTypeCmapToSingleSubtable(src []byte) ([]byte, error) {
 	for tag, data := range tables {
 		rebuilt[tag] = data
 	}
-	rebuilt["cmap"] = fontprog.BuildCmapFormat4Table(platform, encoding, gidMap)
-	return fontprog.PackSfnt(rebuilt), nil
+	rebuilt["cmap"] = BuildCmapFormat4Table(platform, encoding, gidMap)
+	return PackSfnt(rebuilt), nil
 }
 
 // FirstFormat4CmapSubtable prefers the (3,1) Windows Unicode BMP subtable

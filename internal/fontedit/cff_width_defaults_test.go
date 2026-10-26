@@ -46,7 +46,7 @@ func truncatingWidths(cff []byte) []float64 {
 	cs, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
 	out := make([]float64, len(cs))
 	for i, c := range cs {
-		out[i] = fontprog.CFFCharstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
+		out[i] = charstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
 	}
 	return out
 }
@@ -189,7 +189,7 @@ func truncatingCIDWidths(cff []byte) map[int]float64 {
 	for gid, c := range cs {
 		off, size, _ := fontDictPrivate(fds[fdIndex[gid]])
 		d, n, lsubrs, _ := fontprog.CFFPrivateInfo(cff, off, size)
-		out[cids[gid]] = fontprog.CFFCharstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
+		out[cids[gid]] = charstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
 	}
 	return out
 }
@@ -539,4 +539,17 @@ func TestEncodeCFFIndexOffsetSize(t *testing.T) {
 			t.Errorf("%d bytes: decoded %d entries", tc.size, len(entries))
 		}
 	}
+}
+
+// charstringWidth is one glyph's advance width given the width defaults in
+// effect for it, or -1 when its charstring cannot be followed.
+func charstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
+	w, hasWidth, ok := fontprog.Type2CharstringWidth(cs, gsubrs, lsubrs)
+	switch {
+	case !ok:
+		return -1
+	case hasWidth:
+		return nominalWidthX + w
+	}
+	return defaultWidthX
 }

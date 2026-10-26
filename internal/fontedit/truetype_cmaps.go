@@ -2,8 +2,9 @@ package fontedit
 
 import (
 	"encoding/binary"
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"sort"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // AddWindowsUnicodeCmap returns the TrueType program font with each Unicode
@@ -47,7 +48,7 @@ func AddWindowsUnicodeCmap(font []byte, add map[uint16]uint16) (out []byte, chan
 			records = append(records, r)
 		}
 	}
-	sub := fontprog.BuildCmapFormat4Table(3, 1, merged)[12:]
+	sub := BuildCmapFormat4Table(3, 1, merged)[12:]
 	head := 4 + 8*(len(records)+1)
 	for i := range records {
 		records[i].offset += uint32(head + len(sub))
@@ -69,5 +70,5 @@ func AddWindowsUnicodeCmap(font []byte, add map[uint16]uint16) (out []byte, chan
 	}
 	cmap = append(append(cmap, sub...), old...)
 	tables["cmap"] = cmap
-	return fontprog.PackSfnt(tables), true
+	return PackSfnt(tables), true
 }

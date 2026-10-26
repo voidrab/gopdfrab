@@ -38,8 +38,8 @@ func cmapWith(subs ...sub) map[string][]byte {
 }
 
 func TestSimpleTrueTypeCmapsWindows(t *testing.T) {
-	win := BuildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})
-	tables, _ := ParseSfnt(PackSfnt(map[string][]byte{"cmap": win}))
+	win := cmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})
+	tables, _ := ParseSfnt(packSfnt(map[string][]byte{"cmap": win}))
 	r := NewSimpleTrueTypeCmaps(pdf.PDFName{Value: "WinAnsiEncoding"}, tables)
 
 	if gid, tried, found := r.Windows('A'); gid != 1 || !tried || !found {
@@ -92,7 +92,7 @@ func TestSimpleTrueTypeCmapsFallback(t *testing.T) {
 	}
 
 	// The 0xF000 PUA alias is tried in a (3,0) format-4 subtable.
-	pua := sub{3, 0, BuildCmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 4})[12:]}
+	pua := sub{3, 0, cmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 4})[12:]}
 	if gid, found := NewSimpleTrueTypeCmaps(nil, cmapWith(pua)).Fallback(0x41); gid != 4 || !found {
 		t.Errorf("PUA alias: %d, %v; want 4, true", gid, found)
 	}

@@ -11,7 +11,7 @@ import (
 func TestAddWindowsUnicodeCmap(t *testing.T) {
 	mac := sub{1, 0, format0(map[byte]byte{0xB0: 1})}
 	ms := sub{3, 0, format0(map[byte]byte{0xB0: 1})}
-	font := fontprog.PackSfnt(map[string][]byte{"cmap": cmapWith(mac, ms)["cmap"], "maxp": {0, 0, 0x50, 0, 0, 3}})
+	font := PackSfnt(map[string][]byte{"cmap": cmapWith(mac, ms)["cmap"], "maxp": {0, 0, 0x50, 0, 0, 3}})
 
 	out, changed := AddWindowsUnicodeCmap(font, map[uint16]uint16{0x00B0: 1})
 	if !changed {
@@ -60,7 +60,7 @@ func TestAddWindowsUnicodeCmap(t *testing.T) {
 	// A record pointing outside the table is dropped.
 	bad := cmapWith(mac, ms)["cmap"]
 	binary.BigEndian.PutUint32(bad[8:], 9999) // the (1,0) record
-	out3, changed := AddWindowsUnicodeCmap(fontprog.PackSfnt(map[string][]byte{"cmap": bad}), map[uint16]uint16{0x00B0: 1})
+	out3, changed := AddWindowsUnicodeCmap(PackSfnt(map[string][]byte{"cmap": bad}), map[uint16]uint16{0x00B0: 1})
 	tables, _ = fontprog.ParseSfnt(out3)
 	if !changed || fontprog.TTCmapSubtable(tables, 1, 0) != nil || fontprog.ParseCmapSubtable(fontprog.TTCmapSubtable(tables, 3, 0))[0xB0] != 1 {
 		t.Error("out-of-range (1,0) record not dropped, or (3,0) lost")
@@ -73,7 +73,7 @@ func TestAddWindowsUnicodeCmap(t *testing.T) {
 	if _, changed := AddWindowsUnicodeCmap([]byte("junk"), map[uint16]uint16{1: 1}); changed {
 		t.Error("junk input changed")
 	}
-	if _, changed := AddWindowsUnicodeCmap(fontprog.PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 3}}), map[uint16]uint16{1: 1}); changed {
+	if _, changed := AddWindowsUnicodeCmap(PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 3}}), map[uint16]uint16{1: 1}); changed {
 		t.Error("font without cmap changed")
 	}
 }

@@ -2,7 +2,6 @@ package fontprog
 
 import (
 	"bytes"
-	"encoding/binary"
 	"reflect"
 	"testing"
 )
@@ -90,48 +89,5 @@ func TestGlyfIsCompositeAndComponents(t *testing.T) {
 	cut := compositeGlyph(7, 8)[:10+6+2]
 	if got := GlyfComponents(cut); !reflect.DeepEqual(got, []int{7}) {
 		t.Errorf("truncated composite components = %v, want [7]", got)
-	}
-}
-
-func TestPackSfntShortHead(t *testing.T) {
-	// A head table shorter than the checkSumAdjustment field is packed as is,
-	// without the adjustment.
-	out := PackSfnt(map[string][]byte{"head": {1, 2, 3, 4}})
-	tables := tt(t, out)
-	if !bytes.Equal(tables["head"], []byte{1, 2, 3, 4}) {
-		t.Errorf("head = %v", tables["head"])
-	}
-}
-
-func TestPackSfntChecksums(t *testing.T) {
-	head := make([]byte, 54)
-	out := PackSfnt(map[string][]byte{"head": head, "zzzz": {1, 2, 3}})
-	tables := tt(t, out)
-	if !bytes.Equal(tables["zzzz"], []byte{1, 2, 3}) {
-		t.Errorf("unaligned table = %v, want the original 3 bytes", tables["zzzz"])
-	}
-
-	// Directory entries are sorted by tag: head, then zzzz.
-	zzzzSum := binary.BigEndian.Uint32(out[12+16+4:])
-	if want := uint32(1)<<24 | 2<<16 | 3<<8; zzzzSum != want {
-		t.Errorf("zzzz checksum = %#x, want %#x", zzzzSum, want)
-	}
-
-	// Per the OpenType spec, head's directory checksum is taken with
-	// checkSumAdjustment as 0, and the adjustment makes the whole file sum
-	// to 0xB1B0AFBA.
-	headEntry := out[12 : 12+16]
-	headOff := binary.BigEndian.Uint32(headEntry[8:])
-	adj := binary.BigEndian.Uint32(out[headOff+8:])
-	if adj == 0 {
-		t.Error("checkSumAdjustment was not written")
-	}
-	zeroed := append([]byte(nil), tables["head"]...)
-	binary.BigEndian.PutUint32(zeroed[8:], 0)
-	if got, want := binary.BigEndian.Uint32(headEntry[4:]), tableChecksum(zeroed); got != want {
-		t.Errorf("head directory checksum = %#x, want %#x (adjustment zeroed)", got, want)
-	}
-	if got := tableChecksum(out); got != SfntChecksumAdjustmentMagic {
-		t.Errorf("whole-file checksum = %#x, want %#x", got, uint32(SfntChecksumAdjustmentMagic))
 	}
 }

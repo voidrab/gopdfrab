@@ -2,8 +2,9 @@ package fontedit
 
 import (
 	"encoding/binary"
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"math"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // NormalizeCFFWidthDefaults rewrites a CFF program whose Private DICT -- or,

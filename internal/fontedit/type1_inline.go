@@ -2,8 +2,9 @@ package fontedit
 
 import (
 	"bytes"
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"strconv"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // InlineType1WidthSubrs rewrites a Type 1 (FontFile) program so that every

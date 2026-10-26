@@ -232,7 +232,7 @@ func TestPromoteEmptyGlyphs(t *testing.T) {
 	if out, changed := PromoteEmptyGlyphs([]byte("nope")); changed || string(out) != "nope" {
 		t.Error("garbage should be returned unchanged")
 	}
-	noMaxp := fontprog.PackSfnt(map[string][]byte{"head": make([]byte, 54)})
+	noMaxp := PackSfnt(map[string][]byte{"head": make([]byte, 54)})
 	if out, changed := PromoteEmptyGlyphs(noMaxp); changed || !bytes.Equal(out, noMaxp) {
 		t.Error("a font without maxp should be returned unchanged")
 	}
@@ -285,7 +285,7 @@ func TestPromoteEmptyGlyphsShortHead(t *testing.T) {
 	}
 	// fontprog.GlyfRecord needs a 52-byte head to read the loca format, so every glyph
 	// reads as empty and is promoted.
-	out, changed := PromoteEmptyGlyphs(fontprog.PackSfnt(tables))
+	out, changed := PromoteEmptyGlyphs(PackSfnt(tables))
 	if !changed {
 		t.Fatal("expected the empty glyph to be promoted")
 	}
@@ -314,9 +314,9 @@ func TestTrimTrueTypeCmapToSingleSubtable(t *testing.T) {
 	tables := tt(t, data)
 	tables["cmap"] = cmapTable(
 		cmapRecord{1, 0, make([]byte, 262)},
-		cmapRecord{3, 1, fontprog.BuildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})[12:]},
+		cmapRecord{3, 1, BuildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})[12:]},
 	)
-	out, err := TrimTrueTypeCmapToSingleSubtable(fontprog.PackSfnt(tables))
+	out, err := TrimTrueTypeCmapToSingleSubtable(PackSfnt(tables))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,8 +332,8 @@ func TestTrimTrueTypeCmapToSingleSubtable(t *testing.T) {
 	}
 
 	// A symbolic font whose only usable subtable is (3,0) keeps its platform.
-	tables["cmap"] = cmapTable(cmapRecord{3, 0, fontprog.BuildCmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 1})[12:]})
-	out, err = TrimTrueTypeCmapToSingleSubtable(fontprog.PackSfnt(tables))
+	tables["cmap"] = cmapTable(cmapRecord{3, 0, BuildCmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 1})[12:]})
+	out, err = TrimTrueTypeCmapToSingleSubtable(PackSfnt(tables))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,13 +346,13 @@ func TestTrimTrueTypeCmapToSingleSubtable(t *testing.T) {
 		t.Error("garbage input should be an error")
 	}
 	tables["cmap"] = cmapTable(cmapRecord{1, 0, make([]byte, 262)})
-	if _, err := TrimTrueTypeCmapToSingleSubtable(fontprog.PackSfnt(tables)); err == nil {
+	if _, err := TrimTrueTypeCmapToSingleSubtable(PackSfnt(tables)); err == nil {
 		t.Error("a cmap with no format-4 subtable should be an error")
 	}
 }
 
 func TestFirstFormat4CmapSubtable(t *testing.T) {
-	f4 := fontprog.BuildCmapFormat4Table(1, 0, map[uint16]uint16{65: 2})[12:]
+	f4 := BuildCmapFormat4Table(1, 0, map[uint16]uint16{65: 2})[12:]
 	tabs := func(cmap []byte) map[string][]byte { return map[string][]byte{"cmap": cmap} }
 
 	if p, e, m, ok := FirstFormat4CmapSubtable(tabs(cmapTable(cmapRecord{3, 1, f4}))); !ok || p != 3 || e != 1 || m[65] != 2 {
@@ -405,9 +405,9 @@ func oddSpanFont() []byte {
 		"maxp": {0, 1, 0, 0, 0, 2},
 		"loca": {0, 0, 0, 0, 0, 0, 0, 13, 0, 0, 0, 13},
 		"glyf": simpleGlyph(13, 7),
-		"cmap": fontprog.BuildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 0, 'B': 1}),
+		"cmap": BuildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 0, 'B': 1}),
 	}
-	return fontprog.PackSfnt(tables)
+	return PackSfnt(tables)
 }
 
 func TestOddLengthGlyphsArePadded(t *testing.T) {

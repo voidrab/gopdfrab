@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -31,7 +32,7 @@ func TestFixSimpleTrueTypeWidthsMacCmap(t *testing.T) {
 
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
-	ff.RawStream = fontprog.PackSfnt(map[string][]byte{
+	ff.RawStream = fontedit.PackSfnt(map[string][]byte{
 		"head": head, "maxp": {0, 0, 0x50, 0, 0, 2}, "hhea": hhea, "hmtx": hmtx, "cmap": cmap,
 	})
 	v := pdf.NewPDFDict()
@@ -58,7 +59,7 @@ func symbolOnlyTrueType() pdf.PDFDict {
 	cmap = append(cmap, sub...)
 	ff := pdf.NewPDFDict()
 	ff.HasStream = true
-	ff.RawStream = fontprog.PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": cmap})
+	ff.RawStream = fontedit.PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": cmap})
 	return ff
 }
 
