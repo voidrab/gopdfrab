@@ -1,6 +1,6 @@
 // Command gopdfrab verifies and converts PDFs for PDF/A-1b conformance from
-// the command line. It is a thin wrapper over the gopdfrab package, using only
-// its public API.
+// the command line. It is a thin wrapper over the public API: the verify subcommand and the
+// shared reporting use gopdfrab/verify, and only convert uses gopdfrab.
 //
 // Exit codes: 0 conformant, 1 non-conformant, 2 error.
 package main
@@ -16,7 +16,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/verify"
 )
 
 const (
@@ -91,14 +91,14 @@ func versionOf(bi *debug.BuildInfo, ok bool) string {
 }
 
 // profileByName maps a --profile flag value to a profile, or nil if unknown.
-func profileByName(name string) *gopdfrab.Profile {
+func profileByName(name string) *verify.Profile {
 	switch name {
 	case "pdfa1b":
-		return gopdfrab.PDFA1B
+		return verify.PDFA1B
 	case "legacy1b":
-		return gopdfrab.Legacy1B
+		return verify.Legacy1B
 	case "pdf":
-		return gopdfrab.PDF
+		return verify.PDF
 	}
 	return nil
 }
@@ -110,7 +110,7 @@ func applyLimits(decodedMB, residentMB int) {
 	if decodedMB <= 0 && residentMB <= 0 {
 		return
 	}
-	gopdfrab.SetLimits(gopdfrab.Limits{
+	verify.SetLimits(verify.Limits{
 		MaxDecodedStreamBytes: int64(decodedMB) << 20,
 		MaxResidentBytes:      int64(residentMB) << 20,
 	})

@@ -8,7 +8,7 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/verify"
 )
 
 func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -49,10 +49,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return exitError
 	}
 
-	opts := gopdfrab.Options{Password: passwordBytes(*password)}
+	opts := verify.Options{Password: passwordBytes(*password)}
 	// VerifyAllContext records every failure, cancellation included, in its
 	// file's result; its error return exists for API uniformity and is nil.
-	results, _ := gopdfrab.VerifyAllContext(ctx, paths, profile, opts)
+	results, _ := verify.VerifyAllContext(ctx, paths, profile, opts)
 
 	if *jsonOut {
 		return printVerifyJSON(results, stdout, stderr)
@@ -62,12 +62,12 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 // verifyFileJSON is the per-file wire shape for `verify --json`.
 type verifyFileJSON struct {
-	Path   string           `json:"path"`
-	Error  string           `json:"error,omitempty"`
-	Result *gopdfrab.Result `json:"result,omitempty"`
+	Path   string         `json:"path"`
+	Error  string         `json:"error,omitempty"`
+	Result *verify.Result `json:"result,omitempty"`
 }
 
-func printVerifyJSON(results []gopdfrab.FileResult[gopdfrab.Result], stdout, stderr io.Writer) int {
+func printVerifyJSON(results []verify.FileResult[verify.Result], stdout, stderr io.Writer) int {
 	out := make([]verifyFileJSON, 0, len(results))
 	code := exitValid
 	for _, r := range results {
@@ -98,7 +98,7 @@ func printVerifyJSON(results []gopdfrab.FileResult[gopdfrab.Result], stdout, std
 // file's issues beneath it, grouped or per location as detail says, then a
 // summary. The layout is described at
 // the top of report.go.
-func printVerifyText(results []gopdfrab.FileResult[gopdfrab.Result], profileName string, detail bool, stdout io.Writer) int {
+func printVerifyText(results []verify.FileResult[verify.Result], profileName string, detail bool, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
 	pass, fail, errCount := 0, 0, 0
 	code := exitValid
