@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // xmpReCache memoizes the per-property regexes built at call time from
@@ -859,7 +860,7 @@ func xmpErr(c pdf.Check, msg string) pdf.PDFError {
 }
 
 // verifyXMPMetadata validates the document's XMP metadata (6.7).
-func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
+func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	data, meta, err := d.RawXMP()
 	if errors.Is(err, pdf.ErrNoXMPMetadata) || errors.Is(err, pdf.ErrXMPMetadataNotStream) {
 		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}
@@ -878,7 +879,7 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	xmp := string(data)
 
 	errs = append(errs, checkXMPHeader(xmp)...)
-	errs = append(errs, checkPDFAIdentifier(xmp)...)
+	errs = append(errs, checkPDFAIdentifier(xmp, spec)...)
 	if !xmpWellFormed(data) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata is not well-formed XML"))
 	}
@@ -963,8 +964,9 @@ func checkXMPHeader(xmp string) []pdf.PDFError {
 	return errs
 }
 
-// checkPDFAIdentifier validates the PDF/A version identifier (6.7.11).
-func checkPDFAIdentifier(xmp string) []pdf.PDFError {
+// checkPDFAIdentifier validates the PDF/A version identifier (6.7.11) against
+// the level's part and the conformance values a file of that part may name.
+func checkPDFAIdentifier(xmp string, spec pdfa.Spec) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	ns, hasNS := pdf.FirstRegexpGroup(pdfaNSRe, xmp)
@@ -978,14 +980,14 @@ func checkPDFAIdentifier(xmp string) []pdf.PDFError {
 	part, hasPart := pdf.FirstRegexpGroup(pdf.PDFAPartRe, xmp)
 	if !hasPart {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A part identifier"))
-	} else if part != "1" {
+	} else if part != spec.XMPPart {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAPartNumber, fmt.Sprintf("invalid PDF/A part number %q", part)))
 	}
 
 	conf, hasConf := pdf.FirstRegexpGroup(pdf.PDFAConfRe, xmp)
 	if !hasConf {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A conformance level"))
-	} else if conf != "A" && conf != "B" {
+	} else if !spec.XMPConformances.Has(conf) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAConformanceLevel, fmt.Sprintf("invalid PDF/A conformance level %q", conf)))
 	}
 

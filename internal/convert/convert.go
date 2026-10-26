@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -403,7 +404,12 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		inputRenders = summarizeTrailerPages(trailer, fidelityDPI)
 	}
 
-	if err := applyPreemptiveFixups(&trailer, doc); err != nil {
+	spec, err := verify.LevelSpec(p)
+	if err != nil {
+		return ConvertResult{}, fmt.Errorf("convert: %w", err)
+	}
+
+	if err := applyPreemptiveFixups(&trailer, doc, spec); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
@@ -414,7 +420,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// incompletely is collected here and folded in below.
 	var formDrops []RasterDrop
 	var lost []pdf.PDFError
-	localFixers := buildLocalFixers(ctx, dcFixer, doc, o.dpi(), &formDrops, &lost)
+	localFixers := buildLocalFixers(ctx, dcFixer, doc, o.dpi(), &formDrops, &lost, &spec)
 
 	var (
 		cr         ConvertResult
@@ -440,10 +446,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		}
 		cr.Iterations = iter
 
-		result, parts, objs, err := inHeapVerify(doc, trailer, p, objHint)
-		if err != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
-		}
+		result, parts, objs := inHeapVerify(doc, trailer, p, spec, objHint)
 		cr.Result = result
 		lastParts, graphClean = parts, true
 		objHint = len(objs)
@@ -515,7 +518,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		graphClean = false
 	}
 
-	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
+	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, spec, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
@@ -583,12 +586,9 @@ func summarizeTrailerPagesOf(out *pdf.Reader) []pageSummary {
 // A loop that ran out of iterations ends on a fix pass nothing verified, so
 // cr.Result still lists what that pass repaired. Verify first: rasterizing
 // from the stale list flattened pages that were already conformant.
-func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
+func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, spec pdfa.Spec, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
 	if !*graphClean {
-		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-		if err != nil {
-			return err
-		}
+		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
@@ -607,10 +607,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 		cr.addRasterizedPages(rasterized)
 		cr.Iterations++
 		*graphClean = false
-		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-		if err != nil {
-			return err
-		}
+		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
@@ -623,10 +620,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 			cr.addRasterizedPages(rasterized)
 			cr.Iterations++
 			*graphClean = false
-			result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-			if err != nil {
-				return err
-			}
+			result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 			cr.Result = result
 			*lastParts, *graphClean = parts, true
 		}
@@ -639,14 +633,11 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 // the split issue parts (for serializeAndVerify's merged final verify) and
 // the ObjNum -> object index so the fixer loop can target issues by ref;
 // the index is only valid until the next renumbering.
-func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, hint int) (pdf.Result, verify.Parts, map[int]pdf.PDFValue, error) {
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, spec pdfa.Spec, hint int) (pdf.Result, verify.Parts, map[int]pdf.PDFValue) {
 	objs := writer.NumberObjects(trailer, hint)
 	doc.SeedResolvedGraph(trailer, objs)
-	parts, err := verify.VerifyParts(doc, p)
-	if err != nil {
-		return pdf.Result{}, verify.Parts{}, nil, err
-	}
-	return verify.ResultFromIssues(p, parts.Issues()), parts, objs, nil
+	parts := verify.VerifyParts(doc, p, spec)
+	return verify.ResultFromIssues(p, parts.Issues()), parts, objs
 }
 
 // fullFinalVerify forces serializeAndVerify's full from-scratch verify even
@@ -726,24 +717,28 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 // buildLocalFixers returns a per-run fixer map with run-scoped instances
 // substituted for the registry singletons: the per-run dcFixer, a
 // fontSubstitutionFixer carrying the run's Reader for cached usage scans,
-// and an appearanceFixer carrying the run's appearance font.
-func buildLocalFixers(ctx context.Context, dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError) map[pdf.Check]Fixer {
+// an appearanceFixer carrying the run's appearance font, and every fixer
+// that follows the level's rules bound to the run's spec.
+func buildLocalFixers(ctx context.Context, dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError, spec *pdfa.Spec) map[pdf.Check]Fixer {
 	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
-		switch f.(type) {
+		switch bound := f.(type) {
 		case deviceColourFixer:
+			dcFixer.spec = spec
 			local[c] = dcFixer
 		case fontSubstitutionFixer:
-			local[c] = fontSubstitutionFixer{doc: doc}
+			local[c] = fontSubstitutionFixer{doc: doc, spec: spec}
 		case trueTypeEncodingFixer:
 			local[c] = trueTypeEncodingFixer{doc: doc}
 		case appearanceFixer:
-			local[c] = appearanceFixer{fontSrc: fontSrc}
+			local[c] = appearanceFixer{fontSrc: fontSrc, spec: spec}
 		case transparencyFlattener:
 			local[c] = transparencyFlattener{dpi: dpi, drops: formDrops, ctx: ctx}
 		case undecodableStreamFixer:
 			local[c] = undecodableStreamFixer{lost: lost}
+		case levelBound:
+			local[c] = bound.withSpec(spec)
 		default:
 			local[c] = f
 		}

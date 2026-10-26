@@ -34,14 +34,16 @@ type inkMechanism struct {
 // them. Each is measured from a fresh reading of the file, so nothing carries
 // over from the one before.
 var oneAtATime = []inkMechanism{
-	{"preemptive", applyPreemptiveFixups},
+	{"preemptive", func(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+		return applyPreemptiveFixups(trailer, doc, a1b())
+	}},
 	{"opacity", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		repairOpacity(trailer)
 		return nil
 	}},
 	{"extgstate-dicts", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		_, err := runDictVisitor(trailer, func(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-			return extGStateDictVisitor(changed), true
+			return extGStateDictVisitor(changed, a1bSpec), true
 		})
 		return err
 	}},

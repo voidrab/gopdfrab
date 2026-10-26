@@ -186,3 +186,33 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	}
 	assertContentStream(t, assertOnePageGraph(t, graph), onePageContent)
 }
+
+// TestConvertObjectModelAddsNoPDFAIdentity: an object-model conversion
+// repairs the object model and nothing else. It used to run the PDF/A
+// pre-emptive steps too, stamping the output as PDF/A-1b through a fresh
+// pdfaid XMP packet and an injected GTS_PDFA1 OutputIntent, a claim no
+// PDF/A check had backed.
+func TestConvertObjectModelAddsNoPDFAIdentity(t *testing.T) {
+	cr, err := ConvertBytes(buildOnePageDoc(t, nil), pdf.PDF, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid {
+		t.Fatalf("Valid=false, residual %v", issueClauses(cr.Residual()))
+	}
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	root, err := out.ResolveGraphByPath([]string{"Root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := root.(pdf.PDFDict)
+	for _, key := range []string{"Metadata", "OutputIntents"} {
+		if catalog.Entries.Get(key) != nil {
+			t.Errorf("the output catalogue gained /%s", key)
+		}
+	}
+}

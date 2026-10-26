@@ -21,7 +21,7 @@ func TestDisallowedAnnotFixer(t *testing.T) {
 		"Rect": pdf.PDFArray{},
 	})}
 	trailer := trailerWith("Annot0", annot)
-	changed, err := disallowedAnnotFixer{}.Fix(&trailer, nil)
+	changed, err := disallowedAnnotFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("disallowedAnnotFixer.Fix = %v, %v", changed, err)
 	}
@@ -37,7 +37,7 @@ func TestAnnotColourFixer(t *testing.T) {
 	})}
 	// No output intent in the trailer, so an RGB annotation colour is uncovered.
 	trailer := trailerWith("Annot0", annot)
-	changed, err := annotColourFixer{}.Fix(&trailer, nil)
+	changed, err := annotColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("annotColourFixer.Fix = %v, %v", changed, err)
 	}
@@ -70,7 +70,7 @@ func TestAnnotColourFixerKeepsCoveredAndOtherShapes(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	changed, err := annotColourFixer{}.Fix(&trailer, nil)
+	changed, err := annotColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -92,14 +92,14 @@ func TestAnnotColourFixerKeepsCoveredAndOtherShapes(t *testing.T) {
 // OutputIntents, a non-PDFA1 intent (ignored), and RGB+CMYK both covered via
 // two separate GTS_PDFA1 intents.
 func TestOutputIntentCoverage(t *testing.T) {
-	if has, rgb, cmyk := outputIntentCoverage(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}); has || rgb || cmyk {
+	if has, rgb, cmyk := outputIntentCoverage(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, "GTS_PDFA1"); has || rgb || cmyk {
 		t.Errorf("outputIntentCoverage(no Root) = %v %v %v, want all false", has, rgb, cmyk)
 	}
 
 	noIntents := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
 	})}
-	if has, rgb, cmyk := outputIntentCoverage(noIntents); has || rgb || cmyk {
+	if has, rgb, cmyk := outputIntentCoverage(noIntents, "GTS_PDFA1"); has || rgb || cmyk {
 		t.Errorf("outputIntentCoverage(no OutputIntents) = %v %v %v, want all false", has, rgb, cmyk)
 	}
 
@@ -117,7 +117,7 @@ func TestOutputIntentCoverage(t *testing.T) {
 			"OutputIntents": pdf.PDFArray{otherS, rgbOI, cmykOI},
 		})},
 	})}
-	has, rgb, cmyk := outputIntentCoverage(both)
+	has, rgb, cmyk := outputIntentCoverage(both, "GTS_PDFA1")
 	if !has || !rgb || !cmyk {
 		t.Errorf("outputIntentCoverage(rgb+cmyk intents) = %v %v %v, want all true", has, rgb, cmyk)
 	}
@@ -144,7 +144,7 @@ func TestAnnotColourFixerCmykAndGrayModels(t *testing.T) {
 		"A":             cmyk, "B": gray, "R": rgb,
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
-	changed, err := annotColourFixer{}.Fix(&trailer, nil)
+	changed, err := annotColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want true (rgb uncovered)", changed, err)
 	}

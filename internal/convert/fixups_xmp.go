@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 func init() {
@@ -28,7 +29,10 @@ func init() {
 // an arbitrary existing one into compliance, and doing so resolves the large
 // majority of clause 6.7's many sub-checks (and the Info/XMP sync checks,
 // 6.7.3/6.1.5, since the packet is generated directly from Info) in one pass.
-func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
+func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
+	if !spec.PDFA {
+		return nil
+	}
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return fmt.Errorf("regenerateXMP: Root is not a dictionary")
@@ -36,7 +40,7 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 
 	normalizeInfoDict(trailer)
 	info, _ := trailer.Entries.Get("Info").(pdf.PDFDict)
-	xmp := buildXMPPacket(info)
+	xmp := buildXMPPacket(info, spec)
 
 	meta, _ := root.Entries.Get("Metadata").(pdf.PDFDict)
 	meta.Entries.Del("Filter")
@@ -58,21 +62,12 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 	return nil
 }
 
-// stripEmbeddedMetadata removes /Metadata from every non-catalog object.
-// PDF/A-1b requires exactly one metadata stream (Root/Metadata); non-catalog
-// /Type /Metadata streams violate 6.7.5 when they lack an xpacket wrapper.
-func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
-	if visit := stripEmbeddedMetadataVisitor(trailer, doc); visit != nil {
-		walkDicts(*trailer, map[uintptr]bool{}, visit)
-	}
-	return nil
-}
-
 // stripEmbeddedMetadataVisitor is stripEmbeddedMetadata's per-dict visitor
-// for the shared pre-emptive walk; nil when there is no catalog to protect.
-func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.PDFDict) {
+// for the shared pre-emptive walk; nil when there is no catalog to protect or
+// the level is not PDF/A.
+func stripEmbeddedMetadataVisitor(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
-	if !ok {
+	if !ok || !spec.PDFA {
 		return nil
 	}
 	var catalogMetaPtr uintptr
@@ -232,7 +227,7 @@ func infoString(info pdf.PDFDict, key string) string {
 // buildXMPPacket builds a minimal, schema-correct XMP packet synchronized
 // with info's Title/Subject/Author/Creator/Producer/Keywords/CreationDate/
 // ModDate (whichever are present), plus the mandatory PDF/A-1b identifier.
-func buildXMPPacket(info pdf.PDFDict) string {
+func buildXMPPacket(info pdf.PDFDict, spec pdfa.Spec) string {
 	title := infoString(info, "Title")
 	subject := infoString(info, "Subject")
 	author := infoString(info, "Author")
@@ -248,8 +243,8 @@ func buildXMPPacket(info pdf.PDFDict) string {
 	b.WriteString(`<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` + "\n")
 
 	b.WriteString(`<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">` + "\n")
-	b.WriteString("<pdfaid:part>1</pdfaid:part>\n")
-	b.WriteString("<pdfaid:conformance>B</pdfaid:conformance>\n")
+	b.WriteString("<pdfaid:part>" + spec.XMPPart + "</pdfaid:part>\n")
+	b.WriteString("<pdfaid:conformance>" + spec.XMPConformance + "</pdfaid:conformance>\n")
 	b.WriteString("</rdf:Description>\n")
 
 	// dc:title/dc:description/dc:creator must be Alt/Seq containers, which

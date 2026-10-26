@@ -11,7 +11,7 @@ import (
 // its five target checks and nothing else, since registerFixer panics on a
 // Check claimed by more than one Fixer.
 func TestAppearanceFixerAppliesExclusively(t *testing.T) {
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	want := map[pdf.Check]bool{
 		pdf.Checks.Form.WidgetMissingAppearance:      true,
 		pdf.Checks.Annotation.MissingAppearance:      true,
@@ -62,7 +62,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", pdf.NewPDFDict())
 	trailer.Entries.Set("Widget", widget) // keep it reachable for walkDicts
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -130,7 +130,7 @@ func TestAppearanceFixerSynthesizesButtonStateSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestAppearanceFixerWrapsExistingBtnStreamIntoSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -216,7 +216,7 @@ func TestAppearanceFixerStripsExtraEntriesPreservingValidN(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -246,7 +246,7 @@ func TestAppearanceFixerBuildsEmptyAppearanceForPlainAnnotation(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestAppearanceFixerSkipsPopupAndLinkWithoutAP(t *testing.T) {
 		trailer := minimalTrailer()
 		trailer.Entries.Set("Annot", annot)
 
-		fixer := appearanceFixer{}
+		fixer := appearanceFixer{spec: a1bSpec}
 		changed, err := fixer.Fix(&trailer, nil)
 		if err != nil {
 			t.Fatalf("Fix: %v", err)
@@ -313,7 +313,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -351,7 +351,7 @@ func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -492,7 +492,7 @@ func fixAppearance(t *testing.T, annot pdf.PDFDict, formDA string) bool {
 		trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", af)
 	}
 	trailer.Entries.Set("Annot", annot)
-	changed, err := appearanceFixer{}.Fix(&trailer, nil)
+	changed, err := appearanceFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}

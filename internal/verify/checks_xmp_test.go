@@ -351,7 +351,7 @@ func TestVerifyXMPMetadataPass(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	for _, e := range errs {
 		t.Logf("unexpected(?) XMP violation on a pass file: %v", e)
 	}
@@ -367,9 +367,9 @@ func TestVerifyXMPMetadataMissing(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.MetadataMissing {
-		t.Errorf("verifyXMPMetadata(no XMP) = %v, want a single MetadataMissing", errs)
+		t.Errorf("verifyXMPMetadata(no XMP, a1b()) = %v, want a single MetadataMissing", errs)
 	}
 }
 
@@ -501,7 +501,7 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{})
+	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -515,12 +515,12 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{}); len(errs) != 0 {
+	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -540,19 +540,19 @@ func TestCheckXMPHeader(t *testing.T) {
 
 func TestCheckPDFAIdentifier(t *testing.T) {
 	good := `<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="1" pdfaid:conformance="B"/>`
-	if errs := checkPDFAIdentifier(good); len(errs) != 0 {
+	if errs := checkPDFAIdentifier(good, a1b()); len(errs) != 0 {
 		t.Errorf("unexpected violation for a valid PDF/A identifier: %v", errs)
 	}
 
-	if errs := checkPDFAIdentifier("no identifier here"); len(errs) != 1 ||
+	if errs := checkPDFAIdentifier("no identifier here", a1b()); len(errs) != 1 ||
 		errs[0].Check() != pdf.Checks.Metadata.PDFAIdentifierMissing {
-		t.Errorf("checkPDFAIdentifier(missing) = %v", errs)
+		t.Errorf("checkPDFAIdentifier(missing, a1b()) = %v", errs)
 	}
 
 	wrongNS := `<x xmlns:pdfaid="http://example.com/wrong" pdfaid:part="2" pdfaid:conformance="X"/>`
-	errs := checkPDFAIdentifier(wrongNS)
+	errs := checkPDFAIdentifier(wrongNS, a1b())
 	if len(errs) != 3 {
-		t.Fatalf("checkPDFAIdentifier(wrong ns/part/conformance) = %d errs, want 3: %v", len(errs), errs)
+		t.Fatalf("checkPDFAIdentifier(wrong ns/part/conformance, a1b()) = %d errs, want 3: %v", len(errs), errs)
 	}
 }
 
@@ -577,7 +577,7 @@ func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if errs := checkPDFAIdentifier(c.xmp); len(errs) != 0 {
+			if errs := checkPDFAIdentifier(c.xmp, a1b()); len(errs) != 0 {
 				t.Errorf("valid PDF/A identifier reported as a violation: %v", errs)
 			}
 			part, ok := pdf.FirstRegexpGroup(pdf.PDFAPartRe, c.xmp)
@@ -726,7 +726,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	errs := checkNonCatalogXMPStreams(trailer, ctx)
 	for _, e := range errs {
 		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
@@ -747,7 +747,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	root2.Entries.Set("Other", plain)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{})
+	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec})
 	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
 	}
@@ -1259,7 +1259,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 	}
 	defer doc.Close()
 
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	if len(errs) != 2 ||
 		!hasXMPCheck(errs, pdf.Checks.Metadata.MetadataFiltered) ||
 		!hasXMPCheck(errs, pdf.Checks.Metadata.XMPStreamUnreadable) {
@@ -1272,7 +1272,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 func TestCheckNonCatalogXMPStreamsRootNotDictionary(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFArray{})
-	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want nil", errs)
 	}
 }
@@ -1343,7 +1343,7 @@ func TestXMPTablesAgree(t *testing.T) {
 // namespace with neither a part nor a conformance level reports each as a
 // separate PDFAIdentifierMissing finding (6.7.11).
 func TestCheckPDFAIdentifierMissingPartAndConformance(t *testing.T) {
-	errs := checkPDFAIdentifier(`<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"/>`)
+	errs := checkPDFAIdentifier(`<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"/>`, a1b())
 	if len(errs) != 2 {
 		t.Fatalf("got %d findings, want 2: %v", len(errs), errs)
 	}

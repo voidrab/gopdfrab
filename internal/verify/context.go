@@ -8,6 +8,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 type ValidationContext struct {
@@ -92,6 +93,11 @@ type ValidationContext struct {
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
 
+	// Spec is the conformance level's rules the checks apply. A check that
+	// reads it on a context without one panics: a nil Spec has no rules to
+	// fall back on, and guessing PDF/A-1b's would hide a missing one.
+	Spec *pdfa.Spec
+
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
 	// cache, so unchanged content streams stay decoded at most once across
 	// convert's fixer iterations (which reuse the same Reader). Nil for
@@ -114,7 +120,8 @@ func (c *ValidationContext) stopped() bool {
 }
 
 // NewContext returns a ValidationContext whose stream decodes and scans go
-// through d's run-scoped caches; a nil d yields uncached decoding.
+// through d's run-scoped caches; a nil d yields uncached decoding. It has no
+// Spec: set one before running a check that applies a level's rules.
 func NewContext(d *pdf.Reader) *ValidationContext {
 	return &ValidationContext{reader: d}
 }

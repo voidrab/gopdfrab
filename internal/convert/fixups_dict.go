@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/raster"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -144,8 +145,8 @@ func clearDict(d pdf.PDFDict) {
 
 // clearJSNameTree recursively clears JS action dicts within a /Names/JavaScript
 // name tree. walkDicts won't reach the subtree once the parent key is deleted.
-func clearJSNameTree(d pdf.PDFDict, changed *bool) {
-	if s, ok := d.Entries.Get("S").(pdf.PDFName); ok && verify.ForbiddenActions[s.Value] {
+func clearJSNameTree(d pdf.PDFDict, changed *bool, spec *pdfa.Spec) {
+	if s, ok := d.Entries.Get("S").(pdf.PDFName); ok && spec.ForbiddenActions.Has(s.Value) {
 		clearDict(d)
 		*changed = true
 		return
@@ -153,11 +154,11 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool) {
 	for _, v := range d.Entries.All() {
 		switch val := v.(type) {
 		case pdf.PDFDict:
-			clearJSNameTree(val, changed)
+			clearJSNameTree(val, changed, spec)
 		case pdf.PDFArray:
 			for _, item := range val {
 				if sub, ok := item.(pdf.PDFDict); ok {
-					clearJSNameTree(sub, changed)
+					clearJSNameTree(sub, changed, spec)
 				}
 			}
 		}
@@ -169,13 +170,13 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool) {
 // required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
 // at a dict without one reads as an action of unknown type, which is what
 // clearing the action in place used to leave behind.
-func deadAction(v pdf.PDFValue) bool {
+func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
 	d, ok := v.(pdf.PDFDict)
 	if !ok {
 		return false
 	}
 	s, ok := d.Entries.Get("S").(pdf.PDFName)
-	return !ok || verify.ForbiddenActions[s.Value]
+	return !ok || spec.ForbiddenActions.Has(s.Value)
 }
 
 // --- 6.6 Actions ---
@@ -183,7 +184,9 @@ func deadAction(v pdf.PDFValue) bool {
 // actionFixer remediates Checks.Action.ForbiddenActionType,
 // DisallowedNamedAction and AdditionalActions, mirroring
 // validateActions/validateAdditionalActions in checks_dict.go.
-type actionFixer struct{}
+type actionFixer struct{ spec *pdfa.Spec }
+
+func (f actionFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (actionFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -197,7 +200,7 @@ func (f actionFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, f.prepare)
 }
 
-func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if _, ok := d.Entries.Lookup("AA"); ok {
 			d.Entries.Del("AA")
@@ -207,7 +210,7 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
 		// action dicts first -- walkDicts won't reach them after the key is gone.
 		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok {
-			clearJSNameTree(jsTree, changed)
+			clearJSNameTree(jsTree, changed, f.spec)
 			d.Entries.Del("JavaScript")
 			*changed = true
 		}
@@ -215,7 +218,7 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		// Take a dead action off whatever points at it. Emptying the action
 		// dictionary is not enough on its own: the owner still names it.
 		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && deadAction(v) {
+			if v, ok := d.Entries.Lookup(key); ok && deadAction(v, f.spec) {
 				d.Entries.Del(key)
 				*changed = true
 			}
@@ -225,14 +228,14 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		if !ok || !verify.ActionTypes[s.Value] {
 			return
 		}
-		if verify.ForbiddenActions[s.Value] {
+		if f.spec.ForbiddenActions.Has(s.Value) {
 			clearDict(d)
 			*changed = true
 			return
 		}
 		if s.Value == "Named" {
 			n, ok := d.Entries.Get("N").(pdf.PDFName)
-			if !ok || !verify.AllowedNamedActions[n.Value] {
+			if !ok || !f.spec.NamedActions.Has(n.Value) {
 				clearDict(d)
 				*changed = true
 			}
@@ -252,7 +255,9 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 // content: what is drawn at zero opacity is taken out of the content stream
 // first (fixups_alpha.go), because putting the opacity back to 1 would
 // otherwise paint it over the page.
-type extGStateFixer struct{}
+type extGStateFixer struct{ spec *pdfa.Spec }
+
+func (f extGStateFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (extGStateFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -272,18 +277,18 @@ func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error
 	return runDictVisitor(trailer, f.prepare)
 }
 
-func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
 	// Ahead of the dictionary pass below, which is what makes the opacities
 	// opaque: once they are, nothing says which drawing was invisible.
 	if repairOpacity(trailer) {
 		*changed = true
 	}
-	return extGStateDictVisitor(changed), true
+	return extGStateDictVisitor(changed, f.spec), true
 }
 
 // extGStateDictVisitor is the dictionary half on its own, without the content
 // rewriting that has to come before it.
-func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
+func extGStateDictVisitor(changed *bool, spec *pdfa.Spec) func(pdf.PDFDict) {
 	return func(d pdf.PDFDict) {
 		if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 			return
@@ -302,19 +307,22 @@ func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
 				*changed = true
 			}
 		}
-		if ri, ok := d.Entries.Get("RI").(pdf.PDFName); ok && !verify.AllowedIntents[ri.Value] {
+		if ri, ok := d.Entries.Get("RI").(pdf.PDFName); ok && !spec.RenderingIntents.Has(ri.Value) {
 			d.Entries.Del("RI")
 			*changed = true
 		}
-		if sm, ok := d.Entries.Lookup("SMask"); ok {
+		if sm, ok := d.Entries.Lookup("SMask"); ok && !spec.Transparency {
 			if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 				d.Entries.Set("SMask", pdf.PDFName{Value: "None"})
 				*changed = true
 			}
 		}
-		if bm, ok := d.Entries.Lookup("BM"); ok && !verify.IsAllowedBlendMode(bm) {
+		if bm, ok := d.Entries.Lookup("BM"); ok && !spec.BlendModeAllowed(bm) {
 			d.Entries.Set("BM", pdf.PDFName{Value: "Normal"})
 			*changed = true
+		}
+		if spec.Transparency {
+			return
 		}
 		if ca, ok := d.Entries.Lookup("CA"); ok {
 			if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
@@ -442,7 +450,9 @@ func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict)
 // so the inline case is folded in here rather than given its own. The
 // PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
 // PostScriptXObject) belong to postScriptXObjectFixer below.
-type imageMetadataFixer struct{}
+type imageMetadataFixer struct{ spec *pdfa.Spec }
+
+func (f imageMetadataFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -454,7 +464,7 @@ func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		subtype, ok := d.Entries.Get("Subtype").(pdf.PDFName)
@@ -475,7 +485,7 @@ func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 				d.Entries.Del("OPI")
 				changed = true
 			}
-			if intent, ok := d.Entries.Get("Intent").(pdf.PDFName); ok && !verify.AllowedIntents[intent.Value] {
+			if intent, ok := d.Entries.Get("Intent").(pdf.PDFName); ok && !f.spec.RenderingIntents.Has(intent.Value) {
 				d.Entries.Del("Intent")
 				changed = true
 			}
@@ -636,15 +646,17 @@ func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 
 // --- 6.1.2 ViewerPreferences (post-1.4 keys) ---
 
-// viewerPrefFixer removes ViewerPreferences keys introduced after PDF 1.4
-// (PrintScaling, PickTrayByPDFSize, PrintPageRange, NumCopies).
-type viewerPrefFixer struct{}
+// viewerPrefFixer removes the ViewerPreferences keys the level's PDF version
+// does not define.
+type viewerPrefFixer struct{ spec *pdfa.Spec }
+
+func (f viewerPrefFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (viewerPrefFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.PostPDF14ViewerPref
 }
 
-func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false, nil
@@ -654,7 +666,7 @@ func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		return false, nil
 	}
 	changed := false
-	for _, k := range verify.Post14ViewerPrefKeys {
+	for _, k := range f.spec.ForbiddenViewerPrefKeys.All() {
 		if vp.Entries.Get(k) != nil {
 			vp.Entries.Del(k)
 			changed = true

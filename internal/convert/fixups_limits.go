@@ -6,6 +6,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -21,11 +22,16 @@ func init() {
 	// drop runs after that walk, so it never sees an oversized Kids array
 	// the rebalance could have split (the struct tree reaches Pages nodes
 	// via Pg references).
-	registerPreemptiveVisitor(func(trailer *pdf.PDFDict, _ *pdf.Reader) func(pdf.PDFDict) {
+	registerPreemptiveVisitor(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
+		if !spec.PDFA {
+			return nil
+		}
 		return pagesKidsRebalanceVisitor(trailer, nil)
 	})
-	registerPreemptiveAfterFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		dropOversizedStructure(trailer)
+	registerPreemptiveAfterFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
+		if spec.PDFA {
+			dropOversizedStructure(trailer)
+		}
 		return nil
 	})
 }

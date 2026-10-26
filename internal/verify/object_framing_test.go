@@ -12,19 +12,21 @@ import (
 // The check used to fire on an empty cross-reference table instead, so a
 // damaged xref was misreported and a genuinely oversized file never was.
 func TestIndirectObjectLimit(t *testing.T) {
-	if got := indirectObjectLimit(0); got != nil {
+	maxIndirectObjects := a1b().Limits.MaxIndirectObjects
+	if got := indirectObjectLimit(0, a1b()); got != nil {
 		t.Errorf("0 objects: %v, want no issue", got)
 	}
-	if got := indirectObjectLimit(maxIndirectObjects); got != nil {
+	if got := indirectObjectLimit(maxIndirectObjects, a1b()); got != nil {
 		t.Errorf("%d objects: %v, want no issue at the limit", maxIndirectObjects, got)
 	}
-	got := indirectObjectLimit(maxIndirectObjects + 1)
-	if len(got) != 1 || got[0].Check() != pdf.Checks.Structure.IndirectObjectsExceeded {
+	got := indirectObjectLimit(maxIndirectObjects+1, a1b())
+	if len(got) != 1 || got[0].Check() != pdf.Checks.Structure.IndirectObjectsExceeded ||
+		got[0].Messages()[0] != "8388608 indirect objects exceed the limit of 8,388,607" {
 		t.Errorf("%d objects: %v, want one IndirectObjectsExceeded", maxIndirectObjects+1, got)
 	}
 
 	d := pdf.NewRawReader(nil, pdf.NewPDFDict(), 0, 0)
-	for _, e := range verifyAllObjectFraming(d) {
+	for _, e := range verifyAllObjectFraming(d, a1b()) {
 		if e.Check() == pdf.Checks.Structure.IndirectObjectsExceeded {
 			t.Fatal("an empty cross-reference table must not report too many objects")
 		}
@@ -49,7 +51,7 @@ func TestObjectFramingDiagnosticsInObjectOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	verifyAllObjectFraming(d)
+	verifyAllObjectFraming(d, a1b())
 
 	var objs []int
 	for _, e := range d.StructErrors() {

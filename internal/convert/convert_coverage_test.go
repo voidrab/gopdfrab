@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -67,7 +68,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true // the synthetic issues stand for a verify of this graph
 
-	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
+	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -83,52 +84,6 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	}
 	if xo, ok := res.Entries.Get("XObject").(pdf.PDFDict); !ok || xo.Entries.Get("Im0") == nil {
 		t.Error("page was not flattened: Resources/XObject/Im0 missing")
-	}
-}
-
-// TestRasterBackstopVerifyErrors covers both raster blocks' verify-error
-// returns, using an undefined-level profile that fails the in-heap verify:
-// once via a page-attributed issue (page-by-page pass) and once via a
-// document-wide one (flatten-all pass).
-func TestRasterBackstopVerifyErrors(t *testing.T) {
-	c := pdf.Checks.Colour.OutputIntentNotArray
-	fixers := map[pdf.Check]Fixer{c: nil}
-	for name, page := range map[string]int{"pageTargeted": 1, "docWide": 0} {
-		t.Run(name, func(t *testing.T) {
-			trailer := onePageTrailer()
-			doc := openTrailer(t, trailer)
-			cr := &ConvertResult{Result: pdf.Result{
-				Valid:  false,
-				Issues: []pdf.PDFError{pdf.NewError(c, []error{errors.New("synthetic")}, page, nil)},
-			}}
-			var lastParts verify.Parts
-			graphClean := true
-			err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
-			if err == nil {
-				t.Fatal("rasterBackstop with an undefined-level profile did not propagate the verify error")
-			}
-			if graphClean {
-				t.Error("graphClean = true after a failed post-flatten verify")
-			}
-		})
-	}
-}
-
-// TestRasterBackstopStaleVerifyError covers the up-front verify a dirty
-// graph gets before the backstop reads its issues: its error is returned,
-// and the graph stays dirty.
-func TestRasterBackstopStaleVerifyError(t *testing.T) {
-	trailer := onePageTrailer()
-	doc := openTrailer(t, trailer)
-	cr := &ConvertResult{}
-	var lastParts verify.Parts
-	graphClean := false
-	err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0)
-	if err == nil {
-		t.Fatal("rasterBackstop did not propagate the up-front verify error")
-	}
-	if graphClean {
-		t.Error("graphClean = true after a failed verify")
 	}
 }
 
@@ -172,7 +127,7 @@ func TestRasterBackstopCancelledMidPass(t *testing.T) {
 				doc := openTrailer(t, trailer)
 				var lastParts verify.Parts
 				graphClean := true
-				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
+				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
 				if err == nil && cr.Iterations > 0 {
 					t.Fatalf("countdown %d: ran to completion without seeing the cancellation", n)
 				}
@@ -239,7 +194,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
+	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, a1b(), map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {
@@ -292,7 +247,7 @@ func TestRunWrapsSerializeError(t *testing.T) {
 func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 	old := preemptiveAfterFixups
 	t.Cleanup(func() { preemptiveAfterFixups = old })
-	preemptiveAfterFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader) error {
+	preemptiveAfterFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error {
 		return errors.New("after fixup failed")
 	})
 
@@ -302,7 +257,7 @@ func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 		t.Fatalf("ResolveGraph: %v", err)
 	}
 	trailer := g.(pdf.PDFDict)
-	if err := applyPreemptiveFixups(&trailer, doc); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
+	if err := applyPreemptiveFixups(&trailer, doc, a1b()); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
 		t.Errorf("applyPreemptiveFixups err = %v, want the after-fixup failure", err)
 	}
 }
@@ -592,7 +547,7 @@ func TestRunWrapsPreemptiveFixupError(t *testing.T) {
 	old := preemptiveFixups
 	t.Cleanup(func() { preemptiveFixups = old })
 	boom := errors.New("preemptive boom")
-	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader) error { return boom })
+	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { return boom })
 
 	_, err := ConvertBytes(pdfgen.PlainThreeIssue(), pdf.PDFA1B, Options{})
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "pre-emptive fixups") {

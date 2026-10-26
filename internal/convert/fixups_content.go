@@ -2,6 +2,7 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -37,7 +38,9 @@ func init() {
 // Checks.Colour.RenderingIntent (the ri operator only), and the 6.1.12/6.1.6
 // scalar-limit checks, mirroring scanContent/validateHexString/
 // validateArchitecturalLimits in reverse.
-type contentLimitsFixer struct{}
+type contentLimitsFixer struct{ spec *pdfa.Spec }
+
+func (f contentLimitsFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -50,7 +53,7 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
@@ -61,7 +64,7 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 		return fixed, ok
 	})
 
-	if walkContentStreamDicts(trailer, repairContentStream) {
+	if walkContentStreamDicts(trailer, f.repairContentStream) {
 		changed = true
 	}
 
@@ -71,8 +74,8 @@ func (contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, err
 // repairContentStream is the whole repair one content stream gets from this
 // fixer: an out-of-range path is folded into the CTM (fixups_geometry.go) and
 // whatever is left over is clamped or dropped by rewriteOperatorsAndLimits.
-func repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
-	return rescaleContentStreamDict(d, rewriteOperatorsAndLimits)
+func (f contentLimitsFixer) repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	return rescaleContentStreamDict(d, f.rewriteOperatorsAndLimits)
 }
 
 // fixTargeted remediates only the objects the issues reference: each
@@ -80,7 +83,7 @@ func repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
 // the owning dict), and targets that are genuinely content-bearing streams
 // get the content repair -- never any other stream, whose bytes the
 // content scanner would corrupt.
-func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
@@ -92,7 +95,7 @@ func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (change
 		if !d.HasStream || !p.isContentStream(d) {
 			continue
 		}
-		updated, ok := repairContentStream(d)
+		updated, ok := f.repairContentStream(d)
 		if !ok {
 			continue
 		}
@@ -106,7 +109,7 @@ func (contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (change
 // drops an undefined operator, replaces a non-standard ri/inline-/Intent
 // rendering intent with /RelativeColorimetric, and clamps/repairs any
 // operand violating the 6.1.12/6.1.6 limits.
-func rewriteOperatorsAndLimits(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
+func (f contentLimitsFixer) rewriteOperatorsAndLimits(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
 	fixed := make([]pdf.PDFValue, len(operands))
 	opChanged := false
 	for i, operand := range operands {
@@ -118,7 +121,7 @@ func rewriteOperatorsAndLimits(op string, operands []pdf.PDFValue, changed *bool
 	}
 	switch {
 	case op == "INLINEIMAGE":
-		if withIntent, ok := fixInlineImageRenderingIntent(fixed); ok {
+		if withIntent, ok := fixInlineImageRenderingIntent(fixed, f.spec); ok {
 			fixed = withIntent
 			opChanged = true
 		}
@@ -127,7 +130,7 @@ func rewriteOperatorsAndLimits(op string, operands []pdf.PDFValue, changed *bool
 		return writer.ContentOp{}, false // drop the undefined operator and its operands entirely
 	case op == "ri":
 		if len(fixed) > 0 {
-			if name, ok := fixed[len(fixed)-1].(pdf.PDFName); ok && !verify.AllowedIntents[name.Value] {
+			if name, ok := fixed[len(fixed)-1].(pdf.PDFName); ok && !f.spec.RenderingIntents.Has(name.Value) {
 				fixed[len(fixed)-1] = pdf.PDFName{Value: "RelativeColorimetric"}
 				opChanged = true
 			}

@@ -84,11 +84,11 @@ func TestSimpleFontNeedsSubstitutionKeepsConformingProgram(t *testing.T) {
 	widths := map[string]pdf.PDFValue{"FirstChar": pdf.PDFInteger(65), "LastChar": pdf.PDFInteger(65), "Widths": ints(667)}
 
 	d, desc := font("Foo", nil) // no FirstChar/LastChar/Widths to inspect further
-	if simpleFontNeedsSubstitution(d, desc, nil) {
+	if simpleFontNeedsSubstitution(d, desc, nil, a1bSpec) {
 		t.Error("program-bearing font without widths needs substitution, want it kept")
 	}
 	d, desc = font("Foo", widths) // not subset-tagged: coverage is not checked
-	if simpleFontNeedsSubstitution(d, desc, nil) {
+	if simpleFontNeedsSubstitution(d, desc, nil, a1bSpec) {
 		t.Error("full-embedded font needs substitution, want it kept")
 	}
 }
@@ -112,13 +112,13 @@ func TestSubstituteCoversUsageEdges(t *testing.T) {
 
 func TestSubstituteSimpleFontDeclines(t *testing.T) {
 	next := 100
-	if substituteSimpleFont(dictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Type1"}}), nil, nil, &next) {
+	if substituteSimpleFont(dictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Type1"}}), nil, nil, &next, a1bSpec) {
 		t.Error("substituted a font with no descriptor")
 	}
 
 	// 0x81 is undefined in WinAnsi, so the substitute could never draw it.
 	d := unembeddedHelvetica()
-	if substituteSimpleFont(d, usageOf(d, 'A', 0x81), nil, &next) {
+	if substituteSimpleFont(d, usageOf(d, 'A', 0x81), nil, &next, a1bSpec) {
 		t.Error("substituted although a used code has no glyph in the substitute")
 	}
 	if d.Entries.Get("Subtype") != (pdf.PDFName{Value: "Type1"}) {
@@ -131,7 +131,7 @@ func TestSubstituteSimpleFontClonesSharedDescriptor(t *testing.T) {
 	shared := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	next := 100
 	sharedDescs := map[uintptr]bool{pdf.ValuePointer(shared.Entries): true}
-	if !substituteSimpleFont(d, usageOf(d, 'A'), sharedDescs, &next) {
+	if !substituteSimpleFont(d, usageOf(d, 'A'), sharedDescs, &next, a1bSpec) {
 		t.Fatal("substituteSimpleFont = false, want true")
 	}
 	own := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
@@ -230,7 +230,7 @@ func TestSubstituteCIDFont(t *testing.T) {
 	// Without tracked usage the CIDs come from /W; CID 0 (.notdef) needs no
 	// mapping.
 	type0, cid := type0WithToUnicode(w, map[int]uint16{1: 'A'})
-	if !substituteCIDFont(type0, cid, nil, nil, &next) {
+	if !substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Fatal("substituteCIDFont = false, want true")
 	}
 	if name := cid.Entries.Get("BaseFont").(pdf.PDFName).Value; !strings.HasSuffix(name, "+LiberationSans") {
@@ -242,7 +242,7 @@ func TestSubstituteCIDFont(t *testing.T) {
 
 	// A glyph Liberation lacks falls back to the Noto symbol repertoire.
 	type0, cid = type0WithToUnicode(w, map[int]uint16{1: 0x2701})
-	if !substituteCIDFont(type0, cid, nil, nil, &next) {
+	if !substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Fatal("substituteCIDFont (symbol) = false, want true")
 	}
 	if name := cid.Entries.Get("BaseFont").(pdf.PDFName).Value; !strings.Contains(name, "+NotoSansSymbols") {
@@ -253,7 +253,7 @@ func TestSubstituteCIDFont(t *testing.T) {
 	type0, cid = type0WithToUnicode(w, map[int]uint16{1: 'A'})
 	shared := cid.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	sharedDescs := map[uintptr]bool{pdf.ValuePointer(shared.Entries): true}
-	if !substituteCIDFont(type0, cid, usageOf(cid, 1), sharedDescs, &next) {
+	if !substituteCIDFont(type0, cid, usageOf(cid, 1), sharedDescs, &next, a1bSpec) {
 		t.Fatal("substituteCIDFont (shared) = false, want true")
 	}
 	own := cid.Entries.Get("FontDescriptor").(pdf.PDFDict)
@@ -268,32 +268,32 @@ func TestSubstituteCIDFontDeclines(t *testing.T) {
 
 	type0, cid := type0WithToUnicode(w, map[int]uint16{1: 'A'})
 	cid.Entries.Del("FontDescriptor")
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted a descendant with no descriptor")
 	}
 
 	// A full (not subset-tagged) program that conforms is kept.
 	type0, cid = type0WithToUnicode(w, map[int]uint16{1: 'A'})
 	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular)}))
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted a conforming full program")
 	}
 
 	// A CID with no recoverable Unicode meaning cannot be substituted.
 	type0, cid = type0WithToUnicode(w, map[int]uint16{2: 'A'})
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted although CID 1 has no Unicode value")
 	}
 
 	// Only .notdef is rendered: nothing to substitute.
 	type0, cid = type0WithToUnicode(pdf.PDFArray{pdf.PDFInteger(0), ints(500)}, map[int]uint16{1: 'A'})
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted a font that renders only .notdef")
 	}
 
 	// No bundled face has the glyph.
 	type0, cid = type0WithToUnicode(w, map[int]uint16{1: 0x0378})
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted although no bundled face has the glyph")
 	}
 }
@@ -308,7 +308,7 @@ func TestCIDFontSubstitutionEligibleUndecodableToUnicode(t *testing.T) {
 func TestFontSubstitutionFixerSharedDescriptorAndNoFonts(t *testing.T) {
 	// A document with no fonts has nothing to do.
 	trailer := trailerWith("Pages", dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}}))
-	if changed, err := (fontSubstitutionFixer{}).Fix(&trailer, nil); changed || err != nil {
+	if changed, err := (fontSubstitutionFixer{spec: a1bSpec}).Fix(&trailer, nil); changed || err != nil {
 		t.Errorf("Fix without fonts = %v, %v; want false, nil", changed, err)
 	}
 
@@ -319,7 +319,7 @@ func TestFontSubstitutionFixerSharedDescriptorAndNoFonts(t *testing.T) {
 	a.Entries.Set("FontDescriptor", shared)
 	b.Entries.Set("FontDescriptor", shared)
 	trailer = trailerWith("Fonts", pdf.PDFArray{a, b})
-	changed, err := (fontSubstitutionFixer{}).Fix(&trailer, nil)
+	changed, err := (fontSubstitutionFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want changed", changed, err)
 	}
@@ -393,7 +393,7 @@ func TestSubstituteCIDFontKeepsGlyphlessCID(t *testing.T) {
 	cid.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+Foo"})
 	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(tinyTrueType(t))}))
 
-	if !substituteCIDFont(type0, cid, nil, nil, &next) {
+	if !substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Fatal("substituteCIDFont = false, want true")
 	}
 	got := map[int]int{}
@@ -424,7 +424,7 @@ func TestSubstituteCIDFontRefusesUnmappedDrawnCID(t *testing.T) {
 	type0, cid := type0WithToUnicode(w, map[int]uint16{7: 'A'})
 	cid.Entries.Set("BaseFont", pdf.PDFName{Value: "ABCDEF+Foo"})
 	cid.Entries.Set("FontDescriptor", dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(tinyTrueType(t))}))
-	if substituteCIDFont(type0, cid, nil, nil, &next) {
+	if substituteCIDFont(type0, cid, nil, nil, &next, a1bSpec) {
 		t.Error("substituted although CID 1 has a glyph and no Unicode value")
 	}
 }

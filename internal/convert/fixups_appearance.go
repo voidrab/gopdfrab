@@ -8,9 +8,8 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // This file registers a Fixer for the appearance-stream checks classified
@@ -32,6 +31,7 @@ func init() {
 // the run-scoped appearance font, substituted by buildLocalFixers.
 type appearanceFixer struct {
 	fontSrc *appearanceFontSource
+	spec    *pdfa.Spec
 }
 
 func (appearanceFixer) Applies(c pdf.Check) bool {
@@ -48,7 +48,7 @@ func (f appearanceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 	fontSrc := f.appearanceFont()
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixAnnotAppearanceDict(trailer, d, fontSrc) {
+		if fixAnnotAppearanceDict(trailer, d, fontSrc, f.spec) {
 			changed = true
 		}
 	})
@@ -65,7 +65,7 @@ func (f appearanceFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed
 	}
 	fontSrc := f.appearanceFont()
 	for _, d := range targets {
-		if fixAnnotAppearanceDict(p.trailer, d, fontSrc) {
+		if fixAnnotAppearanceDict(p.trailer, d, fontSrc, f.spec) {
 			changed = true
 		}
 	}
@@ -82,12 +82,12 @@ func (f appearanceFixer) appearanceFont() *appearanceFontSource {
 // fixAnnotAppearanceDict rebuilds d's /AP if d is an annotation violating one
 // of this Fixer's checks; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
-func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) bool {
+func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource, spec *pdfa.Spec) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
-	if !verify.AllowedAnnotationTypes[subtype.Value] {
+	if !spec.AnnotationSubtypes.Has(subtype.Value) {
 		return false
 	}
 	if !annotationNeedsAppearanceFix(d) {

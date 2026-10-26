@@ -31,6 +31,12 @@ notice.
 - `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
   `Check.AppliesTo` look checks up by clause within a conformance level.
 
+### Changed
+
+- A profile of the `ObjectModel` level that enables a PDF/A check is rejected
+  with an error naming the check. It used to be verified by PDF/A-1b's rules,
+  which that level does not have.
+
 ### Deprecated
 
 - `CheckByClause`, `ChecksForClause` and `Profile.Allows`, which read PDF/A-1
@@ -38,6 +44,10 @@ notice.
 
 ### Fixed
 
+- `ConvertObjectModel` and the `PDF` profile no longer stamp the output as
+  PDF/A-1b. They used to add a `pdfaid` XMP packet and a `GTS_PDFA1`
+  OutputIntent, and to run PDF/A's font repairs, although no PDF/A check had
+  been made.
 - Convert rewrote a stream referenced from several places through only one of
   them, writing a corrupt stream into output it reported conformant.
 - An issue after a link annotation was attributed to the link's destination

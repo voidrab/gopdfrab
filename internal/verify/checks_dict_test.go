@@ -17,7 +17,7 @@ func TestValidateActionsOwnerWithoutS(t *testing.T) {
 	owner.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
 	owner.Entries.Set("Subtype", pdf.PDFName{Value: "Link"})
 	owner.Entries.Set("A", pdf.NewPDFDict())
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateActions(owner, ctx)
 	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
 		t.Error("expected ForbiddenActionType for an /A with no /S")
@@ -28,7 +28,7 @@ func TestValidateActionsOwnerWithoutS(t *testing.T) {
 	elem := pdf.NewPDFDict()
 	elem.Entries.Set("Type", pdf.PDFName{Value: "StructElem"})
 	elem.Entries.Set("A", pdf.NewPDFDict())
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateActions(elem, ctx2)
 	if hasCheck(ctx2, pdf.Checks.Action.ForbiddenActionType) {
 		t.Error("a structure element's /A must not be read as an action")
@@ -38,7 +38,7 @@ func TestValidateActionsOwnerWithoutS(t *testing.T) {
 func TestValidateActions(t *testing.T) {
 	forbidden := pdf.NewPDFDict()
 	forbidden.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateActions(forbidden, ctx)
 	if !hasCheck(ctx, pdf.Checks.Action.ForbiddenActionType) {
 		t.Error("expected ForbiddenActionType for a JavaScript action")
@@ -47,7 +47,7 @@ func TestValidateActions(t *testing.T) {
 	namedBad := pdf.NewPDFDict()
 	namedBad.Entries.Set("S", pdf.PDFName{Value: "Named"})
 	namedBad.Entries.Set("N", pdf.PDFName{Value: "GoBackToStart"})
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateActions(namedBad, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Action.DisallowedNamedAction) {
 		t.Error("expected DisallowedNamedAction for a non-standard Named action")
@@ -56,14 +56,14 @@ func TestValidateActions(t *testing.T) {
 	namedOK := pdf.NewPDFDict()
 	namedOK.Entries.Set("S", pdf.PDFName{Value: "Named"})
 	namedOK.Entries.Set("N", pdf.PDFName{Value: "NextPage"})
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateActions(namedOK, ctx3)
 	if len(ctx3.errs) != 0 {
 		t.Error("unexpected violation for a standard Named action")
 	}
 
 	notAction := pdf.NewPDFDict()
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	validateActions(notAction, ctx4)
 	if len(ctx4.errs) != 0 {
 		t.Error("a dict with no recognized action type S should be a no-op")
@@ -73,13 +73,13 @@ func TestValidateActions(t *testing.T) {
 func TestValidateAdditionalActions(t *testing.T) {
 	v := pdf.NewPDFDict()
 	v.Entries.Set("AA", pdf.NewPDFDict())
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAdditionalActions(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Action.AdditionalActions) {
 		t.Error("expected AdditionalActions when AA is present")
 	}
 
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateAdditionalActions(pdf.NewPDFDict(), ctx2)
 	if len(ctx2.errs) != 0 {
 		t.Error("unexpected violation when AA is absent")
@@ -96,7 +96,7 @@ func TestValidateExtGState(t *testing.T) {
 	v.Entries.Set("BM", pdf.PDFName{Value: "Multiply"})
 	v.Entries.Set("CA", pdf.PDFReal(0.5))
 	v.Entries.Set("ca", pdf.PDFReal(0.5))
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateExtGState(v, ctx)
 	for _, chk := range []pdf.Check{
 		pdf.Checks.Transparency.TransferFunction,
@@ -117,14 +117,14 @@ func TestValidateExtGState(t *testing.T) {
 	good.Entries.Set("Type", pdf.PDFName{Value: "ExtGState"})
 	good.Entries.Set("BM", pdf.PDFName{Value: "Normal"})
 	good.Entries.Set("CA", pdf.PDFReal(1.0))
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateExtGState(good, ctx2)
 	if len(ctx2.errs) != 0 {
 		t.Errorf("unexpected violation for a conformant ExtGState: %v", ctx2.errs)
 	}
 
 	// Wrong Type or no relevant keys: no-op.
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateExtGState(pdf.NewPDFDict(), ctx3)
 	if len(ctx3.errs) != 0 {
 		t.Error("unexpected violation for a dict with no transparency-related keys")
@@ -132,7 +132,7 @@ func TestValidateExtGState(t *testing.T) {
 	other := pdf.NewPDFDict()
 	other.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
 	other.Entries.Set("TR", pdf.PDFName{Value: "Identity"})
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	validateExtGState(other, ctx4)
 	if len(ctx4.errs) != 0 {
 		t.Error("unexpected violation for a dict whose Type is not ExtGState")
@@ -144,13 +144,13 @@ func TestValidateTransparencyGroup(t *testing.T) {
 	group.Entries.Set("S", pdf.PDFName{Value: "Transparency"})
 	v := pdf.NewPDFDict()
 	v.Entries.Set("Group", group)
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateTransparencyGroup(v, ctx)
 	if !hasCheck(ctx, pdf.Checks.Transparency.TransparencyGroup) {
 		t.Error("expected TransparencyGroup for /S /Transparency")
 	}
 
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateTransparencyGroup(pdf.NewPDFDict(), ctx2)
 	if len(ctx2.errs) != 0 {
 		t.Error("unexpected violation with no Group entry")
@@ -166,7 +166,7 @@ func TestValidateXObjectDict(t *testing.T) {
 	img.Entries.Set("Intent", pdf.PDFName{Value: "BadIntent"})
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(3))
 	img.Entries.Set("SMask", pdf.PDFName{Value: "Luminosity"})
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateXObjectDict(img, ctx)
 	for _, chk := range []pdf.Check{
 		pdf.Checks.Image.ImageInterpolate,
@@ -185,7 +185,7 @@ func TestValidateXObjectDict(t *testing.T) {
 	mask.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	mask.Entries.Set("ImageMask", pdf.PDFBoolean(true))
 	mask.Entries.Set("BitsPerComponent", pdf.PDFInteger(2))
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateXObjectDict(mask, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Image.ImageMaskBitsPerComponent) {
 		t.Error("expected ImageMaskBitsPerComponent for a mask with BitsPerComponent != 1")
@@ -197,7 +197,7 @@ func TestValidateXObjectDict(t *testing.T) {
 	form.Entries.Set("OPI", pdf.NewPDFDict())
 	form.Entries.Set("PS", pdf.PDFString{Value: "x"})
 	form.Entries.Set("Subtype2", pdf.PDFName{Value: "PS"})
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateXObjectDict(form, ctx3)
 	for _, chk := range []pdf.Check{
 		pdf.Checks.Image.ReferenceXObject,
@@ -212,7 +212,7 @@ func TestValidateXObjectDict(t *testing.T) {
 	}
 
 	// Unreachable Form XObject: skipped entirely.
-	ctx4 := &ValidationContext{ReachableXObjectPtrs: map[uintptr]bool{}}
+	ctx4 := &ValidationContext{Spec: a1bSpec, ReachableXObjectPtrs: map[uintptr]bool{}}
 	validateXObjectDict(form, ctx4)
 	if len(ctx4.errs) != 0 {
 		t.Error("an unreachable Form XObject should not be checked")
@@ -220,13 +220,13 @@ func TestValidateXObjectDict(t *testing.T) {
 
 	ps := pdf.NewPDFDict()
 	ps.Entries.Set("Subtype", pdf.PDFName{Value: "PS"})
-	ctx5 := &ValidationContext{}
+	ctx5 := &ValidationContext{Spec: a1bSpec}
 	validateXObjectDict(ps, ctx5)
 	if !hasCheck(ctx5, pdf.Checks.Image.PostScriptXObject) {
 		t.Error("expected PostScriptXObject for a PS XObject")
 	}
 
-	ctx6 := &ValidationContext{}
+	ctx6 := &ValidationContext{Spec: a1bSpec}
 	validateXObjectDict(pdf.NewPDFDict(), ctx6)
 	if len(ctx6.errs) != 0 {
 		t.Error("a dict with no Subtype should be a no-op")
@@ -235,19 +235,19 @@ func TestValidateXObjectDict(t *testing.T) {
 
 func TestCheckAnnotColour(t *testing.T) {
 	v := pdf.NewPDFDict()
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	checkAnnotColour(v, pdf.PDFArray{pdf.PDFReal(1)}, ctx) // gray
 	if !hasCheck(ctx, pdf.Checks.Annotation.ColourWithoutIntent) {
 		t.Error("expected ColourWithoutIntent for an uncovered gray colour")
 	}
 
-	ctx2 := &ValidationContext{hasOutputIntent: true}
+	ctx2 := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true}
 	checkAnnotColour(v, pdf.PDFArray{pdf.PDFReal(1)}, ctx2)
 	if hasCheck(ctx2, pdf.Checks.Annotation.ColourWithoutIntent) {
 		t.Error("unexpected report when gray is covered by any OutputIntent")
 	}
 
-	ctx3 := &ValidationContext{rgbCovered: true, cmykCovered: true}
+	ctx3 := &ValidationContext{Spec: a1bSpec, rgbCovered: true, cmykCovered: true}
 	checkAnnotColour(v, pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}, ctx3)                 // rgb, covered
 	checkAnnotColour(v, pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}, ctx3) // cmyk, covered
 	if len(ctx3.errs) != 0 {
@@ -255,7 +255,7 @@ func TestCheckAnnotColour(t *testing.T) {
 	}
 
 	// Not an array, or wrong length: no-op.
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	checkAnnotColour(v, pdf.PDFName{Value: "x"}, ctx4)
 	checkAnnotColour(v, pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(1)}, ctx4)
 	if len(ctx4.errs) != 0 {
@@ -269,7 +269,7 @@ func TestValidateFormField(t *testing.T) {
 	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
 	widget.Entries.Set("A", pdf.NewPDFDict())
 	widget.Entries.Set("AA", pdf.NewPDFDict())
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateFormField(widget, ctx)
 	if !hasCheck(ctx, pdf.Checks.Form.FieldAction) {
 		t.Error("expected FieldAction for a widget with an A action")
@@ -281,7 +281,7 @@ func TestValidateFormField(t *testing.T) {
 	field := pdf.NewPDFDict()
 	field.Entries.Set("FT", pdf.PDFName{Value: "Tx"})
 	field.Entries.Set("A", pdf.NewPDFDict())
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateFormField(field, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Form.FieldAction) {
 		t.Error("expected FieldAction for a field (by FT) with an A action")
@@ -289,7 +289,7 @@ func TestValidateFormField(t *testing.T) {
 
 	notAField := pdf.NewPDFDict()
 	notAField.Entries.Set("A", pdf.NewPDFDict())
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateFormField(notAField, ctx3)
 	if len(ctx3.errs) != 0 {
 		t.Error("a dict that is neither a widget nor has FT should be a no-op")
@@ -363,7 +363,7 @@ func TestVerifyInteractiveFormsNoAcroForm(t *testing.T) {
 // TestValidateViewerPreferencesFlagsPost14Keys confirms that validateViewerPreferences
 // reports PostPDF14ViewerPref for PrintScaling and other post-1.4 keys.
 func TestValidateViewerPreferencesFlagsPost14Keys(t *testing.T) {
-	for _, key := range Post14ViewerPrefKeys {
+	for _, key := range a1b().ForbiddenViewerPrefKeys.All() {
 		vp := pdf.NewPDFDict()
 		vp.Entries.Set(key, pdf.PDFName{Value: "None"})
 
@@ -371,7 +371,7 @@ func TestValidateViewerPreferencesFlagsPost14Keys(t *testing.T) {
 		catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 		catalog.Entries.Set("ViewerPreferences", vp)
 
-		ctx := &ValidationContext{}
+		ctx := &ValidationContext{Spec: a1bSpec}
 		validateViewerPreferences(catalog, ctx)
 
 		found := false
@@ -397,7 +397,7 @@ func TestValidateViewerPreferencesIgnoresValid14Keys(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("ViewerPreferences", vp)
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateViewerPreferences(catalog, ctx)
 
 	for _, iss := range ctx.Issues() {
@@ -444,7 +444,7 @@ func TestValidateAnnotationInheritsBtn(t *testing.T) {
 	widget.Entries.Set("Parent", parent)
 	widget.Entries.Set("AP", ap)
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(widget, ctx)
 
 	for _, iss := range ctx.Issues() {
@@ -475,7 +475,7 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 	widget.Entries.Set("Parent", parent)
 	widget.Entries.Set("AP", ap)
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(widget, ctx)
 
 	for _, iss := range ctx.Issues() {
@@ -495,7 +495,7 @@ func TestIsAnnotationDict(t *testing.T) {
 	if !IsAnnotationDict(link) {
 		t.Error("a /Subtype + /Rect dict with no /Type is an annotation")
 	}
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(link, ctx)
 	if !hasCheck(ctx, pdf.Checks.Annotation.PrintFlagNotSet) {
 		t.Error("expected PrintFlagNotSet: the annotation carries no /F at all")
@@ -522,7 +522,7 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	disallowed := pdf.NewPDFDict()
 	disallowed.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
 	disallowed.Entries.Set("Subtype", pdf.PDFName{Value: "Sound"})
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(disallowed, ctx)
 	if !hasCheck(ctx, pdf.Checks.Annotation.DisallowedSubtype) {
 		t.Error("expected DisallowedSubtype for /Sound")
@@ -533,7 +533,7 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	flagged.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
 	flagged.Entries.Set("F", pdf.PDFInteger(AnnotFlagHidden|AnnotFlagInvisible|AnnotFlagNoView))
 	flagged.Entries.Set("CA", pdf.PDFReal(0.5))
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(flagged, ctx2)
 	for _, chk := range []pdf.Check{
 		pdf.Checks.Annotation.PrintFlagNotSet,
@@ -556,7 +556,7 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	extraAP.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
 	extraAP.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
 	extraAP.Entries.Set("AP", ap)
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(extraAP, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Annotation.AppearanceMissingN) {
 		t.Error("expected AppearanceMissingN when AP has no N entry")
@@ -573,7 +573,7 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	badNAnnot.Entries.Set("Subtype", pdf.PDFName{Value: "Square"})
 	badNAnnot.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
 	badNAnnot.Entries.Set("AP", badN)
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(badNAnnot, ctx4)
 	if !hasCheck(ctx4, pdf.Checks.Annotation.AppearanceNNotStream) {
 		t.Error("expected AppearanceNNotStream when N is not a dict")
@@ -584,34 +584,10 @@ func TestValidateAnnotationBranches(t *testing.T) {
 	popup.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
 	popup.Entries.Set("Subtype", pdf.PDFName{Value: "Popup"})
 	popup.Entries.Set("F", pdf.PDFInteger(AnnotFlagPrint))
-	ctx5 := &ValidationContext{}
+	ctx5 := &ValidationContext{Spec: a1bSpec}
 	validateAnnotation(popup, ctx5)
 	if hasCheck(ctx5, pdf.Checks.Annotation.MissingAppearance) {
 		t.Error("Popup should be exempt from MissingAppearance")
-	}
-}
-
-func TestIsAllowedBlendMode(t *testing.T) {
-	if !IsAllowedBlendMode(pdf.PDFName{Value: "Normal"}) {
-		t.Error("Normal should be allowed")
-	}
-	if !IsAllowedBlendMode(pdf.PDFName{Value: "Compatible"}) {
-		t.Error("Compatible should be allowed")
-	}
-	if IsAllowedBlendMode(pdf.PDFName{Value: "Multiply"}) {
-		t.Error("Multiply should not be allowed")
-	}
-	if !IsAllowedBlendMode(pdf.PDFArray{pdf.PDFName{Value: "Normal"}, pdf.PDFName{Value: "Compatible"}}) {
-		t.Error("array of allowed modes should be allowed")
-	}
-	if IsAllowedBlendMode(pdf.PDFArray{pdf.PDFName{Value: "Normal"}, pdf.PDFName{Value: "Screen"}}) {
-		t.Error("array containing a disallowed mode should be rejected")
-	}
-	if IsAllowedBlendMode(pdf.PDFArray{pdf.PDFInteger(1)}) {
-		t.Error("array with a non-name element should be rejected")
-	}
-	if IsAllowedBlendMode(pdf.PDFInteger(1)) {
-		t.Error("non-name/array should be false")
 	}
 }
 

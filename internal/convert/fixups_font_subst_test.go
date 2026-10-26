@@ -32,7 +32,7 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -81,7 +81,7 @@ func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testi
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -106,7 +106,7 @@ func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("first Fix: %v", err)
 	}

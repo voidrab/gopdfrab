@@ -685,7 +685,7 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 }
 
 // ValidateFontProgram flags a damaged embedded font program (6.3.2) and an
-// embedded font file in a format PDF 1.4 does not define (6.3.2).
+// embedded font file of a /Subtype the level does not allow (6.3.2).
 func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *ValidationContext) {
 	for _, key := range []string{"FontFile", "FontFile2", "FontFile3"} {
 		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
@@ -695,10 +695,8 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 		if !fontProgramValid(ctx, ff, key) {
 			ctx.Report(pdf.Checks.Font.InvalidProgram, obj, fmt.Sprintf("embedded font program for %s is damaged", name))
 		}
-		// The only font file subtypes PDF 1.4 defines are Type1C and
-		// CIDFontType0C; no subtype at all is fine.
-		if st, ok := ff.Entries.Get("Subtype").(pdf.PDFName); ok &&
-			st.Value != "Type1C" && st.Value != "CIDFontType0C" {
+		// No subtype at all is fine.
+		if st, ok := ff.Entries.Get("Subtype").(pdf.PDFName); ok && !ctx.Spec.FontFileSubtypes.Has(st.Value) {
 			ctx.Report(pdf.Checks.Font.FontFileSubtype, obj,
 				fmt.Sprintf("embedded font file for %s has unsupported Subtype /%s", name, st.Value))
 		}

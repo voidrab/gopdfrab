@@ -9,7 +9,18 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
+
+// a1b returns a fresh copy of PDF/A-1b's spec, for a test to bind a fixer to
+// or to change one rule of.
+func a1b() pdfa.Spec {
+	s, _ := pdfa.For(pdf.A1B)
+	return s
+}
+
+// a1bSpec is PDF/A-1b's spec for tests that only read it.
+var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
 
 // isartorDir and veraDir locate the reference test corpora relative to this
 // package's directory (two levels under the repo root).

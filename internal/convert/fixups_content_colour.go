@@ -2,6 +2,7 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -108,6 +109,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 // cache) so repeated content scans across fixer iterations hit warm bytes.
 type deviceColourFixer struct {
 	decode decodeFunc
+	spec   *pdfa.Spec
 }
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
@@ -119,7 +121,7 @@ func (deviceColourFixer) Applies(c pdf.Check) bool {
 }
 
 func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	_, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
+	_, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
 
 	changed := false
 	// Built lazily and reused across every page that needs it, so the

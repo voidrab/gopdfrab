@@ -181,7 +181,7 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	fixer := deviceColourFixer{}
+	fixer := deviceColourFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -260,7 +260,7 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	fixer := deviceColourFixer{}
+	fixer := deviceColourFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -621,7 +621,7 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	trailer.Entries.Set("Root", pdf.NewPDFDict())
 	trailer.Entries.Set("Pages", pdf.PDFArray{page, grayPage})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want true, nil", changed, err)
 	}
@@ -669,7 +669,7 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}

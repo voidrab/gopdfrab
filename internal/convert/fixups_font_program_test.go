@@ -477,7 +477,7 @@ func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
 }
 
 func TestFontFileSubtypeFixerAppliesOnlyToFontFileSubtype(t *testing.T) {
-	fixer := fontFileSubtypeFixer{}
+	fixer := fontFileSubtypeFixer{spec: a1bSpec}
 	for _, c := range pdf.AllChecks() {
 		want := c == pdf.Checks.Font.FontFileSubtype
 		if got := fixer.Applies(c); got != want {
@@ -600,7 +600,7 @@ func TestFontFileSubtypeFixerUnwrapsOpenTypeCFF(t *testing.T) {
 	} {
 		t.Run(tc.fontSubtype, func(t *testing.T) {
 			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", otf)
-			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 			ff, ok := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
 			if !ok {
@@ -625,7 +625,7 @@ func TestFontFileSubtypeFixerUnwrapsOpenTypeCFF(t *testing.T) {
 func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
 	cff := buildMinimalCFF()
 	trailer := fontWithFontFile3("Type1", "OpenType", cff)
-	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 	ff := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
 	if (ff.Entries.Get("Subtype") != pdf.PDFName{Value: "Type1C"}) {
@@ -642,7 +642,7 @@ func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
 func TestFontFileSubtypeFixerMovesTrueTypeToFontFile2(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	trailer := fontWithFontFile3("CIDFontType2", "OpenType", ttf)
-	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 	desc := descriptorOf(t, trailer)
 	if desc.Entries.Get("FontFile3") != nil {
@@ -683,7 +683,7 @@ func TestFontFileSubtypeFixerLeavesUnusableProgram(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", tc.program)
-			changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+			changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 			if err != nil {
 				t.Fatalf("Fix: %v", err)
 			}
@@ -710,7 +710,7 @@ func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
 			})}
 			trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})}
 
-			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 			got := descriptorOf(t, trailer).Entries.Get(key).(pdf.PDFDict)
 			if got.Entries.Get("Subtype") != nil {
 				t.Errorf("%s still carries a Subtype", key)
@@ -724,7 +724,7 @@ func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
 func TestFontFileSubtypeFixerSkipsConformingFonts(t *testing.T) {
 	for _, subtype := range []string{"", "Type1C", "CIDFontType0C"} {
 		trailer := fontWithFontFile3("Type1", subtype, buildMinimalCFF())
-		changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+		changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 		if err != nil {
 			t.Fatalf("Fix: %v", err)
 		}
@@ -740,14 +740,14 @@ func TestFontFileSubtypeFixerSkipsNonFonts(t *testing.T) {
 	notAFont := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Type1"},
 	})}
-	if fixFontFileSubtypeDict(notAFont) {
+	if fixFontFileSubtypeDict(notAFont, a1bSpec) {
 		t.Error("a dict without /Type /Font was treated as a font")
 	}
 	noDescriptor := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "Font"},
 		"Subtype": pdf.PDFName{Value: "Type1"},
 	})}
-	if fixFontFileSubtypeDict(noDescriptor) {
+	if fixFontFileSubtypeDict(noDescriptor, a1bSpec) {
 		t.Error("a font without a descriptor reported a change")
 	}
 }
@@ -850,12 +850,12 @@ func TestFontFileSubtypeFixerTargeted(t *testing.T) {
 	}
 
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	runTargetedAndCheckIdempotent(t, fontFileSubtypeFixer{}, pass, issues)
+	runTargetedAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, pass, issues)
 
 	// An issue with no object ref cannot be targeted, and the caller falls
 	// back to the whole-graph Fix.
 	noRef := pdf.NewError(pdf.Checks.Font.FontFileSubtype, []error{errors.New("no ref")}, 0, nil)
-	if _, handled, err := (fontFileSubtypeFixer{}).fixTargeted(pass, []pdf.PDFError{noRef}); err != nil || handled {
+	if _, handled, err := (fontFileSubtypeFixer{spec: a1bSpec}).fixTargeted(pass, []pdf.PDFError{noRef}); err != nil || handled {
 		t.Errorf("fixTargeted(ref-less issue) = handled %v, err %v, want false, nil", handled, err)
 	}
 }
@@ -866,7 +866,7 @@ func TestFontFileSubtypeFixerTargeted(t *testing.T) {
 func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
 	empty := wrapInSfnt(0x4F54544F, map[string][]byte{"head": make([]byte, 54)})
 	trailer := fontWithFontFile3("CIDFontType2", "OpenType", empty)
-	changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+	changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}

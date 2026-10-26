@@ -22,7 +22,7 @@ func TestViewerPrefFixerRemovesPost14Keys(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	fixer := viewerPrefFixer{}
+	fixer := viewerPrefFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -51,7 +51,7 @@ func TestViewerPrefFixerNoOp(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	changed, err := viewerPrefFixer{}.Fix(&trailer, nil)
+	changed, err := viewerPrefFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	fixer := actionFixer{}
+	fixer := actionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -116,7 +116,7 @@ func TestExtGStateFixer(t *testing.T) {
 		"ca":    pdf.PDFReal(0.5),
 	})}
 	trailer := trailerWith("GS", gs)
-	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -154,7 +154,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	})}
 	trailer, page := onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
 
-	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -176,7 +176,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": half})},
 	})}
 	trailer, page = onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
-	if changed, err := (extGStateFixer{}).Fix(&trailer, nil); err != nil || !changed {
+	if changed, err := (extGStateFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
 	if half.Entries.Get("ca") != pdf.PDFReal(1.0) {
@@ -329,14 +329,14 @@ func TestOptionalContentFixerNoOp(t *testing.T) {
 // which covers ViewerPreferences present but clean).
 func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
 	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if changed, err := (viewerPrefFixer{}).Fix(&noRoot, nil); err != nil || changed {
+	if changed, err := (viewerPrefFixer{spec: a1bSpec}).Fix(&noRoot, nil); err != nil || changed {
 		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
 	}
 
 	noVP := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}})},
 	})}
-	if changed, err := (viewerPrefFixer{}).Fix(&noVP, nil); err != nil || changed {
+	if changed, err := (viewerPrefFixer{spec: a1bSpec}).Fix(&noVP, nil); err != nil || changed {
 		t.Errorf("Fix(no ViewerPreferences) = %v, %v, want (false, nil)", changed, err)
 	}
 }
@@ -408,7 +408,7 @@ func TestClearJSNameTreeReachesNestedDicts(t *testing.T) {
 	root.Entries.Set("Sub", node)
 
 	changed := false
-	clearJSNameTree(root, &changed)
+	clearJSNameTree(root, &changed, a1bSpec)
 	if !changed || action.Entries.Get("JS") != nil {
 		t.Errorf("changed=%v, JS=%v; want the nested action cleared", changed, action.Entries.Get("JS"))
 	}
@@ -430,7 +430,7 @@ func TestDeadAction(t *testing.T) {
 		"no /S (emptied)":  {pdf.NewPDFDict(), true},
 		"/S not a name":    {func() pdf.PDFDict { d := pdf.NewPDFDict(); d.Entries.Set("S", pdf.PDFInteger(1)); return d }(), true},
 	} {
-		if got := deadAction(tc.v); got != tc.want {
+		if got := deadAction(tc.v, a1bSpec); got != tc.want {
 			t.Errorf("%s: deadAction = %v, want %v", name, got, tc.want)
 		}
 	}

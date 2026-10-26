@@ -12,13 +12,14 @@ open file → parse → resolve object graph → run checks → issues
 
 Verification involves checking whether a document meets certain PDF/A criteria. Conversion involves extending the verification process to include a repair step, followed by a writer that produces the final output.
 
-The entire project is a single Go module with no dependencies other than `klauspost/compress`. Nine internal packages contain the implementation, while the root package provides a thin facade over them.
+The entire project is a single Go module with no dependencies other than `klauspost/compress`. Ten internal packages contain the implementation, while the root package provides a thin facade over them.
 
 | Package              | What it does                                                                     |
 | -------------------- | -------------------------------------------------------------------------------- |
 | `internal/pdf`       | Provides the parser, object model, filters, decryption, and check registry.      |
 | `internal/fontprog`  | Parses embedded font programs (TrueType, CFF, Type 1) and their encodings.       |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
+| `internal/pdfa`      | Holds each conformance level's rules: limits, allowed sets, switches, identity.  |
 | `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
 | `internal/convert`   | Contains the fixers and the fix loop.                                            |
@@ -29,10 +30,10 @@ The entire project is a single Go module with no dependencies other than `klausp
 The packages form layers, and imports only point downwards:
 
 ```text
-convert                     → verify, raster, writer, fontprog, fontsubst, arlington, pdf
-verify                      → fontprog, arlington, pdf
-raster                      → fontprog, fontsubst, pdf
-fontprog, fontsubst, writer → pdf
+convert                           → verify, raster, writer, fontprog, fontsubst, arlington, pdfa, pdf
+verify                            → fontprog, arlington, pdfa, pdf
+raster                            → fontprog, fontsubst, pdf
+fontprog, fontsubst, writer, pdfa → pdf
 ```
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
@@ -59,12 +60,19 @@ Every rule enforced by gopdfrab is registered in this registry as a `Check` cont
 
 - a `name`, such as `"OptionalContent"`;
 - a `description`, which is shown to the user when the corresponding check fails;
-- a `clause` and `subclause`, identifying the relevant PDF/A-1 clause and the sub-rule within it; and
-- an `id`, assigned during registration and used as a compact key.
+- a `clause` and `subclause`, identifying the relevant PDF/A-1 clause and the sub-rule within it;
+- its `parts`, the conformance levels it is a rule of, so `ClauseIn(level)` can say which clause it enforces under a level, or that it is none of that level's; and
+- an `id`, written out at registration and pinned by a test, so adding a check never renumbers the others.
 
 There are 159 checks, organized into 11 groups: `Structure`, `Colour`, `Image`, `Transparency`, `Font`, `LogicalStructure`, `Annotation`, `Action`, `Metadata`, `Form`, and `ObjectModel`. `pdf.Checks` is the registry value, so a check can be referenced as `pdf.Checks.Structure.OptionalContent`.
 
 A `Profile` as found in `profile.go` contains a conformance level and a set of enabled check IDs, allowing a caller to verify a document against all checks, some checks, or only the object model.
+
+## internal/pdfa — what each level permits
+
+`pdfa.For(level)` returns a level's `Spec`: its architectural limits, the rendering intents, actions, annotation subtypes, blend modes and font file subtypes it allows or forbids, whether it permits transparency, optional content, cross-reference streams and embedded files, the newest ICC version it takes, the OutputIntent subtype and XMP identity a conforming file declares, and the PDF version whose object model applies. A level with no spec is one nothing can be verified against.
+
+verify and convert both read the spec, so a check and the fixer that repairs it cannot disagree on a level's rules. verify reaches it through `ValidationContext.Spec`; a convert run binds it into every fixer that reads one (the `levelBound` capability) and passes it to the pre-emptive fixups, which skip PDF/A-only repairs for a plain-PDF level. `For` returns a copy, and the `Names` sets inside are read-only, so no caller can change a level's rules for another.
 
 ## internal/verify — the checks
 
@@ -76,7 +84,7 @@ A `Profile` as found in `profile.go` contains a conformance level and a set of e
 
 This separation supports conversion: after a fix pass, the graph portion can be replayed without rereading the file.
 
-`ValidationContext` (`context.go`) is the context to which checks report their findings. `ctx.Report(check, object, message)` records an issue. The context also contains the results of a content-usage scan, including which XObjects are reachable and which glyphs are actually drawn. This allows checks to ignore content that the document never displays.
+`ValidationContext` (`context.go`) is the context to which checks report their findings. `ctx.Report(check, object, message)` records an issue, and `ctx.Spec` holds the rules of the level being verified. The context also contains the results of a content-usage scan, including which XObjects are reachable and which glyphs are actually drawn. This allows checks to ignore content that the document never displays.
 
 The check files generally follow these groups. To find where a particular check is reported, search for its name—for example, `pdf.Checks.Colour.DeviceColourSpaceUsage`. The overall structure is as follows:
 

@@ -9,6 +9,15 @@ import (
 
 // TestStripEmbeddedMetadataRemovesNonCatalog confirms that stripEmbeddedMetadata
 // deletes /Metadata from image/XObject dicts while keeping the catalog's.
+// stripEmbeddedMetadata runs the pre-emptive metadata strip on its own: it
+// removes /Metadata from every non-catalog object.
+func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+	if visit := stripEmbeddedMetadataVisitor(trailer, doc, a1b()); visit != nil {
+		walkDicts(*trailer, map[uintptr]bool{}, visit)
+	}
+	return nil
+}
+
 func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	// Catalog metadata (must be kept).
 	catalogMeta := pdf.NewPDFDict()
@@ -77,7 +86,7 @@ func TestBuildXMPPacketKeepsParens(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFString{Value: "Doc (v2)"})
 
-	xmp := buildXMPPacket(info)
+	xmp := buildXMPPacket(info, a1b())
 	if !strings.Contains(xmp, "(v2)") {
 		t.Errorf("buildXMPPacket XMP does not contain (v2): %s", xmp)
 	}
@@ -304,7 +313,7 @@ func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 func TestRegenerateXMPRequiresCatalogDict(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFInteger(1))
-	if err := regenerateXMP(&trailer, nil); err == nil || !strings.Contains(err.Error(), "Root is not a dictionary") {
+	if err := regenerateXMP(&trailer, nil, a1b()); err == nil || !strings.Contains(err.Error(), "Root is not a dictionary") {
 		t.Errorf("regenerateXMP err = %v, want a Root-is-not-a-dictionary error", err)
 	}
 }

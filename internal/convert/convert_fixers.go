@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // Fixer attempts to remediate a specific set of violations across the entire document graph idempotently.
@@ -41,6 +42,13 @@ func runDictVisitor(trailer *pdf.PDFDict, prepare func(*pdf.PDFDict, *bool) (fun
 	return changed, nil
 }
 
+// levelBound is a Fixer whose repairs follow a conformance level's rules. Its
+// registered instance holds no spec; buildLocalFixers binds the run's.
+type levelBound interface {
+	Fixer
+	withSpec(spec *pdfa.Spec) Fixer
+}
+
 var fixerRegistry = map[pdf.Check]Fixer{}
 
 func registerFixer(f Fixer) {
@@ -56,39 +64,39 @@ func registerFixer(f Fixer) {
 	}
 }
 
-var preemptiveFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
+var preemptiveFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error
 
-func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
+func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error) {
 	preemptiveFixups = append(preemptiveFixups, f)
 }
 
 // preemptiveVisitors holds pre-emptive fixups expressed as per-dict visitors.
 // applyPreemptiveFixups drives all of them over the graph in one shared walk
 // instead of one full walk each; a prepare returning nil opts out of the pass.
-var preemptiveVisitors []func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)
+var preemptiveVisitors []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict)
 
-func registerPreemptiveVisitor(f func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)) {
+func registerPreemptiveVisitor(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict)) {
 	preemptiveVisitors = append(preemptiveVisitors, f)
 }
 
 // preemptiveAfterFixups run after the shared visitor walk, for fixups that
 // must observe the visitors' edits (e.g. dropOversizedStructure must not see
 // Kids arrays the rebalance visitor is able to split).
-var preemptiveAfterFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
+var preemptiveAfterFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error
 
-func registerPreemptiveAfterFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
+func registerPreemptiveAfterFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error) {
 	preemptiveAfterFixups = append(preemptiveAfterFixups, f)
 }
 
-func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error {
 	for _, f := range preemptiveFixups {
-		if err := f(trailer, doc); err != nil {
+		if err := f(trailer, doc, spec); err != nil {
 			return err
 		}
 	}
 	var visitors []func(pdf.PDFDict)
 	for _, prepare := range preemptiveVisitors {
-		if visit := prepare(trailer, doc); visit != nil {
+		if visit := prepare(trailer, doc, spec); visit != nil {
 			visitors = append(visitors, visit)
 		}
 	}
@@ -100,7 +108,7 @@ func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 		})
 	}
 	for _, f := range preemptiveAfterFixups {
-		if err := f(trailer, doc); err != nil {
+		if err := f(trailer, doc, spec); err != nil {
 			return err
 		}
 	}

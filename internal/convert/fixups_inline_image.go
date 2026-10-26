@@ -2,9 +2,8 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // This file fixes violations specific to an inline image's own parameters
@@ -47,7 +46,7 @@ func removeInlineImageKeys(params []pdf.PDFValue, keys ...string) []pdf.PDFValue
 // to /RelativeColorimetric, mirroring checkInlineImageOther's Intent case
 // (checks_content.go) in reverse. ok is false if operands isn't an
 // INLINEIMAGE op's operands or nothing needed fixing.
-func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValue, ok bool) {
+func fixInlineImageRenderingIntent(operands []pdf.PDFValue, spec *pdfa.Spec) (fixed []pdf.PDFValue, ok bool) {
 	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		return operands, false
@@ -59,7 +58,7 @@ func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValu
 		if !ok || key.Value != "Intent" {
 			continue
 		}
-		if name, ok := fixedParams[i+1].(pdf.PDFName); ok && !verify.AllowedIntents[name.Value] {
+		if name, ok := fixedParams[i+1].(pdf.PDFName); ok && !spec.RenderingIntents.Has(name.Value) {
 			fixedParams[i+1] = pdf.PDFName{Value: "RelativeColorimetric"}
 			changed = true
 		}
