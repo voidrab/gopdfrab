@@ -7,12 +7,13 @@ onward.
 
 ## Versioning and stability
 
-**From 1.0, the stability guarantee covers the root package only** —
-`github.com/voidrab/gopdfrab`. Everything under `internal/` is implementation
+**From 1.0, the stability guarantee covers the public packages only** —
+`github.com/voidrab/gopdfrab` and, from 1.3.0, its verification-only subset
+`github.com/voidrab/gopdfrab/verify`. Everything under `internal/` is implementation
 detail, is not importable by external code, and may change in any release without
 notice.
 
-- A **breaking change** is any change to the root package that requires a
+- A **breaking change** is any change to a public package that requires a
   consumer to edit their code to keep compiling, or that alters documented
   behavior of a public symbol. These happen only in a major version after 1.0.
 - **Additions** (new functions, types, options) are minor releases.
@@ -25,6 +26,12 @@ notice.
   and removed no earlier than the next major version.
 
 ## [Unreleased]
+
+### Added
+
+- `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
+  the same names and over the same types, for programs that never convert.
+  It does not compile or link the converter.
 
 ### Fixed
 

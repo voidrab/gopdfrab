@@ -138,6 +138,26 @@ import (
 )
 ```
 
+### Verification only
+
+A program that verifies but never converts can import
+`github.com/voidrab/gopdfrab/verify` instead. It has the same verification API
+under the same names (`Verify`, `VerifyBytes`, `VerifyAll`, `Open`, `Document`,
+`Profile`, `Checks`, `SetLimits`, and the rest), over the very same types, so
+switching is an import swap. It never compiles or links the converter: no
+fixers, writer, rasterizer, substitute fonts or ICC profiles.
+
+```go
+import "github.com/voidrab/gopdfrab/verify"
+
+res, err := verify.VerifyBytes(data, verify.PDFA1B)
+```
+
+Go's linker already drops most converter code a verify-only caller of the root
+package leaves unused, so the saving there is moderate: about 16% of a small
+verifying binary (4.8 MB instead of 5.7 MB). It is largest next to a build that
+also converts, such as the WebAssembly modules below.
+
 ### Initialize a Document
 
 ```go

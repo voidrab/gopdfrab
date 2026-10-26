@@ -39,7 +39,11 @@ fontprog, fontsubst, writer → pdf
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
 
-`gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages. `cmd/gopdfrab` provides the CLI, while `wasm/main.go` provides the browser build.
+`gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages.
+
+`verify/` is the second public package: the verification half of that API, under the same names and over the same type aliases, for programs that never convert. It imports only `internal/pdf` and `internal/verify`, so it never reaches the converter. `TestVerifyPackageIsLight` (`layering_test.go`) fails if any chain of imports from it reaches `convert`, `fontedit`, `fontsubst`, `raster` or `writer`, and `TestVerifyAPIParity` (`verify_api_test.go`) fails if its API drifts from the root package's verification half. `Limits` is defined there and aliased at the root, so there is one type.
+
+`cmd/gopdfrab` provides the CLI, while `wasm/main.go` provides the browser build.
 
 ## internal/pdf — the parser and object model
 
