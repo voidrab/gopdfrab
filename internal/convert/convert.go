@@ -580,7 +580,19 @@ func summarizeTrailerPagesOf(out *pdf.Reader) []pageSummary {
 // trigger it; structural violations (no registered fixer) are fixed by
 // construction by the writer and do not need rasterization. It updates cr,
 // lastParts, and graphClean exactly as the fix loop's verifies do.
+//
+// A loop that ran out of iterations ends on a fix pass nothing verified, so
+// cr.Result still lists what that pass repaired. Verify first: rasterizing
+// from the stale list flattened pages that were already conformant.
 func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
+	if !*graphClean {
+		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
+		if err != nil {
+			return err
+		}
+		cr.Result = result
+		*lastParts, *graphClean = parts, true
+	}
 	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
 		return nil
 	}

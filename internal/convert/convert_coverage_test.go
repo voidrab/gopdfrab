@@ -65,7 +65,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	}}
 	fixers := map[pdf.Check]Fixer{c: nil}
 	var lastParts verify.Parts
-	graphClean := false
+	graphClean := true // the synthetic issues stand for a verify of this graph
 
 	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
@@ -111,6 +111,24 @@ func TestRasterBackstopVerifyErrors(t *testing.T) {
 				t.Error("graphClean = true after a failed post-flatten verify")
 			}
 		})
+	}
+}
+
+// TestRasterBackstopStaleVerifyError covers the up-front verify a dirty
+// graph gets before the backstop reads its issues: its error is returned,
+// and the graph stays dirty.
+func TestRasterBackstopStaleVerifyError(t *testing.T) {
+	trailer := onePageTrailer()
+	doc := openTrailer(t, trailer)
+	cr := &ConvertResult{}
+	var lastParts verify.Parts
+	graphClean := false
+	err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0)
+	if err == nil {
+		t.Fatal("rasterBackstop did not propagate the up-front verify error")
+	}
+	if graphClean {
+		t.Error("graphClean = true after a failed verify")
 	}
 }
 
