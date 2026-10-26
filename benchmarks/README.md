@@ -43,6 +43,7 @@ bash scripts/run_startup.sh  # metric 1
 bash scripts/run_cold.sh     # metric 2 (small/median/large sample files)
 bash scripts/run_batch.sh    # metrics 3, 4, 5 (+ per-file data for metric 7)
 bash scripts/run_micro.sh    # metric 6 (Go microbenchmark) + metric 8 (footprint)
+bash scripts/run_footprint.sh  # metric 8 alone: sizes only, cheap to rerun
 python3 scripts/report.py    # aggregates everything into results/report.md
 ```
 
@@ -84,8 +85,10 @@ prints a benchstat comparison against the previous round. See
    guards conversion against regaining a verify pass.
 7. **Throughput vs. file size** — metric 3-5's per-file timings, bucketed by
    size, to separate fixed per-file cost from cost that scales with content.
-8. **Library / deployment footprint** — a static gopdfrab binary (plain and
-   stripped) vs. veraPDF's full install dir vs. PDFBox's single jar. 
+8. **Library / deployment footprint** — static gopdfrab binaries (plain and
+   stripped) vs. veraPDF's full install dir vs. PDFBox's single jar: the CLI,
+   which verifies and converts; a verify-only program built on
+   `gopdfrab/verify` (the benchmark runner); and the two browser modules.
    veraPDF and PDFBox additionally require a separate JRE; gopdfrab nothing
    beyond the binary.
 
