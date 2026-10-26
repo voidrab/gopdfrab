@@ -54,7 +54,7 @@ func TestType1LenIV(t *testing.T) {
 		{"/lenIV 99999999999999999999 def", 4}, // overflows int
 	}
 	for _, c := range cases {
-		if got := type1LenIV([]byte(c.plain)); got != c.want {
+		if got := Type1LenIV([]byte(c.plain)); got != c.want {
 			t.Errorf("type1LenIV(%q) = %d, want %d", c.plain, got, c.want)
 		}
 	}
@@ -165,7 +165,7 @@ func TestExtractType1ProgramRejectsBadInput(t *testing.T) {
 	// Encrypted section without /CharStrings.
 	s := newType1()
 	s.noChars = true
-	if sec, iv := Type1CharStringsSection(s.build(), Type1EexecBinStart(s.build())); sec != nil || iv != 4 {
+	if sec, iv, _ := type1Sections(s.build(), Type1EexecBinStart(s.build())); sec != nil || iv != 4 {
 		t.Errorf("no CharStrings: %v, %d, want nil, 4", sec, iv)
 	}
 	// Garbage after eexec decrypts to something without /CharStrings.
@@ -175,11 +175,11 @@ func TestExtractType1ProgramRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestType1CharStringsSection(t *testing.T) {
+func TestType1Sections(t *testing.T) {
 	s := widthFont()
 	s.lenIV = 2
 	data := s.build()
-	sec, lenIV := Type1CharStringsSection(data, Type1EexecBinStart(data))
+	sec, lenIV, _ := type1Sections(data, Type1EexecBinStart(data))
 	if lenIV != 2 || !bytes.HasPrefix(sec, []byte("/CharStrings")) {
 		t.Errorf("section starts %q with lenIV %d, want /CharStrings and 2", sec[:min(12, len(sec))], lenIV)
 	}
@@ -223,11 +223,11 @@ func TestType1SubrArray(t *testing.T) {
 		"dup 99999999999999999999 3 RD abc NP\n" + // number overflows int
 		"dup 2 99999999999999999999 RD abc NP\n" + // length overflows int
 		"dup 5 " + strconv.Itoa(len(e2)+1000) + " RD " + e2 // runs past the data
-	subrs := type1SubrArray([]byte(private), 4)
+	subrs := Type1SubrArray([]byte(private), 4)
 	if len(subrs) != 2 || subrs[0] != nil || !bytes.Equal(subrs[1], []byte{1, 2, 3}) {
 		t.Errorf("subrs = %v, want a gap at 0 and {1 2 3} at 1", subrs)
 	}
-	if type1SubrArray([]byte("/Other 1 def"), 4) != nil {
+	if Type1SubrArray([]byte("/Other 1 def"), 4) != nil {
 		t.Error("no /Subrs should give nil")
 	}
 }

@@ -11,16 +11,16 @@ import (
 // stack-clearing operator. Only that prefix is interpreted; on any parse
 // uncertainty the glyph (or the whole font) is skipped rather than reported.
 
-// cffDictNumbers parses a CFF DICT's operands/operators, invoking op for each
+// CFFDictNumbers parses a CFF DICT's operands/operators, invoking op for each
 // operator with the operands collected before it (escape operators are passed
 // as 1200+n). Returns false on malformed data.
-func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
-	return cffDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
+func CFFDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
+	return CFFDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
 }
 
-// cffDictNumbersAt is cffDictNumbers that also passes, with each operator,
+// CFFDictNumbersAt is cffDictNumbers that also passes, with each operator,
 // the offset just past it -- where the next entry starts.
-func cffDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
+func CFFDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
 	var stack []float64
 	for i := 0; i < len(dict); {
 		b := int(dict[i])
@@ -143,13 +143,13 @@ func parseSimpleFloat(s string) float64 {
 	return v
 }
 
-// cffPrivateInfo reads a Private DICT's width defaults and local Subrs INDEX.
-func cffPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX float64, localSubrs [][]byte, ok bool) {
+// CFFPrivateInfo reads a Private DICT's width defaults and local Subrs INDEX.
+func CFFPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX float64, localSubrs [][]byte, ok bool) {
 	if offset < 0 || size <= 0 || offset+size > len(cff) {
 		return 0, 0, nil, false
 	}
 	subrsOffset := -1
-	parsed := cffDictNumbers(cff[offset:offset+size], func(operator int, operands []float64) {
+	parsed := CFFDictNumbers(cff[offset:offset+size], func(operator int, operands []float64) {
 		if len(operands) == 0 {
 			return
 		}
@@ -171,9 +171,9 @@ func cffPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX 
 	return defaultWidthX, nominalWidthX, localSubrs, true
 }
 
-// cffGlobalSubrs returns the Global Subr INDEX entries, which follow the
+// CFFGlobalSubrs returns the Global Subr INDEX entries, which follow the
 // String INDEX in every CFF program.
-func cffGlobalSubrs(cff []byte) [][]byte {
+func CFFGlobalSubrs(cff []byte) [][]byte {
 	if len(cff) < 4 {
 		return nil
 	}
@@ -196,10 +196,10 @@ func cffSubrBias(count int) int {
 	}
 }
 
-// type2CharstringWidth interprets a Type2 charstring only up to its first
+// Type2CharstringWidth interprets a Type2 charstring only up to its first
 // stack-clearing operator and reports the width operand, if present, as
 // (width, true, true). ok is false when the prefix cannot be followed safely.
-func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, hasWidth, ok bool) {
+func Type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, hasWidth, ok bool) {
 	var stack []float64
 	gBias, lBias := cffSubrBias(len(gsubrs)), cffSubrBias(len(lsubrs))
 
@@ -310,7 +310,7 @@ func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, ha
 // cffCharstringWidth extracts one glyph's advance width given the width
 // defaults and subrs in effect for it, or -1 when it cannot be followed.
 func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
-	w, hasWidth, ok := type2CharstringWidth(cs, gsubrs, lsubrs)
+	w, hasWidth, ok := Type2CharstringWidth(cs, gsubrs, lsubrs)
 	if !ok {
 		return -1
 	}
@@ -421,11 +421,11 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]float64, WidthStats) {
 	if len(names) != len(charStrings) {
 		return nil, WidthStats{Skip: WidthSkipGlyphNames}
 	}
-	defaultWidthX, nominalWidthX, lsubrs, ok := cffPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
+	defaultWidthX, nominalWidthX, lsubrs, ok := CFFPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
 	if !ok {
 		return nil, WidthStats{Skip: WidthSkipPrivate}
 	}
-	gsubrs := cffGlobalSubrs(cff)
+	gsubrs := CFFGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings) - 1}
 	widths := make(map[string]float64, len(names))
@@ -472,7 +472,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	if cids == nil {
 		return nil, WidthStats{Skip: WidthSkipCharset}
 	}
-	fdIndex := parseCFFFDSelect(cff, td.FDSelect, len(charStrings))
+	fdIndex := ParseCFFFDSelect(cff, td.FDSelect, len(charStrings))
 	fds, _ := ParseCFFIndex(cff, td.FDArrayOffset)
 	if len(fds) == 0 {
 		return nil, WidthStats{Skip: WidthSkipFDArray}
@@ -490,7 +490,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	for i := range infos {
 		infos[i].ok = infos[i].ok && !infos[i].hasMatrix
 	}
-	gsubrs := cffGlobalSubrs(cff)
+	gsubrs := CFFGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings)}
 	widths := make(map[int]float64, len(charStrings))
@@ -510,9 +510,9 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	return widths, stats
 }
 
-// parseCFFFDSelect maps each glyph ID to its Font DICT index (formats 0 and
+// ParseCFFFDSelect maps each glyph ID to its Font DICT index (formats 0 and
 // 3); nil on absence or parse failure.
-func parseCFFFDSelect(cff []byte, offset, numGlyphs int) []int {
+func ParseCFFFDSelect(cff []byte, offset, numGlyphs int) []int {
 	if offset < 0 || offset >= len(cff) || numGlyphs <= 0 {
 		return nil
 	}
@@ -642,7 +642,7 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 
 	// Read the operators we need. cffDictNumbers decodes nibble reals, which
 	// is how FontMatrix is always written.
-	return td, cffDictNumbers(topDict, func(operator int, operands []float64) {
+	return td, CFFDictNumbers(topDict, func(operator int, operands []float64) {
 		first := func() (int, bool) {
 			if len(operands) == 0 {
 				return 0, false
@@ -763,10 +763,10 @@ func ParseCFFCharStringLengths(cff []byte, CSOffset int) []int {
 	return lens
 }
 
-// cffStandardStrings is the CFF specification's fixed table of predefined
-// SIDs (Appendix A); SIDs >= len(cffStandardStrings) index into a font's own
+// CffStandardStrings is the CFF specification's fixed table of predefined
+// SIDs (Appendix A); SIDs >= len(CffStandardStrings) index into a font's own
 // String INDEX instead.
-var cffStandardStrings = [...]string{
+var CffStandardStrings = [...]string{
 	".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent", "ampersand",
 	"quoteright", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
 	"slash", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
@@ -878,10 +878,10 @@ func cffStringIndexEntries(cff []byte) [][]byte {
 // cffSIDName resolves a CFF string ID to its glyph name, via the standard
 // strings table or the font's own String INDEX. Returns "" if unresolvable.
 func cffSIDName(sid int, customStrings [][]byte) string {
-	if sid >= 0 && sid < len(cffStandardStrings) {
-		return cffStandardStrings[sid]
+	if sid >= 0 && sid < len(CffStandardStrings) {
+		return CffStandardStrings[sid]
 	}
-	if idx := sid - len(cffStandardStrings); idx >= 0 && idx < len(customStrings) {
+	if idx := sid - len(CffStandardStrings); idx >= 0 && idx < len(customStrings) {
 		return string(customStrings[idx])
 	}
 	return ""

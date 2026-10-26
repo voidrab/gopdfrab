@@ -23,7 +23,7 @@ func init() {
 // reference (unpredicated rows only), computed once from the compiled-in model.
 var indirectRequiredKeys = func() map[string]bool {
 	keys := map[string]bool{}
-	for _, ot := range arlington.Types {
+	for _, ot := range arlington.Types() {
 		for _, kd := range ot.Keys {
 			if kd.IndirectReference == arlington.IndirectRequired && !kd.Predicated.Indirect {
 				keys[kd.Name] = true
@@ -37,7 +37,7 @@ var indirectRequiredKeys = func() map[string]bool {
 // to be indirect (unpredicated wildcard rows only), e.g. Kids -> ArrayOfPageTreeNodeKids.
 var arrayElemIndirectKeys = func() map[string]bool {
 	keys := map[string]bool{}
-	for _, ot := range arlington.Types {
+	for _, ot := range arlington.Types() {
 		for _, kd := range ot.Keys {
 			for _, g := range kd.LinkGroups {
 				for _, cand := range g.Candidates {

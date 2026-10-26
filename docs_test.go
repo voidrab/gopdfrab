@@ -36,11 +36,11 @@ var publicTypes = []struct {
 	{"RasterDrop", reflect.TypeOf(RasterDrop{})},
 }
 
-// packageDocs parses this package's non-test sources and returns each declared
-// type's doc comment.
-func packageDocs(t *testing.T) map[string]string {
+// packageDocs parses the non-test sources of the package in dir and returns
+// each declared type's doc comment.
+func packageDocs(t *testing.T, dir string) map[string]string {
 	t.Helper()
-	entries, err := os.ReadDir(".")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("reading package directory: %v", err)
 	}
@@ -51,7 +51,7 @@ func packageDocs(t *testing.T) map[string]string {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parsing %s: %v", name, err)
 		}
@@ -106,18 +106,26 @@ func exportedNames(typ reflect.Type) []string {
 // TestPublicTypesDocumented fails when an exported field or method of a public
 // type is not named in that type's doc comment, since nothing else documents
 // it: godoc shows an alias's comment and nothing of what it points at.
+//
+// The verify package aliases the same types, so its copies are held to the
+// same standard.
 func TestPublicTypesDocumented(t *testing.T) {
-	docs := packageDocs(t)
-	for _, pt := range publicTypes {
-		text, ok := docs[pt.name]
-		if !ok || strings.TrimSpace(text) == "" {
-			t.Errorf("%s has no doc comment", pt.name)
-			continue
-		}
-		words := docWords(text)
-		for _, name := range exportedNames(pt.typ) {
-			if !words[name] {
-				t.Errorf("%s: doc comment does not mention %s", pt.name, name)
+	for _, dir := range []string{".", "verify"} {
+		docs := packageDocs(t, dir)
+		for _, pt := range publicTypes {
+			if dir == "verify" && isConvertOnly(pt.name) {
+				continue
+			}
+			text, ok := docs[pt.name]
+			if !ok || strings.TrimSpace(text) == "" {
+				t.Errorf("%s: %s has no doc comment", dir, pt.name)
+				continue
+			}
+			words := docWords(text)
+			for _, name := range exportedNames(pt.typ) {
+				if !words[name] {
+					t.Errorf("%s: %s: doc comment does not mention %s", dir, pt.name, name)
+				}
 			}
 		}
 	}
@@ -239,10 +247,10 @@ func TestGoDirectivesAgree(t *testing.T) {
 }
 
 // exportedFuncs returns the package-level exported function names declared in
-// this package's non-test sources.
-func exportedFuncs(t *testing.T) []string {
+// the non-test sources of the package in dir.
+func exportedFuncs(t *testing.T, dir string) []string {
 	t.Helper()
-	entries, err := os.ReadDir(".")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("reading package directory: %v", err)
 	}
@@ -253,7 +261,7 @@ func exportedFuncs(t *testing.T) []string {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
 		if err != nil {
 			t.Fatalf("parsing %s: %v", name, err)
 		}
@@ -276,9 +284,11 @@ func TestREADMENamesPublicAPI(t *testing.T) {
 		t.Fatalf("read README.md: %v", err)
 	}
 	words := docWords(string(readme))
-	for _, name := range exportedFuncs(t) {
-		if !words[name] {
-			t.Errorf("README.md does not name %s", name)
+	for _, dir := range []string{".", "verify"} {
+		for _, name := range exportedFuncs(t, dir) {
+			if !words[name] {
+				t.Errorf("README.md does not name %s (%s)", name, dir)
+			}
 		}
 	}
 }

@@ -1,6 +1,9 @@
 package fontprog
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"sort"
+)
 
 // This file builds small synthetic TrueType programs for the sfnt and subset
 // tests. Glyph outlines are opaque filler: the code under test copies glyph
@@ -89,12 +92,12 @@ func (f ttFont) build() []byte {
 		"head": head, "hhea": hhea, "maxp": maxp, "hmtx": hmtx, "loca": loca, "glyf": glyf,
 	}
 	if f.cmap != nil {
-		tables["cmap"] = buildCmapFormat4Table(3, 1, f.cmap)
+		tables["cmap"] = cmapFormat4Table(3, 1, f.cmap)
 	}
 	for tag, data := range f.extra {
 		tables[tag] = data
 	}
-	return PackSfnt(tables)
+	return packSfnt(tables)
 }
 
 // cmapRecord is one encoding record of a hand-built cmap table.
@@ -126,4 +129,69 @@ func format6Sub(firstCode uint16, gids ...uint16) []byte {
 		sub = binary.BigEndian.AppendUint16(sub, g)
 	}
 	return sub
+}
+
+// packSfnt assembles tables into an sfnt with a valid table directory. The
+// parsers read only tags, offsets and lengths, so checksums and the binary
+// search fields are left zero; fontedit.PackSfnt writes the real thing.
+func packSfnt(tables map[string][]byte) []byte {
+	tags := make([]string, 0, len(tables))
+	for tag := range tables {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	out := binary.BigEndian.AppendUint32(nil, 0x00010000)
+	out = binary.BigEndian.AppendUint16(out, uint16(len(tags)))
+	out = append(out, make([]byte, 6)...)
+	off := 12 + 16*len(tags)
+	var body []byte
+	for _, tag := range tags {
+		data := tables[tag]
+		out = append(out, tag...)
+		out = binary.BigEndian.AppendUint32(out, 0)
+		out = binary.BigEndian.AppendUint32(out, uint32(off+len(body)))
+		out = binary.BigEndian.AppendUint32(out, uint32(len(data)))
+		body = append(body, data...)
+		body = append(body, make([]byte, (4-len(data)%4)%4)...)
+	}
+	return append(out, body...)
+}
+
+// cmapFormat4Table is a 'cmap' table with one (platform, encoding) format-4
+// subtable at offset 12, one segment per mapped code plus the closing 0xFFFF
+// segment. The binary search fields are left zero, as the parser ignores them.
+func cmapFormat4Table(platform, encoding uint16, uniToGID map[uint16]uint16) []byte {
+	codes := make([]int, 0, len(uniToGID))
+	for u := range uniToGID {
+		codes = append(codes, int(u))
+	}
+	sort.Ints(codes)
+	segs := len(codes) + 1
+	ends := make([]byte, 0, 2*segs)
+	starts := make([]byte, 0, 2*segs)
+	deltas := make([]byte, 0, 2*segs)
+	for _, c := range codes {
+		ends = binary.BigEndian.AppendUint16(ends, uint16(c))
+		starts = binary.BigEndian.AppendUint16(starts, uint16(c))
+		deltas = binary.BigEndian.AppendUint16(deltas, uniToGID[uint16(c)]-uint16(c))
+	}
+	ends = binary.BigEndian.AppendUint16(ends, 0xFFFF)
+	starts = binary.BigEndian.AppendUint16(starts, 0xFFFF)
+	deltas = binary.BigEndian.AppendUint16(deltas, 1)
+
+	sub := []byte{0, 4, 0, 0, 0, 0}
+	sub = binary.BigEndian.AppendUint16(sub, uint16(2*segs))
+	sub = append(sub, make([]byte, 6)...)
+	sub = append(sub, ends...)
+	sub = append(sub, 0, 0)
+	sub = append(sub, starts...)
+	sub = append(sub, deltas...)
+	sub = append(sub, make([]byte, 2*segs)...)
+	binary.BigEndian.PutUint16(sub[2:], uint16(len(sub)))
+
+	out := []byte{0, 0, 0, 1}
+	out = binary.BigEndian.AppendUint16(out, platform)
+	out = binary.BigEndian.AppendUint16(out, encoding)
+	out = binary.BigEndian.AppendUint32(out, 12)
+	return append(out, sub...)
 }

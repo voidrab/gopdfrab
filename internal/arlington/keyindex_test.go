@@ -7,10 +7,10 @@ import "testing"
 // the generated model: the named row (first wins on duplicates), the
 // wildcard fallback, and plain membership.
 func TestKeyIndexMatchesLinearScan(t *testing.T) {
-	if len(Types) == 0 {
+	if len(Types()) == 0 {
 		t.Fatal("generated Types table is empty")
 	}
-	for name, ot := range Types {
+	for name, ot := range Types() {
 		for i := range ot.Keys {
 			key := ot.Keys[i].Name
 			var want *KeyDef

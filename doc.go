@@ -21,6 +21,10 @@
 // VerifyBytes verifies in-memory data and VerifyAll a batch of files; each has a
 // ...Context variant taking a context.Context and an [Options] value.
 //
+// A program that only verifies can import gopdfrab/verify instead: the same
+// verification API over the same types, without compiling or linking any of
+// the conversion code below.
+//
 // # Converting
 //
 // Convert produces a best-effort PDF/A-1b rewrite: it applies pre-emptive

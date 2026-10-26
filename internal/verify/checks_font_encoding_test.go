@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/fontprog"
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -28,7 +28,7 @@ func macOnlyTrueType() pdf.PDFDict {
 	cmap := []byte{0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 12} // one (1,0) record at offset 12
 	cmap = append(cmap, sub...)
 
-	return streamDict(string(fontprog.PackSfnt(map[string][]byte{
+	return streamDict(string(fontedit.PackSfnt(map[string][]byte{
 		"head": head, "maxp": maxp, "hhea": hhea, "hmtx": hmtx, "cmap": cmap,
 	})))
 }
@@ -120,7 +120,7 @@ func TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap(t *testing.T) {
 	binary.BigEndian.PutUint16(sub[2:], 262)
 	sub[6+0xB0] = 1                                     // raw code 0xB0 only
 	cmap := []byte{0, 0, 0, 1, 0, 3, 0, 0, 0, 0, 0, 12} // one (3,0) record
-	ff := streamDict(string(fontprog.PackSfnt(map[string][]byte{
+	ff := streamDict(string(fontedit.PackSfnt(map[string][]byte{
 		"head": head, "maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": append(cmap, sub...),
 	})))
 

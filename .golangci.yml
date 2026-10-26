@@ -14,9 +14,3 @@ linters:
         - SA*
   exclusions:
     generated: lax
-    rules:
-      - path: internal/arlington/model_gen\.go
-        linters:
-          - govet
-          - staticcheck
-          - unused
