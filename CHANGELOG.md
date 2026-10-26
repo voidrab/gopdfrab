@@ -28,31 +28,18 @@ notice.
 
 ### Fixed
 
-- Convert: a stream referenced from more than one place (an image used as
-  both a page thumbnail and an XObject, say) was rewritten through only one
-  of them. The others kept the old bytes under the new `/Filter`, so the
-  output held a corrupt stream while the result reported it conformant.
-- Verify: a page reached mid-walk, such as a link annotation's destination,
-  took over every issue still to come on the page that linked to it. Issues
-  now carry the page they are on, and the raster fallback, which picks pages
-  by those numbers, no longer rasterizes the wrong one.
-- Rendering: CFF glyphs now follow `callsubr`/`callgsubr` and draw the flex
-  operators, and Type 1 glyphs follow Subrs, the flex OtherSubrs and `seac`
-  accented characters. Subset fonts route most outlines through subroutines,
-  so rasterized pages and the fidelity check drew glyphs with segments
-  missing, without reporting it. Type 1 programs are also decrypted once per
-  font instead of once per glyph.
-- Convert: when the fix loop ran out of iterations, the raster fallback read
-  the issues from before the last fix pass and could rasterize pages that pass
-  had already repaired.
-- Rendering: an image's declared size is checked before anything is allocated
-  for it, since a few bytes could ask for gigabytes. Placeholders for
-  undecodable codecs no longer allocate a buffer the size of the image they
-  stand in for. An image past 64M pixels must have samples covering every row,
-  and a JPEG header may claim at most 256M pixels. Otherwise the image is
-  painted as the gray placeholder and reported as an `oversized image` drop.
-- Convert: the parallel transparency flattener edited forms and images in
-  place while other workers could be rendering them, which was a data race.
+- Convert rewrote a stream referenced from several places through only one of
+  them, writing a corrupt stream into output it reported conformant.
+- An issue after a link annotation was attributed to the link's destination
+  page, so the raster fallback could rasterize the wrong page.
+- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
+  `seac` came out with segments missing.
+- When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
+  the last fix pass had already repaired.
+- An image claiming a size its data does not back could make the raster
+  fallback allocate gigabytes; it is now a reported `oversized image` drop.
+- The parallel transparency flattener had a data race on forms and images
+  drawn inside other flattened forms.
 
 ## [1.2.0] - 2026-10-11
 
