@@ -8,7 +8,7 @@ import (
 func TestParseCFFFDSelectFormats(t *testing.T) {
 	// Format 0: one byte per glyph.
 	f0 := []byte{0x00, 2, 0, 1}
-	if got := parseCFFFDSelect(f0, 0, 3); got == nil || got[0] != 2 || got[1] != 0 || got[2] != 1 {
+	if got := ParseCFFFDSelect(f0, 0, 3); got == nil || got[0] != 2 || got[1] != 0 || got[2] != 1 {
 		t.Errorf("parseCFFFDSelect(format0) = %v", got)
 	}
 
@@ -18,14 +18,14 @@ func TestParseCFFFDSelectFormats(t *testing.T) {
 	f3 = append(f3, 0x00, 0x00, 0x00) // range: first=0, fd=0
 	f3 = append(f3, 0x00, 0x02, 0x01) // range: first=2, fd=1
 	f3 = append(f3, 0x00, 0x04)       // sentinel = 4
-	if got := parseCFFFDSelect(f3, 0, 4); got == nil || got[0] != 0 || got[1] != 0 || got[2] != 1 || got[3] != 1 {
+	if got := ParseCFFFDSelect(f3, 0, 4); got == nil || got[0] != 0 || got[1] != 0 || got[2] != 1 || got[3] != 1 {
 		t.Errorf("parseCFFFDSelect(format3) = %v", got)
 	}
 
-	if parseCFFFDSelect(nil, -1, 3) != nil {
+	if ParseCFFFDSelect(nil, -1, 3) != nil {
 		t.Error("parseCFFFDSelect should be nil for a negative offset")
 	}
-	if parseCFFFDSelect([]byte{0x09}, 0, 3) != nil {
+	if ParseCFFFDSelect([]byte{0x09}, 0, 3) != nil {
 		t.Error("parseCFFFDSelect should be nil for an unknown format")
 	}
 }
@@ -37,7 +37,7 @@ func TestCffDictNumbersOperandEncodings(t *testing.T) {
 	}
 	run := func(dict []byte) ([]call, bool) {
 		var calls []call
-		ok := cffDictNumbers(dict, func(operator int, operands []float64) {
+		ok := CFFDictNumbers(dict, func(operator int, operands []float64) {
 			calls = append(calls, call{operator, append([]float64{}, operands...)})
 		})
 		return calls, ok
@@ -95,68 +95,68 @@ func TestCffSubrBias(t *testing.T) {
 }
 
 func TestCffPrivateInfoMalformed(t *testing.T) {
-	if _, _, _, ok := cffPrivateInfo(nil, -1, 0); ok {
+	if _, _, _, ok := CFFPrivateInfo(nil, -1, 0); ok {
 		t.Error("cffPrivateInfo should fail for a negative offset")
 	}
-	if _, _, _, ok := cffPrivateInfo([]byte{1, 2, 3}, 0, 0); ok {
+	if _, _, _, ok := CFFPrivateInfo([]byte{1, 2, 3}, 0, 0); ok {
 		t.Error("cffPrivateInfo should fail for a zero size")
 	}
-	if _, _, _, ok := cffPrivateInfo([]byte{1, 2, 3}, 0, 100); ok {
+	if _, _, _, ok := CFFPrivateInfo([]byte{1, 2, 3}, 0, 100); ok {
 		t.Error("cffPrivateInfo should fail when size exceeds the buffer")
 	}
 }
 
 func TestCffGlobalSubrsShortInput(t *testing.T) {
-	if cffGlobalSubrs([]byte{1, 2, 3}) != nil {
+	if CFFGlobalSubrs([]byte{1, 2, 3}) != nil {
 		t.Error("cffGlobalSubrs should be nil for too-short input")
 	}
 }
 
 func TestType2CharstringWidthTerminators(t *testing.T) {
 	// endchar with the deprecated 4-argument seac form: no width (even count).
-	if _, hasWidth, ok := type2CharstringWidth([]byte{139, 139, 139, 139, 14}, nil, nil); !ok || hasWidth {
+	if _, hasWidth, ok := Type2CharstringWidth([]byte{139, 139, 139, 139, 14}, nil, nil); !ok || hasWidth {
 		t.Error("endchar with 4 args (seac form) should report hasWidth=false")
 	}
 	// endchar with a leading width plus the seac form (5 args).
-	if w, hasWidth, ok := type2CharstringWidth([]byte{byte(139 + 5), 139, 139, 139, 139, 14}, nil, nil); !ok || !hasWidth || w != 5 {
+	if w, hasWidth, ok := Type2CharstringWidth([]byte{byte(139 + 5), 139, 139, 139, 139, 14}, nil, nil); !ok || !hasWidth || w != 5 {
 		t.Errorf("endchar(5 args) = %g, %v, %v, want 5 true true", w, hasWidth, ok)
 	}
 	// rmoveto (op 21) with 3 args (width + dx + dy): width present.
-	if w, hasWidth, ok := type2CharstringWidth([]byte{byte(139 + 7), 139, 139, 21}, nil, nil); !ok || !hasWidth || w != 7 {
+	if w, hasWidth, ok := Type2CharstringWidth([]byte{byte(139 + 7), 139, 139, 21}, nil, nil); !ok || !hasWidth || w != 7 {
 		t.Errorf("rmoveto(3 args) = %g, %v, %v, want 7 true true", w, hasWidth, ok)
 	}
 	// vmoveto (op 4) with 2 args: width present.
-	if w, hasWidth, ok := type2CharstringWidth([]byte{byte(139 + 3), 139, 4}, nil, nil); !ok || !hasWidth || w != 3 {
+	if w, hasWidth, ok := Type2CharstringWidth([]byte{byte(139 + 3), 139, 4}, nil, nil); !ok || !hasWidth || w != 3 {
 		t.Errorf("vmoveto(2 args) = %g, %v, %v, want 3 true true", w, hasWidth, ok)
 	}
 	// hstem (op 1) with an odd arg count: width present.
-	if w, hasWidth, ok := type2CharstringWidth([]byte{byte(139 + 9), 139, 139, 1}, nil, nil); !ok || !hasWidth || w != 9 {
+	if w, hasWidth, ok := Type2CharstringWidth([]byte{byte(139 + 9), 139, 139, 1}, nil, nil); !ok || !hasWidth || w != 9 {
 		t.Errorf("hstem(odd args) = %g, %v, %v, want 9 true true", w, hasWidth, ok)
 	}
 	// 16.16 fixed-point operand (op 255) followed by endchar: the single
 	// pushed value is itself the width (endchar's 1-arg form).
 	fixedOp := []byte{255, 0x00, 0x02, 0x00, 0x00, 14} // 2.0 fixed, then endchar
-	if w, hasWidth, ok := type2CharstringWidth(fixedOp, nil, nil); !ok || !hasWidth || w != 2 {
+	if w, hasWidth, ok := Type2CharstringWidth(fixedOp, nil, nil); !ok || !hasWidth || w != 2 {
 		t.Errorf("fixed-point operand + endchar(1 arg) = %g, %v, %v, want 2 true true", w, hasWidth, ok)
 	}
 	// callgsubr (op 29) recursing into a global subr that returns (op 11).
 	// Bias for a 1-entry index is 107, so pushing -107 selects subr index 0.
 	gsubrs := [][]byte{{11}} // just "return"
-	if _, _, ok := type2CharstringWidth([]byte{32, 29, 14}, gsubrs, nil); !ok {
+	if _, _, ok := Type2CharstringWidth([]byte{32, 29, 14}, gsubrs, nil); !ok {
 		t.Error("callgsubr into a returning subr should still succeed")
 	}
 	// Depth limit: a subr that calls itself (via a valid bias-adjusted index)
 	// should fail via the recursion-depth guard rather than looping forever.
 	selfCall := [][]byte{{32, 10}} // push -107 (-> index 0 after +107 bias), callsubr
-	if _, _, ok := type2CharstringWidth([]byte{32, 10}, nil, selfCall); ok {
+	if _, _, ok := Type2CharstringWidth([]byte{32, 10}, nil, selfCall); ok {
 		t.Error("infinite subr recursion should fail via the depth limit")
 	}
 	// callsubr with no operand on the stack.
-	if _, _, ok := type2CharstringWidth([]byte{10}, nil, nil); ok {
+	if _, _, ok := Type2CharstringWidth([]byte{10}, nil, nil); ok {
 		t.Error("callsubr with an empty stack should fail")
 	}
 	// An operator outside the width-prefix grammar aborts the walk.
-	if _, _, ok := type2CharstringWidth([]byte{139, 9}, nil, nil); ok {
+	if _, _, ok := Type2CharstringWidth([]byte{139, 9}, nil, nil); ok {
 		t.Error("an unrecognized operator should fail the width walk")
 	}
 }
@@ -167,14 +167,14 @@ func TestType2CharstringWidthViaLocalSubr(t *testing.T) {
 	// Glyph charstring: callsubr(-107 + bias 107 = 0), no other operands.
 	// Encode -107 via the single-byte range (b-139, b=32 -> -107).
 	cs := []byte{32, 10} // push -107, callsubr
-	w, hasWidth, ok := type2CharstringWidth(cs, nil, lsubrs)
+	w, hasWidth, ok := Type2CharstringWidth(cs, nil, lsubrs)
 	if !ok || !hasWidth || w != 600 {
 		t.Errorf("type2CharstringWidth via local subr = %g, hasWidth=%v, ok=%v, want 600 true true", w, hasWidth, ok)
 	}
 
 	// Depth-limit / malformed guard: an out-of-range subr index fails cleanly.
 	badCS := []byte{139, 10} // push 0, callsubr(0+107=107, out of range for 1 subr)
-	if _, _, ok := type2CharstringWidth(badCS, nil, lsubrs); ok {
+	if _, _, ok := Type2CharstringWidth(badCS, nil, lsubrs); ok {
 		t.Error("type2CharstringWidth should fail for an out-of-range subr index")
 	}
 }
@@ -195,7 +195,7 @@ func TestCffPrivateInfoWithSubrs(t *testing.T) {
 	priv[4] = byte(relSubrs + 139) // patch the Subrs operand to the real relative offset
 	copy(cff[privOff:], priv)
 
-	dW, nW, subrs, ok := cffPrivateInfo(cff, privOff, len(priv))
+	dW, nW, subrs, ok := CFFPrivateInfo(cff, privOff, len(priv))
 	if !ok || dW != 0 || nW != 0 {
 		t.Fatalf("cffPrivateInfo = %v %v %v %v", dW, nW, subrs, ok)
 	}
@@ -233,7 +233,7 @@ func TestCFFSIDName(t *testing.T) {
 		t.Errorf("SID 0 = %q, want .notdef", got)
 	}
 	custom := [][]byte{[]byte("MyGlyph")}
-	if got := cffSIDName(len(cffStandardStrings), custom); got != "MyGlyph" {
+	if got := cffSIDName(len(CffStandardStrings), custom); got != "MyGlyph" {
 		t.Errorf("first custom SID = %q, want MyGlyph", got)
 	}
 	if got := cffSIDName(999999, nil); got != "" {

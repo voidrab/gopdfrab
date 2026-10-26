@@ -12,12 +12,13 @@ open file → parse → resolve object graph → run checks → issues
 
 Verification involves checking whether a document meets certain PDF/A criteria. Conversion involves extending the verification process to include a repair step, followed by a writer that produces the final output.
 
-The entire project is a single Go module with no dependencies other than `klauspost/compress`. Nine internal packages contain the implementation, while the root package provides a thin facade over them.
+The entire project is a single Go module with no dependencies other than `klauspost/compress`. Ten internal packages contain the implementation, while the root package provides a thin facade over them.
 
 | Package              | What it does                                                                     |
 | -------------------- | -------------------------------------------------------------------------------- |
 | `internal/pdf`       | Provides the parser, object model, filters, decryption, and check registry.      |
 | `internal/fontprog`  | Parses embedded font programs (TrueType, CFF, Type 1) and their encodings.       |
+| `internal/fontedit`  | Rewrites font programs for the converter: subsets, cmaps, width repairs.         |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
 | `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
@@ -29,13 +30,14 @@ The entire project is a single Go module with no dependencies other than `klausp
 The packages form layers, and imports only point downwards:
 
 ```text
-convert                     → verify, raster, writer, fontprog, fontsubst, arlington, pdf
+convert                     → verify, raster, writer, fontedit, fontprog, fontsubst, arlington, pdf
 verify                      → fontprog, arlington, pdf
 raster                      → fontprog, fontsubst, pdf
+fontedit                    → fontprog
 fontprog, fontsubst, writer → pdf
 ```
 
-`verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
+`verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
 
 `gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages. `cmd/gopdfrab` provides the CLI, while `wasm/main.go` provides the browser build.
 
@@ -96,7 +98,7 @@ The font checks in `checks_font_program.go` do not parse font programs themselve
 
 ## internal/fontprog and internal/fontsubst — fonts
 
-`internal/fontprog` reads the font programs embedded in a PDF. `sfnt.go` reads TrueType tables and cmaps, `cff.go` reads CFF programs (including advance widths for the 6.3.6 width check), `type1.go` decrypts and reads Type 1 programs, `cmap.go` tokenizes CMaps, `encoding.go` holds the glyph-name and encoding tables, and `subset.go` rewrites TrueType programs into subsets. The verifier uses it to check subsets and widths, and the converter uses it to repair, subset, and replace fonts. Every parser is defensive: malformed input yields `ok=false` or a zero value, never a panic.
+`internal/fontprog` reads the font programs embedded in a PDF. `sfnt.go` reads TrueType tables and cmaps, `cff.go` reads CFF programs (including advance widths for the 6.3.6 width check), `type1.go` decrypts and reads Type 1 programs, `cmap.go` tokenizes CMaps, `encoding.go` holds the glyph-name and encoding tables, and `subset.go` reads glyph records. The verifier uses it to check subsets and widths. The converter's rewrites live in `internal/fontedit`: `subset.go` subsets TrueType programs and promotes empty glyphs, `truetype_cmaps.go` adds a Windows Unicode cmap, `type1_inline.go` inlines Type 1 width subroutines, and `cff_width_defaults.go` rounds fractional CFF width defaults. `fontprog` keeps only the sfnt container codec (`PackSfnt`, `BuildCmapFormat4Table`) that both packages build on. Every parser is defensive: malformed input yields `ok=false` or a zero value, never a panic.
 
 `internal/fontsubst` embeds the fonts gopdfrab substitutes for fonts a document needs but does not embed: the Liberation Sans, Serif, and Mono families, plus two Noto symbol faces. `Pick` chooses a face from a font descriptor's flags and name. The converter embeds the chosen face, and the rasterizer draws with it. Licences for the bundled files are listed in `NOTICE`.
 

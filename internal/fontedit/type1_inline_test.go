@@ -1,8 +1,10 @@
-package fontprog
+package fontedit
 
 import (
 	"bytes"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // widthSubr is a subr that begins with hsbw, as subroutinized programs put it:
@@ -16,8 +18,8 @@ func callsubr32(idx byte) []byte { return []byte{255, 0, 0, 0, idx, 10} }
 // without its lenIV padding.
 func glyphPlain(t *testing.T, p []byte, name string) []byte {
 	t.Helper()
-	section, lenIV := Type1CharStringsSection(p, Type1EexecBinStart(p))
-	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(section, -1) {
+	section, lenIV := fontprog.Type1CharStringsSection(p, fontprog.Type1EexecBinStart(p))
+	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(section, -1) {
 		if string(section[m[2]:m[3]]) != name {
 			continue
 		}
@@ -25,7 +27,7 @@ func glyphPlain(t *testing.T, p []byte, name string) []byte {
 		for _, c := range section[m[4]:m[5]] {
 			n = n*10 + int(c-'0')
 		}
-		return DecryptType1CharString(section[m[1]:m[1]+n], lenIV)
+		return fontprog.DecryptType1CharString(section[m[1]:m[1]+n], lenIV)
 	}
 	t.Fatalf("glyph /%s not found", name)
 	return nil
@@ -33,7 +35,7 @@ func glyphPlain(t *testing.T, p []byte, name string) []byte {
 
 func inline(t *testing.T, p []byte) ([]byte, bool) {
 	t.Helper()
-	length1 := Type1EexecBinStart(p)
+	length1 := fontprog.Type1EexecBinStart(p)
 	out, length2, changed := InlineType1WidthSubrs(p, length1, len(p)-length1)
 	if changed && length1+length2 != len(out) {
 		t.Errorf("Length2 = %d, want %d", length2, len(out)-length1)
@@ -60,10 +62,10 @@ func TestInlineType1WidthSubrs(t *testing.T) {
 		if got := glyphPlain(t, out, "A"); !bytes.Equal(got, hsbwCS(500)) {
 			t.Errorf("lenIV %d: untouched /A = %v", lenIV, got)
 		}
-		if w := Type1GlyphWidths(out); w["f"] != 280 || w["A"] != 500 {
+		if w := fontprog.Type1GlyphWidths(out); w["f"] != 280 || w["A"] != 500 {
 			t.Errorf("lenIV %d: widths = %v", lenIV, w)
 		}
-		if !bytes.HasPrefix(out, p[:Type1EexecBinStart(p)]) {
+		if !bytes.HasPrefix(out, p[:fontprog.Type1EexecBinStart(p)]) {
 			t.Errorf("lenIV %d: clear-text part changed", lenIV)
 		}
 	}
@@ -114,8 +116,8 @@ func TestInlineType1WidthSubrsLeavesAlone(t *testing.T) {
 	p := direct.build()
 	for name, lengths := range map[string][2]int{
 		"no clear text":    {0, len(p)},
-		"past the end":     {Type1EexecBinStart(p), len(p)},
-		"negative Length2": {Type1EexecBinStart(p), -1},
+		"past the end":     {fontprog.Type1EexecBinStart(p), len(p)},
+		"negative Length2": {fontprog.Type1EexecBinStart(p), -1},
 	} {
 		if _, _, changed := InlineType1WidthSubrs(p, lengths[0], lengths[1]); changed {
 			t.Errorf("%s: changed", name)

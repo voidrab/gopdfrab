@@ -18,7 +18,8 @@ import (
 // anything both need belongs one layer down.
 var allowedInternalImports = map[string][]string{
 	"arlington": nil,
-	"convert":   {"arlington", "fontprog", "fontsubst", "pdf", "raster", "verify", "writer"},
+	"convert":   {"arlington", "fontedit", "fontprog", "fontsubst", "pdf", "raster", "verify", "writer"},
+	"fontedit":  {"fontprog"},
 	"fontprog":  {"pdf"},
 	"fontsubst": {"pdf"},
 	"pdf":       nil,

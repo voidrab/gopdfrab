@@ -88,16 +88,16 @@ func TestBuildCmapFormat4Table(t *testing.T) {
 		0, 4, 0, 0, // idRangeOffset
 		0, 1, // glyphIdArray
 	}
-	if got := buildCmapFormat4Table(3, 1, map[uint16]uint16{65: 1}); !reflect.DeepEqual(got, want) {
+	if got := BuildCmapFormat4Table(3, 1, map[uint16]uint16{65: 1}); !reflect.DeepEqual(got, want) {
 		t.Errorf("buildCmapFormat4Table =\n%v\nwant\n%v", got, want)
 	}
 
 	// Round trip with several codes (sorted into segments) and the empty map.
 	in := map[uint16]uint16{300: 9, 65: 1, 66: 2, 0x20: 3}
-	if out := ParseCmapFormat4(buildCmapFormat4Table(3, 1, in)[12:]); !reflect.DeepEqual(out, in) {
+	if out := ParseCmapFormat4(BuildCmapFormat4Table(3, 1, in)[12:]); !reflect.DeepEqual(out, in) {
 		t.Errorf("round trip = %v, want %v", out, in)
 	}
-	if out := ParseCmapFormat4(buildCmapFormat4Table(3, 1, nil)[12:]); out == nil || len(out) != 0 {
+	if out := ParseCmapFormat4(BuildCmapFormat4Table(3, 1, nil)[12:]); out == nil || len(out) != 0 {
 		t.Errorf("empty cmap decoded to %v, want an empty non-nil map", out)
 	}
 }
@@ -171,7 +171,7 @@ func TestParseCmapSubtableDispatch(t *testing.T) {
 	if m := ParseCmapSubtable(sub0); m[7] != 3 {
 		t.Errorf("format 0 dispatch = %v", m)
 	}
-	sub4 := buildCmapFormat4Table(3, 1, map[uint16]uint16{65: 1})[12:]
+	sub4 := BuildCmapFormat4Table(3, 1, map[uint16]uint16{65: 1})[12:]
 	if m := ParseCmapSubtable(sub4); m[65] != 1 {
 		t.Errorf("format 4 dispatch = %v", m)
 	}

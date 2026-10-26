@@ -89,7 +89,7 @@ func (f ttFont) build() []byte {
 		"head": head, "hhea": hhea, "maxp": maxp, "hmtx": hmtx, "loca": loca, "glyf": glyf,
 	}
 	if f.cmap != nil {
-		tables["cmap"] = buildCmapFormat4Table(3, 1, f.cmap)
+		tables["cmap"] = BuildCmapFormat4Table(3, 1, f.cmap)
 	}
 	for tag, data := range f.extra {
 		tables[tag] = data

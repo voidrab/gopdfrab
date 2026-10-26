@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
@@ -28,7 +29,7 @@ func TestSubsetTrueTypeRoundTrips(t *testing.T) {
 	srcCmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(srcTables))
 
 	unicodes := []uint16{'A', 'B', 'C', 'a', 'b', 'c', ' '}
-	out, err := fontprog.SubsetTrueType(src, unicodes)
+	out, err := fontedit.SubsetTrueType(src, unicodes)
 	if err != nil {
 		t.Fatalf("SubsetTrueType: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestSubsetTrueTypeRoundTrips(t *testing.T) {
 // absent from the source cmap doesn't fail the whole subset.
 func TestSubsetTrueTypeSkipsUnmappedUnicodes(t *testing.T) {
 	src := loadLiberationSansForTest(t)
-	out, err := fontprog.SubsetTrueType(src, []uint16{'A', 0xFFFE})
+	out, err := fontedit.SubsetTrueType(src, []uint16{'A', 0xFFFE})
 	if err != nil {
 		t.Fatalf("SubsetTrueType: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestSubsetTrueTypeRetainsCompositeComponents(t *testing.T) {
 		t.Skip("no composite glyph found among tested codepoints in bundled face")
 	}
 
-	out, err := fontprog.SubsetTrueType(src, []uint16{compositeUnicode})
+	out, err := fontedit.SubsetTrueType(src, []uint16{compositeUnicode})
 	if err != nil {
 		t.Fatalf("SubsetTrueType: %v", err)
 	}
@@ -159,7 +160,7 @@ func TestTrimTrueTypeCmapToSingleSubtable(t *testing.T) {
 		t.Skip("bundled face already has a single cmap subtable; nothing to trim")
 	}
 
-	out, err := fontprog.TrimTrueTypeCmapToSingleSubtable(src)
+	out, err := fontedit.TrimTrueTypeCmapToSingleSubtable(src)
 	if err != nil {
 		t.Fatalf("TrimTrueTypeCmapToSingleSubtable: %v", err)
 	}

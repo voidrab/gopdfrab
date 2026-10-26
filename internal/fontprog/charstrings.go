@@ -35,9 +35,9 @@ type CFFSubrs struct {
 // and which has numGlyphs charstrings. Whatever cannot be read is left empty,
 // so a charstring calling into it fails its call rather than the whole font.
 func ParseCFFSubrs(cff []byte, td CFFTopDict, numGlyphs int) CFFSubrs {
-	s := CFFSubrs{Global: cffGlobalSubrs(cff)}
+	s := CFFSubrs{Global: CFFGlobalSubrs(cff)}
 	if !td.IsCIDKeyed {
-		_, _, ls, _ := cffPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
+		_, _, ls, _ := CFFPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
 		s.local = [][][]byte{ls}
 		return s
 	}
@@ -45,7 +45,7 @@ func ParseCFFSubrs(cff []byte, td CFFTopDict, numGlyphs int) CFFSubrs {
 	for _, p := range cffFontDictPrivates(cff, fds) {
 		s.local = append(s.local, p.localSubrs)
 	}
-	s.fdIndex = parseCFFFDSelect(cff, td.FDSelect, numGlyphs)
+	s.fdIndex = ParseCFFFDSelect(cff, td.FDSelect, numGlyphs)
 	return s
 }
 
@@ -90,7 +90,7 @@ func cffFontDictPrivates(cff []byte, fds [][]byte) []cffPrivate {
 	for i, fd := range fds {
 		privOff, privSize := -1, -1
 		hasMatrix := false
-		if !cffDictNumbers(fd, func(operator int, operands []float64) {
+		if !CFFDictNumbers(fd, func(operator int, operands []float64) {
 			switch {
 			case operator == 18 && len(operands) > 1:
 				privSize = int(operands[0])
@@ -101,7 +101,7 @@ func cffFontDictPrivates(cff []byte, fds [][]byte) []cffPrivate {
 		}) {
 			continue
 		}
-		d, n, ls, ok := cffPrivateInfo(cff, privOff, privSize)
+		d, n, ls, ok := CFFPrivateInfo(cff, privOff, privSize)
 		out[i] = cffPrivate{d, n, ls, ok, hasMatrix}
 	}
 	return out

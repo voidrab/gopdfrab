@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -41,7 +42,7 @@ func init() {
 // normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program,
 // name-keyed or CID-keyed, whose nominalWidthX or defaultWidthX is fractional
 // so every one is whole and every glyph keeps its width
-// (fontprog.NormalizeCFFWidthDefaults). veraPDF truncates a real
+// (fontedit.NormalizeCFFWidthDefaults). veraPDF truncates a real
 // nominalWidthX, so it otherwise reads every width off by the fraction and
 // reports 6.3.6 against a correct /Widths or /W.
 // d is any dict: only a font descriptor carries /FontFile3.
@@ -59,7 +60,7 @@ func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
 	if err != nil {
 		return
 	}
-	rewritten, changed := fontprog.NormalizeCFFWidthDefaults(data)
+	rewritten, changed := fontedit.NormalizeCFFWidthDefaults(data)
 	if !changed {
 		return
 	}
@@ -69,7 +70,7 @@ func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
 
 // inlineType1WidthSubrsInFont rewrites a Type 1 font's embedded FontFile so
 // every glyph carries its hsbw/sbw itself rather than in a called subr
-// (fontprog.InlineType1WidthSubrs). Rendering is unchanged; veraPDF, which
+// (fontedit.InlineType1WidthSubrs). Rendering is unchanged; veraPDF, which
 // does not follow callsubr when reading a width, otherwise reads 0 and reports
 // 6.3.5/6.3.6 against a correct font.
 func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
@@ -92,7 +93,7 @@ func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
 	if err != nil {
 		return
 	}
-	rewritten, newLength2, changed := fontprog.InlineType1WidthSubrs(data, int(length1), int(length2))
+	rewritten, newLength2, changed := fontedit.InlineType1WidthSubrs(data, int(length1), int(length2))
 	if !changed {
 		return
 	}
@@ -147,7 +148,7 @@ func repairNonSymbolicTrueTypeCmap(d pdf.PDFDict) {
 			add[u] = uint16(gid)
 		}
 	}
-	repaired, changed := fontprog.AddWindowsUnicodeCmap(data, add)
+	repaired, changed := fontedit.AddWindowsUnicodeCmap(data, add)
 	if !changed {
 		return
 	}
@@ -181,7 +182,7 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 	if err != nil {
 		return
 	}
-	repaired, changed := fontprog.PromoteEmptyGlyphs(data)
+	repaired, changed := fontedit.PromoteEmptyGlyphs(data)
 	if !changed {
 		return
 	}
