@@ -22,6 +22,16 @@ func a1b() pdfa.Spec {
 // a1bSpec is PDF/A-1b's spec for tests that only read it.
 var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
 
+// PDF/A-1b's limits, under the names the tests use for them.
+var (
+	maxPDFArrayElements = a1bSpec.Limits.MaxArrayElements
+	maxDictEntries      = a1bSpec.Limits.MaxDictEntries
+	maxNameLength       = a1bSpec.Limits.MaxNameBytes
+	maxCMapCID          = a1bSpec.Limits.MaxCID
+	maxQNesting         = a1bSpec.Limits.MaxQNesting
+	realLimit           = a1bSpec.Limits.MaxReal
+)
+
 // isartorDir and veraDir locate the reference test corpora relative to this
 // package's directory (two levels under the repo root).
 const (

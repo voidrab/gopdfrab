@@ -319,7 +319,7 @@ func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err := pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	}
 
 	// A conforming tree is left alone.
-	changed, err = pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err = pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix = changed %v, err %v; want no-op", changed, err)
 	}
@@ -355,7 +355,7 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err := pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}

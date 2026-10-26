@@ -3,6 +3,7 @@ package convert
 import (
 	"bytes"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -201,6 +202,101 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				_, _ = annotColourFixer{spec: s}.Fix(&trailer, nil)
 				return annot.Entries.Get("C") == nil
 			}, true},
+		{"content real operand", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				trailer, page, _ := pageWithContent("40000.5 Tc\n")
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Contains(pageContent(t, page), []byte("40000"))
+			}, false},
+		{"content integer operand", func(s *pdfa.Spec) { s.Limits.MaxInteger, s.Limits.MinInteger = 0, 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				trailer, page, _ := pageWithContent("3000000000 Tz -3000000000 Tz\n")
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Contains(pageContent(t, page), []byte("3000000000"))
+			}, false},
+		{"content string operand", func(s *pdfa.Spec) { s.Limits.MaxStringBytes = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				long := string(bytes.Repeat([]byte("x"), 65536))
+				trailer, page, _ := pageWithContent("BT (" + long + ") Tj ET\n")
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Contains(pageContent(t, page), []byte(long))
+			}, false},
+		{"graph real", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				d := specDict("V", pdf.PDFReal(-40000))
+				trailer := trailerWith("D", d)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return d.Entries.Get("V") != pdf.PDFReal(-40000)
+			}, false},
+		{"path coordinate", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				trailer, page, _ := pageWithContent("0 0 m 40000.5 0 l S\n")
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Contains(pageContent(t, page), []byte("40000"))
+			}, false},
+		{"oversized matrix", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				trailer, page, _ := pageWithContent("40000.5 0 0 40000.5 0 0 cm\n")
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Contains(pageContent(t, page), []byte("40000"))
+			}, false},
+		{"page tree Kids", func(s *pdfa.Spec) { s.Limits.MaxArrayElements = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				kids := make(pdf.PDFArray, 8192)
+				for i := range kids {
+					kids[i] = specDict("Type", specName("Page"))
+				}
+				pages := specDict("Type", specName("Pages"), "Kids", kids, "Count", pdf.PDFInteger(len(kids)))
+				trailer := trailerWith("Pages", pages)
+				_, _ = pagesTreeArrayFixer{spec: s}.Fix(&trailer, nil)
+				return len(pages.Entries.Get("Kids").(pdf.PDFArray)) < len(kids)
+			}, false},
+		{"unused resources", func(s *pdfa.Spec) { s.Limits.MaxDictEntries = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				fonts := pdf.NewPDFDict()
+				for i := range 4096 {
+					fonts.Entries.Set("F"+strconv.Itoa(i), specDict())
+				}
+				page := specDict("Type", specName("Page"), "Resources", specDict("Font", fonts))
+				trailer := trailerWith("P", page)
+				_, _ = resourceDictPruneFixer{spec: s}.Fix(&trailer, nil)
+				return fonts.Entries.Len() < 4096
+			}, false},
+		{"name value", func(s *pdfa.Spec) { s.Limits.MaxNameBytes = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				long := specName(string(bytes.Repeat([]byte("n"), 128)))
+				d := specDict("N", long)
+				trailer := trailerWith("D", d)
+				_, _ = nameTooLongFixer{spec: s}.Fix(&trailer, nil)
+				return d.Entries.Get("N") != long
+			}, false},
+		{"dictionary key", func(s *pdfa.Spec) { s.Limits.MaxNameBytes = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				long := string(bytes.Repeat([]byte("k"), 128))
+				d := specDict(long, pdf.PDFInteger(1))
+				trailer := trailerWith("D", d)
+				_, _ = nameTooLongFixer{spec: s}.Fix(&trailer, nil)
+				return d.Entries.Get(long) == nil
+			}, false},
+		{"CMap CID", func(s *pdfa.Spec) { s.Limits.MaxCID = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				cmap := specStream([]byte("1 begincidchar <00> 70000 endcidchar"), "Type", specName("CMap"))
+				holder := specDict("C", cmap)
+				trailer := trailerWith("H", holder)
+				_, _ = cmapCIDClampFixer{spec: s}.Fix(&trailer, nil)
+				data, err := pdf.DecodeStream(holder.Entries.Get("C").(pdf.PDFDict))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return !bytes.Contains(data, []byte("70000"))
+			}, false},
+		{"q nesting", func(s *pdfa.Spec) { s.Limits.MaxQNesting = 0 },
+			func(t *testing.T, s *pdfa.Spec) bool {
+				trailer, page, _ := pageWithContent(nestedQ(29, "0 0 10 10 re f\n"))
+				before := pageContent(t, page)
+				_, _ = qNestingFixer{spec: s}.Fix(&trailer, nil)
+				return !bytes.Equal(pageContent(t, page), before)
+			}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			under1b, changed := a1b(), a1b()

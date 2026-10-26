@@ -176,7 +176,7 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref)
 
-	changed, handled, err := cmapCIDClampFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := cmapCIDClampFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestNameTooLongFixerTargetsValueFlavour(t *testing.T) {
 	ref := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
 	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}

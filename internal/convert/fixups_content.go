@@ -57,7 +57,7 @@ func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, e
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
-		fixed, ok := fixScalarLimitsValue(v)
+		fixed, ok := f.fixScalar(v)
 		if ok {
 			changed = true
 		}
@@ -75,7 +75,12 @@ func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, e
 // fixer: an out-of-range path is folded into the CTM (fixups_geometry.go) and
 // whatever is left over is clamped or dropped by rewriteOperatorsAndLimits.
 func (f contentLimitsFixer) repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
-	return rescaleContentStreamDict(d, f.rewriteOperatorsAndLimits)
+	return rescaleContentStreamDict(d, f.rewriteOperatorsAndLimits, f.spec.Limits.MaxReal)
+}
+
+// fixScalar is fixScalarLimitsValue under the level's limits.
+func (f contentLimitsFixer) fixScalar(v pdf.PDFValue) (pdf.PDFValue, bool) {
+	return fixScalarLimitsValue(v, f.spec.Limits)
 }
 
 // fixTargeted remediates only the objects the issues reference: each
@@ -89,7 +94,7 @@ func (f contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chan
 		return false, false, nil
 	}
 	for _, d := range targets {
-		if fixOwnedScalars(d, fixScalarLimitsValue) {
+		if fixOwnedScalars(d, f.fixScalar) {
 			changed = true
 		}
 		if !d.HasStream || !p.isContentStream(d) {
@@ -113,7 +118,7 @@ func (f contentLimitsFixer) rewriteOperatorsAndLimits(op string, operands []pdf.
 	fixed := make([]pdf.PDFValue, len(operands))
 	opChanged := false
 	for i, operand := range operands {
-		v, ok := fixScalarLimitsValue(operand)
+		v, ok := f.fixScalar(operand)
 		fixed[i] = v
 		if ok {
 			opChanged = true
@@ -253,25 +258,26 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 // real/string limits or the 6.1.6 hex-string rules, mirroring
 // validateArchitecturalLimits/validateHexString (verifier.go) in reverse.
 // ok is false (v returned unchanged) for any other type or an in-range value.
-func fixScalarLimitsValue(v pdf.PDFValue) (fixed pdf.PDFValue, ok bool) {
+func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits) (fixed pdf.PDFValue, ok bool) {
 	switch val := v.(type) {
 	case pdf.PDFInteger:
 		switch {
-		case val > 2147483647:
-			return pdf.PDFInteger(2147483647), true
-		case val < -2147483648:
-			return pdf.PDFInteger(-2147483648), true
+		case l.MaxInteger != 0 && int64(val) > l.MaxInteger:
+			return pdf.PDFInteger(l.MaxInteger), true
+		case l.MinInteger != 0 && int64(val) < l.MinInteger:
+			return pdf.PDFInteger(l.MinInteger), true
 		}
 	case pdf.PDFReal:
 		switch {
-		case val > 32767:
-			return pdf.PDFReal(32767), true
-		case val < -32767:
-			return pdf.PDFReal(-32767), true
+		case l.MaxReal == 0:
+		case float64(val) > l.MaxReal:
+			return pdf.PDFReal(l.MaxReal), true
+		case float64(val) < -l.MaxReal:
+			return pdf.PDFReal(-l.MaxReal), true
 		}
 	case pdf.PDFString:
-		if len(val.Value) > 65535 {
-			return pdf.PDFString{Value: val.Value[:65535]}, true
+		if l.MaxStringBytes > 0 && len(val.Value) > l.MaxStringBytes {
+			return pdf.PDFString{Value: val.Value[:l.MaxStringBytes]}, true
 		}
 	case pdf.PDFHexString:
 		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
@@ -283,7 +289,7 @@ func fixScalarLimitsValue(v pdf.PDFValue) (fixed pdf.PDFValue, ok bool) {
 		arrChanged := false
 		out := make(pdf.PDFArray, len(val))
 		for i, e := range val {
-			fe, ok := fixScalarLimitsValue(e)
+			fe, ok := fixScalarLimitsValue(e, l)
 			out[i] = fe
 			if ok {
 				arrChanged = true

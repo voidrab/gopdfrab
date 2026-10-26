@@ -143,7 +143,7 @@ func TestConvertUnnestsDeepGraphicsState(t *testing.T) {
 // again inside the form. Every stream ends within the limit.
 func TestQNestingFixerSplitsRepeatedly(t *testing.T) {
 	trailer, page, resources := pageWithContent(nestedQ(70, "0 0 10 10 re f\n"))
-	changed, err := qNestingFixer{}.Fix(&trailer, nil)
+	changed, err := qNestingFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = (%v, %v), want (true, nil)", changed, err)
 	}
@@ -166,7 +166,7 @@ func TestQNestingFixerSplitsRepeatedly(t *testing.T) {
 	}
 
 	// A second pass finds nothing left to do.
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("second Fix changed the graph; the repair is not idempotent")
 	}
 }
@@ -185,7 +185,7 @@ func TestQNestingFixerRepairsSharedStreamOnce(t *testing.T) {
 		pages = append(pages, p)
 	}
 	trailer := pagesTrailer(pages...)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	a, _ := pages[0].Entries.Get("Contents").(pdf.PDFDict)
@@ -239,7 +239,7 @@ func TestQNestingFixerRepairsFormsAndPatterns(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Holder", holder)
 
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	for _, name := range []string{"form", "pattern"} {
@@ -274,7 +274,7 @@ func TestQNestingFixerLeavesUnsafeBlocks(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			trailer, page, _ := pageWithContent(content)
 			before := page.Entries.Get("Contents").(pdf.PDFDict).RawStream
-			if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+			if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 				t.Error("Fix changed the page")
 			}
 			if after := page.Entries.Get("Contents").(pdf.PDFDict).RawStream; !bytes.Equal(before, after) {
@@ -297,7 +297,7 @@ func TestQNestingFixerContentsArray(t *testing.T) {
 	page.Entries.Set("Contents", pdf.PDFArray{first, pdf.PDFInteger(7), last})
 	trailer := pagesTrailer(page)
 
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	contents := page.Entries.Get("Contents").(pdf.PDFArray)
@@ -329,7 +329,7 @@ func TestQNestingFixerSkipsWhatItCannotRead(t *testing.T) {
 		pages = append(pages, p)
 	}
 	trailer := pagesTrailer(append(pages, noResources)...)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("Fix changed a graph it has nothing it can repair in")
 	}
 }
@@ -341,7 +341,7 @@ func TestQNestingNameAvoidsCollision(t *testing.T) {
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("QNest0", pdf.PDFInteger(1))
 	resources.Entries.Set("XObject", xobjects)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	if xobjects.Entries.Get("QNest0") != pdf.PDFInteger(1) {
@@ -371,7 +371,7 @@ func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 		"in the form": slices.Concat(repeat(q, 30), []writer.ContentOp{bad}, repeat(Q, 30)),
 		"in the page": slices.Concat([]writer.ContentOp{bad}, repeat(q, 30), repeat(Q, 30)),
 	} {
-		if _, ok := unnestOps(streamDict(""), ops, pdf.NewPDFDict(), visible, true); ok {
+		if _, ok := unnestOps(streamDict(""), ops, pdf.NewPDFDict(), visible, true, maxQNesting); ok {
 			t.Errorf("%s: unwritable content was rewritten", name)
 		}
 	}
@@ -389,7 +389,7 @@ func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
 	}
 	// The repair steps over both, and over a Q with nothing to restore.
 	trailer, page, _ := pageWithContent("Q\n1 cm\n1 0 0 1 0 /x cm\n" + nestedQ(30, ""))
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	if d := maxQDepth(t, page.Entries.Get("Contents").(pdf.PDFDict)); d > maxQNesting {

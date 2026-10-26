@@ -41,7 +41,7 @@ func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
 	var first []string
 	for run := range 3 {
 		sub := build()
-		if !pruneUnusedResourceEntries(sub, used) {
+		if !pruneUnusedResourceEntries(sub, used, maxDictEntries) {
 			t.Fatal("oversized dict was not pruned")
 		}
 		if got := dictRealEntryCount(sub); got != maxDictEntries {
@@ -68,20 +68,20 @@ func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
 
 	// Nothing to shed: a dict at the limit is left alone.
 	small := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"A": pdf.PDFInteger(1)})}
-	if pruneUnusedResourceEntries(small, nil) {
+	if pruneUnusedResourceEntries(small, nil, maxDictEntries) {
 		t.Error("a dict under the limit was pruned")
 	}
 }
 
 func TestTruncateOverlongName(t *testing.T) {
-	if _, ok := truncateOverlongName(pdf.PDFName{Value: "short"}); ok {
+	if _, ok := truncateOverlongName(pdf.PDFName{Value: "short"}, maxNameLength); ok {
 		t.Error("short name should not be truncated")
 	}
-	if _, ok := truncateOverlongName(pdf.PDFInteger(1)); ok {
+	if _, ok := truncateOverlongName(pdf.PDFInteger(1), maxNameLength); ok {
 		t.Error("non-name should not be truncated")
 	}
 	long := strings.Repeat("a", 200)
-	v, ok := truncateOverlongName(pdf.PDFName{Value: long})
+	v, ok := truncateOverlongName(pdf.PDFName{Value: long}, maxNameLength)
 	if !ok || len(v.(pdf.PDFName).Value) != maxNameLength {
 		t.Errorf("overlong name truncated to %d, want %d", len(v.(pdf.PDFName).Value), maxNameLength)
 	}
@@ -90,13 +90,13 @@ func TestTruncateOverlongName(t *testing.T) {
 func TestShortenDictKey(t *testing.T) {
 	long := strings.Repeat("k", 200)
 	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	first := shortenDictKey(d, long)
+	first := shortenDictKey(d, long, maxNameLength)
 	if len(first) > maxNameLength {
 		t.Errorf("shortened key len %d exceeds max", len(first))
 	}
 	// Force a collision so the numeric-suffix path runs.
 	d.Entries.Set(first, pdf.PDFInteger(1))
-	second := shortenDictKey(d, long)
+	second := shortenDictKey(d, long, maxNameLength)
 	if second == first {
 		t.Error("colliding key should get a unique suffix")
 	}
@@ -104,15 +104,15 @@ func TestShortenDictKey(t *testing.T) {
 
 func TestHasOversizedArray(t *testing.T) {
 	big := make(pdf.PDFArray, maxPDFArrayElements+1)
-	if !hasOversizedArray(big, map[uintptr]bool{}) {
+	if !hasOversizedArray(big, map[uintptr]bool{}, maxPDFArrayElements) {
 		t.Error("oversized array not detected")
 	}
 	nested := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": big})}
-	if !hasOversizedArray(nested, map[uintptr]bool{}) {
+	if !hasOversizedArray(nested, map[uintptr]bool{}, maxPDFArrayElements) {
 		t.Error("oversized array nested in a dict not detected")
 	}
 	small := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2)}
-	if hasOversizedArray(small, map[uintptr]bool{}) {
+	if hasOversizedArray(small, map[uintptr]bool{}, maxPDFArrayElements) {
 		t.Error("small array wrongly flagged")
 	}
 }
@@ -133,7 +133,7 @@ func TestDropOversizedStructure(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	if !dropOversizedStructure(&trailer) {
+	if !dropOversizedStructure(&trailer, maxPDFArrayElements) {
 		t.Fatalf("dropOversizedStructure = false, want true (StructTreeRoot holds an oversized array)")
 	}
 	gotRoot := trailer.Entries.Get("Root").(pdf.PDFDict)
@@ -151,7 +151,7 @@ func TestDropOversizedStructure(t *testing.T) {
 
 func TestDropOversizedStructureNoOp(t *testing.T) {
 	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if dropOversizedStructure(&noRoot) {
+	if dropOversizedStructure(&noRoot, maxPDFArrayElements) {
 		t.Error("dropOversizedStructure with no Root = true, want false")
 	}
 
@@ -159,7 +159,7 @@ func TestDropOversizedStructureNoOp(t *testing.T) {
 		"StructTreeRoot": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"K": pdf.PDFArray{pdf.PDFInteger(1)}})},
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": small})}
-	if dropOversizedStructure(&trailer) {
+	if dropOversizedStructure(&trailer, maxPDFArrayElements) {
 		t.Error("dropOversizedStructure with a within-limit structure tree = true, want false")
 	}
 }
@@ -179,11 +179,11 @@ func TestCountPageLeaves(t *testing.T) {
 
 func TestClampCMapCIDs(t *testing.T) {
 	over := []byte("1 begincidchar\n<0041> 70000\nendcidchar\n")
-	out, ok := clampCMapCIDs(over)
+	out, ok := clampCMapCIDs(over, maxCMapCID)
 	if !ok || strings.Contains(string(out), "70000") || !strings.Contains(string(out), "65535") {
 		t.Errorf("clampCMapCIDs did not clamp: %q, ok=%v", out, ok)
 	}
-	if _, ok := clampCMapCIDs([]byte("1 begincidchar\n<0041> 100\nendcidchar\n")); ok {
+	if _, ok := clampCMapCIDs([]byte("1 begincidchar\n<0041> 100\nendcidchar\n"), maxCMapCID); ok {
 		t.Error("in-range CID should not be clamped")
 	}
 }
@@ -266,7 +266,7 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 		})},
 	})}
 
-	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
+	changed, err := nameTooLongFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -311,11 +311,11 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 // that isn't a stream-bearing /Type /CMap must be left untouched.
 func TestClampCMapStreamDictSkipsNonCMap(t *testing.T) {
 	notCMap := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}), HasStream: true, RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n")}
-	if _, ok := clampCMapStreamDict(notCMap); ok {
+	if _, ok := clampCMapStreamDict(notCMap, maxCMapCID); ok {
 		t.Error("clampCMapStreamDict on a non-CMap dict = true, want false")
 	}
 	noStream := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}})}
-	if _, ok := clampCMapStreamDict(noStream); ok {
+	if _, ok := clampCMapStreamDict(noStream, maxCMapCID); ok {
 		t.Error("clampCMapStreamDict on a streamless CMap dict = true, want false")
 	}
 }
@@ -329,7 +329,7 @@ func TestCMapCIDClampFixer(t *testing.T) {
 		RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n"),
 	}
 	trailer := trailerWith("Enc", cmap)
-	changed, err := cmapCIDClampFixer{}.Fix(&trailer, nil)
+	changed, err := cmapCIDClampFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("cmapCIDClampFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -371,7 +371,7 @@ func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
 		})},
 	})}
 
-	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
+	changed, err := nameTooLongFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -403,11 +403,11 @@ func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
 func TestHasOversizedArrayCycleAndElement(t *testing.T) {
 	cyc := pdf.PDFArray{nil}
 	cyc[0] = cyc
-	if hasOversizedArray(cyc, map[uintptr]bool{}) {
+	if hasOversizedArray(cyc, map[uintptr]bool{}, maxPDFArrayElements) {
 		t.Error("a small self-containing array was flagged")
 	}
 	big := make(pdf.PDFArray, maxPDFArrayElements+1)
-	if !hasOversizedArray(pdf.PDFArray{pdf.PDFInteger(1), big}, map[uintptr]bool{}) {
+	if !hasOversizedArray(pdf.PDFArray{pdf.PDFInteger(1), big}, map[uintptr]bool{}, maxPDFArrayElements) {
 		t.Error("an oversized array nested in a small array was not found")
 	}
 }
@@ -545,7 +545,7 @@ func TestRenameResourceReferencesSkipsMissingCategory(t *testing.T) {
 func TestNameTooLongFixerTruncatesNameValues(t *testing.T) {
 	long := strings.Repeat("n", maxNameLength+50)
 	trailer := trailerWith("Mode", pdf.PDFName{Value: long})
-	changed, err := nameTooLongFixer{}.Fix(&trailer, nil)
+	changed, err := nameTooLongFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want changed", changed, err)
 	}
@@ -589,20 +589,20 @@ func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 		issues = append(issues, pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref))
 	}
 
-	changed, handled, err := cmapCIDClampFixer{}.fixTargeted(pass, issues)
+	changed, handled, err := cmapCIDClampFixer{spec: a1bSpec}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Errorf("fixTargeted = changed %v, handled %v, %v; want unchanged but handled", changed, handled, err)
 	}
 
 	// An issue with no object ref cannot be targeted: the full walk must run.
 	noRef := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, nil)
-	if _, handled, _ := (cmapCIDClampFixer{}).fixTargeted(pass, []pdf.PDFError{noRef}); handled {
+	if _, handled, _ := (cmapCIDClampFixer{spec: a1bSpec}).fixTargeted(pass, []pdf.PDFError{noRef}); handled {
 		t.Error("an issue without an object ref was reported as handled")
 	}
 }
 
 func TestClampCMapCIDsClampsEveryOutOfRangeCID(t *testing.T) {
-	got, ok := clampCMapCIDs([]byte("2 begincidchar\n<41> 70000\n<42> 80000\nendcidchar\n"))
+	got, ok := clampCMapCIDs([]byte("2 begincidchar\n<41> 70000\n<42> 80000\nendcidchar\n"), maxCMapCID)
 	if !ok {
 		t.Fatal("nothing clamped")
 	}

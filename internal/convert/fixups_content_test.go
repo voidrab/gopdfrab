@@ -86,7 +86,7 @@ func TestFixHexStringValue(t *testing.T) {
 // wrote, or "" if it left the stream alone.
 func rescaled(t *testing.T, src string) string {
 	t.Helper()
-	out, ok := rescalePathsAndRewrite([]byte(src), (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits)
+	out, ok := rescalePathsAndRewrite([]byte(src), (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits, realLimit)
 	if !ok {
 		return ""
 	}
@@ -127,7 +127,7 @@ func TestRescaleFactorIsAPowerOfTwo(t *testing.T) {
 		{maxScale*realLimit + 1, 0}, // past what a matrix can carry
 	}
 	for _, tt := range tests {
-		if got := scaleFor(tt.largest); got != tt.want {
+		if got := scaleFor(tt.largest, realLimit); got != tt.want {
 			t.Errorf("scaleFor(%g) = %g, want %g", tt.largest, got, tt.want)
 		}
 	}
@@ -278,7 +278,7 @@ func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 	dict.RawStream = []byte("not flate data")
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
-	if _, changed := rescaleContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits); changed {
+	if _, changed := rescaleContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits, realLimit); changed {
 		t.Error("an undecodable stream was reported as rewritten")
 	}
 }
@@ -431,7 +431,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	scale, divided, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(274320),
 		pdf.PDFReal(100000), pdf.PDFReal(-200000),
-	})
+	}, realLimit)
 	if !ok {
 		t.Fatal("splitOversizedMatrix declined a matrix it can write as two")
 	}
@@ -451,21 +451,21 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	// left to the clamp, as are operands that are not numbers.
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix that fits was split")
 	}
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(1e12), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix past what two can carry was split")
 	}
-	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}); ok {
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}, realLimit); ok {
 		t.Error("a matrix of the wrong length was split")
 	}
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1),
 		pdf.PDFName{Value: "x"}, pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix with an operand that is not a number was split")
 	}
 }

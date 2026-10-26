@@ -23,14 +23,14 @@ func init() {
 	// the rebalance could have split (the struct tree reaches Pages nodes
 	// via Pg references).
 	registerPreemptiveVisitor(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
-		if !spec.PDFA {
+		if spec.Limits.MaxArrayElements == 0 {
 			return nil
 		}
-		return pagesKidsRebalanceVisitor(trailer, nil)
+		return pagesKidsRebalanceVisitor(trailer, nil, spec.Limits.MaxArrayElements)
 	})
 	registerPreemptiveAfterFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
-		if spec.PDFA {
-			dropOversizedStructure(trailer)
+		if spec.Limits.MaxArrayElements != 0 {
+			dropOversizedStructure(trailer, spec.Limits.MaxArrayElements)
 		}
 		return nil
 	})
@@ -54,12 +54,8 @@ func nextAvailableObjNum(trailer pdf.PDFDict) int {
 
 // --- ArrayTooLarge: page-tree rebalancing ---
 
-// maxPDFArrayElements mirrors the 8191-element ceiling validateArchitecturalLimits
-// (verifier.go) enforces for any PDF array (6.1.12/3).
-const maxPDFArrayElements = 8191
-
 // pagesTreeChunkSize is how many kids each new intermediate /Pages node
-// gets, well under maxPDFArrayElements.
+// gets, well under PDF/A-1's array limit (and never more than the level's).
 const pagesTreeChunkSize = 4096
 
 // pagesTreeArrayFixer remediates Checks.Structure.ArrayTooLarge for an
@@ -69,42 +65,48 @@ const pagesTreeChunkSize = 4096
 // document.go) and any other /Kids walker already recurse through
 // arbitrary nesting depth, so this never changes page count, order, or any
 // page's content; it only restructures the tree.
-type pagesTreeArrayFixer struct{}
+type pagesTreeArrayFixer struct{ spec *pdfa.Spec }
+
+func (f pagesTreeArrayFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (pagesTreeArrayFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.ArrayTooLarge
 }
 
-func (pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f pagesTreeArrayFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	limit := f.spec.Limits.MaxArrayElements
+	if limit == 0 {
+		return false, nil
+	}
 	changed := false
-	walkDicts(*trailer, map[uintptr]bool{}, pagesKidsRebalanceVisitor(trailer, &changed))
+	walkDicts(*trailer, map[uintptr]bool{}, pagesKidsRebalanceVisitor(trailer, &changed, limit))
 	// The logical structure tree's per-page parent arrays (positional MCID ->
 	// element maps) can exceed the array limit and cannot be split. PDF/A-1b
 	// (level B) does not require structure, so drop it rather than rasterize.
-	if dropOversizedStructure(trailer) {
+	if dropOversizedStructure(trailer, limit) {
 		changed = true
 	}
 	return changed, nil
 }
 
 // pagesKidsRebalanceVisitor returns the per-dict rebalance of oversized
-// Pages/Kids arrays. nextAvailableObjNum -- itself a full-graph scan -- is
-// only computed once an oversized array actually turns up. changed may be
-// nil when the caller doesn't need the signal.
-func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool) func(pdf.PDFDict) {
+// Pages/Kids arrays, ones over limit elements. nextAvailableObjNum -- itself
+// a full-graph scan -- is only computed once an oversized array actually turns
+// up. changed may be nil when the caller doesn't need the signal.
+func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool, limit int) func(pdf.PDFDict) {
 	nextObjNum := 0
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Pages"}) {
 			return
 		}
 		kids, ok := d.Entries.Get("Kids").(pdf.PDFArray)
-		if !ok || len(kids) <= maxPDFArrayElements {
+		if !ok || len(kids) <= limit {
 			return
 		}
 		if nextObjNum == 0 {
 			nextObjNum = nextAvailableObjNum(*trailer)
 		}
-		d.Entries.Set("Kids", rebalancePagesKids(d, kids, &nextObjNum))
+		d.Entries.Set("Kids", rebalancePagesKids(d, kids, &nextObjNum, min(pagesTreeChunkSize, limit)))
 		if changed != nil {
 			*changed = true
 		}
@@ -112,16 +114,16 @@ func pagesKidsRebalanceVisitor(trailer *pdf.PDFDict, changed *bool) func(pdf.PDF
 }
 
 // dropOversizedStructure removes the document's logical structure tree when it
-// holds an array over the element limit that no in-place split can repair,
+// holds an array over limit elements that no in-place split can repair,
 // stripping the catalog's /StructTreeRoot and /MarkInfo and the now-orphaned
 // /StructParent(s) links throughout the graph.
-func dropOversizedStructure(trailer *pdf.PDFDict) bool {
+func dropOversizedStructure(trailer *pdf.PDFDict, limit int) bool {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false
 	}
 	st, ok := root.Entries.Get("StructTreeRoot").(pdf.PDFDict)
-	if !ok || !hasOversizedArray(st, map[uintptr]bool{}) {
+	if !ok || !hasOversizedArray(st, map[uintptr]bool{}, limit) {
 		return false
 	}
 	root.Entries.Del("StructTreeRoot")
@@ -134,12 +136,12 @@ func dropOversizedStructure(trailer *pdf.PDFDict) bool {
 }
 
 // hasOversizedArray reports whether v, or anything reachable from it, is an
-// array exceeding maxPDFArrayElements. /Parent and /P back-pointers are skipped
+// array exceeding limit elements. /Parent and /P back-pointers are skipped
 // to avoid walking back out of the subtree being inspected.
-func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
+func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool, limit int) bool {
 	switch t := v.(type) {
 	case pdf.PDFArray:
-		if len(t) > maxPDFArrayElements {
+		if len(t) > limit {
 			return true
 		}
 		ptr := pdf.ValuePointer(t)
@@ -148,7 +150,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
 		}
 		visited[ptr] = true
 		for _, e := range t {
-			if hasOversizedArray(e, visited) {
+			if hasOversizedArray(e, visited, limit) {
 				return true
 			}
 		}
@@ -162,7 +164,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
 			if k == pdf.RefKey || k == "Parent" || k == "P" {
 				continue
 			}
-			if hasOversizedArray(e, visited) {
+			if hasOversizedArray(e, visited, limit) {
 				return true
 			}
 		}
@@ -170,15 +172,15 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool) bool {
 	return false
 }
 
-// rebalancePagesKids splits kids into chunks of pagesTreeChunkSize, each
+// rebalancePagesKids splits kids into chunks of chunkSize, each
 // wrapped in a new intermediate /Pages node (re-pointing each kid's own
 // /Parent to it, the immediate-parent requirement PDF 32000-1 7.7.3.2
 // places on /Parent), and returns the new, much shorter top-level /Kids
 // array. parent keeps its own object identity -- only its /Kids shrinks.
-func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int) pdf.PDFArray {
+func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int, chunkSize int) pdf.PDFArray {
 	var out pdf.PDFArray
-	for i := 0; i < len(kids); i += pagesTreeChunkSize {
-		chunk := append(pdf.PDFArray{}, kids[i:min(i+pagesTreeChunkSize, len(kids))]...)
+	for i := 0; i < len(kids); i += chunkSize {
+		chunk := append(pdf.PDFArray{}, kids[i:min(i+chunkSize, len(kids))]...)
 		node := pdf.NewPDFDict()
 		node.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
 		*nextObjNum++
@@ -219,11 +221,6 @@ func countPageLeaves(items pdf.PDFArray) int {
 
 // --- DictTooLarge: unused resource-entry pruning ---
 
-// maxDictEntries mirrors the 4095-entry ceiling validateArchitecturalLimits
-// (verifier.go) enforces for any PDF dictionary (6.1.12/6), excluding the
-// synthetic pdf.RefKey bookkeeping key the same way that check does.
-const maxDictEntries = 4095
-
 // resourceCategories are the /Resources sub-dictionary keys whose entries
 // are independently addressable by name from content-stream operators, and
 // therefore safe to prune individually when unreferenced.
@@ -236,13 +233,19 @@ var resourceCategories = []string{"Font", "XObject", "ColorSpace", "Pattern", "S
 // pruning every unused entry still isn't enough to get under the limit (more
 // used entries than the limit allows), it's left as residual rather than
 // risk breaking a live reference.
-type resourceDictPruneFixer struct{}
+type resourceDictPruneFixer struct{ spec *pdfa.Spec }
+
+func (f resourceDictPruneFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (resourceDictPruneFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.DictTooLarge
 }
 
-func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	limit := f.spec.Limits.MaxDictEntries
+	if limit == 0 {
+		return false, nil
+	}
 	usage := computeResourceUsage(*trailer)
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
@@ -251,7 +254,7 @@ func (resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 			if !ok {
 				continue
 			}
-			if pruneUnusedResourceEntries(sub, usage[pdf.ValuePointer(sub.Entries)]) {
+			if pruneUnusedResourceEntries(sub, usage[pdf.ValuePointer(sub.Entries)], limit) {
 				changed = true
 			}
 		}
@@ -270,14 +273,15 @@ func dictRealEntryCount(d pdf.PDFDict) int {
 }
 
 // pruneUnusedResourceEntries deletes entries from sub not named in used,
-// down to at most maxDictEntries.
+// down to at most limit, counted as validateArchitecturalLimits counts them
+// (verifier.go): without the synthetic pdf.RefKey bookkeeping key.
 //
 // Candidates are taken in sorted order because the dictionary usually holds
 // more unused entries than there is excess to shed: which ones go is a real
 // choice, and map order would make it a different choice on every run -- a
 // conversion that is not byte-reproducible.
-func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool) bool {
-	excess := dictRealEntryCount(sub) - maxDictEntries
+func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool, limit int) bool {
+	excess := dictRealEntryCount(sub) - limit
 	if excess <= 0 {
 		return false
 	}
@@ -439,11 +443,6 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 
 // --- NameTooLong: name-value truncation and resource-key renaming ---
 
-// maxNameLength mirrors the 127-byte ceiling validateArchitecturalLimits
-// (verifier.go) enforces for both pdf.PDFName values and dictionary keys
-// (6.1.12/1).
-const maxNameLength = 127
-
 // nameTooLongFixer remediates Checks.Structure.NameTooLong for both flavours
 // the check covers: a pdf.PDFName value over the limit is truncated in place
 // (mirroring the scalar clamps contentLimitsFixer already applies to other
@@ -452,17 +451,28 @@ const maxNameLength = 127
 // to a short, collision-free replacement, with every content-stream
 // operator referencing the old name (in a /Resources category that key
 // belongs to) rewritten to the new one so resource lookups still resolve.
-type nameTooLongFixer struct{}
+type nameTooLongFixer struct{ spec *pdfa.Spec }
+
+func (f nameTooLongFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
+
+// truncate is truncateOverlongName under the level's name limit.
+func (f nameTooLongFixer) truncate(v pdf.PDFValue) (pdf.PDFValue, bool) {
+	return truncateOverlongName(v, f.spec.Limits.MaxNameBytes)
+}
 
 func (nameTooLongFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.NameTooLong
 }
 
-func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	limit := f.spec.Limits.MaxNameBytes
+	if limit == 0 {
+		return false, nil
+	}
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
-		fixed, ok := truncateOverlongName(v)
+		fixed, ok := f.truncate(v)
 		if ok {
 			changed = true
 		}
@@ -471,7 +481,7 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 
 	renames := map[uintptr]map[string]string{} // category-dict ptr -> old name -> new name
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if renameOverlongKeys(d, renames) {
+		if renameOverlongKeys(d, renames, limit) {
 			changed = true
 		}
 	})
@@ -485,17 +495,17 @@ func (nameTooLongFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 // fixTargeted remediates both NameTooLong flavours on just the dicts the
 // issues reference: overlong keys are renamed, and overlong name values
 // owned by the dict (entries and their arrays) are truncated.
-func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	renames := map[uintptr]map[string]string{}
 	for _, d := range targets {
-		if renameOverlongKeys(d, renames) {
+		if renameOverlongKeys(d, renames, f.spec.Limits.MaxNameBytes) {
 			changed = true
 		}
-		if fixOwnedScalars(d, truncateOverlongName) {
+		if fixOwnedScalars(d, f.truncate) {
 			changed = true
 		}
 	}
@@ -505,29 +515,29 @@ func (nameTooLongFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed,
 	return changed, true, nil
 }
 
-// truncateOverlongName shortens a pdf.PDFName value over the 127-byte limit;
-// a name this long is already non-conformant, so truncation is accepted.
-func truncateOverlongName(v pdf.PDFValue) (pdf.PDFValue, bool) {
+// truncateOverlongName shortens a pdf.PDFName value over limit bytes; a name
+// this long is already non-conformant, so truncation is accepted.
+func truncateOverlongName(v pdf.PDFValue, limit int) (pdf.PDFValue, bool) {
 	n, ok := v.(pdf.PDFName)
-	if !ok || len(n.Value) <= maxNameLength {
+	if !ok || len(n.Value) <= limit {
 		return v, false
 	}
-	return pdf.PDFName{Value: n.Value[:maxNameLength]}, true
+	return pdf.PDFName{Value: n.Value[:limit]}, true
 }
 
-// renameOverlongKeys renames every over-limit key of d to a short,
+// renameOverlongKeys renames every key of d over limit bytes to a short,
 // collision-free replacement, recording old->new per dict for the
 // content-stream reference rewrite.
-func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bool {
+func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string, limit int) bool {
 	var overlong []string
 	for k := range d.Entries.All() {
-		if k != pdf.RefKey && len(k) > maxNameLength {
+		if k != pdf.RefKey && len(k) > limit {
 			overlong = append(overlong, k)
 		}
 	}
 	sort.Strings(overlong) // deterministic collision suffixes
 	for _, k := range overlong {
-		newKey := shortenDictKey(d, k)
+		newKey := shortenDictKey(d, k, limit)
 		d.Entries.Set(newKey, d.Entries.Get(k))
 		d.Entries.Del(k)
 		ptr := pdf.ValuePointer(d.Entries)
@@ -539,13 +549,13 @@ func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string) bo
 	return len(overlong) > 0
 }
 
-// shortenDictKey returns a name under maxNameLength bytes that isn't
-// already a key of d, truncating k and, on collision, appending a numeric
-// suffix until unique.
-func shortenDictKey(d pdf.PDFDict, k string) string {
+// shortenDictKey returns a name under limit bytes that isn't already a key
+// of d, truncating k and, on collision, appending a numeric suffix until
+// unique.
+func shortenDictKey(d pdf.PDFDict, k string, limit int) string {
 	base := k
-	if len(base) > maxNameLength-8 {
-		base = base[:maxNameLength-8]
+	if len(base) > limit-8 {
+		base = base[:limit-8]
 	}
 	if _, exists := d.Entries.Lookup(base); !exists {
 		return base
@@ -616,24 +626,23 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 
 // --- CMapCIDOutOfRange: clamping a CID value inside a CMap stream ---
 
-// maxCMapCID mirrors checkCMapCIDLimits' own ceiling (checks_font.go).
-const maxCMapCID = 65535
-
 // cmapCIDClampFixer remediates Checks.Structure.CMapCIDOutOfRange by
 // clamping any cidrange/cidchar CID value over 65535 down to 65535 directly
 // within the CMap's PostScript stream bytes, mirroring
 // checkCMapCIDLimits' own token-position state machine so it only ever
 // touches the exact values that check would flag.
-type cmapCIDClampFixer struct{}
+type cmapCIDClampFixer struct{ spec *pdfa.Spec }
+
+func (f cmapCIDClampFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.CMapCIDOutOfRange
 }
 
-func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		updated, ok := clampCMapStreamDict(d)
+		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
 		if ok {
 			changed = true
 		}
@@ -644,13 +653,13 @@ func (cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 
 // fixTargeted clamps only the CMap streams the issues reference, writing the
 // rewritten dict back into every referencing slot via the pass index.
-func (cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		updated, ok := clampCMapStreamDict(d)
+		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
 		if !ok {
 			continue
 		}
@@ -660,17 +669,18 @@ func (cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed
 	return changed, true, nil
 }
 
-// clampCMapStreamDict returns a copy of d with out-of-range CIDs clamped in
-// its decoded stream, or ok=false when d is not a CMap stream or needs no fix.
-func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.HasStream {
+// clampCMapStreamDict returns a copy of d with CIDs over limit clamped in its
+// decoded stream, or ok=false when d is not a CMap stream or needs no fix. A
+// zero limit sets none.
+func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.HasStream || limit == 0 {
 		return d, false
 	}
 	data, err := pdf.DecodeStream(d)
 	if err != nil {
 		return d, false
 	}
-	clamped, ok := clampCMapCIDs(data)
+	clamped, ok := clampCMapCIDs(data, limit)
 	if !ok {
 		return d, false
 	}
@@ -678,11 +688,11 @@ func clampCMapStreamDict(d pdf.PDFDict) (pdf.PDFDict, bool) {
 	return d, true
 }
 
-// clampCMapCIDs rewrites every cidrange/cidchar CID token over maxCMapCID in
-// data to maxCMapCID, splicing the replacement directly into the original
+// clampCMapCIDs rewrites every cidrange/cidchar CID token over limit in data
+// to limit, splicing the replacement directly into the original
 // bytes (preserving everything else byte-for-byte) so it never needs to
 // re-serialize the surrounding PostScript.
-func clampCMapCIDs(data []byte) ([]byte, bool) {
+func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
 	tokens := fontprog.CmapTokenize(data)
 	type span struct{ start, end int }
 	var spans []span
@@ -710,7 +720,7 @@ func clampCMapCIDs(data []byte) ([]byte, bool) {
 			}
 			pos++
 			if pos == target {
-				if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCMapCID {
+				if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > int64(limit) {
 					spans = append(spans, span{tok.Start, tok.End})
 				}
 				pos = 0
@@ -722,7 +732,7 @@ func clampCMapCIDs(data []byte) ([]byte, bool) {
 	}
 
 	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
-	clampedText := []byte(fmt.Sprintf("%d", maxCMapCID))
+	clampedText := []byte(fmt.Sprintf("%d", limit))
 	var out []byte
 	prev := 0
 	for _, s := range spans {
