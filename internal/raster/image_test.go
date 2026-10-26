@@ -11,14 +11,15 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// TestPlaceholderImageDegenerate covers the zero-dimension early return and
-// the doubling-copy fill.
-func TestPlaceholderImageDegenerate(t *testing.T) {
-	if img := placeholderImage(0, 3); img.Bounds().Dx() != 0 {
-		t.Errorf("placeholderImage(0,3) width = %d, want 0", img.Bounds().Dx())
+// TestPlaceholderImageIsOnePixel pins that the placeholder allocates
+// nothing for the size its image claims: one gray pixel, stretched over the
+// image's unit square like any other image.
+func TestPlaceholderImageIsOnePixel(t *testing.T) {
+	img := placeholderImage()
+	if img.Bounds().Dx() != 1 || img.Bounds().Dy() != 1 {
+		t.Fatalf("placeholder is %v, want 1x1", img.Bounds())
 	}
-	img := placeholderImage(3, 2)
-	r, g, b, _ := img.At(2, 1).RGBA()
+	r, g, b, _ := img.At(0, 0).RGBA()
 	if r != g || g != b || r == 0 {
 		t.Errorf("placeholderImage pixel = %d,%d,%d, want uniform gray", r, g, b)
 	}
@@ -193,7 +194,7 @@ func TestDecodeImageRGBAUnsupportedCodecPlaceholder(t *testing.T) {
 	if !errors.As(err, &ph) || ph.Codec != "CCITT" {
 		t.Fatalf("DecodeImageRGBA err = %v, want a PlaceholderError for CCITT", err)
 	}
-	r, g, b := pixelAt(t, img, 1, 1)
+	r, g, b := pixelAt(t, img, 0, 0)
 	if r != 127 || g != 127 || b != 127 {
 		t.Errorf("unsupported codec placeholder pixel = (%d,%d,%d), want mid-gray (127,127,127)", r, g, b)
 	}
