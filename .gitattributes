@@ -16,6 +16,7 @@
 *.pfb binary
 *.cff binary
 *.icc binary
+*.bin binary
 
 # Shell scripts must keep LF regardless of the platform they are checked out
 # on, or a Windows clone produces scripts no shell will run.

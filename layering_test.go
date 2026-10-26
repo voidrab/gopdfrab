@@ -77,6 +77,11 @@ func internalImports(t *testing.T, dir string) []string {
 		if err != nil {
 			t.Fatalf("parse %s: %v", fn, err)
 		}
+		// A package main beside a library is a go:generate tool (arlington's
+		// gen.go), built on its own and never linked into the package.
+		if f.Name.Name == "main" {
+			continue
+		}
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			if dep, ok := strings.CutPrefix(p, prefix); ok && !seen[dep] {

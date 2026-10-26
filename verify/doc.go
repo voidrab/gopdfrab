@@ -6,7 +6,7 @@
 // only verifies imports this package instead of gopdfrab and never compiles or
 // links the converter -- no fixers, writer, rasterizer, substitute fonts or ICC
 // profiles. The linker already drops most of what a verify-only caller of
-// gopdfrab leaves unused, so the saving there is moderate (about a sixth of
+// gopdfrab leaves unused, so the saving there is moderate (about a fifth of
 // the binary); against a build that also converts, such as the browser
 // module, it is more than half. Switching is an import swap:
 //

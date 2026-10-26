@@ -32,10 +32,18 @@ notice.
 - `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
   the same names and over the same types, for programs that never convert.
   It does not compile or link the converter.
-- WebAssembly: a verify-only module, `./wasm/verify` (about 7.8 MB against
-  the full module's 16.7 MB), so a page can load it first and fetch the full
+- WebAssembly: a verify-only module, `./wasm/verify` (about 6.2 MB against
+  the full module's 15.1 MB), so a page can load it first and fetch the full
   module only to convert. Both modules now say which one is ready:
   `{type: "ready", module: "verify" | "convert"}`.
+
+### Changed
+
+- The Arlington object model behind the `ObjectModel` checks ships as 17.5 KB
+  of embedded data decoded on first use, instead of a generated Go map literal
+  that compiled to about 680 KB of startup code. Every binary is about 1 MB
+  smaller (1.6 MB in WebAssembly), and a program that never runs the
+  object-model checks no longer pays to build the table at startup.
 
 ### Fixed
 

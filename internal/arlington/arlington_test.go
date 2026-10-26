@@ -1,6 +1,7 @@
 package arlington
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -233,14 +234,14 @@ func TestXObjectDiscriminator(t *testing.T) {
 // entry in Types, catching generator parse drift.
 func TestTableIntegrity(t *testing.T) {
 	const wantTypes = 288
-	if len(Types) != wantTypes {
-		t.Errorf("Types: want %d entries, got %d", wantTypes, len(Types))
+	if len(Types()) != wantTypes {
+		t.Errorf("Types: want %d entries, got %d", wantTypes, len(Types()))
 	}
 
 	checkLinkGroups := func(owner string, groups []LinkGroup) {
 		for _, g := range groups {
 			for _, c := range g.Candidates {
-				if _, ok := Types[c]; !ok {
+				if _, ok := Types()[c]; !ok {
 					t.Errorf("%s: Candidate %q does not resolve to a known Arlington type", owner, c)
 				}
 			}
@@ -260,9 +261,9 @@ func TestTableIntegrity(t *testing.T) {
 			}
 		}
 	}
-	for name, ot := range Types {
+	for name, ot := range Types() {
 		if ot.Name != name {
-			t.Errorf("Types[%q].Name = %q, want %q", name, ot.Name, name)
+			t.Errorf("Types()[%q].Name = %q, want %q", name, ot.Name, name)
 		}
 		for _, kd := range ot.Keys {
 			checkLinkGroups(name+"."+kd.Name, kd.LinkGroups)
@@ -287,53 +288,53 @@ func stringSliceContains(list []string, s string) bool {
 // because their condition depends on runtime document state.
 func TestVersionGateFolding(t *testing.T) {
 	// fn:MustBeIndirect(fn:BeforeVersion(2.0)) -> IndirectRequired at 1.4.
-	outlines := findKey(Types["Catalog"], "Outlines")
+	outlines := findKey(Types()["Catalog"], "Outlines")
 	if outlines == nil || outlines.Predicated.Any() || outlines.IndirectReference != IndirectRequired {
 		t.Errorf("Catalog.Outlines: want folded IndirectRequired, got %+v", outlines)
 	}
 
 	// The Indirect column folds even when the row's Required column stays predicated
 	// (it carries a runtime fn:IsPresent condition).
-	info := findKey(Types["FileTrailer"], "Info")
+	info := findKey(Types()["FileTrailer"], "Info")
 	wantInfo := Predication{Required: true}
 	if info == nil || info.Predicated != wantInfo || info.IndirectReference != IndirectRequired {
 		t.Errorf("FileTrailer.Info: want folded IndirectRequired with Predicated %+v, got %+v", wantInfo, info)
 	}
 
 	// fn:IsRequired(fn:BeforeVersion(1.3)) -> not required at 1.4.
-	matrix := findKey(Types["XObjectFormType1"], "Matrix")
+	matrix := findKey(Types()["XObjectFormType1"], "Matrix")
 	if matrix == nil || matrix.Predicated.Any() || matrix.Required {
 		t.Errorf("XObjectFormType1.Matrix: want folded not-Required, got %+v", matrix)
 	}
 
 	// fn:IsRequired(fn:SinceVersion(2.0,...)) -> not required at 1.4, runtime payload moot.
-	ap := findKey(Types["AnnotText"], "AP")
+	ap := findKey(Types()["AnnotText"], "AP")
 	if ap == nil || ap.Predicated.Any() || ap.Required {
 		t.Errorf("AnnotText.AP: want folded not-Required, got %+v", ap)
 	}
 
 	// fn:MustBeIndirect(fn:SinceVersion(1.7)) -> unconstrained at 1.4, wildcard un-predicated.
-	annots := Types["ArrayOfAnnots"].Wildcard
+	annots := Types()["ArrayOfAnnots"].Wildcard
 	if annots == nil || annots.Predicated.Any() || annots.IndirectReference != IndirectEither {
 		t.Errorf("ArrayOfAnnots.*: want folded IndirectEither, got %+v", annots)
 	}
 
 	// Version-gated enum entries fold entry-wise: deprecated values stay legal, values
 	// introduced after 1.4 drop out.
-	v := findKey(Types["EncryptionStandard"], "V")
+	v := findKey(Types()["EncryptionStandard"], "V")
 	want := []string{"0", "1", "2", "3"}
 	if v == nil || v.Predicated.Any() || !equalStrings(v.PossibleValues, want) {
 		t.Errorf("EncryptionStandard.V: want folded PossibleValues %v, got %+v", want, v)
 	}
 
 	// A literal "*" entry legalizes any value, so the list must not be emitted at all.
-	n := findKey(Types["ActionNamed"], "N")
+	n := findKey(Types()["ActionNamed"], "N")
 	if n == nil || len(n.PossibleValues) != 0 {
 		t.Errorf("ActionNamed.N: want no PossibleValues (list contains *), got %+v", n)
 	}
 
 	// Runtime conditions stay predicated in exactly their own column.
-	as := findKey(Types["AnnotText"], "AS")
+	as := findKey(Types()["AnnotText"], "AS")
 	if as == nil || as.Predicated != (Predication{Required: true}) {
 		t.Errorf("AnnotText.AS: want only Required predicated (runtime fn:IsPresent), got %+v", as)
 	}
@@ -343,7 +344,7 @@ func TestVersionGateFolding(t *testing.T) {
 // into runtime Cond trees instead of leaving the row predicated.
 func TestCompiledConditions(t *testing.T) {
 	// fn:IsRequired(@Type!=Template) -> a plain comparison leaf.
-	parent := findKey(Types["PageObject"], "Parent")
+	parent := findKey(Types()["PageObject"], "Parent")
 	wantParent := &Cond{Op: CondNe, Key: "Type", Value: "Template"}
 	if parent == nil || parent.Predicated.Required || !reflect.DeepEqual(parent.RequiredWhen, wantParent) {
 		t.Errorf("PageObject.Parent: want RequiredWhen %+v, got %+v", wantParent, parent)
@@ -351,35 +352,35 @@ func TestCompiledConditions(t *testing.T) {
 
 	// fn:IsRequired(fn:IsPresent(EF) || fn:SinceVersion(2.0,fn:IsPresent(EP)) || fn:IsPresent(RF)):
 	// the 2.0-gated operand folds away, the sibling-presence operands survive.
-	typ := findKey(Types["FileSpecification"], "Type")
+	typ := findKey(Types()["FileSpecification"], "Type")
 	wantTyp := &Cond{Op: CondOr, Kids: []Cond{{Op: CondPresent, Key: "EF"}, {Op: CondPresent, Key: "RF"}}}
 	if typ == nil || !reflect.DeepEqual(typ.RequiredWhen, wantTyp) {
 		t.Errorf("FileSpecification.Type: want RequiredWhen %+v, got %+v", wantTyp, typ)
 	}
 
 	// fn:IsRequired((@R==5) || (@R==6)) -> comparison alternatives.
-	oe := findKey(Types["EncryptionStandard"], "OE")
+	oe := findKey(Types()["EncryptionStandard"], "OE")
 	wantOE := &Cond{Op: CondOr, Kids: []Cond{{Op: CondEq, Key: "R", Value: "5"}, {Op: CondEq, Key: "R", Value: "6"}}}
 	if oe == nil || !reflect.DeepEqual(oe.RequiredWhen, wantOE) {
 		t.Errorf("EncryptionStandard.OE: want RequiredWhen %+v, got %+v", wantOE, oe)
 	}
 
 	// Cross-object paths stay out of reach: AnnotText.AS (AP::N::*) has no compiled tree.
-	as := findKey(Types["AnnotText"], "AS")
+	as := findKey(Types()["AnnotText"], "AS")
 	if as == nil || as.RequiredWhen != nil {
 		t.Errorf("AnnotText.AS: want no RequiredWhen (path condition), got %+v", as)
 	}
 
 	// Fixed array-index rows compile fn:Eval ranges with element-index operands:
 	// WhitepointArray.0 is fn:Eval(@0>0).
-	wp := findKey(Types["WhitepointArray"], "0")
+	wp := findKey(Types()["WhitepointArray"], "0")
 	wantWP := &Cond{Op: CondGt, Key: "0", Value: "0"}
 	if wp == nil || wp.Predicated.Values || !reflect.DeepEqual(wp.ValueCond, wantWP) {
 		t.Errorf("WhitepointArray.0: want ValueCond %+v, got %+v", wantWP, wp)
 	}
 
 	// IndexedColorSpace.2 (hival) is fn:Eval((@2>=0) && (@2<=255)).
-	hival := findKey(Types["IndexedColorSpace"], "2")
+	hival := findKey(Types()["IndexedColorSpace"], "2")
 	wantHival := &Cond{Op: CondAnd, Kids: []Cond{
 		{Op: CondGe, Key: "2", Value: "0"}, {Op: CondLe, Key: "2", Value: "255"},
 	}}
@@ -391,14 +392,14 @@ func TestCompiledConditions(t *testing.T) {
 	for _, tc := range []struct{ typ, key string }{
 		{"Dest0Array", "0"}, {"ArrayOfAttributeRevisions", "1*"},
 	} {
-		kd := findKey(Types[tc.typ], tc.key)
+		kd := findKey(Types()[tc.typ], tc.key)
 		if kd == nil || !kd.Predicated.Values || kd.ValueCond != nil {
 			t.Errorf("%s.%s: want Values predicated with no ValueCond, got %+v", tc.typ, tc.key, kd)
 		}
 	}
 
 	// fn:Eval((@Rotate mod 90)==0) -> a modulo equality leaf.
-	rot := findKey(Types["PageObject"], "Rotate")
+	rot := findKey(Types()["PageObject"], "Rotate")
 	wantRot := &Cond{Op: CondEq, Key: "Rotate", Value: "0", Mod: 90}
 	if rot == nil || rot.Predicated.Values || !reflect.DeepEqual(rot.ValueCond, wantRot) {
 		t.Errorf("PageObject.Rotate: want ValueCond %+v, got %+v", wantRot, rot)
@@ -406,7 +407,7 @@ func TestCompiledConditions(t *testing.T) {
 
 	// EncryptionStandard.Length: the fn:Extension(ADBE_Extn3,...) arm compiles to a
 	// CondUnknown leaf inside the Or, so 40..128 and mod 8 are still enforced.
-	length := findKey(Types["EncryptionStandard"], "Length")
+	length := findKey(Types()["EncryptionStandard"], "Length")
 	wantLen := &Cond{Op: CondAnd, Kids: []Cond{
 		{Op: CondGe, Key: "Length", Value: "40"},
 		{Op: CondOr, Kids: []Cond{{Op: CondLe, Key: "Length", Value: "128"}, {Op: CondUnknown}}},
@@ -418,13 +419,13 @@ func TestCompiledConditions(t *testing.T) {
 
 	// A tree of only CondUnknown leaves enforces nothing and must stay predicated; FileTrailer
 	// .Prev (fn:FileSize operand) is representative of &&-siblings staying uncompilable too.
-	prev := findKey(Types["FileTrailer"], "Prev")
+	prev := findKey(Types()["FileTrailer"], "Prev")
 	if prev == nil || !prev.Predicated.Values || prev.ValueCond != nil {
 		t.Errorf("FileTrailer.Prev: want Values predicated (fn:FileSize operand), got %+v", prev)
 	}
 
 	// fn:IsRequired(fn:Not(fn:Contains(@Filter,JPXDecode) || (@ImageMask==true))).
-	cs := findKey(Types["XObjectImage"], "ColorSpace")
+	cs := findKey(Types()["XObjectImage"], "ColorSpace")
 	wantCS := &Cond{Op: CondNot, Kids: []Cond{{Op: CondOr, Kids: []Cond{
 		{Op: CondContains, Key: "Filter", Value: "JPXDecode"},
 		{Op: CondEq, Key: "ImageMask", Value: "true"},
@@ -434,7 +435,7 @@ func TestCompiledConditions(t *testing.T) {
 	}
 
 	// fn:Eval((@TI>=0) && (@TI<fn:ArrayLength(Opt))) -- a derived right operand.
-	ti := findKey(Types["FieldChoice"], "TI")
+	ti := findKey(Types()["FieldChoice"], "TI")
 	wantTI := &Cond{Op: CondAnd, Kids: []Cond{
 		{Op: CondGe, Key: "TI", Value: "0"},
 		{Op: CondLt, Key: "TI", RHSKey: "Opt", RHSFn: FnArrayLength},
@@ -444,14 +445,14 @@ func TestCompiledConditions(t *testing.T) {
 	}
 
 	// Element-vs-element comparisons now compile on fixed-index rows: LabRangeArray @0<=@1.
-	lab := findKey(Types["LabRangeArray"], "0")
+	lab := findKey(Types()["LabRangeArray"], "0")
 	wantLab := &Cond{Op: CondLe, Key: "0", RHSKey: "1"}
 	if lab == nil || lab.Predicated.Values || !reflect.DeepEqual(lab.ValueCond, wantLab) {
 		t.Errorf("LabRangeArray.0: want ValueCond %+v, got %+v", wantLab, lab)
 	}
 
 	// fn:RequiredValue entries stay legal enum members and emit conditional pins.
-	r := findKey(Types["EncryptionStandard"], "R")
+	r := findKey(Types()["EncryptionStandard"], "R")
 	wantRVals := []string{"2", "3", "4"}
 	wantRPins := []PinnedValue{
 		{When: &Cond{Op: CondLt, Key: "V", Value: "2"}, Value: "2"},
@@ -462,7 +463,7 @@ func TestCompiledConditions(t *testing.T) {
 		t.Errorf("EncryptionStandard.R: want values %v pins %+v, got %+v", wantRVals, wantRPins, r)
 	}
 
-	bpc := findKey(Types["XObjectImage"], "BitsPerComponent")
+	bpc := findKey(Types()["XObjectImage"], "BitsPerComponent")
 	if bpc == nil || bpc.Predicated.Values || !equalStrings(bpc.PossibleValues, []string{"1", "2", "4", "8"}) || len(bpc.PinnedValues) != 2 {
 		t.Errorf("XObjectImage.BitsPerComponent: want enum {1,2,4,8} with 2 pins, got %+v", bpc)
 	}
@@ -472,7 +473,7 @@ func TestCompiledConditions(t *testing.T) {
 	wantStd14 := &Cond{Op: CondNotStd14, Key: "BaseFont"}
 	for _, typ := range []string{"FontType1", "FontTrueType", "FontMultipleMaster"} {
 		for _, key := range []string{"FirstChar", "LastChar", "Widths", "FontDescriptor"} {
-			kd := findKey(Types[typ], key)
+			kd := findKey(Types()[typ], key)
 			if kd == nil || kd.Predicated.Required || !reflect.DeepEqual(kd.RequiredWhen, wantStd14) {
 				t.Errorf("%s.%s: want RequiredWhen %+v, got %+v", typ, key, wantStd14, kd)
 			}
@@ -487,7 +488,7 @@ func TestCompiledConditions(t *testing.T) {
 // the deliberate exclusions, and a count floor (the column carries no predication stats).
 func TestSpecialCaseConstraints(t *testing.T) {
 	total := 0
-	for _, ot := range Types {
+	for _, ot := range Types() {
 		for _, kd := range ot.Keys {
 			if kd.SpecialCase != nil {
 				total++
@@ -503,7 +504,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 	t.Logf("compiled SpecialCase constraints: %d", total)
 
 	// The workhorse: stream filter/parms array lengths must agree ("[X];[]" groups dedupe).
-	dp := findKey(Types["Stream"], "DecodeParms")
+	dp := findKey(Types()["Stream"], "DecodeParms")
 	wantDP := &Cond{Op: CondEq, Key: "DecodeParms", Fn: FnArrayLength, RHSKey: "Filter", RHSFn: FnArrayLength}
 	if dp == nil || !reflect.DeepEqual(dp.SpecialCase, wantDP) {
 		t.Errorf("Stream.DecodeParms: want SpecialCase %+v, got %+v", wantDP, dp)
@@ -512,7 +513,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 	// Version-gated bit rules are dropped: the gated bits are defined in some other PDF
 	// version and real files carry them harmlessly (the KeyIntroducedAfterPDF14 stance), so
 	// annotation F rows compile no constraint at all.
-	f := findKey(Types["AnnotText"], "F")
+	f := findKey(Types()["AnnotText"], "F")
 	if f == nil || f.SpecialCase != nil {
 		t.Errorf("AnnotText.F: want no SpecialCase (version-gated bit rule), got %+v", f)
 	}
@@ -520,7 +521,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 	// FontDescriptor Flags reserved bits (5, 8..16, 20..32) must be clear -- the
 	// version-independent conjunction compiles whole, anchored to the row's own key by
 	// fillBitKeys.
-	flags := findKey(Types["FontDescriptorType1"], "Flags")
+	flags := findKey(Types()["FontDescriptorType1"], "Flags")
 	wantFlags := &Cond{Op: CondAnd, Kids: []Cond{
 		{Op: CondBitsClear, Key: "Flags", BitLo: 5, BitHi: 5},
 		{Op: CondBitsClear, Key: "Flags", BitLo: 8, BitHi: 16},
@@ -531,7 +532,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 	}
 
 	// fn:Eval((fn:ArrayLength(Domain) mod 2)==0) -- derived operand with modulus.
-	dom := findKey(Types["FunctionType0"], "Domain")
+	dom := findKey(Types()["FunctionType0"], "Domain")
 	wantDom := &Cond{Op: CondEq, Key: "Domain", Fn: FnArrayLength, Value: "0", Mod: 2}
 	if dom == nil || !reflect.DeepEqual(dom.SpecialCase, wantDom) {
 		t.Errorf("FunctionType0.Domain: want SpecialCase %+v, got %+v", wantDom, dom)
@@ -539,29 +540,29 @@ func TestSpecialCaseConstraints(t *testing.T) {
 
 	// specialCaseOverrides: the required-if-PieceInfo mirror stays off, same rationale as
 	// requiredOverrides on PageObject.LastModified.
-	pi := findKey(Types["PageObject"], "PieceInfo")
+	pi := findKey(Types()["PageObject"], "PieceInfo")
 	if pi == nil || pi.SpecialCase != nil {
 		t.Errorf("PageObject.PieceInfo: want SpecialCase dropped by override, got %+v", pi)
 	}
 
 	// Affine right sides: a literal offset over a two-key difference, a scaled sibling
 	// length, and offset sibling lengths all compile.
-	widths := findKey(Types["FontType1"], "Widths")
+	widths := findKey(Types()["FontType1"], "Widths")
 	wantWidths := &Cond{Op: CondEq, Key: "Widths", Fn: FnArrayLength, RHSKey: "LastChar", RHSAdd: 1, RHSKey2: "FirstChar"}
 	if widths == nil || !reflect.DeepEqual(widths.SpecialCase, wantWidths) {
 		t.Errorf("FontType1.Widths: want SpecialCase %+v, got %+v", wantWidths, widths)
 	}
-	size := findKey(Types["FunctionType0"], "Size")
+	size := findKey(Types()["FunctionType0"], "Size")
 	wantSize := &Cond{Op: CondEq, Key: "Domain", Fn: FnArrayLength, RHSKey: "Size", RHSFn: FnArrayLength, RHSMul: 2}
 	if size == nil || !reflect.DeepEqual(size.SpecialCase, wantSize) {
 		t.Errorf("FunctionType0.Size: want SpecialCase %+v, got %+v", wantSize, size)
 	}
-	bounds := findKey(Types["FunctionType3"], "Bounds")
+	bounds := findKey(Types()["FunctionType3"], "Bounds")
 	wantBounds := &Cond{Op: CondEq, Key: "Bounds", Fn: FnArrayLength, RHSKey: "Functions", RHSFn: FnArrayLength, RHSAdd: -1}
 	if bounds == nil || !reflect.DeepEqual(bounds.SpecialCase, wantBounds) {
 		t.Errorf("FunctionType3.Bounds: want SpecialCase %+v, got %+v", wantBounds, bounds)
 	}
-	icc := findKey(Types["ICCProfileStream"], "Range")
+	icc := findKey(Types()["ICCProfileStream"], "Range")
 	wantICC := &Cond{Op: CondEq, Key: "Range", Fn: FnArrayLength, RHSKey: "N", RHSMul: 2}
 	if icc == nil || !reflect.DeepEqual(icc.SpecialCase, wantICC) {
 		t.Errorf("ICCProfileStream.Range: want SpecialCase %+v, got %+v", wantICC, icc)
@@ -574,7 +575,7 @@ func TestClassificationFloor(t *testing.T) {
 	const floor = 0.955 // observed ~96.0% after fn:NotStandard14Font; headroom for TSV churn
 
 	total, simple := 0, 0
-	for _, ot := range Types {
+	for _, ot := range Types() {
 		for _, kd := range ot.Keys {
 			total++
 			if !kd.Predicated.Any() {
@@ -598,9 +599,9 @@ func TestClassificationFloor(t *testing.T) {
 	t.Logf("simple-row fraction: %.3f (%d/%d)", fraction, simple, total)
 }
 
-// TestGeneratorIdempotent regenerates model_gen.go into a scratch copy of the package and
-// asserts it is byte-identical to the checked-in file, guarding against edits to gen.go or
-// the vendored TSVs that were never regenerated.
+// TestGeneratorIdempotent regenerates model.bin into a scratch file and asserts it is
+// byte-identical to the checked-in one, guarding against edits to gen.go or the vendored
+// TSVs that were never regenerated.
 func TestGeneratorIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("invokes `go run`; skipped in -short mode")
@@ -609,41 +610,17 @@ func TestGeneratorIdempotent(t *testing.T) {
 		t.Skip("Arlington TSVs not present (excluded from the module zip)")
 	}
 
-	wd, err := os.Getwd()
+	out := filepath.Join(t.TempDir(), "model.bin")
+	cmd := exec.Command("go", "run", "gen.go", "-out", out)
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go run gen.go: %v\n%s", err, b)
+	}
+	regenerated, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkedIn, err := os.ReadFile(filepath.Join(wd, "model_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	scratch := t.TempDir()
-	for _, name := range []string{"gen.go", "arlington.go"} {
-		data, err := os.ReadFile(filepath.Join(wd, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(scratch, name), data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(filepath.Join(wd, "testdata"), filepath.Join(scratch, "testdata")); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd := exec.Command("go", "run", "gen.go")
-	cmd.Dir = scratch
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go run gen.go: %v\n%s", err, out)
-	}
-
-	regenerated, err := os.ReadFile(filepath.Join(scratch, "model_gen.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(regenerated) != string(checkedIn) {
-		t.Error("model_gen.go is stale: regenerating produces a different file; run `go generate ./internal/arlington/...`")
+	if !bytes.Equal(regenerated, modelData) {
+		t.Error("model.bin is stale: regenerating produces a different file; run `go generate ./internal/arlington/...`")
 	}
 }
 

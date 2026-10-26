@@ -110,9 +110,9 @@ Both subcommands take:
 involved:
 
 ```bash
-# verify only: about 7.8 MB
+# verify only: about 6.2 MB
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab-verify.wasm ./wasm/verify
-# verify and convert: about 16.7 MB
+# verify and convert: about 15.1 MB
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
 ```
 
@@ -161,8 +161,8 @@ res, err := verify.VerifyBytes(data, verify.PDFA1B)
 ```
 
 Go's linker already drops most converter code a verify-only caller of the root
-package leaves unused, so the saving there is moderate: about 16% of a small
-verifying binary (4.8 MB instead of 5.7 MB). It is largest next to a build that
+package leaves unused, so the saving there is moderate: about 19% of a small
+verifying binary (3.7 MB instead of 4.6 MB). It is largest next to a build that
 also converts: the verify-only WebAssembly module below is less than half the
 size of the full one.
 
