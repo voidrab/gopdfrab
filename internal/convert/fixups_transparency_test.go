@@ -97,6 +97,39 @@ func TestTransparencyFlattenerFixDropsPageGroup(t *testing.T) {
 	}
 }
 
+// TestTransparencyFlattenerFlattensInsideAGroupPage: a page with its own
+// transparency group still has its forms' groups flattened in the same call.
+// Left for the next pass, they would be rendered only after the opacity repair
+// had made everything in them opaque.
+func TestTransparencyFlattenerFlattensInsideAGroupPage(t *testing.T) {
+	group := func() pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
+	}
+	form := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type":    pdf.PDFName{Value: "XObject"},
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+			"Group":   group(),
+		}),
+		HasStream: true,
+		RawStream: []byte("0 0 0 rg 0 0 10 10 re f"),
+	}
+	trailer, page, resources := pageWithContent("/Fm0 Do\n")
+	page.Entries.Set("Group", group())
+	resources.Entries.Set("XObject", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})})
+
+	if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if page.Entries.Get("Group") != nil {
+		t.Error("page /Group still present after Fix, want removed")
+	}
+	if form.Entries.Get("Group") != nil {
+		t.Error("form /Group still present after one Fix: the page's own group hid it")
+	}
+}
+
 // TestTransparencyFlattenerReachesAnnotationAppearances pins that the fixer
 // walks a page's annotation appearance streams, not only its /Resources.
 //

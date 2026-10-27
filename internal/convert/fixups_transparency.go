@@ -234,9 +234,11 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
 	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
+		// Dropping a page's own group leaves what it draws as it was, so the
+		// groups and soft masks inside are flattened in the same pass, before
+		// the opacity repair makes them opaque.
 		if hasTransparencyGroup(node) {
 			out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
-			return
 		}
 		collectXObjectTargets(resources, visited, pageNum, pagePaintAtDo(node, resources), &out)
 		collectAnnotationTargets(node, resources, visited, pageNum, &out)

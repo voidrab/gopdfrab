@@ -60,6 +60,9 @@ notice.
   fallback allocate gigabytes; it is now a reported `oversized image` drop.
 - The parallel transparency flattener had a data race on forms and images
   drawn inside other flattened forms.
+- On a page with its own transparency group, the flattener left the page's
+  forms for the next fix pass. By then their opacities had been set to 1, so
+  they were rasterized fully opaque.
 
 ## [1.2.0] - 2026-10-11
 
