@@ -543,7 +543,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// what it no longer holds is a separate fact, and one a caller wants
 	// separately. (Recovered objects are not carried: the rewrite emits a
 	// correct xref, genuinely fixing them.)
-	for _, e := range doc.DegradedObjects() {
+	for _, e := range spec.Issues(doc.DegradedObjects()) {
 		if p.Has(e.Check()) {
 			cr.LostObjects = append(cr.LostObjects, e)
 		}

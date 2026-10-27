@@ -544,7 +544,7 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 func (d *Reader) decryptStr(b []byte, ref PDFRef) []byte {
 	out, err := d.crypt.decrypt(b, ref.ObjNum, ref.GenNum, true)
 	if err != nil {
-		d.recordObjectOnce(ref.ObjNum, Checks.Structure.GraphResolutionFailure,
+		d.recordObjectOnce(ref.ObjNum, DiagStringUndecryptable,
 			fmt.Sprintf("object %d: a string could not be decrypted (%v); kept as stored", ref.ObjNum, err))
 		return b
 	}

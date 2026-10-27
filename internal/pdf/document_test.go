@@ -213,11 +213,11 @@ func writeMinimalPDF(t *testing.T, objs []string, trailerBody string) string {
 	return path
 }
 
-// hasXRefRecoveryDiagnostic reports whether doc recorded the 6.1.4 diagnostic
-// that a brute-force object scan rebuilt the cross-reference table.
+// hasXRefRecoveryDiagnostic reports whether doc recorded that a brute-force
+// object scan rebuilt the cross-reference table.
 func hasXRefRecoveryDiagnostic(doc *Reader) bool {
-	for _, e := range doc.StructErrors() {
-		if e.Check() == Checks.Structure.XRefKeyword {
+	for _, e := range doc.Diagnostics() {
+		if e.Kind == DiagXRefRebuilt {
 			return true
 		}
 	}
@@ -446,11 +446,11 @@ func TestRecordFramingDedup(t *testing.T) {
 	}
 }
 
-// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-check dedup.
+// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-kind dedup.
 func TestRecordStreamFramingDedup(t *testing.T) {
 	d := &Reader{}
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg")
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg again")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg again")
 	if len(d.parseDiagnostics) != 1 {
 		t.Errorf("expected dedup, got %d diagnostics", len(d.parseDiagnostics))
 	}
@@ -1281,7 +1281,7 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
 	d.framingChecked = map[int]bool{1: true}
-	d.streamChecked = map[streamCheckKey]bool{{1, Checks.Structure.EndstreamEOL}: true}
+	d.streamChecked = map[streamCheckKey]bool{{1, DiagEndstreamEOL}: true}
 	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
 
 	d.ReleaseCaches()

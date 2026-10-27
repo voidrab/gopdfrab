@@ -108,11 +108,11 @@ func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 					t.Error("object degraded despite a recoverable extent")
 				}
 				var mismatch bool
-				for _, e := range d.StructErrors() {
-					mismatch = mismatch || e.Check() == Checks.Structure.StreamLengthMismatch
+				for _, e := range d.Diagnostics() {
+					mismatch = mismatch || e.Kind == DiagStreamLengthMismatch
 				}
 				if !mismatch {
-					t.Error("no StreamLengthMismatch diagnostic for the wrong /Length")
+					t.Error("no length-mismatch diagnostic for the wrong /Length")
 				}
 			})
 		}

@@ -264,7 +264,7 @@ func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
 // list: object framing and the reader's accumulated parse diagnostics.
 func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := verifyAllObjectFraming(d, spec)
-	return append(issues, d.StructErrors()...)
+	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
 // verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
@@ -426,7 +426,7 @@ func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := indirectObjectLimit(d.IndirectObjectCount(), spec)
 
 	// Resolution records framing diagnostics as a side effect, so walk in
-	// object order: map order would make StructErrors nondeterministic.
+	// object order: map order would make the diagnostics nondeterministic.
 	for _, objNum := range slices.Sorted(maps.Keys(d.XRefTable())) {
 		d.ResolveReference(pdf.PDFRef{ObjNum: objNum})
 	}

@@ -11,7 +11,7 @@ import (
 func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	// 6.1.7: the 'stream' keyword shall be followed by CRLF or a single LF.
 	if d.consumeStreamEOL(l) {
-		d.recordStreamFraming(objNum, Checks.Structure.StreamKeywordEOL,
+		d.recordStreamFraming(objNum, DiagStreamKeywordEOL,
 			"'stream' keyword not followed by a single EOL marker")
 	}
 
@@ -79,7 +79,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	// 6.1.7: Length must not include the EOL before endstream.
 	if !recovered && kwPos == end {
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
+		d.recordStreamFraming(objNum, DiagStreamLengthIncludesEOL,
 			"stream Length value includes the EOL marker before endstream")
 	}
 
@@ -87,10 +87,10 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	switch {
 	case recovered:
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthMismatch,
+		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stream Length does not match the body; extent recovered from the endstream keyword")
 	case stray:
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthMismatch,
+		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stray bytes between the stream body and the endstream keyword")
 	}
 	posAfter := kwPos + int64(len(endstreamKeyword))
@@ -216,7 +216,7 @@ func (d *Reader) checkEndstreamFraming(objNum int, streamStart int64, length int
 	}
 	i := off + rel
 	if ws+i == 0 || (window[i-1] != '\n' && window[i-1] != '\r') {
-		d.recordStreamFraming(objNum, Checks.Structure.EndstreamEOL,
+		d.recordStreamFraming(objNum, DiagEndstreamEOL,
 			"endstream keyword not preceded by an EOL marker")
 	}
 }

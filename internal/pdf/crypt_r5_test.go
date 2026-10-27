@@ -92,8 +92,8 @@ func TestUndecryptableStringIsRecorded(t *testing.T) {
 		t.Error("undecryptable string was not kept as stored")
 	}
 	var n int
-	for _, e := range d.StructErrors() {
-		if ref, ok := e.ObjectRef(); ok && ref.ObjNum == 9 && e.Check() == Checks.Structure.GraphResolutionFailure {
+	for _, e := range d.Diagnostics() {
+		if e.Ref != nil && e.Ref.ObjNum == 9 && e.Kind == DiagStringUndecryptable {
 			n++
 		}
 	}

@@ -342,8 +342,6 @@ var Checks checksRegistry
 
 var catalogByPair map[string]Check
 
-var catalogByName map[string]Check
-
 var catalogByID map[int]Check
 
 var allChecksCatalog []Check
@@ -424,24 +422,13 @@ func register(c Check) Check {
 		panic(fmt.Sprintf("checks_catalog: %s reuses the ID %d of %s", c.name, c.id, dup.name))
 	}
 	catalogByPair[key] = c
-	catalogByName[c.name] = c
 	catalogByID[c.id] = c
 	allChecksCatalog = append(allChecksCatalog, c)
 	return c
 }
 
-// CheckByName looks up a registered check by its CamelCase identifier (e.g.
-// "ObjectFraming"), used to map a pdf.Reader's parse-time StructError
-// diagnostics -- which only carry that name, to avoid this package's check
-// registry being a dependency of the pdf package -- back to a
-func CheckByName(name string) (c Check, ok bool) {
-	c, ok = catalogByName[name]
-	return c, ok
-}
-
 func init() {
 	catalogByPair = make(map[string]Check)
-	catalogByName = make(map[string]Check)
 	catalogByID = make(map[int]Check)
 
 	Checks = checksRegistry{

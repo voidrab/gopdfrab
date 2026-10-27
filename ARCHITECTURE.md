@@ -74,6 +74,8 @@ A `Profile` as found in `profile.go` contains a conformance level and a set of e
 
 verify and convert both read the spec, so a check and the fixer that repairs it cannot disagree on a level's rules. verify reaches it through `ValidationContext.Spec`; a convert run binds it into every fixer that reads one (the `levelBound` capability) and passes it to the pre-emptive fixups, which skip PDF/A-only repairs for a plain-PDF level. `For` returns a copy, and the `Names` sets inside are read-only, so no caller can change a level's rules for another.
 
+The reader states what it saw in a file's structure as neutral `pdf.Diagnostic` values (a malformed object frame, a cross-reference stream, an object degraded to null) and reports no checks itself. `Spec.Issue` decides which check a diagnostic raises under the level, if any, so a level that permits cross-reference streams raises nothing for one.
+
 ## internal/verify — the checks
 
 `verifier.go` contains the entry point and defines the order in which verification proceeds. `verifyPdfA1bParts` resolves the object graph once, builds a page index, and then runs each family of checks against that shared graph. Its results are divided into three categories:

@@ -21,20 +21,23 @@ func buildFourObjectDoc() []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-func graphResolutionDiags(d *Reader) []PDFError {
-	var out []PDFError
-	for _, e := range d.StructErrors() {
-		if e.Check() == Checks.Structure.GraphResolutionFailure {
+// graphResolutionDiags returns the diagnostics about objects that did not
+// resolve as stored: degraded, recovered, or holding undecryptable strings.
+func graphResolutionDiags(d *Reader) []Diagnostic {
+	var out []Diagnostic
+	for _, e := range d.Diagnostics() {
+		switch e.Kind {
+		case DiagObjectDegraded, DiagObjectRecovered, DiagStringUndecryptable:
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-func framingDiagsFor(d *Reader, objNum int) []PDFError {
-	var out []PDFError
-	for _, e := range d.StructErrors() {
-		if ref, ok := e.ObjectRef(); ok && e.Check() == Checks.Structure.ObjectFraming && ref.ObjNum == objNum {
+func framingDiagsFor(d *Reader, objNum int) []Diagnostic {
+	var out []Diagnostic
+	for _, e := range d.Diagnostics() {
+		if e.Ref != nil && e.Kind == DiagObjectFraming && e.Ref.ObjNum == objNum {
 			out = append(out, e)
 		}
 	}
@@ -77,8 +80,8 @@ func TestResolveRecoversWrongOffsetHeader(t *testing.T) {
 		t.Errorf("xrefTable[4] = %d, want recovered offset %d", got, realOff)
 	}
 	diags := graphResolutionDiags(d)
-	if len(diags) != 1 || !strings.Contains(diags[0].Messages()[0], "recovered") {
-		t.Errorf("GraphResolutionFailure diagnostics = %v, want exactly one recovery record", diags)
+	if len(diags) != 1 || diags[0].Kind != DiagObjectRecovered || !strings.Contains(diags[0].Errs[0].Error(), "recovered") {
+		t.Errorf("graph-resolution diagnostics = %v, want exactly one recovery record", diags)
 	}
 	if d.HasDegradedObjects() {
 		t.Error("HasDegradedObjects = true, want false for a recovered object")
@@ -152,14 +155,15 @@ func TestResolveDegradesUnrecoverableObject(t *testing.T) {
 		t.Error("HasDegradedObjects = false, want true")
 	}
 	degraded := d.DegradedObjects()
-	if len(degraded) != 1 || !strings.Contains(degraded[0].Messages()[0], "treated as null") {
-		t.Errorf("DegradedObjects() = %v, want exactly one null-degradation record", degraded)
+	if len(degraded) != 1 || degraded[0].Kind != DiagObjectDegraded ||
+		!strings.Contains(degraded[0].Errs[0].Error(), "treated as null") {
+		t.Fatalf("DegradedObjects() = %v, want exactly one null-degradation record", degraded)
 	}
-	if ref, ok := degraded[0].ObjectRef(); !ok || ref.ObjNum != 4 {
+	if ref := degraded[0].Ref; ref == nil || ref.ObjNum != 4 {
 		t.Errorf("degraded diagnostic ref = %v, want object 4", degraded[0])
 	}
 	if diags := graphResolutionDiags(d); len(diags) != 1 {
-		t.Errorf("StructErrors GraphResolutionFailure count = %d, want 1", len(diags))
+		t.Errorf("graph-resolution diagnostic count = %d, want 1", len(diags))
 	}
 	if _, err := d.ResolveGraph(); err != nil {
 		t.Errorf("ResolveGraph after degradation: %v", err)
@@ -281,8 +285,8 @@ func TestRecoverTrailerFromCatalog(t *testing.T) {
 		t.Fatalf("resolve object 4 = %v, %v; want (hello)", v, err)
 	}
 	var got6014 bool
-	for _, e := range d.StructErrors() {
-		if e.Check() == Checks.Structure.XRefKeyword {
+	for _, e := range d.Diagnostics() {
+		if e.Kind == DiagXRefRebuilt {
 			got6014 = true
 		}
 	}
