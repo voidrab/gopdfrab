@@ -42,8 +42,8 @@ var oneAtATime = []inkMechanism{
 		return nil
 	}},
 	{"extgstate-dicts", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		_, err := runDictVisitor(trailer, func(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-			return extGStateDictVisitor(changed, a1bSpec), true
+		_, err := runDictVisitor(trailer, nil, func(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+			return extGStateDictVisitor(changed, a1bSpec, reportedChecks(everyCheck(extGStateFixer{}))), true
 		})
 		return err
 	}},

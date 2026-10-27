@@ -116,7 +116,7 @@ func TestExtGStateFixer(t *testing.T) {
 		"ca":    pdf.PDFReal(0.5),
 	})}
 	trailer := trailerWith("GS", gs)
-	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, everyCheck(extGStateFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -154,7 +154,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	})}
 	trailer, page := onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
 
-	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, everyCheck(extGStateFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -176,7 +176,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": half})},
 	})}
 	trailer, page = onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
-	if changed, err := (extGStateFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil || !changed {
+	if changed, err := (extGStateFixer{spec: a1bSpec}).Fix(&trailer, everyCheck(extGStateFixer{})); err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
 	if half.Entries.Get("ca") != pdf.PDFReal(1.0) {

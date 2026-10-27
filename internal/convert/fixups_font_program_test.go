@@ -249,14 +249,14 @@ func TestFontSubsetMetaFixerAppliesOnlyToCharSetAndCIDSet(t *testing.T) {
 // first pass changes something and the second pass is a no-op.
 func runFixerAndCheckIdempotent(t *testing.T, fixer Fixer, trailer *pdf.PDFDict) {
 	t.Helper()
-	changed, err := fixer.Fix(trailer, nil)
+	changed, err := fixer.Fix(trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 	if !changed {
 		t.Fatalf("changed = false, want true")
 	}
-	changed, err = fixer.Fix(trailer, nil)
+	changed, err = fixer.Fix(trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix (second pass): %v", err)
 	}

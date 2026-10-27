@@ -86,7 +86,7 @@ func TestFixHexStringValue(t *testing.T) {
 // wrote, or "" if it left the stream alone.
 func rescaled(t *testing.T, src string) string {
 	t.Helper()
-	out, ok := rescalePathsAndRewrite([]byte(src), (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits, realLimit)
+	out, ok := rescalePathsAndRewrite([]byte(src), allContentLimits.rewriteOperatorsAndLimits, realLimit)
 	if !ok {
 		return ""
 	}
@@ -278,7 +278,7 @@ func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 	dict.RawStream = []byte("not flate data")
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
-	if _, changed := rescaleContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits, realLimit); changed {
+	if _, changed := rescaleContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits, realLimit); changed {
 		t.Error("an undecodable stream was reported as rewritten")
 	}
 }
@@ -346,7 +346,7 @@ func TestWalkContentStreamsDispatch(t *testing.T) {
 		})},
 	})}
 
-	if !walkContentStreams(&trailer, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits) {
+	if !walkContentStreams(&trailer, allContentLimits.rewriteOperatorsAndLimits) {
 		t.Fatalf("walkContentStreams reported no change across an array-Contents page, a Pattern, a Form, and a Type3 glyph")
 	}
 
@@ -373,7 +373,7 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 	dict.HasStream = true
 	dict.RawStream = src
 
-	fixed, changed := rewriteContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits)
+	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
 	if !changed {
 		t.Fatalf("rewriteContentStreamDict reported no change for a stream with an undefined operator")
 	}
@@ -413,10 +413,10 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	dict.HasStream = true
 	dict.RawStream = src
 
-	if _, changed := rewriteContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits); changed {
+	if _, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits); changed {
 		t.Error("a half-read stream was rewritten, want the original kept")
 	}
-	if _, changed := (contentLimitsFixer{spec: a1bSpec}).repairContentStream(dict); changed {
+	if _, changed := allContentLimits.repairContentStream(dict); changed {
 		t.Error("a half-read stream was rescaled, want the original kept")
 	}
 	if !bytes.Equal(dict.RawStream, src) {
@@ -495,7 +495,7 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	dict.HasStream = true
 	dict.RawStream = []byte(placed)
 
-	fixed, changed := (contentLimitsFixer{spec: a1bSpec}).repairContentStream(dict)
+	fixed, changed := allContentLimits.repairContentStream(dict)
 	if !changed {
 		t.Fatal("an out-of-range cm was left alone")
 	}
@@ -523,7 +523,7 @@ func TestRewriteContentStreamDictUndecodable(t *testing.T) {
 	dict.HasStream = true
 	dict.RawStream = []byte("not flate data")
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	fixed, changed := rewriteContentStreamDict(dict, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits)
+	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
 	if changed || string(fixed.RawStream) != "not flate data" {
 		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.RawStream)
 	}
@@ -548,7 +548,7 @@ func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
 
-	if !walkContentStreams(&trailer, (contentLimitsFixer{spec: a1bSpec}).rewriteOperatorsAndLimits) {
+	if !walkContentStreams(&trailer, allContentLimits.rewriteOperatorsAndLimits) {
 		t.Fatal("no change reported")
 	}
 	contents := page.Entries.Get("Contents").(pdf.PDFArray)

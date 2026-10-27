@@ -81,7 +81,7 @@ func TestStreamUndecodableFixerLeavesRealContentAlone(t *testing.T) {
 
 func TestRunDictVisitorDeclinedPrepare(t *testing.T) {
 	trailer := pdf.NewPDFDict()
-	changed, err := runDictVisitor(&trailer, func(*pdf.PDFDict, *bool) (func(pdf.PDFDict), bool) {
+	changed, err := runDictVisitor(&trailer, nil, func(*pdf.PDFDict, []pdf.PDFError, *bool) (func(pdf.PDFDict), bool) {
 		return func(pdf.PDFDict) { t.Error("visitor ran although prepare declined") }, false
 	})
 	if changed || err != nil {

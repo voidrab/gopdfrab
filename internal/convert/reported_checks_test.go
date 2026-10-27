@@ -1,0 +1,210 @@
+package convert
+
+import (
+	"bytes"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/pdf"
+)
+
+// issuesOf is one issue under each of checks, the shape a verify that
+// reported exactly those checks hands a fixer.
+func issuesOf(checks ...pdf.Check) []pdf.PDFError {
+	issues := make([]pdf.PDFError, 0, len(checks))
+	for _, c := range checks {
+		issues = append(issues, pdf.NewError(c, nil, 1, nil))
+	}
+	return issues
+}
+
+// everyCheck is one issue for each check f remediates: what a verify that
+// found every violation f knows how to repair would hand it.
+func everyCheck(f Fixer) []pdf.PDFError {
+	var checks []pdf.Check
+	for _, c := range pdf.AllChecks() {
+		if f.Applies(c) {
+			checks = append(checks, c)
+		}
+	}
+	return issuesOf(checks...)
+}
+
+// TestExtGStateFixerRepairsOnlyReportedKeys: one ExtGState breaks all seven
+// rules, and only one is reported. The fixer repairs that key and leaves the
+// other six as they were, so a repair never runs on a rule the level does not
+// have.
+func TestExtGStateFixerRepairsOnlyReportedKeys(t *testing.T) {
+	tr := pdf.Checks.Transparency
+	for _, tc := range []struct {
+		check    pdf.Check
+		key      string
+		repaired func(pdf.PDFValue) bool
+	}{
+		{tr.TransferFunction, "TR", func(v pdf.PDFValue) bool { return v == nil }},
+		{tr.DefaultTransferFunction, "TR2", func(v pdf.PDFValue) bool { return v == specName("Default") }},
+		{tr.ExtGStateRenderingIntent, "RI", func(v pdf.PDFValue) bool { return v == nil }},
+		{tr.SoftMaskExtGState, "SMask", func(v pdf.PDFValue) bool { return v == specName("None") }},
+		{tr.BlendMode, "BM", func(v pdf.PDFValue) bool { return v == specName("Normal") }},
+		{tr.StrokingAlpha, "CA", func(v pdf.PDFValue) bool { return v == pdf.PDFReal(1) }},
+		{tr.NonStrokingAlpha, "ca", func(v pdf.PDFValue) bool { return v == pdf.PDFReal(1) }},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			gs := specDict("Type", specName("ExtGState"), "TR", specName("Identity"),
+				"TR2", specName("Identity"), "RI", specName("Custom"), "SMask", specDict(),
+				"BM", specName("Multiply"), "CA", pdf.PDFReal(0.5), "ca", pdf.PDFReal(0.5))
+			before := map[string]pdf.PDFValue{}
+			for k, v := range gs.Entries.All() {
+				before[k] = v
+			}
+			trailer := trailerWith("GS", gs)
+
+			changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, issuesOf(tc.check))
+			if err != nil || !changed {
+				t.Fatalf("Fix = %v, %v; want changed", changed, err)
+			}
+			if got := gs.Entries.Get(tc.key); !tc.repaired(got) {
+				t.Errorf("/%s = %v after its own check was reported; want it repaired", tc.key, got)
+			}
+			for k, v := range before {
+				if k == tc.key || k == "Type" {
+					continue
+				}
+				got := gs.Entries.Get(k)
+				if _, isDict := v.(pdf.PDFDict); isDict && isSameDict(got, v) || !isDict && got == v {
+					continue
+				}
+				t.Errorf("/%s = %v, want %v left alone: only %s was reported", k, got, v, tc.check.Name())
+			}
+		})
+	}
+}
+
+// isSameDict reports whether a and b are the same dictionary, which == does
+// not answer for a pdf.PDFDict.
+func isSameDict(a, b pdf.PDFValue) bool {
+	da, okA := a.(pdf.PDFDict)
+	db, okB := b.(pdf.PDFDict)
+	return okA && okB && pdf.ValuePointer(da.Entries) == pdf.ValuePointer(db.Entries)
+}
+
+// TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported: taking out
+// what is drawn at zero opacity belongs to the opacity repair, so it does not
+// run when only another ExtGState rule was reported.
+func TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported(t *testing.T) {
+	const content = "/GS0 gs 0 0 10 10 re f\n"
+	for _, tc := range []struct {
+		name    string
+		issues  []pdf.PDFError
+		dropped bool
+	}{
+		{"blend mode only", issuesOf(pdf.Checks.Transparency.BlendMode), false},
+		{"non-stroking alpha", issuesOf(pdf.Checks.Transparency.NonStrokingAlpha), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			trailer, page, resources := pageWithContent(content)
+			resources.Entries.Set("ExtGState", specDict("GS0",
+				specDict("Type", specName("ExtGState"), "ca", pdf.PDFReal(0), "BM", specName("Multiply"))))
+
+			if _, err := (extGStateFixer{spec: a1bSpec}).Fix(&trailer, tc.issues); err != nil {
+				t.Fatal(err)
+			}
+			// The path stays, ended with n instead of painted with f.
+			if got := !bytes.Contains(pageContent(t, page), []byte(" f")); got != tc.dropped {
+				t.Errorf("invisible fill dropped = %v, want %v; content now %q", got, tc.dropped, pageContent(t, page))
+			}
+		})
+	}
+}
+
+// TestContentLimitsFixerRepairsOnlyReportedChecks: the graph and the content
+// stream break every rule the fixer covers, and only one is reported. That
+// one is repaired and the rest are left as they were.
+func TestContentLimitsFixerRepairsOnlyReportedChecks(t *testing.T) {
+	st, co := pdf.Checks.Structure, pdf.Checks.Colour
+	long := strings.Repeat("x", a1bSpec.Limits.MaxStringBytes+1)
+	type state struct{ integer, real, str, hex, intent, operator bool }
+	for _, tc := range []struct {
+		check pdf.Check
+		want  state // which violations are repaired
+	}{
+		{st.IntegerOutOfRange, state{integer: true}},
+		{st.RealOutOfRange, state{real: true}},
+		{st.StringTooLong, state{str: true}},
+		// The two hex rules are one repair: dropping a stray character can
+		// leave an odd count, and padding needs the stray ones gone first.
+		{st.HexStringOddLength, state{hex: true}},
+		{st.HexStringInvalidChar, state{hex: true}},
+		{co.RenderingIntent, state{intent: true}},
+		{co.UndefinedOperator, state{operator: true}},
+	} {
+		t.Run(tc.check.Name(), func(t *testing.T) {
+			trailer, page, _ := pageWithContent("/Custom ri\nfoo\nBI /W 1 /H 1 /BPC 8 /CS /G /Intent /Custom ID \x00 EI\n")
+			info := specDict("I", pdf.PDFInteger(1<<40), "R", pdf.PDFReal(1e30),
+				"S", pdf.PDFString{Value: long}, "H", pdf.PDFHexString{Value: "4G1"})
+			trailer.Entries.Set("Info", info)
+
+			if _, err := (contentLimitsFixer{spec: a1bSpec}).Fix(&trailer, issuesOf(tc.check)); err != nil {
+				t.Fatal(err)
+			}
+			content := pageContent(t, page)
+			got := state{
+				integer:  info.Entries.Get("I") != pdf.PDFInteger(1<<40),
+				real:     info.Entries.Get("R") != pdf.PDFReal(1e30),
+				str:      info.Entries.Get("S") != pdf.PDFString{Value: long},
+				hex:      info.Entries.Get("H") != pdf.PDFHexString{Value: "4G1"},
+				intent:   !bytes.Contains(content, []byte("Custom")),
+				operator: !bytes.Contains(content, []byte("foo")),
+			}
+			if got != tc.want {
+				t.Errorf("repaired %+v, want %+v", got, tc.want)
+			}
+			if !bytes.Contains(content, []byte("BI")) {
+				t.Errorf("inline image dropped; content now %q", content)
+			}
+		})
+	}
+}
+
+// pairFixer covers two checks and records every call, the shape of a fixer
+// like extGStateFixer that one registration hands several checks.
+type pairFixer struct {
+	a, b  pdf.Check
+	calls *[][]pdf.PDFError
+}
+
+func (f pairFixer) Applies(c pdf.Check) bool { return c == f.a || c == f.b }
+func (f pairFixer) Fix(_ *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	*f.calls = append(*f.calls, issues)
+	return false, nil
+}
+
+// TestDispatchHandsAFixerAllItsReportedChecks: a fixer that covers two
+// reported checks runs once in the pass and sees the issues of both, which is
+// what lets it repair each reported rule and only those.
+func TestDispatchHandsAFixerAllItsReportedChecks(t *testing.T) {
+	a, b := pdf.Checks.Transparency.TransferFunction, pdf.Checks.Transparency.BlendMode
+	var calls [][]pdf.PDFError
+	f := pairFixer{a: a, b: b, calls: &calls}
+	result := pdf.Result{Issues: issuesOf(b, a, b)}
+
+	trailer := pdf.NewPDFDict()
+	if _, err := dispatchFixers(&fixPass{trailer: &trailer}, result, map[pdf.Check]Fixer{a: f, b: f}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("fixer ran %d times in one pass, want once", len(calls))
+	}
+	var got []pdf.Check
+	for _, iss := range calls[0] {
+		got = append(got, iss.Check())
+	}
+	if want := []pdf.Check{a, b, b}; !slices.Equal(got, want) {
+		t.Errorf("fixer saw checks %v, want %v (clause order, every issue)", got, want)
+	}
+}
+
+// allContentLimits is contentLimitsFixer under PDF/A-1b with every check it
+// covers reported, for the tests of its content rewrite on its own.
+var allContentLimits = contentLimitsFixer{spec: a1bSpec}.reporting(everyCheck(contentLimitsFixer{}))

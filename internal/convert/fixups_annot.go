@@ -27,11 +27,11 @@ func (disallowedAnnotFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Annotation.DisallowedSubtype
 }
 
-func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f disallowedAnnotFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 			return
@@ -58,11 +58,11 @@ func (annotColourFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Annotation.ColourWithoutIntent
 }
 
-func (f annotColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f annotColourFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (f annotColourFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f annotColourFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	hasOutputIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {

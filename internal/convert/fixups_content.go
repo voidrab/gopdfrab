@@ -37,8 +37,14 @@ func init() {
 // contentLimitsFixer remediates Checks.Colour.UndefinedOperator,
 // Checks.Colour.RenderingIntent (the ri operator only), and the 6.1.12/6.1.6
 // scalar-limit checks, mirroring scanContent/validateHexString/
-// validateArchitecturalLimits in reverse.
-type contentLimitsFixer struct{ spec *pdfa.Spec }
+// validateArchitecturalLimits in reverse. It repairs only the checks it was
+// reported (see reporting); the two hex checks are one repair, since
+// dropping a stray character can leave an odd count and padding has to come
+// after the stray characters are gone.
+type contentLimitsFixer struct {
+	spec     *pdfa.Spec
+	reported map[pdf.Check]bool
+}
 
 func (f contentLimitsFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
@@ -53,7 +59,8 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	f = f.reporting(issues)
 	changed := false
 
 	walkScalars(*trailer, map[uintptr]bool{}, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
@@ -75,12 +82,37 @@ func (f contentLimitsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, e
 // fixer: an out-of-range path is folded into the CTM (fixups_geometry.go) and
 // whatever is left over is clamped or dropped by rewriteOperatorsAndLimits.
 func (f contentLimitsFixer) repairContentStream(d pdf.PDFDict) (pdf.PDFDict, bool) {
-	return rescaleContentStreamDict(d, f.rewriteOperatorsAndLimits, f.spec.Limits.MaxReal)
+	return rescaleContentStreamDict(d, f.rewriteOperatorsAndLimits, f.limits().MaxReal)
 }
 
-// fixScalar is fixScalarLimitsValue under the level's limits.
+// reporting is f bound to the checks issues were reported under.
+func (f contentLimitsFixer) reporting(issues []pdf.PDFError) contentLimitsFixer {
+	f.reported = reportedChecks(issues)
+	return f
+}
+
+// limits is the level's limits with every bound whose check was not reported
+// lifted, a zero limit meaning none.
+func (f contentLimitsFixer) limits() pdfa.Limits {
+	l := f.spec.Limits
+	st := pdf.Checks.Structure
+	if !f.reported[st.IntegerOutOfRange] {
+		l.MaxInteger, l.MinInteger = 0, 0
+	}
+	if !f.reported[st.RealOutOfRange] {
+		l.MaxReal = 0
+	}
+	if !f.reported[st.StringTooLong] {
+		l.MaxStringBytes = 0
+	}
+	return l
+}
+
+// fixScalar is fixScalarLimitsValue under the reported checks' limits.
 func (f contentLimitsFixer) fixScalar(v pdf.PDFValue) (pdf.PDFValue, bool) {
-	return fixScalarLimitsValue(v, f.spec.Limits)
+	st := pdf.Checks.Structure
+	hex := f.reported[st.HexStringOddLength] || f.reported[st.HexStringInvalidChar]
+	return fixScalarLimitsValue(v, f.limits(), hex)
 }
 
 // fixTargeted remediates only the objects the issues reference: each
@@ -93,6 +125,7 @@ func (f contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chan
 	if !ok {
 		return false, false, nil
 	}
+	f = f.reporting(issues)
 	for _, d := range targets {
 		if fixOwnedScalars(d, f.fixScalar) {
 			changed = true
@@ -124,16 +157,23 @@ func (f contentLimitsFixer) rewriteOperatorsAndLimits(op string, operands []pdf.
 			opChanged = true
 		}
 	}
+	intents := f.reported[pdf.Checks.Colour.RenderingIntent]
 	switch {
 	case op == "INLINEIMAGE":
+		if !intents {
+			break
+		}
 		if withIntent, ok := fixInlineImageRenderingIntent(fixed, f.spec); ok {
 			fixed = withIntent
 			opChanged = true
 		}
 	case !verify.PDFOperators[op]:
+		if !f.reported[pdf.Checks.Colour.UndefinedOperator] {
+			break
+		}
 		*changed = true
 		return writer.ContentOp{}, false // drop the undefined operator and its operands entirely
-	case op == "ri":
+	case op == "ri" && intents:
 		if len(fixed) > 0 {
 			if name, ok := fixed[len(fixed)-1].(pdf.PDFName); ok && !f.spec.RenderingIntents.Has(name.Value) {
 				fixed[len(fixed)-1] = pdf.PDFName{Value: "RelativeColorimetric"}
@@ -256,9 +296,10 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 
 // fixScalarLimitsValue clamps/repairs v if it violates the 6.1.12 integer/
 // real/string limits or the 6.1.6 hex-string rules, mirroring
-// validateArchitecturalLimits/validateHexString (verifier.go) in reverse.
+// validateArchitecturalLimits/validateHexString (verifier.go) in reverse. A
+// zero limit is none, and hex strings are repaired only when hex is set.
 // ok is false (v returned unchanged) for any other type or an in-range value.
-func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits) (fixed pdf.PDFValue, ok bool) {
+func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PDFValue, ok bool) {
 	switch val := v.(type) {
 	case pdf.PDFInteger:
 		switch {
@@ -280,6 +321,9 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits) (fixed pdf.PDFValue, ok
 			return pdf.PDFString{Value: val.Value[:l.MaxStringBytes]}, true
 		}
 	case pdf.PDFHexString:
+		if !hex {
+			break
+		}
 		if repaired := fixHexStringValue(val.Value); repaired != val.Value {
 			return pdf.PDFHexString{Value: repaired}, true
 		}
@@ -289,7 +333,7 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits) (fixed pdf.PDFValue, ok
 		arrChanged := false
 		out := make(pdf.PDFArray, len(val))
 		for i, e := range val {
-			fe, ok := fixScalarLimitsValue(e, l)
+			fe, ok := fixScalarLimitsValue(e, l, hex)
 			out[i] = fe
 			if ok {
 				arrChanged = true

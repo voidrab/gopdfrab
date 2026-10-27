@@ -231,9 +231,12 @@ func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := plain.Entries.Get(pdf.RefKey).(pdf.PDFRef)
-	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
+	issues := []pdf.PDFError{
+		pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref),
+		pdf.NewError(pdf.Checks.Structure.RealOutOfRange, nil, 0, &ref),
+	}
 
-	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, issues)
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}

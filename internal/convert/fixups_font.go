@@ -42,11 +42,11 @@ func (fontDictFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.CIDToGIDMapMissing
 }
 
-func (f fontDictFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f fontDictFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (fontDictFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (fontDictFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
@@ -78,11 +78,11 @@ func (type0FontFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f type0FontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f type0FontFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
@@ -140,11 +140,11 @@ func (baseFontFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.FontBaseFont
 }
 
-func (f baseFontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f baseFontFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (baseFontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (baseFontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return

@@ -113,14 +113,14 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 			func(t *testing.T, s *pdfa.Spec) bool {
 				gs := specDict("Type", specName("ExtGState"), "RI", specName("Custom"))
 				trailer := trailerWith("GS", gs)
-				_, _ = extGStateFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = extGStateFixer{spec: s}.Fix(&trailer, everyCheck(extGStateFixer{}))
 				return gs.Entries.Get("RI") == nil
 			}, false},
 		{"blend mode", func(s *pdfa.Spec) { s.BlendModes = pdfa.NewNames("Multiply") },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				gs := specDict("Type", specName("ExtGState"), "BM", specName("Multiply"))
 				trailer := trailerWith("GS", gs)
-				_, _ = extGStateFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = extGStateFixer{spec: s}.Fix(&trailer, everyCheck(extGStateFixer{}))
 				return gs.Entries.Get("BM") == specName("Normal")
 			}, false},
 		{"ExtGState soft mask and alpha", func(s *pdfa.Spec) { s.Transparency = true },
@@ -128,7 +128,7 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				gs := specDict("Type", specName("ExtGState"), "SMask", specDict(),
 					"CA", pdf.PDFReal(0.5), "ca", pdf.PDFReal(0.5))
 				trailer := trailerWith("GS", gs)
-				_, _ = extGStateFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = extGStateFixer{spec: s}.Fix(&trailer, everyCheck(extGStateFixer{}))
 				smask := gs.Entries.Get("SMask") == specName("None")
 				ca := gs.Entries.Get("CA") == pdf.PDFReal(1)
 				nonStroking := gs.Entries.Get("ca") == pdf.PDFReal(1)
@@ -154,13 +154,13 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 		{"content rendering intent", func(s *pdfa.Spec) { s.RenderingIntents = pdfa.NewNames("Custom") },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("/Custom ri\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("Custom"))
 			}, false},
 		{"inline image rendering intent", func(s *pdfa.Spec) { s.RenderingIntents = pdfa.NewNames("Custom") },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("BI /W 1 /H 1 /BPC 8 /CS /G /Intent /Custom ID \x00 EI\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("Custom"))
 			}, false},
 		{"ICCBased profile version", func(s *pdfa.Spec) { s.ICCMaxMajorVersion = 4 },
@@ -205,39 +205,39 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 		{"content real operand", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("40000.5 Tc\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("40000"))
 			}, false},
 		{"content integer operand", func(s *pdfa.Spec) { s.Limits.MaxInteger, s.Limits.MinInteger = 0, 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("3000000000 Tz -3000000000 Tz\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("3000000000"))
 			}, false},
 		{"content string operand", func(s *pdfa.Spec) { s.Limits.MaxStringBytes = 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				long := string(bytes.Repeat([]byte("x"), 65536))
 				trailer, page, _ := pageWithContent("BT (" + long + ") Tj ET\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte(long))
 			}, false},
 		{"graph real", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				d := specDict("V", pdf.PDFReal(-40000))
 				trailer := trailerWith("D", d)
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return d.Entries.Get("V") != pdf.PDFReal(-40000)
 			}, false},
 		{"path coordinate", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("0 0 m 40000.5 0 l S\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("40000"))
 			}, false},
 		{"oversized matrix", func(s *pdfa.Spec) { s.Limits.MaxReal = 0 },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				trailer, page, _ := pageWithContent("40000.5 0 0 40000.5 0 0 cm\n")
-				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = contentLimitsFixer{spec: s}.Fix(&trailer, everyCheck(contentLimitsFixer{}))
 				return !bytes.Contains(pageContent(t, page), []byte("40000"))
 			}, false},
 		{"page tree Kids", func(s *pdfa.Spec) { s.Limits.MaxArrayElements = 0 },

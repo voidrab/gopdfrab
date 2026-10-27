@@ -209,8 +209,8 @@ func (fontFileSubtypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.FontFileSubtype
 }
 
-func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
 // fixTargeted repairs only the fonts the issues reference; the verifier reports
@@ -228,7 +228,7 @@ func (f fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (ch
 	return changed, true, nil
 }
 
-func (f fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if fixFontFileSubtypeDict(d, f.spec) {
 			*changed = true
