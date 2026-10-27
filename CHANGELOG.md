@@ -63,6 +63,9 @@ notice.
 - On a page with its own transparency group, the flattener left the page's
   forms for the next fix pass. By then their opacities had been set to 1, so
   they were rasterized fully opaque.
+- When both the Info Title and Subject were out of sync with XMP, verify
+  reported the two issues in a random order, so one file could give different
+  reports from run to run.
 
 ## [1.2.0] - 2026-10-11
 

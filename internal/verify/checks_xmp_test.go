@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -450,6 +451,37 @@ func TestCheckInfoXMPSyncFields(t *testing.T) {
 				t.Errorf("expected a sync mismatch for case %q", c.name)
 			}
 		})
+	}
+}
+
+// TestCheckInfoXMPSyncOrderIsStable pins the issue order when both Title and
+// Subject are out of sync: it once came from ranging over a map, so the same
+// file gave differently ordered reports from run to run.
+func TestCheckInfoXMPSyncOrderIsStable(t *testing.T) {
+	f := t.TempDir() + "/info-order.pdf"
+	if err := createPDFWithInfo(f, map[string]string{"Title": "T", "Subject": "S"}); err != nil {
+		t.Fatalf("createPDFWithInfo: %v", err)
+	}
+	doc, err := pdf.Open(f)
+	if err != nil {
+		t.Fatalf("pdf.Open: %v", err)
+	}
+	defer doc.Close()
+
+	want := []string{
+		"document info Title not synchronized with XMP dc:title",
+		"document info Title not synchronized with XMP dc:title",
+		"document info Subject not synchronized with XMP dc:description",
+		"document info Subject not synchronized with XMP dc:description",
+	}
+	for range 50 {
+		var got []string
+		for _, e := range checkInfoXMPSync(doc, "") {
+			got = append(got, e.Messages()...)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("checkInfoXMPSync messages = %q, want %q", got, want)
+		}
 	}
 }
 

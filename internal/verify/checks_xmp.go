@@ -1122,10 +1122,12 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 
 	// A null-valued or literal "null" Info entry is equivalent to absence, so
 	// skip it rather than treating it as a value that must sync with the XMP.
-	for key, prop := range map[string]string{
-		"Title":   "dc:title",
-		"Subject": "dc:description",
+	// A slice, not a map, so the issue order is the same on every run.
+	for _, kp := range [...]struct{ key, prop string }{
+		{"Title", "dc:title"},
+		{"Subject", "dc:description"},
 	} {
+		key, prop := kp.key, kp.prop
 		val := strings.TrimSpace(info[key])
 		if val == "" || val == "null" {
 			continue
