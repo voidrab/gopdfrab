@@ -514,8 +514,8 @@ func groupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte("/Fm0 Do\n"))
-	// The image keeps the group from being dropped without rasterizing, which
-	// is the path this is about.
+	// The image draw prevents the group from being removed without
+	// rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> /Resources << /XObject << /Im0 6 0 R >> "+
 		"/ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
@@ -578,9 +578,8 @@ func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	}
 }
 
-// coveringGroupFormDoc is oapen-26d73842 page 4's shape: the page draws its own
-// content, then a page-covering transparency group that paints one small mark
-// over it. Flattening that group to a flat image is what covered the page.
+// coveringGroupFormDoc returns a one-page document that draws its own content
+// and then a page-sized transparency group painting one small mark.
 func coveringGroupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -588,8 +587,8 @@ func coveringGroupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte(filledPage+"/Fm0 Do\n"))
-	// The translucent graphics state keeps the group from being dropped
-	// without rasterizing; an opaque one would not.
+	// The translucent graphics state prevents the group from being removed
+	// without rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> "+
 		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 0.99 >> >> >>",

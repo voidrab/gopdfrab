@@ -53,9 +53,8 @@ func reportedChecks(issues []pdf.PDFError) map[pdf.Check]bool {
 	return reported
 }
 
-// leadsItsClause is a Fixer that has to see its clause's objects before the
-// clause's other fixers change them, so dispatchFixers runs it first within
-// its clause.
+// leadsItsClause is implemented by a Fixer that must run before the other
+// fixers of its clause. dispatchFixers orders it first within the clause.
 type leadsItsClause interface {
 	Fixer
 	leadsItsClause()

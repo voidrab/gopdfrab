@@ -271,11 +271,9 @@ func TestFormXObjectBehaviour(t *testing.T) {
 	})
 }
 
-// TestTransparencyGroupForm pins ISO 32000-1 11.6.6: a group's content starts
-// at alpha 1, and the alpha in force at its Do applies once, to the group as
-// a whole. The form used to inherit the alpha as its own, which a gs inside
-// then replaced: nested matplotlib groups in arxiv-2210.03562 came out paler
-// than they are, and a /ca 1 inside a faded group painted at full strength.
+// TestTransparencyGroupForm verifies ISO 32000-1 11.6.6: a group's content
+// starts at alpha 1, and the alpha in effect where the group is drawn applies
+// once, to the composited group.
 func TestTransparencyGroupForm(t *testing.T) {
 	group := map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}
 	gsWith := func(ca float64) pdf.PDFDict {

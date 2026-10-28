@@ -696,12 +696,11 @@ func isTransparencyGroup(group pdf.PDFDict) bool {
 	return s.Value == "Transparency"
 }
 
-// paintGroup paints a transparency group the way ISO 32000-1 11.6.6 has it:
-// its content renders on its own, starting at alpha 1, and the result is
-// composited once at alpha, the fill alpha in force at its Do. Taking that
-// alpha as the content's own made nested groups paler than they are and let
-// a /ca 1 inside undo the fading outside. Every group is treated as isolated
-// and non-knockout.
+// paintGroup paints a transparency group as specified in ISO 32000-1 11.6.6.
+// The content is rendered onto a separate transparent canvas starting at
+// alpha 1, and the result is composited onto the current canvas at alpha, the
+// fill alpha in effect where the group is drawn. Every group is treated as
+// isolated and non-knockout.
 func (r *renderer) paintGroup(content []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
 	area := clipToBounds(r.canvas.Bounds(), gs.clip)
 	if area.Empty() {

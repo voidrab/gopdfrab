@@ -35,11 +35,10 @@ func init() {
 	registerFixer(transparencyFlattener{})
 }
 
-// leadsItsClause: the flattener renders what a group draws with its real
-// opacities. The opacity repair, also in 6.4, turns each translucent fill into
-// the opaque colour it looks like over white, and a group rendered after that
-// draws its overlapping fills one over the other instead of building up:
-// arxiv-2210.03562's figures came out half as strong as they are.
+// leadsItsClause orders the flattener before the other 6.4 fixers. The
+// flattener must render a group with its original opacities; once the opacity
+// repair has replaced translucent fills with opaque colours, overlapping fills
+// no longer accumulate.
 func (transparencyFlattener) leadsItsClause() {}
 
 func (transparencyFlattener) Applies(c pdf.Check) bool {
@@ -571,18 +570,11 @@ func hasSoftMask(img pdf.PDFDict) bool {
 	return !isName || name.Value != "None"
 }
 
-// bakeSoftMaskOut takes a soft mask off an image, keeping what it said.
-//
-// A soft mask is an opacity per pixel, which PDF/A-1 does not allow. Two
-// values are allowed, though: a stencil /Mask is PDF 1.3, and what it says is
-// the same thing at one bit -- paint this pixel, or let the page show through.
-// So the mask is thresholded rather than composited away, and the base image's
-// own encoding is left alone.
-//
-// Compositing it over white instead is what this used to do, and it is only
-// right where the page behind is white. zenodo-21227479 draws a full-page
-// photograph over a dark background: composited over white, every one of those
-// pages came out blank, and the output was still conformant.
+// bakeSoftMaskOut removes an image's soft mask, which PDF/A-1 prohibits, and
+// preserves its effect as far as PDF/A-1 allows. The mask is thresholded into
+// a 1-bit stencil /Mask and the image samples are left unchanged. A stencil
+// keeps the page behind the image visible, which compositing over white would
+// not.
 //
 // Leaves img untouched (ok=false) if either decode fails.
 func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool) {
@@ -624,8 +616,8 @@ func maskIsFaint(smask *image.RGBA) bool {
 	return true
 }
 
-// hasClearPixels reports whether coverage, read from channel, leaves any
-// pixel showing nothing at all, which is a shape rather than a level.
+// hasClearPixels reports whether any pixel of coverage has a value in channel
+// below clearCutoff, that is, is fully transparent.
 func hasClearPixels(coverage *image.RGBA, channel int) bool {
 	for i := channel; i < len(coverage.Pix); i += 4 {
 		if int(coverage.Pix[i]) < clearCutoff {
@@ -747,10 +739,9 @@ func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) pdf.PDFDict {
 	return stencil
 }
 
-// blendOverPaper composites every pixel of a canvas over white, leaving it
-// opaque. The samples are premultiplied, as image.RGBA's are, so adding the
-// paper's share is the whole blend; stored without it, a white legend frame
-// at /ca 0.8 came out (204,204,204), a grey box (arxiv-2206.11990 page 31).
+// blendOverPaper composites every pixel of canvas over white and makes it
+// opaque. Because image.RGBA samples are premultiplied, the blend adds
+// 255 minus alpha to each colour channel.
 func blendOverPaper(canvas *image.RGBA) {
 	for i := 0; i < len(canvas.Pix); i += 4 {
 		paper := 255 - canvas.Pix[i+alphaChannel]
@@ -780,9 +771,8 @@ func smaskFullyOpaque(smask *image.RGBA) bool {
 // state the content switches to must be one of resources' opaque ones, and
 // the content may draw no XObject, no inline image and no pattern.
 //
-// Many figures sit in a group that switches to a graphics state with both
-// opacities at 1, which changes nothing. Such a figure stays vector rather
-// than being rasterized (arxiv-2203.00057 page 4).
+// A group whose graphics states all set both opacities to 1 is common and is
+// therefore kept as vector content rather than rasterized.
 func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 	data, err := pdf.DecodeStream(form)
 	if err != nil {
@@ -860,15 +850,11 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
-	// The render kept what the form did not paint. A flat image is opaque
-	// everywhere, so without this the unpainted part covers the page the form
-	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
-	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
-	//
-	// A stencil cannot say "faintly", though: cut half way, a fill at /ca 0.3
-	// vanished (arxiv-2110.04097 page 14). So only what is clear is masked
-	// out, and the rest is blended over white paper, the assumption
-	// fadeSoftMaskIntoImage makes for the same reason.
+	// An image is opaque everywhere, so pixels the form left unpainted would
+	// cover the page beneath it. PDF/A-1 permits a 1-bit stencil mask, which
+	// masks out the fully transparent pixels. Partially transparent pixels
+	// cannot be expressed by a stencil; they are blended over white, as
+	// fadeSoftMaskIntoImage does.
 	if hasClearPixels(canvas, alphaChannel) {
 		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, clearCutoff))
 	}

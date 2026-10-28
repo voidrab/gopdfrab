@@ -209,11 +209,9 @@ func TestDispatchHandsAFixerAllItsReportedChecks(t *testing.T) {
 // covers reported, for the tests of its content rewrite on its own.
 var allContentLimits = contentLimitsFixer{spec: a1bSpec}.reporting(everyCheck(contentLimitsFixer{}))
 
-// TestDispatchFlattensBeforeTheOpacityRepair: the opacity repair turns a
-// translucent fill into the opaque colour it looks like over white, so a group
-// flattened after it draws its overlapping fills one over the other instead of
-// building up. arxiv-2210.03562's matplotlib figures came out half as strong
-// as they are. Two red fills at 0.3 make 0.51, not 0.3.
+// TestDispatchFlattensBeforeTheOpacityRepair verifies that a group is
+// flattened before the opacity repair runs, so that overlapping translucent
+// fills accumulate: two red fills at opacity 0.3 must yield 0.51, not 0.3.
 func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
 	form := pdf.PDFDict{

@@ -775,11 +775,9 @@ func TestRasterPixelBudget(t *testing.T) {
 	}
 }
 
-// TestRenderFormRendersOnNothing covers a second flattening blanking cause:
-// a form is drawn onto what the page already has, so rendering it on paper
-// makes everything it did not paint opaque white. oapen-26d73842 page 4 ends
-// with a page-covering group, and flattened against paper it covered the page.
-// What the form did not paint has to come back as unpainted.
+// TestRenderFormRendersOnNothing verifies that a form is rendered onto a
+// transparent canvas, so that the pixels it does not paint remain transparent
+// rather than white.
 func TestRenderFormRendersOnNothing(t *testing.T) {
 	formWith := func(content string) pdf.PDFDict {
 		return pdf.PDFDict{

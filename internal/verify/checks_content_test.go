@@ -475,12 +475,10 @@ func TestScanContentColourSpaceOperatorUsesNamedModel(t *testing.T) {
 	}
 }
 
-// TestContentStreamReportsEachCheckOnce: a stream repeating one violation in
-// every operator is one finding, not one issue per operator. A drawing with
-// millions of out-of-range coordinates used to build millions of issues and
-// run verify out of memory. The first occurrence is kept and its message
-// counts the rest; distinct checks in the stream stay distinct, in the order
-// they first occur.
+// TestContentStreamReportsEachCheckOnce verifies that a violation repeated
+// throughout a content stream is reported once, at its first occurrence, with
+// a count of the rest, and that distinct checks are reported separately in the
+// order they first occur.
 func TestContentStreamReportsEachCheckOnce(t *testing.T) {
 	var content strings.Builder
 	for i := range 1000 {

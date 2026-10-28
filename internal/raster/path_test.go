@@ -134,10 +134,9 @@ func TestFillPathPaintsNothingForDegenerateInput(t *testing.T) {
 	}
 }
 
-// TestStrokePathThinWidthDrawsHairline pins that a line width under one
-// device pixel, zero included, still paints a one-pixel line. Pixels are
-// sampled at their centres, so a thinner stroke that falls between two
-// centres would paint nothing.
+// TestStrokePathThinWidthDrawsHairline verifies that a line width below one
+// device pixel, including zero, paints a line one pixel wide. Pixels are
+// sampled at their centres, so a thinner stroke could otherwise paint nothing.
 func TestStrokePathThinWidthDrawsHairline(t *testing.T) {
 	for _, width := range []float64{0, 0.02} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {

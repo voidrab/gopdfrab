@@ -256,11 +256,9 @@ func TestNormalizeInfoDictMalformedText(t *testing.T) {
 	}
 }
 
-// TestNormalizeInfoDictAuthorTrimIsTextual pins the order the Author trim has
-// to happen in. Trimming the raw bytes of a UTF-16BE string takes the low half
-// off a trailing space and leaves an odd byte count -- which is the very thing
-// the canonicalisation removes. arxiv-1911.06742 caught it: a non-ASCII author
-// with a trailing space came out one byte short and veraPDF rejected it.
+// TestNormalizeInfoDictAuthorTrimIsTextual verifies that the Author value is
+// trimmed as text, not as bytes. Trimming the bytes of a UTF-16BE string
+// removes only the low byte of a trailing space and leaves an odd byte count.
 func TestNormalizeInfoDictAuthorTrimIsTextual(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()

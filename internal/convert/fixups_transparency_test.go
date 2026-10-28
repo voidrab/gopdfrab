@@ -146,11 +146,9 @@ func TestTransparencyFlattenerFlattensInsideAGroupPage(t *testing.T) {
 	}
 }
 
-// TestTransparencyFlattenerKeepsAnOpaqueGroupVector: a group form whose only
-// graphics state sets both opacities to 1 has nothing transparent in it, so
-// the group is removed and the drawing stays vector. arxiv-2203.00057 page 4
-// was rasterized instead, and its hairline graph came out broken. The same
-// form at opacity 0.5 is still rasterized.
+// TestTransparencyFlattenerKeepsAnOpaqueGroupVector verifies that a group form
+// whose graphics state sets both opacities to 1 loses only its /Group and
+// keeps its content, while the same form at opacity 0.5 is rasterized.
 func TestTransparencyFlattenerKeepsAnOpaqueGroupVector(t *testing.T) {
 	const content = "/a0 gs 0 0 0 RG 0.02 w 0 5 m 10 5 l S"
 	for _, tc := range []struct {
@@ -1636,11 +1634,9 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	}
 }
 
-// TestFlattenFormMasksWhatItDidNotPaint covers another flattening blanking
-// cause: a flattened form becomes one flat image, and a flat image is opaque
-// everywhere, so the part of the BBox the form never painted covers the page
-// it is drawn on. oapen-26d73842 page 4 is a page-covering group drawn last,
-// and it blanked the page under it. The coverage comes back as a stencil.
+// TestFlattenFormMasksWhatItDidNotPaint verifies that a flattened form masks
+// out, with a stencil, the parts of its BBox it did not paint, so that they do
+// not cover the page beneath.
 func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	formWith := func(content string) pdf.PDFDict {
 		return pdf.PDFDict{
@@ -1707,10 +1703,9 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 }
 
-// TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently is a matplotlib
-// legend frame: white at /ca 0.8 over nothing. The render's samples are
-// premultiplied, and stored as they were they came out (204,204,204), a grey
-// box the stencil kept. arxiv-2206.11990 page 31 showed it.
+// TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently verifies that a
+// white fill at opacity 0.8 flattens to white. Storing the premultiplied
+// samples unchanged would yield grey (204,204,204).
 func TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.8)})}
 	form := pdf.PDFDict{
@@ -1742,10 +1737,8 @@ func TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently(t *testing.T) {
 	}
 }
 
-// TestFlattenFormKeepsAFaintFill is arxiv shading: a fill at /ca 0.3. Its
-// coverage is under the stencil's half-way cut, so it was masked out and the
-// shaded regions of arxiv-2110.04097 page 14 vanished. It is blended over
-// white paper instead, the way a soft mask's faintness is.
+// TestFlattenFormKeepsAFaintFill verifies that a fill at opacity 0.3 is
+// blended over white rather than masked out by the stencil.
 func TestFlattenFormKeepsAFaintFill(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
 	form := pdf.PDFDict{
@@ -1783,13 +1776,9 @@ func TestFlattenFormKeepsAFaintFill(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskFadesAMaskAStencilCannotSay covers the soft-mask blanking
-// cause. A stencil says "paint this pixel" or "do not", so a mask
-// with nothing in it opaque enough to survive the threshold masks the whole
-// picture out: zenodo-21226384 page 72 is a photograph behind its text at a
-// flat 20%, and thresholding it emptied the page. A mask like that is not a
-// shape, it is a faintness, so it goes into the samples the way item 35 puts a
-// partial opacity into a colour.
+// TestBakeSoftMaskFadesAMaskAStencilCannotSay verifies that a soft mask with
+// no sample above the stencil threshold, such as a uniform 20% opacity, is
+// faded into the image samples instead of masking out the whole image.
 func TestBakeSoftMaskFadesAMaskAStencilCannotSay(t *testing.T) {
 	// Black pixels behind a flat 20% mask: pale grey, and nothing masked out.
 	img := grayImage(2, 1, []byte{0, 0})
@@ -1840,10 +1829,8 @@ func TestBakeSoftMaskFadesAMaskAStencilCannotSay(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskUndoesTheMatte: a mask carrying /Matte says the image it
-// masks was stored premultiplied against that colour, so the samples have to
-// be undone by it before they are faded, or the picture comes out too dark.
-// zenodo-21226384's background photograph is stored this way.
+// TestBakeSoftMaskUndoesTheMatte verifies that samples premultiplied against
+// a soft mask's /Matte colour are unpremultiplied before they are faded.
 func TestBakeSoftMaskUndoesTheMatte(t *testing.T) {
 	// Mid grey premultiplied against black at 20% is stored as 0.2*128 = 26.
 	img := grayImage(1, 1, []byte{26})

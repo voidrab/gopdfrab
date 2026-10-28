@@ -98,8 +98,8 @@ type ValidationContext struct {
 	// fall back on, and guessing PDF/A-1b's would hide a missing one.
 	Spec *pdfa.Spec
 
-	// stream collects the reports made while one content stream is checked;
-	// see collapsingStreamReports. Nil outside a stream.
+	// stream collects the reports of the content stream being checked, or is
+	// nil outside one. See collapsingStreamReports.
 	stream *streamReports
 
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
@@ -276,8 +276,8 @@ func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) 
 	ctx.report(ctx.newError(c, obj, []error{errors.New(msg)}))
 }
 
-// streamReports holds one content stream's reports, one per check: the first
-// occurrence and how many more followed it.
+// streamReports holds the reports of one content stream: for each check, its
+// first occurrence and the number of further occurrences.
 type streamReports struct {
 	order []pdf.Check
 	first map[pdf.Check]streamReport
@@ -299,12 +299,10 @@ func (s *streamReports) add(c pdf.Check, obj pdf.PDFValue, msg string) {
 	s.first[c] = streamReport{obj: obj, msg: msg}
 }
 
-// collapsingStreamReports runs check, the checks of one content stream, and
-// records each check it reports once: at its first occurrence, with a message
-// counting the rest. A stream repeats an operator as often as it likes, so one
-// issue per operator would grow without bound -- a drawing with millions of
-// out-of-range coordinates ran verify out of memory -- while saying nothing
-// the first one does not.
+// collapsingStreamReports runs check, which checks one content stream, and
+// reports each violated check once: at its first occurrence, with a message
+// giving the number of further occurrences. This bounds the number of issues
+// per stream, which would otherwise grow with the number of operators.
 func (ctx *ValidationContext) collapsingStreamReports(check func()) {
 	s := &streamReports{first: map[pdf.Check]streamReport{}}
 	ctx.stream = s
