@@ -110,7 +110,7 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 			// A provably transparency-free group composites the same
 			// without /Group; deleting it (serially, below) skips the
 			// whole rasterization.
-			if canDropGroupSafely(t.dict) {
+			if canDropGroupSafely(t.dict, t.resources) {
 				results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 				return
 			}
@@ -776,17 +776,33 @@ func smaskFullyOpaque(smask *image.RGBA) bool {
 }
 
 // canDropGroupSafely reports whether a form's content provably uses no
-// transparency, so deleting /Group composites identically: no gs, no Do, no
-// inline images, and no pattern fill/stroke anywhere in the stream.
-func canDropGroupSafely(form pdf.PDFDict) bool {
+// transparency, so deleting /Group composites identically. Every graphics
+// state the content switches to must be one of resources' opaque ones, and
+// the content may draw no XObject, no inline image and no pattern.
+//
+// Many figures sit in a group that switches to a graphics state with both
+// opacities at 1, which changes nothing. Such a figure stays vector rather
+// than being rasterized (arxiv-2203.00057 page 4).
+func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 	data, err := pdf.DecodeStream(form)
 	if err != nil {
 		return false
 	}
+	states, _ := resources.Entries.Get("ExtGState").(pdf.PDFDict)
 	safe := true
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
 		switch op {
-		case "gs", "Do", "INLINEIMAGE":
+		case "gs":
+			if len(operands) == 0 {
+				safe = false
+				return
+			}
+			name, _ := operands[len(operands)-1].(pdf.PDFName)
+			state, ok := states.Entries.Get(name.Value).(pdf.PDFDict)
+			if !ok || !opaqueGState(state) {
+				safe = false
+			}
+		case "Do", "INLINEIMAGE":
 			safe = false
 		case "scn", "SCN":
 			if len(operands) > 0 {
@@ -797,6 +813,31 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 		}
 	})
 	return safe
+}
+
+// opaqueGState reports whether a graphics state dictionary leaves what is
+// drawn opaque: stroke and fill opacity (/CA, /ca) 1 if set, no soft mask,
+// and the Normal or Compatible blend mode. Its other entries, such as line
+// width or dash pattern, do not affect transparency.
+func opaqueGState(state pdf.PDFDict) bool {
+	for _, key := range state.Entries.Keys() {
+		v := state.Entries.Get(key)
+		switch key {
+		case "CA", "ca":
+			if alpha, ok := pdf.PDFNumberToFloat(v); !ok || alpha != 1 {
+				return false
+			}
+		case "SMask":
+			if name, ok := v.(pdf.PDFName); !ok || name.Value != "None" {
+				return false
+			}
+		case "BM":
+			if name, ok := v.(pdf.PDFName); !ok || (name.Value != "Normal" && name.Value != "Compatible") {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // flattenFormToImage rasterizes a Form XObject's own /BBox + content in

@@ -62,6 +62,8 @@ notice.
   turned grey, the opacity repair ran first so overlapping fills washed out,
   forms on a page with its own group were left to a later pass and came out
   opaque, and nested forms raced between workers.
+- A transparency group with only opaque graphics states was rasterized; it
+  now stays vector.
 - Verify reported Info/XMP Title and Subject mismatches in a random order.
 
 ## [1.2.0] - 2026-10-11

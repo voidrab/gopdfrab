@@ -36,42 +36,58 @@ func TestSmaskFullyOpaque(t *testing.T) {
 	}
 }
 
-// TestCanDropGroupSafely covers the decode-error guard, the safe (no gs/Do/
-// inline-image/pattern) content, and each of the disqualifying operators.
+// TestCanDropGroupSafely covers the decode-error guard, content that is safe
+// (no XObject, inline image or pattern, and only opaque graphics states), and
+// each operator and graphics state entry that makes it unsafe.
 func TestCanDropGroupSafely(t *testing.T) {
 	streamOf := func(content string) pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(content)}
 	}
+	gsResources := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
+		gs := pdf.PDFDict{Entries: pdf.DictOf(entries)}
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS1": gs})},
+		})}
+	}
+	none := pdf.NewPDFDict()
 
 	// Flate with bytes that are not a zlib stream at all: a genuine decode
 	// failure, so the guard must refuse to judge the content.
-	if canDropGroupSafely(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), HasStream: true, RawStream: []byte("not zlib")}) {
+	if canDropGroupSafely(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), HasStream: true, RawStream: []byte("not zlib")}, none) {
 		t.Error("canDropGroupSafely on an undecodable stream = true, want false")
 	}
-	if !canDropGroupSafely(streamOf("1 0 0 rg 0 0 10 10 re f")) {
-		t.Error("canDropGroupSafely on plain fill content = false, want true")
-	}
-	if canDropGroupSafely(streamOf("/GS1 gs")) {
-		t.Error("canDropGroupSafely with a gs operator = true, want false")
-	}
-	if canDropGroupSafely(streamOf("/Fm1 Do")) {
-		t.Error("canDropGroupSafely with a Do operator = true, want false")
-	}
-	if canDropGroupSafely(streamOf("BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI\n")) {
-		t.Error("canDropGroupSafely with an inline image = true, want false")
-	}
-	if canDropGroupSafely(streamOf("/P1 scn")) {
-		t.Error("canDropGroupSafely with a pattern (named) scn fill = true, want false")
-	}
-	if !canDropGroupSafely(streamOf("1 0 0 scn")) {
-		t.Error("canDropGroupSafely with a plain numeric scn fill = false, want true")
+
+	for _, tc := range []struct {
+		name      string
+		content   string
+		resources pdf.PDFDict
+		want      bool
+	}{
+		{"plain fill", "1 0 0 rg 0 0 10 10 re f", none, true},
+		{"Do", "/Fm1 Do", none, false},
+		{"inline image", "BI /W 1 /H 1 /BPC 8 /CS /G ID \x00 EI\n", none, false},
+		{"pattern scn", "/P1 scn", none, false},
+		{"numeric scn", "1 0 0 scn", none, true},
+		{"graphics state without a name", "gs", none, false},
+		{"graphics state not in resources", "/GS1 gs", none, false},
+		{"opaque graphics state", "/GS1 gs 0 0 10 10 re f", gsResources(map[string]pdf.PDFValue{
+			"CA": pdf.PDFInteger(1), "ca": pdf.PDFReal(1), "LW": pdf.PDFReal(0.5),
+			"SMask": pdf.PDFName{Value: "None"}, "BM": pdf.PDFName{Value: "Normal"},
+		}), true},
+		{"blend mode Compatible", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"BM": pdf.PDFName{Value: "Compatible"}}), true},
+		{"fill opacity 0.5", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)}), false},
+		{"stroke opacity 0.5", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"CA": pdf.PDFReal(0.5)}), false},
+		{"opacity not a number", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"ca": pdf.PDFName{Value: "One"}}), false},
+		{"soft mask", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"SMask": pdf.NewPDFDict()}), false},
+		{"blend mode Multiply", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"BM": pdf.PDFName{Value: "Multiply"}}), false},
+		{"blend mode array", "/GS1 gs", gsResources(map[string]pdf.PDFValue{"BM": pdf.PDFArray{pdf.PDFName{Value: "Normal"}}}), false},
+	} {
+		if got := canDropGroupSafely(streamOf(tc.content), tc.resources); got != tc.want {
+			t.Errorf("%s: canDropGroupSafely = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
-// TestTransparencyFlattenerFixDropsPageGroup covers the "page" kind branch
-// in Fix -- a transparency group set directly on the page dict itself,
-// rather than on a Form/Image XObject its resources reach -- which none of
-// the corpus-driven Convert tests happen to isolate.
 func TestTransparencyFlattenerFixDropsPageGroup(t *testing.T) {
 	group := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -127,6 +143,58 @@ func TestTransparencyFlattenerFlattensInsideAGroupPage(t *testing.T) {
 	}
 	if form.Entries.Get("Group") != nil {
 		t.Error("form /Group still present after one Fix: the page's own group hid it")
+	}
+}
+
+// TestTransparencyFlattenerKeepsAnOpaqueGroupVector: a group form whose only
+// graphics state sets both opacities to 1 has nothing transparent in it, so
+// the group is removed and the drawing stays vector. arxiv-2203.00057 page 4
+// was rasterized instead, and its hairline graph came out broken. The same
+// form at opacity 0.5 is still rasterized.
+func TestTransparencyFlattenerKeepsAnOpaqueGroupVector(t *testing.T) {
+	const content = "/a0 gs 0 0 0 RG 0.02 w 0 5 m 10 5 l S"
+	for _, tc := range []struct {
+		name       string
+		alpha      pdf.PDFValue
+		wantVector bool
+	}{
+		{"opaque", pdf.PDFInteger(1), true},
+		{"translucent", pdf.PDFReal(0.5), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CA": tc.alpha, "ca": tc.alpha})}
+			form := pdf.PDFDict{
+				Entries: pdf.DictOf(map[string]pdf.PDFValue{
+					"Type":    pdf.PDFName{Value: "XObject"},
+					"Subtype": pdf.PDFName{Value: "Form"},
+					"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+					"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+					"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+						"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a0": gs})},
+					})},
+				}),
+				HasStream: true,
+				RawStream: []byte(content),
+			}
+			trailer, _, resources := pageWithContent("/Fm0 Do\n")
+			xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
+			resources.Entries.Set("XObject", xobjects)
+
+			if _, err := (transparencyFlattener{}).Fix(&trailer, nil); err != nil {
+				t.Fatalf("Fix: %v", err)
+			}
+			fixed := xobjects.Entries.Get("Fm0").(pdf.PDFDict)
+			if fixed.Entries.Get("Group") != nil {
+				t.Error("form /Group still present after Fix, want removed")
+			}
+			data, err := pdf.DecodeStream(fixed)
+			if err != nil {
+				t.Fatalf("decoding the form: %v", err)
+			}
+			if vector := string(data) == content; vector != tc.wantVector {
+				t.Errorf("form content kept as drawn = %v, want %v (content now %q)", vector, tc.wantVector, data)
+			}
+		})
 	}
 }
 

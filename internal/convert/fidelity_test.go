@@ -514,8 +514,8 @@ func groupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte("/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing, which is
-	// the path this is about.
+	// The image keeps the group from being dropped without rasterizing, which
+	// is the path this is about.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> /Resources << /XObject << /Im0 6 0 R >> "+
 		"/ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
@@ -588,10 +588,11 @@ func coveringGroupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte(filledPage+"/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing.
+	// The translucent graphics state keeps the group from being dropped
+	// without rasterizing; an opaque one would not.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> "+
-		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
+		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 0.99 >> >> >>",
 		[]byte("q /GS0 gs 1 0 0 rg 0 0 10 10 re f Q\n"))
 	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 }
