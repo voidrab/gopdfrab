@@ -208,3 +208,61 @@ func TestDispatchHandsAFixerAllItsReportedChecks(t *testing.T) {
 // allContentLimits is contentLimitsFixer under PDF/A-1b with every check it
 // covers reported, for the tests of its content rewrite on its own.
 var allContentLimits = contentLimitsFixer{spec: a1bSpec}.reporting(everyCheck(contentLimitsFixer{}))
+
+// TestDispatchFlattensBeforeTheOpacityRepair: the opacity repair turns a
+// translucent fill into the opaque colour it looks like over white, so a group
+// flattened after it draws its overlapping fills one over the other instead of
+// building up. arxiv-2210.03562's matplotlib figures came out half as strong
+// as they are. Two red fills at 0.3 make 0.51, not 0.3.
+func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
+	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
+	form := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"A": gs})},
+			})},
+		}),
+		HasStream: true,
+		RawStream: []byte("/A gs 1 0 0 rg 0 0 20 20 re f 0 0 20 20 re f"),
+	}
+	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm": form})}
+	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":      pdf.PDFName{Value: "Page"},
+		"MediaBox":  pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"XObject": xobjects})},
+		"Contents":  pdf.PDFDict{HasStream: true, RawStream: []byte("/Fm Do")},
+	})}
+	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1),
+	})}
+	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})},
+	})}
+
+	tr := pdf.Checks.Transparency
+	spec := a1b()
+	local := buildLocalFixers(t.Context(), deviceColourFixer{}, nil, 72, &[]RasterDrop{}, &[]pdf.PDFError{}, &spec)
+	result := pdf.Result{Issues: issuesOf(tr.NonStrokingAlpha, tr.TransparencyGroup)}
+	if _, err := dispatchFixers(&fixPass{trailer: &trailer}, result, local); err != nil {
+		t.Fatal(err)
+	}
+
+	flat := xobjects.Entries.Get("Fm").(pdf.PDFDict)
+	res, _ := flat.Entries.Get("Resources").(pdf.PDFDict)
+	inner, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	img, ok := inner.Entries.Get("Im0").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("the group form was not flattened")
+	}
+	samples, err := pdf.DecodeStream(img)
+	if err != nil {
+		t.Fatalf("decoding the flattened image: %v", err)
+	}
+	// Red at 0.51 over white: G and B at 255 * 0.49, about 125.
+	if g := int(samples[1]); g < 120 || g > 130 {
+		t.Errorf("flattened pixel = %v, want G about 125 (two fills at 0.3 built up)", samples[:3])
+	}
+}

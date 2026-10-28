@@ -35,6 +35,13 @@ func init() {
 	registerFixer(transparencyFlattener{})
 }
 
+// leadsItsClause: the flattener renders what a group draws with its real
+// opacities. The opacity repair, also in 6.4, turns each translucent fill into
+// the opaque colour it looks like over white, and a group rendered after that
+// draws its overlapping fills one over the other instead of building up:
+// arxiv-2210.03562's figures came out half as strong as they are.
+func (transparencyFlattener) leadsItsClause() {}
+
 func (transparencyFlattener) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Transparency.TransparencyGroup, pdf.Checks.Transparency.ImageWithSoftMask:

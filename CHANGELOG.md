@@ -74,6 +74,9 @@ notice.
   Nested groups came out paler than they are, and a fully opaque fill inside a
   faded group was drawn at full strength. A group is now drawn on its own and
   composited once.
+- Convert flattened a transparency group after the opacity repair had already
+  turned its translucent fills opaque, so overlapping fills no longer built up
+  and charts came out washed out. The flattener now goes first.
 
 ## [1.2.0] - 2026-10-11
 

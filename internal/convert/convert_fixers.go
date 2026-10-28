@@ -53,6 +53,14 @@ func reportedChecks(issues []pdf.PDFError) map[pdf.Check]bool {
 	return reported
 }
 
+// leadsItsClause is a Fixer that has to see its clause's objects before the
+// clause's other fixers change them, so dispatchFixers runs it first within
+// its clause.
+type leadsItsClause interface {
+	Fixer
+	leadsItsClause()
+}
+
 // levelBound is a Fixer whose repairs follow a conformance level's rules. Its
 // registered instance holds no spec; buildLocalFixers binds the run's.
 type levelBound interface {

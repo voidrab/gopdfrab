@@ -784,7 +784,8 @@ func flattenPagesParallel(ctx context.Context, pages []pageTarget, pageNums []in
 }
 
 // dispatchFixers runs one fix pass over the checks result reports. Each fixer
-// runs once, at its first reported check in clause order, and is handed the
+// runs once, at its first reported check in clause order (a fixer that
+// leadsItsClause ahead of the rest of its clause), and is handed the
 // issues of every reported check it covers: that is how a fixer covering
 // several checks knows which of its rules were broken, and repairs those
 // alone. Per-dict-local fixers (batchDictFixer) share one graph walk instead
@@ -796,6 +797,17 @@ func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]
 	changed := false
 	var visitors []func(pdf.PDFDict)
 	reported := sortedChecks(violationCounts(result.Issues))
+	leads := func(c pdf.Check) bool {
+		_, ok := localFixers[c].(leadsItsClause)
+		return ok
+	}
+	sort.SliceStable(reported, func(i, j int) bool {
+		a, b := reported[i], reported[j]
+		if a.Clause() != b.Clause() {
+			return a.Clause() < b.Clause()
+		}
+		return leads(a) && !leads(b)
+	})
 	dispatched := map[pdf.Check]bool{}
 	for i, c := range reported {
 		fixer, ok := localFixers[c]
