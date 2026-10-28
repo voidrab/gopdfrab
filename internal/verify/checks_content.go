@@ -40,7 +40,9 @@ var InlineCSAbbrev = map[string]string{
 
 // scanContentDict decodes and inspects a single content stream dictionary.
 func scanContentDict(dict pdf.PDFDict, resources pdf.PDFDict, ctx *ValidationContext) {
-	ctx.scanStream(dict, contentChecker(dict, resources, ctx))
+	ctx.collapsingStreamReports(func() {
+		ctx.scanStream(dict, contentChecker(dict, resources, ctx))
+	})
 }
 
 // scanContentValue inspects a /Contents value that may be a single stream or an
