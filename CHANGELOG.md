@@ -66,6 +66,9 @@ notice.
 - When both the Info Title and Subject were out of sync with XMP, verify
   reported the two issues in a random order, so one file could give different
   reports from run to run.
+- Flattening a form mishandled what it drew translucently. A fill under 50%
+  opacity was masked out and vanished, and a white legend frame at 80% came
+  out as a grey box. Translucent pixels are now blended over white paper.
 
 ## [1.2.0] - 2026-10-11
 

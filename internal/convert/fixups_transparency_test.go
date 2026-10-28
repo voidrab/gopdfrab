@@ -1639,6 +1639,82 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	}
 }
 
+// TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently is a matplotlib
+// legend frame: white at /ca 0.8 over nothing. The render's samples are
+// premultiplied, and stored as they were they came out (204,204,204), a grey
+// box the stencil kept. arxiv-2206.11990 page 31 showed it.
+func TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently(t *testing.T) {
+	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.8)})}
+	form := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+		}),
+		HasStream: true,
+		RawStream: []byte("/GS0 gs 1 1 1 rg 0 0 20 20 re f"),
+	}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": gs})},
+	})}
+	fixed, _, ok := flattenFormToImage(form, resources, 72, raster.InheritedPaint{})
+	if !ok {
+		t.Fatal("flattenFormToImage reported no change")
+	}
+	res, _ := fixed.Entries.Get("Resources").(pdf.PDFDict)
+	xo, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	samples, err := pdf.DecodeStream(xo.Entries.Get("Im0").(pdf.PDFDict))
+	if err != nil {
+		t.Fatalf("decoding the flattened image: %v", err)
+	}
+	for i, s := range samples {
+		if s != 255 {
+			t.Fatalf("sample %d = %d, want 255: a translucent white fill came out grey", i, s)
+		}
+	}
+}
+
+// TestFlattenFormKeepsAFaintFill is arxiv shading: a fill at /ca 0.3. Its
+// coverage is under the stencil's half-way cut, so it was masked out and the
+// shaded regions of arxiv-2110.04097 page 14 vanished. It is blended over
+// white paper instead, the way a soft mask's faintness is.
+func TestFlattenFormKeepsAFaintFill(t *testing.T) {
+	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
+	form := pdf.PDFDict{
+		Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+		}),
+		HasStream: true,
+		RawStream: []byte("/GS0 gs 1 0 0 rg 0 0 20 20 re f"),
+	}
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": gs})},
+	})}
+	fixed, _, ok := flattenFormToImage(form, resources, 72, raster.InheritedPaint{})
+	if !ok {
+		t.Fatal("flattenFormToImage reported no change")
+	}
+	res, _ := fixed.Entries.Get("Resources").(pdf.PDFDict)
+	xo, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	img := xo.Entries.Get("Im0").(pdf.PDFDict)
+	if _, masked := img.Entries.Lookup("Mask"); masked {
+		t.Error("a faint fill covering the whole BBox got a /Mask: it is masked out")
+	}
+	samples, err := pdf.DecodeStream(img)
+	if err != nil {
+		t.Fatalf("decoding the flattened image: %v", err)
+	}
+	// 30% red over white: (255, 179, 179), give or take rounding.
+	for i := 0; i+2 < len(samples); i += 3 {
+		r, g, b := int(samples[i]), int(samples[i+1]), int(samples[i+2])
+		if r < 253 || g < 176 || g > 181 || b < 176 || b > 181 {
+			t.Fatalf("pixel %d = (%d,%d,%d), want about (255,179,179)", i/3, r, g, b)
+		}
+	}
+}
+
 // TestBakeSoftMaskFadesAMaskAStencilCannotSay covers the soft-mask blanking
 // cause. A stencil says "paint this pixel" or "do not", so a mask
 // with nothing in it opaque enough to survive the threshold masks the whole

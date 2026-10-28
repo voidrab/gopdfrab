@@ -617,11 +617,11 @@ func maskIsFaint(smask *image.RGBA) bool {
 	return true
 }
 
-// hasClearPixels reports whether a soft mask leaves any pixel showing nothing
-// at all, which is a shape rather than a level.
-func hasClearPixels(smask *image.RGBA) bool {
-	for i := maskChannel; i < len(smask.Pix); i += 4 {
-		if int(smask.Pix[i]) < clearCutoff {
+// hasClearPixels reports whether coverage, read from channel, leaves any
+// pixel showing nothing at all, which is a shape rather than a level.
+func hasClearPixels(coverage *image.RGBA, channel int) bool {
+	for i := channel; i < len(coverage.Pix); i += 4 {
+		if int(coverage.Pix[i]) < clearCutoff {
 			return true
 		}
 	}
@@ -669,7 +669,7 @@ func fadeSoftMaskIntoImage(img, smaskDict pdf.PDFDict, smask *image.RGBA, resour
 	// would paint over whatever the image was laid on. That part still needs a
 	// stencil.
 	img.Entries.Del("Mask")
-	if hasClearPixels(smask) {
+	if hasClearPixels(smask, maskChannel) {
 		img.Entries.Set("Mask", stencilFromCoverage(smask, maskChannel, clearCutoff))
 	}
 
@@ -740,15 +740,18 @@ func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) pdf.PDFDict {
 	return stencil
 }
 
-// coverageIsOpaque reports whether a rendered canvas painted everywhere, so it
-// needs no stencil and comes out exactly as it did before there was one.
-func coverageIsOpaque(canvas *image.RGBA) bool {
-	for i := alphaChannel; i < len(canvas.Pix); i += 4 {
-		if canvas.Pix[i] != 255 {
-			return false
-		}
+// blendOverPaper composites every pixel of a canvas over white, leaving it
+// opaque. The samples are premultiplied, as image.RGBA's are, so adding the
+// paper's share is the whole blend; stored without it, a white legend frame
+// at /ca 0.8 came out (204,204,204), a grey box (arxiv-2206.11990 page 31).
+func blendOverPaper(canvas *image.RGBA) {
+	for i := 0; i < len(canvas.Pix); i += 4 {
+		paper := 255 - canvas.Pix[i+alphaChannel]
+		canvas.Pix[i] += paper
+		canvas.Pix[i+1] += paper
+		canvas.Pix[i+2] += paper
+		canvas.Pix[i+alphaChannel] = 255
 	}
-	return true
 }
 
 // smaskFullyOpaque reports whether every alpha sample (the red channel the
@@ -813,9 +816,15 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	// everywhere, so without this the unpainted part covers the page the form
 	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
 	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
-	if !coverageIsOpaque(canvas) {
-		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, shapeCutoff))
+	//
+	// A stencil cannot say "faintly", though: cut half way, a fill at /ca 0.3
+	// vanished (arxiv-2110.04097 page 14). So only what is clear is masked
+	// out, and the rest is blended over white paper, the assumption
+	// fadeSoftMaskIntoImage makes for the same reason.
+	if hasClearPixels(canvas, alphaChannel) {
+		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, clearCutoff))
 	}
+	blendOverPaper(canvas)
 	setStreamRGBFlate(&img, canvas)
 
 	xobjects := pdf.NewPDFDict()
