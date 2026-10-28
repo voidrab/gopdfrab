@@ -69,6 +69,11 @@ notice.
 - Flattening a form mishandled what it drew translucently. A fill under 50%
   opacity was masked out and vanished, and a white legend frame at 80% came
   out as a grey box. Translucent pixels are now blended over white paper.
+- The renderer behind flattening, the raster fallback and the fidelity check
+  drew a transparency group's content at the opacity of the group itself.
+  Nested groups came out paler than they are, and a fully opaque fill inside a
+  faded group was drawn at full strength. A group is now drawn on its own and
+  composited once.
 
 ## [1.2.0] - 2026-10-11
 
