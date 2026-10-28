@@ -33,9 +33,8 @@ notice.
 
 ### Changed
 
-- A profile of the `ObjectModel` level that enables a PDF/A check is rejected
-  with an error naming the check. It used to be verified by PDF/A-1b's rules,
-  which that level does not have.
+- A profile of the `ObjectModel` level that enables a PDF/A check is now
+  rejected with an error naming the check, not verified by PDF/A-1b's rules.
 
 ### Deprecated
 
@@ -44,48 +43,26 @@ notice.
 
 ### Fixed
 
-- `ConvertObjectModel` and the `PDF` profile no longer stamp the output as
-  PDF/A-1b. They used to add a `pdfaid` XMP packet and a `GTS_PDFA1`
-  OutputIntent, and to run PDF/A's font repairs, although no PDF/A check had
-  been made.
-- A content stream that repeats a violation in every operator is now one
-  issue per check, whose message counts the repeats. A page plotting millions
-  of out-of-range coordinates used to produce one issue per number and ran
-  verify out of memory.
-- Convert rewrote a stream referenced from several places through only one of
-  them, writing a corrupt stream into output it reported conformant.
+- `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
+  (`pdfaid` XMP, `GTS_PDFA1` OutputIntent, font repairs) without a PDF/A check.
+- A violation repeated throughout a content stream is reported once per check,
+  with a count, not once per operator, which could run verify out of memory.
+- Convert rewrote a stream shared by several objects through only one of them,
+  writing a corrupt stream into output it reported conformant.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
-- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
-  `seac` came out with segments missing.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
   the last fix pass had already repaired.
 - An image claiming a size its data does not back could make the raster
-  fallback allocate gigabytes; it is now a reported `oversized image` drop.
-- The parallel transparency flattener had a data race on forms and images
-  drawn inside other flattened forms.
-- On a page with its own transparency group, the flattener left the page's
-  forms for the next fix pass. By then their opacities had been set to 1, so
-  they were rasterized fully opaque.
-- When both the Info Title and Subject were out of sync with XMP, verify
-  reported the two issues in a random order, so one file could give different
-  reports from run to run.
-- Flattening a form mishandled what it drew translucently. A fill under 50%
-  opacity was masked out and vanished, and a white legend frame at 80% came
-  out as a grey box. Translucent pixels are now blended over white paper.
-- The renderer behind flattening, the raster fallback and the fidelity check
-  drew a transparency group's content at the opacity of the group itself.
-  Nested groups came out paler than they are, and a fully opaque fill inside a
-  faded group was drawn at full strength. A group is now drawn on its own and
-  composited once.
-- Convert flattened a transparency group after the opacity repair had already
-  turned its translucent fills opaque, so overlapping fills no longer built up
-  and charts came out washed out. The flattener now goes first.
-- The renderer behind flattening, the raster fallback and the fidelity check
-  dropped strokes thinner than a device pixel, as it paints only pixels whose
-  centre a shape covers. A figure drawn in hairlines came out broken up, and
-  raising the resolution made it worse. Every stroke is now at least one pixel
-  wide, as width 0 already was.
+  fallback allocate gigabytes; it is now an `oversized image` drop.
+- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
+  `seac` lost segments, transparency groups were drawn at the group's opacity
+  instead of composited once, and strokes thinner than a pixel were dropped.
+- Transparency flattening: fills under 50% opacity vanished and lighter ones
+  turned grey, the opacity repair ran first so overlapping fills washed out,
+  forms on a page with its own group were left to a later pass and came out
+  opaque, and nested forms raced between workers.
+- Verify reported Info/XMP Title and Subject mismatches in a random order.
 
 ## [1.2.0] - 2026-10-11
 
