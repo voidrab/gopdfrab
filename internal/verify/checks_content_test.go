@@ -3,6 +3,8 @@ package verify
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -91,7 +93,9 @@ func TestScanAnnotAppearancesHonoursOwnDefaultRGB(t *testing.T) {
 
 // scanRaw runs the content checks over raw content-stream bytes.
 func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
-	pdf.NewContentScanner(data).Scan(contentChecker(pdf.PDFDict{}, resources, ctx))
+	ctx.collapsingStreamReports(func() {
+		pdf.NewContentScanner(data).Scan(contentChecker(pdf.PDFDict{}, resources, ctx))
+	})
 }
 
 func TestScanContentValue(t *testing.T) {
@@ -468,5 +472,49 @@ func TestScanContentColourSpaceOperatorUsesNamedModel(t *testing.T) {
 	scanRaw([]byte("/Unresolvable CS\n"), pdf.NewPDFDict(), unknown)
 	if hasCheck(unknown, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("an unresolvable colour space name was reported")
+	}
+}
+
+// TestContentStreamReportsEachCheckOnce: a stream repeating one violation in
+// every operator is one finding, not one issue per operator. A drawing with
+// millions of out-of-range coordinates used to build millions of issues and
+// run verify out of memory. The first occurrence is kept and its message
+// counts the rest; distinct checks in the stream stay distinct, in the order
+// they first occur.
+func TestContentStreamReportsEachCheckOnce(t *testing.T) {
+	var content strings.Builder
+	for i := range 1000 {
+		fmt.Fprintf(&content, "%d.5 0 m\n", 40000+i) // RealOutOfRange
+	}
+	content.WriteString("ZzA\nZzB\n") // UndefinedOperator, twice
+	ctx := &ValidationContext{Spec: a1bSpec, cmykCovered: true, rgbCovered: true, grayCovered: true, hasOutputIntent: true}
+	scanRaw([]byte(content.String()), pdf.NewPDFDict(), ctx)
+
+	type finding struct {
+		check pdf.Check
+		msg   string
+	}
+	var got []finding
+	for _, e := range ctx.errs {
+		got = append(got, finding{e.Check(), strings.Join(e.Messages(), "; ")})
+	}
+	want := []finding{
+		{pdf.Checks.Structure.RealOutOfRange, "real number in content stream out of range: 40000.5 (and 999 more in this content stream)"},
+		{pdf.Checks.Colour.UndefinedOperator, `undefined content operator "ZzA" (and 1 more in this content stream)`},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d issues %v, want %v", len(got), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("issue %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+
+	// A violation that occurs once keeps its message as it was.
+	once := &ValidationContext{Spec: a1bSpec}
+	scanRaw([]byte("ZzA\n"), pdf.NewPDFDict(), once)
+	if len(once.errs) != 1 || once.errs[0].Messages()[0] != `undefined content operator "ZzA"` {
+		t.Errorf("single violation = %v", once.errs)
 	}
 }
