@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"testing"
@@ -133,15 +134,23 @@ func TestFillPathPaintsNothingForDegenerateInput(t *testing.T) {
 	}
 }
 
-// TestStrokePathZeroWidthDrawsHairline pins that a zero line width still
-// paints a one-pixel line rather than nothing.
-func TestStrokePathZeroWidthDrawsHairline(t *testing.T) {
-	canvas := image.NewRGBA(image.Rect(0, 0, 20, 10))
-	StrokePath(canvas, [][]Point{{{2, 5}, {18, 5}}}, 0, [3]float64{0, 0, 1}, 1)
-	if on := canvas.RGBAAt(10, 4); on.A != 255 {
-		t.Errorf("hairline pixel = %+v, want opaque", on)
-	}
-	if off := canvas.RGBAAt(10, 2); off.A != 0 {
-		t.Errorf("pixel two rows away = %+v, want untouched", off)
+// TestStrokePathThinWidthDrawsHairline pins that a line width under one
+// device pixel, zero included, still paints a one-pixel line. Pixels are
+// sampled at their centres, so a thinner stroke that falls between two
+// centres would paint nothing.
+func TestStrokePathThinWidthDrawsHairline(t *testing.T) {
+	for _, width := range []float64{0, 0.02} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			canvas := image.NewRGBA(image.Rect(0, 0, 20, 20))
+			StrokePath(canvas, [][]Point{{{2, 5}, {18, 5}}, {{10, 8}, {10, 18}}}, width, [3]float64{0, 0, 1}, 1)
+			for _, on := range []image.Point{{6, 4}, {10, 12}} {
+				if c := canvas.RGBAAt(on.X, on.Y); c.A != 255 {
+					t.Errorf("hairline pixel %v = %+v, want opaque", on, c)
+				}
+			}
+			if off := canvas.RGBAAt(6, 2); off.A != 0 {
+				t.Errorf("pixel two rows away = %+v, want untouched", off)
+			}
+		})
 	}
 }

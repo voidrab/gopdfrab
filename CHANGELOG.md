@@ -77,6 +77,11 @@ notice.
 - Convert flattened a transparency group after the opacity repair had already
   turned its translucent fills opaque, so overlapping fills no longer built up
   and charts came out washed out. The flattener now goes first.
+- The renderer behind flattening, the raster fallback and the fidelity check
+  dropped strokes thinner than a device pixel, as it paints only pixels whose
+  centre a shape covers. A figure drawn in hairlines came out broken up, and
+  raising the resolution made it worse. Every stroke is now at least one pixel
+  wide, as width 0 already was.
 
 ## [1.2.0] - 2026-10-11
 

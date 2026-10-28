@@ -195,10 +195,7 @@ func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [
 // StrokePathShaded strokes as StrokePath does, taking each pixel's colour
 // from colorAt so a shading pattern can stroke as well as fill.
 func StrokePathShaded(canvas *image.RGBA, contours [][]Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
-	half := lineWidth / 2
-	if half <= 0 {
-		half = 0.5
-	}
+	half := max(lineWidth/2, 0.5)
 	for _, contour := range contours {
 		for i := 0; i+1 < len(contour); i++ {
 			quad := segmentQuad(contour[i], contour[i+1], half)
