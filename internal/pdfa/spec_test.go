@@ -25,8 +25,9 @@ func TestForKnownLevels(t *testing.T) {
 	}
 }
 
-// TestForUnknownLevels: a level without a spec is one nothing can verify
-// against, so For must say so rather than hand back a permissive zero Spec.
+// TestForUnknownLevels verifies that a level without a spec is one nothing can
+// verify against, so For must say so rather than hand back a permissive zero
+// Spec.
 func TestForUnknownLevels(t *testing.T) {
 	for _, level := range []pdf.LevelType{pdf.Undefined, "", "A-2b"} {
 		if _, ok := For(level); ok {
@@ -129,8 +130,8 @@ func TestA1BPolicySets(t *testing.T) {
 	}
 }
 
-// TestBlendModeAllowed: /BM is a name or an array of names to choose from,
-// and an array is allowed only when every entry is.
+// TestBlendModeAllowed verifies that /BM is a name or an array of names to
+// choose from, and that an array is allowed only when every entry is.
 func TestBlendModeAllowed(t *testing.T) {
 	s := mustFor(t, pdf.A1B)
 	name := func(n string) pdf.PDFName { return pdf.PDFName{Value: n} }
@@ -154,8 +155,8 @@ func TestBlendModeAllowed(t *testing.T) {
 	}
 }
 
-// TestObjectModelSpec: the object-model level is plain PDF. It carries the
-// Arlington model and no PDF/A policy.
+// TestObjectModelSpec verifies that the object-model level is plain PDF. It
+// carries the Arlington model and no PDF/A policy.
 func TestObjectModelSpec(t *testing.T) {
 	s := mustFor(t, pdf.ObjectModel)
 	if s.ModelVersion != "1.4" {
@@ -169,8 +170,8 @@ func TestObjectModelSpec(t *testing.T) {
 	}
 }
 
-// TestSpecCopiesAreIndependent: For hands out copies, so a caller editing
-// its copy cannot change what the next caller gets.
+// TestSpecCopiesAreIndependent verifies that For hands out copies, so a caller
+// editing its copy cannot change what the next caller gets.
 func TestSpecCopiesAreIndependent(t *testing.T) {
 	s := mustFor(t, pdf.A1B)
 	s.Transparency = true

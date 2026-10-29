@@ -1648,10 +1648,10 @@ func TestComputeContentUsageThroughInheritedResources(t *testing.T) {
 	}
 }
 
-// TestComputeContentUsageAcrossASplitContents: a /Contents array is one stream
-// split at token boundaries, so a Tf in one part selects the font for text
-// shown in the next. Attributing per part left the font unused, and an unused
-// font's codes are never checked for glyph coverage.
+// TestComputeContentUsageAcrossASplitContents verifies that a /Contents array
+// is one stream split at token boundaries, so a Tf in one part selects the font
+// for text shown in the next, and that font's codes are checked for glyph
+// coverage.
 func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
@@ -1688,12 +1688,11 @@ func TestComputeContentUsageAcrossASplitContents(t *testing.T) {
 	}
 }
 
-// TestComputeContentUsageRestoresFontOnQ: the font Tf selects is part of the
-// graphics state, so Q puts back the one in force at the matching q. Text
-// shown after it is in that font. Keeping the inner font instead read a simple
-// font's text as two-byte CIDs of a composite font -- inventing glyphs it
-// lacked -- and left the simple font's codes unused, so a substitute for it
-// was built without them.
+// TestComputeContentUsageRestoresFontOnQ verifies that the font Tf selects is
+// part of the graphics state, so Q puts back the one in force at the matching
+// q, and text shown after the Q is attributed to that font. A simple font's
+// text must not be read as the two-byte CIDs of a composite font selected
+// inside the q/Q pair.
 func TestComputeContentUsageRestoresFontOnQ(t *testing.T) {
 	simple := pdf.NewPDFDict()
 	simple.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
@@ -1738,10 +1737,10 @@ func TestComputeContentUsageRestoresFontOnQ(t *testing.T) {
 	}
 }
 
-// TestComputeContentUsageFormInheritsFont: a form XObject starts in the
-// graphics state in force at Do, so text it shows without a Tf of its own is
-// in the caller's font. A form drawn under two fonts uses both; drawn twice
-// under the same one it is scanned once.
+// TestComputeContentUsageFormInheritsFont verifies that a form XObject starts
+// in the graphics state in force at Do, so text it shows without a Tf of its
+// own is in the caller's font. A form drawn under two fonts uses both; drawn
+// twice under the same one it is scanned once.
 func TestComputeContentUsageFormInheritsFont(t *testing.T) {
 	f1, f2 := pdf.NewPDFDict(), pdf.NewPDFDict()
 	f1.Entries.Set("Subtype", pdf.PDFName{Value: "TrueType"})
@@ -1790,8 +1789,8 @@ func TestComputeContentUsageFormInheritsFont(t *testing.T) {
 	}
 }
 
-// TestInheritedResourcesStopsOnACycle: a /Parent chain that points back at
-// itself must not spin.
+// TestInheritedResourcesStopsOnACycle verifies that a /Parent chain that points
+// back at itself must not spin.
 func TestInheritedResourcesStopsOnACycle(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Parent", page)

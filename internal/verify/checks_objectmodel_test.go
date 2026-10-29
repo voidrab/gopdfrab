@@ -667,9 +667,10 @@ func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
 	}
 }
 
-// TestChildTypeRequiresMatchingKind: a single-alternative Link (nil ValueTypes) must not
-// propagate its type to a value whose kind contradicts the key's declared types, e.g. a
-// stream where FileTrailer.Info declares a dictionary.
+// TestChildTypeRequiresMatchingKind verifies that a single-alternative Link
+// (nil ValueTypes) must not propagate its type to a value whose kind
+// contradicts the key's declared types, e.g. a stream where FileTrailer.Info
+// declares a dictionary.
 func TestChildTypeRequiresMatchingKind(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true

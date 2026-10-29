@@ -113,10 +113,10 @@ func TestTransparencyFlattenerFixDropsPageGroup(t *testing.T) {
 	}
 }
 
-// TestTransparencyFlattenerFlattensInsideAGroupPage: a page with its own
-// transparency group still has its forms' groups flattened in the same call.
-// Left for the next pass, they would be rendered only after the opacity repair
-// had made everything in them opaque.
+// TestTransparencyFlattenerFlattensInsideAGroupPage verifies that a page with
+// its own transparency group still has its forms' groups flattened in the same
+// call. Left for the next pass, they would be rendered only after the opacity
+// repair had made everything in them opaque.
 func TestTransparencyFlattenerFlattensInsideAGroupPage(t *testing.T) {
 	group := func() pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
@@ -310,9 +310,10 @@ func TestPackRGBSamples(t *testing.T) {
 	}
 }
 
-// TestFlattenFormReportsDrops: a Form XObject the flattener rasterizes carries
-// its undrawable content out through the fixer's drop sink, tagged with the
-// page it sits on. The page-level fallback's report does not include these.
+// TestFlattenFormReportsDrops verifies that a Form XObject the flattener
+// rasterizes reports its undrawable content through the fixer's drop sink,
+// tagged with the page it sits on. The page-level fallback's report does not
+// include these.
 func TestFlattenFormReportsDrops(t *testing.T) {
 	// An unresolvable shading is content the rasterizer must report losing.
 	form := pdf.PDFDict{
@@ -361,8 +362,9 @@ func TestFlattenFormReportsDrops(t *testing.T) {
 	}
 }
 
-// TestFlattenFormWithoutSinkIsSafe: the registry prototype carries no sink,
-// so flattening must not depend on one being present.
+// TestFlattenFormWithoutSinkIsSafe verifies that flattening succeeds without a
+// drop sink. The registry prototype carries no sink, so flattening must not
+// depend on one being present.
 func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
 	form := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -435,9 +437,9 @@ func TestHasSoftMask(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskOutRefusals: baking needs both the base image and its mask
-// to decode. When either does not, the image must be handed back untouched --
-// a half-composited rewrite would corrupt it.
+// TestBakeSoftMaskOutRefusals verifies that baking needs both the base image
+// and its mask to decode. When either does not, the image must be handed back
+// untouched -- a half-composited rewrite would corrupt it.
 func TestBakeSoftMaskOutRefusals(t *testing.T) {
 	tests := []struct {
 		name string
@@ -469,9 +471,9 @@ func TestBakeSoftMaskOutRefusals(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskOutFullyOpaque: a mask that is opaque everywhere composites
-// to the base unchanged, so the /SMask is simply dropped and the original
-// encoding kept -- re-encoding it would be a needless quality loss.
+// TestBakeSoftMaskOutFullyOpaque verifies that a mask that is opaque everywhere
+// composites to the base unchanged, so the /SMask is simply dropped and the
+// original encoding kept -- re-encoding it would be a needless quality loss.
 func TestBakeSoftMaskOutFullyOpaque(t *testing.T) {
 	samples := []byte{10, 20, 30, 40}
 	img := grayImage(2, 2, samples)
@@ -492,11 +494,10 @@ func TestBakeSoftMaskOutFullyOpaque(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskOutStencils: a mask with anything but full opacity in it
-// becomes a stencil mask, which says the same thing at one bit and is allowed
-// where a soft mask is not. The image itself is not touched: compositing it
-// over white is only right where the page behind it is white, and where it is
-// not -- a photograph over a dark background -- that emptied the page.
+// TestBakeSoftMaskOutStencils verifies that a mask with anything but full
+// opacity in it becomes a stencil mask, which PDF/A-1 allows where a soft mask
+// is not. The image samples are left unchanged, because compositing them over
+// white is correct only where the page behind the image is white.
 func TestBakeSoftMaskOutStencils(t *testing.T) {
 	samples := []byte{0, 0}
 	img := grayImage(2, 1, samples)
@@ -564,9 +565,9 @@ func TestStencilCallersNeverSeeAnEmptyRaster(t *testing.T) {
 	}
 }
 
-// TestCollectTargetsWithoutPageTree: both collectors walk from Root/Pages. A
-// trailer missing either returns no targets rather than panicking -- a damaged
-// document still has to get through the fix pass.
+// TestCollectTargetsWithoutPageTree verifies that both collectors walk from
+// Root/Pages, and that a trailer missing either returns no targets rather than
+// panicking -- a damaged document still has to get through the fix pass.
 func TestCollectTargetsWithoutPageTree(t *testing.T) {
 	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	noPages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -747,8 +748,9 @@ func TestFlattenFormWithoutOwnResourcesInherits(t *testing.T) {
 	}
 }
 
-// TestFlattenAppearanceFormUsesItsOwnResources: the same, for a form reached
-// through an annotation's appearance rather than the page's resources.
+// TestFlattenAppearanceFormUsesItsOwnResources verifies that a form reached
+// through an annotation's appearance, rather than the page's resources, is
+// flattened with its own /Resources.
 func TestFlattenAppearanceFormUsesItsOwnResources(t *testing.T) {
 	black := grayImage(2, 2, []byte{0, 0, 0, 0})
 	own := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -783,9 +785,9 @@ func TestFlattenAppearanceFormUsesItsOwnResources(t *testing.T) {
 	}
 }
 
-// TestCollectAnnotationTargetsSkipsMalformed: annotation entries that are not
-// dictionaries, or that carry no /AP, are stepped over rather than aborting
-// the walk of the rest of the array.
+// TestCollectAnnotationTargetsSkipsMalformed verifies that annotation entries
+// that are not dictionaries, or that carry no /AP, are stepped over rather than
+// aborting the walk of the rest of the array.
 func TestCollectAnnotationTargetsSkipsMalformed(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Page"},
@@ -807,9 +809,9 @@ func TestCollectAnnotationTargetsSkipsMalformed(t *testing.T) {
 	}
 }
 
-// TestFlattenUnrenderableLeavesObjectUntouched: a Form or Page the rasterizer
-// cannot draw must be left exactly as it was. Reporting "fixed" on an object
-// that was never rewritten would let the verify/fix loop believe it made
+// TestFlattenUnrenderableLeavesObjectUntouched verifies that a Form or Page the
+// rasterizer cannot draw is left exactly as it was. Reporting "fixed" on an
+// object that was never rewritten would let the verify/fix loop believe it made
 // progress and converge on a document still carrying its /Group.
 func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
 	group := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
@@ -840,9 +842,9 @@ func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
 	}
 }
 
-// TestTransparencyFlattenerSkipsUnfixableTargets: Fix reports changed=false
-// when every flagged target failed to flatten, so the fix pass does not record
-// a no-op iteration as progress.
+// TestTransparencyFlattenerSkipsUnfixableTargets verifies that Fix reports
+// changed=false when every flagged target failed to flatten, so the fix pass
+// does not record a no-op iteration as progress.
 func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 	group := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
 	// No /BBox, and content the safety check refuses to call transparency-free,
@@ -878,9 +880,9 @@ func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 	}
 }
 
-// TestUniqueByDictCollapsesAliases: one Form reachable under two resource
-// names is a single object, so it must be flattened once and the result
-// written back to both slots.
+// TestUniqueByDictCollapsesAliases verifies that one Form reachable under two
+// resource names is treated as a single object: it must be flattened once and
+// the result written back to both slots.
 func TestUniqueByDictCollapsesAliases(t *testing.T) {
 	shared := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 	other := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
@@ -1055,7 +1057,8 @@ func TestDropInvisiblePaintOperators(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleKeepsClipping: the clip is set by the path, not by the
+// TestDropInvisibleKeepsClipping verifies that an invisible fill is removed
+// while the clip it sets is kept. The clip is set by the path, not by the
 // operator that paints it, so an invisible fill must still leave the clip --
 // dropping the whole path object would take the rest of the page with it.
 func TestDropInvisibleKeepsClipping(t *testing.T) {
@@ -1069,9 +1072,9 @@ func TestDropInvisibleKeepsClipping(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleRestoresState: a hidden opacity lasts until the state that
-// set it is restored, and no longer -- Q puts back what q saved, and a later
-// graphics state can set the opacity back to 1 itself.
+// TestDropInvisibleRestoresState verifies that a hidden opacity lasts until the
+// state that set it is restored, and not beyond it -- Q puts back what q saved,
+// and a later graphics state can set the opacity back to 1 itself.
 func TestDropInvisibleRestoresState(t *testing.T) {
 	got, changed := dropFromPage(t,
 		"q\n/F0 gs\n0 0 1 1 re\nf\nQ\n0 0 2 2 re\nf\n/F0 gs\n0 0 3 3 re\nf\n/Back gs\n0 0 4 4 re\nf\n",
@@ -1091,10 +1094,10 @@ func TestDropInvisibleRestoresState(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleText: text drawn at zero opacity keeps its characters and
-// its position and stops marking the page, so it is still there to be read,
-// copied and searched. The clipping render modes go to 7 rather than 3, since
-// text that clips is still clipping.
+// TestDropInvisibleText verifies that text drawn at zero opacity keeps its
+// characters and its position and stops marking the page, so it is still there
+// to be read, copied and searched. The clipping render modes go to 7 rather
+// than 3, since text that clips is still clipping.
 func TestDropInvisibleText(t *testing.T) {
 	for _, tc := range []struct {
 		gs     string
@@ -1141,9 +1144,10 @@ func TestDropInvisibleText(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleImagesAndShadings: an image, a shading and an inline image
-// are painted with the fill opacity, so at zero they are dropped outright. A
-// form can fill and stroke, so it only goes when neither is visible.
+// TestDropInvisibleImagesAndShadings verifies that an image, a shading or an
+// inline image at zero fill opacity is dropped outright, because each is
+// painted with the fill opacity. A form can fill and stroke, so it is only
+// dropped when neither is visible.
 func TestDropInvisibleImagesAndShadings(t *testing.T) {
 	resources := alphaStates()
 	xobjects := pdf.DictOf(map[string]pdf.PDFValue{
@@ -1179,9 +1183,9 @@ func TestDropInvisibleImagesAndShadings(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleGate: a document that draws nothing at zero opacity is not
-// read at all, and one that does is left alone the second time round -- the
-// repair runs on every pass of the fix loop.
+// TestDropInvisibleGate verifies that a document that draws nothing at zero
+// opacity is not read at all, and that one that does is left alone the second
+// time round -- the repair runs on every pass of the fix loop.
 func TestDropInvisibleGate(t *testing.T) {
 	trailer, page := onePageAlphaTrailer(contentStream("/Half gs\n0 0 10 10 re\nf\n"), alphaStates())
 	if repairOpacity(&trailer) {
@@ -1214,9 +1218,9 @@ func TestDropInvisibleGate(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleAcrossContentParts: a page's content can be written as
-// several streams, which are one stream split up -- an opacity set in the
-// first part is still in force in the second.
+// TestDropInvisibleAcrossContentParts verifies that a page's content written as
+// several streams is read as one stream split up -- an opacity set in the first
+// part is still in force in the second.
 func TestDropInvisibleAcrossContentParts(t *testing.T) {
 	first, second := contentStream("/F0 gs\n"), contentStream("0 0 10 10 re\nf\n")
 	trailer, page := onePageAlphaTrailer(pdf.PDFArray{first, second}, alphaStates())
@@ -1234,11 +1238,11 @@ func TestDropInvisibleAcrossContentParts(t *testing.T) {
 
 // --- partial opacity ---
 
-// TestFadePartialOpacityColours: a drawing at a partial opacity keeps what it
-// looks like over white paper, in the space the file named its colour in --
-// blended towards white where a larger number is lighter, and towards nothing
-// where it is more ink. The colour goes back afterwards, since the rest of the
-// stream still paints in the one the file set.
+// TestFadePartialOpacityColours verifies that a drawing at a partial opacity
+// keeps what it looks like over white paper, in the space the file named its
+// colour in -- blended towards white where a larger number is lighter, and
+// towards nothing where it is more ink. The colour goes back afterwards, since
+// the rest of the stream still paints in the one the file set.
 func TestFadePartialOpacityColours(t *testing.T) {
 	icc := func(n int) pdf.PDFValue {
 		return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"},
@@ -1281,8 +1285,9 @@ func TestFadePartialOpacityColours(t *testing.T) {
 	}
 }
 
-// TestFadePartialOpacityStrokeAndText: the stroking opacity blends the
-// stroking colour, and text blends whichever of the two its render mode uses.
+// TestFadePartialOpacityStrokeAndText verifies that the stroking opacity blends
+// the stroking colour, and that text blends whichever of the two its render
+// mode uses.
 func TestFadePartialOpacityStrokeAndText(t *testing.T) {
 	got, changed := dropFromPage(t, "/SHalf gs\n0 0 0 RG\n0 0 m 10 10 l\nS\n", alphaStates())
 	if !changed {
@@ -1343,9 +1348,9 @@ func TestWhiteComponent(t *testing.T) {
 	}
 }
 
-// TestFadePartialOpacityOddColourOperators: a colour space named directly
-// rather than through the resources still blends, and an operator with nothing
-// to blend is left as it is.
+// TestFadePartialOpacityOddColourOperators verifies that a colour space named
+// directly rather than through the resources still blends, and that an operator
+// with nothing to blend is left as it is.
 func TestFadePartialOpacityOddColourOperators(t *testing.T) {
 	got, changed := dropFromPage(t, "/Half gs\n/DeviceRGB cs\n0 0 0 sc\n0 0 10 10 re\nf\n", alphaStates())
 	if !changed {
@@ -1376,9 +1381,9 @@ func TestFadePartialOpacityOddColourOperators(t *testing.T) {
 	}
 }
 
-// TestFadePartialOpacityKeepsTheZeroCase: zero opacity is not a colour to
-// blend -- white paint over the page is as wrong as black -- so it stays the
-// drawing that is taken out.
+// TestFadePartialOpacityKeepsTheZeroCase verifies that zero opacity is not a
+// colour to blend -- white paint over the page is as wrong as black -- so it
+// stays the drawing that is taken out.
 func TestFadePartialOpacityKeepsTheZeroCase(t *testing.T) {
 	got, changed := dropFromPage(t, "/F0 gs\n0 0 0 rg\n0 0 10 10 re\nf\n", alphaStates())
 	if !changed {
@@ -1389,10 +1394,10 @@ func TestFadePartialOpacityKeepsTheZeroCase(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleBeyondPageContents: everything else that draws is read the
-// same way, with the resources it names itself -- a form XObject (which is
-// also how an annotation's appearance is drawn), a tiling pattern and a Type 3
-// glyph.
+// TestDropInvisibleBeyondPageContents verifies that everything else that draws
+// is read the same way, with the resources it names itself -- a form XObject
+// (which is also how an annotation's appearance is drawn), a tiling pattern and
+// a Type 3 glyph.
 func TestDropInvisibleBeyondPageContents(t *testing.T) {
 	form := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -1446,9 +1451,9 @@ func TestDropInvisibleBeyondPageContents(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleMalformedOperands: the operands a real file carries are not
-// always the ones the operator takes, and none of them may crash the walk or
-// make it drop something visible.
+// TestDropInvisibleMalformedOperands verifies that the operands a real file
+// carries, which are not always the ones the operator takes, cannot crash the
+// walk or make it drop something visible.
 func TestDropInvisibleMalformedOperands(t *testing.T) {
 	resources := alphaStates()
 	// A graphics state with no name, a name that resolves to nothing, an
@@ -1483,9 +1488,9 @@ func TestDropInvisibleMalformedOperands(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleOddGraphShapes: the walk meets whatever a real file holds,
-// so every shape it can be handed has to leave it unmoved rather than in a
-// panic or with the drawing gone.
+// TestDropInvisibleOddGraphShapes verifies that the walk meets whatever a real
+// file holds, and that every shape it can be handed leaves it unmoved rather
+// than in a panic or with the drawing gone.
 func TestDropInvisibleOddGraphShapes(t *testing.T) {
 	// A page whose content is a dictionary with no stream, and an array whose
 	// entries are not streams either.
@@ -1525,8 +1530,8 @@ func TestDropInvisibleOddGraphShapes(t *testing.T) {
 	}
 }
 
-// TestDropInvisibleUnreadableNames: an operator that selects a resource can
-// carry the wrong operands, or none, and must then select nothing at all.
+// TestDropInvisibleUnreadableNames verifies that an operator that selects a
+// resource selects nothing at all when it carries the wrong operands, or none.
 func TestDropInvisibleUnreadableNames(t *testing.T) {
 	r := &alphaRewriter{resources: alphaStates()}
 	for _, operands := range [][]pdf.PDFValue{
@@ -1543,9 +1548,10 @@ func TestDropInvisibleUnreadableNames(t *testing.T) {
 	}
 }
 
-// TestPaintAtDo: a form inherits the colour in force where it is drawn, and
-// its own content need never set one. Rasterizing it from the state a page
-// starts in -- black -- turns a wrapper form's white background solid.
+// TestPaintAtDo verifies that a form inherits the colour in force where it is
+// drawn, and that its own content need never set one. Rasterizing it from the
+// state a page starts in -- black -- turns a wrapper form's white background
+// solid.
 func TestPaintAtDo(t *testing.T) {
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -1887,11 +1893,11 @@ func TestWalkPageTreeCapsDepth(t *testing.T) {
 	}
 }
 
-// TestPaintAtDoColourSpaceOperands: a cs operator selecting a space by a name
-// the resources do not define keeps the name itself (a device space spelled
-// out), a CS operator sets the stroke space, and a colour space operator or
-// XObject invocation (Do) without a usable name is skipped without disturbing
-// what is recorded.
+// TestPaintAtDoColourSpaceOperands verifies that a cs operator selecting a
+// space by a name the resources do not define keeps the name itself (a device
+// space spelled out), that a CS operator sets the stroke space, and that a
+// colour space operator or XObject invocation (Do) without a usable name is
+// skipped without disturbing what is recorded.
 func TestPaintAtDoColourSpaceOperands(t *testing.T) {
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -1913,8 +1919,9 @@ func TestPaintAtDoColourSpaceOperands(t *testing.T) {
 	}
 }
 
-// TestPagePaintAtDoUnreadableContents: a page whose content cannot be decoded
-// hands out no colours, so its forms are rendered from the default state.
+// TestPagePaintAtDoUnreadableContents verifies that a page whose content cannot
+// be decoded hands out no colours, so its forms are rendered from the default
+// state.
 func TestPagePaintAtDoUnreadableContents(t *testing.T) {
 	contents := streamDict("not flate")
 	contents.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
@@ -1925,8 +1932,8 @@ func TestPagePaintAtDoUnreadableContents(t *testing.T) {
 	}
 }
 
-// TestWalkPageTreeVisitsAnIndirectNodeOnce: a page listed twice under one
-// object number is visited, and numbered, once.
+// TestWalkPageTreeVisitsAnIndirectNodeOnce verifies that a page listed twice
+// under one object number is visited, and numbered, once.
 func TestWalkPageTreeVisitsAnIndirectNodeOnce(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
@@ -1945,8 +1952,9 @@ func TestWalkPageTreeVisitsAnIndirectNodeOnce(t *testing.T) {
 	}
 }
 
-// TestBakeStraySoftMasksLeavesAnUnbakeableMaskAlone: an image whose soft mask
-// cannot be decoded keeps it, and nothing is reported as changed.
+// TestBakeStraySoftMasksLeavesAnUnbakeableMaskAlone verifies that an image
+// whose soft mask cannot be decoded keeps it, and that nothing is reported as
+// changed.
 func TestBakeStraySoftMasksLeavesAnUnbakeableMaskAlone(t *testing.T) {
 	img := grayImage(1, 1, []byte{0})
 	img.Entries.Set("SMask", pdf.NewPDFDict()) // no Width/Height: undecodable
@@ -1961,9 +1969,9 @@ func TestBakeStraySoftMasksLeavesAnUnbakeableMaskAlone(t *testing.T) {
 	}
 }
 
-// TestBakeSoftMaskFadeNeedsADecodableImage: a faint mask is blended into the
-// image's samples, so an image that cannot be decoded is left as it is, mask
-// and all.
+// TestBakeSoftMaskFadeNeedsADecodableImage verifies that a faint mask is
+// blended into the image's samples, so an image that cannot be decoded is left
+// as it is, mask and all.
 func TestBakeSoftMaskFadeNeedsADecodableImage(t *testing.T) {
 	img := grayImage(2, 1, []byte{0, 0})
 	img.Entries.Set("Width", pdf.PDFInteger(0)) // undecodable

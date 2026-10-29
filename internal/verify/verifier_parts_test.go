@@ -201,8 +201,8 @@ func TestVerifyContextCancelledBeforeStart(t *testing.T) {
 	}
 }
 
-// TestUnsupportedLevelRejected: every verify entry point refuses a level it
-// has no checks for, naming it, instead of running nothing.
+// TestUnsupportedLevelRejected verifies that every verify entry point refuses a
+// level it has no checks for, naming it, instead of running nothing.
 func TestUnsupportedLevelRejected(t *testing.T) {
 	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
 	for _, level := range []pdf.LevelType{"A-2b", ""} {
@@ -217,10 +217,10 @@ func TestUnsupportedLevelRejected(t *testing.T) {
 	}
 }
 
-// TestPlainPDFLevelRejectsPDFAChecks: the object-model level has no PDF/A
-// rules, so a PDF/A check enabled on it has nothing to be judged by. Every
-// entry point refuses the profile, naming the check, rather than quietly
-// judging it by PDF/A-1b's rules.
+// TestPlainPDFLevelRejectsPDFAChecks verifies that the object-model level,
+// which has no PDF/A rules, refuses a PDF/A check enabled on it, so the check
+// has nothing to be judged by. Every entry point refuses the profile, naming
+// the check, rather than quietly judging it by PDF/A-1b's rules.
 func TestPlainPDFLevelRejectsPDFAChecks(t *testing.T) {
 	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
 	p := pdf.ObjectModelOnly().AddCheck(pdf.Checks.Transparency.BlendMode)

@@ -50,10 +50,10 @@ func pageContent(t *testing.T, page pdf.PDFDict) []byte {
 	return data
 }
 
-// TestFixersFollowTheLevelSpec: a fixer decides what to repair, and with
-// what, by the run's spec rather than by hard-wired PDF/A-1b rules. Under
-// PDF/A-1b each input is repaired; under a spec changed in that one rule it is
-// left alone (or, inverted, the other way round).
+// TestFixersFollowTheLevelSpec verifies that a fixer decides what to repair,
+// and with what, by the run's spec rather than by hard-wired PDF/A-1b rules.
+// Under PDF/A-1b each input is repaired; under a spec changed in that one rule
+// it is left alone (or, inverted, the other way round).
 func TestFixersFollowTheLevelSpec(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -315,9 +315,9 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 	}
 }
 
-// TestRunBindsItsSpecIntoEveryFixer: a fixer holding a spec reads its rules
-// from it, and a nil one panics. Every fixer a run uses must therefore carry
-// the run's spec, whichever way buildLocalFixers builds it.
+// TestRunBindsItsSpecIntoEveryFixer verifies that every fixer a run uses
+// carries the run's spec, whichever way buildLocalFixers builds it. A fixer
+// holding a spec reads its rules from it, and a nil one panics.
 func TestRunBindsItsSpecIntoEveryFixer(t *testing.T) {
 	spec := a1b()
 	local := buildLocalFixers(t.Context(), deviceColourFixer{}, nil, 72, &[]RasterDrop{}, &[]pdf.PDFError{}, &spec)
@@ -342,8 +342,8 @@ func TestRunBindsItsSpecIntoEveryFixer(t *testing.T) {
 	}
 }
 
-// TestInjectedOutputIntentNamesTheLevel: the OutputIntent convert adds
-// carries the subtype the level requires.
+// TestInjectedOutputIntentNamesTheLevel verifies that the OutputIntent convert
+// adds carries the subtype the level requires.
 func TestInjectedOutputIntentNamesTheLevel(t *testing.T) {
 	for _, subtype := range []string{"GTS_PDFA1", "GTS_PDFX"} {
 		s := a1b()
@@ -363,8 +363,8 @@ func TestInjectedOutputIntentNamesTheLevel(t *testing.T) {
 	}
 }
 
-// TestRegeneratedXMPDeclaresTheLevel: the pdfaid identity convert writes is
-// the level's, not a hard-wired 1/B.
+// TestRegeneratedXMPDeclaresTheLevel verifies that the pdfaid identity convert
+// writes is the level's, not a hard-wired 1/B.
 func TestRegeneratedXMPDeclaresTheLevel(t *testing.T) {
 	s := a1b()
 	s.XMPPart, s.XMPConformance = "2", "U"

@@ -41,8 +41,8 @@ func openReader(t *testing.T, data []byte) *pdf.Reader {
 // filledPage draws a large black rectangle, so the page carries real ink.
 const filledPage = "0 0 0 rg\n20 20 160 160 re\nf\n"
 
-// TestFidelityIdentical: a document compared against itself scores near-perfect
-// similarity and is never flagged as blanked.
+// TestFidelityIdentical verifies that a document compared against itself
+// scores near-perfect similarity and is never flagged as blanked.
 func TestFidelityIdentical(t *testing.T) {
 	data := onePageDoc(filledPage)
 	report, err := CompareFidelity(openReader(t, data), openReader(t, data), fidelityDPI)
@@ -64,9 +64,9 @@ func TestFidelityIdentical(t *testing.T) {
 	}
 }
 
-// TestFidelityBlankedDetected: an inked input against a blank output is flagged
-// as blanked with low similarity -- the destructive failure the gate exists to
-// catch.
+// TestFidelityBlankedDetected verifies that an inked input against a blank
+// output is flagged as blanked with low similarity -- the destructive failure
+// the gate exists to catch.
 func TestFidelityBlankedDetected(t *testing.T) {
 	input := onePageDoc(filledPage)
 	output := onePageDoc("q\nQ\n") // renders nothing
@@ -87,10 +87,10 @@ func TestFidelityBlankedDetected(t *testing.T) {
 	}
 }
 
-// TestFidelityChangedNotBlanked: a page whose content moves/changes but still
-// carries comparable ink is NOT flagged as blanked, even though its pixel
-// similarity drops -- so legitimate changes (e.g. font substitution) don't trip
-// the destructive-loss gate.
+// TestFidelityChangedNotBlanked verifies that a page whose content moves or
+// changes but still carries comparable ink is NOT flagged as blanked, even
+// though its pixel similarity drops. Legitimate changes, e.g. font
+// substitution, do not trip the destructive-loss gate.
 func TestFidelityChangedNotBlanked(t *testing.T) {
 	input := onePageDoc("0 0 0 rg\n20 20 70 70 re\nf\n")    // rectangle bottom-left
 	output := onePageDoc("0 0 0 rg\n110 110 70 70 re\nf\n") // same-size rectangle top-right
@@ -123,8 +123,8 @@ func TestInkFractionExtremes(t *testing.T) {
 	}
 }
 
-// TestComparePageRendersMissingRenders: the comparison has to survive pages
-// the rasterizer could not draw. A page missing on the input side has no
+// TestComparePageRendersMissingRenders verifies that the comparison survives
+// pages the rasterizer could not draw. A page missing on the input side has no
 // baseline and is skipped entirely; one missing only on the output side is
 // total loss, not a skipped page, or a conversion that stopped rendering would
 // report clean.
@@ -157,9 +157,9 @@ func TestComparePageRendersMissingRenders(t *testing.T) {
 	}
 }
 
-// TestFidelityMetricsOnEmptyRenders: the ink and grid metrics are fed straight
-// from the rasterizer, so they must absorb a nil or zero-sized image rather
-// than dividing by zero or indexing an empty pixel buffer.
+// TestFidelityMetricsOnEmptyRenders verifies that the ink and grid metrics,
+// which are fed straight from the rasterizer, absorb a nil or zero-sized image
+// rather than dividing by zero or indexing an empty pixel buffer.
 func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
 	if got := inkFraction(nil); got != 0 {
 		t.Errorf("inkFraction(nil) = %v, want 0", got)
@@ -176,9 +176,9 @@ func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
 	}
 }
 
-// TestCompareFidelityRenderErrors: a document whose graph cannot be resolved
-// cannot be rendered, and the failure must name which side failed instead of
-// being reported as a zero-similarity page.
+// TestCompareFidelityRenderErrors verifies that a document whose graph cannot
+// be resolved, and so cannot be rendered, fails with an error naming the side
+// that failed rather than being reported as a zero-similarity page.
 func TestCompareFidelityRenderErrors(t *testing.T) {
 	// A reference chain past the resolve depth cap, as in
 	// TestConvertUnresolvableGraphReturnsError.
@@ -341,9 +341,9 @@ func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	}
 }
 
-// TestConvertReportsFidelity: with CheckFidelity set, a normal conversion
-// populates ConvertResult.Fidelity with a per-page report and reports no
-// blanked page; without it, Fidelity stays nil.
+// TestConvertReportsFidelity verifies that with CheckFidelity set, a normal
+// conversion populates ConvertResult.Fidelity with a per-page report and
+// reports no blanked page; without it, Fidelity stays nil.
 func TestConvertReportsFidelity(t *testing.T) {
 	data := onePageDoc(filledPage)
 
@@ -377,8 +377,9 @@ func TestConvertReportsFidelity(t *testing.T) {
 	}
 }
 
-// TestBlankedPages: the page list is the Blanked() reports in page order, and
-// stays nil when nothing was lost so len is enough to test it.
+// TestBlankedPages verifies that the page list is the Blanked() reports in
+// page order, and that it stays nil when nothing was lost, so len is enough to
+// test it.
 func TestBlankedPages(t *testing.T) {
 	lost := PageFidelity{Page: 2, InputInk: 0.5, OutputInk: 0}
 	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
@@ -393,11 +394,11 @@ func TestBlankedPages(t *testing.T) {
 	}
 }
 
-// TestOverpainted: what counts is the page being covered, not the ink going
-// up. A conversion that makes text drawable which the input's own fonts could
-// not draw adds a great deal of ink and covers nothing, and it is the
-// commonest thing a conversion does -- counting that as damage would bury the
-// real thing.
+// TestOverpainted verifies that what counts is the page being covered, not the
+// ink going up. A conversion that makes text drawable which the input's own
+// fonts could not draw adds a great deal of ink and covers nothing, and it is
+// the commonest thing a conversion does -- counting that as damage would bury
+// the real thing.
 func TestOverpainted(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -420,9 +421,9 @@ func TestOverpainted(t *testing.T) {
 	}
 }
 
-// TestCoveredFraction: a cell counts as covered when it was paper and is now
-// solid. Text darkens a cell it falls in without covering it, which is exactly
-// what must not count.
+// TestCoveredFraction verifies that a cell counts as covered when it was paper
+// and is now solid. Text darkens a cell it falls in without covering it, which
+// is exactly what must not count.
 func TestCoveredFraction(t *testing.T) {
 	paper := onePageDoc("")
 	// A rectangle over the top half of the page, and a page of text-like marks
@@ -458,16 +459,16 @@ func TestCoveredFraction(t *testing.T) {
 	}
 }
 
-// TestCellMeansOnEmptyRender: the grid is fed straight from the rasterizer, so
-// it has to absorb a zero-sized image.
+// TestCellMeansOnEmptyRender verifies that the grid, which is fed straight from
+// the rasterizer, absorbs a zero-sized image.
 func TestCellMeansOnEmptyRender(t *testing.T) {
 	if got := cellMeans(image.NewRGBA(image.Rect(0, 0, 0, 0))); got != [fidelityGrid * fidelityGrid]float64{} {
 		t.Error("cellMeans of an empty render returned non-zero cells")
 	}
 }
 
-// TestOverpaintedPages: the page list mirrors blankedPages -- page order, and
-// nil when nothing was drawn over.
+// TestOverpaintedPages verifies that the page list mirrors blankedPages: page
+// order, and nil when nothing was drawn over.
 func TestOverpaintedPages(t *testing.T) {
 	over := PageFidelity{Page: 2, Covered: 0.8}
 	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}

@@ -388,8 +388,8 @@ func TestImageXObjectEdgeCases(t *testing.T) {
 	}
 }
 
-// TestZeroSizeJPEGDoesNotPanic: a JPEG header claiming 0x0 decodes to an
-// empty image, which has nothing to paint.
+// TestZeroSizeJPEGDoesNotPanic verifies that a JPEG header claiming 0x0 decodes
+// to an empty image, which has nothing to paint.
 func TestZeroSizeJPEGDoesNotPanic(t *testing.T) {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8, 8)), nil); err != nil {

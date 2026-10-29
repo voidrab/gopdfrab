@@ -235,8 +235,8 @@ func filepathJoinNonexistent(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "does", "not", "exist")
 }
 
-// TestSpillWriterGrow: pre-sizing must not change what the writer produces or
-// where it stores it -- it only avoids the buffer doubling its way up.
+// TestSpillWriterGrow verifies that pre-sizing the buffer does not change what
+// the writer produces or where it stores it.
 func TestSpillWriterGrow(t *testing.T) {
 	payload := bytes.Repeat([]byte("x"), 4096)
 

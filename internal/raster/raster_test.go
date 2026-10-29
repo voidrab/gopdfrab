@@ -136,8 +136,8 @@ func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, [
 	return img, drops
 }
 
-// TestRenderType3Glyph: a Type 3 glyph's CharProc is executed, painting in the
-// fill colour in force when the text was shown.
+// TestRenderType3Glyph verifies that a Type 3 glyph's CharProc is executed,
+// painting in the fill colour in force when the text was shown.
 func TestRenderType3Glyph(t *testing.T) {
 	font := type3Font("0 0 750 750 re f", 0.001, 750, "square")
 	img, drops := renderType3(t, "0 0 1 rg BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
@@ -152,8 +152,8 @@ func TestRenderType3Glyph(t *testing.T) {
 	assertUnpainted(t, img, 19, 19, "outside the glyph")
 }
 
-// TestRenderType3Advance: /Widths is in glyph space, so the second glyph is
-// placed by the width scaled through the font matrix.
+// TestRenderType3Advance verifies that /Widths is in glyph space, so the
+// second glyph is placed by the width scaled through the font matrix.
 func TestRenderType3Advance(t *testing.T) {
 	// An 8pt-wide box advancing 10pt leaves a 2pt gap between the two glyphs.
 	font := type3Font("0 0 400 750 re f", 0.001, 500, "square")
@@ -170,8 +170,8 @@ func TestRenderType3Advance(t *testing.T) {
 	}
 }
 
-// TestRenderType3MissingCharProcDrops: a code with no glyph procedure is
-// reported rather than silently leaving a hole in the text.
+// TestRenderType3MissingCharProcDrops verifies that a code with no glyph
+// procedure is reported rather than silently leaving a hole in the text.
 func TestRenderType3MissingCharProcDrops(t *testing.T) {
 	tests := []struct {
 		name string
@@ -207,8 +207,8 @@ func redShadingResources() pdf.PDFDict {
 	})}
 }
 
-// TestRenderType3GlyphUsesFontResources: a CharProc draws through the font's
-// own /Resources.
+// TestRenderType3GlyphUsesFontResources verifies that a CharProc draws
+// through the font's own /Resources.
 func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
 	font.Entries.Set("Resources", redShadingResources())
@@ -222,8 +222,8 @@ func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 	}
 }
 
-// TestRenderType3GlyphFallsBackToPageResources: a font declaring no
-// /Resources resolves its CharProc's names against the page's (ISO 32000-1
+// TestRenderType3GlyphFallsBackToPageResources verifies that a font declaring
+// no /Resources resolves its CharProc's names against the page's (ISO 32000-1
 // 9.6.5), rather than finding nothing.
 func TestRenderType3GlyphFallsBackToPageResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
@@ -271,11 +271,9 @@ func TestRenderPageRectangleFill(t *testing.T) {
 	}
 }
 
-// TestRenderStartsInDeviceGray: a drawing starts in DeviceGray, so "1 sc"
-// fills white without naming a colour space first. Starting with no colour
-// space at all left the fill black -- which is how a chart drawn inside a
-// transparency group came out of the flattener as a black rectangle, with
-// more ink on the page than the file had ever drawn.
+// TestRenderStartsInDeviceGray verifies that a drawing starts in DeviceGray,
+// as specified in ISO 32000-1 table 52, so "1 sc" fills white without naming a
+// colour space first.
 func TestRenderStartsInDeviceGray(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 sc 5 5 10 10 re f")},
@@ -366,10 +364,9 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 	}
 }
 
-// TestRenderPageImageWithStencilMask: a stencil /Mask says where the page
-// shows through, which is what a soft mask is turned into on the way to
-// PDF/A-1. The renderer is the yardstick a conversion is measured against, so
-// it has to read one back.
+// TestRenderPageImageWithStencilMask verifies that the renderer honours a
+// stencil /Mask, the form a soft mask takes after conversion to PDF/A-1, so
+// that converted output can be rendered for comparison with its input.
 func TestRenderPageImageWithStencilMask(t *testing.T) {
 	// One bit per pixel, one byte per row: paint the left pixel, mask out the
 	// right one.
@@ -534,8 +531,8 @@ func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 	}
 }
 
-// TestRenderTextHonoursClip: glyphs paint only inside the clip in force, like
-// paths do.
+// TestRenderTextHonoursClip verifies that glyphs paint only inside the clip in
+// force, like paths do.
 func TestRenderTextHonoursClip(t *testing.T) {
 	resources := embeddedSimpleFontResources(t)
 	const text = "BT /F1 20 Tf 0 0 0 rg 5 15 Td (ABC) Tj ET"
@@ -739,11 +736,10 @@ func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
 	})
 }
 
-// TestRasterPixelBudget: a poster is written in points like anything else, and
-// one 8424 of them across at 150 dpi is 217 megapixels -- most of a gigabyte to
-// hold, and past what any reader will decode once it has been written back
-// into the file. The resolution drops instead, so the picture is coarser
-// rather than absent.
+// TestRasterPixelBudget verifies that dpiWithin lowers the resolution for a
+// page that would exceed maxRasterPixels at the requested one, such as an
+// 8424 by 5955 point poster at 150 dpi, and leaves ordinary pages and
+// degenerate bounds at the requested resolution.
 func TestRasterPixelBudget(t *testing.T) {
 	if got := dpiWithin([4]float64{0, 0, 612, 792}, 150); got != 150 {
 		t.Errorf("an ordinary page dropped to %d dpi, want the 150 it asked for", got)
@@ -840,9 +836,9 @@ func TestBuildType3FontInfoWidthsDefaultFirstChar(t *testing.T) {
 	}
 }
 
-// TestRenderType3GlyphThatShowsItselfStops: a CharProc that shows its own font
-// would recurse forever; the shared nesting guard ends it, leaving the outer
-// glyph painted.
+// TestRenderType3GlyphThatShowsItselfStops verifies that a CharProc that shows
+// its own font does not recurse forever: the shared nesting guard ends it,
+// leaving the outer glyph painted.
 func TestRenderType3GlyphThatShowsItselfStops(t *testing.T) {
 	font := type3Font("0 0 750 750 re f BT /F1 1000 Tf (A) Tj ET", 0.001, 750, "square")
 	img, _ := renderType3(t, "0 0 1 rg BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
@@ -851,8 +847,8 @@ func TestRenderType3GlyphThatShowsItselfStops(t *testing.T) {
 	}
 }
 
-// TestRenderType3UndecodableCharProcDrops: a glyph procedure whose stream
-// cannot be decoded is reported like a missing one.
+// TestRenderType3UndecodableCharProcDrops verifies that a glyph procedure
+// whose stream cannot be decoded is reported like a missing one.
 func TestRenderType3UndecodableCharProcDrops(t *testing.T) {
 	font := type3Font("", 0.001, 750, "square")
 	proc := undecodableStream()

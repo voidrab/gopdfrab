@@ -64,9 +64,9 @@ func outputIntentDoc(t *testing.T, s string) *pdf.Reader {
 	return rawReaderWithTrailer(t, specDict("Root", root))
 }
 
-// TestChecksFollowTheLevelSpec: each rule a level decides is read from the
-// spec, not hard-wired. Under PDF/A-1b the input is reported; under a spec
-// changed in that one rule it is not (or, for a required value, the other
+// TestChecksFollowTheLevelSpec verifies that each rule a level decides is read
+// from the spec, not hard-wired. Under PDF/A-1b the input is reported; under a
+// spec changed in that one rule it is not (or, for a required value, the other
 // way round).
 func TestChecksFollowTheLevelSpec(t *testing.T) {
 	big := strings.Repeat("n", 128)

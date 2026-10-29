@@ -24,10 +24,10 @@ func TestResourceOperatorTarget(t *testing.T) {
 	}
 }
 
-// TestPruneUnusedResourceEntriesIsDeterministic: an oversized resource dict
-// normally has more prunable entries than excess to shed, so the choice must
-// not come from map order -- two identical documents would otherwise convert to
-// different bytes.
+// TestPruneUnusedResourceEntriesIsDeterministic verifies that the choice of
+// entries to prune does not come from map order. An oversized resource dict
+// normally has more prunable entries than excess to shed, so two identical
+// documents would otherwise convert to different bytes.
 func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
 	build := func() pdf.PDFDict {
 		d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}

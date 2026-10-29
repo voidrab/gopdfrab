@@ -55,10 +55,11 @@ func TestSimpleFontUsedUnicodes(t *testing.T) {
 	}
 }
 
-// TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace: ISO 32000-1 Annex D
-// reads WinAnsi 0240 and MacRoman 0312 as the glyph "space", other tables as
-// "nbspace". A substitute holding only U+00A0 gives a reader of the first kind
-// (veraPDF among them) no glyph, so U+0020 must be included as well.
+// TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace verifies that U+0020 is
+// kept alongside U+00A0. As specified in ISO 32000-1 Annex D, WinAnsi 0240 and
+// MacRoman 0312 are read as the glyph "space", other tables as "nbspace". A
+// substitute holding only U+00A0 gives a reader of the first kind (veraPDF
+// among them) no glyph, so U+0020 must be included as well.
 func TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace(t *testing.T) {
 	var table [256]uint16
 	table[160] = 0x00A0
@@ -416,9 +417,10 @@ func TestSubstituteCIDFontKeepsGlyphlessCID(t *testing.T) {
 	}
 }
 
-// TestSubstituteCIDFontRefusesUnmappedDrawnCID: a CID with no Unicode value
-// that the replaced program does draw cannot be carried over -- nothing says
-// what it showed -- so the font is still left to the raster fallback.
+// TestSubstituteCIDFontRefusesUnmappedDrawnCID verifies that a CID with no
+// Unicode value that the replaced program does draw cannot be carried over --
+// nothing says what it showed -- so the font is still left to the raster
+// fallback.
 func TestSubstituteCIDFontRefusesUnmappedDrawnCID(t *testing.T) {
 	next := 100
 	w := pdf.PDFArray{pdf.PDFInteger(1), ints(600), pdf.PDFInteger(7), ints(750)}
@@ -475,7 +477,7 @@ func TestDrawsNotdef(t *testing.T) {
 	}
 }
 
-// TestCIDWidth: a CID's width comes from /W, then /DW, then 1000.
+// TestCIDWidth verifies that a CID's width comes from /W, then /DW, then 1000.
 func TestCIDWidth(t *testing.T) {
 	font := dictOf(map[string]pdf.PDFValue{"W": pdf.PDFArray{pdf.PDFInteger(3), ints(420)}, "DW": pdf.PDFInteger(880)})
 	if got := cidWidth(font, 3); got != 420 {

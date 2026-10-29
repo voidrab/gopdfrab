@@ -1495,9 +1495,9 @@ func TestRepairOutlineTreeGuards(t *testing.T) {
 	}
 }
 
-// TestObjectModelFixersRunDocumentRepairs: the Outlines and trailer-Info repairs
-// run from the targeted fixers when an issue names their Arlington type, even
-// though the issue itself carries no object reference.
+// TestObjectModelFixersRunDocumentRepairs verifies that the Outlines and
+// trailer-Info repairs run from the targeted fixers when an issue names their
+// Arlington type, even though the issue itself carries no object reference.
 func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 	stub := pdf.NewPDFDict()
 	outlines := pdf.NewPDFDict()
@@ -1528,9 +1528,10 @@ func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 	}
 }
 
-// TestRepairDisallowedValueExpandsStreamFilterName: an inline-image filter
-// abbreviation used as a stream's /Filter is expanded in place, before the
-// schema-derived repairs (hence the nil key definition) get a say.
+// TestRepairDisallowedValueExpandsStreamFilterName verifies that an
+// inline-image filter abbreviation used as a stream's /Filter is expanded in
+// place, before the schema-derived repairs (hence the nil key definition) get
+// a say.
 func TestRepairDisallowedValueExpandsStreamFilterName(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true

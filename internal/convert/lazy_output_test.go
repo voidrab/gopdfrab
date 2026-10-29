@@ -22,8 +22,9 @@ func convertPlain(t *testing.T) ConvertResult {
 	return cr
 }
 
-// TestConvertSmallOutputStaysInMemory: under the default threshold the output
-// is not spilled, so no temp file is created and Close is a no-op on the bytes.
+// TestConvertSmallOutputStaysInMemory verifies that under the default threshold
+// the output is not spilled, so no temp file is created and Close is a no-op
+// on the bytes.
 func TestConvertSmallOutputStaysInMemory(t *testing.T) {
 	cr := convertPlain(t)
 	defer cr.Close()
@@ -35,9 +36,9 @@ func TestConvertSmallOutputStaysInMemory(t *testing.T) {
 	}
 }
 
-// TestConvertSpillsLargeOutput: with the threshold lowered, the output spills to
-// a temp file, the output bytes are no longer resident in the heap
-// (backing.mem is nil), and Close removes the file.
+// TestConvertSpillsLargeOutput verifies that with the threshold lowered, the
+// output spills to a temp file, the output bytes are no longer resident in the
+// heap (backing.mem is nil), and Close removes the file.
 func TestConvertSpillsLargeOutput(t *testing.T) {
 	setSpillThreshold(t, 64)
 	cr := convertPlain(t)
@@ -67,8 +68,8 @@ func TestConvertSpillsLargeOutput(t *testing.T) {
 	}
 }
 
-// TestConvertResultAccessorsAgree: Output, WriteTo, and Save yield identical
-// bytes, whether the output stayed in memory or spilled.
+// TestConvertResultAccessorsAgree verifies that Output, WriteTo, and Save yield
+// identical bytes, whether the output stayed in memory or spilled.
 func TestConvertResultAccessorsAgree(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -114,8 +115,9 @@ func TestConvertResultAccessorsAgree(t *testing.T) {
 	}
 }
 
-// TestConvertEachClosesResults: ConvertEach closes each result after its
-// callback returns, so spill temp files do not accumulate across a batch.
+// TestConvertEachClosesResults verifies that ConvertEach closes each result
+// after its callback returns, so spill temp files do not accumulate across a
+// batch.
 func TestConvertEachClosesResults(t *testing.T) {
 	setSpillThreshold(t, 64)
 

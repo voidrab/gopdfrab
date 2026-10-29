@@ -110,10 +110,10 @@ func TestSimpleTrueTypeMetricsMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	}
 }
 
-// TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap: a font with /Encoding is
-// non-symbolic, and ISO 32000-1 9.6.6.4 resolves its codes through (3,1) and
-// (1,0) only. A glyph reachable solely through the (3,0) cmap by raw code is
-// missing (6.3.5), as veraPDF also reports.
+// TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap verifies that a font with
+// /Encoding is non-symbolic, and that ISO 32000-1 9.6.6.4 resolves its codes
+// through (3,1) and (1,0) only. A glyph reachable solely through the (3,0)
+// cmap by raw code is missing (6.3.5), as veraPDF also reports.
 func TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap(t *testing.T) {
 	head := make([]byte, 54)
 	binary.BigEndian.PutUint16(head[18:], 1000)

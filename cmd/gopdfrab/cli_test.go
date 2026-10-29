@@ -284,10 +284,10 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	}
 }
 
-// TestConvertPrintersReportLostContent: a conformant conversion that lost an
-// object still has to say so. The loss is not a residual issue -- the file
-// that was written is valid -- so it is printed on its own line and carried in
-// its own JSON field.
+// TestConvertPrintersReportLostContent verifies that a conformant conversion
+// which lost an object still reports the loss. The loss is not a residual
+// issue, since the file that was written is valid, so it is printed on its own
+// line and carried in its own JSON field.
 func TestConvertPrintersReportLostContent(t *testing.T) {
 	lost := nonConformantResult(t).Residual()[:1]
 	cr := gopdfrab.ConvertResult{
@@ -329,10 +329,10 @@ func TestConvertJSONEncodeError(t *testing.T) {
 	}
 }
 
-// TestConvertPrintersReportRasterization: a conformant conversion that
-// rebuilt pages as images, and could not draw everything on them, says so in
-// both outputs. Without it a page whose picture became a gray box reads as a
-// clean conversion.
+// TestConvertPrintersReportRasterization verifies that a conformant conversion
+// which rebuilt pages as images, and could not draw everything on them, says so
+// in both outputs. Without that a page whose picture became a gray box reads as
+// a clean conversion.
 func TestConvertPrintersReportRasterization(t *testing.T) {
 	cr := gopdfrab.ConvertResult{
 		Result:          gopdfrab.Result{Valid: true},

@@ -51,9 +51,9 @@ func truncatingWidths(cff []byte) []float64 {
 	return out
 }
 
-// TestNormalizeCFFWidthDefaults: the rewritten program has whole width
-// defaults, every glyph keeps its width, and a reader that truncates the
-// defaults reads the same widths as one that does not. The old
+// TestNormalizeCFFWidthDefaults verifies that the rewritten program has whole
+// width defaults, that every glyph keeps its width, and that a reader which
+// truncates the defaults reads the same widths as one that does not. The old
 // CharStrings and Private DICT were the program's tail, so they are dropped.
 func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	src := fractionalDefaultsSpec().assemble()
@@ -93,11 +93,11 @@ func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsKeepsWhatFollows: a charset placed after the
-// CharStrings is still referenced, so the program is kept whole and the
-// charset's offset moves with everything behind the Top DICT. The font also
-// carries DICT entries the rewrite has no business with, which come through
-// as they were, and a whole defaultWidthX that glyphs without a width keep.
+// TestNormalizeCFFWidthDefaultsKeepsWhatFollows verifies that a charset placed
+// after the CharStrings is still referenced, so the program is kept whole and
+// the charset's offset moves with everything behind the Top DICT. The font also
+// carries DICT entries the rewrite has no business with, which come through as
+// they were, and a whole defaultWidthX that glyphs without a width keep.
 func TestNormalizeCFFWidthDefaultsKeepsWhatFollows(t *testing.T) {
 	spec := fractionalDefaultsSpec()
 	spec.matrix = []string{"0.001", "0", "0", "0.001", "0", "0"}
@@ -225,11 +225,11 @@ func checkCIDNormalized(t *testing.T, src, out []byte) [][2]float64 {
 	return defaults
 }
 
-// TestNormalizeCFFWidthDefaultsCIDKeyed: each Font DICT's Private DICT gets
-// whole width defaults and each glyph is re-encoded against its own Font
-// DICT's. Glyphs of a Font DICT whose defaults were whole already are left
-// byte for byte. FDSelect lies past the CharStrings, so the program is kept
-// whole and FDSelect moves with it.
+// TestNormalizeCFFWidthDefaultsCIDKeyed verifies that each Font DICT's Private
+// DICT gets whole width defaults and that each glyph is re-encoded against its
+// own Font DICT's. Glyphs of a Font DICT whose defaults were whole already are
+// left byte for byte. FDSelect lies past the CharStrings, so the program is
+// kept whole and FDSelect moves with it.
 func TestNormalizeCFFWidthDefaultsCIDKeyed(t *testing.T) {
 	src := fractionalCIDSpec().assemble()
 	if truncatingCIDWidths(src)[2] == fontprog.CFFCIDAdvanceWidths(src)[2] {
@@ -261,9 +261,9 @@ func TestNormalizeCFFWidthDefaultsCIDKeyed(t *testing.T) {
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsKeepsEntries: a custom Encoding before the
-// CharStrings moves with the Top DICT, and a Font DICT's entries other than
-// Private come through as they were.
+// TestNormalizeCFFWidthDefaultsKeepsEntries verifies that a custom Encoding
+// before the CharStrings moves with the Top DICT, and that a Font DICT's
+// entries other than Private come through as they were.
 func TestNormalizeCFFWidthDefaultsKeepsEntries(t *testing.T) {
 	encoding := []byte{0, 2, 'a', 'b'} // format 0: codes for gids 1 and 2
 	spec := fractionalDefaultsSpec()
@@ -302,9 +302,9 @@ func TestNormalizeCFFWidthDefaultsKeepsEntries(t *testing.T) {
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsCIDDropsTail: with one Font DICT and no
-// FDSelect, nothing the rewrite keeps lies past the old CharStrings, so the
-// old CharStrings, FDArray and Private DICT are dropped.
+// TestNormalizeCFFWidthDefaultsCIDDropsTail verifies that, with one Font DICT
+// and no FDSelect, nothing the rewrite keeps lies past the old CharStrings, so
+// the old CharStrings, FDArray and Private DICT are dropped.
 func TestNormalizeCFFWidthDefaultsCIDDropsTail(t *testing.T) {
 	spec := fractionalCIDSpec()
 	spec.cids, spec.charstrings = spec.cids[:3], spec.charstrings[:4]
@@ -501,8 +501,8 @@ func TestSameCFFWidths(t *testing.T) {
 	}
 }
 
-// TestType2NumberRoundTrip: every operand form encodes to the shortest
-// encoding and decodes back to its value.
+// TestType2NumberRoundTrip verifies that every operand form encodes to the
+// shortest encoding and decodes back to its value.
 func TestType2NumberRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
 		v    float64
@@ -527,7 +527,8 @@ func TestType2NumberRoundTrip(t *testing.T) {
 	}
 }
 
-// TestEncodeCFFIndexOffsetSize: the offset size grows with the data.
+// TestEncodeCFFIndexOffsetSize verifies that the offset size grows with the
+// data.
 func TestEncodeCFFIndexOffsetSize(t *testing.T) {
 	for _, tc := range []struct{ size, offSize int }{{10, 1}, {300, 2}, {70000, 3}} {
 		idx := encodeCFFIndex([][]byte{make([]byte, tc.size)})

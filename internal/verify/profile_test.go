@@ -367,9 +367,10 @@ func TestPatternFontUsageCollected(t *testing.T) {
 	}
 }
 
-// TestFilterByProfileKeepsExactlyEnabledChecks: the filter asks the profile
-// about the check itself, never about its clause. An issue whose check the
-// profile does not enable is dropped, even one of no registered clause.
+// TestFilterByProfileKeepsExactlyEnabledChecks verifies that the filter asks
+// the profile about the check itself, never about its clause. An issue whose
+// check the profile does not enable is dropped, even one of no registered
+// clause.
 func TestFilterByProfileKeepsExactlyEnabledChecks(t *testing.T) {
 	enabled := pdf.Checks.Transparency.BlendMode
 	p := pdf.NewProfile(pdf.A1B).AddCheck(enabled)

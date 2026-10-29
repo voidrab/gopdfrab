@@ -63,8 +63,9 @@ func resultHasCheck(res pdf.Result, c pdf.Check) bool {
 	return false
 }
 
-// TestWalkDepthLimit: the walk stops at maxWalkDepth. Below the buried array's
-// depth it isn't reached (ArrayTooLarge absent); above it, it is.
+// TestWalkDepthLimit verifies that the walk stops at maxWalkDepth. Below the
+// buried array's depth it isn't reached (ArrayTooLarge absent); above it, it
+// is.
 func TestWalkDepthLimit(t *testing.T) {
 	const depth = 120
 	graph := buildDeepGraph(depth)

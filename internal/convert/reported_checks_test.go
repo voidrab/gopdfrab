@@ -31,10 +31,10 @@ func everyCheck(f Fixer) []pdf.PDFError {
 	return issuesOf(checks...)
 }
 
-// TestExtGStateFixerRepairsOnlyReportedKeys: one ExtGState breaks all seven
-// rules, and only one is reported. The fixer repairs that key and leaves the
-// other six as they were, so a repair never runs on a rule the level does not
-// have.
+// TestExtGStateFixerRepairsOnlyReportedKeys verifies that one ExtGState breaks
+// all seven rules and that only one is reported. The fixer repairs that key and
+// leaves the other six as they were, so a repair never runs on a rule the level
+// does not have.
 func TestExtGStateFixerRepairsOnlyReportedKeys(t *testing.T) {
 	tr := pdf.Checks.Transparency
 	for _, tc := range []struct {
@@ -89,9 +89,9 @@ func isSameDict(a, b pdf.PDFValue) bool {
 	return okA && okB && pdf.ValuePointer(da.Entries) == pdf.ValuePointer(db.Entries)
 }
 
-// TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported: taking out
-// what is drawn at zero opacity belongs to the opacity repair, so it does not
-// run when only another ExtGState rule was reported.
+// TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported verifies that
+// taking out what is drawn at zero opacity belongs to the opacity repair, so it
+// does not run when only another ExtGState rule was reported.
 func TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported(t *testing.T) {
 	const content = "/GS0 gs 0 0 10 10 re f\n"
 	for _, tc := range []struct {
@@ -118,9 +118,9 @@ func TestExtGStateFixerKeepsZeroOpacityContentUnlessAlphaReported(t *testing.T) 
 	}
 }
 
-// TestContentLimitsFixerRepairsOnlyReportedChecks: the graph and the content
-// stream break every rule the fixer covers, and only one is reported. That
-// one is repaired and the rest are left as they were.
+// TestContentLimitsFixerRepairsOnlyReportedChecks verifies that the graph and
+// the content stream break every rule the fixer covers, and that only one is
+// reported. That one is repaired and the rest are left as they were.
 func TestContentLimitsFixerRepairsOnlyReportedChecks(t *testing.T) {
 	st, co := pdf.Checks.Structure, pdf.Checks.Colour
 	long := strings.Repeat("x", a1bSpec.Limits.MaxStringBytes+1)
@@ -180,9 +180,9 @@ func (f pairFixer) Fix(_ *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	return false, nil
 }
 
-// TestDispatchHandsAFixerAllItsReportedChecks: a fixer that covers two
-// reported checks runs once in the pass and sees the issues of both, which is
-// what lets it repair each reported rule and only those.
+// TestDispatchHandsAFixerAllItsReportedChecks verifies that a fixer covering
+// two reported checks runs once in the pass and sees the issues of both, which
+// is what lets it repair each reported rule and only those.
 func TestDispatchHandsAFixerAllItsReportedChecks(t *testing.T) {
 	a, b := pdf.Checks.Transparency.TransferFunction, pdf.Checks.Transparency.BlendMode
 	var calls [][]pdf.PDFError

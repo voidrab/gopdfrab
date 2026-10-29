@@ -41,7 +41,8 @@ func TestIssueMapsEveryKind(t *testing.T) {
 	}
 }
 
-// TestIssueAboutTheFile: a diagnostic about no object is reported on page 1.
+// TestIssueAboutTheFile verifies that a diagnostic about no object is reported
+// on page 1.
 func TestIssueAboutTheFile(t *testing.T) {
 	e, ok := mustFor(t, pdf.A1B).Issue(pdf.Diagnostic{Kind: pdf.DiagXRefRebuilt})
 	if !ok || e.Page() != 1 {
@@ -52,8 +53,8 @@ func TestIssueAboutTheFile(t *testing.T) {
 	}
 }
 
-// TestIssueFollowsTheLevel: whether a diagnostic is a violation is the
-// level's call. A level that permits xref streams raises nothing for one,
+// TestIssueFollowsTheLevel verifies that whether a diagnostic is a violation is
+// the level's call. A level that permits xref streams raises nothing for one,
 // and plain PDF has none of the structure rules.
 func TestIssueFollowsTheLevel(t *testing.T) {
 	s := mustFor(t, pdf.A1B)

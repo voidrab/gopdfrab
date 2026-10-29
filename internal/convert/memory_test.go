@@ -265,12 +265,12 @@ func BenchmarkConvertMemory(b *testing.B) {
 	b.ReportMetric(float64(peak)/(1<<20), "peak_heap_MB")
 }
 
-// TestConvertUnderTightBudgetMatchesDefault: the resident budget governs
-// memoization only, so converting with caching effectively off -- which also
-// puts every content scan on the streaming path (pdf.Reader.ScanStreamFunc) --
-// must produce byte-identical output and the same verdict as converting with
-// the default budget. This is the correctness gate for the budget being a speed
-// dial rather than a behaviour switch.
+// TestConvertUnderTightBudgetMatchesDefault verifies that the resident budget
+// governs memoization only, so converting with caching effectively off -- which
+// also puts every content scan on the streaming path
+// (pdf.Reader.ScanStreamFunc) -- produces byte-identical output and the same
+// verdict as converting with the default budget. This is the correctness gate
+// for the budget being a speed dial rather than a behaviour switch.
 func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 	fixtures := sampleFixturePaths(failFixturesByExpectedClause(t), 20)
 	if len(fixtures) == 0 {
@@ -335,8 +335,8 @@ func sampleFixturePaths(fixtures map[string]string, n int) []string {
 	return out
 }
 
-// TestConvertReleasesCaches: a Document kept open past Convert must not still
-// be holding the run's decoded and tokenized streams.
+// TestConvertReleasesCaches verifies that a Document kept open past Convert
+// does not still hold the run's decoded and tokenized streams.
 func TestConvertReleasesCaches(t *testing.T) {
 	data, err := os.ReadFile(largeSamplePath)
 	if err != nil {

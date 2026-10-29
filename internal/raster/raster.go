@@ -97,9 +97,7 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},
 		// The colour a drawing starts in is black in DeviceGray (ISO 32000-1
-		// table 52). Starting with no colour space at all instead made "1 sc"
-		// -- white, and how a chart fills its background -- do nothing, which
-		// left the black to paint over it.
+		// table 52), so "1 sc" without a preceding cs selects white.
 		fillCS:   pdf.PDFName{Value: "DeviceGray"},
 		strokeCS: pdf.PDFName{Value: "DeviceGray"},
 	}

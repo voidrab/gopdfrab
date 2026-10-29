@@ -133,17 +133,17 @@ func TestRescaleFactorIsAPowerOfTwo(t *testing.T) {
 	}
 }
 
-// TestRescaleLeavesInRangePathsAlone: a path that breaks no limit must come
-// out byte for byte the same, so the pass costs nothing on the vast majority
-// of documents.
+// TestRescaleLeavesInRangePathsAlone verifies that a path that breaks no limit
+// comes out byte for byte the same, so the pass costs nothing on the vast
+// majority of documents.
 func TestRescaleLeavesInRangePathsAlone(t *testing.T) {
 	if got := rescaled(t, "0 0 m 100 0 l 100 100 l h f\n"); got != "" {
 		t.Errorf("an in-range path was rewritten:\n%s", got)
 	}
 }
 
-// TestRescaleTooLargeForAMatrix: a coordinate no allowed matrix can carry is
-// left for the clamp, which is still better than a wrong answer.
+// TestRescaleTooLargeForAMatrix verifies that a coordinate no allowed matrix
+// can carry is left for the clamp, which is still better than a wrong answer.
 func TestRescaleTooLargeForAMatrix(t *testing.T) {
 	got := rescaled(t, "0 0 m 999999999.0 0 l f\n")
 	if strings.Contains(got, "cm") {
@@ -154,9 +154,9 @@ func TestRescaleTooLargeForAMatrix(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeKeepsLineWidth: line width is a length in user space, so a
-// stroke drawn under a scaled CTM would come out that many times thicker. The
-// width goes down with the path and is put back after it.
+// TestRescaleStrokeKeepsLineWidth verifies that the line width is scaled with
+// the path and restored after it. Line width is a length in user space, so a
+// stroke drawn under a scaled CTM would come out that many times thicker.
 func TestRescaleStrokeKeepsLineWidth(t *testing.T) {
 	got := rescaled(t, "3 w 0 0 m 65536.0 0 l S\n")
 	want := "3 w\n" +
@@ -170,10 +170,10 @@ func TestRescaleStrokeKeepsLineWidth(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeKeepsDash: dash lengths are user-space too, and scale with
-// the path exactly as the line width does. With no w in the stream the width
-// restored is 1, the value a stream starts with -- restoring 0 would turn every
-// unset stroke into a hairline.
+// TestRescaleStrokeKeepsDash verifies that dash lengths scale with the path
+// exactly as the line width does. Dash lengths are user-space too. With no w
+// in the stream the width restored is 1, the value a stream starts with;
+// restoring 0 would turn every unset stroke into a hairline.
 func TestRescaleStrokeKeepsDash(t *testing.T) {
 	got := rescaled(t, "[8 4] 0 d 0 0 m 65536.0 0 l S\n")
 	want := "[8 4] 0 d\n" +
@@ -187,9 +187,10 @@ func TestRescaleStrokeKeepsDash(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeAfterExtGState: an ExtGState can set the line width and the
-// dash to values the stream never names, so there is nothing to put back. The
-// path is left to the clamp rather than redrawn at a guessed thickness.
+// TestRescaleStrokeAfterExtGState verifies that a stroke is not rescaled when
+// an ExtGState may have set the line width and dash, since the stream never
+// names values to put back. The path is left to the clamp rather than redrawn
+// at a guessed thickness.
 func TestRescaleStrokeAfterExtGState(t *testing.T) {
 	got := rescaled(t, "/GS1 gs 0 0 m 65536.0 0 l S\n")
 	if strings.Contains(got, "cm") {
@@ -202,8 +203,9 @@ func TestRescaleStrokeAfterExtGState(t *testing.T) {
 	}
 }
 
-// TestRescaleTracksLineWidthThroughSave: q and Q save and restore the line
-// width, so a width set inside a q is not the one put back outside it.
+// TestRescaleTracksLineWidthThroughSave verifies that q and Q save and restore
+// the line width, so a width set inside a q is not the one put back outside
+// it.
 func TestRescaleTracksLineWidthThroughSave(t *testing.T) {
 	got := rescaled(t, "3 w q 8 w Q 0 0 m 65536.0 0 l S\n")
 	if !strings.Contains(got, "0.75 w") || !strings.HasSuffix(got, "3 w\n") {
@@ -217,8 +219,8 @@ func TestRescaleTracksLineWidthThroughSave(t *testing.T) {
 	}
 }
 
-// TestRescaleUnterminatedPath: a stream that ends mid-path, or puts an
-// operator where one cannot go, still has to come out as valid content. The
+// TestRescaleUnterminatedPath verifies that a stream that ends mid-path, or
+// puts an operator where one cannot go, still comes out as valid content. The
 // path is written back as it was scanned and the clamp handles it.
 func TestRescaleUnterminatedPath(t *testing.T) {
 	for _, src := range []string{
@@ -235,9 +237,9 @@ func TestRescaleUnterminatedPath(t *testing.T) {
 	}
 }
 
-// TestRescaleLongPathSpills: a path too long to hold is written out as it is
-// scanned, so a pathological stream cannot grow the heap without limit. It
-// gives up the rescale to do it.
+// TestRescaleLongPathSpills verifies that a path too long to hold is written
+// out as it is scanned, so a pathological stream cannot grow the heap without
+// limit. The rescale is given up to do so.
 func TestRescaleLongPathSpills(t *testing.T) {
 	var src strings.Builder
 	src.WriteString("0 0 m\n")
@@ -254,9 +256,9 @@ func TestRescaleLongPathSpills(t *testing.T) {
 	}
 }
 
-// TestRescaleIgnoresNonNumericOperands: a malformed stream can put anything
-// where a number belongs. Nothing that is not a number is scaled, and an
-// operator that sets state with the wrong operand leaves that state alone.
+// TestRescaleIgnoresNonNumericOperands verifies that nothing which is not a
+// number is scaled, and that an operator given such an operand leaves its
+// state alone. A malformed stream can put anything where a number belongs.
 func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
 	// A w whose operand is a name leaves the width at its default of 1.
 	got := rescaled(t, "/bogus w 0 0 m 65536.0 0 l S\n")
@@ -270,8 +272,8 @@ func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
 	}
 }
 
-// TestRescaleContentStreamDictUndecodable: a stream nothing can decode is left
-// exactly as it is, rather than replaced with an empty one.
+// TestRescaleContentStreamDictUndecodable verifies that a stream nothing can
+// decode is left exactly as it is, rather than replaced with an empty one.
 func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
 	dict.HasStream = true
@@ -402,9 +404,10 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 	}
 }
 
-// TestRewriteKeepsAStreamItCouldNotReadWhole: a rewriter emits as it reads, so
-// a stream it stops part way through has only been part written. Writing that
-// back would throw away the rest of the drawing, so the original bytes stay.
+// TestRewriteKeepsAStreamItCouldNotReadWhole verifies that a stream the
+// rewriter stops part way through keeps its original bytes. The rewriter emits
+// as it reads, so such a stream has only been part written, and writing it
+// back would throw away the rest of the drawing.
 func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	// An undefined operator to rewrite, then a brace, which is not a
 	// content-stream token at all and stops the read.
@@ -424,9 +427,9 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	}
 }
 
-// TestRescaleOversizedMatrix: a matrix that does not fit is written as two that
-// do, and the pair has to compose to exactly the matrix that was there. This is
-// what places an image, so getting it wrong moves the picture.
+// TestRescaleOversizedMatrix verifies that a matrix that does not fit is
+// written as two that do, and that the pair composes to exactly the original
+// matrix. The matrix places an image, so getting it wrong moves the picture.
 func TestRescaleOversizedMatrix(t *testing.T) {
 	scale, divided, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(274320),
@@ -517,8 +520,8 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	}
 }
 
-// TestRewriteContentStreamDictUndecodable: rewriteContentStreamDict leaves a
-// stream it cannot decode exactly as it is.
+// TestRewriteContentStreamDictUndecodable verifies that
+// rewriteContentStreamDict leaves a stream it cannot decode exactly as it is.
 func TestRewriteContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
 	dict.HasStream = true
@@ -530,9 +533,9 @@ func TestRewriteContentStreamDictUndecodable(t *testing.T) {
 	}
 }
 
-// TestWalkContentStreamsSkipsNonStreamEntries: array Page /Contents items and
-// Type3 CharProcs values that are not streams are skipped, while their
-// stream siblings are still rewritten.
+// TestWalkContentStreamsSkipsNonStreamEntries verifies that array Page
+// /Contents items and Type3 CharProcs values that are not streams are skipped,
+// while their stream siblings are still rewritten.
 func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
 	good := undefinedOpStream()
 	glyph := undefinedOpStream()

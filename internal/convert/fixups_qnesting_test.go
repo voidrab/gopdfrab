@@ -171,8 +171,9 @@ func TestQNestingFixerSplitsRepeatedly(t *testing.T) {
 	}
 }
 
-// TestQNestingFixerRepairsSharedStreamOnce: a content stream two pages share
-// is rewritten once, and both pages end up drawing the rewritten stream.
+// TestQNestingFixerRepairsSharedStreamOnce verifies that a content stream two
+// pages share is rewritten once, and that both pages end up drawing the
+// rewritten stream.
 func TestQNestingFixerRepairsSharedStreamOnce(t *testing.T) {
 	shared := streamDict(nestedQ(30, ""))
 	resources := pdf.NewPDFDict()
@@ -284,9 +285,9 @@ func TestQNestingFixerLeavesUnsafeBlocks(t *testing.T) {
 	}
 }
 
-// TestQNestingFixerContentsArray: a page's /Contents array is one drawing
-// cut into pieces. A block still open where a piece ends may be closed by the
-// next piece, so it moves only in the last one.
+// TestQNestingFixerContentsArray verifies that a page's /Contents array is
+// treated as one drawing cut into pieces. A block still open where a piece
+// ends may be closed by the next piece, so it moves only in the last one.
 func TestQNestingFixerContentsArray(t *testing.T) {
 	open := strings.Repeat("q\n", 30)
 	first, last := streamDict(open), streamDict(open)
@@ -334,8 +335,8 @@ func TestQNestingFixerSkipsWhatItCannotRead(t *testing.T) {
 	}
 }
 
-// TestQNestingNameAvoidsCollision: the form's name skips one the resource
-// dict already uses.
+// TestQNestingNameAvoidsCollision verifies that the form's name skips one the
+// resource dict already uses.
 func TestQNestingNameAvoidsCollision(t *testing.T) {
 	trailer, _, resources := pageWithContent(nestedQ(30, ""))
 	xobjects := pdf.NewPDFDict()
@@ -352,10 +353,10 @@ func TestQNestingNameAvoidsCollision(t *testing.T) {
 	}
 }
 
-// TestUnnestOpsDeclinesUnwritableContent: an operator the content writer
-// cannot serialize -- an inline image without its raw bytes, which a scanned
-// stream always has -- stops the rewrite instead of truncating the stream,
-// both in the page and in a form being built.
+// TestUnnestOpsDeclinesUnwritableContent verifies that an operator the content
+// writer cannot serialize -- an inline image without its raw bytes, which a
+// scanned stream always has -- stops the rewrite instead of truncating the
+// stream, both in the page and in a form being built.
 func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 	bad := writer.ContentOp{Op: "INLINEIMAGE"}
 	q, Q := writer.ContentOp{Op: "q"}, writer.ContentOp{Op: "Q"}
@@ -377,8 +378,9 @@ func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 	}
 }
 
-// TestCmMatrixRejectsMalformedOperands: a cm with the wrong operand count or
-// a non-number leaves the CTM as it was.
+// TestCmMatrixRejectsMalformedOperands verifies that a cm with the wrong
+// operand count or a non-number operand is not read as a matrix, and that the
+// repair steps over it.
 func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
 	if _, ok := cmMatrix([]pdf.PDFValue{pdf.PDFInteger(1)}); ok {
 		t.Error("a one-operand cm was read as a matrix")
@@ -397,8 +399,8 @@ func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
 	}
 }
 
-// TestRectOfNormalisesCorners: a rectangle given upper-right first reads as
-// the same area; anything but four numbers is refused.
+// TestRectOfNormalisesCorners verifies that a rectangle given upper-right first
+// reads as the same area; anything but four numbers is refused.
 func TestRectOfNormalisesCorners(t *testing.T) {
 	got, ok := rectOf(pdf.PDFArray{pdf.PDFInteger(10), pdf.PDFInteger(20), pdf.PDFInteger(0), pdf.PDFInteger(5)})
 	if !ok || got != (rect{0, 5, 10, 20}) {

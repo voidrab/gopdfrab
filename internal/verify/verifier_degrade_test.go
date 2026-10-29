@@ -114,9 +114,9 @@ func TestBrokenStartxrefOracle(t *testing.T) {
 	}
 }
 
-// TestDegradedObjectKeepsUnrelatedChecks: when the broken object cannot be
-// recovered, findings inside it are gone -- but every unrelated check must
-// still run, and the loss must be reported.
+// TestDegradedObjectKeepsUnrelatedChecks verifies that when the broken object
+// cannot be recovered, findings inside it are dropped, but every unrelated
+// check still runs and the loss is reported.
 func TestDegradedObjectKeepsUnrelatedChecks(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	broken := bytes.Replace(intact, []byte("4 0 obj\n<< /Length"), []byte("4 0 obj\n<< ]Length"), 1)
@@ -146,10 +146,10 @@ func TestDegradedObjectKeepsUnrelatedChecks(t *testing.T) {
 	}
 }
 
-// TestDegradedObjectDiscardsUsageSuppressions: an unused non-embedded font is
-// suppressed under PDFA1B when content usage is fully known, but a degraded
-// object makes the usage sets a subset of the truth, so the suppression must
-// be discarded and the font flagged.
+// TestDegradedObjectDiscardsUsageSuppressions verifies that a degraded object
+// discards the suppression of an unused non-embedded font, which PDFA1B
+// applies only when content usage is fully known. A degraded object makes the
+// usage sets a subset of the truth, so the font is flagged.
 func TestDegradedObjectDiscardsUsageSuppressions(t *testing.T) {
 	build := func() []byte {
 		b := pdfgen.NewBuilder("%PDF-1.4\n")
@@ -189,9 +189,9 @@ func TestDegradedObjectDiscardsUsageSuppressions(t *testing.T) {
 	}
 }
 
-// TestDegradedCatalogSurfacesPostStructural: when the catalog itself degrades,
-// verification bails at page-index construction -- but the bail must still
-// surface the per-object diagnostics instead of dropping them.
+// TestDegradedCatalogSurfacesPostStructural verifies that when the catalog
+// itself degrades, the per-object diagnostics still surface even though
+// verification bails at page-index construction.
 func TestDegradedCatalogSurfacesPostStructural(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	broken := bytes.Replace(intact, []byte("<< /Type /Catalog"), []byte("<< ]Type /Catalog"), 1)

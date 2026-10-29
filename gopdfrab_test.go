@@ -67,7 +67,8 @@ func TestRegistryPassthroughs(t *testing.T) {
 	}
 }
 
-// TestLevelQualifiedLookups: a clause names a check only within a level.
+// TestLevelQualifiedLookups verifies that a clause names a check only within a
+// level.
 func TestLevelQualifiedLookups(t *testing.T) {
 	c := Checks.Font.SimpleNotEmbedded
 	if clause, sub, ok := c.ClauseIn(A1B); !ok || clause != "6.3.4" || sub != 1 {

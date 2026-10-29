@@ -568,10 +568,10 @@ func buildType1FontHeaderRaw(header string) []byte {
 	return font
 }
 
-// TestType1LenIVZero: a program declaring /lenIV 0 pads its charstrings with
-// nothing, and it names the charstring operator "-|" rather than "RD". Reading
-// either the way the default prescribes left the program with no glyphs and no
-// widths, so 6.3.5 and 6.3.6 both went quiet on it.
+// TestType1LenIVZero verifies that a program declaring /lenIV 0 pads its
+// charstrings with nothing and names the charstring operator "-|" rather than
+// "RD". Reading either the way the default prescribes left the program with no
+// glyphs and no widths, so 6.3.5 and 6.3.6 both went quiet on it.
 func TestType1LenIVZero(t *testing.T) {
 	csCipher := encryptType1Pad([]byte{139, 248, 136, 13}, 4330, 0) // sbx=0 wx=500, hsbw
 
@@ -596,10 +596,11 @@ func TestType1LenIVZero(t *testing.T) {
 	}
 }
 
-// TestType1MetricsSkipsUnusedCodes: a /Widths entry for a code the document
-// never draws says nothing about what gets rendered, and the base encoding can
-// still put a real glyph name on it. Comparing it reported a mismatch on a
-// font whose drawn codes are all consistent.
+// TestType1MetricsSkipsUnusedCodes verifies that a /Widths entry for a code the
+// document never draws is not compared. It says nothing about what gets
+// rendered, and the base encoding can still put a real glyph name on it.
+// Comparing it reported a mismatch on a font whose drawn codes are all
+// consistent.
 func TestType1MetricsSkipsUnusedCodes(t *testing.T) {
 	ff := pdf.PDFDict{HasStream: true, RawStream: buildType1Font(), Entries: pdf.NewPDFDict().Entries}
 	v := pdf.NewPDFDict()
@@ -623,9 +624,9 @@ func TestType1MetricsSkipsUnusedCodes(t *testing.T) {
 	}
 }
 
-// TestType1MetricsMissingWidth: a shown code below FirstChar takes its width
-// from the descriptor's /MissingWidth, so it is compared there instead of
-// going unchecked.
+// TestType1MetricsMissingWidth verifies that a shown code below FirstChar takes
+// its width from the descriptor's /MissingWidth, so it is compared there
+// instead of going unchecked.
 func TestType1MetricsMissingWidth(t *testing.T) {
 	ff := pdf.PDFDict{HasStream: true, RawStream: buildType1Font(), Entries: pdf.NewPDFDict().Entries}
 	desc := pdf.NewPDFDict()
@@ -642,9 +643,10 @@ func TestType1MetricsMissingWidth(t *testing.T) {
 	}
 }
 
-// TestType1SubroutinizedWidth: a subroutinized program pushes the hsbw
-// operands and keeps hsbw itself in a subr, so a scan that gives up at
-// callsubr finds no width for the glyph and 6.3.6 never compares it.
+// TestType1SubroutinizedWidth verifies that the hsbw width is found in a
+// subroutinized program, which pushes the hsbw operands and keeps hsbw itself
+// in a subr. A scan that gives up at callsubr finds no width for the glyph,
+// and 6.3.6 never compares it.
 func TestType1SubroutinizedWidth(t *testing.T) {
 	subr := encryptType1([]byte{13, 11}, 4330) // hsbw, return
 	glyph := encryptType1([]byte{139, 248, 136, 255, 0, 0, 0, 7, 10, 14}, 4330)
@@ -2037,8 +2039,9 @@ func TestType1SubsetCoverageUsesBuiltinEncoding(t *testing.T) {
 	}
 }
 
-// TestType1SubsetCoverageMacRomanEncoding: /MacRomanEncoding resolves to its
-// Annex D glyph names instead of being skipped. Mac Roman 0x80 is /Adieresis.
+// TestType1SubsetCoverageMacRomanEncoding verifies that /MacRomanEncoding
+// resolves to its Annex D glyph names instead of being skipped. Mac Roman 0x80
+// is /Adieresis.
 func TestType1SubsetCoverageMacRomanEncoding(t *testing.T) {
 	v, desc := type1CoverageFixture(pdf.PDFString{Value: "/A"}, pdf.PDFName{Value: "MacRomanEncoding"})
 	ctx := &ValidationContext{Spec: a1bSpec}
