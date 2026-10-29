@@ -585,7 +585,7 @@ func TestType1LenIVZero(t *testing.T) {
 	font = append(font, []byte("%!PS-AdobeFont-1.0: Test\n/Encoding StandardEncoding def\ncurrentfile eexec\n")...)
 	font = append(font, encryptType1(binPlain, 55665)...)
 
-	if _, lenIV := fontprog.Type1CharStringsSection(font, fontprog.Type1EexecBinStart(font)); lenIV != 0 {
+	if lenIV := fontprog.Type1LenIV(fontprog.DecryptType1Block(font[fontprog.Type1EexecBinStart(font):], 55665)); lenIV != 0 {
 		t.Errorf("lenIV = %d, want 0", lenIV)
 	}
 	if names := fontprog.Type1GlyphNames(font); len(names) != 1 || names[0] != "A" {
@@ -769,11 +769,11 @@ func TestType1EexecRoundTrip(t *testing.T) {
 		t.Fatalf("Type1EexecBinStart = %d, want > 0", binStart)
 	}
 
-	cs, lenIV := fontprog.Type1CharStringsSection(font, binStart)
-	if cs == nil || !bytes.HasPrefix(cs, []byte("/CharStrings")) {
-		t.Fatalf("Type1CharStringsSection = %q", cs)
+	plain := fontprog.DecryptType1Block(font[binStart:], 55665)
+	if !bytes.Contains(plain, []byte("/CharStrings")) {
+		t.Fatalf("decrypted eexec section has no /CharStrings: %q", plain)
 	}
-	if lenIV != 4 {
+	if lenIV := fontprog.Type1LenIV(plain); lenIV != 4 {
 		t.Errorf("lenIV = %d, want the default 4", lenIV)
 	}
 

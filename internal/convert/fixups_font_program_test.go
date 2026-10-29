@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
@@ -923,7 +924,7 @@ func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 		if bytes.Equal(data, src) {
 			t.Fatalf("%s: the program was not rewritten", subtype)
 		}
-		if _, changed := fontprog.NormalizeCFFWidthDefaults(data); changed {
+		if _, changed := fontedit.NormalizeCFFWidthDefaults(data); changed {
 			t.Errorf("%s: the rewritten program still has a fractional width default", subtype)
 		}
 	}

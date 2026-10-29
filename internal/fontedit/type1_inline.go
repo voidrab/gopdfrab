@@ -1,8 +1,10 @@
-package fontprog
+package fontedit
 
 import (
 	"bytes"
 	"strconv"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // InlineType1WidthSubrs rewrites a Type 1 (FontFile) program so that every
@@ -24,17 +26,17 @@ func InlineType1WidthSubrs(font []byte, length1, length2 int) (out []byte, newLe
 	if binStart <= 0 || length2 < 4 || binEnd > len(font) || isHexEexec(font[binStart:]) {
 		return font, length2, false
 	}
-	plain := decryptType1(font[binStart:binEnd], 55665, 0)
+	plain := fontprog.DecryptType1(font[binStart:binEnd], 55665, 0)
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
 		return font, length2, false
 	}
-	lenIV := type1LenIV(plain[:csIdx])
-	subrs := type1SubrArray(plain[:csIdx], lenIV)
+	lenIV := fontprog.Type1LenIV(plain[:csIdx])
+	subrs := fontprog.Type1SubrArray(plain[:csIdx], lenIV)
 
 	var rebuilt []byte
 	copied := 0 // plain[:copied] is already in rebuilt
-	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(plain[csIdx:], -1) {
+	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(plain[csIdx:], -1) {
 		for k := range m {
 			m[k] += csIdx
 		}
@@ -42,7 +44,7 @@ func InlineType1WidthSubrs(font []byte, length1, length2 int) (out []byte, newLe
 		if err != nil || m[1]+n > len(plain) {
 			continue
 		}
-		cs := decryptType1(plain[m[1]:m[1]+n], 4330, 0)
+		cs := fontprog.DecryptType1(plain[m[1]:m[1]+n], 4330, 0)
 		if len(cs) < lenIV {
 			continue
 		}
@@ -84,7 +86,7 @@ func isHexEexec(b []byte) bool {
 // command is already a width command, the chain leads elsewhere, or a subr is
 // missing or nested too deeply.
 func inlineWidthSubr(cs []byte, subrs [][]byte) ([]byte, bool) {
-	for depth := 0; depth <= type1SubrDepth; depth++ {
+	for depth := 0; depth <= fontprog.Type1SubrDepth; depth++ {
 		i, last := 0, -1 // last: start of the final operand before the command
 		for i < len(cs) && (cs[i] >= 32 || cs[i] == 28) {
 			size := type1NumberSize(cs[i])

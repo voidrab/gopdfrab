@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -375,7 +376,7 @@ func TestTrueTypeCmapSubtableCountTinyCmap(t *testing.T) {
 // Liberation Sans, so any CID from 2 up has no glyph in it.
 func tinyTrueType(t *testing.T) []byte {
 	t.Helper()
-	data, err := fontprog.SubsetTrueType(fontsubst.LiberationSansRegular, []uint16{'A'})
+	data, err := fontedit.SubsetTrueType(fontsubst.LiberationSansRegular, []uint16{'A'})
 	if err != nil {
 		t.Fatalf("SubsetTrueType: %v", err)
 	}

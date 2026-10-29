@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -283,7 +284,7 @@ func substituteSimpleFont(d pdf.PDFDict, usedCodes map[uintptr]map[int]bool, sha
 	// face is a bundled Liberation face, which TestBundledFacesSupportSubsetting
 	// pins to parse and carry a (3,1) cmap: that is all SubsetTrueType can fail
 	// on, and its output is a packed sfnt that always parses.
-	subset, _ := fontprog.SubsetTrueType(face.Data, unicodes)
+	subset, _ := fontedit.SubsetTrueType(face.Data, unicodes)
 	tables, _ := fontprog.ParseSfnt(subset)
 	cmap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 
@@ -385,9 +386,9 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 		// Every candidate is a bundled face (see TestBundledFacesSupportSubsetting),
 		// so the subsetter cannot fail; its packed output parses and carries the
 		// format-4 (3,0) cmap it wrote.
-		s, _ := fontprog.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
+		s, _ := fontedit.SubsetTrueTypeSymbolic(cand.data, codeUnicode)
 		t, _ := fontprog.ParseSfnt(s)
-		_, _, gm, _ := fontprog.FirstFormat4CmapSubtable(t)
+		_, _, gm, _ := fontedit.FirstFormat4CmapSubtable(t)
 		if !symbolicSubsetCoversCodes(gm, codeUnicode) {
 			continue
 		}
@@ -753,7 +754,7 @@ func substituteCIDFont(type0, cid pdf.PDFDict, usedCIDs map[uintptr]map[int]bool
 
 	// faceData passed the cmap check above, the only thing the subsetter can
 	// fail on, and its packed output always parses.
-	subset, _ := fontprog.SubsetTrueTypeForCID(faceData, targetCIDs, notdef)
+	subset, _ := fontedit.SubsetTrueTypeForCID(faceData, targetCIDs, notdef)
 	tables, _ := fontprog.ParseSfnt(subset)
 
 	var widthPairs [][2]int
@@ -963,7 +964,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if n, ok := trueTypeCmapSubtableCount(data); !ok || n == 1 {
 		return false
 	}
-	trimmed, err := fontprog.TrimTrueTypeCmapToSingleSubtable(data)
+	trimmed, err := fontedit.TrimTrueTypeCmapToSingleSubtable(data)
 	if err != nil {
 		return false
 	}

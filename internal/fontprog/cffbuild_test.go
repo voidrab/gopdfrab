@@ -258,7 +258,7 @@ func (s cffSpec) assemble() []byte {
 
 // stdSID looks up a standard string's SID, for readable specs.
 func stdSID(name string) int {
-	for i, s := range cffStandardStrings {
+	for i, s := range CffStandardStrings {
 		if s == name {
 			return i
 		}

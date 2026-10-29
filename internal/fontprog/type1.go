@@ -12,19 +12,19 @@ import (
 // DecryptType1Block decrypts a Type1 font binary block using the given seed key.
 // It skips the first 4 bytes (random seed) and returns the plaintext.
 func DecryptType1Block(data []byte, seedKey uint16) []byte {
-	return decryptType1(data, seedKey, 4)
+	return DecryptType1(data, seedKey, 4)
 }
 
 // DecryptType1CharString decrypts one charstring, dropping the lenIV leading
 // random bytes the program declares (Type 1 spec 7.1). The count is the
 // program's own lenIV, including 0, so no bytes of the charstring are dropped.
 func DecryptType1CharString(data []byte, lenIV int) []byte {
-	return decryptType1(data, 4330, lenIV)
+	return DecryptType1(data, 4330, lenIV)
 }
 
-// decryptType1 runs the eexec cipher, discarding the first skip plaintext
+// DecryptType1 runs the eexec cipher, discarding the first skip plaintext
 // bytes.
-func decryptType1(data []byte, seedKey uint16, skip int) []byte {
+func DecryptType1(data []byte, seedKey uint16, skip int) []byte {
 	R := seedKey
 	out := make([]byte, 0, len(data))
 	for i, c := range data {
@@ -41,9 +41,9 @@ func decryptType1(data []byte, seedKey uint16, skip int) []byte {
 // prepended to every charstring.
 var type1LenIVRe = regexp.MustCompile(`/lenIV\s+(\d+)\s+def`)
 
-// type1LenIV reads /lenIV from a decrypted private section, defaulting to the
+// Type1LenIV reads /lenIV from a decrypted private section, defaulting to the
 // 4 the spec prescribes when the program declares none.
-func type1LenIV(plain []byte) int {
+func Type1LenIV(plain []byte) int {
 	m := type1LenIVRe.FindSubmatch(plain)
 	if m == nil {
 		return 4
@@ -109,7 +109,7 @@ func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, 
 			}
 			idx := (*stack)[n-1]
 			*stack = (*stack)[:n-1]
-			if depth >= type1SubrDepth || idx < 0 || idx >= len(subrs) {
+			if depth >= Type1SubrDepth || idx < 0 || idx >= len(subrs) {
 				return 0, false, true
 			}
 			w, found, stop = scanType1Width(subrs[idx], subrs, stack, depth+1)
@@ -144,23 +144,14 @@ func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, 
 	return 0, false, true
 }
 
-// type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
+// Type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
 // other in a cycle cannot spin.
-const type1SubrDepth = 10
+const Type1SubrDepth = 10
 
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 // The operator that introduces the charstring bytes is whatever the Private
 // dict named it, so both "RD" and "-|" are matched.
 var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
-
-// Type1CharStringsSection decrypts a Type1 program's eexec section and
-// returns the decrypted bytes starting at "/CharStrings", or nil if absent,
-// together with the /lenIV each charstring in it is padded with. binStart is
-// the byte offset of the first encrypted byte after "eexec".
-func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
-	section, lenIV, _ = type1Sections(fontData, binStart)
-	return section, lenIV
-}
 
 // type1SubrRe matches one entry of a decrypted Type1 Subrs array.
 var type1SubrRe = regexp.MustCompile(`dup (\d+) (\d+) (?:RD|-\|) `)
@@ -179,14 +170,14 @@ func type1Sections(fontData []byte, binStart int) (section []byte, lenIV int, su
 	}
 	// Both live in the Private dict, ahead of /CharStrings.
 	private := plain[:csIdx]
-	lenIV = type1LenIV(private)
-	return plain[csIdx:], lenIV, type1SubrArray(private, lenIV)
+	lenIV = Type1LenIV(private)
+	return plain[csIdx:], lenIV, Type1SubrArray(private, lenIV)
 }
 
-// type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
+// Type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
 // Numbers are as the program writes them, so a sparse or out-of-order array
 // leaves the gaps nil rather than shifting the rest.
-func type1SubrArray(private []byte, lenIV int) [][]byte {
+func Type1SubrArray(private []byte, lenIV int) [][]byte {
 	start := bytes.Index(private, []byte("/Subrs"))
 	if start < 0 {
 		return nil

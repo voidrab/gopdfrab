@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -387,9 +388,9 @@ func TestBundledFacesSupportSubsetting(t *testing.T) {
 			}
 
 			outputs := map[string]func() ([]byte, error){
-				"SubsetTrueType":         func() ([]byte, error) { return fontprog.SubsetTrueType(data, []uint16{'A'}) },
-				"SubsetTrueTypeSymbolic": func() ([]byte, error) { return fontprog.SubsetTrueTypeSymbolic(data, map[int]uint16{65: 'A'}) },
-				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontprog.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}, nil) },
+				"SubsetTrueType":         func() ([]byte, error) { return fontedit.SubsetTrueType(data, []uint16{'A'}) },
+				"SubsetTrueTypeSymbolic": func() ([]byte, error) { return fontedit.SubsetTrueTypeSymbolic(data, map[int]uint16{65: 'A'}) },
+				"SubsetTrueTypeForCID":   func() ([]byte, error) { return fontedit.SubsetTrueTypeForCID(data, map[uint16][]int{'A': {1}}, nil) },
 			}
 			for fn, run := range outputs {
 				out, err := run()
@@ -400,7 +401,7 @@ func TestBundledFacesSupportSubsetting(t *testing.T) {
 				if !ok {
 					t.Fatalf("%s output does not parse", fn)
 				}
-				if _, _, gm, ok := fontprog.FirstFormat4CmapSubtable(outTables); !ok || gm == nil {
+				if _, _, gm, ok := fontedit.FirstFormat4CmapSubtable(outTables); !ok || gm == nil {
 					t.Errorf("%s output has no format-4 cmap", fn)
 				}
 			}

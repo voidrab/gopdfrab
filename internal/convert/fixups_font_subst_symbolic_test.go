@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -40,7 +41,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if n, ok := trueTypeCmapSubtableCount(data); !ok || n != 1 {
 		t.Errorf("cmap subtable count = %d, want exactly 1", n)
 	}
-	platform, encID, gidMap, ok := fontprog.FirstFormat4CmapSubtable(tables)
+	platform, encID, gidMap, ok := fontedit.FirstFormat4CmapSubtable(tables)
 	if !ok {
 		t.Fatalf("no format-4 cmap subtable")
 	}

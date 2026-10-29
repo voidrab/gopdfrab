@@ -13,6 +13,10 @@
 // Output is CSV by default (path,size_bytes,nanos,valid,err) with a
 // "#summary" comment line at the end; pass -json for line-delimited JSON
 // instead. This mirrors the walk+Open+Verify pattern in main/main.go.
+//
+// It imports gopdfrab/verify, not gopdfrab, so it links no conversion code;
+// that makes it the reference verify-only program whose size the footprint
+// metric reports (scripts/run_footprint.sh).
 package main
 
 import (
@@ -31,7 +35,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/verify"
 )
 
 type fileResult struct {
@@ -183,11 +187,11 @@ func runOne(path string) fileResult {
 	}
 
 	start := time.Now()
-	doc, err := gopdfrab.Open(path)
+	doc, err := verify.Open(path)
 	if err != nil {
 		return fileResult{Path: path, Size: size, Nanos: time.Since(start).Nanoseconds(), Err: err.Error()}
 	}
-	res, err := doc.Verify(gopdfrab.PDFA1B)
+	res, err := doc.Verify(verify.PDFA1B)
 	elapsed := time.Since(start)
 	doc.Close()
 	if err != nil {

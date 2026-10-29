@@ -1,8 +1,10 @@
 //go:build js && wasm
 
-// Command wasm is a syscall/js thin wrapper around gopdfrab that exposes
-// VerifyBytes and ConvertBytes as awaitable JavaScript functions registered on
-// the global object.
+// Command wasm is the full browser build: a syscall/js thin wrapper around
+// gopdfrab that exposes VerifyBytes and ConvertBytes as awaitable JavaScript
+// functions registered on the global object. A host that only verifies should
+// load the smaller verify-only module in ./wasm/verify instead, and this one
+// only when it converts.
 //
 // Build with:
 //
@@ -11,79 +13,21 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"syscall/js"
 
 	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/wasm/internal/jsapi"
 )
 
-// checkGroups maps every registered check to the name of the gopdfrab.Checks
-// field it lives under ("Font", "Colour", …), so the UI can group issues the
-// same way the library's registry does. The library exposes no group accessor
-// and clause prefixes do not identify a group reliably, so the mapping is
-// recovered from the registry's own shape.
-var checkGroups = buildCheckGroups()
-
-func buildCheckGroups() map[gopdfrab.Check]string {
-	groups := make(map[gopdfrab.Check]string)
-	checkType := reflect.TypeOf(gopdfrab.Check{})
-
-	registry := reflect.ValueOf(gopdfrab.Checks)
-	for i := range registry.NumField() {
-		group := registry.Type().Field(i).Name
-		fields := registry.Field(i)
-		for j := range fields.NumField() {
-			if f := fields.Field(j); f.Type() == checkType {
-				groups[f.Interface().(gopdfrab.Check)] = group
-			}
-		}
-	}
-	return groups
-}
-
 func main() {
-	js.Global().Set("gopdfrabVerify", js.FuncOf(jsVerify))
+	js.Global().Set("gopdfrabVerify", js.FuncOf(jsapi.Verify))
 	js.Global().Set("gopdfrabConvert", js.FuncOf(jsConvert))
 
 	// Signal readiness to the worker host.
-	js.Global().Call("postMessage", map[string]any{"type": "ready"})
+	jsapi.Ready("convert")
 
 	// Block forever to keep the WASM instance alive.
 	select {}
-}
-
-// jsVerify implements:
-//
-//	gopdfrabVerify(bytes: Uint8Array) → Promise<{
-//	  valid: boolean,
-//	  summary: string,
-//	  profile: string,
-//	  issueCount: number,
-//	  doc: DocInfo,
-//	  issues: Issue[]
-//	}>
-//
-// See jsIssue for the Issue shape and jsDocInfo for DocInfo.
-func jsVerify(_ js.Value, args []js.Value) any {
-	return newPromise(func() (any, error) {
-		if len(args) < 1 {
-			return nil, fmt.Errorf("gopdfrabVerify: expected 1 argument")
-		}
-		data := copyBytes(args[0])
-		result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
-		if err != nil {
-			return nil, fmt.Errorf("verify: %w", err)
-		}
-
-		return map[string]any{
-			"valid":      result.Valid,
-			"summary":    result.Summary(),
-			"profile":    string(result.Type),
-			"issueCount": result.Count(),
-			"doc":        jsDocInfo(data),
-			"issues":     jsIssues(result.Issues),
-		}, nil
-	})
 }
 
 // jsConvert implements:
@@ -103,13 +47,14 @@ func jsVerify(_ js.Value, args []js.Value) any {
 //
 // The input is verified before conversion so the caller can be told which of
 // its original defects were resolved -- ConvertResult only reports what is
-// left over.
+// left over. jsapi.Issue and jsapi.DocInfo document the Issue and DocInfo
+// shapes.
 func jsConvert(_ js.Value, args []js.Value) any {
-	return newPromise(func() (any, error) {
+	return jsapi.NewPromise(func() (any, error) {
 		if len(args) < 1 {
 			return nil, fmt.Errorf("gopdfrabConvert: expected 1 argument")
 		}
-		data := copyBytes(args[0])
+		data := jsapi.CopyBytes(args[0])
 
 		// One parse serves both the document facts and the pre-conversion
 		// verify. A file too damaged to open still converts: Convert does its
@@ -152,7 +97,7 @@ func jsConvert(_ js.Value, args []js.Value) any {
 		for _, d := range cr.RasterDrops {
 			rasterDrops = append(rasterDrops, map[string]any{
 				"page":     d.Page,
-				"features": jsStrings(d.Features),
+				"features": jsapi.Strings(d.Features),
 			})
 		}
 
@@ -169,12 +114,12 @@ func jsConvert(_ js.Value, args []js.Value) any {
 			"valid":           cr.Result.Valid,
 			"iterations":      cr.Iterations,
 			"output":          jsOut,
-			"doc":             jsDocInfo(data),
-			"resolved":        jsIssues(resolved),
-			"residual":        jsIssues(residual),
-			"rasterizedPages": jsInts(cr.RasterizedPages),
+			"doc":             jsapi.DocInfo(data),
+			"resolved":        jsapi.Issues(resolved),
+			"residual":        jsapi.Issues(residual),
+			"rasterizedPages": jsapi.Ints(cr.RasterizedPages),
 			"rasterDrops":     rasterDrops,
-			"lostObjects":     jsIssues(cr.LostObjects),
+			"lostObjects":     jsapi.Issues(cr.LostObjects),
 		}
 		if beforeOK {
 			result["before"] = map[string]any{
@@ -184,121 +129,4 @@ func jsConvert(_ js.Value, args []js.Value) any {
 		}
 		return result, nil
 	})
-}
-
-// jsIssue converts one PDFError to:
-//
-//	{ clause, subclause, name, description, group, page, documentLevel, messages }
-func jsIssue(iss gopdfrab.PDFError) any {
-	c := iss.Check()
-	return map[string]any{
-		"clause":        c.Clause(),
-		"subclause":     c.Subclause(),
-		"name":          c.Name(),
-		"description":   c.Description(),
-		"group":         checkGroups[c],
-		"page":          iss.Page(),
-		"documentLevel": iss.IsDocumentLevel(),
-		"messages":      jsStrings(iss.Messages()),
-	}
-}
-
-func jsIssues(issues []gopdfrab.PDFError) []any {
-	out := make([]any, 0, len(issues))
-	for _, iss := range issues {
-		out = append(out, jsIssue(iss))
-	}
-	return out
-}
-
-// jsDocInfo reports what the file says about itself:
-//
-//	{ pageCount?, version?, claimedPart?, claimedLevel?, title?, author? }
-//
-// Every field is best-effort. A document that cannot be opened, or an accessor
-// that fails on a damaged file, omits its field rather than failing the call --
-// verification and conversion must still report on a file this cannot describe.
-func jsDocInfo(data []byte) any {
-	info := map[string]any{}
-
-	doc, err := gopdfrab.OpenBytes(data)
-	if err != nil {
-		return info
-	}
-	defer doc.Close()
-
-	if n, err := doc.PageCount(); err == nil {
-		info["pageCount"] = n
-	}
-	if v, err := doc.Version(); err == nil && v != "" {
-		info["version"] = v
-	}
-	if part, level, err := doc.ClaimedConformance(); err == nil && part != "" {
-		info["claimedPart"] = part
-		info["claimedLevel"] = level
-	}
-	if md, err := doc.Metadata(); err == nil {
-		if t := md["Title"]; t != "" {
-			info["title"] = t
-		}
-		if a := md["Author"]; a != "" {
-			info["author"] = a
-		}
-	}
-	return info
-}
-
-func jsStrings(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}
-
-func jsInts(ns []int) []any {
-	out := make([]any, len(ns))
-	for i, n := range ns {
-		out[i] = n
-	}
-	return out
-}
-
-// copyBytes copies a JS Uint8Array into a Go byte slice.
-func copyBytes(v js.Value) []byte {
-	buf := make([]byte, v.Length())
-	js.CopyBytesToGo(buf, v)
-	return buf
-}
-
-// newPromise wraps a synchronous Go function in a JS Promise, running it in a
-// goroutine so callers can await without blocking the event loop. Panics inside
-// fn are recovered and turned into rejections.
-func newPromise(fn func() (any, error)) js.Value {
-	promise, resolve, reject := makePromise()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				reject.Invoke(fmt.Sprintf("panic: %v", r))
-			}
-		}()
-		result, err := fn()
-		if err != nil {
-			reject.Invoke(err.Error())
-			return
-		}
-		resolve.Invoke(js.ValueOf(result))
-	}()
-	return promise
-}
-
-// makePromise returns a JS Promise together with its resolve/reject callbacks.
-func makePromise() (promise, resolve, reject js.Value) {
-	var resolveFn, rejectFn js.Value
-	promise = js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, args []js.Value) any {
-		resolveFn = args[0]
-		rejectFn = args[1]
-		return nil
-	}))
-	return promise, resolveFn, rejectFn
 }
