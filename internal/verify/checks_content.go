@@ -2,7 +2,6 @@ package verify
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -88,12 +87,12 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 		for _, operand := range operands {
 			checkOperandLimits(operand, obj, ctx)
 		}
-		// 6.1.12: maximum nesting depth of q/Q operators is 28.
+		// 6.1.12: q/Q operators nest no deeper than the level's limit.
 		switch op {
 		case "q":
 			qDepth++
-			if qDepth > 28 {
-				ctx.Report(pdf.Checks.Structure.GraphicsStateNesting, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+			if limit := ctx.Spec.Limits.MaxQNesting; overLimit(qDepth, limit) {
+				ctx.Report(pdf.Checks.Structure.GraphicsStateNesting, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of %d", qDepth, limit))
 			}
 		case "Q":
 			if qDepth > 0 {
@@ -123,7 +122,7 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 			colourSet = true
 		case "ri":
 			if len(operands) > 0 {
-				if name, ok := operands[len(operands)-1].(pdf.PDFName); ok && !AllowedIntents[name.Value] {
+				if name, ok := operands[len(operands)-1].(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
 					ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("undefined rendering intent /%s", name.Value))
 				}
 			}
@@ -149,16 +148,16 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationContext) {
 	switch v := operand.(type) {
 	case pdf.PDFInteger:
-		if v > 2147483647 || v < -2147483648 {
+		if integerOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", v))
 		}
 	case pdf.PDFReal:
-		if math.Abs(float64(v)) > 32767 {
+		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
-		if len(v.Value) > 65535 {
-			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFHexString:
 		// 6.1.6: hex string operands must be valid hex digits, even count.
@@ -243,7 +242,7 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 				ctx.Report(pdf.Checks.Image.ImageInterpolate, obj, "inline image Interpolate shall not be true")
 			}
 		case "Intent":
-			if name, ok := val.(pdf.PDFName); ok && !AllowedIntents[name.Value] {
+			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
 				ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}

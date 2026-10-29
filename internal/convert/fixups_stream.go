@@ -164,9 +164,10 @@ func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) 
 	return changed, nil
 }
 
-// walkStreamDicts calls fix for every pdf.PDFDict found within v's dictionary entries or array elements,
-// using cycle protection. Unlike walkDicts, it writes modified dictionaries back to the parent structure
-// so that changes to stream fields take effect.
+// walkStreamDicts calls fix for every pdf.PDFDict found within v's dictionary
+// entries or array elements, using cycle protection. Unlike walkDicts, it
+// writes modified dictionaries back to the parent structure so that changes to
+// stream fields take effect.
 func walkStreamDicts(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFDict) (pdf.PDFDict, bool)) {
 	walkGraph(v, visited, nil, func(child pdf.PDFValue) (pdf.PDFValue, bool) {
 		if cd, ok := child.(pdf.PDFDict); ok {

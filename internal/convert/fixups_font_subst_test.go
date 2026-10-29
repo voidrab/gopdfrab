@@ -14,8 +14,8 @@ import (
 
 // TestFontSubstitutionFixerHandlesStandardType1 verifies that a standard
 // Type1 font (like Helvetica in AcroForm/DR) without a FontDescriptor gets
-// a Liberation substitute embedded -- previously the fixer returned false
-// because FontDescriptor was absent.
+// a Liberation substitute embedded. An absent FontDescriptor must not make the
+// fixer report no change.
 func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
@@ -33,7 +33,7 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -61,9 +61,8 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 // standard Type1 font with no FontDescriptor whose declared Widths are all
 // zero, so substituteSimpleFont bails (no characters actually need glyphs)
 // before writing anything. The fixer must not leave behind the scratch
-// FontDescriptor it created to attempt substitution -- doing so previously
-// planted an all-fields-missing descriptor where the PDF legitimately had
-// none.
+// FontDescriptor it created to attempt substitution, because a descriptor with
+// every field missing would be added where the PDF legitimately has none.
 func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
@@ -82,7 +81,7 @@ func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testi
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"AcroForm": acroForm})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -107,7 +106,7 @@ func TestFontSubstitutionFixerIdempotentAfterStandardType1(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})})
 
-	fixer := fontSubstitutionFixer{}
+	fixer := fontSubstitutionFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("first Fix: %v", err)
 	}

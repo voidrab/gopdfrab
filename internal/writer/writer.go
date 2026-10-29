@@ -18,9 +18,8 @@ import (
 )
 
 // WritePDF serializes r's resolved object graph to w as a fresh PDF with a
-// classic cross-reference table. See WriteDocument. (Named WritePDF rather
-// than WriteTo since the latter is a reserved io.WriterTo method signature
-// with a different return type.)
+// classic cross-reference table. See WriteDocument. The name avoids WriteTo,
+// which is reserved for the io.WriterTo method with a different signature.
 func WritePDF(r *pdf.Reader, w io.Writer) error {
 	graph, err := r.ResolveGraph()
 	if err != nil {
@@ -263,12 +262,10 @@ type pdfWriter struct {
 }
 
 // newPDFWriter builds a writer whose index maps are sized for a graph of
-// about hint indirect objects. Sizing matters more than it looks: growing
-// these maps from empty over tens of thousands of objects leaves the discarded
-// bucket arrays on the heap until the next GC, and on a 40,000-object document
-// that scratch is larger than the index it produces. A hint that is somewhat
-// too large costs a few spare buckets; a hint of zero just means "start small"
-// and behaves as before.
+// about hint indirect objects. Growing these maps from empty over tens of
+// thousands of objects leaves the discarded bucket arrays on the heap until
+// the next GC, so the maps are sized up front. A hint that is somewhat too
+// large costs a few spare buckets; a hint of zero means start small.
 func newPDFWriter(hint int) *pdfWriter {
 	if hint < 0 {
 		hint = 0
@@ -498,11 +495,12 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 	}
 }
 
-// writeScalar serializes a pdf.PDFName/pdf.PDFString/pdf.PDFHexString/pdf.PDFInteger/
-// pdf.PDFReal/pdf.PDFBoolean -- the value kinds with no indirect-object semantics,
-// shared between writeValue (the full-document writer) and writeOperand
-// (the content-stream writer, content_writer.go). ok is false for any other
-// type, letting each caller apply its own array/dict/nil handling.
+// writeScalar serializes a pdf.PDFName, pdf.PDFString, pdf.PDFHexString,
+// pdf.PDFInteger, pdf.PDFReal or pdf.PDFBoolean. These kinds have no
+// indirect-object semantics, so writeValue (the full-document writer) and
+// writeOperand (the content-stream writer, content_writer.go) share it. ok is
+// false for any other type, letting each caller apply its own array/dict/nil
+// handling.
 func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 	switch val := v.(type) {
 	case pdf.PDFName:
@@ -551,7 +549,7 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 // writeNameBody writes a name's characters after the '/'. A Value from the
 // lexer is already a valid raw token (any #XX escapes kept as written) and
 // passes through unchanged. A name built in code may hold bytes that would end
-// the token -- whitespace or a delimiter -- and those are written as #XX so
+// the token (whitespace or a delimiter), and those are written as #XX so
 // the name cannot spill into the token stream. '#' itself is left alone, since
 // Value keeps the source's escapes raw.
 func writeNameBody(w io.Writer, name string) error {
@@ -583,7 +581,7 @@ func nameNeedsEscape(c byte) bool {
 
 // writeOperand serializes a content-stream operand: any value writeScalar
 // handles, plus arrays and inline dictionaries (e.g. a BI inline-image
-// parameter dict, or a BDC property list) -- operands are never indirect
+// parameter dict, or a BDC property list). Operands are never indirect
 // references, so unlike writeValue this never consults isIndirectDict.
 func writeOperand(w io.Writer, v pdf.PDFValue) error {
 	if ok, err := writeScalar(w, v); ok {

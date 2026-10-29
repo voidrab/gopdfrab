@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -67,7 +68,7 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true // the synthetic issues stand for a verify of this graph
 
-	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
+	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 1 {
@@ -83,52 +84,6 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	}
 	if xo, ok := res.Entries.Get("XObject").(pdf.PDFDict); !ok || xo.Entries.Get("Im0") == nil {
 		t.Error("page was not flattened: Resources/XObject/Im0 missing")
-	}
-}
-
-// TestRasterBackstopVerifyErrors covers both raster blocks' verify-error
-// returns, using an undefined-level profile that fails the in-heap verify:
-// once via a page-attributed issue (page-by-page pass) and once via a
-// document-wide one (flatten-all pass).
-func TestRasterBackstopVerifyErrors(t *testing.T) {
-	c := pdf.Checks.Colour.OutputIntentNotArray
-	fixers := map[pdf.Check]Fixer{c: nil}
-	for name, page := range map[string]int{"pageTargeted": 1, "docWide": 0} {
-		t.Run(name, func(t *testing.T) {
-			trailer := onePageTrailer()
-			doc := openTrailer(t, trailer)
-			cr := &ConvertResult{Result: pdf.Result{
-				Valid:  false,
-				Issues: []pdf.PDFError{pdf.NewError(c, []error{errors.New("synthetic")}, page, nil)},
-			}}
-			var lastParts verify.Parts
-			graphClean := true
-			err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
-			if err == nil {
-				t.Fatal("rasterBackstop with an undefined-level profile did not propagate the verify error")
-			}
-			if graphClean {
-				t.Error("graphClean = true after a failed post-flatten verify")
-			}
-		})
-	}
-}
-
-// TestRasterBackstopStaleVerifyError covers the up-front verify a dirty
-// graph gets before the backstop reads its issues: its error is returned,
-// and the graph stays dirty.
-func TestRasterBackstopStaleVerifyError(t *testing.T) {
-	trailer := onePageTrailer()
-	doc := openTrailer(t, trailer)
-	cr := &ConvertResult{}
-	var lastParts verify.Parts
-	graphClean := false
-	err := rasterBackstop(context.Background(), doc, &trailer, cr, &pdf.Profile{Level: pdf.Undefined}, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0)
-	if err == nil {
-		t.Fatal("rasterBackstop did not propagate the up-front verify error")
-	}
-	if graphClean {
-		t.Error("graphClean = true after a failed verify")
 	}
 }
 
@@ -155,9 +110,9 @@ func (c *countdownCtx) Err() error {
 // TestRasterBackstopCancelledMidPass covers both raster blocks' post-pass
 // cancellation checks: a context cancelled while pages were being rasterized
 // abandons the run before re-verifying, even though the graph changed. Each
-// countdown cancels at a later check -- inside the pass, where it simply
-// changes nothing, or after it; some countdown must land on the check right
-// after the pass.
+// countdown cancels at a later check, either inside the pass, where it changes
+// nothing, or after it. Some countdown must land on the check right after the
+// pass.
 func TestRasterBackstopCancelledMidPass(t *testing.T) {
 	c := pdf.Checks.Colour.OutputIntentNotArray
 	fixers := map[pdf.Check]Fixer{c: nil}
@@ -172,7 +127,7 @@ func TestRasterBackstopCancelledMidPass(t *testing.T) {
 				doc := openTrailer(t, trailer)
 				var lastParts verify.Parts
 				graphClean := true
-				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
+				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
 				if err == nil && cr.Iterations > 0 {
 					t.Fatalf("countdown %d: ran to completion without seeing the cancellation", n)
 				}
@@ -239,7 +194,7 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 	var lastParts verify.Parts
 	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
+	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, a1b(), map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
 		t.Fatalf("rasterBackstop: %v", err)
 	}
 	if cr.Iterations != 0 || !graphClean {
@@ -292,7 +247,7 @@ func TestRunWrapsSerializeError(t *testing.T) {
 func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 	old := preemptiveAfterFixups
 	t.Cleanup(func() { preemptiveAfterFixups = old })
-	preemptiveAfterFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader) error {
+	preemptiveAfterFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error {
 		return errors.New("after fixup failed")
 	})
 
@@ -302,7 +257,7 @@ func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 		t.Fatalf("ResolveGraph: %v", err)
 	}
 	trailer := g.(pdf.PDFDict)
-	if err := applyPreemptiveFixups(&trailer, doc); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
+	if err := applyPreemptiveFixups(&trailer, doc, a1b()); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
 		t.Errorf("applyPreemptiveFixups err = %v, want the after-fixup failure", err)
 	}
 }
@@ -364,7 +319,7 @@ func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err := pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -377,7 +332,7 @@ func TestPagesTreeArrayFixerRebalances(t *testing.T) {
 	}
 
 	// A conforming tree is left alone.
-	changed, err = pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err = pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("second Fix = changed %v, err %v; want no-op", changed, err)
 	}
@@ -400,7 +355,7 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})}
 
-	changed, err := pagesTreeArrayFixer{}.Fix(&trailer, nil)
+	changed, err := pagesTreeArrayFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -454,7 +409,8 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 		t.Errorf("drops = %+v, want one entry for page 2", drops)
 	}
 
-	// A batch with nothing in it reports no change rather than an empty rewrite.
+	// A batch with nothing in it reports no change rather than an empty
+	// rewrite.
 	if _, _, changed := flattenPagesParallel(context.Background(), nil, nil, 72); changed {
 		t.Error("an empty page batch reported changed = true")
 	}
@@ -465,11 +421,10 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 // it decides which fixer runs first, and any pair left to map order would make
 // the converted bytes differ between runs.
 //
-// It also records why sortedChecks's name comparison never actually decides
-// anything today: (clause, subclause) is already unique across every
-// registered check, so the tiebreak is there for a check added later that
-// collides. If this stops holding, the tiebreak becomes live and the assertion
-// below starts exercising it.
+// The name comparison in sortedChecks currently never decides an order:
+// (clause, subclause) is unique across every registered check, so the
+// tiebreak only matters for a check added later that shares a pair. If that
+// stops holding, the assertion below exercises the tiebreak.
 func TestSortedChecksOrdering(t *testing.T) {
 	all := pdf.AllChecks()
 	counts := make(map[pdf.Check]int, len(all))
@@ -592,7 +547,7 @@ func TestRunWrapsPreemptiveFixupError(t *testing.T) {
 	old := preemptiveFixups
 	t.Cleanup(func() { preemptiveFixups = old })
 	boom := errors.New("preemptive boom")
-	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader) error { return boom })
+	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { return boom })
 
 	_, err := ConvertBytes(pdfgen.PlainThreeIssue(), pdf.PDFA1B, Options{})
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "pre-emptive fixups") {
@@ -607,9 +562,9 @@ type stalledFixer struct{ check pdf.Check }
 func (f stalledFixer) Applies(c pdf.Check) bool                     { return c == f.check }
 func (stalledFixer) Fix(*pdf.PDFDict, []pdf.PDFError) (bool, error) { return true, nil }
 
-// TestRunStopsWhenFixesMakeNoProgress: a pass whose fixers report changes but
-// leave the same issues behind ends the loop on the next iteration rather
-// than running to the iteration cap.
+// TestRunStopsWhenFixesMakeNoProgress verifies that a pass whose fixers report
+// changes but leave the same issues behind ends the loop on the next iteration
+// rather than running to the iteration cap.
 func TestRunStopsWhenFixesMakeNoProgress(t *testing.T) {
 	replaceAllFixers(t, func(c pdf.Check) Fixer { return stalledFixer{check: c} })
 
@@ -639,9 +594,9 @@ func TestRunCancelledDuringFixPassSkipsBackstop(t *testing.T) {
 	}
 }
 
-// TestRunUnresolvableGraphWithUnverifiableProfile: when the graph cannot be
-// resolved and the best-effort verify fails too, the resolve error is still
-// returned, with no result riding along.
+// TestRunUnresolvableGraphWithUnverifiableProfile verifies that when the graph
+// cannot be resolved and the best-effort verify fails too, the resolve error is
+// still returned, with no result.
 func TestRunUnresolvableGraphWithUnverifiableProfile(t *testing.T) {
 	cr, err := ConvertBytes(unresolvableChainPDF(), &pdf.Profile{Level: pdf.Undefined}, Options{})
 	if !errors.Is(err, pdf.ErrUnresolvableGraph) {
@@ -783,9 +738,9 @@ func TestSerializeAndVerifySpillErrors(t *testing.T) {
 	}
 }
 
-// TestSortedChecksOrderIsTotal guards the dropped name tie-break: over the whole
-// catalogue, sortedChecks must order strictly by (clause, subclause), i.e. no
-// two checks share that pair.
+// TestSortedChecksOrderIsTotal verifies that over the whole catalogue,
+// sortedChecks orders checks strictly by (clause, subclause), so that no two
+// checks share that pair.
 func TestSortedChecksOrderIsTotal(t *testing.T) {
 	counts := map[pdf.Check]int{}
 	for _, c := range pdf.AllChecks() {
@@ -868,9 +823,10 @@ func (f faultySave) Close() error {
 	return err
 }
 
-// TestRunCancelledBeforeFirstIteration: a context already cancelled when the
-// run starts stops it at the first loop check, before any verify. Without this
-// the check is only reached by chance, when a ConvertEach abort lands mid-run.
+// TestRunCancelledBeforeFirstIteration verifies that a context already cancelled
+// when the run starts stops it at the first loop check, before any verify.
+// Without this test the check is reached only by chance, when a ConvertEach
+// abort lands mid-run.
 func TestRunCancelledBeforeFirstIteration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -58,8 +58,8 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errBoom }
 
 // TestWriteDocumentIndexedWriteFailures fails the destination the first time
 // the 64 KiB output buffer flushes. Growing a leading stream object moves that
-// first flush through every later stage of the document -- the object bodies,
-// the xref header and entries, the trailer, and the startxref tail -- so each
+// first flush through every later stage of the document (the object bodies,
+// the xref header and entries, the trailer, and the startxref tail), so each
 // stage's error return is exercised, and the error always surfaces.
 func TestWriteDocumentIndexedWriteFailures(t *testing.T) {
 	build := func(pad int) pdf.PDFDict {

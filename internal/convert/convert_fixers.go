@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // Fixer attempts to remediate a specific set of violations across the entire document graph idempotently.
@@ -20,25 +21,51 @@ type Fixer interface {
 // batchDictFixer is an optional capability for a Fixer whose remediation is a
 // pure per-dict-local edit driven by a single walkDicts. Implementing it lets
 // the convert loop run every such fixer in one shared graph walk per pass
-// instead of one walk each. prepare runs any document-level setup once
-// (recording edits via changed) and returns a per-dict visitor, or ok=false
-// to do nothing this pass; the visitor likewise records edits via changed.
+// instead of one walk each. prepare is handed the pass's issues for every
+// check the fixer covers, runs any document-level setup once (recording edits
+// via changed) and returns a per-dict visitor, or ok=false to do nothing this
+// pass; the visitor likewise records edits via changed.
 type batchDictFixer interface {
 	Fixer
-	prepare(trailer *pdf.PDFDict, changed *bool) (visit func(d pdf.PDFDict), ok bool)
+	prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (visit func(d pdf.PDFDict), ok bool)
 }
 
 // runDictVisitor drives a batchDictFixer's prepare + visitor over the whole
 // graph in one walk -- the standalone equivalent of the batched dispatch, used
 // by each such fixer's Fix so it still works when invoked on its own.
-func runDictVisitor(trailer *pdf.PDFDict, prepare func(*pdf.PDFDict, *bool) (func(pdf.PDFDict), bool)) (bool, error) {
+func runDictVisitor(trailer *pdf.PDFDict, issues []pdf.PDFError, prepare func(*pdf.PDFDict, []pdf.PDFError, *bool) (func(pdf.PDFDict), bool)) (bool, error) {
 	changed := false
-	visit, ok := prepare(trailer, &changed)
+	visit, ok := prepare(trailer, issues, &changed)
 	if !ok {
 		return false, nil
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, visit)
 	return changed, nil
+}
+
+// reportedChecks is the set of checks issues were reported under: for a
+// fixer covering several checks, the rules it was asked to repair.
+func reportedChecks(issues []pdf.PDFError) map[pdf.Check]bool {
+	reported := make(map[pdf.Check]bool, len(issues))
+	for _, iss := range issues {
+		reported[iss.Check()] = true
+	}
+	return reported
+}
+
+// leadsItsClause is implemented by a Fixer that may need to run before the
+// other fixers of its clause. dispatchFixers orders it first within the clause
+// when its leadsItsClause method returns true.
+type leadsItsClause interface {
+	Fixer
+	leadsItsClause() bool
+}
+
+// levelBound is a Fixer whose repairs follow a conformance level's rules. Its
+// registered instance holds no spec; buildLocalFixers binds the run's.
+type levelBound interface {
+	Fixer
+	withSpec(spec *pdfa.Spec) Fixer
 }
 
 var fixerRegistry = map[pdf.Check]Fixer{}
@@ -56,39 +83,39 @@ func registerFixer(f Fixer) {
 	}
 }
 
-var preemptiveFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
+var preemptiveFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error
 
-func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
+func registerPreemptiveFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error) {
 	preemptiveFixups = append(preemptiveFixups, f)
 }
 
 // preemptiveVisitors holds pre-emptive fixups expressed as per-dict visitors.
 // applyPreemptiveFixups drives all of them over the graph in one shared walk
 // instead of one full walk each; a prepare returning nil opts out of the pass.
-var preemptiveVisitors []func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)
+var preemptiveVisitors []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict)
 
-func registerPreemptiveVisitor(f func(trailer *pdf.PDFDict, doc *pdf.Reader) func(pdf.PDFDict)) {
+func registerPreemptiveVisitor(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict)) {
 	preemptiveVisitors = append(preemptiveVisitors, f)
 }
 
 // preemptiveAfterFixups run after the shared visitor walk, for fixups that
 // must observe the visitors' edits (e.g. dropOversizedStructure must not see
 // Kids arrays the rebalance visitor is able to split).
-var preemptiveAfterFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader) error
+var preemptiveAfterFixups []func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error
 
-func registerPreemptiveAfterFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader) error) {
+func registerPreemptiveAfterFixup(f func(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error) {
 	preemptiveAfterFixups = append(preemptiveAfterFixups, f)
 }
 
-func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) error {
 	for _, f := range preemptiveFixups {
-		if err := f(trailer, doc); err != nil {
+		if err := f(trailer, doc, spec); err != nil {
 			return err
 		}
 	}
 	var visitors []func(pdf.PDFDict)
 	for _, prepare := range preemptiveVisitors {
-		if visit := prepare(trailer, doc); visit != nil {
+		if visit := prepare(trailer, doc, spec); visit != nil {
 			visitors = append(visitors, visit)
 		}
 	}
@@ -100,7 +127,7 @@ func applyPreemptiveFixups(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 		})
 	}
 	for _, f := range preemptiveAfterFixups {
-		if err := f(trailer, doc); err != nil {
+		if err := f(trailer, doc, spec); err != nil {
 			return err
 		}
 	}

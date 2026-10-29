@@ -12,8 +12,7 @@ import (
 // command itself: the called subr's body, less its return, replaces the
 // "idx callsubr" that invoked it. Execution is unchanged -- a Type 1 subr runs
 // on the caller's operand stack, in place -- but a reader that reads a glyph's
-// width without following callsubr, as veraPDF does for 6.3.5/6.3.6, now finds
-// it.
+// width without following callsubr, as veraPDF does for 6.3.5/6.3.6, finds it.
 //
 // length1 and length2 are the FontFile stream's /Length1 and /Length2: the
 // clear-text part and the binary eexec part. The result keeps the clear text

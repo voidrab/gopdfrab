@@ -52,7 +52,7 @@ func TestDecodeLZWRoundTrips(t *testing.T) {
 }
 
 // TestLZWStreamFixerAppliesOnlyToStreamLZWFilter mirrors
-// TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
+// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter verifies that the fixer claims
 // exactly its one Check, since registerFixer panics on overlap.
 func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 	fixer := lzwStreamFixer{}

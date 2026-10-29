@@ -145,7 +145,7 @@ func SubsetTrueTypeSymbolic(src []byte, codeUnicode map[int]uint16) ([]byte, err
 }
 
 // SubsetTrueTypeForCID rebuilds src so that the glyph for each unicode in
-// targetGID lands at EXACTLY its given output glyph ID, rather than an
+// targetGID lands at exactly its given output glyph ID, rather than an
 // auto-assigned dense one -- required because the verifier's CID TrueType
 // checks (validateCIDTrueTypeSubset/Metrics, checks_font_program.go) look up
 // a CID directly as a glyph ID, with no /CIDToGIDMap indirection, so a

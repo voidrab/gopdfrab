@@ -6,7 +6,18 @@ import (
 	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
+
+// a1b returns a fresh copy of PDF/A-1b's spec, for a test to run checks by or
+// to change one rule of.
+func a1b() pdfa.Spec {
+	s, _ := pdfa.For(pdf.A1B)
+	return s
+}
+
+// a1bSpec is PDF/A-1b's spec for test contexts that only read it.
+var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
 
 // hasCheck reports whether ctx recorded a violation of c.
 func hasCheck(ctx *ValidationContext, c pdf.Check) bool {

@@ -112,7 +112,7 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, &ref)
 
-	changed, handled, err := appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := appearanceFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -129,14 +129,14 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	// A ref-less issue in the batch must force the full-walk fallback, which
 	// then fixes the remaining widget too.
 	noRef := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, nil)
-	_, handled, err = appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{noRef})
+	_, handled, err = appearanceFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{noRef})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true with a ref-less issue, want fallback")
 	}
-	if _, err := (appearanceFixer{}).Fix(&trailer, nil); err != nil {
+	if _, err := (appearanceFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix fallback: %v", err)
 	}
 	if _, ok := other.Entries.Get("AP").(pdf.PDFDict); !ok {
@@ -176,7 +176,7 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref)
 
-	changed, handled, err := cmapCIDClampFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := cmapCIDClampFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestContentLimitsFixerTargetsIssueRefs(t *testing.T) {
 	pass, issues, done := targetedFixture(t, path, pdf.Checks.Colour.UndefinedOperator)
 	defer done()
 
-	runTargetedAndCheckIdempotent(t, contentLimitsFixer{}, pass, issues)
+	runTargetedAndCheckIdempotent(t, contentLimitsFixer{spec: a1bSpec}, pass, issues)
 	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Colour.UndefinedOperator)
 }
 
@@ -231,9 +231,12 @@ func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
 	ref := plain.Entries.Get(pdf.RefKey).(pdf.PDFRef)
-	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
+	issues := []pdf.PDFError{
+		pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref),
+		pdf.NewError(pdf.Checks.Structure.RealOutOfRange, nil, 0, &ref),
+	}
 
-	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, issues)
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -277,7 +280,7 @@ func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) 
 	ref := img.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
 
-	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -311,7 +314,7 @@ func TestNameTooLongFixerTargetsValueFlavour(t *testing.T) {
 	ref := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -348,7 +351,7 @@ func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
 	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}

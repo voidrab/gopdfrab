@@ -43,7 +43,7 @@ func TestTextPaintsAndPositions(t *testing.T) {
 		t.Fatal("a shown glyph left no ink")
 	}
 
-	// Ts raises the baseline, which is toward smaller device y.
+	// The Ts operator raises the baseline, which is toward smaller device y.
 	_, _, _, _, raisedMaxY := text(t, "/F1 12 Tf 5 5 Td 10 Ts (H) Tj")
 	if got := baseMaxY - raisedMaxY; got < 9 || got > 11 {
 		t.Errorf("10 Ts moved the glyph up by %d pixels, want about 10", got)
@@ -58,7 +58,8 @@ func TestTextPaintsAndPositions(t *testing.T) {
 }
 
 func TestTextWordSpacingAppliesToSpaceOnly(t *testing.T) {
-	// "H H" ends on the second H, so it shifts right by Tw; "HH" has no space.
+	// "H H" ends on the second H, so it shifts right by the word spacing (Tw);
+	// "HH" has no space.
 	_, _, _, plain, _ := text(t, "/F1 10 Tf 5 5 Td (H H) Tj")
 	_, _, _, spaced, _ := text(t, "/F1 10 Tf 5 5 Td 6 Tw (H H) Tj")
 	if got := spaced - plain; got < 5 || got > 7 {

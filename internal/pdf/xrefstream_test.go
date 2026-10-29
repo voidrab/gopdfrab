@@ -34,10 +34,9 @@ func issueClauses(issues []pdf.PDFError) []string {
 // pdfBuilder assembles a minimal hand-crafted PDF byte-for-byte, tracking the
 // byte offset of each indirect object as it is written, so a cross-reference
 // stream's /W-encoded offsets can be computed exactly like a real writer
-// would. Used to construct synthetic fixtures exercising the xref-stream and
-// object-stream (ObjStm) read paths added in xrefstream.go/objstm.go, which
-// the real-world Isartor/veraPDF corpora (PDF/A-1-only, hence classic xref
-// only) never exercise.
+// would. It builds synthetic fixtures for the cross-reference stream and
+// object stream (ObjStm) read paths, which PDF/A-1 files never exercise
+// because they use classic xref tables only.
 type pdfBuilder struct {
 	buf     bytes.Buffer
 	offsets map[int]int64
@@ -110,8 +109,8 @@ func writeTempPDF(t *testing.T, name string, data []byte) string {
 // buildXRefStreamOnlyPDF builds a one-page PDF whose objects 1-4 are all
 // classically stored, but whose cross-reference table is a PDF 1.5+
 // cross-reference stream (object 5, self-referential) instead of a classic
-// "xref" table, with no literal "trailer" keyword anywhere in the file --
-// the shape that previously only worked via brute-force recovery.
+// "xref" table, with no literal "trailer" keyword anywhere in the file. The
+// cross-reference stream read path must handle this shape on its own.
 func buildXRefStreamOnlyPDF(t *testing.T) []byte {
 	t.Helper()
 	b := newPDFBuilder("%PDF-1.5\n%\xc2\xb5\xc2\xb6\n")

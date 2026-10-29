@@ -333,13 +333,13 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 // keeps `loca` and `numGlyphs` at their original size and simply empties the
 // entries it dropped, so glyphs with outline data include composite components
 // and whatever else the subsetter chose to retain -- none of which the document
-// renders, and none of which a producer puts in CIDSet. Requiring those made
-// gopdfrab reject real PDF/A that veraPDF accepts: one arXiv paper's font had
-// 3065 glyph slots, 64 outlines and 26 CIDs in its CIDSet, all consistent.
+// renders, and none of which a producer puts in CIDSet. Requiring those would
+// reject conformant files. One such font had 3065 glyph slots, 64 outlines and
+// 26 CIDs in its CIDSet, all consistent.
 //
 // When usage is unknown (an undecodable content stream, a degraded object) the
 // check does not run at all rather than falling back to the glyph table, on the
-// item-1 rule that an incomplete usage set must not drive a report.
+// rule that an incomplete usage set must not drive a report.
 func validateCIDSetTrueType(obj pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
 	if !ok || !cidSet.HasStream {
@@ -550,13 +550,13 @@ func ValidateSimpleTrueTypeSubset(obj pdf.PDFValue, ff pdf.PDFDict, firstChar, l
 		// has a viewer try the (1,0) Macintosh cmap next, and subsetters
 		// prune (3,1) entries for characters the document does not use
 		// while leaving (1,0) intact -- so treating a miss as definitive
-		// rejected real PDF/A (Word-produced subsets in an arXiv paper)
-		// whose glyphs resolve perfectly well through (1,0).
+		// rejects conformant files whose glyphs resolve through (1,0).
 		//
 		// If no cmap maps the code, whatever the font's flags say, the
 		// viewer has nothing left to resolve it with and renders .notdef.
-		// Skipping the symbolic case here meant a code shown from a symbolic
-		// subset whose cmaps do not carry it went unreported.
+		// The symbolic case must therefore not be skipped here, or a code
+		// shown from a symbolic subset whose cmaps do not carry it goes
+		// unreported.
 		gid, _ := r.Fallback(cc)
 		return gid
 	}
@@ -685,7 +685,7 @@ func fontProgramValid(ctx *ValidationContext, stream pdf.PDFDict, key string) bo
 }
 
 // ValidateFontProgram flags a damaged embedded font program (6.3.2) and an
-// embedded font file in a format PDF 1.4 does not define (6.3.2).
+// embedded font file of a /Subtype the level does not allow (6.3.2).
 func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *ValidationContext) {
 	for _, key := range []string{"FontFile", "FontFile2", "FontFile3"} {
 		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
@@ -695,10 +695,8 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 		if !fontProgramValid(ctx, ff, key) {
 			ctx.Report(pdf.Checks.Font.InvalidProgram, obj, fmt.Sprintf("embedded font program for %s is damaged", name))
 		}
-		// The only font file subtypes PDF 1.4 defines are Type1C and
-		// CIDFontType0C; no subtype at all is fine.
-		if st, ok := ff.Entries.Get("Subtype").(pdf.PDFName); ok &&
-			st.Value != "Type1C" && st.Value != "CIDFontType0C" {
+		// No subtype at all is fine.
+		if st, ok := ff.Entries.Get("Subtype").(pdf.PDFName); ok && !ctx.Spec.FontFileSubtypes.Has(st.Value) {
 			ctx.Report(pdf.Checks.Font.FontFileSubtype, obj,
 				fmt.Sprintf("embedded font file for %s has unsupported Subtype /%s", name, st.Value))
 		}

@@ -87,12 +87,12 @@ func TestHasFixableIssueRasterGate(t *testing.T) {
 	}
 }
 
-// TestConvertObjectModelDeletesDisallowedTrapped: a document-level
+// TestConvertObjectModelDeletesDisallowedTrapped verifies that a document-level
 // DisallowedValue on an optional key (/Trapped /Maybe) is repaired by
-// deletion, and the page content stays byte-identical -- proving the fix came
-// from the fixer, never from the raster backstop (which can neither reach nor
-// repair trailer-level dict structure; TestHasFixableIssueRasterGate pins the
-// gate itself).
+// deletion, and that the page content stays byte-identical. The fixer makes
+// the repair, not the raster backstop, which can neither reach nor repair
+// trailer-level dict structure; TestHasFixableIssueRasterGate pins the gate
+// itself.
 func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	data := buildOnePageDoc(t, func(trailer, _, _ pdf.PDFDict) {
 		info := pdf.NewPDFDict()
@@ -146,11 +146,12 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 	return false
 }
 
-// TestConvertObjectModelExpandsFilterArrayAbbrev: a content stream whose
-// /Filter array names the inline-image abbreviation /AHx fails the element
-// enum check. The repair expands it to /ASCIIHexDecode in place -- deleting
-// it, or replacing it with some other enum value, would leave the hex bytes
-// read as operators -- so the page content survives byte-identical.
+// TestConvertObjectModelExpandsFilterArrayAbbrev verifies that a content stream
+// whose /Filter array names the inline-image abbreviation /AHx fails the
+// element enum check and is repaired by expanding it to /ASCIIHexDecode in
+// place. Deleting it, or replacing it with some other enum value, would leave
+// the hex bytes read as operators, so the page content must survive
+// byte-identical.
 func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
@@ -185,4 +186,34 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 		t.Fatalf("ResolveGraph(output): %v", err)
 	}
 	assertContentStream(t, assertOnePageGraph(t, graph), onePageContent)
+}
+
+// TestConvertObjectModelAddsNoPDFAIdentity verifies that an object-model
+// conversion repairs the object model and nothing else. It does not run the
+// PDF/A pre-emptive steps, which would stamp the output as PDF/A-1b through a
+// fresh pdfaid XMP packet and an injected GTS_PDFA1 OutputIntent, a claim that
+// no PDF/A check verifies.
+func TestConvertObjectModelAddsNoPDFAIdentity(t *testing.T) {
+	cr, err := ConvertBytes(buildOnePageDoc(t, nil), pdf.PDF, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid {
+		t.Fatalf("Valid=false, residual %v", issueClauses(cr.Residual()))
+	}
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	root, err := out.ResolveGraphByPath([]string{"Root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := root.(pdf.PDFDict)
+	for _, key := range []string{"Metadata", "OutputIntents"} {
+		if catalog.Entries.Get(key) != nil {
+			t.Errorf("the output catalogue gained /%s", key)
+		}
+	}
 }

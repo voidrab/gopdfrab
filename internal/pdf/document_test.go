@@ -213,11 +213,11 @@ func writeMinimalPDF(t *testing.T, objs []string, trailerBody string) string {
 	return path
 }
 
-// hasXRefRecoveryDiagnostic reports whether doc recorded the 6.1.4 diagnostic
-// that a brute-force object scan rebuilt the cross-reference table.
+// hasXRefRecoveryDiagnostic reports whether doc recorded that a brute-force
+// object scan rebuilt the cross-reference table.
 func hasXRefRecoveryDiagnostic(doc *Reader) bool {
-	for _, e := range doc.StructErrors() {
-		if e.Check() == Checks.Structure.XRefKeyword {
+	for _, e := range doc.Diagnostics() {
+		if e.Kind == DiagXRefRebuilt {
 			return true
 		}
 	}
@@ -446,11 +446,11 @@ func TestRecordFramingDedup(t *testing.T) {
 	}
 }
 
-// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-check dedup.
+// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-kind dedup.
 func TestRecordStreamFramingDedup(t *testing.T) {
 	d := &Reader{}
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg")
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg again")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg again")
 	if len(d.parseDiagnostics) != 1 {
 		t.Errorf("expected dedup, got %d diagnostics", len(d.parseDiagnostics))
 	}
@@ -1099,8 +1099,8 @@ func TestScannedOpsBytesGrowsWithContent(t *testing.T) {
 	}
 }
 
-// TestFootprintAdoptedWithCaches: AdoptStreamCaches shares the maps, so the
-// adopting Reader must report what it now holds rather than zero.
+// TestFootprintAdoptedWithCaches verifies that AdoptStreamCaches shares the
+// maps, so the adopting Reader reports what they hold rather than zero.
 func TestFootprintAdoptedWithCaches(t *testing.T) {
 	src := &Reader{}
 	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("0 0 m 1 1 l S")}
@@ -1143,9 +1143,9 @@ func TestMaxResidentBytesConfig(t *testing.T) {
 	}
 }
 
-// TestResidentBudgetStopsCaching: under a budget nothing fits, the caches stay
-// empty and every call still returns the same bytes and operators. The caches
-// are memoization, so the budget may cost time but never an answer.
+// TestResidentBudgetStopsCaching verifies that under a budget nothing fits, the
+// caches stay empty and every call still returns the same bytes and operators.
+// The caches are memoization, so the budget may cost time but never an answer.
 func TestResidentBudgetStopsCaching(t *testing.T) {
 	old := residentCap.Load()
 	defer residentCap.Store(old)
@@ -1195,9 +1195,9 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	}
 }
 
-// TestScanStreamFuncAbandonsListOverBudget: a budget that fits the decoded
-// bytes but not the token list must leave the scan streaming -- reporting every
-// operator, caching none of them. This is what keeps peak memory, and not just
+// TestScanStreamFuncAbandonsListOverBudget verifies that a budget which fits
+// the decoded bytes but not the token list leaves the scan streaming, reporting
+// every operator and caching none of them. This keeps peak memory, not just
 // retention, inside the budget.
 func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	old := residentCap.Load()
@@ -1238,9 +1238,9 @@ func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	}
 }
 
-// TestScannedOpBytesMatchesIncremental: the running total scanAndMaybeCache
-// keeps must equal what scannedOpsBytes reports for the finished list, since
-// one decides whether to cache and the other decides what the budget records.
+// TestScannedOpBytesMatchesIncremental verifies that the running total kept by
+// scanAndMaybeCache equals what scannedOpsBytes reports for the finished list,
+// since one decides whether to cache and the other what the budget records.
 func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	ops := TokenizeContent([]byte(
 		"BT /F1 12 Tf [(a) -3 <42>] TJ ET /P << /K 1 >> BDC 1.5 0 0 1.5 0 0 cm true sh " +
@@ -1263,8 +1263,8 @@ func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	}
 }
 
-// TestReleaseCachesKeepsAnswers: releasing drops the memoized state and the
-// next call rebuilds it to the same result.
+// TestReleaseCachesKeepsAnswers verifies that releasing drops the memoized
+// state and that the next call rebuilds it to the same result.
 func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d := &Reader{}
 	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,
@@ -1281,7 +1281,7 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
 	d.framingChecked = map[int]bool{1: true}
-	d.streamChecked = map[streamCheckKey]bool{{1, Checks.Structure.EndstreamEOL}: true}
+	d.streamChecked = map[streamCheckKey]bool{{1, DiagEndstreamEOL}: true}
 	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
 
 	d.ReleaseCaches()

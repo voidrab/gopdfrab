@@ -15,9 +15,9 @@ type ContentOp struct {
 }
 
 // ContentStreamWriter serializes operators one at a time, so a rewriter can
-// emit while it scans instead of building the whole operator list first. That
-// also removes the aliasing hazard accumulating invites: ContentScanner.Scan
-// reuses one operand stack, so operands are only valid inside the callback.
+// emit while it scans instead of building the whole operator list first. It
+// also avoids aliasing: ContentScanner.Scan reuses one operand stack, so
+// operands are only valid inside the callback.
 //
 // Write errors are sticky, so a caller inside a callback that cannot return an
 // error may scan to the end and check Err once.
@@ -69,7 +69,7 @@ func (w *ContentStreamWriter) Bytes() []byte { return w.buf.Bytes() }
 // inverse of NewContentScanner(...).scan. An "INLINEIMAGE" op (the scanner's
 // pseudo-operator for a BI...EI sequence) is re-emitted by writing its
 // trailing pdf.InlineImageRaw operand's bytes verbatim, ignoring the parsed
-// params -- see pdf.InlineImageRaw's doc comment in content.go.
+// params. See pdf.InlineImageRaw's doc comment in content.go.
 //
 // Batch form of ContentStreamWriter; prefer that when the ops come from a scan.
 func WriteContentStream(ops []ContentOp) ([]byte, error) {
@@ -93,8 +93,8 @@ func inlineImageBytes(operands []pdf.PDFValue) ([]byte, bool) {
 }
 
 // BuildInlineImageBytes rebuilds a fresh verbatim "BI...EI" byte span from
-// edited params and image data, the inverse of scanInlineImage -- used only
-// when a fixer has actually changed an inline image's params or data; an
+// edited params and image data, the inverse of scanInlineImage. It is used
+// only when a fixer has actually changed an inline image's params or data. An
 // untouched image is passed through via its captured pdf.InlineImageRaw.Bytes
 // instead, so this canonical (re-spaced) form never appears unless something
 // was fixed.

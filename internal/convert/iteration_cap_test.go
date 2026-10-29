@@ -9,8 +9,9 @@ import (
 
 // TestIterationCapDoesNotRasterizeFixedPages pins that the raster backstop
 // works from a verify of the graph as it stands. With MaxIterations 1 the
-// loop ends on the fix pass that removes page 1's /TR, unverified; the
-// backstop used to rasterize page 1 from that stale issue list.
+// loop ends on the fix pass that removes page 1's /TR, unverified. The
+// backstop works from a fresh verify, so page 1 is not rasterized from the
+// stale issue list left by that pass.
 func TestIterationCapDoesNotRasterizeFixedPages(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")

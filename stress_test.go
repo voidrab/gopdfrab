@@ -142,9 +142,8 @@ func issueSet(res gopdfrab.Result) string {
 // shared by all of them. Every goroutine must reach the same verdict; run with
 // `go test -race` to prove the per-Document caches never touch each other.
 //
-// The cross-goroutine equality doubles as a determinism check -- the same
-// comparison, across two read paths rather than two goroutines, is what caught
-// two map-iteration message bugs in the Windows seek path.
+// The cross-goroutine equality also checks determinism: map iteration order
+// must not leak into the issue messages.
 func TestDocumentPerGoroutineIsSafe(t *testing.T) {
 	fixtures := presentFixtures(t)
 	profile := gopdfrab.PDFA1B // shared deliberately: profiles are immutable

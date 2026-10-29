@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // fakeFixer is a minimal Fixer stub for exercising registerFixer's overlap
@@ -38,13 +39,13 @@ func TestApplyPreemptiveFixupsPropagatesError(t *testing.T) {
 
 	wantErr := errors.New("boom")
 	ranSecond := false
-	preemptiveFixups = []func(*pdf.PDFDict, *pdf.Reader) error{
-		func(*pdf.PDFDict, *pdf.Reader) error { return wantErr },
-		func(*pdf.PDFDict, *pdf.Reader) error { ranSecond = true; return nil },
+	preemptiveFixups = []func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error{
+		func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { return wantErr },
+		func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { ranSecond = true; return nil },
 	}
 
 	trailer := pdf.NewPDFDict()
-	if err := applyPreemptiveFixups(&trailer, nil); err != wantErr {
+	if err := applyPreemptiveFixups(&trailer, nil, a1b()); err != wantErr {
 		t.Errorf("applyPreemptiveFixups error = %v, want %v", err, wantErr)
 	}
 	if ranSecond {
@@ -80,7 +81,7 @@ func TestStreamUndecodableFixerLeavesRealContentAlone(t *testing.T) {
 
 func TestRunDictVisitorDeclinedPrepare(t *testing.T) {
 	trailer := pdf.NewPDFDict()
-	changed, err := runDictVisitor(&trailer, func(*pdf.PDFDict, *bool) (func(pdf.PDFDict), bool) {
+	changed, err := runDictVisitor(&trailer, nil, func(*pdf.PDFDict, []pdf.PDFError, *bool) (func(pdf.PDFDict), bool) {
 		return func(pdf.PDFDict) { t.Error("visitor ran although prepare declined") }, false
 	})
 	if changed || err != nil {

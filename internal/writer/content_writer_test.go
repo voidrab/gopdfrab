@@ -9,7 +9,7 @@ import (
 
 // TestWriteContentStreamRoundTrips scans a hand-built content stream into
 // (op, operands) records, serializes them back via writeContentStream, and
-// re-scans the result, asserting the two scans agree -- writeContentStream
+// re-scans the result, asserting that the two scans agree. writeContentStream
 // must be the exact inverse of newContentScanner's scan for every operand
 // type a synthesized appearance stream uses (names, strings, numbers,
 // arrays, inline dicts).

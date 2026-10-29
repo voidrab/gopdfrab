@@ -20,8 +20,9 @@ type Token struct {
 	Num   float64
 }
 
-// IntValue returns t's integer payload, re-parsing Value only for the rare
-// malformed-number token (matching the legacy Atoi-error-to-zero behavior).
+// IntValue returns t's integer payload. Only a malformed-number token, whose
+// Value is set, is re-parsed, and a parse error is ignored: the result is
+// whatever strconv.Atoi returns for Value.
 func (t Token) IntValue() int {
 	if t.Value == "" {
 		return int(t.Int)
@@ -30,8 +31,8 @@ func (t Token) IntValue() int {
 	return i
 }
 
-// RealValue returns t's real payload, mirroring the legacy parse error for
-// malformed reals.
+// RealValue returns t's real payload. A malformed real, whose Value is set, is
+// parsed from its raw text, and the parse error is returned.
 func (t Token) RealValue() (float64, error) {
 	if t.Value == "" {
 		return t.Num, nil
@@ -238,7 +239,8 @@ func (l *Lexer) validateObjectStart() (int, []error) {
 	return objTok.IntValue(), errs
 }
 
-// validateEndObj validates the framing around an unconsumed endobj keyword (6.1.8).
+// validateEndObj validates the framing around an unconsumed endobj keyword
+// (6.1.8).
 // The lexer must be positioned immediately after the object body.
 func (l *Lexer) validateEndObj() []error {
 	var errs []error
@@ -263,7 +265,8 @@ func (l *Lexer) validateEndObj() []error {
 	return errs
 }
 
-// validateObjectEnd validates the EOL after an already-consumed endobj keyword (6.1.8).
+// validateObjectEnd validates the EOL after an already-consumed endobj keyword
+// (6.1.8).
 func (l *Lexer) validateObjectEnd() []error {
 	if err := l.requireEOL(); err != nil {
 		return []error{fmt.Errorf("endobj not followed by single EOL: %v", err)}
@@ -487,7 +490,8 @@ func (l *Lexer) readStringLiteral() Token {
 }
 
 // readHexString reads a hex string up to the closing '>'. Invalid hex digits
-// are preserved so callers (validateHexString) can report a precise 6.1.6 violation.
+// are preserved so callers (validateHexString) can report a precise 6.1.6
+// violation.
 func (l *Lexer) readHexString() Token {
 	var buf []byte
 

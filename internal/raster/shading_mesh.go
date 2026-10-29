@@ -11,9 +11,9 @@ import (
 // rather than a colour field: the stream holds triangle vertices or Bezier
 // patches, each carrying its own colour. They are drawn by subdividing every
 // primitive into small flat-filled pieces through the existing scanline
-// filler, rather than by adding a Gouraud rasterizer -- a documented
-// approximation appropriate to a conversion fallback, where the alternative
-// is dropping the content entirely.
+// filler, rather than by adding a Gouraud rasterizer. This approximation is
+// appropriate to a conversion fallback, where the alternative is dropping the
+// content entirely.
 
 const (
 	// meshMaxPrimitives bounds how many flat pieces one mesh may paint, so a

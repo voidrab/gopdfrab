@@ -10,8 +10,8 @@ import (
 	gopdfrab "github.com/voidrab/gopdfrab"
 )
 
-// TestConvertContextCancelled: a context cancelled before the call returns the
-// cancellation error rather than doing the work.
+// TestConvertContextCancelled verifies that a context cancelled before the
+// call makes it return the cancellation error rather than doing the work.
 func TestConvertContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -22,7 +22,8 @@ func TestConvertContextCancelled(t *testing.T) {
 	}
 }
 
-// TestVerifyContextCancelled: the same for verification.
+// TestVerifyContextCancelled verifies that a cancelled context also stops
+// verification.
 func TestVerifyContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -33,8 +34,8 @@ func TestVerifyContextCancelled(t *testing.T) {
 	}
 }
 
-// TestConvertContextBackgroundStillWorks: a live context behaves exactly like
-// the non-context form.
+// TestConvertContextBackgroundStillWorks verifies that a live context behaves
+// exactly like the non-context form.
 func TestConvertContextBackgroundStillWorks(t *testing.T) {
 	cr, err := gopdfrab.ConvertBytesContext(context.Background(), []byte(plainPDF), gopdfrab.PDFA1B, gopdfrab.Options{})
 	if err != nil {
@@ -46,8 +47,8 @@ func TestConvertContextBackgroundStillWorks(t *testing.T) {
 	}
 }
 
-// TestVerifyAllContextCancelled: a cancelled batch records the cancellation for
-// every file rather than verifying them.
+// TestVerifyAllContextCancelled verifies that a cancelled batch records the
+// cancellation for every file rather than verifying them.
 func TestVerifyAllContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -107,8 +108,8 @@ func TestVerifyContextPath(t *testing.T) {
 	}
 }
 
-// TestConvertAllContextCancelled: a cancelled batch records the cancellation
-// for every file rather than converting them.
+// TestConvertAllContextCancelled verifies that a cancelled batch records the
+// cancellation for every file rather than converting them.
 func TestConvertAllContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -128,8 +129,8 @@ func TestConvertAllContextCancelled(t *testing.T) {
 	}
 }
 
-// TestConvertAllContextMatchesConvertAll: under a live context the batch does
-// the same work as ConvertAll.
+// TestConvertAllContextMatchesConvertAll verifies that under a live context the
+// batch does the same work as ConvertAll.
 func TestConvertAllContextMatchesConvertAll(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "plain.pdf")
 	if err := os.WriteFile(path, []byte(plainPDF), 0o644); err != nil {

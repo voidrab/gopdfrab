@@ -18,7 +18,7 @@ func CFFDictNumbers(dict []byte, op func(operator int, operands []float64)) bool
 	return CFFDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
 }
 
-// CFFDictNumbersAt is cffDictNumbers that also passes, with each operator,
+// CFFDictNumbersAt is CFFDictNumbers that also passes, with each operator,
 // the offset just past it -- where the next entry starts.
 func CFFDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
 	var stack []float64
@@ -640,7 +640,7 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	}
 	topDict := cff[tdDataStart : tdDataStart+tdDataLen]
 
-	// Read the operators we need. cffDictNumbers decodes nibble reals, which
+	// Read the operators we need. CFFDictNumbers decodes nibble reals, which
 	// is how FontMatrix is always written.
 	return td, CFFDictNumbers(topDict, func(operator int, operands []float64) {
 		first := func() (int, bool) {

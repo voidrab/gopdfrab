@@ -22,10 +22,10 @@ func graphResolutionIssues(issues []pdf.PDFError) []pdf.PDFError {
 	return out
 }
 
-// TestConvertRecoversBrokenOffset: an input whose content stream sits behind a
-// wrong xref offset converts normally -- the object is recovered, the rewrite
-// emits a correct xref, and the recovery is not a residual because the output
-// genuinely no longer has the defect.
+// TestConvertRecoversBrokenOffset verifies that an input whose content stream
+// sits behind a wrong xref offset converts normally. The object is recovered,
+// the rewrite emits a correct xref, and the recovery is not a residual because
+// the output does not have the defect.
 func TestConvertRecoversBrokenOffset(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	off3 := int64(bytes.Index(intact, []byte("3 0 obj")))
@@ -53,10 +53,11 @@ func TestConvertRecoversBrokenOffset(t *testing.T) {
 	}
 }
 
-// TestConvertRecoversBrokenStartxref: a file whose entire cross-reference
-// section is unlocatable (destroyed startxref offset) is rebuilt by scanning
-// for objects and converts to a clean rewrite -- the rebuilt xref is a genuine
-// fix, so the output re-verifies without a 6.1.4 residual.
+// TestConvertRecoversBrokenStartxref verifies that a file whose entire
+// cross-reference section is unlocatable, because its startxref offset is
+// destroyed, is rebuilt by scanning for objects and converts to a clean
+// rewrite. The rebuilt xref is a genuine fix, so the output re-verifies without
+// a 6.1.4 residual.
 func TestConvertRecoversBrokenStartxref(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	broken := pdfgen.BreakStartxref(intact)
@@ -82,9 +83,9 @@ func TestConvertRecoversBrokenStartxref(t *testing.T) {
 	}
 }
 
-// TestConvertDegradedObjectReportsLoss: an unrecoverable object converts to a
-// best-effort rewrite. The bytes that come out really do meet the profile, so
-// Result says so; what they no longer hold is reported separately, as loss.
+// TestConvertDegradedObjectReportsLoss verifies that an unrecoverable object
+// converts to a best-effort rewrite. The bytes that come out meet the profile,
+// so Result says so, and what they do not hold is reported separately as loss.
 func TestConvertDegradedObjectReportsLoss(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	broken := bytes.Replace(intact, []byte("4 0 obj\n<< /Length"), []byte("4 0 obj\n<< ]Length"), 1)
@@ -108,10 +109,10 @@ func TestConvertDegradedObjectReportsLoss(t *testing.T) {
 	}
 }
 
-// TestConvertUnresolvableGraphReturnsError: when even per-object degradation
-// cannot produce a graph (here: a reference chain past the resolve depth cap),
-// Convert must return ErrUnresolvableGraph -- never a nil error with empty
-// Output. The best-effort verify Result still rides along.
+// TestConvertUnresolvableGraphReturnsError verifies that when even per-object
+// degradation cannot produce a graph (here, a reference chain past the resolve
+// depth cap), Convert returns ErrUnresolvableGraph and never a nil error with
+// empty Output. The best-effort verify Result is still returned.
 func TestConvertUnresolvableGraphReturnsError(t *testing.T) {
 	const chain = 70000
 	b := pdfgen.NewBuilder("%PDF-1.4\n")

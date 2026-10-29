@@ -78,8 +78,8 @@ func TestParseFunctionErrors(t *testing.T) {
 	}
 }
 
-// TestStitchingDegenerateDomain: a zero-width Domain maps through the
-// interpolation's xmax == xmin case to the start of the Encode range.
+// TestStitchingDegenerateDomain verifies that a zero-width Domain maps the
+// input to the start of the Encode range.
 func TestStitchingDegenerateDomain(t *testing.T) {
 	sub := fnDict(map[string]PDFValue{"FunctionType": PDFInteger(2), "Domain": unit,
 		"C0": PDFArray{PDFInteger(10)}, "C1": PDFArray{PDFInteger(20)}, "N": PDFInteger(1)})
@@ -95,8 +95,9 @@ func TestStitchingDegenerateDomain(t *testing.T) {
 	}
 }
 
-// TestPostScriptFailureInsideProcedure: an unsupported operator inside an if /
-// ifelse body aborts the program; Eval still returns without panicking.
+// TestPostScriptFailureInsideProcedure verifies that an unsupported operator
+// inside an if or ifelse body aborts the program, and that Eval still returns
+// without panicking.
 func TestPostScriptFailureInsideProcedure(t *testing.T) {
 	for _, prog := range []string{
 		"{ 1 { frobnicate } if }",

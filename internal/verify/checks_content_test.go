@@ -37,7 +37,8 @@ func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
-	// Page resources carry DefaultRGB — the soundness bug made this excuse the AP.
+	// The page resources carry DefaultRGB, which must not excuse the appearance
+	// stream, since that stream has its own resource scope.
 	cs := pdf.NewPDFDict()
 	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
 	pageRes = pdf.NewPDFDict()
@@ -51,7 +52,7 @@ func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 func TestScanAnnotAppearancesRejectsPageDefaultRGB(t *testing.T) {
 	page, pageRes := buildAPWithRGB(t)
 
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true}
 	ctx.resourceScope = pageRes
 
 	scanAnnotAppearances(page, ctx)
@@ -81,7 +82,7 @@ func TestScanAnnotAppearancesHonoursOwnDefaultRGB(t *testing.T) {
 	apRes.Entries.Set("ColorSpace", cs)
 	apStream.Entries.Set("Resources", apRes)
 
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true}
 	scanAnnotAppearances(page, ctx)
 
 	for _, iss := range ctx.Issues() {
@@ -102,20 +103,20 @@ func TestScanContentValue(t *testing.T) {
 	single := pdf.NewPDFDict()
 	single.HasStream = true
 	single.RawStream = []byte("ZzBadOp\n")
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	scanContentValue(single, pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected the single content stream dict to be scanned")
 	}
 
 	arr := pdf.PDFArray{single, pdf.PDFInteger(1) /* non-dict: skipped */}
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	scanContentValue(arr, pdf.NewPDFDict(), ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected an array of content streams to be scanned")
 	}
 
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	scanContentValue(pdf.PDFName{Value: "x"}, pdf.NewPDFDict(), ctx3)
 	if len(ctx3.errs) != 0 {
 		t.Error("unexpected violation for a non-dict/array Contents value")
@@ -124,7 +125,7 @@ func TestScanContentValue(t *testing.T) {
 
 func TestScanContentInlineImage(t *testing.T) {
 	data := []byte("q\nBI /CS /RGB /F /LZW /I true /Intent /BadIntent ID \x00\x00\x00 EI\nQ\n")
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true, grayCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true, grayCovered: true}
 	scanRaw(data, pdf.NewPDFDict(), ctx)
 
 	want := map[pdf.Check]bool{
@@ -152,7 +153,7 @@ func TestCheckInlineImageColourNamedResource(t *testing.T) {
 	resources.Entries.Set("ColorSpace", cs)
 
 	params := []pdf.PDFValue{pdf.PDFName{Value: "CS"}, pdf.PDFName{Value: "MyCS"}}
-	ctx := &ValidationContext{hasOutputIntent: true, rgbCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, rgbCovered: true}
 	checkInlineImageColour(pdf.PDFDict{}, params, resources, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("expected DeviceColourContentStream for an uncovered named resource colour space")
@@ -160,7 +161,7 @@ func TestCheckInlineImageColourNamedResource(t *testing.T) {
 
 	// Array-form ColorSpace parameter.
 	arrParams := []pdf.PDFValue{pdf.PDFName{Value: "ColorSpace"}, pdf.PDFArray{pdf.PDFName{Value: "DeviceGray"}}}
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	checkInlineImageColour(pdf.PDFDict{}, arrParams, resources, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("expected DeviceColourContentStream for an uncovered array-form colour space")
@@ -168,19 +169,19 @@ func TestCheckInlineImageColourNamedResource(t *testing.T) {
 }
 
 func TestCheckOperandLimits(t *testing.T) {
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	checkOperandLimits(pdf.PDFInteger(3000000000), pdf.PDFDict{}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Structure.IntegerOutOfRange) {
 		t.Error("expected IntegerOutOfRange for an out-of-range integer")
 	}
 
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	checkOperandLimits(pdf.PDFReal(40000), pdf.PDFDict{}, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Structure.RealOutOfRange) {
 		t.Error("expected RealOutOfRange for an out-of-range real")
 	}
 
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	longStr := pdf.PDFString{Value: string(make([]byte, 70000))}
 	checkOperandLimits(longStr, pdf.PDFDict{}, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Structure.StringTooLong) {
@@ -188,7 +189,7 @@ func TestCheckOperandLimits(t *testing.T) {
 	}
 
 	// Recurses into arrays (e.g. TJ's positioning array).
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	checkOperandLimits(pdf.PDFArray{pdf.PDFInteger(3000000000)}, pdf.PDFDict{}, ctx4)
 	if !hasCheck(ctx4, pdf.Checks.Structure.IntegerOutOfRange) {
 		t.Error("expected IntegerOutOfRange recursing into an array operand")
@@ -200,13 +201,13 @@ func TestScanContentGraphicsStateNestingAndUndefinedOp(t *testing.T) {
 	for range 30 {
 		data = append(data, []byte("q\n")...)
 	}
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	scanRaw(data, pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Structure.GraphicsStateNesting) {
 		t.Error("expected GraphicsStateNesting for q depth > 28")
 	}
 
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	scanRaw([]byte("ZzNotAnOperator\n"), pdf.NewPDFDict(), ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected UndefinedOperator for an unrecognized keyword")
@@ -214,13 +215,13 @@ func TestScanContentGraphicsStateNestingAndUndefinedOp(t *testing.T) {
 }
 
 func TestScanContentDefaultGrayAndRenderingIntent(t *testing.T) {
-	ctx := &ValidationContext{cmykCovered: true, rgbCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, cmykCovered: true, rgbCovered: true}
 	scanRaw([]byte("0 0 100 100 re f\n"), pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("expected DeviceColourContentStream for a fill with no colour set (default DeviceGray)")
 	}
 
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	scanRaw([]byte("/UnknownIntent ri\n"), pdf.NewPDFDict(), ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.RenderingIntent) {
 		t.Error("expected RenderingIntent for an undefined rendering intent")
@@ -249,7 +250,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
 	pattern.HasStream = true
 	pattern.RawStream = []byte("ZzBadOp\n")
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateContentStreams(pattern, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected the tiling pattern's content to be scanned")
@@ -260,7 +261,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	form.HasStream = true
 	form.RawStream = []byte("ZzBadOp\n")
-	ctx2 := &ValidationContext{ReachableXObjectPtrs: map[uintptr]bool{}} // non-nil, form's ptr absent
+	ctx2 := &ValidationContext{Spec: a1bSpec, ReachableXObjectPtrs: map[uintptr]bool{}} // non-nil, form's ptr absent
 	validateContentStreams(form, ctx2)
 	if len(ctx2.errs) != 0 {
 		t.Error("an unreachable Form XObject should not be scanned")
@@ -275,7 +276,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	t3 := pdf.NewPDFDict()
 	t3.Entries.Set("Subtype", pdf.PDFName{Value: "Type3"})
 	t3.Entries.Set("CharProcs", charProcs)
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateContentStreams(t3, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected the Type3 glyph procedure's content to be scanned")
@@ -293,17 +294,16 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	// which is not an appearance state.
 	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	scanAPEntry(states, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
 		t.Error("expected the 'On' appearance-state stream to be scanned")
 	}
 }
 
-// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB pins the resource scope
-// the walk sets: a form XObject bringing its own /Resources is checked in that
-// dict, so the page's /DefaultRGB no longer excuses the DeviceRGB inside it.
-// Real files hide uncovered device colour exactly there.
+// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB verifies that a form
+// XObject with its own /Resources is checked against that dictionary, so the
+// page's /DefaultRGB does not excuse DeviceRGB used inside the form.
 func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
@@ -340,7 +340,7 @@ func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Size", pdf.PDFInteger(5))
 
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true}
 	verifyDocument(trailer, ctx)
 
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
@@ -349,8 +349,8 @@ func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 }
 
 // TestPageContentFormXObjectStillInheritsPageDefaultRGB confirms the existing
-// behaviour: a Form XObject invoked from page content (via Do) is excused by the
-// page's /DefaultRGB via the ctx.resourceScope fallback — unaffected by Fix A.
+// behaviour: a Form XObject invoked from page content by the Do operator is
+// excused by the page's /DefaultRGB via the ctx.resourceScope fallback.
 func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	// Form XObject with DeviceRGB usage, no own resources.
 	fContent, err := writer.WriteContentStream([]writer.ContentOp{
@@ -370,7 +370,7 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	pageRes := pdf.NewPDFDict()
 	pageRes.Entries.Set("ColorSpace", cs)
 
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true}
 	ctx.resourceScope = pageRes
 
 	scanContentDict(xobj, pdf.NewPDFDict(), ctx)
@@ -383,9 +383,8 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 }
 
 // TestScanContentDictPredictorEncoded covers a content stream carrying a
-// PNG predictor. Predictors were only ever undone for xref and object
-// streams, so such a page decoded to garbage and its violations vanished --
-// the content-stream half of the missing-filter gap.
+// PNG predictor. The predictor must be undone for content streams as well as
+// for xref and object streams, so that the page's violations are found.
 func TestScanContentDictPredictorEncoded(t *testing.T) {
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
@@ -419,7 +418,7 @@ func TestScanContentDictPredictorEncoded(t *testing.T) {
 		"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(columns), "Colors": pdf.PDFInteger(1),
 	})})
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	scanContentDict(stream, pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("predictor-encoded content stream: expected the rg device-colour violation to be reported")
@@ -430,7 +429,7 @@ func TestScanContentDictPredictorEncoded(t *testing.T) {
 // list whose key slot is not a name is skipped instead of misread.
 func TestInlineImageParamsIgnoreNonNameKeys(t *testing.T) {
 	params := []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFName{Value: "DeviceRGB"}, pdf.PDFInteger(2), pdf.PDFBoolean(true)}
-	ctx := &ValidationContext{hasOutputIntent: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true}
 	checkInlineImageColour(pdf.PDFDict{}, params, pdf.NewPDFDict(), ctx)
 	checkInlineImageOther(pdf.PDFDict{}, params, ctx)
 	if len(ctx.errs) != 0 {
@@ -445,7 +444,7 @@ func TestScanAnnotAppearancesSkipsNonDictAnnotations(t *testing.T) {
 	annots := page.Entries.Get("Annots").(pdf.PDFArray)
 	page.Entries.Set("Annots", append(pdf.PDFArray{pdf.PDFInteger(7)}, annots...))
 
-	ctx := &ValidationContext{hasOutputIntent: true, cmykCovered: true}
+	ctx := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, cmykCovered: true}
 	scanAnnotAppearances(page, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("the annotation after a non-dictionary entry was not scanned")
@@ -456,38 +455,36 @@ func TestScanAnnotAppearancesSkipsNonDictAnnotations(t *testing.T) {
 // that resolves to a device model is held to the same OutputIntent rule as the
 // direct colour operators, and that an unresolvable name is not reported.
 func TestScanContentColourSpaceOperatorUsesNamedModel(t *testing.T) {
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	scanRaw([]byte("/DeviceRGB cs\n"), pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("/DeviceRGB cs without an OutputIntent was not reported")
 	}
 
-	covered := &ValidationContext{hasOutputIntent: true, rgbCovered: true}
+	covered := &ValidationContext{Spec: a1bSpec, hasOutputIntent: true, rgbCovered: true}
 	scanRaw([]byte("/DeviceRGB cs\n"), pdf.NewPDFDict(), covered)
 	if hasCheck(covered, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("/DeviceRGB cs covered by an RGB OutputIntent was reported")
 	}
 
-	unknown := &ValidationContext{}
+	unknown := &ValidationContext{Spec: a1bSpec}
 	scanRaw([]byte("/Unresolvable CS\n"), pdf.NewPDFDict(), unknown)
 	if hasCheck(unknown, pdf.Checks.Colour.DeviceColourContentStream) {
 		t.Error("an unresolvable colour space name was reported")
 	}
 }
 
-// TestContentStreamReportsEachCheckOnce: a stream repeating one violation in
-// every operator is one finding, not one issue per operator. A drawing with
-// millions of out-of-range coordinates used to build millions of issues and
-// run verify out of memory. The first occurrence is kept and its message
-// counts the rest; distinct checks in the stream stay distinct, in the order
-// they first occur.
+// TestContentStreamReportsEachCheckOnce verifies that a violation repeated
+// throughout a content stream is reported once, at its first occurrence, with
+// a count of the rest, and that distinct checks are reported separately in the
+// order they first occur.
 func TestContentStreamReportsEachCheckOnce(t *testing.T) {
 	var content strings.Builder
 	for i := range 1000 {
 		fmt.Fprintf(&content, "%d.5 0 m\n", 40000+i) // RealOutOfRange
 	}
 	content.WriteString("ZzA\nZzB\n") // UndefinedOperator, twice
-	ctx := &ValidationContext{cmykCovered: true, rgbCovered: true, grayCovered: true, hasOutputIntent: true}
+	ctx := &ValidationContext{Spec: a1bSpec, cmykCovered: true, rgbCovered: true, grayCovered: true, hasOutputIntent: true}
 	scanRaw([]byte(content.String()), pdf.NewPDFDict(), ctx)
 
 	type finding struct {
@@ -512,7 +509,7 @@ func TestContentStreamReportsEachCheckOnce(t *testing.T) {
 	}
 
 	// A violation that occurs once keeps its message as it was.
-	once := &ValidationContext{}
+	once := &ValidationContext{Spec: a1bSpec}
 	scanRaw([]byte("ZzA\n"), pdf.NewPDFDict(), once)
 	if len(once.errs) != 1 || once.errs[0].Messages()[0] != `undefined content operator "ZzA"` {
 		t.Errorf("single violation = %v", once.errs)

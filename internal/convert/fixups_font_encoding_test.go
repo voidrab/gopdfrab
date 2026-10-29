@@ -12,12 +12,12 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// TestFixSimpleTrueTypeWidthsMacCmap: with no (3,1) cmap, a non-symbolic
-// font's code resolves through its glyph name's Mac OS Roman code in (1,0)
-// (ISO 32000-1 9.6.6.4), exactly as verify's 6.3.6 check now resolves it, so
-// the fixer repairs the width verify reports. WinAnsi 0xE9 is eacute, Mac
-// Roman 0x8E, GID 1, 600 wide; looking up the raw code 0xE9 found nothing
-// and left the mismatch in place.
+// TestFixSimpleTrueTypeWidthsMacCmap verifies that, with no (3,1) cmap, a
+// non-symbolic font's code resolves through its glyph name's Mac OS Roman code
+// in (1,0) (ISO 32000-1 9.6.6.4), as verify's 6.3.6 check resolves it, so the
+// fixer repairs the width verify reports. WinAnsi 0xE9 is eacute, Mac Roman
+// 0x8E, GID 1, 600 wide. A lookup of the raw code 0xE9 finds nothing, so the
+// mismatch is left in place.
 func TestFixSimpleTrueTypeWidthsMacCmap(t *testing.T) {
 	head := make([]byte, 54)
 	binary.BigEndian.PutUint16(head[18:], 1000) // unitsPerEm
@@ -49,8 +49,8 @@ func TestFixSimpleTrueTypeWidthsMacCmap(t *testing.T) {
 }
 
 // symbolOnlyTrueType is a TrueType program whose (1,0) and (3,0) cmaps both
-// map only the raw code 0xB0 to GID 1 -- the shape of zenodo 21262729's
-// SymbolMT subset, where WinAnsi code 176 (degree) has no strict mapping.
+// map only the raw code 0xB0 to GID 1. This is the shape of a symbolic subset
+// in which WinAnsi code 176 (degree) has no strict mapping.
 func symbolOnlyTrueType() pdf.PDFDict {
 	sub := make([]byte, 262)
 	binary.BigEndian.PutUint16(sub[2:], 262)
@@ -92,10 +92,10 @@ func windowsCmapOf(t *testing.T, d pdf.PDFDict) map[uint16]uint16 {
 	return fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
 }
 
-// TestRepairNonSymbolicTrueTypeCmap: a non-symbolic font's code that ISO
-// 32000-1 9.6.6.4 cannot resolve, but the raw-code lookup lenient viewers use
-// can, gets a (3,1) mapping to that same glyph -- so strict readers (verify,
-// veraPDF) and lenient ones render the same glyph.
+// TestRepairNonSymbolicTrueTypeCmap verifies that a non-symbolic font's code,
+// which ISO 32000-1 9.6.6.4 cannot resolve but the raw-code lookup used by
+// lenient viewers can, gets a (3,1) mapping to that same glyph. Strict readers
+// (verify, veraPDF) and lenient ones then render the same glyph.
 func TestRepairNonSymbolicTrueTypeCmap(t *testing.T) {
 	d := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, symbolOnlyTrueType())
 	repairNonSymbolicTrueTypeCmap(d)
@@ -117,8 +117,9 @@ func TestRepairNonSymbolicTrueTypeCmap(t *testing.T) {
 	}
 }
 
-// TestRepairNonSymbolicTrueTypeCmapEdges: without FirstChar/LastChar every
-// code is considered; a program that will not decode is left alone.
+// TestRepairNonSymbolicTrueTypeCmapEdges verifies that without FirstChar and
+// LastChar every code is considered, and that a program that will not decode
+// is left alone.
 func TestRepairNonSymbolicTrueTypeCmapEdges(t *testing.T) {
 	d := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, symbolOnlyTrueType())
 	d.Entries.Del("FirstChar")
@@ -152,10 +153,10 @@ func type1Encrypt(plain []byte, key uint16, lead int) []byte {
 	return out
 }
 
-// TestInlineType1WidthSubrsInFont: a Type 1 glyph whose hsbw sits in a subr
-// ("0 280 0 callsubr endchar", subr 0 = "hsbw return") is rewritten to carry
-// hsbw itself, the shape of zenodo 21261940's AlegreyaSans-Italic /f, which
-// veraPDF reads as width 0 because it does not follow callsubr.
+// TestInlineType1WidthSubrsInFont verifies that a Type 1 glyph whose hsbw sits
+// in a subr ("0 280 0 callsubr endchar", subr 0 = "hsbw return") is rewritten
+// to carry hsbw itself. Such a glyph is read as width 0 by veraPDF, which does
+// not follow callsubr.
 func TestInlineType1WidthSubrsInFont(t *testing.T) {
 	subr := type1Encrypt([]byte{13, 11}, 4330, 4)
 	glyph := type1Encrypt([]byte{139, 247, 172, 139, 10, 14}, 4330, 4)

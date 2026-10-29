@@ -103,10 +103,9 @@ func InflateZlib(data []byte) ([]byte, error) {
 
 // DecodeStreamFull runs dict's complete filter chain: each filter in order,
 // with its positionally-matched DecodeParms, and each predictor undone
-// immediately after the filter that produced the predicted bytes -- rather
-// than once at the end, which was only ever correct for single-filter
-// streams. A terminal image codec stops the chain and is reported through
-// DecodedStream.Image, not as an error.
+// immediately after the filter that produced the predicted bytes. A terminal
+// image codec stops the chain and is reported through DecodedStream.Image, not
+// as an error.
 func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
 	if !dict.HasStream {
 		return DecodedStream{}, ErrNotAStream
@@ -413,9 +412,8 @@ func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 			return
 		case TokenError:
 			// ' and " show text (ISO 32000-1 table 107) but are not made of
-			// letters, which is all the lexer reads a keyword as, so they
-			// arrive here. Without this a stream stopped at its first one, and
-			// everything after it went unread.
+			// letters, which is all the lexer reads a keyword as, so they are handled
+			// here. The scan must not stop at the first of them.
 			if tok.Value == "'" || tok.Value == "\"" {
 				fn(tok.Value, cs.stack)
 				cs.stack = cs.stack[:0]

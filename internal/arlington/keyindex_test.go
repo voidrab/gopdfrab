@@ -2,10 +2,10 @@ package arlington
 
 import "testing"
 
-// TestKeyIndexMatchesLinearScan cross-checks the init-built keyByName index
-// against the front-to-back scan semantics it replaced, for every type in
-// the generated model: the named row (first wins on duplicates), the
-// wildcard fallback, and plain membership.
+// TestKeyIndexMatchesLinearScan verifies that the keyByName index, built when
+// the model is decoded, agrees with a front-to-back scan for every type in the
+// generated model: the named row (first wins on duplicates), the wildcard
+// fallback, and plain membership.
 func TestKeyIndexMatchesLinearScan(t *testing.T) {
 	if len(Types()) == 0 {
 		t.Fatal("generated Types table is empty")

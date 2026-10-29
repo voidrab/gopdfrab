@@ -16,9 +16,8 @@ func DecryptType1Block(data []byte, seedKey uint16) []byte {
 }
 
 // DecryptType1CharString decrypts one charstring, dropping the lenIV leading
-// random bytes the program declares (Type 1 spec 7.1). Everything before them
-// is padding; taking the default 4 from a program declaring 0 ate the hsbw
-// that carries the advance width, and the glyph then had no width at all.
+// random bytes the program declares (Type 1 spec 7.1). The count is the
+// program's own lenIV, including 0, so no bytes of the charstring are dropped.
 func DecryptType1CharString(data []byte, lenIV int) []byte {
 	return DecryptType1(data, 4330, lenIV)
 }
@@ -151,8 +150,7 @@ const Type1SubrDepth = 10
 
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 // The operator that introduces the charstring bytes is whatever the Private
-// dict named it: "RD" and "-|" are the two in use, and a program using "-|"
-// used to read as having no glyphs at all.
+// dict named it, so both "RD" and "-|" are matched.
 var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
 
 // type1SubrRe matches one entry of a decrypted Type1 Subrs array.
@@ -303,9 +301,9 @@ func Type1WidthScale(fontData []byte) (scale float64, ok bool) {
 // a dictionary takes its /BaseEncoding when modelled and the built-in
 // otherwise, with /Differences overlaid. ok is false when no base resolved.
 //
-// The dictionary arm is what this path used to lack: taking only a PDFName
-// meant an /Encoding dictionary read as absent, so /Differences were ignored
-// and /Widths were compared against the wrong glyph.
+// An /Encoding dictionary is handled as well as a name. Reading a dictionary as
+// absent would ignore its /Differences and compare /Widths against the wrong
+// glyphs.
 func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [256]string, ok bool) {
 	builtin := func() ([256]string, bool) { return Type1EncodingTable(fontData, "") }
 
@@ -368,8 +366,7 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 			encName = string(m[1])
 		} else if enc, ok := type1BuiltinEncodingArray(textPart); ok {
 			// A program with a custom encoding builds the array itself rather
-			// than naming a standard one. Subset TeX fonts nearly all do, which
-			// is most of what used to reach WidthSkipEncoding.
+			// than naming a standard one.
 			return enc, true
 		}
 	}

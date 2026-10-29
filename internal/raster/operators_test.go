@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/jpeg"
+	"math"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -270,6 +271,82 @@ func TestFormXObjectBehaviour(t *testing.T) {
 	})
 }
 
+// TestTransparencyGroupForm verifies ISO 32000-1 11.6.6: a group's content
+// starts at alpha 1, and the alpha in effect where the group is drawn applies
+// once, to the composited group.
+func TestTransparencyGroupForm(t *testing.T) {
+	group := map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}}
+	gsWith := func(ca float64) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(ca)})}
+	}
+	extGStates := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Half": gsWith(0.5), "Full": gsWith(1),
+	})}
+	formWith := func(content string, xobjects map[string]pdf.PDFValue) pdf.PDFDict {
+		res := map[string]pdf.PDFValue{"ExtGState": extGStates}
+		if xobjects != nil {
+			res["XObject"] = pdf.PDFDict{Entries: pdf.DictOf(xobjects)}
+		}
+		return formXObject(content, map[string]pdf.PDFValue{
+			"Group":     pdf.PDFDict{Entries: pdf.DictOf(group)},
+			"Resources": pdf.PDFDict{Entries: pdf.DictOf(res)},
+		})
+	}
+	page := func(form pdf.PDFDict) pdf.PDFDict {
+		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"ExtGState": extGStates,
+			"XObject":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm": form})},
+		})}
+	}
+	// Red at alpha a over white paper: (255, 255(1-a), 255(1-a)).
+	wantRed := func(t *testing.T, img *image.RGBA, a float64) {
+		t.Helper()
+		px := nrgbaAt(t, img, 5, 15)
+		want := 255 * (1 - a)
+		if px.R != 255 || math.Abs(float64(px.G)-want) > 2 || math.Abs(float64(px.B)-want) > 2 {
+			t.Errorf("pixel = %+v, want red at alpha %.2f (G, B about %.0f)", px, a, want)
+		}
+	}
+
+	t.Run("a /ca 1 inside does not undo the alpha it is drawn at", func(t *testing.T) {
+		form := formWith("/Full gs 1 0 0 rg 0 0 20 20 re f", nil)
+		wantRed(t, render20(t, "/Half gs /Fm Do", page(form)), 0.5)
+	})
+
+	t.Run("nested groups multiply their alphas", func(t *testing.T) {
+		inner := formWith("1 0 0 rg 0 0 20 20 re f", nil)
+		outer := formWith("/Half gs /In Do", map[string]pdf.PDFValue{"In": inner})
+		wantRed(t, render20(t, "/Half gs /Fm Do", page(outer)), 0.25)
+	})
+
+	t.Run("overlapping fills inside composite before the group alpha", func(t *testing.T) {
+		// Two opaque reds over each other are one red, faded once.
+		form := formWith("1 0 0 rg 0 0 20 20 re f 0 0 20 20 re f", nil)
+		wantRed(t, render20(t, "/Half gs /Fm Do", page(form)), 0.5)
+	})
+
+	t.Run("a form that is not a group still inherits the alpha", func(t *testing.T) {
+		form := formXObject("1 0 0 rg 0 0 20 20 re f", nil)
+		wantRed(t, render20(t, "/Half gs /Fm Do", page(form)), 0.5)
+	})
+
+	t.Run("what a group leaves unpainted keeps the backdrop", func(t *testing.T) {
+		form := formWith("1 0 0 rg 0 0 10 20 re f", nil)
+		img := render20(t, "0 0 1 rg 0 0 20 20 re f /Half gs /Fm Do", page(form))
+		if px := nrgbaAt(t, img, 15, 15); px.R != 0 || px.G != 0 || px.B != 255 {
+			t.Errorf("unpainted part of the group = %+v, want the blue under it", px)
+		}
+	})
+
+	t.Run("a group outside the clip in force paints nothing", func(t *testing.T) {
+		form := formWith("1 0 0 rg 0 0 20 20 re f", nil)
+		form.Entries.Set("BBox", numArray(10, 10, 20, 20))
+		if n, _, _, _, _ := ink(render20(t, "0 0 5 5 re W n /Fm Do", page(form))); n != 0 {
+			t.Errorf("group painted %d pixels through an empty clip", n)
+		}
+	})
+}
+
 func TestImageXObjectEdgeCases(t *testing.T) {
 	gray := func(entries map[string]pdf.PDFValue, data ...byte) pdf.PDFDict {
 		e := map[string]pdf.PDFValue{
@@ -311,8 +388,8 @@ func TestImageXObjectEdgeCases(t *testing.T) {
 	}
 }
 
-// TestZeroSizeJPEGDoesNotPanic: a JPEG header claiming 0x0 decodes to an
-// empty image, which has nothing to paint.
+// TestZeroSizeJPEGDoesNotPanic verifies that a JPEG header claiming 0x0 decodes
+// to an empty image, which has nothing to paint.
 func TestZeroSizeJPEGDoesNotPanic(t *testing.T) {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8, 8)), nil); err != nil {

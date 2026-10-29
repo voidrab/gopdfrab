@@ -116,13 +116,12 @@ func TestSpillWriterSpills(t *testing.T) {
 
 // TestSpillWriterDegradesWhenTempFails points the temp directory at a
 // non-existent path so os.CreateTemp fails, and asserts the writer degrades to
-// in-memory rather than failing the write -- never worse than the previous
-// always-in-memory behaviour.
+// in-memory output rather than failing the write.
 func TestSpillWriterDegradesWhenTempFails(t *testing.T) {
 	// os.CreateTemp resolves its directory through os.TempDir, which reads a
 	// different variable per platform: TMPDIR on unix, TMP or TEMP (via
-	// GetTempPath) on Windows. Setting only TMPDIR left the Windows runner
-	// spilling to the real temp directory and the assertion below failing.
+	// GetTempPath) on Windows. Setting only TMPDIR would leave the Windows
+	// runner spilling to the real temp directory, so all three are set.
 	missing := filepathJoinNonexistent(t)
 	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
 		t.Setenv(key, missing)
@@ -236,8 +235,8 @@ func filepathJoinNonexistent(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "does", "not", "exist")
 }
 
-// TestSpillWriterGrow: pre-sizing must not change what the writer produces or
-// where it stores it -- it only avoids the buffer doubling its way up.
+// TestSpillWriterGrow verifies that pre-sizing the buffer does not change what
+// the writer produces or where it stores it.
 func TestSpillWriterGrow(t *testing.T) {
 	payload := bytes.Repeat([]byte("x"), 4096)
 

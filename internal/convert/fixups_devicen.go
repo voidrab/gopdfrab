@@ -11,8 +11,8 @@ import (
 // (validateColourSpaceArray, checks_colour.go), reported against the array
 // itself rather than any particular use of it. Truncating the colorant list
 // would leave it shorter than its own tint-transform function's declared
-// input arity (fixups_limits.go's earlier rejection of that approach), so
-// the only lossless fix is to make the array unreachable from the trailer
+// input arity, so the only lossless fix is to make the array unreachable from
+// the trailer
 // instead: resolve every use of it to a literal RGB colour -- reusing
 // ResolveColor/resolveSeparation (colorspace.go), which already evaluates a
 // DeviceN space's tint transform -- and delete the resource entries that
@@ -41,9 +41,9 @@ func (deviceNColorantsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	return changed, nil
 }
 
-// isOversizedDeviceN mirrors validateColourSpaceArray's own DeviceN-colorant
-// trigger exactly: a [/DeviceN names alternateSpace tintTransform] array
-// listing more than 8 colorant names.
+// isOversizedDeviceN reports whether v is a [/DeviceN names alternateSpace
+// tintTransform] array listing more than 8 colorant names. It mirrors the
+// DeviceN-colorant trigger of validateColourSpaceArray exactly.
 func isOversizedDeviceN(v pdf.PDFValue) bool {
 	arr, ok := v.(pdf.PDFArray)
 	if !ok || len(arr) < 3 {
@@ -58,7 +58,7 @@ func isOversizedDeviceN(v pdf.PDFValue) bool {
 }
 
 // rewriteDeviceNContentUsage walks every Page's content (and, recursively,
-// any Form XObject it invokes via Do, using that Form's own /Resources) and
+// any Form XObject it draws, using that Form's own /Resources) and
 // rewrites cs/CS+scn/SCN usage of an oversized DeviceN space into a literal
 // rg/RG, mirroring the Form-recursion computeResourceUsage (fixups_limits.go)
 // already uses.
@@ -107,7 +107,7 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 // every scn/SCN call falls in). A cs/CS selecting an oversized DeviceN space
 // is dropped, and the scn/SCN call(s) that use it are replaced with a
 // literal rg/RG resolved via ResolveColor. Recurses into any Form XObject
-// invoked via Do, using that Form's own /Resources.
+// that the stream draws, using that Form's own /Resources.
 func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]bool) (pdf.PDFDict, bool) {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
@@ -164,9 +164,9 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	return dict, true
 }
 
-// recurseDeviceNForm follows a Do operator's Form XObject reference (if any)
-// and rewrites its content in place via rewriteDeviceNStream, guarded by
-// visitedForm against revisiting a Form shared by multiple Do calls.
+// recurseDeviceNForm follows the Form XObject that an operator draws, if any,
+// and rewrites its content in place via rewriteDeviceNStream. visitedForm
+// guards against revisiting a Form that is drawn more than once.
 func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedForm map[uintptr]bool) (pdf.PDFDict, bool) {
 	if len(operands) == 0 {
 		return pdf.PDFDict{}, false

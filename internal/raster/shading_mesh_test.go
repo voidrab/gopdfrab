@@ -9,8 +9,8 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// TestMeshPrimitiveCap: a mesh that would paint more pieces than the cap stops
-// and reports the loss instead of running unbounded.
+// TestMeshPrimitiveCap verifies that a mesh that would paint more pieces than
+// the cap stops and reports the loss instead of running unbounded.
 func TestMeshPrimitiveCap(t *testing.T) {
 	mp := &meshPainter{
 		canvas:    image.NewRGBA(image.Rect(0, 0, 20, 20)),
@@ -88,9 +88,9 @@ func TestSharedEdgeIndices(t *testing.T) {
 	}
 }
 
-// TestMeshOverflowStopsPainting: once the primitive cap is hit every painter
-// entry point must return immediately, so a hostile mesh cannot keep the
-// rasterizer busy after the budget is spent.
+// TestMeshOverflowStopsPainting verifies that once the primitive cap is hit,
+// every painter entry point returns immediately, so a hostile mesh cannot keep
+// the rasterizer busy after the budget is spent.
 func TestMeshOverflowStopsPainting(t *testing.T) {
 	newPainter := func() *meshPainter {
 		return &meshPainter{
@@ -158,8 +158,8 @@ func flagVertex(flag, x, y, r, g, b byte) []byte {
 	return append([]byte{flag}, vertex(x, y, r, g, b)...)
 }
 
-// TestRenderFreeFormMesh: a type 4 stream paints its triangles, including one
-// joined to the previous by an edge flag.
+// TestRenderFreeFormMesh verifies that a type 4 stream paints its triangles,
+// including one joined to the previous by an edge flag.
 func TestRenderFreeFormMesh(t *testing.T) {
 	var data []byte
 	// Lower-left triangle in user space, all red.
@@ -184,8 +184,8 @@ func TestRenderFreeFormMesh(t *testing.T) {
 	}
 }
 
-// TestRenderLatticeMesh: a type 5 stream triangulates adjacent rows into a
-// filled quad, with no per-vertex flags.
+// TestRenderLatticeMesh verifies that a type 5 stream triangulates adjacent
+// rows into a filled quad, with no per-vertex flags.
 func TestRenderLatticeMesh(t *testing.T) {
 	var data []byte
 	// Top row (user y = 20), then bottom row (user y = 0), all blue.
@@ -206,8 +206,9 @@ func TestRenderLatticeMesh(t *testing.T) {
 	}
 }
 
-// TestRenderCoonsPatch: a type 6 patch whose four boundary curves trace the
-// page fills it, with the corner colours interpolated across the surface.
+// TestRenderCoonsPatch verifies that a type 6 patch whose four boundary curves
+// trace the page fills it, with the corner colours interpolated across the
+// surface.
 func TestRenderCoonsPatch(t *testing.T) {
 	// The 12 boundary points run counterclockwise from corner 1 at (0,0):
 	// up the left edge, across the top, down the right, back along the bottom.
@@ -240,8 +241,8 @@ func TestRenderCoonsPatch(t *testing.T) {
 	}
 }
 
-// TestRenderMeshTruncatedDrops: a stream ending mid-record has lost content,
-// which must be reported rather than half-painted in silence.
+// TestRenderMeshTruncatedDrops verifies that a stream ending mid-record is
+// reported as lost content rather than half-painted in silence.
 func TestRenderMeshTruncatedDrops(t *testing.T) {
 	var data []byte
 	data = append(data, flagVertex(0, 0, 0, 255, 0, 0)...)
@@ -255,8 +256,8 @@ func TestRenderMeshTruncatedDrops(t *testing.T) {
 	}
 }
 
-// TestRenderMeshMalformedDrops: mesh parameters the rasterizer cannot use are
-// rejected at parse time.
+// TestRenderMeshMalformedDrops verifies that mesh parameters the rasterizer
+// cannot use are rejected at parse time.
 func TestRenderMeshMalformedDrops(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -279,8 +280,8 @@ func TestRenderMeshMalformedDrops(t *testing.T) {
 	}
 }
 
-// TestMeshReaderBounds: the bit reader refuses reads past the end and flags
-// them, and align() advances to the next byte boundary.
+// TestMeshReaderBounds verifies that the bit reader refuses reads past the end
+// and flags them, and that align() advances to the next byte boundary.
 func TestMeshReaderBounds(t *testing.T) {
 	m := &meshReader{data: []byte{0xFF, 0x0F}}
 	if v, ok := m.read(4); !ok || v != 0xF {
@@ -310,9 +311,9 @@ func TestMeshReaderBounds(t *testing.T) {
 // coord maps a 0..20 user coordinate to its 8-bit mesh sample.
 func coord(v float64) byte { return byte(math.Round(v * 255 / 20)) }
 
-// TestRenderPatchMeshSharedEdge: a second patch joined by an edge flag reuses
-// the first's edge and two of its colours, producing one continuous surface
-// rather than a detached or misplaced second patch.
+// TestRenderPatchMeshSharedEdge verifies that a second patch joined by an edge
+// flag reuses the first's edge and two of its colours, producing one continuous
+// surface rather than a detached or misplaced second patch.
 func TestRenderPatchMeshSharedEdge(t *testing.T) {
 	// Patch 1 covers the bottom half (user y 0..10), all red. Corners run
 	// p1=(0,0) p4=(0,10) p7=(20,10) p10=(20,0), counterclockwise from p1.
@@ -368,10 +369,10 @@ func assertPainted(t *testing.T, img *image.RGBA, x, y int, where string) {
 	}
 }
 
-// TestRenderFreeFormMeshFlag2: a flag-2 vertex shares the previous triangle's
-// *first* edge, keeping va and replacing only vb and vc. Getting this confused
-// with flag 1 mirrors the new triangle across the strip, so it is pinned
-// separately.
+// TestRenderFreeFormMeshFlag2 verifies that a flag-2 vertex shares the
+// previous triangle's *first* edge, keeping va and replacing only vb and vc.
+// Flag 1 would mirror the new triangle across the strip instead, so this case
+// is pinned separately.
 func TestRenderFreeFormMeshFlag2(t *testing.T) {
 	var data []byte
 	data = append(data, flagVertex(0, 0, 0, 255, 0, 0)...)
@@ -385,19 +386,18 @@ func TestRenderFreeFormMeshFlag2(t *testing.T) {
 		t.Errorf("drops = %v, want none", drops)
 	}
 	// The flag-2 triangle spans (0,0), (0,20), (20,20), inheriting two red
-	// vertices; only its own vertex at user (20,20) is green. Had the walker
-	// treated the flag as a 1 the strip would have mirrored and left this
-	// corner unpainted.
+	// vertices; only its own vertex at user (20,20) is green. Read as flag 1,
+	// the strip would mirror and leave this corner unpainted.
 	if got := nrgbaAt(t, img, 15, 2); got.G <= got.R {
 		t.Errorf("flag-2 triangle near its own vertex = %v, want green-dominant", got)
 	}
 }
 
-// TestRenderMeshWithFunction: a mesh whose /Function is present stores one
-// parametric value per vertex instead of full colour components, so /Decode
-// carries a single colour range and the function supplies the colour.
+// TestRenderMeshWithFunction verifies that a mesh whose /Function is present
+// stores one parametric value per vertex instead of full colour components, so
+// /Decode carries a single colour range and the function supplies the colour.
 func TestRenderMeshWithFunction(t *testing.T) {
-	// Each vertex is flag, x, y, t -- four bytes, not six.
+	// Each vertex is flag, x, y, t: four bytes, not six.
 	fnVertex := func(flag, x, y, tv byte) []byte { return []byte{flag, x, y, tv} }
 	var data []byte
 	data = append(data, fnVertex(0, 0, 0, 0)...)
@@ -418,9 +418,9 @@ func TestRenderMeshWithFunction(t *testing.T) {
 	}
 }
 
-// TestRenderTensorPatch: a type 7 patch carries four interior control points
-// after its boundary. They are read and skipped, so the record must still be
-// consumed at the right width or every following patch would be misaligned.
+// TestRenderTensorPatch verifies that a type 7 patch's four interior control
+// points are read and skipped, so the record must still be consumed at the
+// right width or every following patch would be misaligned.
 func TestRenderTensorPatch(t *testing.T) {
 	boundary := [][2]byte{
 		{0, 0}, {0, 85}, {0, 170},
@@ -501,9 +501,9 @@ func TestRenderMeshTruncationPoints(t *testing.T) {
 	}
 }
 
-// TestRenderMeshFlagCutShort: a leading flag wider than the bytes left cannot
-// be read at all. It is the one truncation that stops the walk before any
-// vertex data, for both the free-form and the patch walkers.
+// TestRenderMeshFlagCutShort verifies that a leading flag wider than the bytes
+// left cannot be read at all. It is the one truncation that stops the walk
+// before any vertex data, for both the free-form and the patch walkers.
 func TestRenderMeshFlagCutShort(t *testing.T) {
 	for _, kind := range []int{4, 6} {
 		t.Run(fmt.Sprintf("type%d", kind), func(t *testing.T) {
@@ -518,8 +518,9 @@ func TestRenderMeshFlagCutShort(t *testing.T) {
 	}
 }
 
-// TestRenderMeshUndecodableStream: a mesh whose stream cannot be decoded is a
-// dropped shading, not a panic on the raw bytes.
+// TestRenderMeshUndecodableStream verifies that a mesh whose stream cannot be
+// decoded is reported as a dropped shading rather than panicking on the raw
+// bytes.
 func TestRenderMeshUndecodableStream(t *testing.T) {
 	sh := meshShading(4, []byte("not deflate data"), map[string]pdf.PDFValue{
 		"Filter": pdf.PDFName{Value: "FlateDecode"},
@@ -530,8 +531,9 @@ func TestRenderMeshUndecodableStream(t *testing.T) {
 	}
 }
 
-// TestPaintMeshDegenerateState: a mesh under a zero alpha or an empty clip has
-// no area to paint, and reports no drop because nothing was lost.
+// TestPaintMeshDegenerateState verifies that a mesh under a zero alpha or an
+// empty clip has no area to paint and reports no drop, because nothing was
+// lost.
 func TestPaintMeshDegenerateState(t *testing.T) {
 	var data []byte
 	data = append(data, flagVertex(0, 0, 0, 255, 0, 0)...)

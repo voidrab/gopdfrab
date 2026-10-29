@@ -322,9 +322,9 @@ func TestTTCompositeContoursByteArgScaleVariants(t *testing.T) {
 // TestTTSimpleGlyphContoursDescendingEndPoints covers a glyph whose contour
 // endpoints do not climb. The point arrays are sized from the last endpoint
 // but indexed by every one of them, so a font claiming a huge early contour
-// and a tiny last one used to read past the end of them -- a panic in a
-// rasterizer worker goroutine, where nothing recovers it and the whole process
-// goes down. Such a glyph is rejected instead.
+// and a tiny last one would read past the end of them. Such a read panics in a
+// rasterizer worker goroutine, which nothing recovers, so the glyph is rejected
+// instead.
 func TestTTSimpleGlyphContoursDescendingEndPoints(t *testing.T) {
 	build := func(endPts ...uint16) []byte {
 		var rec []byte

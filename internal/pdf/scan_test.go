@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The regular expressions the hand-written scans replaced, kept as the oracle.
+// The regular expressions that define the scan semantics, kept as the oracle.
 var (
 	oracleObjRe  = regexp.MustCompile(`(?:^|[\r\n])(\d+)\s+\d+\s+obj\b`)
 	oracleXRefRe = regexp.MustCompile(`(?:^|[\r\n])(xref[\r\n])`)

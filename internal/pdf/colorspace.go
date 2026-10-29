@@ -6,11 +6,10 @@ import "math"
 // an RGB triple in [0,1]. resources supplies the /ColorSpace dictionary used
 // to look up named (non-device) colour spaces referenced by name.
 //
-// This mirrors the same component-count device-model approximation
-// deviceColourModel (checks_colour.go) already uses elsewhere in this
-// codebase: no ICC profile is actually applied, CalGray/CalRGB are treated
-// as their device equivalents, and an unrecognized or unsupported space
-// (e.g. Pattern) falls back to mid-gray rather than failing.
+// The resolution is a device-model approximation: no ICC profile is applied,
+// CalGray/CalRGB are treated as their device equivalents, and an unrecognized
+// or unsupported space (e.g. Pattern) falls back to mid-gray rather than
+// failing.
 func ResolveColor(cs PDFValue, comps []float64, resources PDFDict) (r, g, b float64) {
 	return resolveColor(cs, comps, resources, 0)
 }

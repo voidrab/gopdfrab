@@ -34,11 +34,8 @@ func TestParseXRefSectionAt(t *testing.T) {
 		}
 	})
 
-	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3). A
-	// CR-terminated xref used to be wholly unparseable -- the reader swallowed
-	// every following line into the first one -- which sent real documents
-	// (a dvips-produced arXiv paper) down the brute-force recovery path and,
-	// when their trailer carried no /Root, left the graph unresolvable.
+	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3), so an
+	// xref section must parse under each of them.
 	for _, eol := range []struct{ name, sep string }{
 		{"LF", "\n"}, {"CRLF", "\r\n"}, {"CR", "\r"},
 	} {
@@ -238,8 +235,8 @@ func TestParseDictionaryValueError(t *testing.T) {
 // TestScalarDispatchAgreesAcrossParsers is the regression gate for the shared
 // parseScalarToken: the two token dispatchers -- parseObject, for a value inside
 // a containing object, and parseClassicAt, for an indirect object's body -- must
-// agree on every scalar. They were separate copies once and silently diverged on
-// scalars and null.
+// agree on every scalar. Both call parseScalarToken for scalars and null, so
+// the two must not diverge there.
 func TestScalarDispatchAgreesAcrossParsers(t *testing.T) {
 	cases := []struct {
 		name    string

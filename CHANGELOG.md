@@ -29,6 +29,8 @@ notice.
 
 ### Added
 
+- `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
+  `Check.AppliesTo` look checks up by clause within a conformance level.
 - `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
   the same names and over the same types, for programs that never convert.
   It does not compile or link the converter.
@@ -39,30 +41,43 @@ notice.
 
 ### Changed
 
+- A profile of the `ObjectModel` level that enables a PDF/A check is now
+  rejected with an error naming the check, not verified by PDF/A-1b's rules.
 - The Arlington object model behind the `ObjectModel` checks ships as 17.5 KB
   of embedded data decoded on first use, instead of a generated Go map literal
   that compiled to about 680 KB of startup code. Every binary is about 1 MB
   smaller (1.6 MB in WebAssembly), and a program that never runs the
   object-model checks no longer pays to build the table at startup.
 
+### Deprecated
+
+- `CheckByClause`, `ChecksForClause` and `Profile.Allows`, which read PDF/A-1
+  clauses only. Use the level-qualified lookups and `Profile.Has`.
+
 ### Fixed
 
-- A content stream that repeats a violation in every operator is now one
-  issue per check, whose message counts the repeats. A page plotting millions
-  of out-of-range coordinates used to produce one issue per number and ran
-  verify out of memory.
-- Convert rewrote a stream referenced from several places through only one of
-  them, writing a corrupt stream into output it reported conformant.
+- `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
+  (`pdfaid` XMP, `GTS_PDFA1` OutputIntent, font repairs) without a PDF/A check.
+- A violation repeated throughout a content stream is reported once per check,
+  with a count, not once per operator, which could run verify out of memory.
+- Convert rewrote a stream shared by several objects through only one of them,
+  writing a corrupt stream into output it reported conformant.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
-- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
-  `seac` came out with segments missing.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
   the last fix pass had already repaired.
 - An image claiming a size its data does not back could make the raster
-  fallback allocate gigabytes; it is now a reported `oversized image` drop.
-- The parallel transparency flattener had a data race on forms and images
-  drawn inside other flattened forms.
+  fallback allocate gigabytes; it is now an `oversized image` drop.
+- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
+  `seac` lost segments, transparency groups were drawn at the group's opacity
+  instead of composited once, and strokes thinner than a pixel were dropped.
+- Transparency flattening: fills under 50% opacity vanished and lighter ones
+  turned grey, the opacity repair ran first so overlapping fills washed out,
+  forms on a page with its own group were left to a later pass and came out
+  opaque, and nested forms raced between workers.
+- A transparency group with only opaque graphics states was rasterized; it
+  now stays vector.
+- Verify reported Info/XMP Title and Subject mismatches in a random order.
 
 ## [1.2.0] - 2026-10-11
 

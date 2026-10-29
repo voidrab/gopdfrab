@@ -105,9 +105,8 @@ func TestDecodeStreamFilters(t *testing.T) {
 	}
 }
 
-// TestDecodeStreamNewFilters covers the filters the chain gained with the
-// duplicate-decoder collapse: RunLengthDecode, LZW reachable from a stream
-// dict, /EarlyChange, and a predictor riding on LZW rather than Flate.
+// TestDecodeStreamNewFilters covers RunLengthDecode, LZW reachable from a
+// stream dict, /EarlyChange, and a predictor riding on LZW rather than Flate.
 func TestDecodeStreamNewFilters(t *testing.T) {
 	t.Run("RunLengthDecode", func(t *testing.T) {
 		dict := PDFDict{
@@ -134,8 +133,8 @@ func TestDecodeStreamNewFilters(t *testing.T) {
 		}
 	})
 
-	// /EarlyChange 0 must actually reach the decoder. Nothing in the codebase
-	// read this parameter before the chain was unified.
+	// /EarlyChange 0 must reach the decoder; the subtest fails if the parameter
+	// is ignored.
 	t.Run("EarlyChange reaches the decoder", func(t *testing.T) {
 		codes := make([]int, 254)
 		widths := make([]int, 254)
@@ -167,8 +166,7 @@ func TestDecodeStreamNewFilters(t *testing.T) {
 		}
 	})
 
-	// LZW plus a predictor in one chain -- a combination no decode path could
-	// express before, since the LZW-capable copy lived in convert.
+	// LZW plus a predictor in one chain, with the predictor undone after LZW.
 	t.Run("LZW with a predictor", func(t *testing.T) {
 		plaintext := []byte{10, 20, 30, 40, 5, 5, 5, 5}
 		var predicted []byte
@@ -358,10 +356,9 @@ func TestContentScannerMalformedOperands(t *testing.T) {
 	}
 }
 
-// TestContentScannerQuoteOperators: ' and " show text, and neither is made of
-// letters, which is all a keyword is read as -- so before they were handled
-// here a stream stopped at its first one and everything after it, however much
-// of the page it drew, was never seen.
+// TestContentScannerQuoteOperators verifies that ' and " are scanned as
+// operators although they are not made of letters, so the scan does not stop at
+// the first one.
 func TestContentScannerQuoteOperators(t *testing.T) {
 	ops := TokenizeContent([]byte("(a) '\n1 2 (b) \"\n(c) Tj\n"))
 	if len(ops) != 3 {
@@ -378,8 +375,8 @@ func TestContentScannerQuoteOperators(t *testing.T) {
 	}
 }
 
-// TestContentScannerComplete: a caller rewriting a stream has to know whether
-// the scan saw all of it, since it can only write back what it read.
+// TestContentScannerComplete verifies that Complete reports whether the scan
+// read the whole stream, which a caller rewriting the stream needs to know.
 func TestContentScannerComplete(t *testing.T) {
 	cs := NewContentScanner([]byte("0 0 1 1 re f\n"))
 	cs.Scan(func(string, []PDFValue) {})

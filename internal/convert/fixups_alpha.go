@@ -7,27 +7,22 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// PDF/A-1 forbids transparency, and the repair for an opacity below 1 is to
-// set it to 1. That is right for 0.9 and wrong for 0: what a file draws at zero
-// opacity is not there, and making it opaque paints it over whatever it was
-// drawn on top of -- black rectangles across a title, a black square where a
-// photograph was.
+// PDF/A-1 forbids transparency, so an opacity below 1 is repaired by setting
+// it to 1. That is harmless for an opacity of 0.9, but for 0 it makes invisible
+// content visible: content drawn at zero opacity is not seen, and once opaque
+// it paints over whatever lies beneath.
 //
-// So before the opacity is put back to 1, this file takes the drawing away.
-// While a zero opacity is in force a fill stops filling, a stroke stops
-// stroking, an image or shading is dropped, and text is switched to the
-// render mode that marks nothing, keeping its characters for anyone reading
-// the file rather than looking at it. Clipping is untouched throughout: it is
-// set before the operator that paints, and the operator that paints nothing
-// still sets it.
+// Before the opacity is set to 1, the drawing made at zero opacity is removed.
+// While a zero opacity is in force, fills and strokes are switched to paint
+// nothing, images and shadings are dropped, and text is switched to a render
+// mode that draws nothing but keeps its characters for text extraction.
+// Clipping is left alone: it is set before the painting operator, and the
+// operator that paints nothing still sets it.
 //
-// An opacity between the two is the same problem one step down: 0.4 becomes 1
-// as well, and a shaded band over a chart turns into a solid block. What the
-// file draws at 0.4 over white paper is its colour blended four parts in ten,
-// so that is the colour the drawing is given, and the opacity can go to 1
-// without changing what is seen. The white paper is an assumption -- the same
-// one a soft mask is composited against -- and where the backdrop is not white
-// the colour is a little wrong, which is much less wrong than opaque.
+// A partial opacity is handled by blending the colour over white paper, as it
+// appears at that opacity, and then setting the opacity to 1. The white paper
+// is an assumption, the same one a soft mask is composited against. Where the
+// backdrop is not white, the colour is slightly off.
 //
 // Each content stream is read on its own, starting fully opaque, and only what
 // the stream itself declares invisible is taken out. A stream shared between
@@ -229,8 +224,9 @@ func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 			r.emitPainted(op, operands, fills, strokes)
 			return
 		}
-		// Around the operator rather than once for the stream: the text keeps
-		// its own render mode everywhere else, and the stream may set it again.
+		// Around the operator rather than once for the stream: the text
+		// keeps its own render mode everywhere else, and the stream may
+		// set it again.
 		r.emitTextMode(mode)
 		r.emit(op, operands)
 		r.emitTextMode(r.state.textMode)
@@ -398,8 +394,8 @@ func whiteComponent(space pdf.PDFValue) (float64, bool) {
 	return 0, false
 }
 
-// paintFills and paintStrokes report which halves of the page a painting
-// operator marks.
+// paintFills reports whether the painting operator op marks the fill half of
+// the page. paintStrokes reports whether it marks the stroke half.
 func paintFills(op string) bool {
 	switch op {
 	case "f", "F", "f*", "B", "B*", "b", "b*":

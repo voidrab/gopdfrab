@@ -89,7 +89,7 @@ func TestFontSubstitutionSymbolicPreservesDingbats(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})})
 
-	changed, err := fontSubstitutionFixer{}.Fix(&trailer, nil)
+	changed, err := fontSubstitutionFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestFontSubstitutionSymbolicPreservesDingbats(t *testing.T) {
 	assertSymbolicSubstitute(t, font, 52, 0x2714)
 
 	// A second pass must be a no-op.
-	changed, err = fontSubstitutionFixer{}.Fix(&trailer, nil)
+	changed, err = fontSubstitutionFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("second Fix: %v", err)
 	}

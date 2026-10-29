@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -351,7 +352,7 @@ func TestVerifyXMPMetadataPass(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	for _, e := range errs {
 		t.Logf("unexpected(?) XMP violation on a pass file: %v", e)
 	}
@@ -367,9 +368,9 @@ func TestVerifyXMPMetadataMissing(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.MetadataMissing {
-		t.Errorf("verifyXMPMetadata(no XMP) = %v, want a single MetadataMissing", errs)
+		t.Errorf("verifyXMPMetadata(no XMP, a1b()) = %v, want a single MetadataMissing", errs)
 	}
 }
 
@@ -453,6 +454,37 @@ func TestCheckInfoXMPSyncFields(t *testing.T) {
 	}
 }
 
+// TestCheckInfoXMPSyncOrderIsStable pins the issue order when both Title and
+// Subject are out of sync: it once came from ranging over a map, so the same
+// file gave differently ordered reports from run to run.
+func TestCheckInfoXMPSyncOrderIsStable(t *testing.T) {
+	f := t.TempDir() + "/info-order.pdf"
+	if err := createPDFWithInfo(f, map[string]string{"Title": "T", "Subject": "S"}); err != nil {
+		t.Fatalf("createPDFWithInfo: %v", err)
+	}
+	doc, err := pdf.Open(f)
+	if err != nil {
+		t.Fatalf("pdf.Open: %v", err)
+	}
+	defer doc.Close()
+
+	want := []string{
+		"document info Title not synchronized with XMP dc:title",
+		"document info Title not synchronized with XMP dc:title",
+		"document info Subject not synchronized with XMP dc:description",
+		"document info Subject not synchronized with XMP dc:description",
+	}
+	for range 50 {
+		var got []string
+		for _, e := range checkInfoXMPSync(doc, "") {
+			got = append(got, e.Messages()...)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("checkInfoXMPSync messages = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestCheckInfoXMPSyncBadDateFormat(t *testing.T) {
 	f := t.TempDir() + "/info-baddate.pdf"
 	if err := createPDFWithInfo(f, map[string]string{"CreationDate": "2024-01-01"}); err != nil {
@@ -501,7 +533,7 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{})
+	errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec})
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want a single ObjectXMPNoXPacket", errs)
 	}
@@ -515,12 +547,12 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{}); len(errs) != 0 {
+	if errs := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec}); len(errs) != 0 {
 		t.Errorf("unexpected violation for an xpacket-wrapped stream: %v", errs)
 	}
 
 	// Non-dict graphs (e.g. a bare array) are ignored.
-	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(pdf.PDFArray{}, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Error("checkNonCatalogXMPStreams on a non-dict graph should return nil")
 	}
 }
@@ -540,19 +572,19 @@ func TestCheckXMPHeader(t *testing.T) {
 
 func TestCheckPDFAIdentifier(t *testing.T) {
 	good := `<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="1" pdfaid:conformance="B"/>`
-	if errs := checkPDFAIdentifier(good); len(errs) != 0 {
+	if errs := checkPDFAIdentifier(good, a1b()); len(errs) != 0 {
 		t.Errorf("unexpected violation for a valid PDF/A identifier: %v", errs)
 	}
 
-	if errs := checkPDFAIdentifier("no identifier here"); len(errs) != 1 ||
+	if errs := checkPDFAIdentifier("no identifier here", a1b()); len(errs) != 1 ||
 		errs[0].Check() != pdf.Checks.Metadata.PDFAIdentifierMissing {
-		t.Errorf("checkPDFAIdentifier(missing) = %v", errs)
+		t.Errorf("checkPDFAIdentifier(missing, a1b()) = %v", errs)
 	}
 
 	wrongNS := `<x xmlns:pdfaid="http://example.com/wrong" pdfaid:part="2" pdfaid:conformance="X"/>`
-	errs := checkPDFAIdentifier(wrongNS)
+	errs := checkPDFAIdentifier(wrongNS, a1b())
 	if len(errs) != 3 {
-		t.Fatalf("checkPDFAIdentifier(wrong ns/part/conformance) = %d errs, want 3: %v", len(errs), errs)
+		t.Fatalf("checkPDFAIdentifier(wrong ns/part/conformance, a1b()) = %d errs, want 3: %v", len(errs), errs)
 	}
 }
 
@@ -560,9 +592,8 @@ func TestCheckPDFAIdentifier(t *testing.T) {
 // every shape XMP legitimately writes it: as attributes in either quote
 // character, and as child elements.
 //
-// Ghostscript -- which produces a large share of the real PDF/A in existence --
-// writes single-quoted attributes, and reading only double quotes made every
-// file it produces report a missing PDF/A identifier while veraPDF passed it.
+// Some producers write single-quoted attributes. Reading only double quotes
+// reports a missing PDF/A identifier for every such file.
 func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 	const ns = "http://www.aiim.org/pdfa/ns/id/"
 	cases := []struct {
@@ -577,7 +608,7 @@ func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if errs := checkPDFAIdentifier(c.xmp); len(errs) != 0 {
+			if errs := checkPDFAIdentifier(c.xmp, a1b()); len(errs) != 0 {
 				t.Errorf("valid PDF/A identifier reported as a violation: %v", errs)
 			}
 			part, ok := pdf.FirstRegexpGroup(pdf.PDFAPartRe, c.xmp)
@@ -593,7 +624,8 @@ func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 }
 
 // TestXMPNamespaceBindingQuoteStyles covers the same quoting rule on the
-// prefix->URI binding scan, whose capture groups the fix reshuffled.
+// prefix->URI binding scan, whose regular expression captures the URI from
+// either quote style.
 func TestXMPNamespaceBindingQuoteStyles(t *testing.T) {
 	xmp := `<rdf:Description xmlns:pdf="http://ns.adobe.com/pdf/1.3/" xmlns:dc='http://purl.org/dc/elements/1.1/'/>`
 	got := map[string]string{}
@@ -710,10 +742,10 @@ func TestXmpIsIntegerAndContainerOK(t *testing.T) {
 	}
 }
 
-// TestNonCatalogXMPUndecodableIsNotMisattributed covers the re-attribution: a
-// metadata stream that will not decode is a structural defect, not evidence
-// that the xpacket wrapper is missing. Conflating the two told the user to fix
-// the wrong thing.
+// TestNonCatalogXMPUndecodableIsNotMisattributed covers a metadata stream on a
+// non-catalog object that will not decode. That is a structural defect, not
+// evidence that the xpacket wrapper is missing, and must not be reported as
+// one.
 func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	broken := pdf.NewPDFDict()
 	broken.HasStream = true
@@ -726,7 +758,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	errs := checkNonCatalogXMPStreams(trailer, ctx)
 	for _, e := range errs {
 		if e.Check() == pdf.Checks.Metadata.ObjectXMPNoXPacket {
@@ -747,7 +779,7 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	root2.Entries.Set("Other", plain)
 	trailer2 := pdf.NewPDFDict()
 	trailer2.Entries.Set("Root", root2)
-	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{})
+	errs2 := checkNonCatalogXMPStreams(trailer2, &ValidationContext{Spec: a1bSpec})
 	if len(errs2) != 1 || errs2[0].Check() != pdf.Checks.Metadata.ObjectXMPNoXPacket {
 		t.Errorf("decodable stream without xpacket = %v, want one ObjectXMPNoXPacket", errs2)
 	}
@@ -757,13 +789,10 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 // comparison treats the two sides the same way the Title/Subject one does:
 // XML entities decoded, whitespace trimmed on both sides.
 //
-// Neither held before. An author name containing an "&" compared decoded text
-// against raw markup, and a value with leading whitespace was compared against
-// the checker's own trimmed copy of itself -- so two identical values were
-// reported out of sync. Both shapes are ordinary in real documents (arXiv
-// papers carry author lists with "&" and stray padding), and both survived
-// conversion, since convert builds the XMP from the very Info value being
-// compared.
+// Both sides must be normalised the same way. An author name containing "&"
+// would otherwise compare decoded text against raw markup, and a value with
+// leading whitespace would be compared against an already trimmed copy of
+// itself, reporting identical values as out of sync.
 func TestCheckInfoXMPSyncAuthorEquivalence(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1259,7 +1288,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 	}
 	defer doc.Close()
 
-	errs := verifyXMPMetadata(doc)
+	errs := verifyXMPMetadata(doc, a1b())
 	if len(errs) != 2 ||
 		!hasXMPCheck(errs, pdf.Checks.Metadata.MetadataFiltered) ||
 		!hasXMPCheck(errs, pdf.Checks.Metadata.XMPStreamUnreadable) {
@@ -1272,7 +1301,7 @@ func TestVerifyXMPMetadataUndecodableStream(t *testing.T) {
 func TestCheckNonCatalogXMPStreamsRootNotDictionary(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFArray{})
-	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{}); errs != nil {
+	if errs := checkNonCatalogXMPStreams(trailer, &ValidationContext{Spec: a1bSpec}); errs != nil {
 		t.Errorf("checkNonCatalogXMPStreams = %v, want nil", errs)
 	}
 }
@@ -1296,8 +1325,7 @@ func TestVerifyReportsNonCatalogXMPWithoutXPacket(t *testing.T) {
 
 // TestXMPExifFlashStructFields checks that every field of the exif Flash
 // structure (Fired, Return, Mode, Function, RedEyeMode) is a defined exif
-// property; the table once carried "pdf.Function" for Function after a
-// mechanical package-prefix rename.
+// property.
 func TestXMPExifFlashStructFields(t *testing.T) {
 	const exif = "http://ns.adobe.com/exif/1.0/"
 	for _, field := range []string{"Fired", "Return", "Mode", "Function", "RedEyeMode"} {
@@ -1343,7 +1371,7 @@ func TestXMPTablesAgree(t *testing.T) {
 // namespace with neither a part nor a conformance level reports each as a
 // separate PDFAIdentifierMissing finding (6.7.11).
 func TestCheckPDFAIdentifierMissingPartAndConformance(t *testing.T) {
-	errs := checkPDFAIdentifier(`<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"/>`)
+	errs := checkPDFAIdentifier(`<x xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"/>`, a1b())
 	if len(errs) != 2 {
 		t.Fatalf("got %d findings, want 2: %v", len(errs), errs)
 	}

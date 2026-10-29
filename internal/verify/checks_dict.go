@@ -18,12 +18,6 @@ func HasAnyKey(v pdf.PDFDict, keys ...string) bool {
 	return false
 }
 
-// AllowedIntents are the permitted rendering-intent names (6.2.9).
-var AllowedIntents = map[string]bool{
-	"AbsoluteColorimetric": true, "RelativeColorimetric": true,
-	"Saturation": true, "Perceptual": true,
-}
-
 // --- 6.6 Actions ---
 
 // ActionTypes is the set of /S values that identify an action dictionary.
@@ -33,18 +27,6 @@ var ActionTypes = map[string]bool{
 	"SubmitForm": true, "ResetForm": true, "ImportData": true, "JavaScript": true,
 	"SetOCGState": true, "Rendition": true, "Trans": true, "GoTo3DView": true,
 	"SetState": true, "NOP": true,
-}
-
-// ForbiddenActions lists action types not permitted in PDF/A-1b (6.6.1).
-var ForbiddenActions = map[string]bool{
-	"Launch": true, "Sound": true, "Movie": true, "ResetForm": true,
-	"ImportData": true, "JavaScript": true, "Hide": true, "SetOCGState": true,
-	"Rendition": true, "Trans": true, "GoTo3DView": true, "SetState": true, "NOP": true,
-}
-
-// AllowedNamedActions are the only permitted Named action names.
-var AllowedNamedActions = map[string]bool{
-	"NextPage": true, "PrevPage": true, "FirstPage": true, "LastPage": true,
 }
 
 // ActionOwnerKey returns the entry of d whose value is an action dictionary,
@@ -80,13 +62,13 @@ func validateActions(v pdf.PDFDict, ctx *ValidationContext) {
 	if !ok || !ActionTypes[s.Value] {
 		return
 	}
-	if ForbiddenActions[s.Value] {
+	if ctx.Spec.ForbiddenActions.Has(s.Value) {
 		ctx.Report(pdf.Checks.Action.ForbiddenActionType, v, fmt.Sprintf("forbidden action type /%s", s.Value))
 		return
 	}
 	if s.Value == "Named" {
 		n, ok := v.Entries.Get("N").(pdf.PDFName)
-		if !ok || !AllowedNamedActions[n.Value] {
+		if !ok || !ctx.Spec.NamedActions.Has(n.Value) {
 			ctx.Report(pdf.Checks.Action.DisallowedNamedAction, v, "named action with disallowed name")
 		}
 	}
@@ -99,11 +81,8 @@ func validateAdditionalActions(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// Post14ViewerPrefKeys lists ViewerPreferences keys introduced after PDF 1.4
-// that are not valid in a PDF/A-1 (1.4) file. Exported for use by the fixer.
-var Post14ViewerPrefKeys = []string{"PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"}
-
-// validateViewerPreferences flags ViewerPreferences keys not valid in PDF 1.4.
+// validateViewerPreferences flags ViewerPreferences keys the level's PDF
+// version does not define.
 func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
 	if (v.Entries.Get("Type") != pdf.PDFName{Value: "Catalog"}) {
 		return
@@ -112,7 +91,7 @@ func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
 	if !ok {
 		return
 	}
-	for _, k := range Post14ViewerPrefKeys {
+	for _, k := range ctx.Spec.ForbiddenViewerPrefKeys.All() {
 		if vp.Entries.Get(k) != nil {
 			ctx.Report(pdf.Checks.Structure.PostPDF14ViewerPref, v,
 				fmt.Sprintf("ViewerPreferences entry /%s requires PDF 1.5 or later", k))
@@ -126,7 +105,7 @@ func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
 // functions (6.2.8) and transparency-related keys (6.4).
 func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	// A dict with a Type other than ExtGState (Annot, XObject, Page, ...) is
-	// handled by another
+	// not checked here.
 	if t, ok := v.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 		return
 	}
@@ -144,18 +123,22 @@ func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 	// 6.2.8: RI must be a standard rendering intent (distinct from the 6.2.9
 	// check on the content-stream `ri` operator).
-	if ri, ok := v.Entries.Get("RI").(pdf.PDFName); ok && !AllowedIntents[ri.Value] {
+	if ri, ok := v.Entries.Get("RI").(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(ri.Value) {
 		ctx.Report(pdf.Checks.Transparency.ExtGStateRenderingIntent, v, fmt.Sprintf("ExtGState rendering intent /%s is not a standard rendering intent", ri.Value))
 	}
 
-	// 6.4: transparency soft masks, blend modes and non-opaque alpha.
-	if sm, ok := v.Entries.Lookup("SMask"); ok {
+	// 6.4: transparency soft masks and non-opaque alpha, in a level without
+	// transparency, and blend modes the level does not allow.
+	if sm, ok := v.Entries.Lookup("SMask"); ok && !ctx.Spec.Transparency {
 		if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 			ctx.Report(pdf.Checks.Transparency.SoftMaskExtGState, v, "ExtGState SMask shall be /None")
 		}
 	}
-	if bm, ok := v.Entries.Lookup("BM"); ok && !IsAllowedBlendMode(bm) {
+	if bm, ok := v.Entries.Lookup("BM"); ok && !ctx.Spec.BlendModeAllowed(bm) {
 		ctx.Report(pdf.Checks.Transparency.BlendMode, v, "ExtGState uses a non-Normal blend mode")
+	}
+	if ctx.Spec.Transparency {
+		return
 	}
 	if ca, ok := v.Entries.Lookup("CA"); ok {
 		// Allow values within 1e-5 of 1.0 to handle floating-point rounding
@@ -171,29 +154,13 @@ func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// IsAllowedBlendMode reports whether a /BM value is permitted (Normal/Compatible only).
-func IsAllowedBlendMode(bm pdf.PDFValue) bool {
-	switch v := bm.(type) {
-	case pdf.PDFName:
-		return v.Value == "Normal" || v.Value == "Compatible"
-	case pdf.PDFArray:
-		for _, item := range v {
-			name, ok := item.(pdf.PDFName)
-			if !ok || (name.Value != "Normal" && name.Value != "Compatible") {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
 // --- 6.4 Transparency groups ---
 
-// validateTransparencyGroup flags a transparency group attribute dictionary (6.4).
+// validateTransparencyGroup flags a transparency group attribute dictionary
+// (6.4) in a level without transparency.
 func validateTransparencyGroup(v pdf.PDFDict, ctx *ValidationContext) {
 	group, ok := v.Entries.Get("Group").(pdf.PDFDict)
-	if !ok {
+	if !ok || ctx.Spec.Transparency {
 		return
 	}
 	if (group.Entries.Get("S") == pdf.PDFName{Value: "Transparency"}) {
@@ -221,7 +188,7 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 		if v.Entries.Get("OPI") != nil {
 			ctx.Report(pdf.Checks.Image.ImageOPI, v, "image shall not contain OPI")
 		}
-		if intent, ok := v.Entries.Get("Intent").(pdf.PDFName); ok && !AllowedIntents[intent.Value] {
+		if intent, ok := v.Entries.Get("Intent").(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(intent.Value) {
 			ctx.Report(pdf.Checks.Image.ImageRenderingIntent, v, fmt.Sprintf("image uses invalid rendering intent /%s", intent.Value))
 		}
 		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1/2/4/8, or 1 for image masks.
@@ -236,7 +203,7 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 		// 6.4: soft-masked images introduce transparency.
-		if sm, ok := v.Entries.Lookup("SMask"); ok {
+		if sm, ok := v.Entries.Lookup("SMask"); ok && !ctx.Spec.Transparency {
 			if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 				ctx.Report(pdf.Checks.Transparency.ImageWithSoftMask, v, "image shall not contain a soft mask (SMask)")
 			}
@@ -290,14 +257,6 @@ func resolveInheritedFT(v pdf.PDFDict) pdf.PDFValue {
 	return nil
 }
 
-// AllowedAnnotationTypes are the annotation subtypes permitted by PDF/A-1b (6.5.2).
-var AllowedAnnotationTypes = map[string]bool{
-	"Text": true, "Link": true, "FreeText": true, "Line": true, "Square": true,
-	"Circle": true, "Highlight": true, "Underline": true, "Squiggly": true,
-	"StrikeOut": true, "Stamp": true, "Ink": true, "Popup": true, "Widget": true,
-	"PrinterMark": true, "TrapNet": true,
-}
-
 // Annotation flag bits (PDF 32000 12.5.3).
 const (
 	AnnotFlagInvisible = 1 << 0
@@ -329,7 +288,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 
 	subtype, _ := v.Entries.Get("Subtype").(pdf.PDFName)
 
-	if !AllowedAnnotationTypes[subtype.Value] {
+	if !ctx.Spec.AnnotationSubtypes.Has(subtype.Value) {
 		ctx.Report(pdf.Checks.Annotation.DisallowedSubtype, v, fmt.Sprintf("annotation subtype /%s not allowed", subtype.Value))
 		return
 	}

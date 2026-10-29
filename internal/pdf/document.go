@@ -50,10 +50,10 @@ type Reader struct {
 	// /Info, /ID) when the main trailer lacks /Root. See EffectiveTrailer().
 	firstPageTrailer PDFDict
 
-	// parseDiagnostics collects document-structure violations (e.g. 6.1.8
+	// parseDiagnostics collects structural observations (e.g. malformed
 	// object framing) found lazily during resolution; framingChecked dedupes
-	// per object. See PDFError.
-	parseDiagnostics []PDFError
+	// per object. See Diagnostic.
+	parseDiagnostics []Diagnostic
 	framingChecked   map[int]bool
 	streamChecked    map[streamCheckKey]bool
 
@@ -97,7 +97,7 @@ type Reader struct {
 	// carry the content loss into its final result.
 	degradedObjs  map[int]bool
 	recoveredObjs map[int]bool
-	degradedDiags []PDFError
+	degradedDiags []Diagnostic
 
 	// headerScan memoizes one whole-file "N G obj" scan for offset recovery,
 	// mapping object number to header offsets in file order.
@@ -310,8 +310,8 @@ func (d *Reader) ScanStreamFunc(dict PDFDict, fn func(op string, operands []PDFV
 // scanAndMaybeCache streams data through fn while building the list to memoize,
 // abandoning that list as soon as it outgrows what is left of the budget.
 //
-// Building the whole list first and consulting the budget afterwards -- which is
-// what this used to do -- bounds only what is retained. A tokenized content
+// Building the whole list first and consulting the budget afterwards bounds
+// only what is retained. A tokenized content
 // stream runs several times the decoded bytes it came from, so on a
 // content-heavy document that peak is the document's memory, and the budget
 // missed it entirely.
@@ -344,42 +344,40 @@ func (d *Reader) scanAndMaybeCache(key StreamKey, data []byte, fn func(op string
 	d.scanBytes += n
 }
 
-// StructErrors returns the structural parse diagnostics recorded so far.
-func (d *Reader) StructErrors() []PDFError {
+// Diagnostics returns the structural diagnostics recorded so far.
+func (d *Reader) Diagnostics() []Diagnostic {
 	return d.parseDiagnostics
 }
 
-// streamCheckKey dedupes stream-framing diagnostics per object and check.
+// streamCheckKey dedupes stream-framing diagnostics per object and kind.
 type streamCheckKey struct {
 	objNum int
-	check  Check
+	kind   DiagKind
 }
 
-// recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated
-// per object number and check.
-func (d *Reader) recordStreamFraming(objNum int, check Check, msg string) {
-	d.recordObjectOnce(objNum, check, msg)
+// recordStreamFraming records a stream-framing diagnostic, deduplicated per
+// object number and kind.
+func (d *Reader) recordStreamFraming(objNum int, kind DiagKind, msg string) {
+	d.recordObjectOnce(objNum, kind, msg)
 }
 
 // recordObjectOnce records a diagnostic about object objNum, at most once per
-// object and check.
-func (d *Reader) recordObjectOnce(objNum int, check Check, msg string) {
+// object and kind.
+func (d *Reader) recordObjectOnce(objNum int, kind DiagKind, msg string) {
 	if d.streamChecked == nil {
 		d.streamChecked = map[streamCheckKey]bool{}
 	}
-	key := streamCheckKey{objNum, check}
+	key := streamCheckKey{objNum, kind}
 	if d.streamChecked[key] {
 		return
 	}
 	d.streamChecked[key] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(check, []error{errors.New(msg)}, objNum))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(kind, []error{errors.New(msg)}, objNum))
 }
 
-// objectDiagnostic is a document-level diagnostic about indirect object
-// objNum. The object goes in the reference, never the page: an object number
-// is not a page number, and Page drives which pages convert rasterizes.
-func objectDiagnostic(check Check, errs []error, objNum int) PDFError {
-	return NewError(check, errs, 0, &PDFRef{ObjNum: objNum})
+// objectDiagnostic is a diagnostic about indirect object objNum.
+func objectDiagnostic(kind DiagKind, errs []error, objNum int) Diagnostic {
+	return Diagnostic{Kind: kind, Ref: &PDFRef{ObjNum: objNum}, Errs: errs}
 }
 
 // recordFraming records 6.1.8 object-framing violations for an object, at most
@@ -395,7 +393,7 @@ func (d *Reader) recordFraming(objNum int, errs []error) {
 		return
 	}
 	d.framingChecked[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(Checks.Structure.ObjectFraming, errs, objNum))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(DiagObjectFraming, errs, objNum))
 }
 
 // recordDegraded records that objNum could not be parsed or recovered and was
@@ -410,9 +408,8 @@ func (d *Reader) recordDegraded(objNum int, cause error) {
 		d.degradedObjs = map[int]bool{}
 	}
 	d.degradedObjs[objNum] = true
-	e := NewError(Checks.Structure.GraphResolutionFailure,
-		[]error{fmt.Errorf("object %d unresolvable, treated as null: %v", objNum, cause)},
-		0, &PDFRef{ObjNum: objNum})
+	e := objectDiagnostic(DiagObjectDegraded,
+		[]error{fmt.Errorf("object %d unresolvable, treated as null: %v", objNum, cause)}, objNum)
 	d.degradedDiags = append(d.degradedDiags, e)
 	d.parseDiagnostics = append(d.parseDiagnostics, e)
 }
@@ -427,15 +424,14 @@ func (d *Reader) recordRecovered(objNum int, badOffset, newOffset int64, cause e
 		d.recoveredObjs = map[int]bool{}
 	}
 	d.recoveredObjs[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.GraphResolutionFailure,
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(DiagObjectRecovered,
 		[]error{fmt.Errorf("object %d: invalid xref offset %d (%v), recovered at offset %d",
-			objNum, badOffset, cause, newOffset)},
-		0, &PDFRef{ObjNum: objNum}))
+			objNum, badOffset, cause, newOffset)}, objNum))
 }
 
 // DegradedObjects returns the diagnostics for objects resolved to null because
 // they could not be parsed or recovered.
-func (d *Reader) DegradedObjects() []PDFError { return d.degradedDiags }
+func (d *Reader) DegradedObjects() []Diagnostic { return d.degradedDiags }
 
 // HasDegradedObjects reports whether any object degraded to null during
 // resolution, making state derived from the graph (e.g. content usage)
@@ -448,15 +444,14 @@ func (d *Reader) HasDegradedObjects() bool { return len(d.degradedObjs) > 0 }
 func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 	kept := d.parseDiagnostics[:mark]
 	for _, e := range d.parseDiagnostics[mark:] {
-		ref, ok := e.ObjectRef()
-		if !ok || ref.ObjNum != objNum || e.check == Checks.Structure.GraphResolutionFailure {
+		if e.Ref == nil || e.Ref.ObjNum != objNum || !e.Kind.framing() {
 			kept = append(kept, e)
 			continue
 		}
-		if e.check == Checks.Structure.ObjectFraming {
+		if e.Kind == DiagObjectFraming {
 			delete(d.framingChecked, objNum)
 		} else {
-			delete(d.streamChecked, streamCheckKey{objNum, e.check})
+			delete(d.streamChecked, streamCheckKey{objNum, e.Kind})
 		}
 	}
 	d.parseDiagnostics = kept
@@ -638,17 +633,16 @@ func (d *Reader) initializeStructure() error {
 				trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
 			}
 			if xsErr == nil {
-				// It's actually a cross-reference stream, which PDF/A-1b
-				// prohibits (6.1.4-3); its dictionary doubles as the trailer.
+				// It's actually a cross-reference stream; its dictionary
+				// doubles as the trailer.
 				xrefStreamTrailer, usedXRefStream = trailer, true
-				d.parseDiagnostics = append(d.parseDiagnostics,
-					NewError(Checks.Structure.XRefStream,
-						[]error{errors.New("cross-reference streams are not permitted")}, 1, nil))
+				d.parseDiagnostics = append(d.parseDiagnostics, Diagnostic{Kind: DiagUsedXRefStream,
+					Errs: []error{errors.New("cross-reference streams are not permitted")}})
 			}
 		}
 		if !usedXRefStream {
-			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
-				[]error{fmt.Errorf("cross-reference table could not be parsed, rebuilt by scanning for objects: %v", xrefErr)}, 1, nil))
+			d.parseDiagnostics = append(d.parseDiagnostics, Diagnostic{Kind: DiagXRefRebuilt,
+				Errs: []error{fmt.Errorf("cross-reference table could not be parsed, rebuilt by scanning for objects: %v", xrefErr)}})
 			if err := d.recoverXRefByBruteForceScan(false); err != nil {
 				return fmt.Errorf("%w: could not recover object table: %v", ErrDamaged, xrefErr)
 			}

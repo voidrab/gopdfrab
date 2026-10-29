@@ -14,10 +14,9 @@ import (
 //
 // FlateDecode/LZWDecode/ASCII-filtered raw samples (with PNG/TIFF predictor
 // undo), DCTDecode (via the standard library's image/jpeg) and CCITTFaxDecode
-// (Group 3/4, ccitt.go) are supported. JBIG2Decode/JPXDecode have no decoder
-// in this codebase -- those JBIG2/JPEG2000 codecs are large standalone
-// efforts out of scope here -- so an image using one of them, or a CCITT
-// image that fails to decode, comes back as a flat mid-gray placeholder
+// (Group 3/4, ccitt.go) are supported. JBIG2Decode and JPXDecode have no
+// decoder in this codebase, so an image using one of them, or a CCITT image
+// that fails to decode, comes back as a flat mid-gray placeholder
 // together with a *PlaceholderError. The renderer paints the placeholder
 // rather than failing the page and reports the image as dropped; a caller
 // that would store the samples treats it like any other decode failure, so
@@ -59,7 +58,7 @@ const errInvalidImageDims = imageDecodeError("raster_image: invalid /Width or /H
 // maxImagePixels is the size past which an image's samples must back the
 // size it claims before a buffer that size is allocated. Below it, short
 // samples are tolerated and read as zero; past it, a claim the samples do
-// not cover -- a few bytes asking for 60000x60000 -- gets the placeholder,
+// not cover, such as a few bytes claiming 60000x60000, gets the placeholder,
 // reported as a drop like an undecodable codec. Images that big and fully
 // backed are real (scientific figures reach 250M pixels) and decode as
 // before: what they can allocate is bounded by the decoded-stream limit.
@@ -419,9 +418,10 @@ func decodeJPEGImage(data []byte) (*image.RGBA, error) {
 	}
 	bounds := img.Bounds()
 	out := image.NewRGBA(bounds)
-	// draw.Src is defined as dst.Set(src.At(...)) per pixel, so this is the
-	// former nested Set/At loop minus the per-pixel color.Color boxing (the
-	// stdlib has typed fast paths for the JPEG decoder's YCbCr/Gray images).
+	// draw.Src is defined as dst.Set(src.At(...)) per pixel. A single
+	// draw.Draw call avoids the per-pixel color.Color boxing of a nested
+	// Set/At loop, and the standard library has typed fast paths for the
+	// JPEG decoder's YCbCr and Gray images.
 	draw.Draw(out, bounds, img, bounds.Min, draw.Src)
 	return out, nil
 }

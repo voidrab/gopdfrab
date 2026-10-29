@@ -132,7 +132,8 @@ func veraClauseAndKind(name string) (clause string, wantFail bool) {
 }
 
 // TestVeraPDFSuite runs every PDF in the veraPDF PDF/A-1b corpus: fail files
-// must be reported non-conformant (ideally by the matching clause), pass files must validate cleanly.
+// must be reported non-conformant (ideally by the matching clause), pass files
+// must validate cleanly.
 func TestVeraPDFSuite(t *testing.T) {
 	if _, err := os.Stat(veraDir); err != nil {
 		t.Skip("veraPDF suite not present")

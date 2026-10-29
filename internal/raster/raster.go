@@ -97,9 +97,7 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},
 		// The colour a drawing starts in is black in DeviceGray (ISO 32000-1
-		// table 52). Starting with no colour space at all instead made "1 sc"
-		// -- white, and how a chart fills its background -- do nothing, which
-		// left the black to paint over it.
+		// table 52), so "1 sc" without a preceding cs selects white.
 		fillCS:   pdf.PDFName{Value: "DeviceGray"},
 		strokeCS: pdf.PDFName{Value: "DeviceGray"},
 	}
@@ -680,9 +678,52 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		if err != nil {
 			return
 		}
+		if group, _ := xobj.Entries.Get("Group").(pdf.PDFDict); isTransparencyGroup(group) {
+			r.paintGroup(data, formRes, childGS, gs.fillAlpha)
+			return
+		}
 		r.execContent(data, formRes, childGS)
 	case "Image":
 		r.paintImage(xobj, resources, gs)
+	}
+}
+
+// isTransparencyGroup reports whether a form's /Group is a transparency group.
+func isTransparencyGroup(group pdf.PDFDict) bool {
+	s, _ := group.Entries.Get("S").(pdf.PDFName)
+	return s.Value == "Transparency"
+}
+
+// paintGroup paints a transparency group as specified in ISO 32000-1 11.6.6.
+// The content is rendered onto a separate transparent canvas starting at
+// alpha 1, and the result is composited onto the current canvas at alpha, the
+// fill alpha in effect where the group is drawn. Every group is treated as
+// isolated and non-knockout.
+func (r *renderer) paintGroup(content []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
+	area := clipToBounds(r.canvas.Bounds(), gs.clip)
+	if area.Empty() {
+		return
+	}
+	backdrop := r.canvas
+	r.canvas = image.NewRGBA(area)
+	gs.fillAlpha, gs.strokeAlpha = 1, 1
+	r.execContent(content, resources, gs)
+	group := r.canvas
+	r.canvas = backdrop
+
+	// Source-over with premultiplied samples, the group's scaled by alpha.
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		src := group.Pix[group.PixOffset(area.Min.X, y):group.PixOffset(area.Max.X, y)]
+		dst := backdrop.Pix[backdrop.PixOffset(area.Min.X, y):backdrop.PixOffset(area.Max.X, y)]
+		for i := 0; i < len(src); i += 4 {
+			sa := float64(src[i+3]) * alpha / 255
+			if sa == 0 {
+				continue
+			}
+			for c := range 4 {
+				dst[i+c] = uint8(float64(src[i+c])*alpha + float64(dst[i+c])*(1-sa) + 0.5)
+			}
+		}
 	}
 }
 

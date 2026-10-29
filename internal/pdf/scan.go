@@ -5,10 +5,10 @@ import (
 	"math"
 )
 
-// Whole-file scans for damaged-file recovery. They replace regular expressions
-// that ran over the full file: RE2 is linear but slow and allocates per match,
-// and on the seek path it needed the whole file on the heap. These walk the
-// in-memory slice directly, or the file source in bounded chunks.
+// Whole-file scans for damaged-file recovery. They match bytes directly rather
+// than with regular expressions, because RE2 allocates per match and, on the
+// seek path, would need the whole file on the heap. These walk the in-memory
+// slice directly, or the file source in bounded chunks.
 
 // scanChunk is the read size for chunked scans on the seek path. A var so
 // tests can shrink it to exercise matches straddling a chunk boundary.
@@ -17,7 +17,8 @@ var scanChunk = 1 << 20
 // isLineEnd reports whether b ends a line.
 func isLineEnd(b byte) bool { return b == '\n' || b == '\r' }
 
-// isRegexpSpace is the \s class of Go's regexp: [\t\n\f\r ].
+// isRegexpSpace reports whether b is in the \s class of Go's regexp:
+// [\t\n\f\r ].
 func isRegexpSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\f' || b == '\r'
 }

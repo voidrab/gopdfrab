@@ -41,8 +41,8 @@ func openReader(t *testing.T, data []byte) *pdf.Reader {
 // filledPage draws a large black rectangle, so the page carries real ink.
 const filledPage = "0 0 0 rg\n20 20 160 160 re\nf\n"
 
-// TestFidelityIdentical: a document compared against itself scores near-perfect
-// similarity and is never flagged as blanked.
+// TestFidelityIdentical verifies that a document compared against itself
+// scores near-perfect similarity and is never flagged as blanked.
 func TestFidelityIdentical(t *testing.T) {
 	data := onePageDoc(filledPage)
 	report, err := CompareFidelity(openReader(t, data), openReader(t, data), fidelityDPI)
@@ -64,9 +64,9 @@ func TestFidelityIdentical(t *testing.T) {
 	}
 }
 
-// TestFidelityBlankedDetected: an inked input against a blank output is flagged
-// as blanked with low similarity -- the destructive failure the gate exists to
-// catch.
+// TestFidelityBlankedDetected verifies that an inked input against a blank
+// output is flagged as blanked with low similarity -- the destructive failure
+// the gate exists to catch.
 func TestFidelityBlankedDetected(t *testing.T) {
 	input := onePageDoc(filledPage)
 	output := onePageDoc("q\nQ\n") // renders nothing
@@ -87,10 +87,10 @@ func TestFidelityBlankedDetected(t *testing.T) {
 	}
 }
 
-// TestFidelityChangedNotBlanked: a page whose content moves/changes but still
-// carries comparable ink is NOT flagged as blanked, even though its pixel
-// similarity drops -- so legitimate changes (e.g. font substitution) don't trip
-// the destructive-loss gate.
+// TestFidelityChangedNotBlanked verifies that a page whose content moves or
+// changes but still carries comparable ink is NOT flagged as blanked, even
+// though its pixel similarity drops. Legitimate changes, e.g. font
+// substitution, do not trip the destructive-loss gate.
 func TestFidelityChangedNotBlanked(t *testing.T) {
 	input := onePageDoc("0 0 0 rg\n20 20 70 70 re\nf\n")    // rectangle bottom-left
 	output := onePageDoc("0 0 0 rg\n110 110 70 70 re\nf\n") // same-size rectangle top-right
@@ -123,8 +123,8 @@ func TestInkFractionExtremes(t *testing.T) {
 	}
 }
 
-// TestComparePageRendersMissingRenders: the comparison has to survive pages
-// the rasterizer could not draw. A page missing on the input side has no
+// TestComparePageRendersMissingRenders verifies that the comparison survives
+// pages the rasterizer could not draw. A page missing on the input side has no
 // baseline and is skipped entirely; one missing only on the output side is
 // total loss, not a skipped page, or a conversion that stopped rendering would
 // report clean.
@@ -157,9 +157,9 @@ func TestComparePageRendersMissingRenders(t *testing.T) {
 	}
 }
 
-// TestFidelityMetricsOnEmptyRenders: the ink and grid metrics are fed straight
-// from the rasterizer, so they must absorb a nil or zero-sized image rather
-// than dividing by zero or indexing an empty pixel buffer.
+// TestFidelityMetricsOnEmptyRenders verifies that the ink and grid metrics,
+// which are fed straight from the rasterizer, absorb a nil or zero-sized image
+// rather than dividing by zero or indexing an empty pixel buffer.
 func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
 	if got := inkFraction(nil); got != 0 {
 		t.Errorf("inkFraction(nil) = %v, want 0", got)
@@ -176,9 +176,9 @@ func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
 	}
 }
 
-// TestCompareFidelityRenderErrors: a document whose graph cannot be resolved
-// cannot be rendered, and the failure must name which side failed instead of
-// being reported as a zero-similarity page.
+// TestCompareFidelityRenderErrors verifies that a document whose graph cannot
+// be resolved, and so cannot be rendered, fails with an error naming the side
+// that failed rather than being reported as a zero-similarity page.
 func TestCompareFidelityRenderErrors(t *testing.T) {
 	// A reference chain past the resolve depth cap, as in
 	// TestConvertUnresolvableGraphReturnsError.
@@ -311,17 +311,16 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 	return found
 }
 
-// clippedAtScale is the shape coordinate clamping blanked, taken from a
-// real presentation: the page is drawn at 1/500 scale, so a full-page clip
-// needs coordinates in the hundreds of thousands. Clamping those to 32767
-// shrinks the clip to a corner and takes the whole page with it.
+// clippedAtScale is a page drawn at 1/500 scale whose full-page clip needs
+// coordinates in the hundreds of thousands. Clamping those to 32767 shrinks the
+// clip to a corner and takes the whole page with it.
 const clippedAtScale = "q 0.002 0 0 0.002 0 0 cm\n" +
 	"0 0 m 100000.0 0 l 100000.0 100000.0 l 0 100000.0 l h W n\n" +
 	"0 0 0 rg\n10000 10000 80000 80000 re\nf\nQ\n"
 
-// TestConvertKeepsGeometryDrawnAtScale is item 34's regression: the conversion
-// must reach conformance -- no coordinate left over the limit -- without
-// emptying the page it was repairing.
+// TestConvertKeepsGeometryDrawnAtScale verifies that the conversion reaches
+// conformance, with no coordinate left over the limit, without emptying the
+// page it repairs.
 func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	cr, err := ConvertBytes(onePageDoc(clippedAtScale), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -342,9 +341,9 @@ func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	}
 }
 
-// TestConvertReportsFidelity: with CheckFidelity set, a normal conversion
-// populates ConvertResult.Fidelity with a per-page report and reports no
-// blanked page; without it, Fidelity stays nil.
+// TestConvertReportsFidelity verifies that with CheckFidelity set, a normal
+// conversion populates ConvertResult.Fidelity with a per-page report and
+// reports no blanked page; without it, Fidelity stays nil.
 func TestConvertReportsFidelity(t *testing.T) {
 	data := onePageDoc(filledPage)
 
@@ -378,8 +377,9 @@ func TestConvertReportsFidelity(t *testing.T) {
 	}
 }
 
-// TestBlankedPages: the page list is the Blanked() reports in page order, and
-// stays nil when nothing was lost so len is enough to test it.
+// TestBlankedPages verifies that the page list is the Blanked() reports in
+// page order, and that it stays nil when nothing was lost, so len is enough to
+// test it.
 func TestBlankedPages(t *testing.T) {
 	lost := PageFidelity{Page: 2, InputInk: 0.5, OutputInk: 0}
 	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
@@ -394,11 +394,11 @@ func TestBlankedPages(t *testing.T) {
 	}
 }
 
-// TestOverpainted: what counts is the page being covered, not the ink going
-// up. A conversion that makes text drawable which the input's own fonts could
-// not draw adds a great deal of ink and covers nothing, and it is the
-// commonest thing a conversion does -- counting that as damage would bury the
-// real thing.
+// TestOverpainted verifies that what counts is the page being covered, not the
+// ink going up. A conversion that makes text drawable which the input's own
+// fonts could not draw adds a great deal of ink and covers nothing, and it is
+// the commonest thing a conversion does -- counting that as damage would bury
+// the real thing.
 func TestOverpainted(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -421,9 +421,9 @@ func TestOverpainted(t *testing.T) {
 	}
 }
 
-// TestCoveredFraction: a cell counts as covered when it was paper and is now
-// solid. Text darkens a cell it falls in without covering it, which is exactly
-// what must not count.
+// TestCoveredFraction verifies that a cell counts as covered when it was paper
+// and is now solid. Text darkens a cell it falls in without covering it, which
+// is exactly what must not count.
 func TestCoveredFraction(t *testing.T) {
 	paper := onePageDoc("")
 	// A rectangle over the top half of the page, and a page of text-like marks
@@ -459,16 +459,16 @@ func TestCoveredFraction(t *testing.T) {
 	}
 }
 
-// TestCellMeansOnEmptyRender: the grid is fed straight from the rasterizer, so
-// it has to absorb a zero-sized image.
+// TestCellMeansOnEmptyRender verifies that the grid, which is fed straight from
+// the rasterizer, absorbs a zero-sized image.
 func TestCellMeansOnEmptyRender(t *testing.T) {
 	if got := cellMeans(image.NewRGBA(image.Rect(0, 0, 0, 0))); got != [fidelityGrid * fidelityGrid]float64{} {
 		t.Error("cellMeans of an empty render returned non-zero cells")
 	}
 }
 
-// TestOverpaintedPages: the page list mirrors blankedPages -- page order, and
-// nil when nothing was drawn over.
+// TestOverpaintedPages verifies that the page list mirrors blankedPages: page
+// order, and nil when nothing was drawn over.
 func TestOverpaintedPages(t *testing.T) {
 	over := PageFidelity{Page: 2, Covered: 0.8}
 	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
@@ -483,11 +483,10 @@ func TestOverpaintedPages(t *testing.T) {
 	}
 }
 
-// drawnAtZeroOpacity is the shape the zero-opacity repair was written for, taken
-// from two real presentations: a black rectangle the size of the page, drawn
-// at zero opacity over the content. It is invisible in the file as written,
-// and making it opaque -- which is how a conversion used to repair the
-// opacity -- puts it over everything underneath.
+// drawnAtZeroOpacity is a page of the kind the zero-opacity repair exists for:
+// a black rectangle the size of the page, drawn at zero opacity over the
+// content. It is invisible in the file as written, and making it opaque puts
+// it over everything underneath.
 const drawnAtZeroOpacity = "0 0 0 rg\n20 20 60 60 re\nf\n" +
 	"/GS0 gs\n0 0 0 rg\n0 0 200 200 re\nf\n"
 
@@ -503,10 +502,9 @@ func onePageDocWithZeroAlpha(content string) []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// groupFormDoc is the shape the group-flattening blanking came from, taken from
-// two real presentations: the whole page is one transparency group form, and
-// everything it draws -- here a black image -- is named in the form's own
-// resources rather than the page's.
+// groupFormDoc builds a page that is one transparency group form. The form
+// draws a black image, which is named in the form's own resources rather than
+// the page's.
 func groupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -514,8 +512,8 @@ func groupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte("/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing, which is
-	// the path this is about.
+	// The image draw prevents the group from being removed without
+	// rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> /Resources << /XObject << /Im0 6 0 R >> "+
 		"/ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
@@ -525,10 +523,11 @@ func groupFormDoc() []byte {
 	return b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
 }
 
-// TestConvertKeepsWhatAGroupFormDraws is item 36's blanking regression: PDF/A-1
-// forbids the transparency group, so the form is rasterized -- and rasterizing
-// it against the page's resources instead of its own leaves the page blank
-// while the output is still conformant.
+// TestConvertKeepsWhatAGroupFormDraws verifies that the content of a
+// transparency group form survives conversion. PDF/A-1 forbids the transparency
+// group, so the form is rasterized, and rasterizing it against the page's
+// resources instead of its own leaves the page blank while the output is still
+// conformant.
 func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	cr, err := ConvertBytes(groupFormDoc(), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -549,9 +548,9 @@ func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	}
 }
 
-// TestConvertDoesNotPaintOverInvisibleContent is item 35's regression: the
-// conversion must reach conformance -- no opacity left below 1 -- without
-// drawing what the file says cannot be seen.
+// TestConvertDoesNotPaintOverInvisibleContent verifies that the conversion
+// reaches conformance, with no opacity left below 1, without drawing what the
+// file says cannot be seen.
 func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	cr, err := ConvertBytes(onePageDocWithZeroAlpha(drawnAtZeroOpacity), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -578,9 +577,8 @@ func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	}
 }
 
-// coveringGroupFormDoc is oapen-26d73842 page 4's shape: the page draws its own
-// content, then a page-covering transparency group that paints one small mark
-// over it. Flattening that group to a flat image is what covered the page.
+// coveringGroupFormDoc returns a one-page document that draws its own content
+// and then a page-sized transparency group painting one small mark.
 func coveringGroupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -588,10 +586,11 @@ func coveringGroupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte(filledPage+"/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing.
+	// The translucent graphics state prevents the group from being removed
+	// without rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> "+
-		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
+		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 0.99 >> >> >>",
 		[]byte("q /GS0 gs 1 0 0 rg 0 0 10 10 re f Q\n"))
 	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 }

@@ -37,7 +37,7 @@ func TestSubsetTrueType(t *testing.T) {
 	if got := fontprog.GlyfRecord(tables, 1); !bytes.Equal(got, fontprog.GlyfRecord(srcTables, 1)) {
 		t.Errorf("glyph 1 = %v, want the source's glyph 1", got)
 	}
-	// The composite now points at the renumbered component (4 -> 3) and
+	// The composite points at the renumbered component (4 -> 3) and
 	// the renumbered 'A' (1 -> 1).
 	if got := fontprog.GlyfComponents(fontprog.GlyfRecord(tables, 2)); !reflect.DeepEqual(got, []int{3, 1}) {
 		t.Errorf("composite components = %v, want [3 1]", got)
@@ -166,10 +166,10 @@ func TestSubsetTrueTypeForCID(t *testing.T) {
 	}
 }
 
-// TestSubsetTrueTypeForCIDNotdef: a CID given in notdef gets the source's
-// .notdef outline at exactly that glyph ID, advancing by the width asked for
-// rather than the .notdef's own -- the CID drew the missing-glyph shape in the
-// font being replaced, and the text after it must not move.
+// TestSubsetTrueTypeForCIDNotdef verifies that a CID given in notdef gets the
+// source's .notdef outline at exactly that glyph ID, advancing by the width
+// asked for rather than the .notdef's own -- the CID drew the missing-glyph
+// shape in the font being replaced, and the text after it must not move.
 func TestSubsetTrueTypeForCIDNotdef(t *testing.T) {
 	src := subsetSource().build()
 	srcTables := tt(t, src)
@@ -238,10 +238,11 @@ func TestPromoteEmptyGlyphs(t *testing.T) {
 	}
 }
 
-// TestPromoteEmptyGlyphsPadsTruncatedRecords: a zero-contour record cut short
-// of its instructionLength -- 10 bytes, as some producers write .notdef -- is
-// padded to the full 12, keeping its bbox. BFO's glyf parser otherwise reads
-// past it and reports the font's glyphs missing and its widths inconsistent.
+// TestPromoteEmptyGlyphsPadsTruncatedRecords verifies that a zero-contour
+// record cut short of its instructionLength -- 10 bytes, as some producers
+// write .notdef -- is padded to the full 12, keeping its bbox. BFO's glyf
+// parser otherwise reads past it and reports the font's glyphs missing and its
+// widths inconsistent.
 func TestPromoteEmptyGlyphsPadsTruncatedRecords(t *testing.T) {
 	truncated := make([]byte, 10)
 	binary.BigEndian.PutUint16(truncated[2:], 5) // xMin, kept

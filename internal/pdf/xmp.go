@@ -15,8 +15,9 @@ import (
 // property written as an attribute is the abbreviated RDF form of the same
 // property written as an element -- so an XMP reader that recognises only
 // double-quoted attributes silently fails to see half the shapes the same
-// metadata legitimately takes. Ghostscript writes single quotes throughout,
-// which made every PDF/A file it produces report a missing PDF/A identifier.
+// metadata legitimately takes. Some XMP writers use single quotes throughout;
+// without this alternative, their PDF/A files report a missing PDF/A
+// identifier.
 //
 // Callers read the value with FirstRegexpGroup, which takes the first non-empty
 // group, so the extra alternative costs them nothing.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"regexp"
 	"runtime"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // xrefHeaderRe matches a well-formed cross-reference subsection header
@@ -35,11 +37,12 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
-	if err := checkProfile(p); err != nil {
+	spec, err := LevelSpec(p)
+	if err != nil {
 		return pdf.Result{}, err
 	}
 
-	issues := verifyPdfA1bParts(ctx, d, p).Issues()
+	issues := verifyPdfA1bParts(ctx, d, p, spec).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -51,20 +54,31 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 	return pdf.Result{Type: p.Level, Valid: true}, nil
 }
 
-// checkProfile rejects a profile there is nothing to verify against: nil, the
-// Undefined level, or a level this verifier has no checks for. The last
-// includes the empty level of a zero-value Profile; any of them would
-// otherwise run no checks and report the file Valid.
-func checkProfile(p *pdf.Profile) error {
-	switch {
-	case p == nil:
-		return fmt.Errorf("nil profile")
-	case p.Level == pdf.Undefined:
-		return fmt.Errorf("cannot verify PDF to undefined conformance level")
-	case p.Level != pdf.A1B && p.Level != pdf.ObjectModel:
-		return fmt.Errorf("cannot verify PDF to unsupported conformance level %q", string(p.Level))
+// LevelSpec returns the rules of p's level, rejecting a profile there is
+// nothing to verify against: nil, the Undefined level, or a level with no
+// spec. The last includes the empty level of a zero-value Profile; any of
+// them would otherwise run no checks and report the file Valid. A plain-PDF
+// level has no PDF/A rules, so a profile enabling a PDF/A check on one is
+// rejected too, rather than judged by some other level's rules.
+func LevelSpec(p *pdf.Profile) (pdfa.Spec, error) {
+	if p == nil {
+		return pdfa.Spec{}, fmt.Errorf("nil profile")
 	}
-	return nil
+	if p.Level == pdf.Undefined {
+		return pdfa.Spec{}, fmt.Errorf("cannot verify PDF to undefined conformance level")
+	}
+	spec, ok := pdfa.For(p.Level)
+	if !ok {
+		return pdfa.Spec{}, fmt.Errorf("cannot verify PDF to unsupported conformance level %q", string(p.Level))
+	}
+	if !spec.PDFA {
+		for _, c := range p.Checks() {
+			if !c.AppliesTo(p.Level) {
+				return pdfa.Spec{}, fmt.Errorf("cannot verify PDF: %s is not a check of conformance level %q", c.Name(), string(p.Level))
+			}
+		}
+	}
+	return spec, nil
 }
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
@@ -99,15 +113,13 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 }
 
 // VerifyParts is Verify with the issue list split into Parts, each part
-// profile-filtered. Convert's fix loop uses it so its final output
-// verification can reuse the last in-loop graph verdicts (see
-// serializeAndVerify) while re-running only the byte-level checks.
-func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
-	defer pdf.RecoverAsError(&err)
-	if err := checkProfile(p); err != nil {
-		return Parts{}, err
-	}
-	return verifyPdfA1bParts(context.Background(), d, p).filter(p), nil
+// profile-filtered, for a caller that already holds spec = LevelSpec(p).
+// Convert's fix loop uses it so its final output verification can reuse the
+// last in-loop graph verdicts (see serializeAndVerify) while re-running only
+// the byte-level checks. A validated profile leaves nothing to fail, so it
+// returns no error; a panic is the caller's to recover.
+func VerifyParts(d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
+	return verifyPdfA1bParts(context.Background(), d, p, spec).filter(p)
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -117,13 +129,14 @@ func VerifyParts(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 // only these byte-level checks can produce new findings against the output.
 func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	defer pdf.RecoverAsError(&err)
-	if err := checkProfile(p); err != nil {
+	spec, err := LevelSpec(p)
+	if err != nil {
 		return Parts{}, err
 	}
 	var pt Parts
 	if !p.OnlyObjectModelChecks() {
 		pt.PreStructural = structuralPreIssues(d)
-		pt.PostStructural = structuralPostIssues(d)
+		pt.PostStructural = structuralPostIssues(d, spec)
 	}
 	return pt.filter(p), nil
 }
@@ -223,12 +236,11 @@ func VerifyObjectModelBytes(data []byte) (pdf.Result, error) {
 	return VerifyObjectModel(doc)
 }
 
-// filterByProfile removes from issues any PDFError whose (clause, subclause)
-// pair is registered in the catalog but disabled in p.
+// filterByProfile keeps the issues whose check p enables.
 func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 	out := make([]pdf.PDFError, 0, len(issues))
 	for _, e := range issues {
-		if p.Allows(e.Check().Clause(), e.Check().Subclause()) {
+		if p.Has(e.Check()) {
 			out = append(out, e)
 		}
 	}
@@ -250,14 +262,14 @@ func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
 
 // structuralPostIssues runs the byte-level checks that trail the A-1b issue
 // list: object framing and the reader's accumulated parse diagnostics.
-func structuralPostIssues(d *pdf.Reader) []pdf.PDFError {
-	issues := verifyAllObjectFraming(d)
-	return append(issues, d.StructErrors()...)
+func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
+	issues := verifyAllObjectFraming(d, spec)
+	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
 // verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
 // partial parts; the caller checks run.Err() and discards them.
-func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts {
+func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -279,7 +291,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 		// A document-level bail must still surface the per-object parse
 		// diagnostics accumulated so far (framing, degraded objects).
 		if !schemaOnly {
-			pt.PostStructural = structuralPostIssues(d)
+			pt.PostStructural = structuralPostIssues(d, spec)
 		}
 		return pt
 	}
@@ -295,7 +307,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 	if err != nil {
 		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
 		if !schemaOnly {
-			pt.PostStructural = structuralPostIssues(d)
+			pt.PostStructural = structuralPostIssues(d, spec)
 		}
 		return pt
 	}
@@ -306,6 +318,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 	ctx := &ValidationContext{
 		PageIndex:  pageIndex,
 		reader:     d,
+		Spec:       &spec,
 		schemaOnly: schemaOnly,
 		run:        run,
 	}
@@ -345,11 +358,11 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 		pt.Graph = issues
 		return pt
 	}
-	errs := verifyOptionalContent(d)
+	errs := verifyOptionalContent(d, spec)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = verifyOutputIntent(d)
+	errs = verifyOutputIntent(d, spec)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -357,7 +370,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
-	errs = verifyXMPMetadata(d)
+	errs = verifyXMPMetadata(d, spec)
 	if errs != nil {
 		issues = append(issues, errs...)
 	}
@@ -367,32 +380,53 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile) Parts
 	}
 	pt.Graph = issues
 
-	pt.PostStructural = structuralPostIssues(d)
+	pt.PostStructural = structuralPostIssues(d, spec)
 	return pt
 }
 
-// indirectObjectLimit reports n indirect objects against maxIndirectObjects.
-func indirectObjectLimit(n int) []pdf.PDFError {
-	if n <= maxIndirectObjects {
+// indirectObjectLimit reports n indirect objects against the level's limit.
+func indirectObjectLimit(n int, spec pdfa.Spec) []pdf.PDFError {
+	limit := spec.Limits.MaxIndirectObjects
+	if !overLimit(n, limit) {
 		return nil
 	}
 	return []pdf.PDFError{pdf.NewError(
 		pdf.Checks.Structure.IndirectObjectsExceeded,
-		[]error{fmt.Errorf("%d indirect objects exceed the limit of 8,388,607", n)},
+		[]error{fmt.Errorf("%d indirect objects exceed the limit of %s", n, thousands(limit))},
 		1,
 		nil,
 	)}
 }
 
-// maxIndirectObjects is the PDF/A-1 implementation limit on indirect objects
-// in a file (6.1.12, ISO 32000-1 Annex C).
-const maxIndirectObjects = 8388607
+// thousands renders n with comma thousands separators, e.g. 8,388,607.
+func thousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
 
-func verifyAllObjectFraming(d *pdf.Reader) []pdf.PDFError {
-	issues := indirectObjectLimit(d.IndirectObjectCount())
+// overLimit reports whether n exceeds limit; a zero limit sets none.
+func overLimit[N int | int64](n N, limit int) bool { return limit > 0 && n > N(limit) }
+
+// integerOutOfRange reports whether v lies outside the level's integer range;
+// a zero bound sets none.
+func integerOutOfRange(v pdf.PDFInteger, l pdfa.Limits) bool {
+	return (l.MaxInteger != 0 && int64(v) > l.MaxInteger) || (l.MinInteger != 0 && int64(v) < l.MinInteger)
+}
+
+// realOutOfRange reports whether |v| exceeds the level's real limit; a zero
+// limit sets none.
+func realOutOfRange(v pdf.PDFReal, l pdfa.Limits) bool {
+	return l.MaxReal > 0 && math.Abs(float64(v)) > l.MaxReal
+}
+
+func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
+	issues := indirectObjectLimit(d.IndirectObjectCount(), spec)
 
 	// Resolution records framing diagnostics as a side effect, so walk in
-	// object order: map order would make StructErrors nondeterministic.
+	// object order: map order would make the diagnostics nondeterministic.
 	for _, objNum := range slices.Sorted(maps.Keys(d.XRefTable())) {
 		d.ResolveReference(pdf.PDFRef{ObjNum: objNum})
 	}
@@ -499,11 +533,10 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	// No data shall follow the last end-of-file marker except a single optional end-of-line marker.
 	size := d.Size()
 
-	// One bounded tail read replaces the former ten 1-byte ReadAts: the
-	// marker must start within the file's last 9 bytes, leaving room for
-	// up to four trailing bytes (the historical tolerance). tail[9] maps
-	// past end-of-file and stays zero, preserving the exact diagnostic
-	// bytes the old byte-by-byte prepend loop reported.
+	// One bounded read covers the file's last 10 bytes. The marker must start
+	// within the last 9, which leaves room for up to four trailing bytes.
+	// tail[9] lies past end-of-file and stays zero, so it appears as a NUL
+	// byte in the diagnostic.
 	var tail [10]byte
 	d.ReadAt(tail[:], size-9)
 	if !bytes.Contains(tail[:9], []byte("%%EOF")) {
@@ -612,8 +645,7 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 		}
 
 		// The header already matched xrefHeaderRe, so the count is the
-		// digits after the single space; Atoi's overflow behavior (0)
-		// matches the Sscanf this replaces.
+		// digits after the single space.
 		_, countStr, _ := strings.Cut(line, " ")
 		count, _ := strconv.Atoi(countStr)
 		for i := 0; i < count; i++ {
@@ -663,12 +695,10 @@ func inheritedResources(page pdf.PDFDict) pdf.PDFDict {
 const xrefWindowStep = 8192
 
 // xrefCursor reads a cross reference section line by line, widening its view of
-// the file whenever the section turns out to be longer than what it has read.
-// The section's length is not known in advance -- it is the sum of its
-// subsection counts -- and a table of a few hundred entries already outgrows any
-// fixed window: reading one window instead left everything past it unchecked,
-// and reported the bytes the window cut through as a malformed subsection
-// header.
+// the file whenever the section is longer than what it has read. The section's
+// length is the sum of its subsection counts, so it is not known in advance. A
+// fixed window would leave the rest of the section unchecked and report the
+// bytes it cuts through as a malformed subsection header.
 type xrefCursor struct {
 	d    *pdf.Reader
 	base int64  // file offset the section starts at
@@ -858,10 +888,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			// A page sets the page for its own subtree only. Left set, a page
-			// reached mid-walk -- a link annotation's /Dest, say, which sorts
-			// before /Contents and /Resources -- took over every issue still to
-			// come on the page that linked to it, and the raster fallback picks
-			// pages by these numbers.
+			// reached mid-walk (a link annotation's /Dest, for one, sorts before
+			// /Contents) would own the issues still to come on the page that
+			// links to it, and the raster fallback picks pages by these numbers.
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					savedPage := ctx.CurrentPage
@@ -912,15 +941,15 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				val := v.Entries.Get(k)
 				if first && !ctx.schemaOnly {
-					// 6.1.12: a dictionary key shall not exceed 127 bytes after
-					// decoding PDF name-escape sequences (#XX).
-					if len(k) > 127 {
+					// 6.1.12: a dictionary key shall not exceed the name limit
+					// after decoding PDF name-escape sequences (#XX).
+					if limit := ctx.Spec.Limits.MaxNameBytes; overLimit(len(k), limit) {
 						decoded := pdf.DecodePDFName(k)
-						if len(decoded) > 127 {
+						if len(decoded) > limit {
 							ctx.Report(
 								pdf.Checks.Structure.NameTooLong,
 								v,
-								fmt.Sprintf("dictionary key exceeds 127 bytes: %d", len(decoded)),
+								fmt.Sprintf("dictionary key exceeds %d bytes: %d", limit, len(decoded)),
 							)
 						}
 					}
@@ -956,12 +985,12 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			if first && !ctx.schemaOnly {
 				validateColourSpaceArray(v, ctx)
 
-				// 6.1.12: maximum number of elements in an array is 8191.
-				if len(v) > 8191 {
+				// 6.1.12: an array holds no more elements than the limit.
+				if limit := ctx.Spec.Limits.MaxArrayElements; overLimit(len(v), limit) {
 					ctx.Report(
 						pdf.Checks.Structure.ArrayTooLarge,
 						v,
-						fmt.Sprintf("array exceeds 8191 elements: %d", len(v)),
+						fmt.Sprintf("array exceeds %d elements: %d", limit, len(v)),
 					)
 				}
 			}
@@ -991,10 +1020,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable while verifyPdfA1bParts resolves the graph first, but
-			// spelled out because falling through would leave an unresolved
-			// subtree silently unverified -- the document would verify clean
-			// because nothing looked at it.
+			// Unreachable while verifyPdfA1bParts resolves the graph first. The
+			// case is spelled out because falling through would leave an
+			// unresolved subtree unverified, without any report.
 			ctx.Report(
 				pdf.Checks.Structure.GraphResolutionFailure,
 				owner,
@@ -1116,7 +1144,8 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
-// appearance streams so validateContentStreams will scan their colour usage.
+// appearance streams, so validateContentStreams scans their colour usage. It
+// reports whether every stream it visited decoded.
 func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
 	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
@@ -1454,8 +1483,12 @@ func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// validateObject validates requirements outlined in 6.1.11
+// validateObject validates requirements outlined in 6.1.11, in a level
+// without embedded files.
 func validateObject(v pdf.PDFDict, ctx *ValidationContext) {
+	if ctx.Spec.EmbeddedFiles {
+		return
+	}
 	if v.Entries.Get("EF") != nil {
 		ctx.Report(pdf.Checks.Structure.EmbeddedFileSpec, v, "dictionary shall not contain EF key")
 	}
@@ -1471,46 +1504,44 @@ func validateObject(v pdf.PDFDict, ctx *ValidationContext) {
 func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *ValidationContext) {
 	switch v := node.(type) {
 	case pdf.PDFName:
-		// Maximum length of a name, in bytes: 127
-		nameLen := len(v.Value)
-		if nameLen > 127 {
+		if limit := ctx.Spec.Limits.MaxNameBytes; overLimit(len(v.Value), limit) {
 			ctx.Report(pdf.Checks.Structure.NameTooLong, owner, fmt.Sprintf(
-				"maximum length of name (127) exceeded: %v",
-				nameLen,
+				"maximum length of name (%d) exceeded: %v",
+				limit, len(v.Value),
 			))
 		}
 	case pdf.PDFInteger:
-		// 6.1.12: integer values are limited to the 32-bit signed range.
-		if v < -2_147_483_648 || v > 2_147_483_647 {
+		if integerOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, owner, fmt.Sprintf("integer value exceeded limits: %v", v))
 		}
 	case pdf.PDFReal:
-		// 6.1.12: magnitude of real numbers shall not exceed 32767.
-		if v < -32767 || v > 32767 {
+		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, owner, fmt.Sprintf("real number out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
-		// 6.1.12: maximum length of a string object is 65535 bytes.
-		if len(v.Value) > 65535 {
-			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, "string exceeds maximum length of 65535 bytes")
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFDict:
-		// 6.1.12: maximum number of entries in a dictionary is 4095.
 		realCount := v.Entries.Len()
 		if _, has := v.Entries.Lookup(pdf.RefKey); has {
 			realCount--
 		}
-		if realCount > 4095 {
+		if limit := ctx.Spec.Limits.MaxDictEntries; overLimit(realCount, limit) {
 			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf(
-				"dictionary exceeds 4095 entries: %d",
-				realCount,
+				"dictionary exceeds %d entries: %d",
+				limit, realCount,
 			))
 		}
 	}
 }
 
-// verifyOptionalContent verifies requirements outlined in 6.1.13
-func verifyOptionalContent(d *pdf.Reader) []pdf.PDFError {
+// verifyOptionalContent verifies requirements outlined in 6.1.13, in a level
+// without optional content.
+func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
+	if spec.OptionalContent {
+		return nil
+	}
 	_, err := d.ResolveGraphByPath([]string{"Root", "OCProperties"})
 	if err == nil {
 		return []pdf.PDFError{pdf.NewError(
@@ -1526,7 +1557,7 @@ func verifyOptionalContent(d *pdf.Reader) []pdf.PDFError {
 // 6.2 Graphics
 
 // verifyOutputIntent verifies requirements outlined in 6.2.2
-func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
+func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
 	if err != nil || values == nil {
 		// OutputIntents are optional.
@@ -1571,10 +1602,10 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 			continue
 		}
 
-		if s.Value != "GTS_PDFA1" {
+		if s.Value != spec.OutputIntentSubtype {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentWrongS,
-				[]error{fmt.Errorf("expected S was not GTS_PDFA1, but %v", intent.Entries.Get("S"))},
+				[]error{fmt.Errorf("expected S was not %s, but %v", spec.OutputIntentSubtype, intent.Entries.Get("S"))},
 				0,
 				nil,
 			)
@@ -1661,7 +1692,7 @@ func verifyOutputIntent(d *pdf.Reader) []pdf.PDFError {
 
 		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
 		if profileMap.HasStream {
-			if iccErr := ValidateICCProfileStream(profileMap); iccErr != nil {
+			if iccErr := ValidateICCProfileStream(profileMap, spec); iccErr != nil {
 				errs = append(errs, *iccErr)
 			}
 		}
@@ -1689,8 +1720,8 @@ var iccOutputColourSpaces = map[string]bool{
 }
 
 // ValidateICCProfileStream checks that a DestOutputProfile stream is a valid
-// ICC profile version 2.x as required by PDF/A-1 (6.2.2, 6.2.3 / ICC.1:2003-09).
-func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
+// ICC profile of a version the level allows (6.2.2, 6.2.3).
+func ValidateICCProfileStream(dict pdf.PDFDict, spec pdfa.Spec) *pdf.PDFError {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
 		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("cannot decode ICC profile stream: %v", err)}, 0, nil)
@@ -1708,10 +1739,8 @@ func ValidateICCProfileStream(dict pdf.PDFDict) *pdf.PDFError {
 		return &newErr
 	}
 
-	// Version must be < 3.0 (PDF/A-1 permits ICC v2.x only).
-	major := data[8]
-	if major >= 3 {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-1 (must be < 3.0)", major)}, 0, nil)
+	if major := data[8]; iccVersionTooNew(major, spec) {
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-%s (must be < %d.0)", major, spec.XMPPart, spec.ICCMaxMajorVersion+1)}, 0, nil)
 		return &newErr
 	}
 
@@ -1757,12 +1786,18 @@ var iccInputDeviceClasses = map[string]bool{
 	"prtr": true, "mntr": true, "scnr": true, "spac": true,
 }
 
+// iccVersionTooNew reports whether an ICC profile's major version is newer
+// than the level allows.
+func iccVersionTooNew(major byte, spec pdfa.Spec) bool {
+	return int(major) > spec.ICCMaxMajorVersion
+}
+
 // ICCInputProfileDefect says why an ICCBased colour space's own ICC profile is
-// one PDF/A-1 will not take (6.2.3.2), or "" when it is fine. data is the
+// one the level will not take (6.2.3.2), or "" when it is fine. data is the
 // decoded profile, which must already be long enough to hold a header.
-func ICCInputProfileDefect(data []byte) string {
-	if major := data[8]; major >= 3 {
-		return fmt.Sprintf("ICC profile version %d.x is not allowed in PDF/A-1 (must be < 3.0)", major)
+func ICCInputProfileDefect(data []byte, spec pdfa.Spec) string {
+	if major := data[8]; iccVersionTooNew(major, spec) {
+		return fmt.Sprintf("ICC profile version %d.x is not allowed in PDF/A-%s (must be < %d.0)", major, spec.XMPPart, spec.ICCMaxMajorVersion+1)
 	}
 	if class := string(data[12:16]); !iccInputDeviceClasses[class] {
 		return fmt.Sprintf("ICC profile has device class %q, which an ICCBased colour space may not use", class)

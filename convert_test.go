@@ -110,8 +110,8 @@ func checkMultiset(issues []PDFError) []string {
 	return out
 }
 
-// TestConvertBytesMatchesFile checks the in-memory verify path (CW-1):
-// ConvertBytes must produce the same validity/residual/iterations as the
+// TestConvertBytesMatchesFile checks the in-memory verify path: ConvertBytes
+// must produce the same validity/residual/iterations as the
 // file-backed Convert for the same input.
 func TestConvertBytesMatchesFile(t *testing.T) {
 	fixtures := failFixturesByExpectedClause(t)
@@ -979,10 +979,9 @@ func convertCorpusPass(t *testing.T, files []string, rep *realWorldReporter, sam
 }
 
 // veraSample cross-checks converted real-world output against the veraPDF
-// binary. The corpus is not in CI and so is not covered by the differential
-// harness over the committed suites, which is exactly why two verifier
-// false-negatives lived in it unseen: both showed up as veraPDF rejecting an
-// output gopdfrab had just called conformant.
+// binary. The corpus is not in CI, so the differential harness over the
+// committed suites does not cover it. A veraPDF rejection of an output that
+// gopdfrab called conformant is a verifier false negative.
 //
 // Off unless GOPDFRAB_REALWORLD_VERAPDF names a sample size ("all", or a count
 // of files). A JVM run over 1500 documents takes hours, so the default when it
@@ -1061,11 +1060,8 @@ func (v *veraSample) crossCheck(t *testing.T) {
 		t.Errorf("veraPDF cross-check: %v", err)
 		return
 	}
-	// Every converted output must pass veraPDF: there is no allowlist. The
-	// last two entries such a list held were fixed in the converter rather
-	// than excused -- a non-symbolic TrueType font now gains the (3,1) cmap
-	// mapping strict readers need, and a Type 1 glyph whose hsbw sat in a subr
-	// now carries it itself.
+	// Every converted output must pass veraPDF: there is no allowlist, so a
+	// rejection is fixed in the converter.
 	seen := 0
 	for _, job := range rep.Jobs.Job {
 		source, ok := v.kept[job.Item.Name]
@@ -1096,19 +1092,14 @@ func (v *veraSample) crossCheck(t *testing.T) {
 // surveyFidelity re-converts a sample of the corpus with the fidelity check on
 // and reports every page that came out blank or came out drawn over.
 // Conformance says nothing about whether the drawing survived, so this is the
-// only metric that catches a repair which destroys the thing it was repairing
-// -- and it is the metric that was missing when clamping oversized coordinates
-// emptied whole documents while gopdfrab and veraPDF both called the output
-// valid.
+// only metric that catches a repair which destroys the content it repairs.
 //
 // Off unless GOPDFRAB_REALWORLD_FIDELITY names a sample size ("all", or a count
 // of files). Rendering both sides of every document costs several times a plain
 // conversion, so when it is set the default is a sample -- evenly spaced through
 // the sorted file list, never by map order, so two runs survey the same files.
-// What a full sweep of the real-world corpus still blanks and still draws
-// over. It was 20 files and 47 pages blanked, 27 files and 717 pages drawn
-// over before the transparency repairs landed. Both remainders have a
-// mechanism and a file against them.
+// The limits below are the pages a full sweep still blanks or draws over; a
+// full sweep that exceeds them fails the test.
 const (
 	maxBlankedFiles = 1
 	maxBlankedPages = 1
@@ -1288,16 +1279,15 @@ func sortedStrings(in []string) []string {
 // conformance, how many needed a page rasterized to get there, and how many
 // lost content the rasterizer could not draw.
 //
-// rasterized is the honest "lossy" metric: RasterDrops counts only content the
+// rasterized is the "lossy" metric: RasterDrops counts only content the
 // rasterizer could not render, so a page flattened losslessly -- still a
 // conversion from text and vectors to pixels -- would not appear there.
 //
 // With GOPDFRAB_REALWORLD_DETERMINISM=1 the corpus is converted a second time
-// and the two runs' outputs compared byte for byte. Every nondeterminism this
-// library has had was a map-iteration order leaking into output or into a
-// message, and each was found only by a parity run -- real documents carry far
-// more ambiguous state than the fixtures do, so this is where the next one
-// would show up.
+// and the two runs' outputs compared byte for byte. Map iteration order is the
+// usual source of nondeterminism, leaking into output or into messages. Real
+// documents carry more ambiguous state than the fixtures, so the parity run is
+// where such a leak shows up.
 func checkShouldConvert(t *testing.T, files []string, rep *realWorldReporter) (conformant, rasterized, dropped int) {
 	t.Helper()
 	sample := newVeraSample(t, files)

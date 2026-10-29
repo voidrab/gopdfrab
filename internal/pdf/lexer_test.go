@@ -340,8 +340,8 @@ func TestNextTokenReportsReadError(t *testing.T) {
 	}
 }
 
-// TestSkipEOLCarriageReturn: a CR is a complete EOL, and a CRLF pair is
-// consumed whole.
+// TestSkipEOLCarriageReturn verifies that a CR is a complete EOL and that a
+// CRLF pair is consumed whole.
 func TestSkipEOLCarriageReturn(t *testing.T) {
 	for _, tc := range []struct {
 		data string
@@ -358,7 +358,8 @@ func TestSkipEOLCarriageReturn(t *testing.T) {
 	}
 }
 
-// TestPeekByteReaderAtEOF: peeking an exhausted reader reports no byte.
+// TestPeekByteReaderAtEOF verifies that peeking an exhausted reader reports
+// no byte.
 func TestPeekByteReaderAtEOF(t *testing.T) {
 	l := NewLexer(strings.NewReader(""))
 	defer l.Release()
@@ -384,8 +385,8 @@ func TestObjectFramingSpacing(t *testing.T) {
 	}
 }
 
-// TestStringLiteralEndsAfterBackslash: an escape with nothing after it is an
-// unterminated string.
+// TestStringLiteralEndsAfterBackslash verifies that an escape with nothing
+// after it leaves the string unterminated.
 func TestStringLiteralEndsAfterBackslash(t *testing.T) {
 	l := NewLexerBytes([]byte(`(abc\`), 0)
 	if tok := l.NextToken(); tok.Type != TokenError || !strings.Contains(tok.Value, "Unterminated String") {

@@ -118,9 +118,8 @@ func TestGraphicsStateParameter(t *testing.T) {
 	}
 }
 
-// TestPost14Keys checks the tsv/latest-vs-tsv/1.4 diff against ViewerPreferences, whose
-// post-1.4 keys are independently documented by the hand-written Post14ViewerPrefKeys
-// (internal/verify/checks_dict.go) that this data-driven check generalizes.
+// TestPost14Keys verifies that ViewerPreferences.Post14Keys contains the keys
+// that PDF 1.4 lacks, such as PrintScaling and NumCopies.
 func TestPost14Keys(t *testing.T) {
 	vp, ok := Type("ViewerPreferences")
 	if !ok {
@@ -444,7 +443,7 @@ func TestCompiledConditions(t *testing.T) {
 		t.Errorf("FieldChoice.TI: want ValueCond %+v, got %+v", wantTI, ti)
 	}
 
-	// Element-vs-element comparisons now compile on fixed-index rows: LabRangeArray @0<=@1.
+	// Element-to-element comparisons compile on fixed-index rows: LabRangeArray @0<=@1.
 	lab := findKey(Types()["LabRangeArray"], "0")
 	wantLab := &Cond{Op: CondLe, Key: "0", RHSKey: "1"}
 	if lab == nil || lab.Predicated.Values || !reflect.DeepEqual(lab.ValueCond, wantLab) {
@@ -572,7 +571,7 @@ func TestSpecialCaseConstraints(t *testing.T) {
 // TestClassificationFloor tracks the fraction of TSV rows the generator can classify as
 // simple (no unresolved fn: predicate in Required/IndirectReference/PossibleValues).
 func TestClassificationFloor(t *testing.T) {
-	const floor = 0.955 // observed ~96.0% after fn:NotStandard14Font; headroom for TSV churn
+	const floor = 0.955 // the current fraction is about 96.0%; headroom for TSV churn
 
 	total, simple := 0, 0
 	for _, ot := range Types() {

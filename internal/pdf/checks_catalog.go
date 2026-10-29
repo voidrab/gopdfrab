@@ -8,11 +8,39 @@ import (
 // Check is a named, selectable PDF/A validation rule, identified by a
 // (clause, subclause) pair and grouped into categories under Checks.
 type Check struct {
-	id          int    // unique sequential ID (never 0 for registered checks)
+	id          int    // unique, stable ID (never 0 for registered checks)
 	name        string // CamelCase identifier
 	description string // human-readable rule summary
 	clause      string // PDF/A-1 clause, e.g. "6.4"
 	subclause   int    // internal sub-rule number within the clause
+	parts       parts  // the conformance levels the check belongs to
+}
+
+// parts is a set of conformance levels. A check's parts say which levels it
+// is a rule of; a clause is only meaningful together with one of them.
+type parts uint8
+
+const (
+	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies
+	partA1B
+	partObjectModel
+
+	// partsA1 is every Part 1 level: a Level B rule binds Level A too.
+	partsA1 = partA1A | partA1B
+	// partsAll is every level, for the object-model checks: a file of any
+	// level must first be valid PDF.
+	partsAll = partsA1 | partObjectModel
+)
+
+// partOf returns the part a level stands for, or 0 for a level with none.
+func partOf(level LevelType) parts {
+	switch level {
+	case A1B:
+		return partA1B
+	case ObjectModel:
+		return partObjectModel
+	}
+	return 0
 }
 
 // Name returns the CamelCase identifier of this check (e.g. "ImageWithSoftMask").
@@ -27,9 +55,24 @@ func (c Check) Clause() string { return c.clause }
 // Subclause returns the internal sub-rule index within the clause.
 func (c Check) Subclause() int { return c.subclause }
 
-// ID returns this check's unique sequential registration ID, used by Profile
-// as a compact key for its enabled-check set.
+// ID returns this check's unique registration ID, used by Profile as a
+// compact key for its enabled-check set. IDs are stable: a check added later
+// takes a new one rather than renumbering the others.
 func (c Check) ID() int { return c.id }
+
+// AppliesTo reports whether c is a rule of the given conformance level.
+func (c Check) AppliesTo(level LevelType) bool {
+	return c.parts&partOf(level) != 0
+}
+
+// ClauseIn returns the clause and subclause c enforces under the given level.
+// ok is false when c is not a rule of that level.
+func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool) {
+	if !c.AppliesTo(level) {
+		return "", 0, false
+	}
+	return c.clause, c.subclause, true
+}
 
 // --- Check group types --------------------------------------------------
 
@@ -270,8 +313,9 @@ const ObjectModelClause = "objmodel"
 
 // objectModelChecks are generic ISO 32000 object-model checks, driven by the
 // Arlington PDF Model table (internal/arlington) rather than by hand-written
-// per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
-// PDF/A-specific restrictions the other check groups enforce.
+// per-clause logic. They catch files that are not valid PDF at all,
+// independently of the PDF/A-specific restrictions the other check groups
+// enforce.
 type objectModelChecks struct {
 	MissingRequiredKey      Check
 	WrongValueType          Check
@@ -299,11 +343,9 @@ var Checks checksRegistry
 
 var catalogByPair map[string]Check
 
-var catalogByName map[string]Check
+var catalogByID map[int]Check
 
 var allChecksCatalog []Check
-
-var checkIDCounter int
 
 // AllChecks returns every registered check in catalog order.
 func AllChecks() []Check {
@@ -333,703 +375,728 @@ func ChecksForClause(clause string) []Check {
 	return out
 }
 
-func newCheck(name, description, clause string, subclause int) Check {
-	checkIDCounter++
-	c := Check{
-		id:          checkIDCounter,
-		name:        name,
-		description: description,
-		clause:      clause,
-		subclause:   subclause,
+// CheckByClauseIn looks up the check that enforces (clause, subclause) under
+// the given conformance level. ok is false if no check of that level does.
+func CheckByClauseIn(level LevelType, clause string, subclause int) (c Check, ok bool) {
+	for _, c := range allChecksCatalog {
+		if cl, sub, ok := c.ClauseIn(level); ok && cl == clause && sub == subclause {
+			return c, true
+		}
 	}
-	key := clause + "/" + strconv.Itoa(subclause)
+	return Check{}, false
+}
+
+// ChecksForClauseIn returns every check that enforces the given clause under
+// the given conformance level, in catalog order.
+func ChecksForClauseIn(level LevelType, clause string) []Check {
+	var out []Check
+	for _, c := range allChecksCatalog {
+		if cl, _, ok := c.ClauseIn(level); ok && cl == clause {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// newCheck registers a check under its stable id. A PDF/A clause makes it a
+// Part 1 rule, the object-model clause a rule of every level.
+func newCheck(id int, name, description, clause string, subclause int) Check {
+	p := partsA1
+	if clause == ObjectModelClause {
+		p = partsAll
+	}
+	return register(Check{id: id, name: name, description: description, clause: clause, subclause: subclause, parts: p})
+}
+
+// newLevelACheck registers a PDF/A-1a requirement, which binds no level a
+// profile verifies.
+func newLevelACheck(id int, name, description, clause string, subclause int) Check {
+	return register(Check{id: id, name: name, description: description, clause: clause, subclause: subclause, parts: partA1A})
+}
+
+func register(c Check) Check {
+	key := c.clause + "/" + strconv.Itoa(c.subclause)
 	if _, exists := catalogByPair[key]; exists {
 		panic(fmt.Sprintf("checks_catalog: duplicate registration for %s", key))
 	}
+	if dup, exists := catalogByID[c.id]; exists {
+		panic(fmt.Sprintf("checks_catalog: %s reuses the ID %d of %s", c.name, c.id, dup.name))
+	}
 	catalogByPair[key] = c
-	catalogByName[name] = c
+	catalogByID[c.id] = c
 	allChecksCatalog = append(allChecksCatalog, c)
 	return c
 }
 
-// CheckByName looks up a registered check by its CamelCase identifier (e.g.
-// "ObjectFraming"), used to map a pdf.Reader's parse-time StructError
-// diagnostics -- which only carry that name, to avoid this package's check
-// registry being a dependency of the pdf package -- back to a
-func CheckByName(name string) (c Check, ok bool) {
-	c, ok = catalogByName[name]
-	return c, ok
-}
-
 func init() {
 	catalogByPair = make(map[string]Check)
-	catalogByName = make(map[string]Check)
+	catalogByID = make(map[int]Check)
 
 	Checks = checksRegistry{
 		Structure: structureChecks{
-			FileHeaderSignature: newCheck(
+			FileHeaderSignature: newCheck(1,
 				"FileHeaderSignature",
 				"The file header must begin with the %PDF-1.x signature",
 				"6.1.2", 1),
-			FileHeaderComment: newCheck(
+			FileHeaderComment: newCheck(2,
 				"FileHeaderComment",
 				"The file header must be followed by a comment line starting with %",
 				"6.1.2", 2),
-			FileHeaderCommentLength: newCheck(
+			FileHeaderCommentLength: newCheck(3,
 				"FileHeaderCommentLength",
 				"The header comment line must be at least 5 characters long",
 				"6.1.2", 3),
-			FileHeaderCommentBytes: newCheck(
+			FileHeaderCommentBytes: newCheck(4,
 				"FileHeaderCommentBytes",
 				"All bytes in the header comment must have a value greater than 127 (binary file indicator)",
 				"6.1.2", 4),
-			TrailerID: newCheck(
+			TrailerID: newCheck(5,
 				"TrailerID",
 				"The trailer dictionary must contain an ID entry; in linearized files ID[0] must be consistent across all trailers",
 				"6.1.3", 1),
-			TrailerEncrypt: newCheck(
+			TrailerEncrypt: newCheck(6,
 				"TrailerEncrypt",
 				"The trailer dictionary must not contain an Encrypt entry",
 				"6.1.3", 2),
-			TrailerEOF: newCheck(
+			TrailerEOF: newCheck(7,
 				"TrailerEOF",
 				"No data shall follow the last %%EOF marker except a single optional end-of-line marker",
 				"6.1.3", 3),
-			XRefKeyword: newCheck(
+			XRefKeyword: newCheck(8,
 				"XRefKeyword",
 				"The cross-reference section must begin with the xref keyword",
 				"6.1.4", 1),
-			XRefSubsectionHeader: newCheck(
+			XRefSubsectionHeader: newCheck(9,
 				"XRefSubsectionHeader",
 				"The xref keyword must be followed by a cross-reference subsection header",
 				"6.1.4", 2),
-			XRefSubsectionHeaderFormat: newCheck(
+			XRefSubsectionHeaderFormat: newCheck(10,
 				"XRefSubsectionHeaderFormat",
 				"The cross-reference subsection header must match the 'startObj count' format with a single space separator",
 				"6.1.4", 3),
-			XRefStream: newCheck(
+			XRefStream: newCheck(11,
 				"XRefStream",
 				"Cross-reference streams must not be used",
 				"6.1.4", 4),
-			InfoDictUnreadable: newCheck(
+			InfoDictUnreadable: newCheck(12,
 				"InfoDictUnreadable",
 				"The document information dictionary must be readable",
 				"6.1.5", 1),
-			InfoDictEmptyValues: newCheck(
+			InfoDictEmptyValues: newCheck(13,
 				"InfoDictEmptyValues",
 				"Document information dictionary entries must not have empty string values",
 				"6.1.5", 2),
-			InfoDictXMPMismatch: newCheck(
+			InfoDictXMPMismatch: newCheck(14,
 				"InfoDictXMPMismatch",
 				"Document information dictionary entries must match the corresponding XMP metadata values",
 				"6.1.5", 3),
-			GraphResolutionFailure: newCheck(
+			GraphResolutionFailure: newCheck(15,
 				"GraphResolutionFailure",
 				"The document object graph must be fully resolvable",
 				"6.1.6", 0),
-			HexStringInvalidChar: newCheck(
+			HexStringInvalidChar: newCheck(16,
 				"HexStringInvalidChar",
 				"Hexadecimal strings must contain only valid hex characters (0-9, A-F, a-f)",
 				"6.1.6", 1),
-			HexStringOddLength: newCheck(
+			HexStringOddLength: newCheck(17,
 				"HexStringOddLength",
 				"Hexadecimal strings must contain an even number of non-white-space characters",
 				"6.1.6", 2),
-			StreamFileSpec: newCheck(
+			StreamFileSpec: newCheck(18,
 				"StreamFileSpec",
 				"Stream objects must not specify an external file reference via the F key",
 				"6.1.7", 1),
-			StreamFileFilter: newCheck(
+			StreamFileFilter: newCheck(19,
 				"StreamFileFilter",
 				"Stream objects must not specify external filters via the FFilter key",
 				"6.1.7", 2),
-			StreamFileDecodeParams: newCheck(
+			StreamFileDecodeParams: newCheck(20,
 				"StreamFileDecodeParams",
 				"Stream objects must not specify external decode parameters via the FDecodeParms key",
 				"6.1.7", 3),
-			StreamKeywordEOL: newCheck(
+			StreamKeywordEOL: newCheck(21,
 				"StreamKeywordEOL",
 				"The 'stream' keyword must be followed by a single EOL marker (CRLF or LF)",
 				"6.1.7", 4),
-			EndstreamEOL: newCheck(
+			EndstreamEOL: newCheck(22,
 				"EndstreamEOL",
 				"The 'endstream' keyword must be preceded by an EOL marker",
 				"6.1.7", 5),
-			StreamLengthIncludesEOL: newCheck(
+			StreamLengthIncludesEOL: newCheck(23,
 				"StreamLengthIncludesEOL",
 				"The stream Length value must not include the EOL marker preceding endstream",
 				"6.1.7", 6),
-			StreamLengthMismatch: newCheck(
+			StreamLengthMismatch: newCheck(24,
 				"StreamLengthMismatch",
 				"The stream Length value must match the actual number of bytes between stream and endstream",
 				"6.1.7", 7),
-			StreamUndecodable: newCheck(
+			StreamUndecodable: newCheck(25,
 				"StreamUndecodable",
 				"A stream object's filter chain must decode; a stream whose data cannot be read cannot be verified",
 				"6.1.7", 8),
-			ObjectFraming: newCheck(
+			ObjectFraming: newCheck(26,
 				"ObjectFraming",
 				"Objects must follow the 'N G obj … endobj' framing syntax",
 				"6.1.8", 1),
-			StreamLZWFilter: newCheck(
+			StreamLZWFilter: newCheck(27,
 				"StreamLZWFilter",
 				"Stream objects must not use the LZWDecode filter",
 				"6.1.10", 1),
-			InlineImageLZWFilter: newCheck(
+			InlineImageLZWFilter: newCheck(28,
 				"InlineImageLZWFilter",
 				"Inline images must not use the LZW filter",
 				"6.1.10", 2),
-			EmbeddedFileSpec: newCheck(
+			EmbeddedFileSpec: newCheck(29,
 				"EmbeddedFileSpec",
 				"Dictionaries must not contain an EF (embedded file specification) key",
 				"6.1.11", 1),
-			EmbeddedFiles: newCheck(
+			EmbeddedFiles: newCheck(30,
 				"EmbeddedFiles",
 				"Dictionaries must not contain an EmbeddedFiles key",
 				"6.1.11", 2),
-			NameTooLong: newCheck(
+			NameTooLong: newCheck(31,
 				"NameTooLong",
 				"Name objects and dictionary keys must not exceed 127 bytes",
 				"6.1.12", 1),
-			IntegerOutOfRange: newCheck(
+			IntegerOutOfRange: newCheck(32,
 				"IntegerOutOfRange",
 				"Integer values must be within the range [-2^31, 2^31-1]",
 				"6.1.12", 2),
-			RealOutOfRange: newCheck(
+			RealOutOfRange: newCheck(33,
 				"RealOutOfRange",
 				"Real values must have an absolute value not exceeding 32,767.0",
 				"6.1.12", 8),
-			ArrayTooLarge: newCheck(
+			ArrayTooLarge: newCheck(34,
 				"ArrayTooLarge",
 				"Arrays must not contain more than 8,191 elements",
 				"6.1.12", 3),
-			DictTooLarge: newCheck(
+			DictTooLarge: newCheck(35,
 				"DictTooLarge",
 				"Dictionaries must not contain more than 4,095 entries",
 				"6.1.12", 4),
-			CMapCIDOutOfRange: newCheck(
+			CMapCIDOutOfRange: newCheck(36,
 				"CMapCIDOutOfRange",
 				"CMap character identifier (CID) values must not exceed 65,535",
 				"6.1.12", 5),
-			StringTooLong: newCheck(
+			StringTooLong: newCheck(37,
 				"StringTooLong",
 				"String objects must not exceed 65,535 bytes",
 				"6.1.12", 6),
-			DeviceNColorants: newCheck(
+			DeviceNColorants: newCheck(38,
 				"DeviceNColorants",
 				"DeviceN colour spaces must not exceed 8 colorants",
 				"6.1.12", 7),
-			IndirectObjectsExceeded: newCheck(
+			IndirectObjectsExceeded: newCheck(39,
 				"IndirectObjectsExceeded",
 				"The number of indirect objects in the file must not exceed 8,388,607",
 				"6.1.12", 9),
-			GraphicsStateNesting: newCheck(
+			GraphicsStateNesting: newCheck(40,
 				"GraphicsStateNesting",
 				"Graphics state nesting via q/Q operators must not exceed 28 levels",
 				"6.1.12", 10),
-			OptionalContent: newCheck(
+			OptionalContent: newCheck(41,
 				"OptionalContent",
 				"The document catalog must not contain an OCProperties entry (optional content is not permitted in PDF/A-1)",
 				"6.1.13", 1),
-			PostPDF14ViewerPref: newCheck(
+			PostPDF14ViewerPref: newCheck(42,
 				"PostPDF14ViewerPref",
 				"ViewerPreferences must not contain keys introduced after PDF 1.4 (e.g. PrintScaling, PickTrayByPDFSize)",
 				"6.1.2", 5),
 		},
 
 		Colour: colourChecks{
-			OutputIntentNotArray: newCheck(
+			OutputIntentNotArray: newCheck(43,
 				"OutputIntentNotArray",
 				"The OutputIntents entry must be an array",
 				"6.2.2", 1),
-			OutputIntentNotDict: newCheck(
+			OutputIntentNotDict: newCheck(44,
 				"OutputIntentNotDict",
 				"Each OutputIntents array entry must be a dictionary",
 				"6.2.2", 2),
-			OutputIntentInvalidS: newCheck(
+			OutputIntentInvalidS: newCheck(45,
 				"OutputIntentInvalidS",
 				"Each OutputIntent dictionary must have a valid S (subtype) name entry",
 				"6.2.2", 3),
-			OutputIntentWrongS: newCheck(
+			OutputIntentWrongS: newCheck(46,
 				"OutputIntentWrongS",
 				"The OutputIntent S entry must be /GTS_PDFA1",
 				"6.2.2", 4),
-			OutputIntentMissingIdentifier: newCheck(
+			OutputIntentMissingIdentifier: newCheck(47,
 				"OutputIntentMissingIdentifier",
 				"Each OutputIntent must contain an OutputConditionIdentifier entry",
 				"6.2.2", 5),
-			OutputIntentMultipleProfiles: newCheck(
+			OutputIntentMultipleProfiles: newCheck(48,
 				"OutputIntentMultipleProfiles",
 				"When multiple OutputIntents contain a DestOutputProfile, all must reference the same indirect object",
 				"6.2.2", 6),
-			OutputIntentUnresolvedProfile: newCheck(
+			OutputIntentUnresolvedProfile: newCheck(49,
 				"OutputIntentUnresolvedProfile",
 				"The OutputIntent DestOutputProfile must be resolvable",
 				"6.2.2", 7),
-			OutputIntentInvalidProfile: newCheck(
+			OutputIntentInvalidProfile: newCheck(50,
 				"OutputIntentInvalidProfile",
 				"The OutputIntent DestOutputProfile must be a dictionary",
 				"6.2.2", 8),
-			OutputIntentMissingN: newCheck(
+			OutputIntentMissingN: newCheck(51,
 				"OutputIntentMissingN",
 				"The OutputIntent ICC profile stream must contain an N (number of colour components) entry",
 				"6.2.2", 9),
-			OutputIntentInvalidN: newCheck(
+			OutputIntentInvalidN: newCheck(52,
 				"OutputIntentInvalidN",
 				"The OutputIntent ICC profile N must be 1, 3, or 4",
 				"6.2.2", 10),
-			OutputIntentICCVersion: newCheck(
+			OutputIntentICCVersion: newCheck(53,
 				"OutputIntentICCVersion",
 				"The OutputIntent ICC profile must conform to ICC.1:2003-09 (version ≤ 2.x)",
 				"6.2.2", 11),
-			ICCBasedComponentsMismatch: newCheck(
+			ICCBasedComponentsMismatch: newCheck(54,
 				"ICCBasedComponentsMismatch",
 				"An ICCBased colour space N entry must be 1, 3, or 4 and match the component count of the embedded ICC profile",
 				"6.2.3.2", 1),
-			ICCBasedProfileInvalid: newCheck(
+			ICCBasedProfileInvalid: newCheck(55,
 				"ICCBasedProfileInvalid",
 				"An ICCBased colour space's embedded ICC profile must be version 2.x with a device class and colour space PDF/A-1 permits",
 				"6.2.3.2", 2),
-			DeviceColourSpaceUsage: newCheck(
+			DeviceColourSpaceUsage: newCheck(56,
 				"DeviceColourSpaceUsage",
 				"Device colour spaces used in image or shading XObjects require a matching OutputIntent",
 				"6.2.3.3", 1),
-			DeviceColourContentStream: newCheck(
+			DeviceColourContentStream: newCheck(57,
 				"DeviceColourContentStream",
 				"Device colour spaces used in content streams require a matching OutputIntent",
 				"6.2.3.3", 2),
-			SeparationAlternateColour: newCheck(
+			SeparationAlternateColour: newCheck(58,
 				"SeparationAlternateColour",
 				"Separation and DeviceN alternate colour spaces must not reduce to an uncovered device colour space",
 				"6.2.3.4", 1),
-			RenderingIntent: newCheck(
+			RenderingIntent: newCheck(59,
 				"RenderingIntent",
 				"Rendering intent must be one of AbsoluteColorimetric, RelativeColorimetric, Saturation, or Perceptual",
 				"6.2.9", 1),
-			UndefinedOperator: newCheck(
+			UndefinedOperator: newCheck(60,
 				"UndefinedOperator",
 				"Content streams must not use operators not defined in the PDF Reference",
 				"6.2.10", 1),
 		},
 
 		Image: imageChecks{
-			ImageInterpolate: newCheck(
+			ImageInterpolate: newCheck(61,
 				"ImageInterpolate",
 				"Image XObject Interpolate entry must not be true",
 				"6.2.4", 1),
-			ImageAlternates: newCheck(
+			ImageAlternates: newCheck(62,
 				"ImageAlternates",
 				"Image XObjects must not contain an Alternates entry",
 				"6.2.4", 2),
-			ImageOPI: newCheck(
+			ImageOPI: newCheck(63,
 				"ImageOPI",
 				"Image XObjects must not contain an OPI entry",
 				"6.2.4", 3),
-			ImageRenderingIntent: newCheck(
+			ImageRenderingIntent: newCheck(64,
 				"ImageRenderingIntent",
 				"Image XObject Intent must be a valid PDF rendering intent",
 				"6.2.4", 4),
-			ImageBitsPerComponent: newCheck(
+			ImageBitsPerComponent: newCheck(65,
 				"ImageBitsPerComponent",
 				"An image XObject BitsPerComponent value must be 1, 2, 4, or 8",
 				"6.2.4", 5),
-			ImageMaskBitsPerComponent: newCheck(
+			ImageMaskBitsPerComponent: newCheck(66,
 				"ImageMaskBitsPerComponent",
 				"An image mask BitsPerComponent value must be 1",
 				"6.2.4", 6),
-			FormOPI: newCheck(
+			FormOPI: newCheck(67,
 				"FormOPI",
 				"Form XObjects must not contain an OPI entry",
 				"6.2.5", 1),
-			FormSubtype2PS: newCheck(
+			FormSubtype2PS: newCheck(68,
 				"FormSubtype2PS",
 				"Form XObjects must not have a Subtype2=PS entry",
 				"6.2.5", 2),
-			FormPSEntry: newCheck(
+			FormPSEntry: newCheck(69,
 				"FormPSEntry",
 				"Form XObjects must not contain a PostScript passthrough (PS) entry",
 				"6.2.5", 3),
-			ReferenceXObject: newCheck(
+			ReferenceXObject: newCheck(70,
 				"ReferenceXObject",
 				"Reference XObjects (/Ref) are not permitted in PDF/A-1",
 				"6.2.6", 1),
-			FormPostScript: newCheck(
+			FormPostScript: newCheck(71,
 				"FormPostScript",
 				"Form XObjects must not contain a PostScript passthrough (PS) entry",
 				"6.2.7", 1),
-			PostScriptXObject: newCheck(
+			PostScriptXObject: newCheck(72,
 				"PostScriptXObject",
 				"PostScript XObjects (/Subtype /PS) are not permitted in PDF/A-1",
 				"6.2.7", 2),
 		},
 
 		Transparency: transparencyChecks{
-			TransferFunction: newCheck(
+			TransferFunction: newCheck(73,
 				"TransferFunction",
 				"ExtGState dictionaries must not contain a TR (transfer function) entry",
 				"6.2.8", 1),
-			DefaultTransferFunction: newCheck(
+			DefaultTransferFunction: newCheck(74,
 				"DefaultTransferFunction",
 				"ExtGState TR2 entry, when present, must be /Default",
 				"6.2.8", 2),
-			ExtGStateRenderingIntent: newCheck(
+			ExtGStateRenderingIntent: newCheck(75,
 				"ExtGStateRenderingIntent",
 				"ExtGState RI entry, when present, must be one of the four standard rendering intents",
 				"6.2.8", 3),
-			SoftMaskExtGState: newCheck(
+			SoftMaskExtGState: newCheck(76,
 				"SoftMaskExtGState",
 				"ExtGState SMask entry must be /None (soft masks introduce transparency)",
 				"6.4", 1),
-			BlendMode: newCheck(
+			BlendMode: newCheck(77,
 				"BlendMode",
 				"ExtGState blend mode (BM) must be /Normal or /Compatible",
 				"6.4", 2),
-			StrokingAlpha: newCheck(
+			StrokingAlpha: newCheck(78,
 				"StrokingAlpha",
 				"ExtGState stroking alpha (CA) must be 1.0",
 				"6.4", 3),
-			NonStrokingAlpha: newCheck(
+			NonStrokingAlpha: newCheck(79,
 				"NonStrokingAlpha",
 				"ExtGState non-stroking alpha (ca) must be 1.0",
 				"6.4", 4),
-			TransparencyGroup: newCheck(
+			TransparencyGroup: newCheck(80,
 				"TransparencyGroup",
 				"Transparency groups (/Group with /S /Transparency) are not permitted in PDF/A-1",
 				"6.4", 5),
-			ImageWithSoftMask: newCheck(
+			ImageWithSoftMask: newCheck(81,
 				"ImageWithSoftMask",
 				"Image XObjects must not contain a soft mask (SMask) other than /None",
 				"6.4", 6),
 		},
 
 		Font: fontChecks{
-			FontType: newCheck(
+			FontType: newCheck(82,
 				"FontType",
 				"A font dictionary must have a Type entry with the value Font",
 				"6.3.2", 1),
-			InvalidSubtype: newCheck(
+			InvalidSubtype: newCheck(83,
 				"InvalidSubtype",
 				"Font dictionaries must have a valid Subtype entry (Type1, MMType1, TrueType, Type3, Type0, CIDFontType0, CIDFontType2)",
 				"6.3.2", 2),
-			FontBaseFont: newCheck(
+			FontBaseFont: newCheck(84,
 				"FontBaseFont",
 				"A font dictionary must have a BaseFont name entry (except Type3 fonts)",
 				"6.3.2", 3),
-			SimpleFontFirstChar: newCheck(
+			SimpleFontFirstChar: newCheck(85,
 				"SimpleFontFirstChar",
 				"A non-standard simple font dictionary must have a FirstChar entry",
 				"6.3.2", 4),
-			SimpleFontLastChar: newCheck(
+			SimpleFontLastChar: newCheck(86,
 				"SimpleFontLastChar",
 				"A non-standard simple font dictionary must have a LastChar entry",
 				"6.3.2", 5),
-			SimpleFontWidths: newCheck(
+			SimpleFontWidths: newCheck(87,
 				"SimpleFontWidths",
 				"A non-standard simple font dictionary must have a Widths array of size LastChar − FirstChar + 1",
 				"6.3.2", 6),
-			FontFileSubtype: newCheck(
+			FontFileSubtype: newCheck(88,
 				"FontFileSubtype",
 				"An embedded font file Subtype, when present, must be Type1C or CIDFontType0C",
 				"6.3.2", 7),
-			InvalidProgram: newCheck(
+			InvalidProgram: newCheck(89,
 				"InvalidProgram",
 				"Embedded font programs must be valid according to their respective font format specifications",
 				"6.3.2", 8),
-			CIDSystemInfoMismatch: newCheck(
+			CIDSystemInfoMismatch: newCheck(90,
 				"CIDSystemInfoMismatch",
 				"An embedded CMap's CIDSystemInfo must match the descendant CIDFont's CIDSystemInfo",
 				"6.3.3.1", 1),
-			CIDToGIDMapMissing: newCheck(
+			CIDToGIDMapMissing: newCheck(91,
 				"CIDToGIDMapMissing",
 				"CIDFontType2 fonts must specify a CIDToGIDMap",
 				"6.3.3.2", 1),
-			CMapNotEmbedded: newCheck(
+			CMapNotEmbedded: newCheck(92,
 				"CMapNotEmbedded",
 				"CMap references must be one of the predefined CMaps or embedded in the file",
 				"6.3.3.3", 1),
-			CMapWModeInconsistent: newCheck(
+			CMapWModeInconsistent: newCheck(93,
 				"CMapWModeInconsistent",
 				"An embedded CMap's WMode must be consistent with the font's actual writing mode",
 				"6.3.3.3", 2),
-			SimpleNotEmbedded: newCheck(
+			SimpleNotEmbedded: newCheck(94,
 				"SimpleNotEmbedded",
 				"Type1, MMType1, and TrueType font programs must be embedded",
 				"6.3.4", 1),
-			CIDNotEmbedded: newCheck(
+			CIDNotEmbedded: newCheck(95,
 				"CIDNotEmbedded",
 				"CIDFont programs (CIDFontType0, CIDFontType2) must be embedded",
 				"6.3.4", 2),
-			SubsetGlyphCoverage: newCheck(
+			SubsetGlyphCoverage: newCheck(96,
 				"SubsetGlyphCoverage",
 				"Subset fonts must embed all glyphs referenced in the document",
 				"6.3.5", 1),
-			Type1SubsetCharSet: newCheck(
+			Type1SubsetCharSet: newCheck(97,
 				"Type1SubsetCharSet",
 				"Type1 subset font descriptors must include a CharSet entry listing the embedded glyph names",
 				"6.3.5", 2),
-			CIDSubsetCIDSet: newCheck(
+			CIDSubsetCIDSet: newCheck(98,
 				"CIDSubsetCIDSet",
 				"CID subset font descriptors must include a CIDSet entry",
 				"6.3.5", 3),
-			AdvanceWidthMismatch: newCheck(
+			AdvanceWidthMismatch: newCheck(99,
 				"AdvanceWidthMismatch",
 				"Advance widths in the embedded font program must match the PDF Widths array",
 				"6.3.6", 1),
-			TrueTypeEncoding: newCheck(
+			TrueTypeEncoding: newCheck(100,
 				"TrueTypeEncoding",
 				"Non-symbolic TrueType fonts must use MacRomanEncoding or WinAnsiEncoding",
 				"6.3.7", 1),
-			SymbolicTrueTypeEncoding: newCheck(
+			SymbolicTrueTypeEncoding: newCheck(101,
 				"SymbolicTrueTypeEncoding",
 				"Symbolic TrueType fonts must not specify an Encoding entry",
 				"6.3.7", 2),
-			SymbolicTrueTypeCmap: newCheck(
+			SymbolicTrueTypeCmap: newCheck(102,
 				"SymbolicTrueTypeCmap",
 				"Symbolic TrueType fonts must have exactly one cmap subtable",
 				"6.3.7", 3),
-			ToUnicodeMissing: newCheck(
+			ToUnicodeMissing: newLevelACheck(103,
 				"ToUnicodeMissing",
 				"Fonts must include a ToUnicode CMap unless they use a predefined encoding or character collection (Level A)",
 				"6.3.8", 1),
 		},
 
 		LogicalStructure: logicalStructureChecks{
-			TaggedMarkInfo: newCheck(
+			TaggedMarkInfo: newLevelACheck(104,
 				"TaggedMarkInfo",
 				"The document catalog must include a MarkInfo dictionary with Marked set to true (Level A)",
 				"6.8.2.2", 1),
-			StructTreeRoot: newCheck(
+			StructTreeRoot: newLevelACheck(105,
 				"StructTreeRoot",
 				"The document catalog must contain a StructTreeRoot entry describing the structure hierarchy (Level A)",
 				"6.8.3.3", 1),
-			RoleMapStandardType: newCheck(
+			RoleMapStandardType: newLevelACheck(106,
 				"RoleMapStandardType",
 				"Non-standard structure types must be mapped to a standard type in the role map (Level A)",
 				"6.8.3.4", 1),
-			RoleMapCircular: newCheck(
+			RoleMapCircular: newLevelACheck(107,
 				"RoleMapCircular",
 				"The structure type role map must not contain a circular mapping (Level A)",
 				"6.8.3.4", 2),
-			LangIdentifier: newCheck(
+			LangIdentifier: newLevelACheck(108,
 				"LangIdentifier",
 				"A Lang entry, where present, must be a valid RFC 1766 language identifier (Level A)",
 				"6.8.4", 1),
 		},
 
 		Annotation: annotationChecks{
-			DisallowedSubtype: newCheck(
+			DisallowedSubtype: newCheck(109,
 				"DisallowedSubtype",
 				"Only annotation subtypes permitted by PDF/A-1 may be used",
 				"6.5.2", 1),
-			PrintFlagNotSet: newCheck(
+			PrintFlagNotSet: newCheck(110,
 				"PrintFlagNotSet",
 				"Annotations must have the Print flag set",
 				"6.5.3", 1),
-			HiddenFlagSet: newCheck(
+			HiddenFlagSet: newCheck(111,
 				"HiddenFlagSet",
 				"Annotations must not have the Hidden flag set",
 				"6.5.3", 2),
-			InvisibleFlagSet: newCheck(
+			InvisibleFlagSet: newCheck(112,
 				"InvisibleFlagSet",
 				"Annotations must not have the Invisible flag set",
 				"6.5.3", 3),
-			NoViewFlagSet: newCheck(
+			NoViewFlagSet: newCheck(113,
 				"NoViewFlagSet",
 				"Annotations must not have the NoView flag set",
 				"6.5.3", 4),
-			OpacityNotOne: newCheck(
+			OpacityNotOne: newCheck(114,
 				"OpacityNotOne",
 				"Annotation constant opacity (CA) must be 1.0",
 				"6.5.3", 5),
-			MissingAppearance: newCheck(
+			MissingAppearance: newCheck(115,
 				"MissingAppearance",
 				"Non-Popup/Link annotations must have an appearance dictionary containing a normal (N) appearance stream",
 				"6.5.3", 6),
-			AppearanceMissingN: newCheck(
+			AppearanceMissingN: newCheck(116,
 				"AppearanceMissingN",
 				"Annotation appearance dictionaries must contain an N entry",
 				"6.5.3", 7),
-			AppearanceExtraEntries: newCheck(
+			AppearanceExtraEntries: newCheck(117,
 				"AppearanceExtraEntries",
 				"Annotation appearance dictionaries must only contain the N entry",
 				"6.5.3", 8),
-			AppearanceNNotStream: newCheck(
+			AppearanceNNotStream: newCheck(118,
 				"AppearanceNNotStream",
 				"Annotation appearance N value must be a stream",
 				"6.5.3", 9),
-			ColourWithoutIntent: newCheck(
+			ColourWithoutIntent: newCheck(119,
 				"ColourWithoutIntent",
 				"Annotation colour arrays must only use device colour models covered by an OutputIntent",
 				"6.5.3", 10),
 		},
 
 		Action: actionChecks{
-			ForbiddenActionType: newCheck(
+			ForbiddenActionType: newCheck(120,
 				"ForbiddenActionType",
 				"Forbidden action types (Launch, Sound, Movie, JavaScript, etc.) must not be used",
 				"6.6.1", 1),
-			DisallowedNamedAction: newCheck(
+			DisallowedNamedAction: newCheck(121,
 				"DisallowedNamedAction",
 				"Named actions must use only permitted names: NextPage, PrevPage, FirstPage, LastPage",
 				"6.6.1", 2),
-			AdditionalActions: newCheck(
+			AdditionalActions: newCheck(122,
 				"AdditionalActions",
 				"Additional-actions (AA) dictionaries are not permitted in PDF/A-1",
 				"6.6.2", 1),
 		},
 
 		Metadata: metadataChecks{
-			MetadataMissing: newCheck(
+			MetadataMissing: newCheck(123,
 				"MetadataMissing",
 				"The document catalog must contain a Metadata entry pointing to an XMP metadata stream; the rdf:RDF root element must be present with the correct prefix",
 				"6.7.2", 1),
-			MetadataFiltered: newCheck(
+			MetadataFiltered: newCheck(124,
 				"MetadataFiltered",
 				"The Metadata stream must not be filtered; xmp:Title is not a valid XMP property (use dc:title instead)",
 				"6.7.2", 2),
-			MetadataPropertyType: newCheck(
+			MetadataPropertyType: newCheck(125,
 				"MetadataPropertyType",
 				"dc:description must use the LangAlt (rdf:Alt) value type, not plain text",
 				"6.7.2", 3),
-			MetadataUndeclaredProperty: newCheck(
+			MetadataUndeclaredProperty: newCheck(126,
 				"MetadataUndeclaredProperty",
 				"Custom-namespace XMP properties require an extension schema declaration (pdfaExtension:schemas)",
 				"6.7.2", 4),
-			InfoXMPSync: newCheck(
+			InfoXMPSync: newCheck(127,
 				"InfoXMPSync",
 				"Document information dictionary text and date entries must be synchronized with their XMP counterparts",
 				"6.7.3", 1),
-			XPacketBytesAttribute: newCheck(
+			XPacketBytesAttribute: newCheck(128,
 				"XPacketBytesAttribute",
 				"The XMP xpacket processing instruction must not contain a bytes attribute",
 				"6.7.5", 1),
-			XPacketEncodingAttribute: newCheck(
+			XPacketEncodingAttribute: newCheck(129,
 				"XPacketEncodingAttribute",
 				"The XMP xpacket processing instruction must not contain an encoding attribute",
 				"6.7.5", 2),
-			ObjectXMPNoXPacket: newCheck(
+			ObjectXMPNoXPacket: newCheck(130,
 				"ObjectXMPNoXPacket",
 				"Non-catalog XMP metadata streams must be wrapped in xpacket processing instructions (6.7.5)",
 				"6.7.5", 3),
-			ExtSchemaNamespace: newCheck(
+			ExtSchemaNamespace: newCheck(131,
 				"ExtSchemaNamespace",
 				"Custom-namespace properties require extension schema declarations; extension-schema namespace URIs must use their conventional prefixes",
 				"6.7.8", 1),
-			ExtSchemaWrongPrefixURI: newCheck(
+			ExtSchemaWrongPrefixURI: newCheck(132,
 				"ExtSchemaWrongPrefixURI",
 				"Extension-schema prefixes must be bound to their designated namespace URIs",
 				"6.7.8", 2),
-			ExtSchemasNotBag: newCheck(
+			ExtSchemasNotBag: newCheck(133,
 				"ExtSchemasNotBag",
 				"The pdfaExtension:schemas container must be an rdf:Bag, not an rdf:Seq",
 				"6.7.8", 3),
-			ExtPropertyMultipleName: newCheck(
+			ExtPropertyMultipleName: newCheck(134,
 				"ExtPropertyMultipleName",
 				"Each extension schema property entry must have exactly one pdfaProperty:name element",
 				"6.7.8", 4),
-			ExtPropertyMissingField: newCheck(
+			ExtPropertyMissingField: newCheck(135,
 				"ExtPropertyMissingField",
 				"Extension schema property entries must provide name, valueType, category, and description",
 				"6.7.8", 5),
-			ExtPropertyComplexAsSimple: newCheck(
+			ExtPropertyComplexAsSimple: newCheck(136,
 				"ExtPropertyComplexAsSimple",
 				"Properties declared with a complex value type must use rdf:parseType='Resource' in the XMP data",
 				"6.7.8", 6),
-			ExtTypeInvalid: newCheck(
+			ExtTypeInvalid: newCheck(137,
 				"ExtTypeInvalid",
 				"Extension schema value-type entries must provide typeName, namespaceURI, prefix, and description",
 				"6.7.8", 7),
-			ExtFieldInvalid: newCheck(
+			ExtFieldInvalid: newCheck(138,
 				"ExtFieldInvalid",
 				"Extension schema field entries must provide a valid name, valueType, and description",
 				"6.7.8", 8),
-			ExtPropertyUndocumented: newCheck(
+			ExtPropertyUndocumented: newCheck(139,
 				"ExtPropertyUndocumented",
 				"Properties used under a custom namespace must be documented in the extension schema",
 				"6.7.8", 9),
-			ExtPropertyUndefinedType: newCheck(
+			ExtPropertyUndefinedType: newCheck(140,
 				"ExtPropertyUndefinedType",
 				"Extension schema properties must reference only built-in or explicitly defined value types",
 				"6.7.8", 10),
-			XMPStreamUnreadable: newCheck(
+			XMPStreamUnreadable: newCheck(141,
 				"XMPStreamUnreadable",
 				"The XMP metadata stream must be readable",
 				"6.7.9", 1),
-			XMPNotWellFormed: newCheck(
+			XMPNotWellFormed: newCheck(142,
 				"XMPNotWellFormed",
 				"The XMP metadata must be well-formed XML",
 				"6.7.9", 2),
-			XMPNoCorrespondingType: newCheck(
+			XMPNoCorrespondingType: newCheck(143,
 				"XMPNoCorrespondingType",
 				"XMP property does not correspond to defined type",
 				"6.7.9", 3),
-			PDFAIdentifierMissing: newCheck(
+			PDFAIdentifierMissing: newCheck(144,
 				"PDFAIdentifierMissing",
 				"XMP metadata must contain the pdfaid namespace with pdfaid:part and pdfaid:conformance entries",
 				"6.7.11", 1),
-			PDFAIdentifierNamespace: newCheck(
+			PDFAIdentifierNamespace: newCheck(145,
 				"PDFAIdentifierNamespace",
 				"The pdfaid namespace URI must be the correct PDF/A identifier namespace",
 				"6.7.11", 2),
-			PDFAConformanceLevel: newCheck(
+			PDFAConformanceLevel: newCheck(146,
 				"PDFAConformanceLevel",
 				"The pdfaid:conformance value must be 'A' or 'B'",
 				"6.7.11", 3),
-			PDFAPartNumber: newCheck(
+			PDFAPartNumber: newCheck(147,
 				"PDFAPartNumber",
 				"The pdfaid:part value must be '1'",
 				"6.7.11", 4),
-			PDFAIdentifierUndefinedProperty: newCheck(
+			PDFAIdentifierUndefinedProperty: newCheck(148,
 				"PDFAIdentifierUndefinedProperty",
 				"The pdfaid namespace must only contain the part, conformance, and amd properties",
 				"6.7.11", 5),
 		},
 
 		Form: formChecks{
-			NeedAppearances: newCheck(
+			NeedAppearances: newCheck(149,
 				"NeedAppearances",
 				"The AcroForm NeedAppearances entry must not be true",
 				"6.9", 1),
-			XFA: newCheck(
+			XFA: newCheck(150,
 				"XFA",
 				"The AcroForm must not contain an XFA entry",
 				"6.9", 2),
-			FieldAction: newCheck(
+			FieldAction: newCheck(151,
 				"FieldAction",
 				"Form fields and widget annotations must not contain an A (action) entry",
 				"6.9", 3),
-			FieldAdditionalActions: newCheck(
+			FieldAdditionalActions: newCheck(152,
 				"FieldAdditionalActions",
 				"Form fields and widget annotations must not contain an AA (additional actions) entry",
 				"6.9", 4),
-			WidgetMissingAppearance: newCheck(
+			WidgetMissingAppearance: newCheck(153,
 				"WidgetMissingAppearance",
 				"Form field widget annotations (with FT) must have an appearance dictionary (AP)",
 				"6.9", 5),
 		},
 
 		ObjectModel: objectModelChecks{
-			MissingRequiredKey: newCheck(
+			MissingRequiredKey: newCheck(154,
 				"MissingRequiredKey",
 				"A dictionary is missing a key the ISO 32000 object model requires for its type",
 				ObjectModelClause, 1),
-			WrongValueType: newCheck(
+			WrongValueType: newCheck(155,
 				"WrongValueType",
 				"A key's value is not one of the ISO 32000 object model's allowed types for it",
 				ObjectModelClause, 2),
-			DisallowedValue: newCheck(
+			DisallowedValue: newCheck(156,
 				"DisallowedValue",
 				"A key's value is not one of the ISO 32000 object model's enumerated legal values for it (only name, integer, and boolean enums are enforced)",
 				ObjectModelClause, 3),
-			IndirectRequired: newCheck(
+			IndirectRequired: newCheck(157,
 				"IndirectRequired",
 				"A key whose value the ISO 32000 object model requires to be an indirect reference is a direct object",
 				ObjectModelClause, 4),
-			KeyIntroducedAfterPDF14: newCheck(
+			KeyIntroducedAfterPDF14: newCheck(158,
 				"KeyIntroducedAfterPDF14",
 				"A dictionary contains a key the ISO 32000 object model introduced after PDF 1.4",
 				ObjectModelClause, 5),
-			ConstraintViolated: newCheck(
+			ConstraintViolated: newCheck(159,
 				"ConstraintViolated",
 				"A key's value violates an ISO 32000 object-model consistency constraint (an Arlington SpecialCase rule, e.g. coupled array lengths)",
 				ObjectModelClause, 6),

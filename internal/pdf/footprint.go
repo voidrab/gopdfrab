@@ -57,10 +57,10 @@ func (d *Reader) Footprint() Footprint {
 
 // scannedOpsBytes estimates what a tokenized content stream costs on the heap:
 // the operator structs, their names, the operand slice headers, and the operand
-// values. Operands are built fresh per operator by the content lexer -- they are
-// not shared with the resolved graph -- so leaving them out under-counted a
-// vector-heavy stream by about a quarter, and the resident budget under-bound by
-// the same margin.
+// values. Operands are built fresh per operator by the content lexer and are
+// not shared with the resolved graph, so they are counted here. Leaving them
+// out would under-count vector-heavy streams and under-bound the resident
+// budget.
 func scannedOpsBytes(ops []ScannedOp) int64 {
 	var n int64
 	for _, op := range ops {

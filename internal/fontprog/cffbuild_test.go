@@ -86,7 +86,7 @@ type cffFD struct {
 	lsubrs    [][]byte // local Subrs, placed right after the Private DICT
 	matrix    bool     // the Font DICT declares its own FontMatrix
 	noPrivate bool     // omit the Private operator
-	garbage   bool     // append an operand cffDictNumbers cannot decode
+	garbage   bool     // append an operand CFFDictNumbers cannot decode
 	extra     []byte   // further entries, after Private
 }
 

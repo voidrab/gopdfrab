@@ -12,9 +12,9 @@ import (
 
 // TestDecodeImageRGBAPixelLimit pins that an image claiming more than
 // maxImagePixels with samples that do not back the claim gets the one-pixel
-// placeholder and an "oversized" PlaceholderError, not a buffer that size:
-// four bytes used to ask for 60000x60000. Codecs that only ever get the
-// placeholder allocate nothing and keep their own name.
+// placeholder and an "oversized" PlaceholderError, not a buffer that size. For
+// example, four bytes claiming 60000x60000 get the placeholder. Codecs that
+// only ever get the placeholder allocate nothing and keep their own name.
 func TestDecodeImageRGBAPixelLimit(t *testing.T) {
 	huge := func(extra map[string]pdf.PDFValue) map[string]pdf.PDFValue {
 		m := map[string]pdf.PDFValue{

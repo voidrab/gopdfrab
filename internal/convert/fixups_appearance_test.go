@@ -11,7 +11,7 @@ import (
 // its five target checks and nothing else, since registerFixer panics on a
 // Check claimed by more than one Fixer.
 func TestAppearanceFixerAppliesExclusively(t *testing.T) {
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	want := map[pdf.Check]bool{
 		pdf.Checks.Form.WidgetMissingAppearance:      true,
 		pdf.Checks.Annotation.MissingAppearance:      true,
@@ -62,7 +62,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", pdf.NewPDFDict())
 	trailer.Entries.Set("Widget", widget) // keep it reachable for walkDicts
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -130,7 +130,7 @@ func TestAppearanceFixerSynthesizesButtonStateSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestAppearanceFixerWrapsExistingBtnStreamIntoSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -216,7 +216,7 @@ func TestAppearanceFixerStripsExtraEntriesPreservingValidN(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -246,7 +246,7 @@ func TestAppearanceFixerBuildsEmptyAppearanceForPlainAnnotation(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestAppearanceFixerSkipsPopupAndLinkWithoutAP(t *testing.T) {
 		trailer := minimalTrailer()
 		trailer.Entries.Set("Annot", annot)
 
-		fixer := appearanceFixer{}
+		fixer := appearanceFixer{spec: a1bSpec}
 		changed, err := fixer.Fix(&trailer, nil)
 		if err != nil {
 			t.Fatalf("Fix: %v", err)
@@ -313,7 +313,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -351,7 +351,7 @@ func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -492,7 +492,7 @@ func fixAppearance(t *testing.T, annot pdf.PDFDict, formDA string) bool {
 		trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", af)
 	}
 	trailer.Entries.Set("Annot", annot)
-	changed, err := appearanceFixer{}.Fix(&trailer, nil)
+	changed, err := appearanceFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -509,8 +509,9 @@ func textOpsOf(t *testing.T, annot pdf.PDFDict) map[string][]pdf.PDFValue {
 	return ops
 }
 
-// TestAppearanceFixerIgnoresDisallowedSubtype: an annotation whose subtype is
-// not an allowed PDF/A type is left alone (a different fixer removes it).
+// TestAppearanceFixerIgnoresDisallowedSubtype verifies that an annotation whose
+// subtype is not an allowed PDF/A type is left alone, since a different fixer
+// removes it.
 func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -523,8 +524,8 @@ func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerReplacesNonDictN: /AP/N that is not a dictionary at all
-// is replaced by a synthesized appearance stream.
+// TestAppearanceFixerReplacesNonDictN verifies that /AP/N, when it is not a
+// dictionary at all, is replaced by a synthesized appearance stream.
 func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -541,8 +542,9 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras: a Btn whose /N is
-// already a state subdictionary keeps it when only an extra /AP entry is bad.
+// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras verifies that a Btn
+// whose /N is already a state subdictionary keeps it when only an extra /AP
+// entry is bad.
 func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	annot := widgetWith("Btn", nil)
 	states := pdf.NewPDFDict()
@@ -560,8 +562,9 @@ func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerParentCycleIsNotBtn: a /Parent chain that loops without
-// ever naming /FT terminates (the depth guard) and is treated as non-Btn.
+// TestAppearanceFixerParentCycleIsNotBtn verifies that a /Parent chain that
+// loops without ever naming /FT terminates at the depth guard and is treated as
+// non-Btn.
 func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
 	annot := widgetWith("", nil)
 	annot.Entries.Set("Parent", annot)
@@ -595,7 +598,8 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 		t.Errorf("form DA not applied: Tf=%v rg=%v", ops["Tf"], ops["rg"])
 	}
 
-	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default colour.
+	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default
+	// colour.
 	b := widgetWith("Tx", nil)
 	fixAppearance(t, b, "")
 	ops = textOpsOf(t, b)
@@ -612,9 +616,9 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance: a /DA whose
-// colour operator carries an operand the content writer cannot serialise (an
-// indirect reference inside an array) yields a structurally valid, empty
+// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance verifies that a /DA
+// whose colour operator carries an operand the content writer cannot serialise
+// (an indirect reference inside an array) yields a structurally valid, empty
 // appearance rather than an error.
 func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
 	a := widgetWith("Tx", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(50), pdf.PDFInteger(20)})

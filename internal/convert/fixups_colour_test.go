@@ -51,7 +51,7 @@ func iccBasedTrailerWith(profile []byte, n int) (trailer pdf.PDFDict, cs pdf.PDF
 	return trailer, cs
 }
 
-// currentSpace returns the colour space now sitting in the trailer built by
+// currentSpace returns the colour space in the trailer built by
 // iccBasedTrailer, which the fixer may have replaced outright.
 func currentSpace(t *testing.T, trailer pdf.PDFDict) pdf.PDFValue {
 	t.Helper()
@@ -62,7 +62,7 @@ func currentSpace(t *testing.T, trailer pdf.PDFDict) pdf.PDFValue {
 // TestICCBasedProfileFixerAppliesToBothHalvesOfTheClause covers the fixer's
 // reach: both 6.2.3.2 defects, and nothing else.
 func TestICCBasedProfileFixerAppliesToBothHalvesOfTheClause(t *testing.T) {
-	fixer := iccBasedProfileFixer{}
+	fixer := iccBasedProfileFixer{spec: a1bSpec}
 	for _, c := range pdf.AllChecks() {
 		want := c == pdf.Checks.Colour.ICCBasedComponentsMismatch ||
 			c == pdf.Checks.Colour.ICCBasedProfileInvalid
@@ -87,7 +87,7 @@ func TestICCBasedProfileFixerReplacesProfile(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trailer, _ := iccBasedTrailer(tc.colorSpace, tc.n)
-			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 			cs, ok := currentSpace(t, trailer).(pdf.PDFArray)
 			if !ok {
@@ -116,7 +116,7 @@ func TestICCBasedProfileFixerReplacesProfile(t *testing.T) {
 // rather than being dropped for a device colour space.
 func TestICCBasedProfileFixerReplacesGrayProfile(t *testing.T) {
 	trailer, _ := iccBasedTrailer("RGB ", 1)
-	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 	cs, ok := currentSpace(t, trailer).(pdf.PDFArray)
 	if !ok {
@@ -136,7 +136,7 @@ func TestICCBasedProfileFixerReplacesGrayProfile(t *testing.T) {
 	if msg := verify.ICCComponentsMismatch(stream, data); msg != "" {
 		t.Errorf("still mismatched after the fix: %s", msg)
 	}
-	if msg := verify.ICCInputProfileDefect(data); msg != "" {
+	if msg := verify.ICCInputProfileDefect(data, a1b()); msg != "" {
 		t.Errorf("replacement profile is not one PDF/A allows: %s", msg)
 	}
 }
@@ -163,7 +163,7 @@ func TestICCBasedProfileFixerReplacesUnusableProfileKind(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			profile := buildICCProfileHeaderWith(tc.version, tc.deviceClass, tc.colorSpace)
 			trailer, _ := iccBasedTrailerWith(profile, tc.n)
-			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 			cs, ok := currentSpace(t, trailer).(pdf.PDFArray)
 			if !ok {
@@ -180,7 +180,7 @@ func TestICCBasedProfileFixerReplacesUnusableProfileKind(t *testing.T) {
 			if got := string(data[16:20]); got != tc.wantCS {
 				t.Errorf("replacement profile colour space = %q, want %q", got, tc.wantCS)
 			}
-			if msg := verify.ICCInputProfileDefect(data); msg != "" {
+			if msg := verify.ICCInputProfileDefect(data, a1b()); msg != "" {
 				t.Errorf("replacement profile is not one PDF/A allows: %s", msg)
 			}
 			if msg := verify.ICCComponentsMismatch(stream, data); msg != "" {
@@ -206,7 +206,7 @@ func TestICCBasedProfileFixerDerivesMissingN(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trailer, _ := iccBasedTrailer(tc.colorSpace, tc.n)
-			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 			cs := currentSpace(t, trailer).(pdf.PDFArray)
 			stream := cs[1].(pdf.PDFDict)
@@ -243,7 +243,7 @@ func TestICCBasedProfileFixerUnusableProfile(t *testing.T) {
 			trailer := pdf.NewPDFDict()
 			trailer.Entries.Set("CS", cs)
 
-			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 			got := trailer.Entries.Get("CS").(pdf.PDFArray)[1].(pdf.PDFDict)
 			if got.Entries.Get("N") != pdf.PDFInteger(3) {
@@ -264,7 +264,7 @@ func TestICCBasedProfileFixerUnusableProfile(t *testing.T) {
 // matching space, and anything that is not an ICCBased space at all.
 func TestICCBasedProfileFixerSkipsConformingSpaces(t *testing.T) {
 	trailer, _ := iccBasedTrailer("RGB ", 3)
-	changed, err := iccBasedProfileFixer{}.Fix(&trailer, nil)
+	changed, err := iccBasedProfileFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestICCBasedProfileFixerSkipsConformingSpaces(t *testing.T) {
 	other.Entries.Set("NotAName", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(2)})
 	other.Entries.Set("NotICC", pdf.PDFArray{pdf.PDFName{Value: "CalRGB"}, pdf.NewPDFDict()})
 	other.Entries.Set("NoStream", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.NewPDFDict()})
-	if changed, _ := (iccBasedProfileFixer{}).Fix(&other, nil); changed {
+	if changed, _ := (iccBasedProfileFixer{spec: a1bSpec}).Fix(&other, nil); changed {
 		t.Error("changed = true for arrays that are not ICCBased colour spaces")
 	}
 }
@@ -299,7 +299,7 @@ func TestICCBasedProfileFixerFindsNestedSpaces(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("CS", indexed)
 
-	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 	base := trailer.Entries.Get("CS").(pdf.PDFArray)[1].(pdf.PDFArray)
 	data, err := pdf.DecodeStream(base[1].(pdf.PDFDict))
@@ -311,8 +311,8 @@ func TestICCBasedProfileFixerFindsNestedSpaces(t *testing.T) {
 	}
 }
 
-// TestConvertClearsICCBasedMismatch is the end-to-end proof: a document whose
-// page draws in an ICCBased space that lies about its component count converts
+// TestConvertClearsICCBasedMismatch verifies end to end that a document whose
+// page draws in an ICCBased space that misstates its component count converts
 // to conformance without the page being rasterized.
 func TestConvertClearsICCBasedMismatch(t *testing.T) {
 	profile := buildICCProfileHeader("CMYK")
@@ -356,10 +356,10 @@ func TestConvertClearsICCBasedMismatch(t *testing.T) {
 	}
 }
 
-// TestConvertClearsICCBasedProfileInvalid is the end-to-end proof for the other
-// half of the clause: a page drawing in an ICCBased space whose profile is a
-// version PDF/A does not allow converts to conformance, profile replaced rather
-// than page rasterized.
+// TestConvertClearsICCBasedProfileInvalid verifies end to end the other half of
+// the clause: a page drawing in an ICCBased space whose profile is a version
+// PDF/A does not allow converts to conformance, with the profile replaced rather
+// than the page rasterized.
 func TestConvertClearsICCBasedProfileInvalid(t *testing.T) {
 	profile := buildICCProfileHeaderWith(4, "mntr", "RGB ")
 
@@ -422,7 +422,7 @@ func TestICCBasedProfileFixerRepairsNestedGraySpace(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("CS", indexed)
 
-	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, iccBasedProfileFixer{spec: a1bSpec}, &trailer)
 
 	base, ok := trailer.Entries.Get("CS").(pdf.PDFArray)[1].(pdf.PDFArray)
 	if !ok {
@@ -456,7 +456,7 @@ func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 		t.Errorf("collectICCBasedSpaces found %d spaces, want 2 (one per slot)", got)
 	}
 
-	if _, err := (iccBasedProfileFixer{}).Fix(&trailer, nil); err != nil {
+	if _, err := (iccBasedProfileFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 	for i, got := range trailer.Entries.Get("A").(pdf.PDFArray) {
@@ -472,7 +472,7 @@ func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 			t.Errorf("slot %d profile colour space = %q, want GRAY", i, s)
 		}
 	}
-	if changed, _ := (iccBasedProfileFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (iccBasedProfileFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
 	}
 }
@@ -516,7 +516,7 @@ func TestSeparationAlternateFixerSwapsUncoveredAlternate(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
 
-	changed, err := (separationAlternateFixer{}).Fix(&trailer, nil)
+	changed, err := (separationAlternateFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestSeparationAlternateFixerSwapsUncoveredAlternate(t *testing.T) {
 	if rgb[2] != (pdf.PDFName{Value: "DeviceRGB"}) {
 		t.Errorf("covered RGB alternate = %v, want it untouched", rgb[2])
 	}
-	if changed, _ := (separationAlternateFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (separationAlternateFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("changed = true on second pass, want false (fixer must be idempotent)")
 	}
 }
@@ -556,10 +556,10 @@ func TestBundledProfilesAreUsable(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := iccBasedColourSpace(tc.n, tc.profile)[1].(pdf.PDFDict)
-			if err := verify.ValidateICCProfileStream(stream); err != nil {
+			if err := verify.ValidateICCProfileStream(stream, a1b()); err != nil {
 				t.Errorf("not usable as an OutputIntent profile: %v", err)
 			}
-			if msg := verify.ICCInputProfileDefect(tc.profile); msg != "" {
+			if msg := verify.ICCInputProfileDefect(tc.profile, a1b()); msg != "" {
 				t.Errorf("not usable in an ICCBased colour space: %s", msg)
 			}
 		})
@@ -621,7 +621,7 @@ func TestValidPDFAOutputIntentN(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, ok := validPDFAOutputIntentN(tc.root)
+			n, ok := validPDFAOutputIntentN(tc.root, a1b())
 			if n != tc.wantN || ok != tc.want {
 				t.Errorf("validPDFAOutputIntentN = %d, %v; want %d, %v", n, ok, tc.wantN, tc.want)
 			}
@@ -631,7 +631,7 @@ func TestValidPDFAOutputIntentN(t *testing.T) {
 
 func TestInjectOutputIntentRejectsNonDictRoot(t *testing.T) {
 	trailer := pdf.NewPDFDict()
-	if err := injectOutputIntent(&trailer, nil); err == nil {
+	if err := injectOutputIntent(&trailer, nil, a1b()); err == nil {
 		t.Error("injectOutputIntent with no Root = nil error, want one")
 	}
 }
@@ -646,11 +646,11 @@ func TestDecoderForWithoutReaderIsPlainDecode(t *testing.T) {
 	}
 }
 
-// TestSeparationAlternateFixerGrayAndSharedSpaces: a gray alternate becomes
-// the bundled gray profile when no OutputIntent exists, two colourants of one
-// model share a single replacement space, and arrays that are not
-// Separation/DeviceN (wrong head, non-name head, too short, or an Indexed
-// space with four elements) are left alone, as is a RefKey entry.
+// TestSeparationAlternateFixerGrayAndSharedSpaces verifies that a gray
+// alternate becomes the bundled gray profile when no OutputIntent exists, that
+// two colourants of one model share a single replacement space, and that arrays
+// which are not Separation or DeviceN (wrong head, non-name head, too short, or
+// an Indexed space with four elements) are left alone, as is a RefKey entry.
 func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	tint := pdf.NewPDFDict()
 	sep := func(alt string) pdf.PDFArray {
@@ -670,7 +670,7 @@ func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Spaces", spaces)
 
-	changed, err := (separationAlternateFixer{}).Fix(&trailer, nil)
+	changed, err := (separationAlternateFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want true", changed, err)
 	}

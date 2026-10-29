@@ -47,20 +47,21 @@ func TestSimpleTrueTypeMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	ff := macOnlyTrueType()
 	winAnsi := pdf.PDFName{Value: "WinAnsiEncoding"}
 
-	// WinAnsi 0xE9 is eacute, Mac Roman 0x8E: present. Looking up the raw
-	// code 0xE9 instead reported a glyph the font has.
-	ctx := &ValidationContext{}
+	// WinAnsi 0xE9 is eacute, which Mac Roman encodes as 0x8E and the font
+	// has. The glyph is resolved through the name, not the raw code 0xE9.
+	ctx := &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(winAnsi), ff, 0xE9, 0xE9, pdf.PDFArray{pdf.PDFInteger(600)}, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
 		t.Errorf("WinAnsi eacute reported missing: %v", issueKeys(ctx.Issues()))
 	}
 
 	// /Differences renames code 65 to /B, which the font lacks (Mac 0x42 is
-	// unmapped). Looking up the raw code 65 found 'A' and hid the gap.
+	// unmapped). The name decides the glyph; the raw code 65 would find 'A'
+	// and hide the gap.
 	enc := pdf.NewPDFDict()
 	enc.Entries.Set("BaseEncoding", winAnsi)
 	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "B"}})
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(enc), ff, 65, 65, pdf.PDFArray{pdf.PDFInteger(500)}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
 		t.Error("code 65 renamed to the absent /B was not reported")
@@ -69,14 +70,14 @@ func TestSimpleTrueTypeMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	// A name with no Mac OS Roman code (Lslash) has nothing to look up.
 	enc = pdf.NewPDFDict()
 	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "Lslash"}})
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(enc), ff, 65, 65, pdf.PDFArray{pdf.PDFInteger(500)}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
 		t.Error("code 65 renamed to /Lslash, which Mac Roman cannot encode, was not reported")
 	}
 
 	// Positive control: plain 'A' resolves.
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(winAnsi), ff, 65, 65, pdf.PDFArray{pdf.PDFInteger(500)}, ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("code 65 'A' reported: %v", issueKeys(ctx.Issues()))
@@ -84,7 +85,7 @@ func TestSimpleTrueTypeMacCmapResolvesThroughGlyphNames(t *testing.T) {
 
 	// Without /Encoding the font is read as symbolic and the raw code is
 	// looked up in (1,0): 0x8E is GID 2.
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(pdf.NewPDFDict(), ff, 0x8E, 0x8E, pdf.PDFArray{pdf.PDFInteger(600)}, ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("symbolic raw code 0x8E reported: %v", issueKeys(ctx.Issues()))
@@ -97,22 +98,22 @@ func TestSimpleTrueTypeMetricsMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	ff := macOnlyTrueType()
 	v := trueTypeFontWithEncoding(pdf.PDFName{Value: "WinAnsiEncoding"})
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateSimpleTrueTypeMetrics(v, ff, 0xE9, pdf.PDFArray{pdf.PDFInteger(900)}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.AdvanceWidthMismatch) {
 		t.Error("eacute width 900 vs font 600 not reported")
 	}
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	validateSimpleTrueTypeMetrics(v, ff, 0xE9, pdf.PDFArray{pdf.PDFInteger(600)}, ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("matching eacute width reported: %v", issueKeys(ctx.Issues()))
 	}
 }
 
-// TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap: a font with /Encoding is
-// non-symbolic, and ISO 32000-1 9.6.6.4 resolves its codes through (3,1) and
-// (1,0) only. A glyph reachable solely through the (3,0) cmap by raw code is
-// missing (6.3.5), as veraPDF also reports.
+// TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap verifies that a font with
+// /Encoding is non-symbolic, and that ISO 32000-1 9.6.6.4 resolves its codes
+// through (3,1) and (1,0) only. A glyph reachable solely through the (3,0)
+// cmap by raw code is missing (6.3.5), as veraPDF also reports.
 func TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap(t *testing.T) {
 	head := make([]byte, 54)
 	binary.BigEndian.PutUint16(head[18:], 1000)
@@ -124,13 +125,13 @@ func TestSimpleTrueTypeEncodedFontIgnoresSymbolicCmap(t *testing.T) {
 		"head": head, "maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": append(cmap, sub...),
 	})))
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(pdf.PDFName{Value: "WinAnsiEncoding"}), ff, 0xB0, 0xB0, pdf.PDFArray{pdf.PDFInteger(400)}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
 		t.Error("WinAnsi degree resolvable only through (3,0) was not reported")
 	}
 	// Without /Encoding the font is symbolic and (3,0) applies.
-	ctx = &ValidationContext{}
+	ctx = &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(pdf.NewPDFDict(), ff, 0xB0, 0xB0, pdf.PDFArray{pdf.PDFInteger(400)}, ctx)
 	if len(ctx.errs) != 0 {
 		t.Errorf("symbolic (3,0) lookup reported: %v", issueKeys(ctx.Issues()))

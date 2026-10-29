@@ -59,11 +59,10 @@ func TTGlyphInRange(tables map[string][]byte) func(gid int) bool {
 // font defines at all -- an in-range glyph ID with a loca entry.
 //
 // An empty loca entry means "no contours", which is how TrueType encodes a
-// space; the glyph is defined, it just draws nothing. This used to additionally
-// require a zero advance width before accepting an empty outline, which is not
-// a rule TrueType has: a space in a monospaced subset is empty *and* 600/1000
-// wide, so every such font was reported as missing a glyph it plainly defines.
-// A genuinely absent glyph is out of range instead, which is still caught.
+// space; the glyph is defined, it just draws nothing. The advance width is not
+// consulted: an empty outline is present whatever its width, since a space in a
+// monospaced subset is empty and has a nonzero advance. A glyph absent from the
+// font is one outside the glyph range.
 func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 	hasData := TTLocaHasGlyph(tables)
 	inRange := TTGlyphInRange(tables)

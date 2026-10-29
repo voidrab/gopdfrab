@@ -372,10 +372,11 @@ func validateCMapStream(v pdf.PDFDict, ctx *ValidationContext) {
 	checkCMapCIDLimits(v, data, ctx)
 }
 
-// checkCMapCIDLimits scans CMap PostScript content for CID values > 65535.
+// checkCMapCIDLimits scans CMap PostScript content for CID values over the
+// level's limit.
 func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 	tokens := fontprog.CmapTokenize(data)
-	const maxCID = 65535
+	maxCID := ctx.Spec.Limits.MaxCID
 
 	inCIDRange := false
 	inCIDChar := false
@@ -402,8 +403,8 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				// cidrange entries: <start-code> <end-code> start-CID (repeat).
 				pos++
 				if pos == 3 {
-					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCID {
-						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && overLimit(cid, maxCID) {
+						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of %d", cid, maxCID))
 					}
 					pos = 0
 				}
@@ -411,8 +412,8 @@ func checkCMapCIDLimits(obj pdf.PDFValue, data []byte, ctx *ValidationContext) {
 				// cidchar entries: <code> CID (repeat).
 				pos++
 				if pos == 2 {
-					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > maxCID {
-						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of 65535", cid))
+					if cid, ok := fontprog.CmapParseInt(tok.Text); ok && overLimit(cid, maxCID) {
+						ctx.Report(pdf.Checks.Structure.CMapCIDOutOfRange, obj, fmt.Sprintf("CMap CID value %d exceeds maximum of %d", cid, maxCID))
 					}
 					pos = 0
 				}

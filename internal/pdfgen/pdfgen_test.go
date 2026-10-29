@@ -40,8 +40,8 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestGenerateAlwaysProducesOutput checks the generator never returns an empty
-// slice for a wide range of seeds (each corruptor must produce output).
+// TestGenerateAlwaysProducesOutput checks that almost every seed in a wide
+// range yields a non-empty document.
 func TestGenerateAlwaysProducesOutput(t *testing.T) {
 	empties := 0
 	for seed := int64(0); seed < 500; seed++ {

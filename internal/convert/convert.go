@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -403,7 +404,12 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		inputRenders = summarizeTrailerPages(trailer, fidelityDPI)
 	}
 
-	if err := applyPreemptiveFixups(&trailer, doc); err != nil {
+	spec, err := verify.LevelSpec(p)
+	if err != nil {
+		return ConvertResult{}, fmt.Errorf("convert: %w", err)
+	}
+
+	if err := applyPreemptiveFixups(&trailer, doc, spec); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
@@ -414,7 +420,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// incompletely is collected here and folded in below.
 	var formDrops []RasterDrop
 	var lost []pdf.PDFError
-	localFixers := buildLocalFixers(ctx, dcFixer, doc, o.dpi(), &formDrops, &lost)
+	localFixers := buildLocalFixers(ctx, dcFixer, doc, o.dpi(), &formDrops, &lost, &spec)
 
 	var (
 		cr         ConvertResult
@@ -440,10 +446,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		}
 		cr.Iterations = iter
 
-		result, parts, objs, err := inHeapVerify(doc, trailer, p, objHint)
-		if err != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
-		}
+		result, parts, objs := inHeapVerify(doc, trailer, p, spec, objHint)
 		cr.Result = result
 		lastParts, graphClean = parts, true
 		objHint = len(objs)
@@ -458,56 +461,9 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		}
 		prevCounts = counts
 
-		changed := false
-		// Per-dict-local fixers (batchDictFixer) share one graph walk this
-		// pass instead of each walking the whole graph; targeted fixers jump
-		// straight to the objects their issues reference; everything else runs
-		// its own Fix as before. Sorted order keeps fixer application -- and
-		// with it the whole conversion -- deterministic across runs.
-		pass := &fixPass{trailer: &trailer, objs: objs}
-		var visitors []func(pdf.PDFDict)
-		batched := map[Fixer]bool{}
-		for _, c := range sortedChecks(counts) {
-			fixer, ok := localFixers[c]
-			if !ok {
-				continue
-			}
-			if bf, isBatch := fixer.(batchDictFixer); isBatch {
-				if batched[fixer] {
-					continue
-				}
-				batched[fixer] = true
-				if visit, ok := bf.prepare(&trailer, &changed); ok {
-					visitors = append(visitors, visit)
-				}
-				continue
-			}
-			if tf, ok := fixer.(targetedFixer); ok {
-				ch, handled, err := tf.fixTargeted(pass, cr.Result.IssuesForCheck(c))
-				if err != nil {
-					return ConvertResult{}, fmt.Errorf("convert: targeted fixer for check %q: %w", c.Name(), err)
-				}
-				if handled {
-					if ch {
-						changed = true
-					}
-					continue
-				}
-			}
-			ch, err := fixer.Fix(&trailer, cr.Result.IssuesForCheck(c))
-			if err != nil {
-				return ConvertResult{}, fmt.Errorf("convert: fixer for check %q: %w", c.Name(), err)
-			}
-			if ch {
-				changed = true
-			}
-		}
-		if len(visitors) > 0 {
-			walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-				for _, visit := range visitors {
-					visit(d)
-				}
-			})
+		changed, err := dispatchFixers(&fixPass{trailer: &trailer, objs: objs}, cr.Result, localFixers)
+		if err != nil {
+			return ConvertResult{}, fmt.Errorf("convert: %w", err)
 		}
 		if !changed {
 			break
@@ -515,7 +471,7 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		graphClean = false
 	}
 
-	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
+	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, spec, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
@@ -540,9 +496,8 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 	// what it no longer holds is a separate fact, and one a caller wants
 	// separately. (Recovered objects are not carried: the rewrite emits a
 	// correct xref, genuinely fixing them.)
-	for _, e := range doc.DegradedObjects() {
-		c := e.Check()
-		if p.Allows(c.Clause(), c.Subclause()) {
+	for _, e := range spec.Issues(doc.DegradedObjects()) {
+		if p.Has(e.Check()) {
 			cr.LostObjects = append(cr.LostObjects, e)
 		}
 	}
@@ -584,12 +539,9 @@ func summarizeTrailerPagesOf(out *pdf.Reader) []pageSummary {
 // A loop that ran out of iterations ends on a fix pass nothing verified, so
 // cr.Result still lists what that pass repaired. Verify first: rasterizing
 // from the stale list flattened pages that were already conformant.
-func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
+func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, spec pdfa.Spec, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
 	if !*graphClean {
-		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-		if err != nil {
-			return err
-		}
+		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
@@ -608,10 +560,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 		cr.addRasterizedPages(rasterized)
 		cr.Iterations++
 		*graphClean = false
-		result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-		if err != nil {
-			return err
-		}
+		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 		cr.Result = result
 		*lastParts, *graphClean = parts, true
 	}
@@ -624,10 +573,7 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 			cr.addRasterizedPages(rasterized)
 			cr.Iterations++
 			*graphClean = false
-			result, parts, _, err := inHeapVerify(doc, *trailer, p, hint)
-			if err != nil {
-				return err
-			}
+			result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
 			cr.Result = result
 			*lastParts, *graphClean = parts, true
 		}
@@ -640,14 +586,11 @@ func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, 
 // the split issue parts (for serializeAndVerify's merged final verify) and
 // the ObjNum -> object index so the fixer loop can target issues by ref;
 // the index is only valid until the next renumbering.
-func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, hint int) (pdf.Result, verify.Parts, map[int]pdf.PDFValue, error) {
+func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, spec pdfa.Spec, hint int) (pdf.Result, verify.Parts, map[int]pdf.PDFValue) {
 	objs := writer.NumberObjects(trailer, hint)
 	doc.SeedResolvedGraph(trailer, objs)
-	parts, err := verify.VerifyParts(doc, p)
-	if err != nil {
-		return pdf.Result{}, verify.Parts{}, nil, err
-	}
-	return verify.ResultFromIssues(p, parts.Issues()), parts, objs, nil
+	parts := verify.VerifyParts(doc, p, spec)
+	return verify.ResultFromIssues(p, parts.Issues()), parts, objs
 }
 
 // fullFinalVerify forces serializeAndVerify's full from-scratch verify even
@@ -727,24 +670,28 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 // buildLocalFixers returns a per-run fixer map with run-scoped instances
 // substituted for the registry singletons: the per-run dcFixer, a
 // fontSubstitutionFixer carrying the run's Reader for cached usage scans,
-// and an appearanceFixer carrying the run's appearance font.
-func buildLocalFixers(ctx context.Context, dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError) map[pdf.Check]Fixer {
+// an appearanceFixer carrying the run's appearance font, and every fixer
+// that follows the level's rules bound to the run's spec.
+func buildLocalFixers(ctx context.Context, dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError, spec *pdfa.Spec) map[pdf.Check]Fixer {
 	fontSrc := &appearanceFontSource{}
 	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
 	for c, f := range fixerRegistry {
-		switch f.(type) {
+		switch bound := f.(type) {
 		case deviceColourFixer:
+			dcFixer.spec = spec
 			local[c] = dcFixer
 		case fontSubstitutionFixer:
-			local[c] = fontSubstitutionFixer{doc: doc}
+			local[c] = fontSubstitutionFixer{doc: doc, spec: spec}
 		case trueTypeEncodingFixer:
 			local[c] = trueTypeEncodingFixer{doc: doc}
 		case appearanceFixer:
-			local[c] = appearanceFixer{fontSrc: fontSrc}
+			local[c] = appearanceFixer{fontSrc: fontSrc, spec: spec}
 		case transparencyFlattener:
 			local[c] = transparencyFlattener{dpi: dpi, drops: formDrops, ctx: ctx}
 		case undecodableStreamFixer:
 			local[c] = undecodableStreamFixer{lost: lost}
+		case levelBound:
+			local[c] = bound.withSpec(spec)
 		default:
 			local[c] = f
 		}
@@ -834,6 +781,79 @@ func flattenPagesParallel(ctx context.Context, pages []pageTarget, pageNums []in
 		}
 	}
 	return drops, rasterized, changed
+}
+
+// dispatchFixers runs one fix pass over the checks that result reports.
+//
+// Each fixer runs once, at its first reported check in clause order; a
+// leadsItsClause fixer runs first within its clause. A fixer receives the
+// issues of every reported check it covers and repairs only those.
+// batchDictFixer implementations share a single graph walk, targetedFixer
+// implementations visit only the objects their issues reference, and all
+// other fixers run their own Fix. The fixed order makes conversion
+// deterministic.
+func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]Fixer) (bool, error) {
+	changed := false
+	var visitors []func(pdf.PDFDict)
+	reported := sortedChecks(violationCounts(result.Issues))
+	leads := func(c pdf.Check) bool {
+		l, ok := localFixers[c].(leadsItsClause)
+		return ok && l.leadsItsClause()
+	}
+	sort.SliceStable(reported, func(i, j int) bool {
+		a, b := reported[i], reported[j]
+		if a.Clause() != b.Clause() {
+			return a.Clause() < b.Clause()
+		}
+		return leads(a) && !leads(b)
+	})
+	dispatched := map[pdf.Check]bool{}
+	for i, c := range reported {
+		fixer, ok := localFixers[c]
+		if !ok || dispatched[c] {
+			continue
+		}
+		var issues []pdf.PDFError
+		for _, rc := range reported[i:] {
+			if fixer.Applies(rc) {
+				dispatched[rc] = true
+				issues = append(issues, result.IssuesForCheck(rc)...)
+			}
+		}
+		if bf, isBatch := fixer.(batchDictFixer); isBatch {
+			if visit, ok := bf.prepare(pass.trailer, issues, &changed); ok {
+				visitors = append(visitors, visit)
+			}
+			continue
+		}
+		if tf, ok := fixer.(targetedFixer); ok {
+			ch, handled, err := tf.fixTargeted(pass, issues)
+			if err != nil {
+				return false, fmt.Errorf("targeted fixer for check %q: %w", c.Name(), err)
+			}
+			if handled {
+				if ch {
+					changed = true
+				}
+				continue
+			}
+		}
+		ch, err := fixer.Fix(pass.trailer, issues)
+		if err != nil {
+			return false, fmt.Errorf("fixer for check %q: %w", c.Name(), err)
+		}
+		if ch {
+			changed = true
+		}
+	}
+	if len(visitors) > 0 {
+		walkDicts(*pass.trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
+			for _, visit := range visitors {
+				visit(d)
+			}
+		})
+	}
+	return changed, nil
 }
 
 // sortedChecks returns counts' keys ordered by clause, then subclause, giving

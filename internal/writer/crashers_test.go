@@ -8,10 +8,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// TestCrasher_WriterDeepNesting: a deeply nested but acyclic inline array
-// recursed discover/writeValue into a stack overflow -- the pointer-based
-// cycle guard does not catch fresh composites (fixed: maxWriteDepth). The
-// serializer must return an error, not crash.
+// TestCrasher_WriterDeepNesting verifies that WriteDocument does not crash on
+// a deeply nested but acyclic inline array. The pointer-based cycle guard does
+// not catch fresh composites, so maxWriteDepth bounds the recursion.
 func TestCrasher_WriterDeepNesting(t *testing.T) {
 	deep := pdf.PDFValue(pdf.PDFArray{})
 	for i := 0; i < 20000; i++ {
@@ -27,6 +26,6 @@ func TestCrasher_WriterDeepNesting(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Size", pdf.PDFInteger(2))
 
-	// Must not panic / stack-overflow; an error is the expected fixed outcome.
+	// Must not panic or overflow the stack; an error is the expected outcome.
 	writer.WriteDocument(io.Discard, trailer, 0)
 }

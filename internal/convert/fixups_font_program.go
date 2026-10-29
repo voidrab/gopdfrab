@@ -9,6 +9,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -25,18 +26,21 @@ func init() {
 	registerFixer(fontMetricFixer{})
 	registerFixer(fontSubsetMetaFixer{})
 	registerFixer(fontFileSubtypeFixer{})
-	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
-		return promoteEmptyGlyphsInFont
-	})
-	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
-		return repairNonSymbolicTrueTypeCmap
-	})
-	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
-		return inlineType1WidthSubrsInFont
-	})
-	registerPreemptiveVisitor(func(*pdf.PDFDict, *pdf.Reader) func(pdf.PDFDict) {
-		return normalizeCFFWidthDefaultsInFont
-	})
+	// Font-program repairs for PDF/A's font rules, so plain-PDF levels skip
+	// them.
+	for _, visit := range []func(pdf.PDFDict){
+		promoteEmptyGlyphsInFont,
+		repairNonSymbolicTrueTypeCmap,
+		inlineType1WidthSubrsInFont,
+		normalizeCFFWidthDefaultsInFont,
+	} {
+		registerPreemptiveVisitor(func(_ *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
+			if !spec.PDFA {
+				return nil
+			}
+			return visit
+		})
+	}
 }
 
 // normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program,
@@ -198,34 +202,36 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 // PDF 1.4 font file holds directly. Substituting a bundled face instead would
 // throw away the document's own glyphs, so anything this cannot unwrap is left
 // alone for the substitution fixer to pick up as an unusable program.
-type fontFileSubtypeFixer struct{}
+type fontFileSubtypeFixer struct{ spec *pdfa.Spec }
+
+func (f fontFileSubtypeFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (fontFileSubtypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.FontFileSubtype
 }
 
-func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
 // fixTargeted repairs only the fonts the issues reference; the verifier reports
 // every offending font per pass, so this covers all violations.
-func (fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
+func (f fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		if fixFontFileSubtypeDict(d) {
+		if fixFontFileSubtypeDict(d, f.spec) {
 			changed = true
 		}
 	}
 	return changed, true, nil
 }
 
-func (fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
-		if fixFontFileSubtypeDict(d) {
+		if fixFontFileSubtypeDict(d, f.spec) {
 			*changed = true
 		}
 	}, true
@@ -233,7 +239,7 @@ func (fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDF
 
 // fixFontFileSubtypeDict repairs the embedded font files of one font dict; it
 // re-checks the predicate so a stale or already-fixed target is a no-op.
-func fixFontFileSubtypeDict(d pdf.PDFDict) bool {
+func fixFontFileSubtypeDict(d pdf.PDFDict, spec *pdfa.Spec) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 		return false
 	}
@@ -248,13 +254,13 @@ func fixFontFileSubtypeDict(d pdf.PDFDict) bool {
 	// spurious and simply goes away.
 	for _, key := range []string{"FontFile", "FontFile2"} {
 		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
-		if !ok || !badFontFileSubtype(ff) {
+		if !ok || !badFontFileSubtype(ff, spec) {
 			continue
 		}
 		ff.Entries.Del("Subtype")
 		changed = true
 	}
-	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok && badFontFileSubtype(ff) {
+	if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok && badFontFileSubtype(ff, spec) {
 		if unwrapFontFile3(desc, ff, subtype.Value) {
 			changed = true
 		}
@@ -262,11 +268,11 @@ func fixFontFileSubtypeDict(d pdf.PDFDict) bool {
 	return changed
 }
 
-// badFontFileSubtype reports whether ff declares a font file format PDF 1.4
-// does not define, mirroring the detection in ValidateFontProgram.
-func badFontFileSubtype(ff pdf.PDFDict) bool {
+// badFontFileSubtype reports whether ff declares a font file format the level
+// does not allow, mirroring the detection in ValidateFontProgram.
+func badFontFileSubtype(ff pdf.PDFDict, spec *pdfa.Spec) bool {
 	st, ok := ff.Entries.Get("Subtype").(pdf.PDFName)
-	return ok && st.Value != "Type1C" && st.Value != "CIDFontType0C"
+	return ok && !spec.FontFileSubtypes.Has(st.Value)
 }
 
 // unwrapFontFile3 replaces a wrongly-typed FontFile3 with the program it
@@ -916,7 +922,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 }
 
 // fixTrueTypeCIDSet synthesizes or completes /CIDSet from the glyphs present
-// in a CIDFontType2 program. it handles both a missing CIDSet and an existing
+// in a CIDFontType2 program. It handles both a missing CIDSet and an existing
 // one that omits a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means

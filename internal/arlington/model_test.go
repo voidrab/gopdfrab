@@ -39,8 +39,8 @@ func TestModelCodecCoversEveryField(t *testing.T) {
 	}
 }
 
-// TestDecodeModelCorrupt: data that is not a flate stream is a build defect
-// and panics with a message naming the file.
+// TestDecodeModelCorrupt verifies that data that is not a flate stream is a
+// build defect and panics with a message naming the file.
 func TestDecodeModelCorrupt(t *testing.T) {
 	defer func() {
 		r, _ := recover().(string)

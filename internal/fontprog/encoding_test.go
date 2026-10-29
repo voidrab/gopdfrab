@@ -42,7 +42,7 @@ func TestSimpleFontCodeToUnicodeWinAnsi(t *testing.T) {
 }
 
 // TestSimpleFontCodeToUnicodeDifferences verifies that /Differences entries
-// override the base encoding, which is the path the verifier missed before.
+// override the base encoding.
 func TestSimpleFontCodeToUnicodeDifferences(t *testing.T) {
 	// Encoding: WinAnsiEncoding with code 32 remapped to "fi" (U+FB01)
 	diffs := pdf.PDFArray{

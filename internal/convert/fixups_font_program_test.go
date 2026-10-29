@@ -21,8 +21,8 @@ import (
 // buildMinimalCIDCFF assembles a tiny CID-keyed CFF font with 3 glyphs
 // (.notdef, CID 1 width 600, CID 2 width 700), a format-0 CID charset, a
 // single FDArray Font DICT (format-0 FDSelect), and a Private DICT with zero
-// width defaults. Ported from verify.buildMinimalCIDCFF (internal/verify's
-// test-only helper isn't importable across packages).
+// width defaults. It duplicates verify.buildMinimalCIDCFF, because that
+// test-only helper cannot be imported across packages.
 func buildMinimalCIDCFF() []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte
@@ -180,9 +180,9 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 
 // TestPromoteEmptyGlyphsInFontsIdempotent covers promoteEmptyGlyphsInFonts'
 // guard cascade (CIDFontType2 dispatch, FontDescriptor/FontFile2 presence,
-// decode success) via a real embedded TrueType program -- Liberation Sans has
-// blank glyphs (e.g. space) that trigger promotion -- and checks the second
-// pass over the already-promoted program is a no-op.
+// decode success) via a real embedded TrueType program. Liberation Sans has
+// blank glyphs, such as space, that trigger promotion. The test checks that the
+// second pass over the already-promoted program is a no-op.
 func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: ttf}
@@ -223,9 +223,8 @@ func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	}
 }
 
-// TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch mirrors
-// TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
-// exactly its Check(s), since registerFixer panics on overlap.
+// TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch verifies that a Fixer
+// claims exactly its Check, since registerFixer panics on overlap.
 func TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch(t *testing.T) {
 	fixer := fontMetricFixer{}
 	for _, c := range pdf.AllChecks() {
@@ -250,14 +249,14 @@ func TestFontSubsetMetaFixerAppliesOnlyToCharSetAndCIDSet(t *testing.T) {
 // first pass changes something and the second pass is a no-op.
 func runFixerAndCheckIdempotent(t *testing.T, fixer Fixer, trailer *pdf.PDFDict) {
 	t.Helper()
-	changed, err := fixer.Fix(trailer, nil)
+	changed, err := fixer.Fix(trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 	if !changed {
 		t.Fatalf("changed = false, want true")
 	}
-	changed, err = fixer.Fix(trailer, nil)
+	changed, err = fixer.Fix(trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix (second pass): %v", err)
 	}
@@ -478,7 +477,7 @@ func TestFontSubsetMetaFixerRegeneratesIncompleteCharSet(t *testing.T) {
 }
 
 func TestFontFileSubtypeFixerAppliesOnlyToFontFileSubtype(t *testing.T) {
-	fixer := fontFileSubtypeFixer{}
+	fixer := fontFileSubtypeFixer{spec: a1bSpec}
 	for _, c := range pdf.AllChecks() {
 		want := c == pdf.Checks.Font.FontFileSubtype
 		if got := fixer.Applies(c); got != want {
@@ -488,8 +487,9 @@ func TestFontFileSubtypeFixerAppliesOnlyToFontFileSubtype(t *testing.T) {
 }
 
 // buildMinimalCFF assembles a tiny name-keyed CFF font with two glyphs
-// (.notdef and "A"), a format-0 charset, and an empty Private DICT. Ported
-// from verify.buildMinimalCFF, which is test-only and so not importable.
+// (.notdef and "A"), a format-0 charset, and an empty Private DICT. It
+// duplicates verify.buildMinimalCFF, which is test-only and so cannot be
+// imported.
 func buildMinimalCFF() []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte
@@ -601,7 +601,7 @@ func TestFontFileSubtypeFixerUnwrapsOpenTypeCFF(t *testing.T) {
 	} {
 		t.Run(tc.fontSubtype, func(t *testing.T) {
 			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", otf)
-			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 			ff, ok := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
 			if !ok {
@@ -626,7 +626,7 @@ func TestFontFileSubtypeFixerUnwrapsOpenTypeCFF(t *testing.T) {
 func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
 	cff := buildMinimalCFF()
 	trailer := fontWithFontFile3("Type1", "OpenType", cff)
-	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 	ff := descriptorOf(t, trailer).Entries.Get("FontFile3").(pdf.PDFDict)
 	if (ff.Entries.Get("Subtype") != pdf.PDFName{Value: "Type1C"}) {
@@ -643,7 +643,7 @@ func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
 func TestFontFileSubtypeFixerMovesTrueTypeToFontFile2(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	trailer := fontWithFontFile3("CIDFontType2", "OpenType", ttf)
-	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+	runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 
 	desc := descriptorOf(t, trailer)
 	if desc.Entries.Get("FontFile3") != nil {
@@ -684,7 +684,7 @@ func TestFontFileSubtypeFixerLeavesUnusableProgram(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			trailer := fontWithFontFile3(tc.fontSubtype, "OpenType", tc.program)
-			changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+			changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 			if err != nil {
 				t.Fatalf("Fix: %v", err)
 			}
@@ -711,7 +711,7 @@ func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
 			})}
 			trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})}
 
-			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, &trailer)
 			got := descriptorOf(t, trailer).Entries.Get(key).(pdf.PDFDict)
 			if got.Entries.Get("Subtype") != nil {
 				t.Errorf("%s still carries a Subtype", key)
@@ -725,7 +725,7 @@ func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
 func TestFontFileSubtypeFixerSkipsConformingFonts(t *testing.T) {
 	for _, subtype := range []string{"", "Type1C", "CIDFontType0C"} {
 		trailer := fontWithFontFile3("Type1", subtype, buildMinimalCFF())
-		changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+		changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 		if err != nil {
 			t.Fatalf("Fix: %v", err)
 		}
@@ -741,21 +741,21 @@ func TestFontFileSubtypeFixerSkipsNonFonts(t *testing.T) {
 	notAFont := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Type1"},
 	})}
-	if fixFontFileSubtypeDict(notAFont) {
+	if fixFontFileSubtypeDict(notAFont, a1bSpec) {
 		t.Error("a dict without /Type /Font was treated as a font")
 	}
 	noDescriptor := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "Font"},
 		"Subtype": pdf.PDFName{Value: "Type1"},
 	})}
-	if fixFontFileSubtypeDict(noDescriptor) {
+	if fixFontFileSubtypeDict(noDescriptor, a1bSpec) {
 		t.Error("a font without a descriptor reported a change")
 	}
 }
 
-// TestConvertClearsOpenTypeFontFile is the end-to-end proof: a document whose
-// only defect class includes an OpenType-wrapped font file converts to
-// conformance with the CFF unwrapped in place, not substituted away.
+// TestConvertClearsOpenTypeFontFile verifies end to end that a document with an
+// OpenType-wrapped font file among its defects converts to conformance, with
+// the CFF unwrapped in place rather than substituted away.
 func TestConvertClearsOpenTypeFontFile(t *testing.T) {
 	cff := buildMinimalCFF()
 	otf := wrapInSfnt(0x4F54544F, map[string][]byte{"CFF ": cff, "head": make([]byte, 54)})
@@ -851,12 +851,12 @@ func TestFontFileSubtypeFixerTargeted(t *testing.T) {
 	}
 
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	runTargetedAndCheckIdempotent(t, fontFileSubtypeFixer{}, pass, issues)
+	runTargetedAndCheckIdempotent(t, fontFileSubtypeFixer{spec: a1bSpec}, pass, issues)
 
 	// An issue with no object ref cannot be targeted, and the caller falls
 	// back to the whole-graph Fix.
 	noRef := pdf.NewError(pdf.Checks.Font.FontFileSubtype, []error{errors.New("no ref")}, 0, nil)
-	if _, handled, err := (fontFileSubtypeFixer{}).fixTargeted(pass, []pdf.PDFError{noRef}); err != nil || handled {
+	if _, handled, err := (fontFileSubtypeFixer{spec: a1bSpec}).fixTargeted(pass, []pdf.PDFError{noRef}); err != nil || handled {
 		t.Errorf("fixTargeted(ref-less issue) = handled %v, err %v, want false, nil", handled, err)
 	}
 }
@@ -867,7 +867,7 @@ func TestFontFileSubtypeFixerTargeted(t *testing.T) {
 func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
 	empty := wrapInSfnt(0x4F54544F, map[string][]byte{"head": make([]byte, 54)})
 	trailer := fontWithFontFile3("CIDFontType2", "OpenType", empty)
-	changed, err := fontFileSubtypeFixer{}.Fix(&trailer, nil)
+	changed, err := fontFileSubtypeFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -876,12 +876,12 @@ func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
 	}
 }
 
-// fractionalNominalCFF is buildMinimalCFF with nominalWidthX 0.5, a real some
-// readers truncate.
+// fractionalNominalCFF is buildMinimalCFF with nominalWidthX 0.5, a value that
+// some readers truncate.
 func fractionalNominalCFF() []byte {
 	cff := buildMinimalCFF()
 	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
-	// The Private DICT grew from 4 to 6 bytes: its size is the 5-byte operand
+	// The Private DICT is 6 bytes rather than 4: its size is the 5-byte operand
 	// after the CharStrings and charset entries of the Top DICT.
 	binary.BigEndian.PutUint32(cff[31:35], 6)
 	return cff
@@ -893,14 +893,16 @@ func fractionalNominalCIDCFF() []byte {
 	cff := buildMinimalCIDCFF()
 	td, _ := fontprog.ParseCFFTopDict(cff)
 	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
-	// The Private DICT grew from 4 to 6 bytes: its size is the Font DICT's
-	// first operand, after the 3-byte FDArray INDEX header and 2 offsets.
+	// The Private DICT is 6 bytes rather than 4: its size is the Font
+	// DICT's first operand, after the 3-byte FDArray INDEX header and 2
+	// offsets.
 	binary.BigEndian.PutUint32(cff[td.FDArrayOffset+6:], 6)
 	return cff
 }
 
-// TestNormalizeCFFWidthDefaultsInFont: a bare CFF program with a fractional
-// width default is rewritten to whole ones; anything else is left as it was.
+// TestNormalizeCFFWidthDefaultsInFont verifies that a bare CFF program with a
+// fractional width default is rewritten to whole ones, and that anything else
+// is left as it was.
 func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 	descriptor := func(ff pdf.PDFValue) pdf.PDFDict {
 		return dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "FontDescriptor"}, "FontFile3": ff})

@@ -57,7 +57,7 @@ func (f PageFidelity) Blanked() bool {
 // Overpainted reports the opposite loss: something was drawn over the page,
 // covering what was underneath. Nothing a conversion does should cover the
 // page, so this catches a repair that turns something invisible into something
-// opaque -- which is what setting a zero opacity to 1 used to do.
+// opaque, such as setting a zero opacity to 1.
 func (f PageFidelity) Overpainted() bool {
 	return f.Covered >= overpaintArea
 }

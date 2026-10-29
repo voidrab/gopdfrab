@@ -31,22 +31,21 @@ func init() {
 // fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by adding the
 // spec-default /CIDToGIDMap /Identity to any CIDFontType2 descendant font
 // that lacks it, mirroring the detection in validateFontDict
-// (checks_font.go). Adding /Identity is always valid -- it IS the PDF
-// default applied when the key is absent -- so it never changes rendered
-// appearance and never breaks a conformant file, which is why it's safe to
-// apply unconditionally rather than only for non-invisible-only fonts like
-// the check itself.
+// (checks_font.go). Adding /Identity is always valid, because it is the PDF
+// default applied when the key is absent. It therefore never changes rendered
+// appearance or breaks a conformant file, so the fixer applies it to every such
+// font.
 type fontDictFixer struct{}
 
 func (fontDictFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.CIDToGIDMapMissing
 }
 
-func (f fontDictFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f fontDictFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (fontDictFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (fontDictFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
@@ -78,11 +77,11 @@ func (type0FontFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f type0FontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f type0FontFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (type0FontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
@@ -140,11 +139,11 @@ func (baseFontFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.FontBaseFont
 }
 
-func (f baseFontFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f baseFontFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (baseFontFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (baseFontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
 			return
@@ -245,7 +244,8 @@ func sfntPostScriptName(nameTable []byte) string {
 		}
 		raw := nameTable[off : off+length]
 		if platform == 0 || platform == 3 {
-			// UTF-16BE, and a PostScript name is ASCII, so the high bytes go.
+			// UTF-16BE, and a PostScript name is ASCII, so the high
+			// bytes go.
 			var b []byte
 			for j := 1; j < len(raw); j += 2 {
 				b = append(b, raw[j])

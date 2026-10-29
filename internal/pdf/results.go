@@ -54,8 +54,8 @@ func (r Result) Checks() []Check {
 	return out
 }
 
-// ClauseLess compares two dotted clause numbers ("6.2.9", "6.2.10") segment by
-// segment so they sort numerically rather than lexicographically.
+// ClauseLess reports whether dotted clause number a sorts before b. It compares
+// the segments numerically, so "6.2.9" sorts before "6.2.10".
 func ClauseLess(a, b string) bool {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")

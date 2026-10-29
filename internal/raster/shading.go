@@ -8,8 +8,8 @@ import (
 
 // Shadings (ISO 32000-1 8.7.4.5) are painted by sampling: every device pixel
 // in the target area is mapped back into shading space and asked for its
-// colour. That mirrors compositeImage's inverse-CTM loop and keeps the whole
-// family -- function-based, axial and radial -- behind one colorAt method.
+// colour. That mirrors compositeImage's inverse-CTM loop and keeps the
+// function-based, axial and radial types behind one colorAt method.
 // Mesh types (4-7) are geometry rather than a field and are handled
 // separately in shading_mesh.go.
 

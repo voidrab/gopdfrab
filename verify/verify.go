@@ -52,11 +52,14 @@ type (
 	LevelType = pdf.LevelType
 
 	// Check is one named, selectable validation rule, identified by the ISO
-	// clause it enforces. The Checks registry names every check; AllChecks,
-	// CheckByClause and ChecksForClause look them up. All fields are
-	// unexported, so a Check is only ever obtained, not built.
+	// clause it enforces under a conformance level. The Checks registry names
+	// every check; AllChecks, CheckByClauseIn and ChecksForClauseIn look them
+	// up. All fields are unexported, so a Check is only ever obtained, not
+	// built. Clause and Subclause give the PDF/A-1 clause; ClauseIn gives the
+	// clause under a given level, and AppliesTo whether there is one.
 	//
-	// Methods: Name, Description, Clause, Subclause, ID, MarshalJSON.
+	// Methods: Name, Description, Clause, Subclause, ClauseIn, AppliesTo, ID,
+	// MarshalJSON.
 	Check = pdf.Check
 
 	// PDFError is one violation: the check that failed, what was wrong, and
@@ -102,9 +105,10 @@ const (
 var (
 	// PDF is the default profile for generic ISO 32000 object-model checks.
 	PDF = pdf.PDF
-	// PDFA1B is the canonical PDF/A-1b profile
+	// PDFA1B is the canonical PDF/A-1b profile.
 	PDFA1B = pdf.PDFA1B
-	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
+	// Legacy1B is stricter in some areas and compatible with the original
+	// Isartor PDF/A-1b test suite.
 	Legacy1B = pdf.Legacy1B
 )
 
@@ -159,14 +163,33 @@ func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
 // clause number.
 func AllChecks() []Check { return pdf.AllChecks() }
 
-// CheckByClause looks up the registered check for a specific (clause,
+// CheckByClause looks up the registered check for a specific PDF/A-1 (clause,
 // subclause) pair.
+//
+// Deprecated: a clause identifies a check only within a conformance level;
+// use CheckByClauseIn.
 func CheckByClause(clause string, subclause int) (Check, bool) {
 	return pdf.CheckByClause(clause, subclause)
 }
 
-// ChecksForClause returns every registered check under the given clause.
+// ChecksForClause returns every registered check under the given PDF/A-1
+// clause.
+//
+// Deprecated: a clause identifies checks only within a conformance level; use
+// ChecksForClauseIn.
 func ChecksForClause(clause string) []Check { return pdf.ChecksForClause(clause) }
+
+// CheckByClauseIn looks up the check that enforces (clause, subclause) under
+// the given conformance level, e.g. CheckByClauseIn(A1B, "6.3.4", 1).
+func CheckByClauseIn(level LevelType, clause string, subclause int) (Check, bool) {
+	return pdf.CheckByClauseIn(level, clause, subclause)
+}
+
+// ChecksForClauseIn returns every check that enforces the given clause under
+// the given conformance level.
+func ChecksForClauseIn(level LevelType, clause string) []Check {
+	return pdf.ChecksForClauseIn(level, clause)
+}
 
 // Verify opens, verifies, and closes a single file.
 func Verify(path string, p *Profile) (Result, error) {
@@ -299,9 +322,9 @@ func (d *Document) IsPDF() (bool, error) {
 func (d *Document) XMPMetadata() ([]byte, error) { return d.r.XMPMetadata() }
 
 // ClaimedConformance returns the PDF/A part and conformance level the
-// document's XMP metadata claims, read from the pdfaid
-// namespace. This reflects what the file claims, not whether it actually
-// validates — use Verify or IsPDFA to check actual compliance.
+// document's XMP metadata claims, read from the pdfaid namespace. This
+// reflects what the file claims, not whether it actually validates. Use
+// Verify or IsPDFA to check actual compliance.
 func (d *Document) ClaimedConformance() (part, conformance string, err error) {
 	return d.r.ClaimedConformance()
 }

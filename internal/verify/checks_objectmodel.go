@@ -308,9 +308,10 @@ func EvalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {
 	return evalCondArray(c, v)
 }
 
-// MatchesValueType exposes the schema type check to object-model fixers, so a
-// value already conforming to its row -- e.g. one repaired earlier in the same
-// pass -- is never coerced or deleted on a stale finding.
+// MatchesValueType reports whether val conforms to one of allowed, for
+// object-model fixers. A value already conforming to its row, for example one
+// repaired earlier in the same pass, is never coerced or deleted on a stale
+// finding.
 func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
 	return matchesValueType(val, allowed)
 }

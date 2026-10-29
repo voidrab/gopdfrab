@@ -229,10 +229,11 @@ func TestDeviceNRewritePreservesUntouchedOperators(t *testing.T) {
 	}
 }
 
-// TestDeviceNFixerLeavesUnrewritableThingsAlone: an undecodable page content
-// stream, non-stream /Contents items, an Image whose pixels cannot be decoded,
-// an Image in a small DeviceN space, and a small DeviceN resource entry are
-// all left as they are; only the oversized resource entry is pruned.
+// TestDeviceNFixerLeavesUnrewritableThingsAlone verifies that an undecodable
+// page content stream, non-stream /Contents items, an Image whose pixels cannot
+// be decoded, an Image in a small DeviceN space, and a small DeviceN resource
+// entry are all left as they are, and that only the oversized resource entry is
+// pruned.
 func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
 	small := pdf.PDFArray{pdf.PDFName{Value: "DeviceN"}, pdf.PDFArray{pdf.PDFName{Value: "a"}}, pdf.PDFName{Value: "DeviceRGB"}}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{

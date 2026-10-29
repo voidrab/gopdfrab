@@ -96,8 +96,7 @@ func printVerifyJSON(results []verify.FileResult[verify.Result], stdout, stderr 
 
 // printVerifyText prints the profile once, then a line per file with the
 // file's issues beneath it, grouped or per location as detail says, then a
-// summary. The layout is described at
-// the top of report.go.
+// summary. The layout is described at the top of report.go.
 func printVerifyText(results []verify.FileResult[verify.Result], profileName string, detail bool, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
 	pass, fail, errCount := 0, 0, 0

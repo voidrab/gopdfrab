@@ -7,12 +7,12 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestConvertSharedStreamRewrittenEverywhere is the end-to-end regression for
-// a stream reached from two slots. A 16-bit image is both page 1's /Thumb and
-// an XObject on both pages; imageSampleDepthFixer rewrites it to 8 bits. Only
-// the slot the walk came through used to get the new bytes, while every copy
-// shared the new /Filter and /BitsPerComponent, so the output carried a
-// FlateDecode image over raw 16-bit samples -- and still verified valid.
+// TestConvertSharedStreamRewrittenEverywhere verifies that a stream reached
+// from two slots is rewritten in every slot. A 16-bit image is both page 1's
+// /Thumb and an XObject on both pages; imageSampleDepthFixer rewrites it to
+// 8 bits. Patching only the slot the walk came through would leave the other
+// copies with the new /Filter and /BitsPerComponent over raw 16-bit samples,
+// a FlateDecode image that still verifies as valid.
 func TestConvertSharedStreamRewrittenEverywhere(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")

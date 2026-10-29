@@ -21,17 +21,11 @@ func (failingSource) ReadAt([]byte, int64) (int, error) { return 0, errors.New("
 func (failingSource) Seek(int64, int) (int64, error)    { return 0, errors.New("seek failed") }
 func (failingSource) Close() error                      { return nil }
 
-// TestVerifyPartsAndStructuralGuards pins the profile guards of the split
-// verify entry points.
-func TestVerifyPartsAndStructuralGuards(t *testing.T) {
+// TestVerifyStructuralGuards pins the profile guards of the structural-only
+// verify entry point.
+func TestVerifyStructuralGuards(t *testing.T) {
 	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
 
-	if _, err := VerifyParts(d, nil); err == nil {
-		t.Error("VerifyParts(nil profile) did not error")
-	}
-	if _, err := VerifyParts(d, &pdf.Profile{Level: pdf.Undefined}); err == nil {
-		t.Error("VerifyParts(Undefined level) did not error")
-	}
 	if _, err := VerifyStructural(d, nil); err == nil {
 		t.Error("VerifyStructural(nil profile) did not error")
 	}
@@ -71,7 +65,7 @@ func TestCheckLinearizedFileIDUnreadableSource(t *testing.T) {
 // TestType1ProgramForMemoizes covers the empty-input early return and the
 // per-context cache hit of the combined Type1 CharStrings extraction.
 func TestType1ProgramForMemoizes(t *testing.T) {
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	if p := ctx.type1ProgramFor(nil); p.Names != nil || p.Widths != nil {
 		t.Errorf("type1ProgramFor(nil) = %+v, want zero value", p)
 	}
@@ -126,10 +120,7 @@ func TestVerifyPartsMatchesVerify(t *testing.T) {
 	if res.Valid || len(res.Issues) == 0 {
 		t.Fatal("test document unexpectedly verifies clean")
 	}
-	pt, err := VerifyParts(openPartsTestDoc(t), pdf.PDFA1B)
-	if err != nil {
-		t.Fatalf("VerifyParts: %v", err)
-	}
+	pt := VerifyParts(openPartsTestDoc(t), pdf.PDFA1B, a1b())
 	if got, want := issueKeys(pt.Issues()), issueKeys(res.Issues); !slices.Equal(got, want) {
 		t.Errorf("VerifyParts issues differ from Verify:\n got %v\nwant %v", got, want)
 	}
@@ -142,10 +133,7 @@ func TestVerifyPartsMatchesVerify(t *testing.T) {
 // profile's enabled checks.
 func TestVerifyPartsFiltersByProfile(t *testing.T) {
 	prof := pdf.NewProfile(pdf.A1B).AddCheck(pdf.Checks.Structure.FileHeaderComment)
-	pt, err := VerifyParts(openPartsTestDoc(t), prof)
-	if err != nil {
-		t.Fatalf("VerifyParts: %v", err)
-	}
+	pt := VerifyParts(openPartsTestDoc(t), prof, a1b())
 	issues := pt.Issues()
 	if len(issues) == 0 {
 		t.Fatal("expected the binary-comment finding")
@@ -164,10 +152,7 @@ func TestVerifyPartsFiltersByProfile(t *testing.T) {
 // byte-level parts VerifyParts does and nothing from the graph, and that an
 // object-model-only profile has no byte-level checks to run.
 func TestVerifyStructuralSkipsGraphChecks(t *testing.T) {
-	full, err := VerifyParts(openPartsTestDoc(t), pdf.PDFA1B)
-	if err != nil {
-		t.Fatalf("VerifyParts: %v", err)
-	}
+	full := VerifyParts(openPartsTestDoc(t), pdf.PDFA1B, a1b())
 	st, err := VerifyStructural(openPartsTestDoc(t), pdf.PDFA1B)
 	if err != nil {
 		t.Fatalf("VerifyStructural: %v", err)
@@ -216,8 +201,8 @@ func TestVerifyContextCancelledBeforeStart(t *testing.T) {
 	}
 }
 
-// TestUnsupportedLevelRejected: every verify entry point refuses a level it
-// has no checks for, naming it, instead of running nothing.
+// TestUnsupportedLevelRejected verifies that every verify entry point refuses a
+// level it has no checks for, naming it, instead of running nothing.
 func TestUnsupportedLevelRejected(t *testing.T) {
 	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
 	for _, level := range []pdf.LevelType{"A-2b", ""} {
@@ -226,11 +211,24 @@ func TestUnsupportedLevelRejected(t *testing.T) {
 		if _, err := Verify(d, p); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Verify(%q) err = %v, want %q", level, err, want)
 		}
-		if _, err := VerifyParts(d, p); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("VerifyParts(%q) err = %v, want %q", level, err, want)
-		}
 		if _, err := VerifyStructural(d, p); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("VerifyStructural(%q) err = %v, want %q", level, err, want)
 		}
+	}
+}
+
+// TestPlainPDFLevelRejectsPDFAChecks verifies that the object-model level,
+// which has no PDF/A rules, refuses a PDF/A check enabled on it, so the check
+// has nothing to be judged by. Every entry point refuses the profile, naming
+// the check, rather than quietly judging it by PDF/A-1b's rules.
+func TestPlainPDFLevelRejectsPDFAChecks(t *testing.T) {
+	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
+	p := pdf.ObjectModelOnly().AddCheck(pdf.Checks.Transparency.BlendMode)
+	want := "BlendMode is not a check of conformance level \"ObjectModel\""
+	if _, err := Verify(d, p); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Verify err = %v, want %q", err, want)
+	}
+	if _, err := VerifyStructural(d, p); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("VerifyStructural err = %v, want %q", err, want)
 	}
 }

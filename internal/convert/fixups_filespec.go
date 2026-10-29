@@ -20,11 +20,11 @@ func (fileSpecFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f fileSpecFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f fileSpecFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (fileSpecFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (fileSpecFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if _, ok := d.Entries.Lookup("EF"); ok {
 			d.Entries.Del("EF")

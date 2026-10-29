@@ -42,8 +42,8 @@ func TestVersion(t *testing.T) {
 	}
 }
 
-// TestMainExitsWithRunCode runs main in-process with the exit seam swapped out, checking
-// that it hands os.Args to run and exits with run's code.
+// TestMainExitsWithRunCode runs main in-process with the exit seam swapped out,
+// checking that it hands os.Args to run and exits with run's code.
 func TestMainExitsWithRunCode(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

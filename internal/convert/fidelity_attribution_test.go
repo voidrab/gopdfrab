@@ -34,14 +34,16 @@ type inkMechanism struct {
 // them. Each is measured from a fresh reading of the file, so nothing carries
 // over from the one before.
 var oneAtATime = []inkMechanism{
-	{"preemptive", applyPreemptiveFixups},
+	{"preemptive", func(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+		return applyPreemptiveFixups(trailer, doc, a1b())
+	}},
 	{"opacity", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		repairOpacity(trailer)
 		return nil
 	}},
 	{"extgstate-dicts", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		_, err := runDictVisitor(trailer, func(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-			return extGStateDictVisitor(changed), true
+		_, err := runDictVisitor(trailer, nil, func(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+			return extGStateDictVisitor(changed, a1bSpec, reportedChecks(everyCheck(extGStateFixer{}))), true
 		})
 		return err
 	}},
@@ -195,10 +197,10 @@ func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageS
 }
 
 // TestFidelityAttributionSelfCheck runs the harness where no corpus is needed,
-// over the shape item 35 was written about: a page whose content is a black
-// rectangle drawn at zero opacity. Making that opacity opaque is a repair that
-// draws over the page, and naming which repair did it is the whole point of
-// the harness -- so the answer is known in advance and can be asserted.
+// over a page whose content is a black rectangle drawn at zero opacity. Making
+// that opacity opaque is a repair that draws over the page, and naming which
+// repair did it is what the harness is for, so the answer is known in advance
+// and can be asserted.
 func TestFidelityAttributionSelfCheck(t *testing.T) {
 	dir := t.TempDir()
 	drawn := filepath.Join(dir, "zero-opacity.pdf")

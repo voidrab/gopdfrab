@@ -39,8 +39,9 @@ func hasDrop(drops []string, want string) bool {
 	return slices.Contains(drops, want)
 }
 
-// TestRasterInvisibleTextRenderMode: text drawn under render mode 3 (invisible,
-// the OCR-layer case) must paint nothing, while the same text at mode 0 does.
+// TestRasterInvisibleTextRenderMode verifies that text drawn under render mode
+// 3 (invisible, the OCR-layer case) paints nothing, while the same text at
+// mode 0 does.
 func TestRasterInvisibleTextRenderMode(t *testing.T) {
 	ff := loadEmbeddableTTF(t)
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -80,8 +81,8 @@ func TestRasterInvisibleTextRenderMode(t *testing.T) {
 	}
 }
 
-// TestFlattenPageReportsDrops: flattening a page whose shading cannot be drawn
-// records the dropped feature, which rasterBackstop surfaces as
+// TestFlattenPageReportsDrops verifies that flattening a page whose shading
+// cannot be drawn records the dropped feature, which rasterBackstop surfaces as
 // ConvertResult.RasterDrops.
 func TestFlattenPageReportsDrops(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -182,9 +183,8 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 		}
 	})
 
-	// Regression: the old image path had a hasLZW flag that short-circuited
-	// the whole chain, feeding still-ASCII85-encoded text straight to the LZW
-	// decoder. The unified chain applies filters in order.
+	// The filter chain is applied in order, so the ASCII85 stage is undone
+	// before the LZW stage that follows it.
 	t.Run("ASCII85 then LZW", func(t *testing.T) {
 		want := []byte{1, 2, 3, 4, 5, 6}
 		dict := pdf.PDFDict{
@@ -284,8 +284,8 @@ func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, [
 	return img, drops
 }
 
-// TestRenderType3FontMatrix: the glyph is scaled by /FontMatrix, not by the
-// 1000-unit em every other font type uses.
+// TestRenderType3FontMatrix verifies that the glyph is scaled by /FontMatrix,
+// not by the 1000-unit em that every other font type uses.
 func TestRenderType3FontMatrix(t *testing.T) {
 	// A tenth of the coordinates with ten times the matrix scale must paint
 	// the same 15pt box.
@@ -307,8 +307,8 @@ func TestRenderType3FontMatrix(t *testing.T) {
 	}
 }
 
-// TestRenderType3Invisible: render mode 3 must not execute the CharProc, the
-// same OCR-layer guarantee outline fonts already have.
+// TestRenderType3Invisible verifies that render mode 3 does not execute the
+// CharProc, the same OCR-layer guarantee outline fonts already have.
 func TestRenderType3Invisible(t *testing.T) {
 	font := type3Font("0 0 750 750 re f", 0.001, 750, "square")
 	visible, _ := renderType3(t, "BT /F1 20 Tf 0 Tr 2 2 Td (A) Tj ET", font)
@@ -321,10 +321,10 @@ func TestRenderType3Invisible(t *testing.T) {
 	}
 }
 
-// TestConvertReportsJPXImageDrop: PDF/A-1 forbids JPXDecode and nothing here
-// decodes JPEG 2000, so the page is rasterized with the image as a gray
-// placeholder. The conversion is conformant, so the loss has to be in
-// RasterDrops or it is invisible.
+// TestConvertReportsJPXImageDrop verifies that a JPEG 2000 image, which
+// PDF/A-1 forbids and nothing here decodes, is reported in RasterDrops when
+// the page is rasterized with the image as a gray placeholder. The conversion
+// is conformant, so the loss has to be reported there or it is invisible.
 func TestConvertReportsJPXImageDrop(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -348,10 +348,10 @@ func TestConvertReportsJPXImageDrop(t *testing.T) {
 	}
 }
 
-// TestFixersDoNotStorePlaceholderSamples: a fixer that rewrites an image's
-// samples must not write the gray placeholder back in the picture's place.
-// Each image here decodes only to the placeholder, so each is left as it was
-// for the raster fallback to report.
+// TestFixersDoNotStorePlaceholderSamples verifies that a fixer rewriting an
+// image's samples does not write the gray placeholder back in the picture's
+// place. Each image here decodes only to the placeholder, so each is left as
+// it was for the raster fallback to report.
 func TestFixersDoNotStorePlaceholderSamples(t *testing.T) {
 	jbig2 := func(extra map[string]pdf.PDFValue) pdf.PDFDict {
 		entries := map[string]pdf.PDFValue{

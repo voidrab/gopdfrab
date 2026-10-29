@@ -9,6 +9,27 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
+)
+
+// a1b returns a fresh copy of PDF/A-1b's spec, for a test to bind a fixer to
+// or to change one rule of.
+func a1b() pdfa.Spec {
+	s, _ := pdfa.For(pdf.A1B)
+	return s
+}
+
+// a1bSpec is PDF/A-1b's spec for tests that only read it.
+var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
+
+// PDF/A-1b's limits, under the names the tests use for them.
+var (
+	maxPDFArrayElements = a1bSpec.Limits.MaxArrayElements
+	maxDictEntries      = a1bSpec.Limits.MaxDictEntries
+	maxNameLength       = a1bSpec.Limits.MaxNameBytes
+	maxCMapCID          = a1bSpec.Limits.MaxCID
+	maxQNesting         = a1bSpec.Limits.MaxQNesting
+	realLimit           = a1bSpec.Limits.MaxReal
 )
 
 // isartorDir and veraDir locate the reference test corpora relative to this
@@ -18,9 +39,10 @@ const (
 	veraDir    = "../../tests/veraPDF/PDF_A-1b"
 )
 
-// veraPDF filenames: optional "veraPDF test suite " prefix, then clause
-// segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf, e.g.
-// "veraPDF test suite 6-1-2-t01-fail-a.pdf" → clause 6.1.2, fail.
+// veraPDFNameRe matches veraPDF test filenames: an optional "veraPDF test
+// suite " prefix, then clause segments separated by dashes, then
+// -tNN-(pass|fail)-<letter>.pdf, e.g. "veraPDF test suite 6-1-2-t01-fail-a.pdf"
+// → clause 6.1.2, fail.
 var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
 
 // veraClauseAndKind returns the expected clause and whether the file is a

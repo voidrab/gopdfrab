@@ -10,8 +10,9 @@ import (
 
 // TestLiteralUnderscoreKeysRoundTrip pins that a document's own /_ref and
 // /_dirty keys are ordinary data: kept on an indirect object, kept on a direct
-// dict without making it look indirect, and written back out. Both used to be
-// the reader's and writer's bookkeeping spellings.
+// dict without making it look indirect, and written back out. The package's
+// bookkeeping key, pdf.RefKey, has a leading space and cannot collide with
+// them.
 func TestLiteralUnderscoreKeysRoundTrip(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /_ref (mine) /D << /_ref 7 /_dirty true >> >>")
