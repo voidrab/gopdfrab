@@ -3,7 +3,9 @@
 # The percentage `go tool cover` prints is rounded, so 100.0% can hide a few
 # uncovered statements; this checks the blocks themselves and lists any that
 # never ran. A profile built with -coverpkg holds each block once per test
-# package, so a block counts as covered if any of its lines has a hit.
+# package, so a block counts as covered if any of its lines has a hit. An
+# empty block (zero statements, such as an empty function body or switch case)
+# must run too, because Codecov reports its line as missed.
 # Usage: scripts/check-coverage.sh [coverage.txt]
 set -euo pipefail
 
@@ -17,14 +19,14 @@ awk '
 	}
 	END {
 		missed = 0
+		empty = 0
 		for (b in stmts) {
-			if (stmts[b] > 0 && !(b in hit)) {
-				print "uncovered: " b
-				missed += stmts[b]
-			}
+			if (b in hit) continue
+			print "uncovered: " b
+			if (stmts[b] > 0) missed += stmts[b]; else empty++
 		}
-		if (missed > 0) {
-			printf "%d statement(s) not covered; coverage must stay at 100%%\n", missed
+		if (missed > 0 || empty > 0) {
+			printf "%d statement(s) and %d empty block(s) not covered; coverage must stay at 100%%\n", missed, empty
 			exit 1
 		}
 		print "coverage: every statement covered"
