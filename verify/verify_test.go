@@ -70,6 +70,16 @@ func TestRegistry(t *testing.T) {
 	if len(verify.ChecksForClause(c.Clause())) == 0 {
 		t.Errorf("ChecksForClause(%q) returned nothing", c.Clause())
 	}
+	clause, sub, ok := c.ClauseIn(verify.A1B)
+	if !ok {
+		t.Fatalf("%s has no clause under A1B", c.Name())
+	}
+	if got, ok := verify.CheckByClauseIn(verify.A1B, clause, sub); !ok || got != c {
+		t.Errorf("CheckByClauseIn(A1B, %q, %d) = %v, %v", clause, sub, got, ok)
+	}
+	if len(verify.ChecksForClauseIn(verify.A1B, clause)) == 0 {
+		t.Errorf("ChecksForClauseIn(A1B, %q) returned nothing", clause)
+	}
 }
 
 // TestVerifyEntryPoints runs every package-level verify function over one
