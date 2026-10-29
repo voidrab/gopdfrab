@@ -53,11 +53,12 @@ func reportedChecks(issues []pdf.PDFError) map[pdf.Check]bool {
 	return reported
 }
 
-// leadsItsClause is implemented by a Fixer that must run before the other
-// fixers of its clause. dispatchFixers orders it first within the clause.
+// leadsItsClause is implemented by a Fixer that may need to run before the
+// other fixers of its clause. dispatchFixers orders it first within the clause
+// when its leadsItsClause method returns true.
 type leadsItsClause interface {
 	Fixer
-	leadsItsClause()
+	leadsItsClause() bool
 }
 
 // levelBound is a Fixer whose repairs follow a conformance level's rules. Its

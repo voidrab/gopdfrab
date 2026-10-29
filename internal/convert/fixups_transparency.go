@@ -35,11 +35,11 @@ func init() {
 	registerFixer(transparencyFlattener{})
 }
 
-// leadsItsClause orders the flattener before the other 6.4 fixers. The
-// flattener must render a group with its original opacities; once the opacity
-// repair has replaced translucent fills with opaque colours, overlapping fills
-// no longer accumulate.
-func (transparencyFlattener) leadsItsClause() {}
+// leadsItsClause reports that the flattener runs before the other 6.4 fixers.
+// The flattener must render a group with its original opacities; once the
+// opacity repair has replaced translucent fills with opaque colours,
+// overlapping fills no longer accumulate.
+func (transparencyFlattener) leadsItsClause() bool { return true }
 
 func (transparencyFlattener) Applies(c pdf.Check) bool {
 	switch c {

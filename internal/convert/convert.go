@@ -797,8 +797,8 @@ func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]
 	var visitors []func(pdf.PDFDict)
 	reported := sortedChecks(violationCounts(result.Issues))
 	leads := func(c pdf.Check) bool {
-		_, ok := localFixers[c].(leadsItsClause)
-		return ok
+		l, ok := localFixers[c].(leadsItsClause)
+		return ok && l.leadsItsClause()
 	}
 	sort.SliceStable(reported, func(i, j int) bool {
 		a, b := reported[i], reported[j]

@@ -103,9 +103,10 @@ func TestNormalizePDFDate(t *testing.T) {
 		{"D:20080513090000+02'00'", "D:20080513090000+02'00'", true}, // already prefixed
 		{"2008-05-13T09:00:00+02:00", "D:20080513090000+02'00'", true},
 		{"2008-05-13T09:00:00Z", "D:20080513090000Z", true},
-		{"2008", "D:2008", true},               // year only
-		{"not a date at all", "", false},       // no match
-		{"  D:20080513  ", "D:20080513", true}, // whitespace trimmed around a D: value
+		{"2008-05-13T09:00:00", "D:20080513090000", true}, // no time zone
+		{"2008", "D:2008", true},                          // year only
+		{"not a date at all", "", false},                  // no match
+		{"  D:20080513  ", "D:20080513", true},            // whitespace trimmed around a D: value
 	}
 	for _, c := range cases {
 		got, ok := normalizePDFDate(c.in)
