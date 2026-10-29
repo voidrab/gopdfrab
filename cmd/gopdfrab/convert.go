@@ -149,8 +149,7 @@ func printConvertJSON(input, output string, cr gopdfrab.ConvertResult, stdout, s
 
 // printConvertText prints the conversion as "key: value" lines, with any lost
 // content and residual issues beneath their lines, grouped or per location as
-// detail says, in the layout
-// described at the top of report.go.
+// detail says, in the layout described at the top of report.go.
 func printConvertText(input, output, profileName string, detail bool, cr gopdfrab.ConvertResult, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
 	fmt.Fprintf(stdout, "input: %s\noutput: %s\niterations: %d\n", input, output, cr.Iterations)

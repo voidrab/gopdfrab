@@ -15,24 +15,24 @@ import (
 // in place. The limit is counted per content stream, and invoking a form
 // XObject saves and restores the graphics state exactly as q ... Q does. So a
 // q ... Q block that would reach past the limit is moved, contents and all,
-// into a form XObject the stream draws with Do, where its nesting starts again
+// into a form XObject the stream draws, where its nesting starts again
 // from zero. A block that is itself still too deep is split again inside the
 // form.
 //
 // The form differs from the block in two ways, and both are made harmless:
-//   - Do clips to the form's /BBox. The BBox is the area the stream can show
-//     at all -- the page's MediaBox, or the BBox of the form or pattern being
-//     repaired -- mapped back through the CTM the stream has built up by the
-//     block, so nothing visible is cut away.
+//   - Drawing the form clips to its /BBox. The BBox is the area the stream
+//     can show at all -- the page's MediaBox, or the BBox of the form or
+//     pattern being repaired -- mapped back through the CTM the stream has
+//     built up by the block, so nothing visible is cut away.
 //   - The form reads names from its own /Resources. It is given the very dict
 //     the stream reads them from, so every name means what it meant. A stream
 //     whose resource scope is not known for certain (a form with no
 //     /Resources of its own, a Type 3 glyph) is left to the raster fallback.
 //
 // A block that cannot become a form is also left to the fallback: one opening
-// inside a text object (Do is not allowed there), one cutting across a marked-
-// content or BX/EX section, and one still open where the stream ends while
-// later page content could close it.
+// inside a text object (an XObject may not be drawn there), one cutting
+// across a marked-content or BX/EX section, and one still open where the
+// stream ends while later page content could close it.
 
 func init() {
 	registerFixer(qNestingFixer{})
@@ -188,8 +188,9 @@ type unnester struct {
 }
 
 // run returns ops with every q block that would exceed u.limit replaced by
-// a Do of a form holding it. ops is drawn in a space whose visible part is
-// visible; closed says a block still open at the end may be closed there.
+// an XObject invocation that draws a form holding it. ops is drawn in a space
+// whose visible part is visible; closed says a block still open at the end
+// may be closed there.
 func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]writer.ContentOp, bool) {
 	out := make([]writer.ContentOp, 0, len(ops))
 	ctm := raster.IdentityMatrix
@@ -234,8 +235,8 @@ func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]wri
 }
 
 // extract builds the form XObject holding inner, a block's content without
-// its q and Q, and returns the Do that draws it. ctm maps the block's space
-// into the space visible is given in.
+// its q and Q, and returns the operator that draws it. ctm maps the block's
+// space into the space visible is given in.
 func (u *unnester) extract(inner []writer.ContentOp, ctm raster.Matrix, visible rect) (writer.ContentOp, bool) {
 	inv, ok := ctm.Invert()
 	if !ok {

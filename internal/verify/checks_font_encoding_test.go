@@ -47,8 +47,8 @@ func TestSimpleTrueTypeMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	ff := macOnlyTrueType()
 	winAnsi := pdf.PDFName{Value: "WinAnsiEncoding"}
 
-	// WinAnsi 0xE9 is eacute, Mac Roman 0x8E: present. Looking up the raw
-	// code 0xE9 instead reported a glyph the font has.
+	// WinAnsi 0xE9 is eacute, which Mac Roman encodes as 0x8E and the font
+	// has. The glyph is resolved through the name, not the raw code 0xE9.
 	ctx := &ValidationContext{Spec: a1bSpec}
 	ValidateSimpleTrueTypeSubset(trueTypeFontWithEncoding(winAnsi), ff, 0xE9, 0xE9, pdf.PDFArray{pdf.PDFInteger(600)}, ctx)
 	if hasCheck(ctx, pdf.Checks.Font.SubsetGlyphCoverage) {
@@ -56,7 +56,8 @@ func TestSimpleTrueTypeMacCmapResolvesThroughGlyphNames(t *testing.T) {
 	}
 
 	// /Differences renames code 65 to /B, which the font lacks (Mac 0x42 is
-	// unmapped). Looking up the raw code 65 found 'A' and hid the gap.
+	// unmapped). The name decides the glyph; the raw code 65 would find 'A'
+	// and hide the gap.
 	enc := pdf.NewPDFDict()
 	enc.Entries.Set("BaseEncoding", winAnsi)
 	enc.Entries.Set("Differences", pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "B"}})

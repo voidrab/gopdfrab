@@ -181,8 +181,9 @@ func TestCheckIDsAreStable(t *testing.T) {
 	}
 }
 
-// TestNewCheckRejectsDuplicateID: two checks sharing an ID would share one
-// slot in every Profile, so registering one is a programming error.
+// TestNewCheckRejectsDuplicateID verifies that registering a check with an ID
+// already in use panics, since two checks sharing an ID would share one slot in
+// every Profile.
 func TestNewCheckRejectsDuplicateID(t *testing.T) {
 	existing := AllChecks()[0]
 	savedLen := len(allChecksCatalog)
@@ -228,8 +229,9 @@ func TestClauseIn(t *testing.T) {
 	}
 }
 
-// TestEveryPDFACheckAppliesToA1B: apart from the 1a-only checks, the whole
-// PDF/A catalog is Part 1 Level B, under the clause it was registered with.
+// TestEveryPDFACheckAppliesToA1B verifies that, apart from the 1a-only checks,
+// the whole PDF/A catalog is Part 1 Level B, under the clause it was registered
+// with.
 func TestEveryPDFACheckAppliesToA1B(t *testing.T) {
 	oneAOnly := map[Check]bool{
 		Checks.Font.ToUnicodeMissing:                true,

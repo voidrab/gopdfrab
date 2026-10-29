@@ -110,9 +110,9 @@ func (c *countdownCtx) Err() error {
 // TestRasterBackstopCancelledMidPass covers both raster blocks' post-pass
 // cancellation checks: a context cancelled while pages were being rasterized
 // abandons the run before re-verifying, even though the graph changed. Each
-// countdown cancels at a later check -- inside the pass, where it simply
-// changes nothing, or after it; some countdown must land on the check right
-// after the pass.
+// countdown cancels at a later check, either inside the pass, where it changes
+// nothing, or after it. Some countdown must land on the check right after the
+// pass.
 func TestRasterBackstopCancelledMidPass(t *testing.T) {
 	c := pdf.Checks.Colour.OutputIntentNotArray
 	fixers := map[pdf.Check]Fixer{c: nil}
@@ -409,7 +409,8 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 		t.Errorf("drops = %+v, want one entry for page 2", drops)
 	}
 
-	// A batch with nothing in it reports no change rather than an empty rewrite.
+	// A batch with nothing in it reports no change rather than an empty
+	// rewrite.
 	if _, _, changed := flattenPagesParallel(context.Background(), nil, nil, 72); changed {
 		t.Error("an empty page batch reported changed = true")
 	}
@@ -420,11 +421,10 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 // it decides which fixer runs first, and any pair left to map order would make
 // the converted bytes differ between runs.
 //
-// It also records why sortedChecks's name comparison never actually decides
-// anything today: (clause, subclause) is already unique across every
-// registered check, so the tiebreak is there for a check added later that
-// collides. If this stops holding, the tiebreak becomes live and the assertion
-// below starts exercising it.
+// The name comparison in sortedChecks currently never decides an order:
+// (clause, subclause) is unique across every registered check, so the
+// tiebreak only matters for a check added later that shares a pair. If that
+// stops holding, the assertion below exercises the tiebreak.
 func TestSortedChecksOrdering(t *testing.T) {
 	all := pdf.AllChecks()
 	counts := make(map[pdf.Check]int, len(all))
@@ -562,9 +562,9 @@ type stalledFixer struct{ check pdf.Check }
 func (f stalledFixer) Applies(c pdf.Check) bool                     { return c == f.check }
 func (stalledFixer) Fix(*pdf.PDFDict, []pdf.PDFError) (bool, error) { return true, nil }
 
-// TestRunStopsWhenFixesMakeNoProgress: a pass whose fixers report changes but
-// leave the same issues behind ends the loop on the next iteration rather
-// than running to the iteration cap.
+// TestRunStopsWhenFixesMakeNoProgress verifies that a pass whose fixers report
+// changes but leave the same issues behind ends the loop on the next iteration
+// rather than running to the iteration cap.
 func TestRunStopsWhenFixesMakeNoProgress(t *testing.T) {
 	replaceAllFixers(t, func(c pdf.Check) Fixer { return stalledFixer{check: c} })
 
@@ -594,9 +594,9 @@ func TestRunCancelledDuringFixPassSkipsBackstop(t *testing.T) {
 	}
 }
 
-// TestRunUnresolvableGraphWithUnverifiableProfile: when the graph cannot be
-// resolved and the best-effort verify fails too, the resolve error is still
-// returned, with no result riding along.
+// TestRunUnresolvableGraphWithUnverifiableProfile verifies that when the graph
+// cannot be resolved and the best-effort verify fails too, the resolve error is
+// still returned, with no result.
 func TestRunUnresolvableGraphWithUnverifiableProfile(t *testing.T) {
 	cr, err := ConvertBytes(unresolvableChainPDF(), &pdf.Profile{Level: pdf.Undefined}, Options{})
 	if !errors.Is(err, pdf.ErrUnresolvableGraph) {
@@ -738,9 +738,9 @@ func TestSerializeAndVerifySpillErrors(t *testing.T) {
 	}
 }
 
-// TestSortedChecksOrderIsTotal guards the dropped name tie-break: over the whole
-// catalogue, sortedChecks must order strictly by (clause, subclause), i.e. no
-// two checks share that pair.
+// TestSortedChecksOrderIsTotal verifies that over the whole catalogue,
+// sortedChecks orders checks strictly by (clause, subclause), so that no two
+// checks share that pair.
 func TestSortedChecksOrderIsTotal(t *testing.T) {
 	counts := map[pdf.Check]int{}
 	for _, c := range pdf.AllChecks() {
@@ -823,9 +823,10 @@ func (f faultySave) Close() error {
 	return err
 }
 
-// TestRunCancelledBeforeFirstIteration: a context already cancelled when the
-// run starts stops it at the first loop check, before any verify. Without this
-// the check is only reached by chance, when a ConvertEach abort lands mid-run.
+// TestRunCancelledBeforeFirstIteration verifies that a context already cancelled
+// when the run starts stops it at the first loop check, before any verify.
+// Without this test the check is reached only by chance, when a ConvertEach
+// abort lands mid-run.
 func TestRunCancelledBeforeFirstIteration(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

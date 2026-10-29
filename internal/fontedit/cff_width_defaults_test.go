@@ -53,7 +53,7 @@ func truncatingWidths(cff []byte) []float64 {
 
 // TestNormalizeCFFWidthDefaults: the rewritten program has whole width
 // defaults, every glyph keeps its width, and a reader that truncates the
-// defaults now reads the same widths as one that does not. The old
+// defaults reads the same widths as one that does not. The old
 // CharStrings and Private DICT were the program's tail, so they are dropped.
 func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	src := fractionalDefaultsSpec().assemble()

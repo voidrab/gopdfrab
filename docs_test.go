@@ -338,7 +338,7 @@ func cliFlags(t *testing.T) []string {
 }
 
 // TestREADMEDocumentsCLIFlags fails when a registered CLI flag is not spelled
-// out in README.md. The section listed four of the eight once.
+// out in README.md.
 func TestREADMEDocumentsCLIFlags(t *testing.T) {
 	readme, err := os.ReadFile("README.md")
 	if err != nil {
@@ -357,9 +357,8 @@ func TestREADMEDocumentsCLIFlags(t *testing.T) {
 }
 
 // TestREADMEStatesCheckCounts fails when the check and group totals the README
-// quotes drift from the registry. The pre-1.0 roadmap claimed "159 checks
-// across 10 groups", which was never true of any reading: 159 counts the
-// PDF/A-1a group the table leaves out.
+// quotes drift from the registry. The registry totals include the PDF/A-1a
+// group, which the README table leaves out.
 func TestREADMEStatesCheckCounts(t *testing.T) {
 	readme, err := os.ReadFile("README.md")
 	if err != nil {

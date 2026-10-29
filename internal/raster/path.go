@@ -38,8 +38,8 @@ func fillPathFunc(canvas *image.RGBA, contours [][]Point, evenOdd bool, colorAt 
 
 	// Clamp the scan loop to the edges' y-extent: a scanline outside it has
 	// no crossings, so skipping it is pixel-identical. This matters because
-	// showText issues one FillPath per glyph -- without the clamp every
-	// glyph scans the full page height.
+	// showText issues one FillPath per glyph, so without the clamp every
+	// glyph would scan the full page height.
 	edgeMinY, edgeMaxY := edges[0].y0, edges[0].y1
 	for _, e := range edges[1:] {
 		edgeMinY = math.Min(edgeMinY, e.y0)
@@ -181,8 +181,8 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 
 // StrokePath flattens contours as open polylines and fills the quad swept
 // by each segment at lineWidth/2 half-width (device space), with bevelled
-// joins rather than mitered/rounded -- a documented approximation since the
-// rasterizer's only purpose is producing a flattened, no-longer-vector page.
+// joins rather than mitered or rounded joins. This is an approximation: the
+// rasterizer only produces flattened pages.
 func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [3]float64, alpha float64) {
 	if alpha <= 0 {
 		return

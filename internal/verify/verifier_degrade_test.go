@@ -33,8 +33,8 @@ func splitGraphResolution(issues []pdf.PDFError) (rest, graphRes []pdf.PDFError)
 
 // TestBrokenXrefOffsetOracle is the per-object degradation oracle: a file with
 // one deliberately broken xref offset must verify to exactly the same issue set
-// as the intact original, plus one recovery issue. Before per-object degradation,
-// the bad offset suppressed the colour and Metadata findings entirely.
+// as the intact original, plus one recovery issue. The bad offset must not
+// suppress the colour and Metadata findings.
 func TestBrokenXrefOffsetOracle(t *testing.T) {
 	intact := pdfgen.PlainThreeIssue()
 	intactRes, err := VerifyBytes(intact, pdf.PDFA1B, nil)

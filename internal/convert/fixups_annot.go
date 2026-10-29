@@ -13,12 +13,12 @@ func init() {
 // --- 6.5.2 Annotation subtypes ---
 
 // disallowedAnnotFixer remediates Checks.Annotation.DisallowedSubtype by
-// neutralizing (clearDict) any annotation dictionary whose /Subtype is not
-// permitted by the level, mirroring validateAnnotation in checks_dict.go. clearDict -- rather than removing the entry from
-// the page's /Annots array -- mirrors actionFixer's handling of forbidden
-// action dictionaries: nothing else inspects /Annots array membership, only
-// each entry's own Type/Subtype, so an emptied dict is invisible to every
-// other
+// clearing (clearDict) any annotation dictionary whose /Subtype is not
+// permitted by the level, mirroring validateAnnotation in checks_dict.go. The
+// dictionary is emptied rather than removed from the page's /Annots array, as
+// actionFixer does for forbidden action dictionaries: no check reads /Annots
+// membership, only each entry's own Type and Subtype, so an emptied dictionary
+// is ignored by every other check.
 type disallowedAnnotFixer struct{ spec *pdfa.Spec }
 
 func (f disallowedAnnotFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }

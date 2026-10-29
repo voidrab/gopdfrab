@@ -311,12 +311,13 @@ type resourceUsage struct {
 }
 
 // computeResourceUsage walks every Page's content (and, recursively, any
-// Form XObject it invokes via Do, using that Form's own Resources) and
-// records which /Font, /XObject, /ColorSpace, /Pattern, /Shading,
-// /ExtGState and /Properties entries are actually used by a Tf, Do, cs/CS,
-// scn/SCN, sh, gs or BDC/DP operator respectively. Tiling patterns' own
-// content isn't recursed into -- no corpus fixture needs that -- so usage
-// inside a pattern's paint procedure isn't tracked here.
+// Form XObject it draws, using that Form's own Resources) and records which
+// /Font, /XObject, /ColorSpace, /Pattern, /Shading, /ExtGState and
+// /Properties entries are actually selected by a font, XObject, colour space,
+// pattern, shading, graphics state or marked-content operator respectively
+// (Tf, Do, cs/CS, scn/SCN, sh, gs, BDC/DP). Tiling patterns' own content
+// isn't recursed into -- no corpus fixture needs that -- so usage inside a
+// pattern's paint procedure isn't tracked here.
 func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 	ru := &resourceUsage{used: map[uintptr]map[string]bool{}, visitedForm: map[uintptr]bool{}}
 	walkGraph(graph, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
@@ -568,10 +569,11 @@ func shortenDictKey(d pdf.PDFDict, k string, limit int) string {
 	}
 }
 
-// renameResourceReferences rewrites every content-stream operator (Do, Tf,
-// gs, cs/CS, scn/SCN, sh, BDC/DP -- the same operators
-// collectResourceUsageFromBytes recognises) selecting one of the renamed
-// keys to use its replacement instead, via walkResourceAwareContent.
+// renameResourceReferences rewrites every content-stream operator selecting
+// one of the renamed keys to use its replacement instead, via
+// walkResourceAwareContent. The operators are the ones
+// collectResourceUsageFromBytes recognises (Do, Tf, gs, cs/CS, scn/SCN, sh,
+// BDC/DP).
 func renameResourceReferences(trailer *pdf.PDFDict, renames map[uintptr]map[string]string) {
 	walkResourceAwareContent(trailer, func(op string, operands []pdf.PDFValue, resources pdf.PDFDict, changed *bool) {
 		category, fromEnd := resourceOperatorTarget(op)
@@ -602,8 +604,9 @@ func renameResourceReferences(trailer *pdf.PDFDict, renames map[uintptr]map[stri
 // selecting operator names its resource in, and that name operand's
 // position counted backward from the end of operands (0 = last) --
 // mirroring collectResourceUsageFromBytes' own operator handling exactly
-// (Tf's font name is its first of two operands, hence 1; sh always has
-// exactly one operand, so "last" and "first" coincide).
+// (the font name of the Tf operator is its first of two operands, hence 1;
+// the sh operator always has exactly one operand, so "last" and "first"
+// coincide).
 func resourceOperatorTarget(op string) (category string, fromEnd int) {
 	switch op {
 	case "Do":
@@ -753,8 +756,8 @@ func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
 type resourceOpRewriter func(op string, operands []pdf.PDFValue, resources pdf.PDFDict, changed *bool)
 
 // walkResourceAwareContent calls rewrite for every operator in every Page's
-// content stream, and recursively for any Form XObject invoked via Do
-// (using that Form's own Resources), writing back any content stream
+// content stream, and recursively for any Form XObject it draws (using that
+// Form's own Resources), writing back any content stream
 // rewrite actually changed. Unlike walkContentStreams (fixups_content.go),
 // which has no Resources context, this exists specifically for rewrites
 // that need to know which resource dictionary a name operand selects from

@@ -37,7 +37,7 @@ func TestConvertSmallOutputStaysInMemory(t *testing.T) {
 
 // TestConvertSpillsLargeOutput: with the threshold lowered, the output spills to
 // a temp file, the output bytes are no longer resident in the heap
-// (backing.mem is nil -- the item-8/18 win), and Close removes the file.
+// (backing.mem is nil), and Close removes the file.
 func TestConvertSpillsLargeOutput(t *testing.T) {
 	setSpillThreshold(t, 64)
 	cr := convertPlain(t)

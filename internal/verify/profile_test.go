@@ -296,11 +296,9 @@ func buildPSXObjectDoc(drawn bool) []byte {
 	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 }
 
-// TestPostScriptXObjectReachabilityGate pins the veraPDF-differential finding
-// on isartor-6-2-7-t01-fail-a: a PostScript XObject invoked via Do must be
-// flagged under PDFA1B, while an unreferenced one is out of scope (the
-// veraPDF corpus passes 6-2-5-t03-pass-a, which carries one unreferenced).
-// Legacy1B flags both.
+// TestPostScriptXObjectReachabilityGate verifies that a PostScript XObject
+// invoked via Do is flagged under PDFA1B, while an unreferenced one is out of
+// scope, as veraPDF passes it. Legacy1B flags both.
 func TestPostScriptXObjectReachabilityGate(t *testing.T) {
 	hasPS := func(data []byte, p *pdf.Profile) bool {
 		res, err := VerifyBytes(data, p, nil)
@@ -345,10 +343,9 @@ func buildPatternFontDoc(used bool) []byte {
 	return b.FinishClassic("<< /Size 8 /Root 1 0 R >>")
 }
 
-// TestPatternFontUsageCollected pins the veraPDF-differential finding on
-// isartor-6-3-4-t01-fail-h: a non-embedded font shown only inside a tiling
-// pattern is used, so SkipUnusedSimpleFonts must not suppress 6.3.4. A
-// pattern the content never sets keeps the suppression.
+// TestPatternFontUsageCollected verifies that a non-embedded font shown only
+// inside a tiling pattern counts as used, so SkipUnusedSimpleFonts must not
+// suppress 6.3.4. A pattern the content never sets keeps the suppression.
 func TestPatternFontUsageCollected(t *testing.T) {
 	hasNotEmbedded := func(data []byte) bool {
 		res, err := VerifyBytes(data, pdf.PDFA1B, nil)

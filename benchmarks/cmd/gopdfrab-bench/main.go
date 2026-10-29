@@ -10,7 +10,7 @@
 //	                so memory is captured even when the caller isn't
 //	                wrapping the process in GNU time.
 //
-// Output is CSV by default (path,size_bytes,nanos,valid,err) with a
+// Output is CSV by default (path,size_bytes,nanos,valid,err,issues) with a
 // "#summary" comment line at the end; pass -json for line-delimited JSON
 // instead. This mirrors the walk+Open+Verify pattern in main/main.go.
 //

@@ -7,7 +7,7 @@ import (
 // TestDecodeCacheRemembersFailures pins the negative decode cache: a failed
 // decode is answered from the cache, not re-run. The raw bytes are repaired
 // in place (same slice, so the same StreamKey) between calls; a re-decode
-// would now succeed, so a second error proves the cache answered. Releasing
+// would succeed, so a second error proves the cache answered. Releasing
 // the caches forgets the failure.
 func TestDecodeCacheRemembersFailures(t *testing.T) {
 	for name, decode := range map[string]func(*Reader, PDFDict) ([]byte, error){

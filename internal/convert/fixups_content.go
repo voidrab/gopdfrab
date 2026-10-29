@@ -362,10 +362,11 @@ func fixHexStringValue(s string) string {
 	return string(buf)
 }
 
-// walkScalars visits every pdf.PDFInteger/pdf.PDFReal/pdf.PDFString/pdf.PDFHexString value
-// reachable from v as a dict entry or array element, replacing it in place
-// via fix when fix reports a change. The dict/array-element counterpart to
-// walkDicts (which only ever invokes its callback on pdf.PDFDict nodes).
+// walkScalars visits every
+// pdf.PDFInteger/pdf.PDFReal/pdf.PDFString/pdf.PDFHexString value reachable
+// from v as a dict entry or array element, replacing it in place via fix when
+// fix reports a change. The dict/array-element counterpart to walkDicts (which
+// only ever invokes its callback on pdf.PDFDict nodes).
 func walkScalars(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFValue) (pdf.PDFValue, bool)) {
 	walkGraph(v, visited, nil, fix)
 }

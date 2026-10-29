@@ -35,7 +35,8 @@ func TestAnnotColourFixer(t *testing.T) {
 		"Type": pdf.PDFName{Value: "Annot"},
 		"C":    pdf.PDFArray{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}, // rgb
 	})}
-	// No output intent in the trailer, so an RGB annotation colour is uncovered.
+	// No output intent in the trailer, so an RGB annotation colour is
+	// uncovered.
 	trailer := trailerWith("Annot0", annot)
 	changed, err := annotColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {

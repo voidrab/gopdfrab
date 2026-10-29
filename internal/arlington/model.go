@@ -11,11 +11,10 @@ import (
 	"github.com/klauspost/compress/flate"
 )
 
-// The model ships as data, not code. A Go map literal of this size compiles
-// to one initialisation function of several hundred kilobytes (plus its line
-// tables), which every binary importing the package carried and ran at
-// startup. model.bin holds the same tables in a compact binary form that is
-// decoded on first use instead; gen.go writes it with EncodeModel.
+// The model is stored as data, not code: model.bin holds the tables in a
+// compact binary form that is decoded on first use. Keeping them out of a Go
+// map literal keeps the package's initialisation code small. gen.go writes the
+// file with EncodeModel.
 //
 // Layout, after flate decompression: a string table (count, then each string
 // as length and bytes), then the types sorted by name, then the

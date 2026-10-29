@@ -37,7 +37,7 @@ func TestSubsetTrueType(t *testing.T) {
 	if got := fontprog.GlyfRecord(tables, 1); !bytes.Equal(got, fontprog.GlyfRecord(srcTables, 1)) {
 		t.Errorf("glyph 1 = %v, want the source's glyph 1", got)
 	}
-	// The composite now points at the renumbered component (4 -> 3) and
+	// The composite points at the renumbered component (4 -> 3) and
 	// the renumbered 'A' (1 -> 1).
 	if got := fontprog.GlyfComponents(fontprog.GlyfRecord(tables, 2)); !reflect.DeepEqual(got, []int{3, 1}) {
 		t.Errorf("composite components = %v, want [3 1]", got)

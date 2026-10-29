@@ -51,7 +51,7 @@ func iccBasedTrailerWith(profile []byte, n int) (trailer pdf.PDFDict, cs pdf.PDF
 	return trailer, cs
 }
 
-// currentSpace returns the colour space now sitting in the trailer built by
+// currentSpace returns the colour space in the trailer built by
 // iccBasedTrailer, which the fixer may have replaced outright.
 func currentSpace(t *testing.T, trailer pdf.PDFDict) pdf.PDFValue {
 	t.Helper()
@@ -311,8 +311,8 @@ func TestICCBasedProfileFixerFindsNestedSpaces(t *testing.T) {
 	}
 }
 
-// TestConvertClearsICCBasedMismatch is the end-to-end proof: a document whose
-// page draws in an ICCBased space that lies about its component count converts
+// TestConvertClearsICCBasedMismatch verifies end to end that a document whose
+// page draws in an ICCBased space that misstates its component count converts
 // to conformance without the page being rasterized.
 func TestConvertClearsICCBasedMismatch(t *testing.T) {
 	profile := buildICCProfileHeader("CMYK")
@@ -356,10 +356,10 @@ func TestConvertClearsICCBasedMismatch(t *testing.T) {
 	}
 }
 
-// TestConvertClearsICCBasedProfileInvalid is the end-to-end proof for the other
-// half of the clause: a page drawing in an ICCBased space whose profile is a
-// version PDF/A does not allow converts to conformance, profile replaced rather
-// than page rasterized.
+// TestConvertClearsICCBasedProfileInvalid verifies end to end the other half of
+// the clause: a page drawing in an ICCBased space whose profile is a version
+// PDF/A does not allow converts to conformance, with the profile replaced rather
+// than the page rasterized.
 func TestConvertClearsICCBasedProfileInvalid(t *testing.T) {
 	profile := buildICCProfileHeaderWith(4, "mntr", "RGB ")
 
@@ -646,11 +646,11 @@ func TestDecoderForWithoutReaderIsPlainDecode(t *testing.T) {
 	}
 }
 
-// TestSeparationAlternateFixerGrayAndSharedSpaces: a gray alternate becomes
-// the bundled gray profile when no OutputIntent exists, two colourants of one
-// model share a single replacement space, and arrays that are not
-// Separation/DeviceN (wrong head, non-name head, too short, or an Indexed
-// space with four elements) are left alone, as is a RefKey entry.
+// TestSeparationAlternateFixerGrayAndSharedSpaces verifies that a gray
+// alternate becomes the bundled gray profile when no OutputIntent exists, that
+// two colourants of one model share a single replacement space, and that arrays
+// which are not Separation or DeviceN (wrong head, non-name head, too short, or
+// an Indexed space with four elements) are left alone, as is a RefKey entry.
 func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	tint := pdf.NewPDFDict()
 	sep := func(alt string) pdf.PDFArray {

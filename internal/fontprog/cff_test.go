@@ -183,8 +183,9 @@ func TestCffPrivateInfoWithSubrs(t *testing.T) {
 	// Private DICT: defaultWidthX=0 (op20), nominalWidthX=0 (op21), Subrs
 	// offset=9 relative to the Private DICT's own start (op19).
 	priv := []byte{0x8b, 20, 0x8b, 21, 0x8b + 9, 19} // Subrs operand = 9
-	// Local Subrs INDEX at offset len(priv)=6 relative... but cffPrivateInfo
-	// resolves Subrs relative to the Private DICT's offset within cff.
+	// The local Subrs INDEX follows the Private DICT, so it lies len(priv)
+	// bytes past the DICT; cffPrivateInfo resolves Subrs relative to the
+	// Private DICT's offset within cff.
 	var cff []byte
 	cff = append(cff, make([]byte, 4)...) // padding so offset arithmetic is simple
 	privOff := len(cff)
@@ -289,8 +290,7 @@ func TestParseCFFTopDictMalformed(t *testing.T) {
 // buildMinimalCIDCFF assembles a tiny CID-keyed CFF font with 3 glyphs
 // (.notdef, CID 1 width 600, CID 2 width 700), a format-0 CID charset, a
 // single FDArray Font DICT (format-0 FDSelect), and a Private DICT with zero
-// width defaults. Ported from verify.buildMinimalCIDCFF (internal/verify's
-// test-only helper isn't importable across packages).
+// width defaults.
 func buildMinimalCIDCFF() []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte

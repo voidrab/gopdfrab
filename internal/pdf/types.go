@@ -26,8 +26,8 @@ type PDFArray []PDFValue
 //
 // The leading space makes it a key no parsed document can contain: a space
 // ends a name token, and an escaped one stays "#20" in the Value. Spelled
-// "_ref", a genuine /_ref key in the input was overwritten on indirect
-// objects, and made a direct dict carrying one look indirect to the writer.
+// "_ref", a genuine /_ref key in the input would be overwritten on indirect
+// objects and make a direct dict carrying one look indirect to the writer.
 const RefKey = " ref"
 
 type PDFDict struct {

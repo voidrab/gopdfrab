@@ -27,7 +27,7 @@ type Profile struct {
 	enabled map[int]bool // set of enabled check IDs
 
 	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
-	// never invoked via Do from a reachable content stream. ISO 19005-1
+	// never drawn from a reachable content stream. ISO 19005-1
 	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy1B keeps this
 	// false; PDFA1B sets it true to match veraPDF's lenient interpretation.
 	SkipUnreachableXObjects bool
@@ -68,7 +68,7 @@ func init() {
 	// FileTrailer's hybrid-reference XRefStm, Catalog's Extensions) and are
 	// ignorable by a PDF 1.4 reader, but Arlington has no data distinguishing
 	// those from keys that actually change required interpretation -- veraPDF
-	// does not flag them, so this stays Legacy1B-only (spec-literal) for now.
+	// does not flag them, so this stays Legacy1B-only (spec-literal).
 	PDFA1B = NewFullProfile(A1B)
 	PDFA1B.SkipUnreachableXObjects = true
 	PDFA1B.SkipUnusedSimpleFonts = true
@@ -86,8 +86,8 @@ func NewProfile(level LevelType) *Profile {
 // ObjectModelOnly returns a profile enabling only the generic ISO 32000
 // object-model checks (MissingRequiredKey, WrongValueType, DisallowedValue,
 // IndirectRequired, KeyIntroducedAfterPDF14, ConstraintViolated), with every
-// PDF/A-specific check disabled -- useful for asking "is this even valid PDF"
-// independent of any PDF/A conformance level.
+// PDF/A-specific check disabled. It is useful for checking ISO 32000 conformance
+// independently of any PDF/A conformance level.
 func ObjectModelOnly() *Profile {
 	return NewProfile(ObjectModel).AddCheck(
 		Checks.ObjectModel.MissingRequiredKey,

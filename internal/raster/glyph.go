@@ -46,7 +46,7 @@ func ttGlyfContours(tables map[string][]byte, gid, depth int) ([][]Point, bool) 
 	}
 	rec := fontprog.GlyfRecord(tables, gid)
 	if len(rec) == 0 {
-		return nil, true // empty outline, e.g. space -- not an error
+		return nil, true // empty outline, e.g. space; not an error
 	}
 	if fontprog.GlyfIsComposite(rec) {
 		return ttCompositeContours(tables, rec, depth)
@@ -402,8 +402,8 @@ func (in *type2Interp) maybeWidth(expectedArgs int) {
 }
 
 // run interprets cs, depth subroutine calls deep. It reports whether the
-// glyph ended -- endchar, or a call that could not be followed -- as opposed
-// to cs returning to its caller.
+// glyph ended (endchar, or a call that could not be followed) as opposed to cs
+// returning to its caller.
 func (in *type2Interp) run(cs []byte, depth int) (ended bool) {
 	i := 0
 	for i < len(cs) {
@@ -806,8 +806,8 @@ func (in *type1Interp) pop(n int) []float64 {
 }
 
 // run interprets cs, depth subroutine calls deep. It reports whether the
-// glyph ended -- endchar, seac, or a call that could not be followed -- as
-// opposed to cs returning to its caller.
+// glyph ended (endchar, seac, or a call that could not be followed) as opposed
+// to cs returning to its caller.
 func (in *type1Interp) run(cs []byte, depth int) (ended bool) {
 	i := 0
 	for i < len(cs) {

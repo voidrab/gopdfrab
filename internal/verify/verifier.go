@@ -533,11 +533,10 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 	// No data shall follow the last end-of-file marker except a single optional end-of-line marker.
 	size := d.Size()
 
-	// One bounded tail read replaces the former ten 1-byte ReadAts: the
-	// marker must start within the file's last 9 bytes, leaving room for
-	// up to four trailing bytes (the historical tolerance). tail[9] maps
-	// past end-of-file and stays zero, preserving the exact diagnostic
-	// bytes the old byte-by-byte prepend loop reported.
+	// One bounded read covers the file's last 10 bytes. The marker must start
+	// within the last 9, which leaves room for up to four trailing bytes.
+	// tail[9] lies past end-of-file and stays zero, so it appears as a NUL
+	// byte in the diagnostic.
 	var tail [10]byte
 	d.ReadAt(tail[:], size-9)
 	if !bytes.Contains(tail[:9], []byte("%%EOF")) {
@@ -646,8 +645,7 @@ func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
 		}
 
 		// The header already matched xrefHeaderRe, so the count is the
-		// digits after the single space; Atoi's overflow behavior (0)
-		// matches the Sscanf this replaces.
+		// digits after the single space.
 		_, countStr, _ := strings.Cut(line, " ")
 		count, _ := strconv.Atoi(countStr)
 		for i := 0; i < count; i++ {
@@ -697,12 +695,10 @@ func inheritedResources(page pdf.PDFDict) pdf.PDFDict {
 const xrefWindowStep = 8192
 
 // xrefCursor reads a cross reference section line by line, widening its view of
-// the file whenever the section turns out to be longer than what it has read.
-// The section's length is not known in advance -- it is the sum of its
-// subsection counts -- and a table of a few hundred entries already outgrows any
-// fixed window: reading one window instead left everything past it unchecked,
-// and reported the bytes the window cut through as a malformed subsection
-// header.
+// the file whenever the section is longer than what it has read. The section's
+// length is the sum of its subsection counts, so it is not known in advance. A
+// fixed window would leave the rest of the section unchecked and report the
+// bytes it cuts through as a malformed subsection header.
 type xrefCursor struct {
 	d    *pdf.Reader
 	base int64  // file offset the section starts at
@@ -892,10 +888,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			// A page sets the page for its own subtree only. Left set, a page
-			// reached mid-walk -- a link annotation's /Dest, say, which sorts
-			// before /Contents and /Resources -- took over every issue still to
-			// come on the page that linked to it, and the raster fallback picks
-			// pages by these numbers.
+			// reached mid-walk (a link annotation's /Dest, for one, sorts before
+			// /Contents) would own the issues still to come on the page that
+			// links to it, and the raster fallback picks pages by these numbers.
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
 				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
 					savedPage := ctx.CurrentPage
@@ -1025,10 +1020,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable while verifyPdfA1bParts resolves the graph first, but
-			// spelled out because falling through would leave an unresolved
-			// subtree silently unverified -- the document would verify clean
-			// because nothing looked at it.
+			// Unreachable while verifyPdfA1bParts resolves the graph first. The
+			// case is spelled out because falling through would leave an
+			// unresolved subtree unverified, without any report.
 			ctx.Report(
 				pdf.Checks.Structure.GraphResolutionFailure,
 				owner,
@@ -1150,7 +1144,8 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 }
 
 // collectAnnotAppearanceUsage marks XObjects reachable via annotation
-// appearance streams so validateContentStreams will scan their colour usage.
+// appearance streams, so validateContentStreams scans their colour usage. It
+// reports whether every stream it visited decoded.
 func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reachable map[uintptr]bool, fu *fontUsage) bool {
 	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {

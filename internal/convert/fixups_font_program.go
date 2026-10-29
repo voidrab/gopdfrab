@@ -922,7 +922,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 }
 
 // fixTrueTypeCIDSet synthesizes or completes /CIDSet from the glyphs present
-// in a CIDFontType2 program. it handles both a missing CIDSet and an existing
+// in a CIDFontType2 program. It handles both a missing CIDSet and an existing
 // one that omits a present glyph.
 func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 	// Only safe when CID==GID (the spec default); a stream CIDToGIDMap means

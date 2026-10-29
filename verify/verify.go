@@ -107,7 +107,8 @@ var (
 	PDF = pdf.PDF
 	// PDFA1B is the canonical PDF/A-1b profile.
 	PDFA1B = pdf.PDFA1B
-	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
+	// Legacy1B is stricter in some areas and compatible with the original
+	// Isartor PDF/A-1b test suite.
 	Legacy1B = pdf.Legacy1B
 )
 

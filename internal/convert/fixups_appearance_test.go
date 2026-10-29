@@ -509,8 +509,9 @@ func textOpsOf(t *testing.T, annot pdf.PDFDict) map[string][]pdf.PDFValue {
 	return ops
 }
 
-// TestAppearanceFixerIgnoresDisallowedSubtype: an annotation whose subtype is
-// not an allowed PDF/A type is left alone (a different fixer removes it).
+// TestAppearanceFixerIgnoresDisallowedSubtype verifies that an annotation whose
+// subtype is not an allowed PDF/A type is left alone, since a different fixer
+// removes it.
 func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -523,8 +524,8 @@ func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerReplacesNonDictN: /AP/N that is not a dictionary at all
-// is replaced by a synthesized appearance stream.
+// TestAppearanceFixerReplacesNonDictN verifies that /AP/N, when it is not a
+// dictionary at all, is replaced by a synthesized appearance stream.
 func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -541,8 +542,9 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras: a Btn whose /N is
-// already a state subdictionary keeps it when only an extra /AP entry is bad.
+// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras verifies that a Btn
+// whose /N is already a state subdictionary keeps it when only an extra /AP
+// entry is bad.
 func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	annot := widgetWith("Btn", nil)
 	states := pdf.NewPDFDict()
@@ -560,8 +562,9 @@ func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerParentCycleIsNotBtn: a /Parent chain that loops without
-// ever naming /FT terminates (the depth guard) and is treated as non-Btn.
+// TestAppearanceFixerParentCycleIsNotBtn verifies that a /Parent chain that
+// loops without ever naming /FT terminates at the depth guard and is treated as
+// non-Btn.
 func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
 	annot := widgetWith("", nil)
 	annot.Entries.Set("Parent", annot)
@@ -595,7 +598,8 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 		t.Errorf("form DA not applied: Tf=%v rg=%v", ops["Tf"], ops["rg"])
 	}
 
-	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default colour.
+	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default
+	// colour.
 	b := widgetWith("Tx", nil)
 	fixAppearance(t, b, "")
 	ops = textOpsOf(t, b)
@@ -612,9 +616,9 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance: a /DA whose
-// colour operator carries an operand the content writer cannot serialise (an
-// indirect reference inside an array) yields a structurally valid, empty
+// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance verifies that a /DA
+// whose colour operator carries an operand the content writer cannot serialise
+// (an indirect reference inside an array) yields a structurally valid, empty
 // appearance rather than an error.
 func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
 	a := widgetWith("Tx", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(50), pdf.PDFInteger(20)})

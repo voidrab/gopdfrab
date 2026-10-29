@@ -131,10 +131,9 @@ func TestHeapRetainedBy(t *testing.T) {
 }
 
 // TestConvertMemoryReport converts the large sample and records how much heap
-// the returned result retains versus the output size. It measures first, before
-// deciding how far to take the work: today the whole output rides in
-// ConvertResult.Output, so the retained heap tracks the output size. The strict
-// spill guard lives in the lazy-output tests.
+// the returned result retains versus the output size. An output under
+// spillThreshold stays in memory, so for this sample the retained heap tracks
+// the output size. The strict spill guard lives in the lazy-output tests.
 func TestConvertMemoryReport(t *testing.T) {
 	data, err := os.ReadFile(largeSamplePath)
 	if err != nil {
@@ -318,8 +317,8 @@ func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 
 // sampleFixturePaths picks n fixtures spread evenly across the sorted corpus.
 // Ranging over the map instead would sample differently on every run, so a
-// fixture that breaks the property under test would fail one run in thirty --
-// which is how a nondeterministic resource prune stayed hidden.
+// fixture that breaks the property under test could pass most runs and fail
+// the rest.
 func sampleFixturePaths(fixtures map[string]string, n int) []string {
 	paths := make([]string, 0, len(fixtures))
 	for path := range fixtures {

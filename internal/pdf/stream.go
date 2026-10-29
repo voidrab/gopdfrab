@@ -153,7 +153,7 @@ func (d *Reader) sourceSize() int64 {
 }
 
 // consumeStreamEOL advances the lexer past the EOL following the 'stream'
-// keyword, returning true if non-EOL bytes preceded the line break (6.1.7).
+// keyword. It reports whether non-EOL bytes preceded the line break (6.1.7).
 func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	bad := false
 	for {

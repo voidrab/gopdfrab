@@ -21,8 +21,8 @@ import (
 // buildMinimalCIDCFF assembles a tiny CID-keyed CFF font with 3 glyphs
 // (.notdef, CID 1 width 600, CID 2 width 700), a format-0 CID charset, a
 // single FDArray Font DICT (format-0 FDSelect), and a Private DICT with zero
-// width defaults. Ported from verify.buildMinimalCIDCFF (internal/verify's
-// test-only helper isn't importable across packages).
+// width defaults. It duplicates verify.buildMinimalCIDCFF, because that
+// test-only helper cannot be imported across packages.
 func buildMinimalCIDCFF() []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte
@@ -180,9 +180,9 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 
 // TestPromoteEmptyGlyphsInFontsIdempotent covers promoteEmptyGlyphsInFonts'
 // guard cascade (CIDFontType2 dispatch, FontDescriptor/FontFile2 presence,
-// decode success) via a real embedded TrueType program -- Liberation Sans has
-// blank glyphs (e.g. space) that trigger promotion -- and checks the second
-// pass over the already-promoted program is a no-op.
+// decode success) via a real embedded TrueType program. Liberation Sans has
+// blank glyphs, such as space, that trigger promotion. The test checks that the
+// second pass over the already-promoted program is a no-op.
 func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: ttf}
@@ -223,9 +223,8 @@ func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	}
 }
 
-// TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch mirrors
-// TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
-// exactly its Check(s), since registerFixer panics on overlap.
+// TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch verifies that a Fixer
+// claims exactly its Check, since registerFixer panics on overlap.
 func TestFontMetricFixerAppliesOnlyToAdvanceWidthMismatch(t *testing.T) {
 	fixer := fontMetricFixer{}
 	for _, c := range pdf.AllChecks() {
@@ -488,8 +487,9 @@ func TestFontFileSubtypeFixerAppliesOnlyToFontFileSubtype(t *testing.T) {
 }
 
 // buildMinimalCFF assembles a tiny name-keyed CFF font with two glyphs
-// (.notdef and "A"), a format-0 charset, and an empty Private DICT. Ported
-// from verify.buildMinimalCFF, which is test-only and so not importable.
+// (.notdef and "A"), a format-0 charset, and an empty Private DICT. It
+// duplicates verify.buildMinimalCFF, which is test-only and so cannot be
+// imported.
 func buildMinimalCFF() []byte {
 	i32 := func(v int) []byte {
 		var b [5]byte
@@ -753,9 +753,9 @@ func TestFontFileSubtypeFixerSkipsNonFonts(t *testing.T) {
 	}
 }
 
-// TestConvertClearsOpenTypeFontFile is the end-to-end proof: a document whose
-// only defect class includes an OpenType-wrapped font file converts to
-// conformance with the CFF unwrapped in place, not substituted away.
+// TestConvertClearsOpenTypeFontFile verifies end to end that a document with an
+// OpenType-wrapped font file among its defects converts to conformance, with
+// the CFF unwrapped in place rather than substituted away.
 func TestConvertClearsOpenTypeFontFile(t *testing.T) {
 	cff := buildMinimalCFF()
 	otf := wrapInSfnt(0x4F54544F, map[string][]byte{"CFF ": cff, "head": make([]byte, 54)})
@@ -876,12 +876,12 @@ func TestFontFileSubtypeFixerLeavesWrapperWithNoProgram(t *testing.T) {
 	}
 }
 
-// fractionalNominalCFF is buildMinimalCFF with nominalWidthX 0.5, a real some
-// readers truncate.
+// fractionalNominalCFF is buildMinimalCFF with nominalWidthX 0.5, a value that
+// some readers truncate.
 func fractionalNominalCFF() []byte {
 	cff := buildMinimalCFF()
 	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
-	// The Private DICT grew from 4 to 6 bytes: its size is the 5-byte operand
+	// The Private DICT is 6 bytes rather than 4: its size is the 5-byte operand
 	// after the CharStrings and charset entries of the Top DICT.
 	binary.BigEndian.PutUint32(cff[31:35], 6)
 	return cff
@@ -893,14 +893,16 @@ func fractionalNominalCIDCFF() []byte {
 	cff := buildMinimalCIDCFF()
 	td, _ := fontprog.ParseCFFTopDict(cff)
 	cff = append(cff[:len(cff)-2], 0x1e, 0x0a, 0x5f, 21) // nominalWidthX 0.5
-	// The Private DICT grew from 4 to 6 bytes: its size is the Font DICT's
-	// first operand, after the 3-byte FDArray INDEX header and 2 offsets.
+	// The Private DICT is 6 bytes rather than 4: its size is the Font
+	// DICT's first operand, after the 3-byte FDArray INDEX header and 2
+	// offsets.
 	binary.BigEndian.PutUint32(cff[td.FDArrayOffset+6:], 6)
 	return cff
 }
 
-// TestNormalizeCFFWidthDefaultsInFont: a bare CFF program with a fractional
-// width default is rewritten to whole ones; anything else is left as it was.
+// TestNormalizeCFFWidthDefaultsInFont verifies that a bare CFF program with a
+// fractional width default is rewritten to whole ones, and that anything else
+// is left as it was.
 func TestNormalizeCFFWidthDefaultsInFont(t *testing.T) {
 	descriptor := func(ff pdf.PDFValue) pdf.PDFDict {
 		return dictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "FontDescriptor"}, "FontFile3": ff})

@@ -3,9 +3,8 @@ package pdf
 import "testing"
 
 // TestStreamKeyTracksFilterChain pins that the decode cache key changes with
-// the filter chain, not only with the raw bytes. A fixer once deleted a
-// stream's /Filter in place; the cache then kept answering with the old
-// decoded bytes, and Convert verified those while writing the raw ones.
+// the filter chain, not only with the raw bytes. A fixer that deletes /Filter
+// in place must not leave the cache returning stale decoded bytes.
 func TestStreamKeyTracksFilterChain(t *testing.T) {
 	raw := []byte("41>")
 	d := PDFDict{HasStream: true, RawStream: raw, Entries: DictOf(map[string]PDFValue{

@@ -85,8 +85,8 @@ func TestChecksForClause(t *testing.T) {
 	}
 }
 
-// TestNewCheckRejectsDuplicateRegistration: two checks claiming the same
-// clause/subclause pair is a programming error caught at init, by panic.
+// TestNewCheckRejectsDuplicateRegistration verifies that registering a second
+// check for the same clause and subclause panics.
 func TestNewCheckRejectsDuplicateRegistration(t *testing.T) {
 	existing := AllChecks()[0]
 	savedLen := len(allChecksCatalog)

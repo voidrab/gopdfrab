@@ -90,13 +90,10 @@ func (d *Reader) recoverOrDegradeClassic(ref PDFRef, badOffset int64, cause erro
 		}
 	}
 	// The xref lists the object, but the whole-file scan found no header for it
-	// anywhere: it is not damaged, it is undefined, and a reference to an
-	// undefined object *is* the null object (ISO 32000-1 7.3.10) -- the same
-	// conclusion parseReference already reaches for an object absent from every
-	// xref section. Nothing was lost, so this is not degradation, and reporting
-	// it as such wrongly failed the conversion of documents whose only defect
-	// is an over-long xref (20 files in the real-world corpus, mostly slide
-	// decks from one export pipeline).
+	// anywhere. The object is undefined rather than damaged, and a reference to
+	// an undefined object is the null object (ISO 32000-1 7.3.10), the same
+	// conclusion parseReference reaches for an object absent from every xref
+	// section. Nothing was lost, so this is not reported as degradation.
 	if exists, scanned := d.objectHeaderExists(ref.ObjNum); scanned && !exists {
 		return nil, nil
 	}

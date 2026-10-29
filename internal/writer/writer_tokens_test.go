@@ -32,8 +32,8 @@ func TestWriteRealNeverEmitsNaNOrInf(t *testing.T) {
 }
 
 // TestWriteNameEscapesTokenBreakers pins name escaping: bytes that would end
-// the token are written as #XX, while a lexer-sourced name -- which can hold
-// none of them, but may hold raw #XX escapes -- passes through unchanged.
+// the token are written as #XX, while a lexer-sourced name, which can hold none
+// of them but may hold raw #XX escapes, passes through unchanged.
 func TestWriteNameEscapesTokenBreakers(t *testing.T) {
 	cases := map[string]string{
 		"Times Roman":  "/Times#20Roman",
@@ -76,7 +76,7 @@ func TestWrittenNamesReparse(t *testing.T) {
 }
 
 // TestStreamLengthOverride pins that a stream's /Length is written from the
-// bytes actually emitted -- replacing a wrong value, or added when absent --
+// bytes actually emitted, replacing a wrong value or adding one when absent,
 // without modifying the source dict.
 func TestStreamLengthOverride(t *testing.T) {
 	for name, entries := range map[string]pdf.Dict{

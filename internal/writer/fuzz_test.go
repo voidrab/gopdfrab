@@ -11,7 +11,7 @@ import (
 
 // FuzzWritePDF drives the serializer directly on graphs parsed from arbitrary
 // bytes: it opens the input, resolves the object graph, and writes it back out.
-// Invariant: the writer must never panic -- a malformed/partly-resolved graph
+// Invariant: the writer must never panic. A malformed or partly resolved graph
 // is a defined error path, not a crash.
 func FuzzWritePDF(f *testing.F) {
 	for _, s := range pdfgen.Seeds() {

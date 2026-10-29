@@ -87,9 +87,9 @@ func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want s
 // (Catalog -> Pages -> Page -> Contents, with a Page/Parent back-reference to
 // Pages, deliberately creating a cycle) and checks that WriteDocument's
 // output, once re-parsed, reconstructs the same structure: page count,
-// MediaBox, decoded content bytes, and -- the part a naive serializer would
-// get wrong -- the shared Pages/Page objects are still the same object on
-// both sides of the cycle rather than being duplicated.
+// MediaBox, decoded content bytes, and the shared Pages/Page objects. The
+// latter is the part a naive serializer would get wrong: they must remain the
+// same object on both sides of the cycle rather than being duplicated.
 func TestWriterRoundTripSyntheticGraph(t *testing.T) {
 	contents := pdf.PDFDict{
 		Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 10}, "Length": pdf.PDFInteger(4)}),
@@ -224,12 +224,11 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 
 // TestWriterRoundTripConformantCorpusFiles takes every PDF/A-1b-conformant
 // "pass" fixture from the veraPDF corpus, round-trips each through WritePDF,
-// and checks the rewritten file is still reported fully conformant -- the
-// practical proof that the writer's renumbering and verbatim stream
-// pass-through don't silently corrupt a real, richly-structured (and
-// potentially cyclic, e.g. Page/Parent) document. The corpus's "pass" files
-// span annotations, forms, optional content, and transparency groups, giving
-// much broader structural coverage than any one hand-picked fixture.
+// and checks that the rewritten file is still reported fully conformant. This
+// verifies that renumbering and verbatim stream pass-through do not corrupt a
+// structurally rich, potentially cyclic (for example Page/Parent) document.
+// The "pass" files span annotations, forms, optional content and transparency
+// groups, so they cover far more structure than a single hand-picked fixture.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 	paths := passFixtures(t)
 	if len(paths) == 0 {
@@ -544,9 +543,10 @@ func assertFlateDecodes(t *testing.T, d pdf.PDFDict, want []byte) {
 	}
 }
 
-// TestSizeHintDoesNotChangeOutput: the hint only pre-sizes the discovery
-// index, so every hint -- including a negative one and one wildly larger than
-// the graph -- must produce byte-identical output and identical numbering.
+// TestSizeHintDoesNotChangeOutput verifies that the hint only pre-sizes the
+// discovery index, so every hint, including a negative one and one wildly
+// larger than the graph, produces byte-identical output and identical
+// numbering.
 func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 	build := func() pdf.PDFDict {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{

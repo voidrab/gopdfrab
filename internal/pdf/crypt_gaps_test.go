@@ -7,9 +7,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestDecryptAESV2WithShortFileKey: a V4 handler whose crypt filter declares a
-// 5-byte key but uses AESV2 derives a 10-byte object key, which is not a valid
-// AES key size; that surfaces as an error rather than a panic.
+// TestDecryptAESV2WithShortFileKey verifies that a V4 handler whose crypt
+// filter declares a 5-byte key but uses AESV2 derives a 10-byte object key,
+// which is not a valid AES key size. That must surface as an error, not a panic.
 func TestDecryptAESV2WithShortFileKey(t *testing.T) {
 	h := &stdSecurityHandler{r: 4, v: 4, keyLen: 5, fileKey: make([]byte, 5),
 		stmMethod: cryptAESV2, strMethod: cryptAESV2}
@@ -39,8 +39,8 @@ func TestFirstIDBytes(t *testing.T) {
 	}
 }
 
-// TestEncryptEntryUnresolvable: an /Encrypt reference whose object cannot be
-// parsed is an encryption error, not a plaintext open.
+// TestEncryptEntryUnresolvable verifies that an /Encrypt reference whose object
+// cannot be parsed is an encryption error, not a plaintext open.
 func TestEncryptEntryUnresolvable(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")

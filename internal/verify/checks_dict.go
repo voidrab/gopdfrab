@@ -105,7 +105,7 @@ func validateViewerPreferences(v pdf.PDFDict, ctx *ValidationContext) {
 // functions (6.2.8) and transparency-related keys (6.4).
 func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	// A dict with a Type other than ExtGState (Annot, XObject, Page, ...) is
-	// handled by another
+	// not checked here.
 	if t, ok := v.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 		return
 	}

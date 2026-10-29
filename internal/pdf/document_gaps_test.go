@@ -9,9 +9,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestHybridReferenceFile: in a hybrid-reference file the classic table lists
-// an object as free and the trailer's /XRefStm cross-reference stream gives its
-// real offset (ISO 32000-1 7.5.8.4). The object must resolve.
+// TestHybridReferenceFile verifies that an object the classic table lists as
+// free resolves through the trailer's /XRefStm cross-reference stream, which
+// gives its real offset (ISO 32000-1 7.5.8.4).
 func TestHybridReferenceFile(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.5\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -50,8 +50,8 @@ func (w bufWriter) Write(p []byte) (int, error) { w.b.Write(p); return len(p), n
 
 var _ = errors.New
 
-// TestResolvePathStopsAtUnparseableObject: a path whose subtree holds a
-// reference to an object that cannot be parsed reports the error instead of a
+// TestResolvePathStopsAtUnparseableObject verifies that a path whose subtree
+// holds a reference to an unparseable object reports the error instead of a
 // value.
 func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 	doc := "1 0 obj\n<< /A 2 0 R >>\nendobj\n2 0 obj\n<< /B\nendobj\n"
@@ -64,8 +64,9 @@ func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 	}
 }
 
-// TestObjectHeaderExistsWithoutAnyHeader: when the file holds no "N G obj"
-// header at all, absence proves nothing and the answer is "not scanned".
+// TestObjectHeaderExistsWithoutAnyHeader verifies that, when the file holds no
+// "N G obj" header at all, the answer is "not scanned", since absence proves
+// nothing.
 func TestObjectHeaderExistsWithoutAnyHeader(t *testing.T) {
 	d := &Reader{data: []byte("no objects in here"), size: 18}
 	if exists, scanned := d.objectHeaderExists(1); exists || scanned {
@@ -105,8 +106,9 @@ func TestNegativeXRefOffsetIsAnError(t *testing.T) {
 	}
 }
 
-// TestEncryptedBareObjectsAreDecrypted: strings in an object whose body is a
-// bare string or an array are decrypted too, not only those inside dictionaries.
+// TestEncryptedBareObjectsAreDecrypted verifies that strings in an object whose
+// body is a bare string or an array are decrypted too, not only those inside
+// dictionaries.
 func TestEncryptedBareObjectsAreDecrypted(t *testing.T) {
 	h := &stdSecurityHandler{r: 3, v: 2, keyLen: 5, fileKey: []byte{1, 2, 3, 4, 5},
 		stmMethod: cryptRC4, strMethod: cryptRC4, encryptObjNum: 99}

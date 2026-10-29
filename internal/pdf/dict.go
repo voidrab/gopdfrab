@@ -199,8 +199,9 @@ func (d Dict) DeleteFunc(pred func(k string, v PDFValue) bool) {
 	}
 }
 
-// String formats as the map this replaced did, keys sorted. Without it fmt
-// prints the pointer, putting a heap address into every check message.
+// String formats the dictionary in map[...] form with its keys sorted. Without
+// it, fmt prints the pointer, which puts a heap address into every check
+// message.
 func (d Dict) String() string {
 	if d == nil {
 		return "map[]"

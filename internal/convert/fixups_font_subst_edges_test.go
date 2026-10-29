@@ -57,8 +57,8 @@ func TestSimpleFontUsedUnicodes(t *testing.T) {
 
 // TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace: ISO 32000-1 Annex D
 // reads WinAnsi 0240 and MacRoman 0312 as the glyph "space", other tables as
-// "nbspace". A substitute holding only U+00A0 left a reader of the first kind
-// (veraPDF among them) with no glyph, so U+0020 comes along with it.
+// "nbspace". A substitute holding only U+00A0 gives a reader of the first kind
+// (veraPDF among them) no glyph, so U+0020 must be included as well.
 func TestSimpleFontUsedUnicodesKeepsSpaceForNoBreakSpace(t *testing.T) {
 	var table [256]uint16
 	table[160] = 0x00A0

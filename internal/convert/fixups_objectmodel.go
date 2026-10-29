@@ -525,7 +525,7 @@ func namesType(issues []pdf.PDFError, typeName string) bool {
 // repairOutlineTree gives every outline item the two keys the model requires
 // and the tree itself can supply: /Parent, which is the node the item hangs
 // under, and /Title, which nothing can supply -- so it becomes empty rather
-// than invented. Both come up in bookmark trees PowerPoint exports leave
+// than invented. Both come up in bookmark trees that some exporters leave
 // behind, where stub items carry a /Parent and nothing else.
 //
 // Empty titles rather than unlinking the stubs: they sit in the /Prev and

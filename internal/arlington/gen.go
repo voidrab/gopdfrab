@@ -844,7 +844,7 @@ func compileRequired(raw string) condResult {
 // foldIndirect constant-folds an IndirectReference column of the form fn:MustBeIndirect(expr)
 // with a pure version-gate condition (empty means unconditionally indirect). fn:MustBeDirect
 // is not folded here: a true result needs the IndirectForbidden disposition, which no check
-// consumes yet.
+// consumes.
 func foldIndirect(raw string) (rule string, ok bool) {
 	name, args, wrapped := splitPredicate(strings.TrimSpace(raw))
 	if !wrapped || name != "fn:MustBeIndirect" || len(args) > 1 {
@@ -1434,10 +1434,10 @@ func parseVersion(s string) (int, bool) {
 
 // parseLinkGroups splits typ and link in lockstep, one linkGroup per Type alternative, so a
 // key's runtime value (once its Go kind is known) can be resolved to the right subset of
-// candidate Arlington types. Falls back to a single, kind-unconditional group covering every
-// candidate (the pre-discriminator flattened behavior) when there is only one Type alternative,
-// or when the two columns' alternative counts don't line up (a shape this generator doesn't
-// expect) -- never guess which alternative a candidate belongs to.
+// candidate Arlington types. With a single Type alternative, or when the two columns'
+// alternative counts don't line up (a shape this generator doesn't expect), it returns one
+// group with no kind condition that covers every candidate. It never guesses which
+// alternative a candidate belongs to.
 func parseLinkGroups(typ, link string) []linkGroup {
 	if link == "" {
 		return nil

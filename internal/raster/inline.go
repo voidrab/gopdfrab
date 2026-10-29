@@ -6,9 +6,9 @@ import (
 
 // Inline images (BI ... ID <data> EI) carry the same parameters as an Image
 // XObject, but with abbreviated keys and no surrounding stream object. Folding
-// them into a synthetic stream dict lets the whole XObject image path --
-// DecodeImageRGBA, its filters, predictors, /Decode array and colour-space
-// resolution -- serve them unchanged.
+// them into a synthetic stream dict lets the whole XObject image path
+// (DecodeImageRGBA, its filters, predictors, /Decode array and colour-space
+// resolution) serve them unchanged.
 
 // inlineImageKeys maps an inline image's abbreviated parameter keys to their
 // Image XObject spellings (ISO 32000-1 Table 93). Filter and colour-space

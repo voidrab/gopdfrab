@@ -7,8 +7,8 @@ import (
 // A Type 3 font's glyphs are content streams (ISO 32000-1 9.6.5), not
 // outlines: each code maps through /Encoding's Differences to a /CharProcs
 // entry, which is executed with the glyph's own /FontMatrix in place of the
-// 1000-unit em every other font type uses. Everything else -- the graphics
-// state, resources, the operator loop -- is the renderer's ordinary content
+// 1000-unit em every other font type uses. Everything else (the graphics
+// state, resources, the operator loop) is the renderer's ordinary content
 // path, so a Type 3 glyph can itself draw images, shadings and Form XObjects.
 
 // buildType3FontInfo resolves a Type 3 font's CharProcs by code.

@@ -4,11 +4,12 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// A Pattern colour space names its colour with scn rather than numbers, so
-// the ordinary numeric path never fires and the fill colour stays whatever
-// the preceding cs left behind -- black. Shading patterns (PatternType 2)
-// are now painted through their shading; tiling patterns (PatternType 1) are
-// reported as a drop, since a flat black fill would be a silent loss.
+// A Pattern colour space names its colour with the scn operator rather than
+// numbers, so the ordinary numeric path never fires and the fill colour stays
+// whatever the preceding cs operator left behind: black. Shading patterns
+// (PatternType 2) are painted through their shading; tiling patterns
+// (PatternType 1) are reported as a drop, since a flat black fill would be a
+// silent loss.
 
 // isPatternColorSpace reports whether cs is the Pattern colour space, in
 // either the bare-name or [/Pattern base] form.

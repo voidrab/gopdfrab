@@ -1099,8 +1099,8 @@ func TestScannedOpsBytesGrowsWithContent(t *testing.T) {
 	}
 }
 
-// TestFootprintAdoptedWithCaches: AdoptStreamCaches shares the maps, so the
-// adopting Reader must report what it now holds rather than zero.
+// TestFootprintAdoptedWithCaches verifies that AdoptStreamCaches shares the
+// maps, so the adopting Reader reports what they hold rather than zero.
 func TestFootprintAdoptedWithCaches(t *testing.T) {
 	src := &Reader{}
 	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("0 0 m 1 1 l S")}
@@ -1143,9 +1143,9 @@ func TestMaxResidentBytesConfig(t *testing.T) {
 	}
 }
 
-// TestResidentBudgetStopsCaching: under a budget nothing fits, the caches stay
-// empty and every call still returns the same bytes and operators. The caches
-// are memoization, so the budget may cost time but never an answer.
+// TestResidentBudgetStopsCaching verifies that under a budget nothing fits, the
+// caches stay empty and every call still returns the same bytes and operators.
+// The caches are memoization, so the budget may cost time but never an answer.
 func TestResidentBudgetStopsCaching(t *testing.T) {
 	old := residentCap.Load()
 	defer residentCap.Store(old)
@@ -1195,9 +1195,9 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	}
 }
 
-// TestScanStreamFuncAbandonsListOverBudget: a budget that fits the decoded
-// bytes but not the token list must leave the scan streaming -- reporting every
-// operator, caching none of them. This is what keeps peak memory, and not just
+// TestScanStreamFuncAbandonsListOverBudget verifies that a budget which fits
+// the decoded bytes but not the token list leaves the scan streaming, reporting
+// every operator and caching none of them. This keeps peak memory, not just
 // retention, inside the budget.
 func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	old := residentCap.Load()
@@ -1238,9 +1238,9 @@ func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	}
 }
 
-// TestScannedOpBytesMatchesIncremental: the running total scanAndMaybeCache
-// keeps must equal what scannedOpsBytes reports for the finished list, since
-// one decides whether to cache and the other decides what the budget records.
+// TestScannedOpBytesMatchesIncremental verifies that the running total kept by
+// scanAndMaybeCache equals what scannedOpsBytes reports for the finished list,
+// since one decides whether to cache and the other what the budget records.
 func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	ops := TokenizeContent([]byte(
 		"BT /F1 12 Tf [(a) -3 <42>] TJ ET /P << /K 1 >> BDC 1.5 0 0 1.5 0 0 cm true sh " +
@@ -1263,8 +1263,8 @@ func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	}
 }
 
-// TestReleaseCachesKeepsAnswers: releasing drops the memoized state and the
-// next call rebuilds it to the same result.
+// TestReleaseCachesKeepsAnswers verifies that releasing drops the memoized
+// state and that the next call rebuilds it to the same result.
 func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d := &Reader{}
 	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,

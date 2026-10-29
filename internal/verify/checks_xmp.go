@@ -1067,20 +1067,20 @@ var dcCreatorRe = regexp.MustCompile(`(?s)<dc:creator[^>]*>(.*?)</dc:creator>`)
 func checkXMPPropertyTypes(xmp string) []pdf.PDFError {
 	var errs []pdf.PDFError
 
-	// t02-fail-a: The rdf namespace is declared but the root element uses a
-	// wrong/undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
+	// The rdf namespace is declared but the root element uses a wrong or
+	// undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
 	if strings.Contains(xmp, `xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"`) &&
 		!strings.Contains(xmp, "<rdf:RDF") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataMissing, "rdf namespace declared but rdf:RDF root element is missing or uses wrong prefix"))
 	}
 
-	// t02-fail-b: xmp:Title is not a valid property in the xmp: namespace.
+	// xmp:Title is not a valid property in the xmp: namespace.
 	if strings.Contains(xmp, "<xmp:Title") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataFiltered, "xmp:Title is not a defined property in the xmp namespace; use dc:title instead"))
 	}
 
-	// t02-fail-c: dc:description must be of value type LangAlt (rdf:Alt with
-	// xml:lang attributes), not plain text.
+	// dc:description must be of value type LangAlt (rdf:Alt with xml:lang
+	// attributes), not plain text.
 	if m := dcDescRe.FindStringSubmatch(xmp); m != nil {
 		if !strings.Contains(m[1], "<rdf:Alt") {
 			errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataPropertyType, "dc:description must be of type LangAlt, not plain text"))
@@ -1148,16 +1148,9 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			if len(items) > 1 {
 				msg = "document info Author not synchronized with XMP dc:creator (multiple entries)"
 			} else if len(items) == 1 && decodeXMLEntities(items[0][1]) != author {
-				// Compared as written on both sides, entities decoded.
-				//
-				// Two things were wrong here. It compared decoded text against
-				// raw XML markup, so any author name containing an "&" was
-				// reported out of sync -- ordinary in an arXiv author list.
-				// And it trimmed the XMP side only, so a value with leading
-				// whitespace was reported as differing from itself. Trimming
-				// *both* sides is not the fix: veraPDF treats a whitespace-only
-				// difference as a genuine mismatch (its 6-1-5-t01-fail-b
-				// fixture is exactly that), so neither side is trimmed.
+				// The XMP item's entities are decoded before the comparison, and
+				// neither side is trimmed: veraPDF reports a whitespace-only
+				// difference as a mismatch.
 				msg = "document info Author not synchronized with XMP dc:creator"
 			}
 			if msg != "" {

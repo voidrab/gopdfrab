@@ -30,8 +30,9 @@ type decodeFunc func(pdf.PDFDict) ([]byte, error)
 type colourEmitter func(model string, resources pdf.PDFDict)
 
 // scanContentColour tokenizes one content stream and reports every device
-// colour model its operators use, recursing into Do form XObjects and scn
-// tiling patterns. claim dedups shared streams; decode supplies the bytes.
+// colour model its operators use, recursing into the form XObjects it draws
+// and into tiling patterns. claim dedups shared streams; decode supplies the
+// bytes.
 func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, decode decodeFunc, emit colourEmitter) {
 	if !claim(pdf.ValuePointer(dict.Entries)) {
 		return
@@ -137,9 +138,10 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 
 		needRGB := used["rgb"] && !rgbCovered && !verify.DefaultColorSpaceDefined("rgb", resources)
 		needCMYK := used["cmyk"] && !cmykCovered && !verify.DefaultColorSpaceDefined("cmyk", resources)
-		// Anything with its own resource dict -- an appearance stream, a form
-		// XObject -- is checked in that scope, so the page's Default* never
-		// reaches it. Those need the entry regardless of what the page carries.
+		// Anything with its own resource dict -- an appearance stream,
+		// a form XObject -- is checked in that scope, so the page's
+		// Default* never reaches it. Those need the entry regardless of
+		// what the page carries.
 		nestedRGB := used["rgb"] && !rgbCovered
 		nestedCMYK := used["cmyk"] && !cmykCovered
 		if !needRGB && !needCMYK && !nestedRGB && !nestedCMYK {
@@ -212,8 +214,8 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		needRGB: needRGB, needCMYK: needCMYK,
 		rgb: sharedRGB, cmyk: sharedCMYK,
 		decode: decode, visited: map[uintptr]bool{},
-		// An appearance stream stands on its own resources, so it can be given
-		// a resource dict it did not have.
+		// An appearance stream stands on its own resources, so it can
+		// be given a resource dict it did not have.
 		create: true,
 	}
 	changed := false
@@ -294,8 +296,9 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 		return changed
 	}
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
-		// The same streams scanContentColour descends into: Do form XObjects
-		// and scn tiling patterns, each checked in its own resources.
+		// The same streams scanContentColour descends into: form
+		// XObjects the stream draws and tiling patterns, each checked
+		// in its own resources.
 		var category string
 		switch op {
 		case "Do":
@@ -431,7 +434,7 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 	}
 	scanResourceColour(resources)
 
-	// Appearance streams (reached via /AP/N, not via Do from page content)
+	// Appearance streams (reached via /AP/N, not drawn from page content)
 	// are rendered as part of the page and must also be colour-clean.
 	if annots, ok := page.Entries.Get("Annots").(pdf.PDFArray); ok {
 		for _, item := range annots {

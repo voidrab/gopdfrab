@@ -41,8 +41,7 @@ func TestIssueMapsEveryKind(t *testing.T) {
 	}
 }
 
-// TestIssueAboutTheFile: a diagnostic about no object is reported on page 1,
-// as the reader always did.
+// TestIssueAboutTheFile: a diagnostic about no object is reported on page 1.
 func TestIssueAboutTheFile(t *testing.T) {
 	e, ok := mustFor(t, pdf.A1B).Issue(pdf.Diagnostic{Kind: pdf.DiagXRefRebuilt})
 	if !ok || e.Page() != 1 {

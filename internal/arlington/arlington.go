@@ -1,10 +1,11 @@
 // Package arlington exposes the Arlington PDF Model
-// (https://github.com/pdf-association/arlington-pdf-model) as a compiled-in Go table,
-// generated from the vendored PDF 1.4 TSV set under testdata/tsv/1.4.
+// (https://github.com/pdf-association/arlington-pdf-model) as a lookup table
+// embedded in the package. The table is generated from the vendored PDF 1.4
+// TSV set under testdata/tsv/1.4.
 //
-// Arlington describes what ISO 32000 permits for every dictionary/array/stream type in the
-// spec; it does not encode PDF/A's narrower restrictions, and this package has no opinion on
-// those — it is a lookup table only.
+// Arlington describes what ISO 32000 permits for every dictionary, array and
+// stream type. It does not encode PDF/A's narrower restrictions, and this
+// package does not check them.
 package arlington
 
 //go:generate go run gen.go

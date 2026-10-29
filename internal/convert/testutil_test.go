@@ -39,9 +39,10 @@ const (
 	veraDir    = "../../tests/veraPDF/PDF_A-1b"
 )
 
-// veraPDF filenames: optional "veraPDF test suite " prefix, then clause
-// segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf, e.g.
-// "veraPDF test suite 6-1-2-t01-fail-a.pdf" → clause 6.1.2, fail.
+// veraPDFNameRe matches veraPDF test filenames: an optional "veraPDF test
+// suite " prefix, then clause segments separated by dashes, then
+// -tNN-(pass|fail)-<letter>.pdf, e.g. "veraPDF test suite 6-1-2-t01-fail-a.pdf"
+// → clause 6.1.2, fail.
 var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
 
 // veraClauseAndKind returns the expected clause and whether the file is a

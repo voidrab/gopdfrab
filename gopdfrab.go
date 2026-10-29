@@ -158,7 +158,8 @@ var (
 	PDF = pdf.PDF
 	// PDFA1B is the canonical PDF/A-1b profile.
 	PDFA1B = pdf.PDFA1B
-	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
+	// Legacy1B is stricter in some areas and compatible with the original
+	// Isartor PDF/A-1b test suite.
 	Legacy1B = pdf.Legacy1B
 )
 
@@ -171,9 +172,10 @@ var Checks = pdf.Checks
 // trailer structure could not be parsed. ErrEncrypted: an encryption scheme
 // gopdfrab does not implement. ErrPasswordRequired: a correct password is needed.
 // ErrUnresolvableGraph: Convert could not resolve the object graph even with
-// per-object degradation, so no output could be produced (the ConvertResult
-// still carries the best-effort verify Result). ErrInternal: a defect in
-// gopdfrab, recovered from a panic; please report it with the input file.
+// per-object degradation, so no output could be produced. When verification
+// of the input succeeds, the ConvertResult still carries its best-effort
+// Result. ErrInternal: a defect in gopdfrab, recovered from a panic; please
+// report it with the input file.
 var (
 	ErrNotPDF            = pdf.ErrNotPDF
 	ErrDamaged           = pdf.ErrDamaged
@@ -189,9 +191,9 @@ var (
 //
 // Fields not relevant to an operation are ignored: Verify uses only Password;
 // RasterDPI and MaxIterations apply to Convert; Workers applies to the batch
-// entry points (VerifyAllContext, ConvertAll, ConvertEach). Password applies at the open
-// step, so it has no effect on the *Document methods, whose file is already
-// open (use OpenWithPassword for those).
+// entry points (VerifyAllContext, ConvertAll, ConvertEach). Password applies at
+// the open step, so it has no effect on the *Document methods, whose file is
+// already open (use OpenWithPassword for those).
 //
 // An Options value is only read, never written, so one may be passed to
 // concurrent calls.
@@ -459,8 +461,8 @@ func (d *Document) Convert(p *Profile) (ConvertResult, error) {
 }
 
 // ConvertContext is Convert honouring ctx cancellation (checked before each
-// verify/fix iteration and between page renders) and o. Options.Password is ignored
-// (the file is already open); RasterDPI and MaxIterations apply.
+// verify/fix iteration and between page renders) and o. Options.Password is
+// ignored (the file is already open); RasterDPI and MaxIterations apply.
 func (d *Document) ConvertContext(ctx context.Context, p *Profile, o Options) (ConvertResult, error) {
 	return convert.RunContext(ctx, d.r, p, o.convert())
 }

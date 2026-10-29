@@ -12,16 +12,15 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// This file holds minimal, hand-written reproducers for every crash the fuzz
-// harness has surfaced and had fixed. Each test documents one root cause and
-// guards against regression independently of the generator: a failure here (a
-// panic or, for the recursion cases, an unrecoverable stack overflow) means the
-// bug is back. They must all pass -- i.e. return an error gracefully rather than
-// crash.
+// This file holds minimal, hand-written reproducers for crashes found by the
+// fuzz harness. Each test covers one root cause and guards against regression
+// independently of the generator: a failure here (a panic or, for the recursion
+// cases, an unrecoverable stack overflow) means the bug has returned. Each test
+// must pass by returning an error rather than crashing.
 
 // openReproduces runs a hand-built malformed PDF through the read + resolve +
-// page-count path, failing only if it panics (an error return is the expected,
-// fixed behaviour).
+// page-count path, failing only if it panics (an error return is the
+// expected behaviour).
 func openReproduces(t *testing.T, name string, data []byte) {
 	t.Helper()
 	t.Run(name, func(t *testing.T) {
@@ -35,8 +34,8 @@ func openReproduces(t *testing.T, name string, data []byte) {
 	})
 }
 
-// TestCrasher_NegativeStreamLength: a stream whose /Length is negative sliced
-// out of range in validateStream (fixed: reject negative/overflowing Length).
+// TestCrasher_NegativeStreamLength verifies that a negative /Length is rejected
+// rather than sliced out of range in validateStream.
 func TestCrasher_NegativeStreamLength(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -46,8 +45,8 @@ func TestCrasher_NegativeStreamLength(t *testing.T) {
 	openReproduces(t, "negative-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
 }
 
-// TestCrasher_OverflowStreamLength: a /Length near math.MaxInt64 overflowed
-// streamStart+Length to a negative end (fixed: overflow guard).
+// TestCrasher_OverflowStreamLength verifies that a /Length near math.MaxInt64
+// is rejected rather than overflowing streamStart+Length.
 func TestCrasher_OverflowStreamLength(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -57,8 +56,8 @@ func TestCrasher_OverflowStreamLength(t *testing.T) {
 	openReproduces(t, "overflow-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
 }
 
-// TestCrasher_DeepDictNesting: deeply nested dictionaries recursed
-// parseDictionary (fixed: maxParseDepth, same guard as arrays).
+// TestCrasher_DeepDictNesting verifies that deeply nested dictionaries are
+// rejected by parseDictionary at maxParseDepth, as arrays are.
 func TestCrasher_DeepDictNesting(t *testing.T) {
 	deep := strings.Repeat("<< /K ", 20000) + "0" + strings.Repeat(" >>", 20000)
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
@@ -68,8 +67,8 @@ func TestCrasher_DeepDictNesting(t *testing.T) {
 	openReproduces(t, "deep-dict", b.FinishClassic("<< /Size 4 /Root 1 0 R >>"))
 }
 
-// TestCrasher_CCITTColumnsAmplification: an absurd Columns drove a huge per-row
-// allocation (fixed: Columns cap).
+// TestCrasher_CCITTColumnsAmplification verifies that an absurd Columns value
+// is capped rather than driving a huge per-row allocation.
 func TestCrasher_CCITTColumnsAmplification(t *testing.T) {
 	p := pdf.CCITTParams{Columns: 2 << 20, Rows: 1}
 	if _, err := pdf.DecodeCCITT([]byte{0x00, 0x01}, p); err == nil {
@@ -78,7 +77,7 @@ func TestCrasher_CCITTColumnsAmplification(t *testing.T) {
 }
 
 // TestBuildPageIndexBranches exercises BuildPageIndex directly (PageCount
-// does not route through it) across every guard the fixes added: a non-dict
+// does not route through it) across every guard: a non-dict
 // graph, a missing Root, a non-dict Root, a cyclic page tree, a page tree
 // deeper than the cap, and the normal Page-collecting walk.
 func TestBuildPageIndexBranches(t *testing.T) {
@@ -142,8 +141,9 @@ func TestBuildPageIndexBranches(t *testing.T) {
 	}
 }
 
-// TestCrasher_DeepNesting: a deeply nested array in an object body recursed
-// parseObject/parseArray into a stack overflow (fixed: maxParseDepth).
+// TestCrasher_DeepNesting verifies that a deeply nested array in an object body
+// is rejected at maxParseDepth rather than overflowing the stack in
+// parseObject and parseArray.
 func TestCrasher_DeepNesting(t *testing.T) {
 	deep := strings.Repeat("[", 20000) + strings.Repeat("]", 20000)
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
@@ -153,8 +153,8 @@ func TestCrasher_DeepNesting(t *testing.T) {
 	openReproduces(t, "deep-array", b.FinishClassic("<< /Size 4 /Root 1 0 R >>"))
 }
 
-// TestCrasher_PostScriptDepth: a Type 4 function whose program nests procedures
-// deeply recursed the PostScript parser (fixed: maxPostScriptDepth).
+// TestCrasher_PostScriptDepth verifies that a Type 4 function whose program
+// nests procedures deeply is rejected at maxPostScriptDepth.
 func TestCrasher_PostScriptDepth(t *testing.T) {
 	prog := strings.Repeat("{", 5000) + strings.Repeat("}", 5000)
 	d := pdf.NewPDFDict()
@@ -169,8 +169,8 @@ func TestCrasher_PostScriptDepth(t *testing.T) {
 	}
 }
 
-// TestCrasher_StitchingDepth: a Type 3 function whose sub-functions nest Type 3s
-// deeply recursed ParseFunction (fixed: maxFunctionDepth).
+// TestCrasher_StitchingDepth verifies that a Type 3 function whose sub-functions
+// nest Type 3s deeply is rejected at maxFunctionDepth.
 func TestCrasher_StitchingDepth(t *testing.T) {
 	// Innermost is a Type 2; wrap it in `depth` stitching functions.
 	inner := pdf.NewPDFDict()
@@ -193,8 +193,8 @@ func TestCrasher_StitchingDepth(t *testing.T) {
 	}
 }
 
-// TestCrasher_SampledBlowup: a Type 0 function with a high-dimension Size would
-// allocate 2^len(Size) corners (fixed: bound dimensionality).
+// TestCrasher_SampledBlowup verifies that a Type 0 function with a
+// high-dimension Size is rejected rather than allocating 2^len(Size) corners.
 func TestCrasher_SampledBlowup(t *testing.T) {
 	size := make(pdf.PDFArray, 40)
 	for i := range size {
@@ -215,8 +215,8 @@ func TestCrasher_SampledBlowup(t *testing.T) {
 	}
 }
 
-// TestCrasher_CCITTRowsAmplification: a huge declared Rows drove the tail-
-// padding loop into an OOM (fixed: bound declared image size).
+// TestCrasher_CCITTRowsAmplification verifies that a huge declared Rows is
+// bounded rather than driving the tail-padding loop into an OOM.
 func TestCrasher_CCITTRowsAmplification(t *testing.T) {
 	p := pdf.CCITTParams{Columns: 1728, Rows: 1 << 30}
 	if _, err := pdf.DecodeCCITT([]byte{0x00, 0x01}, p); err == nil {
@@ -224,8 +224,8 @@ func TestCrasher_CCITTRowsAmplification(t *testing.T) {
 	}
 }
 
-// TestCrasher_ClampDomainShort: evaluating a function with more inputs than its
-// Domain covers indexed out of range in clampDomain (fixed: bounds-check).
+// TestCrasher_ClampDomainShort verifies that evaluating a function with more
+// inputs than its Domain covers does not index out of range in clampDomain.
 func TestCrasher_ClampDomainShort(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries.Set("FunctionType", pdf.PDFInteger(2))
@@ -239,9 +239,9 @@ func TestCrasher_ClampDomainShort(t *testing.T) {
 	fn.Eval([]float64{0.1, 0.2, 0.3}) // three inputs -- must not panic
 }
 
-// TestParseFunctionRejectsMalformed exercises the shape-validation branches
-// added to newSampledFunction (Type 0) and newStitchingFunction (Type 3) so a
-// malformed function is rejected at construction rather than panicking Eval.
+// TestParseFunctionRejectsMalformed exercises the shape-validation branches of
+// newSampledFunction (Type 0) and newStitchingFunction (Type 3), so a malformed
+// function is rejected at construction rather than panicking Eval.
 func TestParseFunctionRejectsMalformed(t *testing.T) {
 	unit := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
 
@@ -299,8 +299,8 @@ func TestParseFunctionRejectsMalformed(t *testing.T) {
 	}
 }
 
-// TestCrasher_FlateBomb: a highly compressible stream inflated without bound
-// (fixed: maxInflateOutput cap).
+// TestCrasher_FlateBomb verifies that a highly compressible stream is bounded
+// by maxInflateOutput rather than inflated without limit.
 func TestCrasher_FlateBomb(t *testing.T) {
 	restore := pdf.SetMaxInflateOutput(1024)
 	defer restore()
@@ -323,16 +323,16 @@ func TestCrasher_FlateBomb(t *testing.T) {
 	}
 }
 
-// TestCrasher_PNGPredictorColumns: an absurd /Columns drove a huge per-row
-// allocation (fixed: maxPredictorColumns).
+// TestCrasher_PNGPredictorColumns verifies that an absurd /Columns value is
+// rejected at maxPredictorColumns rather than driving a huge per-row allocation.
 func TestCrasher_PNGPredictorColumns(t *testing.T) {
 	if _, err := pdf.UndoPNGPredictor([]byte{0x00, 0x01, 0x02}, 1<<30, 1, 8); err == nil {
 		t.Error("expected an error for an absurd predictor Columns value")
 	}
 }
 
-// TestCrasher_NegativeBitsPerSample: a negative /BitsPerSample panicked Eval on
-// `1 << bps` (fixed: validate 1 <= bps <= 32).
+// TestCrasher_NegativeBitsPerSample verifies that /BitsPerSample is validated to
+// lie in 1 to 32, so that a negative value cannot panic Eval on `1 << bps`.
 func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.HasStream = true
@@ -348,8 +348,8 @@ func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	}
 }
 
-// TestCrasher_XRefFieldWidthOverflow: an out-of-range /W entry overflowed
-// entryLen into a panicking slice (fixed: per-width cap).
+// TestCrasher_XRefFieldWidthOverflow verifies that an out-of-range /W entry is
+// capped per width rather than overflowing entryLen into a panicking slice.
 func TestCrasher_XRefFieldWidthOverflow(t *testing.T) {
 	d := pdf.NewPDFDict()
 	d.Entries.Set("W", pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(9), pdf.PDFInteger(1)})
@@ -358,8 +358,9 @@ func TestCrasher_XRefFieldWidthOverflow(t *testing.T) {
 	}
 }
 
-// TestCrasher_ObjStmHugeN: an object stream /N far larger than its data drove a
-// huge pre-allocation (fixed: bound N against the stream length).
+// TestCrasher_ObjStmHugeN verifies that an object stream /N far larger than its
+// data is bounded against the stream length rather than driving a huge
+// pre-allocation.
 func TestCrasher_ObjStmHugeN(t *testing.T) {
 	r, err := pdf.OpenBytes(pdfgen.Seeds()[0])
 	if err != nil {
@@ -383,8 +384,9 @@ func TestCrasher_ObjStmHugeN(t *testing.T) {
 	}
 }
 
-// TestCrasher_CyclicStreamLength: a stream whose /Length references its own
-// object re-entered ResolveReference forever (fixed: resolvingInProgress guard).
+// TestCrasher_CyclicStreamLength verifies that a stream whose /Length refers to
+// its own object does not re-enter ResolveReference, which the
+// resolvingInProgress guard prevents.
 func TestCrasher_CyclicStreamLength(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.7\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -394,8 +396,8 @@ func TestCrasher_CyclicStreamLength(t *testing.T) {
 	openReproduces(t, "cyclic-length", b.FinishClassic("<< /Size 5 /Root 1 0 R >>"))
 }
 
-// TestResolveDepthLimit: a long acyclic reference chain overflowed the stack
-// when resolved (fixed: maxResolveDepth).
+// TestResolveDepthLimit verifies that a long acyclic reference chain is cut off
+// at maxResolveDepth rather than overflowing the stack.
 func TestResolveDepthLimit(t *testing.T) {
 	restore := pdf.SetMaxResolveDepth(100)
 	defer restore()
@@ -421,8 +423,8 @@ func TestResolveDepthLimit(t *testing.T) {
 	}
 }
 
-// TestCrasher_CyclicColorSpace: a named colour space that resolves back to
-// itself recursed ResolveColor forever (fixed: maxColorSpaceDepth).
+// TestCrasher_CyclicColorSpace verifies that a named colour space resolving back
+// to itself stops at maxColorSpaceDepth instead of recursing in ResolveColor.
 func TestCrasher_CyclicColorSpace(t *testing.T) {
 	inner := pdf.NewPDFDict()
 	inner.Entries.Set("CS0", pdf.PDFName{Value: "CS0"}) // resolves to itself

@@ -254,8 +254,8 @@ func TestCheckEndstreamFramingStartPastWindow(t *testing.T) {
 	}
 }
 
-// TestCheckEndstreamFramingNoKeywordInWindow: with no endstream in the window
-// there is nothing to frame-check, so no diagnostic is recorded.
+// TestCheckEndstreamFramingNoKeywordInWindow verifies that, with no endstream
+// in the window, there is nothing to frame-check, so no diagnostic is recorded.
 func TestCheckEndstreamFramingNoKeywordInWindow(t *testing.T) {
 	d := &Reader{data: []byte("0123456789")}
 	d.checkEndstreamFraming(1, 0, 4)

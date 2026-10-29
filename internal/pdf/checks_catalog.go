@@ -21,7 +21,7 @@ type Check struct {
 type parts uint8
 
 const (
-	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies yet
+	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies
 	partA1B
 	partObjectModel
 
@@ -313,8 +313,9 @@ const ObjectModelClause = "objmodel"
 
 // objectModelChecks are generic ISO 32000 object-model checks, driven by the
 // Arlington PDF Model table (internal/arlington) rather than by hand-written
-// per-clause logic. They catch "this isn't even valid PDF", orthogonal to the
-// PDF/A-specific restrictions the other check groups enforce.
+// per-clause logic. They catch files that are not valid PDF at all,
+// independently of the PDF/A-specific restrictions the other check groups
+// enforce.
 type objectModelChecks struct {
 	MissingRequiredKey      Check
 	WrongValueType          Check

@@ -140,10 +140,11 @@ func TestExtGStateFixer(t *testing.T) {
 	}
 }
 
-// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque: the fixer's own
-// repair for a zero opacity is to set it to 1, which on its own would paint
-// invisible content over the page. It has to take the drawing out first, in
-// the same pass, while the opacity still says it is invisible.
+// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque verifies that the
+// fixer removes the drawing made at a zero opacity in the same pass that sets
+// the opacity to 1. Setting the opacity alone would paint invisible content
+// over the page, so the drawing must be removed while the opacity still marks
+// it invisible.
 func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "ExtGState"},
@@ -167,7 +168,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	}
 
 	// A partial opacity is a different case: it is made opaque and the drawing
-	// stays, since it was visible all along.
+	// stays, since it is visible at that opacity.
 	half := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "ExtGState"},
 		"ca":   pdf.PDFReal(0.5),
@@ -265,9 +266,9 @@ func TestPostScriptXObjectFixer(t *testing.T) {
 	}
 }
 
-// TestPostScriptXObjectFixerNeutersPSSubtype: a Subtype /PS XObject becomes an
-// empty Form XObject (viewers never render PS passthrough, so nothing visual
-// is lost) with the stream filter metadata cleared.
+// TestPostScriptXObjectFixerNeutersPSSubtype verifies that a Subtype /PS
+// XObject becomes an empty Form XObject, with the stream filter metadata
+// cleared. Viewers never render PS passthrough, so nothing visual is lost.
 func TestPostScriptXObjectFixerNeutersPSSubtype(t *testing.T) {
 	xobj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "XObject"},
@@ -436,9 +437,9 @@ func TestDeadAction(t *testing.T) {
 	}
 }
 
-// TestImageSampleDepthFixerLeavesWhatItCannotRewrite: an image with no depth to
-// repair, and a 16-bit one that cannot be decoded, are both left exactly as
-// they were.
+// TestImageSampleDepthFixerLeavesWhatItCannotRewrite verifies that an image
+// with no depth to repair, and a 16-bit one that cannot be decoded, are both
+// left exactly as they were.
 func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
 	noDepth := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{

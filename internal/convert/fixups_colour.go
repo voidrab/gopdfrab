@@ -147,8 +147,9 @@ func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 				continue
 			}
 			visit(v)
-			// A colour space also appears as the base of an Indexed space and
-			// as an element of a /ColorSpace array elsewhere.
+			// A colour space also appears as the base of an Indexed
+			// space and as an element of a /ColorSpace array
+			// elsewhere.
 			if arr, ok := v.(pdf.PDFArray); ok {
 				for _, item := range arr {
 					visit(item)
@@ -170,9 +171,10 @@ func iccBasedColourSpace(n int, profile []byte) pdf.PDFArray {
 	return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 }
 
-// dominantColourModel returns "rgb" or "cmyk" based on which has the higher usage count,
-// returning "" if neither is used. It ignores "gray" since any OutputIntent covers it,
-// and checks keys in a fixed order to ensure tie-breakers are deterministic.
+// dominantColourModel returns "rgb" or "cmyk" based on which has the higher
+// usage count, returning "" if neither is used. It ignores "gray" since any
+// OutputIntent covers it, and checks keys in a fixed order to ensure
+// tie-breakers are deterministic.
 func dominantColourModel(usage map[string]int) string {
 	best := ""
 	for _, model := range [...]string{"rgb", "cmyk"} {
@@ -201,9 +203,11 @@ func decoderFor(doc *pdf.Reader) decodeFunc {
 	return pdf.DecodeStream
 }
 
-// detectColourModelUsage counts how often RGB, Gray, and CMYK color models appear in the document graph.
-// It checks dictionary-level color spaces everywhere, but only counts content-stream operators and inline
-// images where they are actually used. decode supplies content-stream bytes (typically a cached path).
+// detectColourModelUsage counts how often RGB, Gray, and CMYK color models
+// appear in the document graph. It checks dictionary-level color spaces
+// everywhere, but only counts content-stream operators and inline images where
+// they are actually used. decode supplies content-stream bytes (typically a
+// cached path).
 func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]int {
 	counts := map[string]int{}
 
@@ -302,8 +306,10 @@ type scanJob struct {
 	resources pdf.PDFDict
 }
 
-// validPDFAOutputIntentN returns the /N value of the first OutputIntent that meets all of the level's output intent and ICC profile checks.
-// If multiple intents exist, they must use the same profile object, or the entire array is treated as invalid.
+// validPDFAOutputIntentN returns the /N value of the first OutputIntent that
+// meets all of the level's output intent and ICC profile checks. If multiple
+// intents exist, they must use the same profile object, or the entire array is
+// treated as invalid.
 func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
 	intents, ok := root.Entries.Get("OutputIntents").(pdf.PDFArray)
 	if !ok {

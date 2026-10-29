@@ -1,6 +1,7 @@
 // Command gopdfrab verifies and converts PDFs for PDF/A-1b conformance from
-// the command line. It is a thin wrapper over the public API: the verify subcommand and the
-// shared reporting use gopdfrab/verify, and only convert uses gopdfrab.
+// the command line. It is a thin wrapper over the public API: the verify
+// subcommand and the shared reporting use gopdfrab/verify, and only convert
+// uses gopdfrab.
 //
 // Exit codes: 0 conformant, 1 non-conformant, 2 error.
 package main

@@ -639,7 +639,7 @@ func OriginalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnow
 		if t, ok := standardSymbolBuiltinTable(d); ok {
 			table, baseKnown = t, true
 		} else if !fontFlagsSymbolic(d) {
-			// Matches the substitution fixer's long-standing assumption for
+			// Matches the substitution fixer's assumption for
 			// encoding-less non-symbolic fonts.
 			table, baseKnown = WinAnsiToUnicode, true
 		}

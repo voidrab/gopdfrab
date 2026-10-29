@@ -182,9 +182,8 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 		}
 	})
 
-	// Regression: the old image path had a hasLZW flag that short-circuited
-	// the whole chain, feeding still-ASCII85-encoded text straight to the LZW
-	// decoder. The unified chain applies filters in order.
+	// The filter chain is applied in order, so the ASCII85 stage is undone
+	// before the LZW stage that follows it.
 	t.Run("ASCII85 then LZW", func(t *testing.T) {
 		want := []byte{1, 2, 3, 4, 5, 6}
 		dict := pdf.PDFDict{
