@@ -105,7 +105,7 @@ const (
 var (
 	// PDF is the default profile for generic ISO 32000 object-model checks.
 	PDF = pdf.PDF
-	// PDFA1B is the canonical PDF/A-1b profile
+	// PDFA1B is the canonical PDF/A-1b profile.
 	PDFA1B = pdf.PDFA1B
 	// Legacy1B is stricter in some areas and compatible with the original Isartor PDF/A-1b test suite.
 	Legacy1B = pdf.Legacy1B
@@ -321,9 +321,9 @@ func (d *Document) IsPDF() (bool, error) {
 func (d *Document) XMPMetadata() ([]byte, error) { return d.r.XMPMetadata() }
 
 // ClaimedConformance returns the PDF/A part and conformance level the
-// document's XMP metadata claims, read from the pdfaid
-// namespace. This reflects what the file claims, not whether it actually
-// validates — use Verify or IsPDFA to check actual compliance.
+// document's XMP metadata claims, read from the pdfaid namespace. This
+// reflects what the file claims, not whether it actually validates. Use
+// Verify or IsPDFA to check actual compliance.
 func (d *Document) ClaimedConformance() (part, conformance string, err error) {
 	return d.r.ClaimedConformance()
 }
