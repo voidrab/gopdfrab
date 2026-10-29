@@ -93,11 +93,11 @@ func rescaled(t *testing.T, src string) string {
 	return string(out)
 }
 
-// TestRescalePathFoldsMagnitudeIntoCTM is the shape that prompted this repair,
-// taken from a real presentation: a full-page clip drawn at 1/508 scale, whose
-// corner is at 365760 units. Clamping that to 32767 kept the file conformant
-// and threw away 98% of every page. Folding 16 into the CTM instead leaves
-// every number inside the limit and the clip exactly where it was.
+// TestRescalePathFoldsMagnitudeIntoCTM verifies that a path with coordinates
+// beyond the limit is rescaled rather than clamped. A full-page clip drawn at
+// 1/508 scale has its corner at 365760 units; clamping that to 32767 keeps the
+// file conformant but throws away 98% of every page. Folding 16 into the CTM
+// leaves every number inside the limit and the clip exactly where it was.
 func TestRescalePathFoldsMagnitudeIntoCTM(t *testing.T) {
 	got := rescaled(t, "q 0.001968504 0 0 0.001968504 0 0 cm\n"+
 		"0 0 m 365760.0 0 l 365760.0 205740.0 l 0 205740.0 l 0 0 l h W n\n")
@@ -312,9 +312,9 @@ func assertOperatorDropped(t *testing.T, label string, dict pdf.PDFDict) {
 
 // TestWalkContentStreamsDispatch exercises every content-bearing stream
 // shape walkContentStreams dispatches to: an array-form Page /Contents, a
-// tiling Pattern, a Form XObject, and a Type3 glyph's CharProcs stream --
-// contentLimitsFixer's corpus-fixture tests only ever hit the single-dict
-// Page /Contents case, leaving the rest unexercised.
+// tiling Pattern, a Form XObject, and a Type3 glyph's CharProcs stream. The
+// fixture-based tests of contentLimitsFixer reach only the single-dict Page
+// /Contents case.
 func TestWalkContentStreamsDispatch(t *testing.T) {
 	pattern := undefinedOpStream()
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
@@ -424,9 +424,9 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	}
 }
 
-// TestRescaleOversizedMatrix: a cm matrix that does not fit is written as two
-// that do, and the pair has to compose to exactly the matrix that was there --
-// this is what places an image, so getting it wrong moves the picture.
+// TestRescaleOversizedMatrix: a matrix that does not fit is written as two that
+// do, and the pair has to compose to exactly the matrix that was there. This is
+// what places an image, so getting it wrong moves the picture.
 func TestRescaleOversizedMatrix(t *testing.T) {
 	scale, divided, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(274320),
@@ -435,7 +435,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	if !ok {
 		t.Fatal("splitOversizedMatrix declined a matrix it can write as two")
 	}
-	// cm scale, then cm divided, composes as divided x scale.
+	// Applying scale, then divided, composes as divided x scale.
 	m := matrixOf(t, divided).Mul(matrixOf(t, scale))
 	want := raster.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
 	if m != want {
@@ -484,10 +484,11 @@ func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
 	return raster.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
 }
 
-// TestRescaleKeepsAnImageWhereItWasPlaced is the regression the corpus found:
-// a presentation drawn at 1/508 scale places its images with a cm whose
-// operands run to six figures. Clamping those put every picture in a 64.5pt
-// square in the corner, which is most of what the page had on it.
+// TestRescaleKeepsAnImageWhereItWasPlaced verifies that an image keeps its
+// place when the cm operator that places it has operands running to six
+// figures. A presentation drawn at 1/508 scale places its images this way;
+// clamping those operands would put every picture in a 64.5pt square in the
+// corner, which is most of the page's content.
 func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	const placed = "q 0.001968504 0 0 0.001968504 0 0 cm\n" +
 		"q 487680 0 0 274320 0 0 cm\n0 0 0 rg\n0 0 1 1 re\nf\nQ\nQ\n"

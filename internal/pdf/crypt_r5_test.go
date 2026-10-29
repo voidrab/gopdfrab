@@ -20,10 +20,9 @@ func encryptKeyMaterial(t *testing.T, key, data []byte) []byte {
 	return out
 }
 
-// TestAuthenticateR5 builds R5 key material by the R5 rules (plain SHA-256,
-// Adobe Extension Level 3) and checks both passwords recover the file key.
-// R5 used to be run through R6's hardened hash, so no R5 password ever
-// authenticated.
+// TestAuthenticateR5 verifies that R5 key material, built by the R5 rules
+// (plain SHA-256, Adobe Extension Level 3), lets both passwords recover the
+// file key. R6's hardened hash is not used for R5.
 func TestAuthenticateR5(t *testing.T) {
 	fileKey := bytes.Repeat([]byte{0x5A}, 32)
 	userPw, ownerPw := []byte("user"), []byte("owner")

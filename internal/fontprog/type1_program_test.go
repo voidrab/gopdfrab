@@ -115,7 +115,7 @@ func TestExtractType1Program(t *testing.T) {
 }
 
 func TestExtractType1ProgramVariants(t *testing.T) {
-	// lenIV 0 with "-|" as the RD operator: both used to lose glyphs.
+	// lenIV 0 with "-|" as the RD operator: every glyph is still extracted.
 	s := newType1()
 	s.lenIV, s.rd = 0, "-|"
 	s.glyphs = []type1Entry{{"A", hsbwCS(600)}}

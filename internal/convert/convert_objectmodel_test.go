@@ -89,10 +89,10 @@ func TestHasFixableIssueRasterGate(t *testing.T) {
 
 // TestConvertObjectModelDeletesDisallowedTrapped: a document-level
 // DisallowedValue on an optional key (/Trapped /Maybe) is repaired by
-// deletion, and the page content stays byte-identical -- proving the fix came
-// from the fixer, never from the raster backstop (which can neither reach nor
-// repair trailer-level dict structure; TestHasFixableIssueRasterGate pins the
-// gate itself).
+// deletion, and the page content stays byte-identical. The fixer makes the
+// repair, not the raster backstop, which can neither reach nor repair
+// trailer-level dict structure; TestHasFixableIssueRasterGate pins the gate
+// itself.
 func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	data := buildOnePageDoc(t, func(trailer, _, _ pdf.PDFDict) {
 		info := pdf.NewPDFDict()
@@ -188,10 +188,10 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 }
 
 // TestConvertObjectModelAddsNoPDFAIdentity: an object-model conversion
-// repairs the object model and nothing else. It used to run the PDF/A
-// pre-emptive steps too, stamping the output as PDF/A-1b through a fresh
-// pdfaid XMP packet and an injected GTS_PDFA1 OutputIntent, a claim no
-// PDF/A check had backed.
+// repairs the object model and nothing else. It does not run the PDF/A
+// pre-emptive steps, which would stamp the output as PDF/A-1b through a fresh
+// pdfaid XMP packet and an injected GTS_PDFA1 OutputIntent, a claim that no
+// PDF/A check verifies.
 func TestConvertObjectModelAddsNoPDFAIdentity(t *testing.T) {
 	cr, err := ConvertBytes(buildOnePageDoc(t, nil), pdf.PDF, Options{})
 	if err != nil {

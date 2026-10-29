@@ -106,44 +106,11 @@ func BenchmarkConvert(b *testing.B) {
 }
 
 // maxLargeFileAllocs is a regression ceiling on allocations for one
-// Open+Verify(A1B) pass over the "large" sample (the 6.1.12 torture test
-// with 40,015 indirect objects). It guards against reintroducing the
-// per-object re-parsing and re-decoding blowup this count used to track:
-// ~4.64M allocs/op before resolveReference/decodeStream results were
-// memoized on Document/ValidationContext (resolver.go, content.go,
-// context.go), down to ~1.76M after. Pooling the zlib decoder (content.go's
-// zlibReaderPool) and the per-object lexer's bufio.Reader (lexer.go's
-// bufioReaderPool) cut both allocs and bytes/op further: ~1.76M allocs /
-// ~1.18GB bytes down to ~1.55M allocs / ~80MB bytes. Making ResolveGraph
-// resolve references in place into the cached d.objCache instances instead
-// of building a parallel deep copy of the graph (document.go's
-// resolveInPlace, shared with resolver.go's resolveObject) removed ~90k more,
-// down to ~1.46M. Reusing the ContentScanner operand stack (content.go) and
-// replacing reflect-based ValuePointer with an unsafe type switch (values.go)
-// cut another ~100k, to ~1.35M. Switching the hot-path lexer to []byte
-// indexing (NewLexerBytes) eliminated the bufio.Reader per-object alloc: ~1.34M.
-// Merging the reachable-XObject and font-usage content scans that
-// ComputeContentUsage ran independently over the same decoded bytes
-// (collectUsageFromBytes, verifier.go) into one scan/recursion cut another
-// ~160k (this file's 10k pages were each scanned twice): ~1.16M. Caching the
-// tokenized operator list per stream (Reader.ScanStreamCached, keyed like the
-// decode cache by RawStream identity) so ComputeContentUsage and scanContent
-// -- still two separate passes, since a page's checks need reachability/font
-// usage computed for the *whole* document first -- share one tokenization
-// per stream instead of each re-lexing it, cut another ~70k: ~1.09M.
-// Parsing number tokens once in the lexer (Token.Int/Num) and collecting
-// array elements on a shared scratch stack cut it to ~1.05M.
-// The byte-path xref parser (no per-entry buffer), the ValidationContext
-// key-scratch stack for the walk's sorted key iteration, and the O(1)
-// Arlington row index cut it to ~1.01M.
-// Sharing one pre-boxed PDFValue per common name (lexer.go's
-// internedNameValues) removed the interface box that every /Type, /Subtype
-// and /Filter value used to allocate: ~20k fewer, to ~923k.
-// Backing PDFDict with a slice instead of a map (dict.go) raised this to
-// ~993k -- a dict is two allocations where a small map was one -- while
-// cutting the resolved graph from 23.5 MB to 16.7 MB. This is the one entry
-// in this list that trades count for bytes; see the commit.
-// Allocs/op is deterministic and environment-independent, so this check is not flaky.
+// Open+Verify(A1B) pass over the "large" sample, the 6.1.12 torture test with
+// 40,015 indirect objects. Resolved references and decoded streams are cached
+// while the document is open, so code that re-parses or re-decodes them per
+// use shows up as a jump in the count. Allocs/op is deterministic and independent of the
+// environment, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
 const maxLargeFileAllocs = 1_025_000
@@ -176,37 +143,9 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 }
 
 // maxConvertLargeAllocs is a regression ceiling on allocations for one
-// ConvertBytes pass over the "large" sample. This file is the pathological
-// case for the Stage 4 in-heap verify optimisation: pre-emptive fixups handle
-// its sole violation (ArrayTooLarge in the 10k-element /Kids array), so the
-// main loop runs one inHeapVerify that finds no violations, then exits to the
-// single final serializeAndVerify. The net effect: 2 verify passes instead of
-// the old code's 1, and each pass scans 10k page content streams (the dominant
-// allocation source). For files that benefit from Stage 4 (multiple fixer
-// iterations), the saving is large; this file just happens to expose the
-// per-verify overhead of the 10k-page torture test. Measured at ~2.84M.
-// Merging ComputeContentUsage's two per-stream scans into one
-// (collectUsageFromBytes, see maxLargeFileAllocs) cut this to ~2.53M.
-// Caching the tokenized operator list per stream (Reader.ScanStreamCached,
-// see maxLargeFileAllocs) cut this to ~2.39M.
-// Carrying the loop Reader's stream caches into the final serialize-verify
-// pass (AdoptStreamCaches) cut this to ~2.14M, and the lexer's parse-once
-// number tokens plus the shared parseArray scratch to ~2.11M.
-// The fuzz-hardening pass that made the writer's discover walk deterministic
-// (sorted key order) briefly added a per-dict key-slice allocation (~2.27M,
-// over this ceiling); sharing one key scratch stack across discover and
-// writeDictEntries (pdfWriter.keyScratch) brought it back to ~2.18M.
-// The byte-path xref parser, the ValidationContext key-scratch stack, and
-// the O(1) Arlington row index cut it to ~2.01M.
-// Reusing the last in-loop verify's graph verdicts for the final output
-// verification when the graph is clean (serializeAndVerify's merged path;
-// only the byte-level structural checks re-run against the output) plus the
-// single shared pre-emptive fixup walk cut it to ~1.78M.
-// Sharing one pre-boxed PDFValue per common name (lexer.go's
-// internedNameValues) cut another ~25k, to ~1.53M.
-// The slice-backed PDFDict raised it to ~1.63M in exchange for bytes; see
-// maxLargeFileAllocs.
-// Lower this value if further optimization reduces it.
+// ConvertBytes pass over the "large" sample. Its 10k-element /Kids array makes
+// each verify pass scan 10k page content streams, which is the dominant
+// allocation source. Lower this value if further optimization reduces it.
 const maxConvertLargeAllocs = 1_680_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a

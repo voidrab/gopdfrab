@@ -311,17 +311,16 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 	return found
 }
 
-// clippedAtScale is the shape coordinate clamping blanked, taken from a
-// real presentation: the page is drawn at 1/500 scale, so a full-page clip
-// needs coordinates in the hundreds of thousands. Clamping those to 32767
-// shrinks the clip to a corner and takes the whole page with it.
+// clippedAtScale is a page drawn at 1/500 scale whose full-page clip needs
+// coordinates in the hundreds of thousands. Clamping those to 32767 shrinks the
+// clip to a corner and takes the whole page with it.
 const clippedAtScale = "q 0.002 0 0 0.002 0 0 cm\n" +
 	"0 0 m 100000.0 0 l 100000.0 100000.0 l 0 100000.0 l h W n\n" +
 	"0 0 0 rg\n10000 10000 80000 80000 re\nf\nQ\n"
 
-// TestConvertKeepsGeometryDrawnAtScale is item 34's regression: the conversion
-// must reach conformance -- no coordinate left over the limit -- without
-// emptying the page it was repairing.
+// TestConvertKeepsGeometryDrawnAtScale verifies that the conversion reaches
+// conformance, with no coordinate left over the limit, without emptying the
+// page it repairs.
 func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	cr, err := ConvertBytes(onePageDoc(clippedAtScale), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -483,11 +482,10 @@ func TestOverpaintedPages(t *testing.T) {
 	}
 }
 
-// drawnAtZeroOpacity is the shape the zero-opacity repair was written for, taken
-// from two real presentations: a black rectangle the size of the page, drawn
-// at zero opacity over the content. It is invisible in the file as written,
-// and making it opaque -- which is how a conversion used to repair the
-// opacity -- puts it over everything underneath.
+// drawnAtZeroOpacity is a page of the kind the zero-opacity repair exists for:
+// a black rectangle the size of the page, drawn at zero opacity over the
+// content. It is invisible in the file as written, and making it opaque puts
+// it over everything underneath.
 const drawnAtZeroOpacity = "0 0 0 rg\n20 20 60 60 re\nf\n" +
 	"/GS0 gs\n0 0 0 rg\n0 0 200 200 re\nf\n"
 
@@ -503,10 +501,9 @@ func onePageDocWithZeroAlpha(content string) []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// groupFormDoc is the shape the group-flattening blanking came from, taken from
-// two real presentations: the whole page is one transparency group form, and
-// everything it draws -- here a black image -- is named in the form's own
-// resources rather than the page's.
+// groupFormDoc builds a page that is one transparency group form. The form
+// draws a black image, which is named in the form's own resources rather than
+// the page's.
 func groupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -525,10 +522,11 @@ func groupFormDoc() []byte {
 	return b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
 }
 
-// TestConvertKeepsWhatAGroupFormDraws is item 36's blanking regression: PDF/A-1
-// forbids the transparency group, so the form is rasterized -- and rasterizing
-// it against the page's resources instead of its own leaves the page blank
-// while the output is still conformant.
+// TestConvertKeepsWhatAGroupFormDraws verifies that the content of a
+// transparency group form survives conversion. PDF/A-1 forbids the transparency
+// group, so the form is rasterized, and rasterizing it against the page's
+// resources instead of its own leaves the page blank while the output is still
+// conformant.
 func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	cr, err := ConvertBytes(groupFormDoc(), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -549,9 +547,9 @@ func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	}
 }
 
-// TestConvertDoesNotPaintOverInvisibleContent is item 35's regression: the
-// conversion must reach conformance -- no opacity left below 1 -- without
-// drawing what the file says cannot be seen.
+// TestConvertDoesNotPaintOverInvisibleContent verifies that the conversion
+// reaches conformance, with no opacity left below 1, without drawing what the
+// file says cannot be seen.
 func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	cr, err := ConvertBytes(onePageDocWithZeroAlpha(drawnAtZeroOpacity), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {

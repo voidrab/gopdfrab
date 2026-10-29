@@ -72,7 +72,8 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 }
 
 // TestScanContentColourDetectsNestedXObjectRGB confirms scanContentColour
-// follows Do operators into nested Form XObjects when scanning for colours.
+// follows XObject invocations (Do) into nested Form XObjects when scanning for
+// colours.
 func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 	page, _ := buildNestedAPPage()
 
@@ -99,8 +100,8 @@ func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 }
 
 // TestPageDeviceColourModelsFindsNestedAppearanceRGB checks that a widget
-// annotation whose appearance stream Does a nested Form XObject with DeviceRGB
-// is correctly identified — the bug that caused 208 veraPDF 6.2.3.3 failures.
+// annotation whose appearance stream invokes a nested Form XObject with
+// DeviceRGB is identified as using the RGB colour model.
 func TestPageDeviceColourModelsFindsNestedAppearanceRGB(t *testing.T) {
 	page, resources := buildNestedAPPage()
 	used := pageDeviceColourModels(page, resources, nil)
@@ -235,8 +236,8 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Fown", owned)
 	xobjects.Entries.Set("Fborrowed", borrowed)
-	// The page already carries DefaultCMYK, which is what used to stop the
-	// injection reaching anything below it.
+	// The page already carries DefaultCMYK, so the form that borrows the page's
+	// resources needs no injection.
 	pageCS := pdf.NewPDFDict()
 	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
 	pageRes := pdf.NewPDFDict()
@@ -645,10 +646,11 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 }
 
 // TestDeviceColourFixerInjectsIntoTilingPatternResources covers a tiling
-// pattern the page paints with scn: like a form XObject it is checked in its
-// own /Resources, so the page's DefaultCMYK does not excuse the CMYK in its
-// cell and the pattern needs the entry too. Missing it left the violation to
-// the raster fallback, which cannot draw tiling patterns and dropped the fill.
+// pattern the page paints with the scn operator. Like a form XObject, the
+// pattern is checked in its own /Resources, so the page's DefaultCMYK does not
+// excuse the CMYK in its cell, and the pattern needs the entry too. Without the
+// entry the violation falls to the raster fallback, which cannot draw tiling
+// patterns and drops the fill.
 func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	pattern := streamDict("0 0 0 1 k\n0 0 10 10 re f")
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))

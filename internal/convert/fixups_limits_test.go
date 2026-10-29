@@ -344,12 +344,12 @@ func TestCMapCIDClampFixer(t *testing.T) {
 	}
 }
 
-// TestResourceAwareRewritePreservesUntouchedOperators is the
-// rewriteResourceAwareStream counterpart of
-// TestDeviceNRewritePreservesUntouchedOperators: operators the rename does
-// not touch must keep their own operands. Both rewriters used to retain the
-// content scanner's reused operand stack, which only shows up on a stream
-// holding more than one operator with operands.
+// TestResourceAwareRewritePreservesUntouchedOperators verifies that
+// rewriteResourceAwareStream leaves operators the rename does not touch with
+// their own operands, as TestDeviceNRewritePreservesUntouchedOperators does for
+// the deviceN rewriter. Both rewriters must copy operands out of the content
+// scanner's reused operand stack; the aliasing only shows on a stream with more
+// than one operator that has operands.
 func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
 	longKey := strings.Repeat("k", 200)
 	fontsDict := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -442,9 +442,10 @@ func degenerateFormResources() (resources, fonts, form pdf.PDFDict) {
 	return resources, fonts, form
 }
 
-// degenerateContent mixes malformed and repeated Do/gs operators around the
-// well-formed form invocation: operand-less Do, a non-name operand, an unknown
-// XObject, a second invocation of the same form, and a gs naming a category
+// degenerateContent mixes malformed and repeated XObject invocations (Do) and
+// graphics state selections (gs) around the well-formed form invocation: an
+// invocation without an operand, a non-name operand, an unknown XObject, a
+// second invocation of the same form, and a graphics state naming a category
 // the page lacks.
 const degenerateContent = "Do 1 Do /Missing Do /Fm1 Do /Fm1 Do /GS1 gs"
 
@@ -462,7 +463,8 @@ func TestComputeResourceUsageDegenerateOperators(t *testing.T) {
 		t.Errorf("usage recorded for %d categories, want 2 (the absent ExtGState records nothing)", len(used))
 	}
 
-	// A page whose resources lack an XObject category: Do marks nothing.
+	// A page whose resources lack an XObject category: an invocation marks
+	// nothing.
 	bare := pdf.PDFDict{Entries: pdf.DictOf(nil)}
 	if used := computeResourceUsage(contentPage("/Q Do", bare)); len(used) != 0 {
 		t.Errorf("usage = %v, want empty", used)

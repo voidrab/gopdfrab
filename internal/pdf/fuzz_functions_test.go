@@ -63,8 +63,7 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 
 // FuzzResolveColor drives the colour-space resolver with fuzz-built colour
 // spaces and a resources dictionary that may contain a self-referential named
-// colour space -- the shape that previously recursed forever. Invariant: no
-// panic and no infinite recursion.
+// colour space. Invariant: no panic and no infinite recursion.
 func FuzzResolveColor(f *testing.F) {
 	f.Add([]byte("Indexed"), byte(0)) // self-cycle via named lookup
 	f.Add([]byte("CS0"), byte(1))     // Indexed base recursion

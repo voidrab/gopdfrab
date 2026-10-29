@@ -477,8 +477,8 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 	}
 }
 
-// Non-standard info dict keys are permitted (veraPDF's 6-1-5-t02-pass-a.pdf
-// has a conformant /Description entry), so a custom key alone is not flagged.
+// Non-standard info dict keys are permitted, so a custom key alone is not
+// flagged.
 func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *testing.T) {
 	filename := "test.pdf"
 	content := []byte("")
@@ -2020,12 +2020,10 @@ func pageGraphWithContents(contents pdf.PDFDict) pdf.PDFDict {
 	return graph
 }
 
-// TestEncodedContentStreamStillReportsViolations is the original
-// reproduction: two documents with byte-identical page content and no
-// OutputIntent, differing only in how the content stream is encoded. The
-// RunLength-encoded one used to verify clean, because the decode failed and
-// the error was swallowed -- the verifier answering "yes" when it meant "I
-// couldn't look".
+// TestEncodedContentStreamStillReportsViolations verifies that the encoding of
+// a content stream does not change the verdict. Two documents with
+// byte-identical page content and no OutputIntent, differing only in how the
+// content stream is encoded, must report the same device-colour violation.
 func TestEncodedContentStreamStillReportsViolations(t *testing.T) {
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
@@ -2169,8 +2167,9 @@ func buildSuppressionGraph(t *testing.T, contents pdf.PDFDict) pdf.PDFDict {
 	return graph
 }
 
-// TestUndecodableContentDoesNotSuppressChecks pins the fail-safe half of the
-// swallowed-decode bug, in both directions.
+// TestUndecodableContentDoesNotSuppressChecks verifies the fail-safe side of
+// content-usage suppression in both directions: usage suppresses checks only
+// when the content stream decodes.
 //
 // Content usage drives four suppressions (unreachable Form XObjects, unshown
 // simple fonts, invisible-only fonts, unused CIDs). When a content stream
@@ -2215,9 +2214,9 @@ func TestUndecodableContentDoesNotSuppressChecks(t *testing.T) {
 }
 
 // TestUndecodableContentReportsItsPage covers page attribution on the usage
-// walk. That walk runs before verifyDocument's, which is what normally
-// maintains CurrentPage, so a decode failure there used to be reported as
-// document-level with no indication of which page was unreadable.
+// walk. That walk runs before verifyDocument's, which normally maintains
+// CurrentPage, so the walk sets CurrentPage to the page itself. A decode
+// failure is then reported against that page, not as document-level.
 func TestUndecodableContentReportsItsPage(t *testing.T) {
 	readable, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "re", Operands: []pdf.PDFValue{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(1)}},
@@ -2280,9 +2279,10 @@ func TestUndecodableContentReportsItsPage(t *testing.T) {
 
 const cryptFixtureDir = "../pdf/testdata/crypt"
 
-// TestVerifyEncryptedEmptyPassword confirms that an empty-password encrypted
-// file still flags the forbidden /Encrypt trailer entry (6.1.3), but -- now
-// that its streams decrypt -- no longer spuriously reports StreamUndecodable.
+// TestVerifyEncryptedEmptyPassword verifies that an encrypted file with an
+// empty user password reports the forbidden /Encrypt trailer entry (6.1.3)
+// and, because its streams are decrypted before decoding, does not report
+// StreamUndecodable.
 func TestVerifyEncryptedEmptyPassword(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(cryptFixtureDir, "enc_aesv3.pdf"))
 	if err != nil {

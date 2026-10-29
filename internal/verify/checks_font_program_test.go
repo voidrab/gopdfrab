@@ -719,8 +719,8 @@ func TestType1WidthScale(t *testing.T) {
 	}
 }
 
-// TestType1MetricsFontMatrix covers the case the skip used to drop: a 1/2000 em
-// program, whose charstring widths are twice what /Widths says.
+// TestType1MetricsFontMatrix covers a 1/2000 em program, whose charstring
+// widths are twice what /Widths says.
 func TestType1MetricsFontMatrix(t *testing.T) {
 	font := buildType1FontHeader("/FontMatrix [0.0005 0 0 0.0005 0 0] readonly def\n")
 	if w := fontprog.Type1GlyphWidths(font)["A"]; w != 250 {
@@ -1271,8 +1271,8 @@ func TestUndecodableFontProgramReportsBothChecks(t *testing.T) {
 
 // TestFontFile3BrokenCFFIsInvalid covers the FontFile3 arm of fontProgramValid:
 // a plausible CFF header is not a valid font. A good header with an
-// unparseable Top DICT used to pass 6.3.2 while the CID coverage and metrics
-// checks -- which need that same DICT -- silently skipped it.
+// unparseable Top DICT must not pass 6.3.2, since the CID coverage and metrics
+// checks need that same DICT and would otherwise skip the program silently.
 func TestFontFile3BrokenCFFIsInvalid(t *testing.T) {
 	// major=1, minor=0, hdrSize=4, offSize=1, then garbage where the Name
 	// INDEX should be.
@@ -1380,11 +1380,9 @@ func buildType1FontTwoGlyphs() []byte {
 // (width 500); /Differences remaps 65 to /B (width 700) and /Widths agrees
 // with the remapping, so the font is conformant.
 //
-// This used to report AdvanceWidthMismatch. The call site cast /Encoding to a
-// PDFName, so a dictionary read as absent, the built-in encoding was used
-// instead, and the width was compared against /A -- a false positive on a
-// correct file, and the reason the FontFile path needed the same /Differences
-// handling the FontFile3 path already had.
+// The call site must read /Encoding as a dictionary. Reading it as absent
+// would fall back to the built-in encoding, compare the width against /A, and
+// report AdvanceWidthMismatch on this correct file.
 func TestValidateType1MetricsHonoursDifferences(t *testing.T) {
 	font := buildType1FontTwoGlyphs()
 	if w := fontprog.Type1GlyphWidths(font); w["A"] != 500 || w["B"] != 700 {

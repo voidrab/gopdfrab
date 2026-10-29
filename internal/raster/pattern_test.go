@@ -49,7 +49,8 @@ func TestFillWithShadingPattern(t *testing.T) {
 	if left.R <= right.R || left.B >= right.B {
 		t.Errorf("no gradient across the fill: left %v, right %v", left, right)
 	}
-	// The fill must not paint the flat black a Pattern space used to leave.
+	// The fill must not paint the flat black that a Pattern colour space leaves
+	// behind.
 	if left.R < 100 {
 		t.Errorf("fill at (6,10) = %v, want the shading's red end", left)
 	}
@@ -57,8 +58,9 @@ func TestFillWithShadingPattern(t *testing.T) {
 	assertUnpainted(t, img, 17, 17, "outside the filled path")
 }
 
-// TestStrokeWithShadingPattern: SCN selects a stroke pattern, which paints
-// along the stroked path rather than falling back to a flat colour.
+// TestStrokeWithShadingPattern verifies that the stroke colour operator (SCN)
+// selects a stroke pattern, which paints along the stroked path rather than
+// falling back to a flat colour.
 func TestStrokeWithShadingPattern(t *testing.T) {
 	img, drops := renderPattern(t, "/Pattern CS /P1 SCN 4 w 0 10 m 20 10 l S", axialPattern())
 	if len(drops) != 0 {
@@ -94,7 +96,8 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 }
 
 // TestTilingPatternReportsDrop: a tiling pattern is not rendered, and must be
-// reported rather than painting the flat black a Pattern cs leaves behind.
+// reported rather than painting the flat black that a Pattern colour space
+// leaves behind.
 func TestTilingPatternReportsDrop(t *testing.T) {
 	pattern := pdf.PDFDict{
 		Entries: pdf.DictOf(map[string]pdf.PDFValue{

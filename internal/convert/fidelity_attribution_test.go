@@ -197,10 +197,10 @@ func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageS
 }
 
 // TestFidelityAttributionSelfCheck runs the harness where no corpus is needed,
-// over the shape item 35 was written about: a page whose content is a black
-// rectangle drawn at zero opacity. Making that opacity opaque is a repair that
-// draws over the page, and naming which repair did it is the whole point of
-// the harness -- so the answer is known in advance and can be asserted.
+// over a page whose content is a black rectangle drawn at zero opacity. Making
+// that opacity opaque is a repair that draws over the page, and naming which
+// repair did it is what the harness is for, so the answer is known in advance
+// and can be asserted.
 func TestFidelityAttributionSelfCheck(t *testing.T) {
 	dir := t.TempDir()
 	drawn := filepath.Join(dir, "zero-opacity.pdf")

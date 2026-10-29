@@ -316,9 +316,9 @@ func TestOpenBytesWithPassword(t *testing.T) {
 	}
 }
 
-// TestResultMarshalsToJSON confirms the public Result/PDFError/Check aliases
-// serialize to a populated, stable JSON shape rather than the empty objects
-// their unexported fields used to produce.
+// TestResultMarshalsToJSON verifies that the public Result, PDFError and Check
+// aliases serialize to a populated, stable JSON shape rather than to empty
+// objects.
 func TestResultMarshalsToJSON(t *testing.T) {
 	data, err := os.ReadFile("internal/pdf/testdata/crypt/enc_aesv3.pdf")
 	if err != nil {
@@ -414,10 +414,10 @@ func failFixturesByExpectedClause(t *testing.T) map[string]string {
 	return out
 }
 
-// TestUnsupportedLevelIsAnError: a profile whose level has no checks behind it
-// -- one the library does not know, or the empty level of a zero-value
-// Profile -- used to run nothing and report the file Valid. Verify and Convert
-// must refuse it instead, even with every check enabled.
+// TestUnsupportedLevelIsAnError verifies that Verify and Convert return an
+// error for a profile whose level has no checks, either a level the library
+// does not know or the empty level of a zero-value Profile, even with every
+// check enabled.
 func TestUnsupportedLevelIsAnError(t *testing.T) {
 	data := []byte(plainPDF)
 	for name, p := range map[string]*Profile{

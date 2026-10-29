@@ -170,7 +170,7 @@ func TestResolveCompressedObject(t *testing.T) {
 		}
 	})
 
-	// A wrong xref index used to return whichever object sat there.
+	// A wrong xref index is ignored: the object is found by its declared number.
 	for _, index := range []int{0, 99, -1} {
 		t.Run(fmt.Sprintf("wrong index %d found by number", index), func(t *testing.T) {
 			d := &Reader{objCache: map[int]PDFValue{5: buildObjStmDict()}}

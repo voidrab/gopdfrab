@@ -37,8 +37,7 @@ func lastPoint(t *testing.T, contours [][]Point) Point {
 // TestType2Subroutines pins that callsubr and callgsubr run the biased
 // local and global subroutine, that return resumes the caller, and that
 // endchar inside a subroutine ends the glyph. Subset CFF fonts route most
-// of their outlines through subroutines; skipping them drew glyphs with
-// whole segments missing.
+// of their outlines through subroutines.
 func TestType2Subroutines(t *testing.T) {
 	// Fewer than 1240 subrs: an operand of n-107 names subr n.
 	lsubrs := [][]byte{cs(nums(50, 0), []byte{5, 11})} // 50 0 rlineto return
@@ -102,8 +101,7 @@ func TestCFFProgramOutline(t *testing.T) {
 	}
 }
 
-// TestType2Flex pins the four flex operators, which draw two curves; they
-// used to be discarded as hint-only escapes.
+// TestType2Flex pins the four flex operators, each of which draws two curves.
 func TestType2Flex(t *testing.T) {
 	cases := []struct {
 		name string
@@ -301,7 +299,7 @@ func TestType1OtherSubrResults(t *testing.T) {
 
 // TestType1Seac pins standard accented-character composition: the base and
 // accent glyphs, named through StandardEncoding, with the accent offset by
-// (adx-asb, ady). It used to be skipped, leaving accented letters blank.
+// (adx-asb, ady).
 func TestType1Seac(t *testing.T) {
 	const acute = 0xC2 // StandardEncoding "acute"
 	box := func(sbx int) []byte {

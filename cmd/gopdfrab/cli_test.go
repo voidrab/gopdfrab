@@ -195,7 +195,7 @@ func TestConvertFlagErrors(t *testing.T) {
 	if code, _, _ := runCLI("convert"); code != exitError {
 		t.Errorf("convert with no input: exit=%d, want %d", code, exitError)
 	}
-	// A second output used to be silently ignored in favour of -o.
+	// Giving -o and a positional output together is rejected.
 	if code, _, stderr := runCLI("convert", "-o", "a.pdf", "x.pdf", "b.pdf"); code != exitError || !strings.Contains(stderr, "output path once") {
 		t.Errorf("convert with -o and a positional output: exit=%d stderr=%q", code, stderr)
 	}

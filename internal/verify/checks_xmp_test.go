@@ -592,9 +592,8 @@ func TestCheckPDFAIdentifier(t *testing.T) {
 // every shape XMP legitimately writes it: as attributes in either quote
 // character, and as child elements.
 //
-// Ghostscript -- which produces a large share of the real PDF/A in existence --
-// writes single-quoted attributes, and reading only double quotes made every
-// file it produces report a missing PDF/A identifier while veraPDF passed it.
+// Some producers write single-quoted attributes. Reading only double quotes
+// reports a missing PDF/A identifier for every such file.
 func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 	const ns = "http://www.aiim.org/pdfa/ns/id/"
 	cases := []struct {
@@ -625,7 +624,8 @@ func TestCheckPDFAIdentifierQuoteStyles(t *testing.T) {
 }
 
 // TestXMPNamespaceBindingQuoteStyles covers the same quoting rule on the
-// prefix->URI binding scan, whose capture groups the fix reshuffled.
+// prefix->URI binding scan, whose regular expression captures the URI from
+// either quote style.
 func TestXMPNamespaceBindingQuoteStyles(t *testing.T) {
 	xmp := `<rdf:Description xmlns:pdf="http://ns.adobe.com/pdf/1.3/" xmlns:dc='http://purl.org/dc/elements/1.1/'/>`
 	got := map[string]string{}
@@ -742,10 +742,10 @@ func TestXmpIsIntegerAndContainerOK(t *testing.T) {
 	}
 }
 
-// TestNonCatalogXMPUndecodableIsNotMisattributed covers the re-attribution: a
-// metadata stream that will not decode is a structural defect, not evidence
-// that the xpacket wrapper is missing. Conflating the two told the user to fix
-// the wrong thing.
+// TestNonCatalogXMPUndecodableIsNotMisattributed covers a metadata stream on a
+// non-catalog object that will not decode. That is a structural defect, not
+// evidence that the xpacket wrapper is missing, and must not be reported as
+// one.
 func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	broken := pdf.NewPDFDict()
 	broken.HasStream = true
@@ -789,13 +789,10 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 // comparison treats the two sides the same way the Title/Subject one does:
 // XML entities decoded, whitespace trimmed on both sides.
 //
-// Neither held before. An author name containing an "&" compared decoded text
-// against raw markup, and a value with leading whitespace was compared against
-// the checker's own trimmed copy of itself -- so two identical values were
-// reported out of sync. Both shapes are ordinary in real documents (arXiv
-// papers carry author lists with "&" and stray padding), and both survived
-// conversion, since convert builds the XMP from the very Info value being
-// compared.
+// Both sides must be normalised the same way. An author name containing "&"
+// would otherwise compare decoded text against raw markup, and a value with
+// leading whitespace would be compared against an already trimmed copy of
+// itself, reporting identical values as out of sync.
 func TestCheckInfoXMPSyncAuthorEquivalence(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1328,8 +1325,7 @@ func TestVerifyReportsNonCatalogXMPWithoutXPacket(t *testing.T) {
 
 // TestXMPExifFlashStructFields checks that every field of the exif Flash
 // structure (Fired, Return, Mode, Function, RedEyeMode) is a defined exif
-// property; the table once carried "pdf.Function" for Function after a
-// mechanical package-prefix rename.
+// property.
 func TestXMPExifFlashStructFields(t *testing.T) {
 	const exif = "http://ns.adobe.com/exif/1.0/"
 	for _, field := range []string{"Fired", "Return", "Mode", "Function", "RedEyeMode"} {

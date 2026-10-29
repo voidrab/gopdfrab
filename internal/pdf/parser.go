@@ -334,9 +334,9 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 // handles itself.
 //
 // Both dispatchers share this: parseObject below and resolver.go's
-// parseClassicAt, which reads an indirect object's body. They were separate
-// copies once and silently diverged on scalars and null, so the scalar cases
-// live here and the callers keep only what genuinely differs.
+// parseClassicAt, which reads an indirect object's body. Keeping the scalar
+// cases here ensures that both agree on scalars and null; the callers handle
+// only what differs between them.
 func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 	switch tok.Type {
 	case TokenKeyword:

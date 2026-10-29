@@ -13,8 +13,8 @@ import (
 
 // TestFontSubstitutionFixerHandlesStandardType1 verifies that a standard
 // Type1 font (like Helvetica in AcroForm/DR) without a FontDescriptor gets
-// a Liberation substitute embedded -- previously the fixer returned false
-// because FontDescriptor was absent.
+// a Liberation substitute embedded. An absent FontDescriptor must not make the
+// fixer report no change.
 func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})
@@ -60,9 +60,8 @@ func TestFontSubstitutionFixerHandlesStandardType1(t *testing.T) {
 // standard Type1 font with no FontDescriptor whose declared Widths are all
 // zero, so substituteSimpleFont bails (no characters actually need glyphs)
 // before writing anything. The fixer must not leave behind the scratch
-// FontDescriptor it created to attempt substitution -- doing so previously
-// planted an all-fields-missing descriptor where the PDF legitimately had
-// none.
+// FontDescriptor it created to attempt substitution, because a descriptor with
+// every field missing would be added where the PDF legitimately has none.
 func TestFontSubstitutionFixerLeavesNoDescriptorWhenSubstitutionSkipped(t *testing.T) {
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Type", pdf.PDFName{Value: "Font"})

@@ -168,8 +168,8 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool, spec *pdfa.Spec) {
 // deadAction reports whether v is an action dictionary that can no longer be
 // used -- a forbidden type, or one already emptied by this pass. /S is
 // required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
-// at a dict without one reads as an action of unknown type, which is what
-// clearing the action in place used to leave behind.
+// at a dict without one reads as an action of unknown type. Clearing an action
+// in place produces exactly that state.
 func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
 	d, ok := v.(pdf.PDFDict)
 	if !ok {
@@ -249,8 +249,8 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 // checks, mirroring validateExtGState in checks_dict.go, and repairs only the
 // keys whose checks were reported. It deliberately does not touch
 // Checks.Transparency.TransparencyGroup or ImageWithSoftMask (a different
-// detection function, and a "harder" fix per the converter plan: removing
-// the key is easy but changes rendered appearance).
+// detection function, and a harder fix: removing the key is easy but changes
+// rendered appearance).
 //
 // An opacity of zero is a special case, and the one place this fixer touches
 // content: what is drawn at zero opacity is taken out of the content stream

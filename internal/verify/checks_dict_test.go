@@ -9,9 +9,8 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestValidateActionsOwnerWithoutS covers what emptying a forbidden action in
-// place used to leave behind: an /A naming a dictionary with no /S, which is
-// an action of no known type.
+// TestValidateActionsOwnerWithoutS covers an /A that names a dictionary with
+// no /S, which is an action of no known type.
 func TestValidateActionsOwnerWithoutS(t *testing.T) {
 	owner := pdf.NewPDFDict()
 	owner.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -24,7 +23,7 @@ func TestValidateActionsOwnerWithoutS(t *testing.T) {
 	}
 
 	// On a structure element /A is an attribute dictionary, not an action, and
-	// it legitimately has no /S. Two veraPDF pass files rely on that.
+	// it legitimately has no /S.
 	elem := pdf.NewPDFDict()
 	elem.Entries.Set("Type", pdf.PDFName{Value: "StructElem"})
 	elem.Entries.Set("A", pdf.NewPDFDict())
@@ -486,8 +485,7 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 }
 
 // TestIsAnnotationDict pins how an annotation is recognised: /Type is optional
-// on one, and the real-world files that reached veraPDF's 6.5.3 without ever
-// reaching ours omitted it.
+// on one, so a dictionary without /Type is recognised by its /Subtype.
 func TestIsAnnotationDict(t *testing.T) {
 	link := pdf.NewPDFDict()
 	link.Entries.Set("Subtype", pdf.PDFName{Value: "Link"})

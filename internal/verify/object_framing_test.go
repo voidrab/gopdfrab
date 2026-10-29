@@ -9,8 +9,8 @@ import (
 )
 
 // TestIndirectObjectLimit pins 6.1.12's object-count limit at its boundary.
-// The check used to fire on an empty cross-reference table instead, so a
-// damaged xref was misreported and a genuinely oversized file never was.
+// The limit applies to the object count, so an empty cross-reference table
+// must not be reported as exceeding it.
 func TestIndirectObjectLimit(t *testing.T) {
 	maxIndirectObjects := a1b().Limits.MaxIndirectObjects
 	if got := indirectObjectLimit(0, a1b()); got != nil {

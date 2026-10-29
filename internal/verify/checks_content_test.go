@@ -37,7 +37,8 @@ func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("Annots", pdf.PDFArray{annot})
 
-	// Page resources carry DefaultRGB — the soundness bug made this excuse the AP.
+	// The page resources carry DefaultRGB, which must not excuse the appearance
+	// stream, since that stream has its own resource scope.
 	cs := pdf.NewPDFDict()
 	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
 	pageRes = pdf.NewPDFDict()
@@ -300,10 +301,9 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	}
 }
 
-// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB pins the resource scope
-// the walk sets: a form XObject bringing its own /Resources is checked in that
-// dict, so the page's /DefaultRGB no longer excuses the DeviceRGB inside it.
-// Real files hide uncovered device colour exactly there.
+// TestFormXObjectWithOwnResourcesLosesPageDefaultRGB verifies that a form
+// XObject with its own /Resources is checked against that dictionary, so the
+// page's /DefaultRGB does not excuse DeviceRGB used inside the form.
 func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
@@ -349,8 +349,8 @@ func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 }
 
 // TestPageContentFormXObjectStillInheritsPageDefaultRGB confirms the existing
-// behaviour: a Form XObject invoked from page content (via Do) is excused by the
-// page's /DefaultRGB via the ctx.resourceScope fallback — unaffected by Fix A.
+// behaviour: a Form XObject invoked from page content by the Do operator is
+// excused by the page's /DefaultRGB via the ctx.resourceScope fallback.
 func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	// Form XObject with DeviceRGB usage, no own resources.
 	fContent, err := writer.WriteContentStream([]writer.ContentOp{
@@ -383,9 +383,8 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 }
 
 // TestScanContentDictPredictorEncoded covers a content stream carrying a
-// PNG predictor. Predictors were only ever undone for xref and object
-// streams, so such a page decoded to garbage and its violations vanished --
-// the content-stream half of the missing-filter gap.
+// PNG predictor. The predictor must be undone for content streams as well as
+// for xref and object streams, so that the page's violations are found.
 func TestScanContentDictPredictorEncoded(t *testing.T) {
 	content, err := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},

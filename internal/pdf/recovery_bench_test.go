@@ -23,7 +23,7 @@ func buildManyObjectDoc(n int) []byte {
 // BenchmarkXRefRecovery compares a clean Open against Open of the same document
 // with its startxref destroyed, so the whole cross-reference table is rebuilt
 // by a full-file object scan. Running both at growing object counts shows the
-// recovery path stays linear (item 24: recovery must not be a DoS vector).
+// recovery path stays linear, so recovery is not a denial-of-service vector.
 func BenchmarkXRefRecovery(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
 		intact := buildManyObjectDoc(n)

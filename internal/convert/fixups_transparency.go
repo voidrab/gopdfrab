@@ -163,10 +163,10 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 
 // bakeStraySoftMasks composites out the soft mask of every image the page walk
 // above cannot see. 6.4 is reported against any image dictionary in the graph,
-// and an image reaches the graph by more routes than a resource dictionary --
-// a Photoshop /PieceInfo keeps one, and no amount of rasterizing the pages it
-// is not on will remove it. Images the walk already fixed no longer have a
-// soft mask, so this pass skips them on its own.
+// and an image can be reached by more routes than a resource dictionary: a
+// /PieceInfo entry keeps one, and no amount of rasterizing the pages it is not
+// on will remove it. Images the walk already fixed no longer have a soft mask,
+// so this pass skips them on its own.
 func bakeStraySoftMasks(trailer *pdf.PDFDict) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
@@ -326,8 +326,9 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	return out
 }
 
-// paintAtDo reads a content stream for the colour in force at each Do, which
-// is the colour the form it names inherits. First invocation wins: a form
+// paintAtDo reads a content stream for the colour in force at each XObject
+// invocation (Do), which is the colour the form it names inherits. First
+// invocation wins: a form
 // drawn twice under two colours cannot be flattened to suit both, and the
 // first is what the rest of the flattening assumes.
 func paintAtDo(content []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
@@ -410,8 +411,9 @@ func paintAtDo(content []byte, resources pdf.PDFDict) map[string]raster.Inherite
 }
 
 // pagePaintAtDo and formPaintAtDo read a page's or a form's content for the
-// colour each Do it makes inherits. A stream nothing can read hands out
-// nothing, and every form under it is rendered from the default state.
+// colour each XObject invocation (Do) it makes inherits. A stream nothing can
+// read hands out nothing, and every form under it is rendered from the default
+// state.
 func pagePaintAtDo(page pdf.PDFDict, resources pdf.PDFDict) map[string]raster.InheritedPaint {
 	content, err := raster.PageContentBytes(page)
 	if err != nil {
@@ -480,11 +482,11 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 // appearance sub-dictionaries keyed by state).
 //
 // An appearance stream is not in the page's /Resources, so the walk above
-// cannot see it -- but the verifier's graph walk reports violations there all
-// the same. Acrobat writes a signature's appearance as a Form XObject whose
-// nested Form carries /Group /S /Transparency, which is exactly this shape, so
-// without this every digitally signed document reported a 6.4 violation that
-// convert could not reach and the verify/fix loop could never converge.
+// cannot see it, but the verifier's graph walk reports violations there all
+// the same. A digital signature's appearance can be a Form XObject whose nested
+// Form carries /Group /S /Transparency. Without this walk, every signed
+// document reports a 6.4 violation that convert cannot reach, and the
+// verify/fix loop cannot converge.
 func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
@@ -627,12 +629,11 @@ func hasClearPixels(coverage *image.RGBA, channel int) bool {
 	return false
 }
 
-// fadeSoftMaskIntoImage blends a faint soft mask into the image's own samples,
-// which is what item 35 does with a partial opacity: what a picture looks like
-// at 20% over the page is a pale picture, and that can be stored as samples
-// where it cannot be stored as a stencil. The page is taken as white, the same
-// assumption the opacity repair makes and for the same reason -- a pale
-// picture is much less wrong than none at all.
+// fadeSoftMaskIntoImage blends a faint soft mask into the image's own samples.
+// What a picture looks like at 20% over the page is a pale picture, and that
+// can be stored as samples where it cannot be stored as a stencil. The page is
+// taken as white, as the opacity repair also assumes, because a pale picture is
+// much less wrong than none at all.
 //
 // A mask carrying /Matte holds the image premultiplied against that colour, so
 // the stored samples are undone by it before they are blended.
@@ -833,9 +834,9 @@ func opaqueGState(state pdf.PDFDict) bool {
 // flattenFormToImage rasterizes a Form XObject's own /BBox + content in
 // isolation (raster.RenderFormContent) and rewrites the Form in place to
 // paint a single fresh Image XObject filling that same BBox, dropping
-// /Group. The Form's own identity, /Matrix and every existing /Do reference
-// to it are untouched, so it keeps composing into the page exactly as
-// before -- it now just paints a flat image instead of a transparency group.
+// /Group. The Form's own identity, /Matrix and every XObject invocation (Do) of
+// it are kept, so it still composes into the page in the same way; it paints a
+// flat image in place of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
 func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited raster.InheritedPaint) (pdf.PDFDict, []string, bool) {
 	canvas, bbox, drops, err := raster.RenderFormContent(form, resources, dpi, inherited)

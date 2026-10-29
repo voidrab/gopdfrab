@@ -7,13 +7,12 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// PDF/A-1 caps a real at 32767, and the only repair for a violation used to be
-// to clamp the number. That is right for a dictionary value and wrong for a
-// coordinate: what the limit constrains is the number, but what the file means
-// is a position, and truncating one moves the other. A page drawn at 1/500
-// scale routinely puts a full-page rectangle at 365760 units, so clamping it
-// shrinks that rectangle to a corner -- and when the rectangle is a clip, the
-// whole page goes with it.
+// PDF/A-1 caps a real at 32767. Clamping the number is the repair for a
+// dictionary value but the wrong one for a coordinate: the limit constrains the
+// number, while the file means a position, and truncating one moves the other.
+// A page drawn at 1/500 scale routinely puts a full-page rectangle at 365760
+// units; clamping it shrinks the rectangle to a corner, and when the rectangle
+// is a clip, the whole page goes with it.
 //
 // This file repairs the position instead. The magnitude that does not fit in
 // the operand is folded into the CTM, so the drawing keeps its size and place
@@ -327,7 +326,8 @@ func scaleFor(largest, realLimit float64) float64 {
 	return 0
 }
 
-// scaleMatrix is the operand list of a cm that scales both axes by scale.
+// scaleMatrix is the operand list of a cm operator that scales both axes by
+// scale.
 func scaleMatrix(scale float64) []pdf.PDFValue {
 	s := pdf.PDFReal(scale)
 	return []pdf.PDFValue{s, pdf.PDFReal(0), pdf.PDFReal(0), s, pdf.PDFReal(0), pdf.PDFReal(0)}

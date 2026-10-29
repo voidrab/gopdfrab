@@ -200,12 +200,12 @@ func TestTransparencyFlattenerKeepsAnOpaqueGroupVector(t *testing.T) {
 // walks a page's annotation appearance streams, not only its /Resources.
 //
 // An appearance stream is not in the page's /Resources, but the verifier's
-// graph walk reports violations inside it all the same. Acrobat writes a
-// digital signature's appearance as nested Form XObjects whose innermost form
-// carries /Group /S /Transparency, so before this every signed document
-// reported a 6.4 violation the fixer could not reach: the verify/fix loop ran
-// its full four iterations, rasterized a page trying to make progress, and
-// still returned non-conformant output.
+// graph walk reports violations inside it all the same. A digital signature's
+// appearance is written as nested Form XObjects whose innermost form carries
+// /Group /S /Transparency. Without the annotation walk, every signed document
+// reports a 6.4 violation the fixer cannot reach: the verify/fix loop runs its
+// full four iterations, rasterizes a page while trying to make progress, and
+// still returns non-conformant output.
 func TestTransparencyFlattenerReachesAnnotationAppearances(t *testing.T) {
 	group := func() pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
@@ -312,7 +312,7 @@ func TestPackRGBSamples(t *testing.T) {
 
 // TestFlattenFormReportsDrops: a Form XObject the flattener rasterizes carries
 // its undrawable content out through the fixer's drop sink, tagged with the
-// page it sits on -- the page-level fallback's report never sees these.
+// page it sits on. The page-level fallback's report does not include these.
 func TestFlattenFormReportsDrops(t *testing.T) {
 	// An unresolvable shading is content the rasterizer must report losing.
 	form := pdf.PDFDict{
@@ -325,7 +325,8 @@ func TestFlattenFormReportsDrops(t *testing.T) {
 			})},
 		}),
 		HasStream: true,
-		// The gs keeps canDropGroupSafely from skipping the rasterization.
+		// The graphics state keeps canDropGroupSafely from skipping the
+		// rasterization.
 		RawStream: []byte("q /GS0 gs /Sh1 sh Q 0 0 0 rg 2 2 5 5 re f"),
 	}
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
@@ -627,7 +628,7 @@ func TestCollectXObjectTargetsWalk(t *testing.T) {
 }
 
 // groupFormDrawingIm0 builds a group Form XObject that paints /Im0 over its
-// whole BBox. The gs is there to keep canDropGroupSafely from dropping the
+// whole BBox. The graphics state keeps canDropGroupSafely from dropping the
 // group without rasterizing, which is the path under test.
 func groupFormDrawingIm0(resources pdf.PDFValue) pdf.PDFDict {
 	entries := map[string]pdf.PDFValue{
@@ -1556,7 +1557,7 @@ func TestPaintAtDo(t *testing.T) {
 			"q 0 0 1 rg 1 0 0 RG /Inner Do Q\n"+ // saved and restored around
 			"/AfterRestore Do\n"+
 			"/Gray cs 0.5 sc /Named Do\n"+
-			"1 g /Wrapper Do\n"), // a second Do does not overwrite the first
+			"1 g /Wrapper Do\n"), // a repeat does not overwrite the first
 		resources)
 
 	for _, tc := range []struct {
@@ -1578,17 +1579,18 @@ func TestPaintAtDo(t *testing.T) {
 		}
 	}
 
-	// Operands that are not a colour, and a Do with no name, leave no mark.
+	// Operands that are not a colour, and an XObject invocation (Do) with no
+	// name, leave no mark.
 	at = paintAtDo([]byte("g\nDo\n/P0 scn\n/Pattern Do\nQ\n"), resources)
 	if got := at["Pattern"]; got.Fill != [3]float64{} {
 		t.Errorf("a pattern colour was recorded as %v, want the default", got.Fill)
 	}
 }
 
-// TestFlattenFormKeepsTheColourItWasDrawnUnder is the page-sized wrapper shape
-// item 36 turned up: a form whose background fill names no colour, drawn under
-// the page's white. Rasterized from a page's own starting state it came back
-// solid black, which covered everything under it.
+// TestFlattenFormKeepsTheColourItWasDrawnUnder verifies that a page-sized form
+// whose background fill names no colour is flattened in the colour it is drawn
+// under, the page's white. Rasterized from the page's own starting state, such
+// a form comes out solid black and covers everything under it.
 func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	// A fresh one each time: flattening rewrites the form's own dictionary.
 	newForm := func() pdf.PDFDict {
@@ -1885,10 +1887,11 @@ func TestWalkPageTreeCapsDepth(t *testing.T) {
 	}
 }
 
-// TestPaintAtDoColourSpaceOperands: cs/CS selecting a space by a name the
-// resources do not define keeps the name itself (a device space spelled out),
-// CS sets the stroke space, and a cs/CS/Do without a usable name is skipped
-// without disturbing what is recorded.
+// TestPaintAtDoColourSpaceOperands: a cs operator selecting a space by a name
+// the resources do not define keeps the name itself (a device space spelled
+// out), a CS operator sets the stroke space, and a colour space operator or
+// XObject invocation (Do) without a usable name is skipped without disturbing
+// what is recorded.
 func TestPaintAtDoColourSpaceOperands(t *testing.T) {
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{

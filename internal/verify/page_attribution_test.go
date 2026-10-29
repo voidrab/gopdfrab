@@ -10,7 +10,8 @@ import (
 // TestLinkDestDoesNotTakeOverPage pins that a page reached mid-walk sets the
 // page for its own subtree only. Page 1 links to page 2, and /Annots sorts
 // before /Resources, so the walk enters page 2 through the link before it
-// reaches page 1's ExtGState. That /TR used to be reported on page 2.
+// reaches page 1's ExtGState. That /TR belongs to page 1, so it must not be
+// reported on page 2.
 func TestLinkDestDoesNotTakeOverPage(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot << /Type /StructTreeRoot /G << /Type /ExtGState /TR /Identity >> >> >>")

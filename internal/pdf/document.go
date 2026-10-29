@@ -310,8 +310,8 @@ func (d *Reader) ScanStreamFunc(dict PDFDict, fn func(op string, operands []PDFV
 // scanAndMaybeCache streams data through fn while building the list to memoize,
 // abandoning that list as soon as it outgrows what is left of the budget.
 //
-// Building the whole list first and consulting the budget afterwards -- which is
-// what this used to do -- bounds only what is retained. A tokenized content
+// Building the whole list first and consulting the budget afterwards bounds
+// only what is retained. A tokenized content
 // stream runs several times the decoded bytes it came from, so on a
 // content-heavy document that peak is the document's memory, and the budget
 // missed it entirely.
