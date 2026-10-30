@@ -115,6 +115,27 @@ func TestRepairNonSymbolicTrueTypeCmap(t *testing.T) {
 	}
 }
 
+// TestRepairNonSymbolicTrueTypeCmapSharedProgram verifies that a font program
+// two descriptors share is repaired for both: the other descriptor reads the
+// repaired bytes, and /Length1 matches them.
+func TestRepairNonSymbolicTrueTypeCmapSharedProgram(t *testing.T) {
+	shared := symbolOnlyTrueType()
+	a := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, shared)
+	b := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, shared)
+	repairNonSymbolicTrueTypeCmap(a)
+	if got := windowsCmapOf(t, b); got[0x00B0] != 1 {
+		t.Fatalf("other font's (3,1) = %v, want U+00B0 -> 1", got)
+	}
+	ff := b.Entries.Get("FontDescriptor").(pdf.PDFDict).Entries.Get("FontFile2").(pdf.PDFDict)
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := ff.Entries.Get("Length1"); n != pdf.PDFInteger(len(data)) {
+		t.Errorf("/Length1 = %v, want %d, the repaired program's length", n, len(data))
+	}
+}
+
 // TestRepairNonSymbolicTrueTypeCmapEdges verifies that without FirstChar and
 // LastChar every code is considered, and that a program that will not decode
 // is left alone.
