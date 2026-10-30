@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -21,11 +22,11 @@ import (
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
 func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, []string, error) {
-	content, err := PageContentBytes(page)
+	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(content, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop)
+	return renderContent(src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -40,14 +41,14 @@ func RenderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 		return nil, [4]float64{}, nil, fmt.Errorf("raster: missing or invalid Form /BBox")
 	}
 	box := [4]float64{bbox[0], bbox[1], bbox[2], bbox[3]}
-	content, err := pdf.DecodeStream(form)
+	src, err := pdf.DecodeStream(form)
 	if err != nil {
 		return nil, [4]float64{}, nil, err
 	}
 	// A form is drawn onto whatever the page already has, so it renders on
 	// nothing: what its content does not paint stays unpainted, and the caller
 	// keeps that as the mask of what it may cover.
-	canvas, drops, err := renderContent(content, resources, box, dpi, inherited, clearBackdrop)
+	canvas, drops, err := renderContent(src, resources, box, dpi, inherited, clearBackdrop)
 	return canvas, box, drops, err
 }
 
@@ -72,7 +73,7 @@ const (
 // renderContent is the shared core behind RenderPage and RenderFormContent:
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
+func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
 	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
@@ -92,7 +93,7 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 
 	scale := float64(dpi) / 72
 	// Device CTM: PDF user space origin bottom-left Y-up -> image space origin top-left Y-down.
-	base := Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
+	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
 	gs := renderState{
 		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},
@@ -105,7 +106,7 @@ func renderContent(content []byte, resources pdf.PDFDict, bounds [4]float64, dpi
 		gs.fillRGB, gs.strokeRGB = inherited.Fill, inherited.Stroke
 	}
 	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
-	r.execContent(content, resources, gs)
+	r.execContent(src, resources, gs)
 	return canvas, sortedDrops(r.dropped), nil
 }
 
@@ -153,7 +154,7 @@ func PageContentBytes(page pdf.PDFDict) ([]byte, error) {
 // renderState is the graphics state saved/restored by q/Q (the current path
 // under construction is tracked separately, since q/Q does not affect it).
 type renderState struct {
-	ctm                    Matrix
+	ctm                    content.Matrix
 	fillRGB, strokeRGB     [3]float64
 	fillCS, strokeCS       pdf.PDFValue
 	fillAlpha, strokeAlpha float64
@@ -174,7 +175,7 @@ type renderState struct {
 	leading    float64
 	rise       float64 // Ts: baseline offset in unscaled text space
 	renderMode int     // Tr: 3 and 7 are invisible (no marks)
-	tm, tlm    Matrix
+	tm, tlm    content.Matrix
 }
 
 // renderer carries the mutable bits shared across a RenderPage call: the
@@ -188,7 +189,7 @@ type renderer struct {
 	shadingCache map[uintptr]*shading
 	// patternBase maps the page's default user space to device space, which
 	// is what a pattern /Matrix is relative to (not the CTM in force).
-	patternBase Matrix
+	patternBase content.Matrix
 	depth       int
 	// dropped records content features the rasterizer cannot draw (and so
 	// silently omits from the flattened image), keyed by a human name.
@@ -214,32 +215,32 @@ func (r *renderer) drop(feature string) {
 // pathBuilder accumulates the current path's subpaths in user space, kept
 // outside renderState since q/Q does not save/restore it.
 type pathBuilder struct {
-	subpaths [][]Point
-	cur      []Point
-	start    Point
-	curPt    Point
+	subpaths [][]content.Point
+	cur      []content.Point
+	start    content.Point
+	curPt    content.Point
 }
 
-func (p *pathBuilder) moveTo(pt Point) {
+func (p *pathBuilder) moveTo(pt content.Point) {
 	if len(p.cur) > 0 {
 		p.subpaths = append(p.subpaths, p.cur)
 	}
-	p.cur = []Point{pt}
+	p.cur = []content.Point{pt}
 	p.start = pt
 	p.curPt = pt
 }
 
-func (p *pathBuilder) lineTo(pt Point) {
+func (p *pathBuilder) lineTo(pt content.Point) {
 	if len(p.cur) == 0 {
-		p.cur = []Point{p.curPt}
+		p.cur = []content.Point{p.curPt}
 	}
 	p.cur = append(p.cur, pt)
 	p.curPt = pt
 }
 
-func (p *pathBuilder) curveTo(c1, c2, end Point) {
+func (p *pathBuilder) curveTo(c1, c2, end content.Point) {
 	if len(p.cur) == 0 {
-		p.cur = []Point{p.curPt}
+		p.cur = []content.Point{p.curPt}
 	}
 	p.cur = append(p.cur, flattenCubic(p.curPt, c1, c2, end, 0.1)...)
 	p.curPt = end
@@ -253,22 +254,22 @@ func (p *pathBuilder) closePath() {
 }
 
 func (p *pathBuilder) rect(x, y, w, h float64) {
-	p.moveTo(Point{x, y})
-	p.lineTo(Point{x + w, y})
-	p.lineTo(Point{x + w, y + h})
-	p.lineTo(Point{x, y + h})
+	p.moveTo(content.Point{X: x, Y: y})
+	p.lineTo(content.Point{X: x + w, Y: y})
+	p.lineTo(content.Point{X: x + w, Y: y + h})
+	p.lineTo(content.Point{X: x, Y: y + h})
 	p.closePath()
 }
 
 // contours returns all subpaths transformed to device space by ctm.
-func (p *pathBuilder) deviceContours(ctm Matrix) [][]Point {
+func (p *pathBuilder) deviceContours(ctm content.Matrix) [][]content.Point {
 	all := p.subpaths
 	if len(p.cur) > 0 {
 		all = append(all, p.cur)
 	}
-	out := make([][]Point, 0, len(all))
+	out := make([][]content.Point, 0, len(all))
 	for _, sp := range all {
-		dp := make([]Point, len(sp))
+		dp := make([]content.Point, len(sp))
 		for i, pt := range sp {
 			dp[i] = ctm.Apply(pt)
 		}
@@ -325,27 +326,27 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			}
 		case "cm":
 			a := nums(6)
-			m := Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
+			m := content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 			gs.ctm = m.Mul(gs.ctm)
 		case "w":
 			a := nums(1)
 			gs.lineWidth = a[0]
 		case "m":
 			a := nums(2)
-			path.moveTo(Point{a[0], a[1]})
+			path.moveTo(content.Point{X: a[0], Y: a[1]})
 		case "l":
 			a := nums(2)
-			path.lineTo(Point{a[0], a[1]})
+			path.lineTo(content.Point{X: a[0], Y: a[1]})
 		case "c":
 			a := nums(6)
-			path.curveTo(Point{a[0], a[1]}, Point{a[2], a[3]}, Point{a[4], a[5]})
+			path.curveTo(content.Point{X: a[0], Y: a[1]}, content.Point{X: a[2], Y: a[3]}, content.Point{X: a[4], Y: a[5]})
 		case "v":
 			a := nums(4)
-			path.curveTo(path.curPt, Point{a[0], a[1]}, Point{a[2], a[3]})
+			path.curveTo(path.curPt, content.Point{X: a[0], Y: a[1]}, content.Point{X: a[2], Y: a[3]})
 		case "y":
 			a := nums(4)
-			end := Point{a[2], a[3]}
-			path.curveTo(Point{a[0], a[1]}, end, end)
+			end := content.Point{X: a[2], Y: a[3]}
+			path.curveTo(content.Point{X: a[0], Y: a[1]}, end, end)
 		case "h":
 			path.closePath()
 		case "re":
@@ -421,7 +422,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 		case "Do":
 			r.doXObject(operands, resources, &gs)
 		case "BT":
-			gs.tm, gs.tlm = IdentityMatrix, IdentityMatrix
+			gs.tm, gs.tlm = content.IdentityMatrix, content.IdentityMatrix
 		case "Tf":
 			r.applyTf(operands, resources, &gs)
 		case "Tc":
@@ -438,30 +439,30 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			gs.leading = a[0]
 		case "Td":
 			a := nums(2)
-			gs.tlm = Matrix{A: 1, D: 1, E: a[0], F: a[1]}.Mul(gs.tlm)
+			gs.tlm = content.Matrix{A: 1, D: 1, E: a[0], F: a[1]}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "TD":
 			a := nums(2)
 			gs.leading = -a[1]
-			gs.tlm = Matrix{A: 1, D: 1, E: a[0], F: a[1]}.Mul(gs.tlm)
+			gs.tlm = content.Matrix{A: 1, D: 1, E: a[0], F: a[1]}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tm":
 			a := nums(6)
-			gs.tlm = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
+			gs.tlm = content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 			gs.tm = gs.tlm
 		case "T*":
-			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
+			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 		case "Tj":
 			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "'":
-			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
+			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "\"":
 			a3 := nums(2) // aw ac on top, string is the operand itself, handled by shownStringBytes
 			gs.wordSpace, gs.charSpace = a3[0], a3[1]
-			gs.tlm = Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
+			gs.tlm = content.Matrix{A: 1, D: 1, F: -gs.leading}.Mul(gs.tlm)
 			gs.tm = gs.tlm
 			r.showText(pdf.ShownStringBytes(op, operands), resources, &gs)
 		case "TJ":
@@ -478,7 +479,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 	})
 }
 
-func boundsOfContours(contours [][]Point) (minX, minY, maxX, maxY float64) {
+func boundsOfContours(contours [][]content.Point) (minX, minY, maxX, maxY float64) {
 	first := true
 	for _, c := range contours {
 		for _, p := range c {
@@ -568,7 +569,7 @@ func clipToBounds(bounds image.Rectangle, rect [4]float64) image.Rectangle {
 
 // ctmScale approximates a uniform scale factor from ctm, used to convert a
 // PDF line width (in user-space units) to device-space pixels.
-func ctmScale(ctm Matrix) float64 {
+func ctmScale(ctm content.Matrix) float64 {
 	sx := math.Hypot(ctm.A, ctm.B)
 	sy := math.Hypot(ctm.C, ctm.D)
 	return (sx + sy) / 2
@@ -662,8 +663,8 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 			formRes = resources
 		}
 		childGS := *gs
-		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
-			fm := Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
+		if m, err := pdf.FloatArray(xobj.Entries.Get("content.Matrix")); err == nil && len(m) == 6 {
+			fm := content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 			childGS.ctm = fm.Mul(gs.ctm)
 		}
 		// The form paints only inside its /BBox (ISO 32000-1 8.10.1), mapped
@@ -699,7 +700,7 @@ func isTransparencyGroup(group pdf.PDFDict) bool {
 // alpha 1, and the result is composited onto the current canvas at alpha, the
 // fill alpha in effect where the group is drawn. Every group is treated as
 // isolated and non-knockout.
-func (r *renderer) paintGroup(content []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
+func (r *renderer) paintGroup(data []byte, resources pdf.PDFDict, gs renderState, alpha float64) {
 	area := clipToBounds(r.canvas.Bounds(), gs.clip)
 	if area.Empty() {
 		return
@@ -707,7 +708,7 @@ func (r *renderer) paintGroup(content []byte, resources pdf.PDFDict, gs renderSt
 	backdrop := r.canvas
 	r.canvas = image.NewRGBA(area)
 	gs.fillAlpha, gs.strokeAlpha = 1, 1
-	r.execContent(content, resources, gs)
+	r.execContent(data, resources, gs)
 	group := r.canvas
 	r.canvas = backdrop
 
@@ -828,7 +829,7 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 	if !ok {
 		return
 	}
-	corners := []Point{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
+	corners := []content.Point{{X: 0, Y: 0}, {X: 1, Y: 0}, {X: 1, Y: 1}, {X: 0, Y: 1}}
 	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, c := range corners {
 		p := ctm.Apply(c)
@@ -842,7 +843,7 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 
 	for y := y0; y < y1; y++ {
 		for x := x0; x < x1; x++ {
-			p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
+			p := inv.Apply(content.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
 			if p.X < 0 || p.X >= 1 || p.Y < 0 || p.Y >= 1 {
 				continue
 			}
@@ -910,7 +911,7 @@ func (r *renderer) showTextArray(operands []pdf.PDFValue, resources pdf.PDFDict,
 		default:
 			if adj, ok := pdf.PDFNumberToFloat(v); ok {
 				shift := -adj / 1000 * gs.fontSize * gs.hScale
-				gs.tm = Matrix{A: 1, D: 1, E: shift}.Mul(gs.tm)
+				gs.tm = content.Matrix{A: 1, D: 1, E: shift}.Mul(gs.tm)
 			}
 		}
 	}
@@ -954,18 +955,18 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 				r.drawType3Glyph(fi, code, resources, gs)
 			}
 			advance := (width*fi.fontMatrix.A*gs.fontSize + gs.charSpace + type3WordSpace(code, gs)) * gs.hScale
-			gs.tm = Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
+			gs.tm = content.Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
 			continue
 		}
 
 		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
 			// rise) -> user space (tm) -> device (ctm).
-			glyphToText := Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
+			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
 			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.ctm)
-			contours := make([][]Point, len(gp.Contours))
+			contours := make([][]content.Point, len(gp.Contours))
 			for ci, c := range gp.Contours {
-				dc := make([]Point, len(c))
+				dc := make([]content.Point, len(c))
 				for pi, p := range c {
 					dc[pi] = textToDevice.Apply(p)
 				}
@@ -979,7 +980,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			ws = gs.wordSpace
 		}
 		advance := (width/1000*gs.fontSize + gs.charSpace + ws) * gs.hScale
-		gs.tm = Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
+		gs.tm = content.Matrix{A: 1, D: 1, E: advance}.Mul(gs.tm)
 	}
 }
 
@@ -994,7 +995,7 @@ type fontInfo struct {
 	glyphFor     func(code int) (GlyphPath, bool)
 
 	charProcs   map[int]pdf.PDFDict
-	fontMatrix  Matrix
+	fontMatrix  content.Matrix
 	t3Resources pdf.PDFDict
 }
 
@@ -1245,10 +1246,10 @@ func (r *renderer) patternShading(pattern pdf.PDFDict) (*shading, bool) {
 // patternToDevice maps a pattern's own space to device space. A pattern
 // matrix is relative to the default coordinate system of the page (or form)
 // it is used in, not to the CTM in force when it is selected.
-func (r *renderer) patternToDevice(pattern pdf.PDFDict) Matrix {
-	m := IdentityMatrix
-	if a, err := pdf.FloatArray(pattern.Entries.Get("Matrix")); err == nil && len(a) == 6 {
-		m = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
+func (r *renderer) patternToDevice(pattern pdf.PDFDict) content.Matrix {
+	m := content.IdentityMatrix
+	if a, err := pdf.FloatArray(pattern.Entries.Get("content.Matrix")); err == nil && len(a) == 6 {
+		m = content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	return m.Mul(r.patternBase)
 }
@@ -1291,7 +1292,7 @@ func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y
 		return nil, false
 	}
 	return func(x, y int) ([3]float64, float64) {
-		p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
+		p := inv.Apply(content.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
 		rgb, painted := sh.colorAt(p.X, p.Y)
 		if !painted {
 			return [3]float64{}, 0
@@ -1304,7 +1305,7 @@ func (r *renderer) patternSampler(pattern pdf.PDFDict, alpha float64) (func(x, y
 // whether it handled the paint. Mesh patterns fall back to painting the mesh
 // over the path's bounding box, the same approximation the renderer already
 // makes for clipping.
-func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]Point, pattern pdf.PDFDict, gs *renderState, evenOdd bool, stroke bool) bool {
+func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Point, pattern pdf.PDFDict, gs *renderState, evenOdd bool, stroke bool) bool {
 	if pattern.Entries == nil {
 		return false
 	}
@@ -1336,7 +1337,7 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]Point, patt
 // paintShading fills area by mapping each device pixel back through
 // shadingToDevice and sampling the shading there. Mesh shadings define no
 // such field and are drawn as geometry instead.
-func (r *renderer) paintShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
 	if sh.isMesh() {
 		r.paintMeshShading(sh, shadingToDevice, alpha, area)
 		return
@@ -1347,7 +1348,7 @@ func (r *renderer) paintShading(sh *shading, shadingToDevice Matrix, alpha float
 	}
 	for y := area.Min.Y; y < area.Max.Y; y++ {
 		for x := area.Min.X; x < area.Max.X; x++ {
-			p := inv.Apply(Point{float64(x) + 0.5, float64(y) + 0.5})
+			p := inv.Apply(content.Point{X: float64(x) + 0.5, Y: float64(y) + 0.5})
 			rgb, ok := sh.colorAt(p.X, p.Y)
 			if !ok {
 				continue
@@ -1389,7 +1390,7 @@ func (r *renderer) namedShading(operands []pdf.PDFValue, resources pdf.PDFDict) 
 }
 
 // paintMeshShading decodes the mesh stream and paints it, clipped to area.
-func (r *renderer) paintMeshShading(sh *shading, shadingToDevice Matrix, alpha float64, area image.Rectangle) {
+func (r *renderer) paintMeshShading(sh *shading, shadingToDevice content.Matrix, alpha float64, area image.Rectangle) {
 	if area.Empty() || alpha <= 0 {
 		return
 	}
@@ -1448,11 +1449,11 @@ func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFD
 	// Glyph space -> text space (the font matrix) -> user space (font size,
 	// horizontal scale and rise, then the text matrix) -> device.
 	child.ctm = fi.fontMatrix.
-		Mul(Matrix{A: gs.fontSize * gs.hScale, D: gs.fontSize, F: gs.rise}).
+		Mul(content.Matrix{A: gs.fontSize * gs.hScale, D: gs.fontSize, F: gs.rise}).
 		Mul(gs.tm).
 		Mul(gs.ctm)
 	// The glyph procedure starts its own text object if it shows text at all.
-	child.tm, child.tlm = IdentityMatrix, IdentityMatrix
+	child.tm, child.tlm = content.IdentityMatrix, content.IdentityMatrix
 	child.font = pdf.PDFDict{}
 
 	r.depth++

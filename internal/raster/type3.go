@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -18,9 +19,9 @@ func buildType3FontInfo(font pdf.PDFDict) *fontInfo {
 
 	// A Type 3 /FontMatrix is required and arbitrary; 1/1000 only matches the
 	// common case of a font emulating the usual glyph space.
-	fi.fontMatrix = Matrix{A: 0.001, D: 0.001}
+	fi.fontMatrix = content.Matrix{A: 0.001, D: 0.001}
 	if m, err := pdf.FloatArray(font.Entries.Get("FontMatrix")); err == nil && len(m) == 6 {
-		fi.fontMatrix = Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
+		fi.fontMatrix = content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 	}
 
 	firstChar, ok := font.Entries.Get("FirstChar").(pdf.PDFInteger)

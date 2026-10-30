@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"strconv"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/content"
 )
 
 // glyfTables wraps raw glyph records in a minimal short-loca sfnt table set
@@ -119,7 +121,7 @@ func TestGlyphOutlineFromType1(t *testing.T) {
 	if !ok || len(path.Contours) != 1 || len(path.Contours[0]) != 4 {
 		t.Fatalf("sq = %v ok=%v, want one 4-point contour", path.Contours, ok)
 	}
-	if path.Contours[0][0] != (Point{10, 10}) {
+	if path.Contours[0][0] != (content.Point{X: 10, Y: 10}) {
 		t.Errorf("sq starts at %v, want {10 10}", path.Contours[0][0])
 	}
 

@@ -1,11 +1,14 @@
 package raster
 
-import "github.com/voidrab/gopdfrab/internal/fontprog"
+import (
+	"github.com/voidrab/gopdfrab/internal/content"
+	"github.com/voidrab/gopdfrab/internal/fontprog"
+)
 
 // GlyphPath is a glyph outline flattened to straight-line contours, scaled
 // to a 1000-unit em (matching ttAdvanceWidth's PDF-units convention).
 type GlyphPath struct {
-	Contours [][]Point
+	Contours [][]content.Point
 }
 
 // glyphOutlineFromTrueType extracts gid's outline from a parsed TrueType
@@ -32,9 +35,9 @@ func glyphOutlineFromTrueType(tables map[string][]byte, gid int) (GlyphPath, boo
 
 // contourSink flattens a glyph outline into polygon contours.
 type contourSink struct {
-	contours [][]Point
-	cur      []Point
-	at       Point
+	contours [][]content.Point
+	cur      []content.Point
+	at       content.Point
 }
 
 // glyphPath closes the open contour and returns the outline drawn.
@@ -52,18 +55,18 @@ func (s *contourSink) closeContour() {
 
 func (s *contourSink) MoveTo(x, y float64) {
 	s.closeContour()
-	s.at = Point{x, y}
-	s.cur = []Point{s.at}
+	s.at = content.Point{X: x, Y: y}
+	s.cur = []content.Point{s.at}
 }
 
 func (s *contourSink) LineTo(x, y float64) {
-	s.at = Point{x, y}
+	s.at = content.Point{X: x, Y: y}
 	s.cur = append(s.cur, s.at)
 }
 
 func (s *contourSink) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
-	p3 := Point{x3, y3}
-	s.cur = append(s.cur, flattenCubic(s.at, Point{x1, y1}, Point{x2, y2}, p3, 1.0)...)
+	p3 := content.Point{X: x3, Y: y3}
+	s.cur = append(s.cur, flattenCubic(s.at, content.Point{X: x1, Y: y1}, content.Point{X: x2, Y: y2}, p3, 1.0)...)
 	s.at = p3
 }
 

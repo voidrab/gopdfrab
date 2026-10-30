@@ -5,9 +5,9 @@ import (
 	"math"
 	"slices"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
-	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -183,8 +183,8 @@ type unnester struct {
 // may be closed there.
 func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]writer.ContentOp, bool) {
 	out := make([]writer.ContentOp, 0, len(ops))
-	ctm := raster.IdentityMatrix
-	var saved []raster.Matrix
+	ctm := content.IdentityMatrix
+	var saved []content.Matrix
 	inText := false
 	for i := 0; i < len(ops); i++ {
 		op := ops[i]
@@ -227,7 +227,7 @@ func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]wri
 // extract builds the form XObject holding inner, a block's content without
 // its q and Q, and returns the operator that draws it. ctm maps the block's
 // space into the space visible is given in.
-func (u *unnester) extract(inner []writer.ContentOp, ctm raster.Matrix, visible rect) (writer.ContentOp, bool) {
+func (u *unnester) extract(inner []writer.ContentOp, ctm content.Matrix, visible rect) (writer.ContentOp, bool) {
 	inv, ok := ctm.Invert()
 	if !ok {
 		return writer.ContentOp{}, false
@@ -332,24 +332,24 @@ func selfContained(ops []writer.ContentOp) bool {
 }
 
 // cmMatrix reads a cm operator's six operands.
-func cmMatrix(operands []pdf.PDFValue) (raster.Matrix, bool) {
+func cmMatrix(operands []pdf.PDFValue) (content.Matrix, bool) {
 	if len(operands) != 6 {
-		return raster.Matrix{}, false
+		return content.Matrix{}, false
 	}
 	var v [6]float64
 	for i, o := range operands {
 		f, ok := numericValue(o)
 		if !ok {
-			return raster.Matrix{}, false
+			return content.Matrix{}, false
 		}
 		v[i] = f
 	}
-	return raster.Matrix{A: v[0], B: v[1], C: v[2], D: v[3], E: v[4], F: v[5]}, true
+	return content.Matrix{A: v[0], B: v[1], C: v[2], D: v[3], E: v[4], F: v[5]}, true
 }
 
 // transformRect maps r through m and returns the bounds of the result.
-func transformRect(r rect, m raster.Matrix) rect {
-	corners := [4]raster.Point{{X: r[0], Y: r[1]}, {X: r[2], Y: r[1]}, {X: r[0], Y: r[3]}, {X: r[2], Y: r[3]}}
+func transformRect(r rect, m content.Matrix) rect {
+	corners := [4]content.Point{{X: r[0], Y: r[1]}, {X: r[2], Y: r[1]}, {X: r[0], Y: r[3]}, {X: r[2], Y: r[3]}}
 	out := rect{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 	for _, c := range corners {
 		p := m.Apply(c)

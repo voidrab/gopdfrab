@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
@@ -72,7 +73,7 @@ func TestGlyphOutlineFromTrueTypeSpaceIsEmpty(t *testing.T) {
 	}
 }
 
-func boundsOf(contours [][]Point) (minX, minY, maxX, maxY float64) {
+func boundsOf(contours [][]content.Point) (minX, minY, maxX, maxY float64) {
 	first := true
 	for _, c := range contours {
 		for _, p := range c {
@@ -114,13 +115,13 @@ func TestContourSink(t *testing.T) {
 		t.Fatalf("contours = %v, want two", got)
 	}
 	c := got[0]
-	if c[0] != (Point{10, 0}) || c[1] != (Point{20, 0}) || c[len(c)-1] != (Point{40, 20}) {
+	if c[0] != (content.Point{X: 10, Y: 0}) || c[1] != (content.Point{X: 20, Y: 0}) || c[len(c)-1] != (content.Point{X: 40, Y: 20}) {
 		t.Errorf("first contour = %v, want {10 0} {20 0} ... {40 20}", c)
 	}
 	if len(c) < 4 {
 		t.Errorf("curve was not flattened: %v", c)
 	}
-	if got[1][0] != (Point{5, 5}) || got[1][1] != (Point{5, 6}) {
+	if got[1][0] != (content.Point{X: 5, Y: 5}) || got[1][1] != (content.Point{X: 5, Y: 6}) {
 		t.Errorf("second contour = %v, want {5 5} {5 6}", got[1])
 	}
 }

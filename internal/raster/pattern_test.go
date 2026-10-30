@@ -204,7 +204,7 @@ func TestIsPatternColorSpace(t *testing.T) {
 func shiftedAxial(matrix pdf.PDFValue, extend bool) pdf.PDFDict {
 	p := axialPattern()
 	if matrix != nil {
-		p.Entries.Set("Matrix", matrix)
+		p.Entries.Set("content.Matrix", matrix)
 	}
 	if !extend {
 		sh := p.Entries.Get("Shading").(pdf.PDFDict)
