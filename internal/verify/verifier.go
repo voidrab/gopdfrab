@@ -296,11 +296,16 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 		return pt
 	}
 
+	ctx := &ValidationContext{
+		reader:     d,
+		Spec:       &spec,
+		schemaOnly: schemaOnly,
+		run:        run,
+		dictRules:  enabledRules(dictRules, p, func(r dictRule) []pdf.Check { return r.checks }),
+	}
+	docChecks := func(r docRule) []pdf.Check { return r.checks }
 	if !schemaOnly {
-		errs := verifyDocumentInformationDictionary(graph)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
+		issues = append(issues, runDocRules(enabledRules(preWalkDocRules, p, docChecks), d, graph, ctx)...)
 	}
 
 	pageIndex, err := d.BuildPageIndex(graph)
@@ -315,13 +320,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	if run.Err() != nil {
 		return pt
 	}
-	ctx := &ValidationContext{
-		PageIndex:  pageIndex,
-		reader:     d,
-		Spec:       &spec,
-		schemaOnly: schemaOnly,
-		run:        run,
-	}
+	ctx.PageIndex = pageIndex
 	if !schemaOnly {
 		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
 		// An object degraded to null makes the usage sets a subset of the
@@ -358,26 +357,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 		pt.Graph = issues
 		return pt
 	}
-	errs := verifyOptionalContent(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyOutputIntent(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyInteractiveForms(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyXMPMetadata(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = checkNonCatalogXMPStreams(graph, ctx)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
+	issues = append(issues, runDocRules(enabledRules(postWalkDocRules, p, docChecks), d, graph, ctx)...)
 	pt.Graph = issues
 
 	pt.PostStructural = structuralPostIssues(d, spec)
@@ -911,23 +891,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if first && !ctx.schemaOnly {
-				if v.IsStream() {
-					validateStreamObject(v, ctx)
+				for _, r := range ctx.enabledDictRules() {
+					r.fn(v, ctx)
 				}
-
-				validateObject(v, ctx)
-				validateActions(v, ctx)
-				validateAdditionalActions(v, ctx)
-				validateExtGState(v, ctx)
-				validateTransparencyGroup(v, ctx)
-				validateXObjectDict(v, ctx)
-				validateAnnotation(v, ctx)
-				validateFormField(v, ctx)
-				validateColourSpaceUsage(v, ctx)
-				validateContentStreams(v, ctx)
-				ValidateFontDict(v, ctx)
-				validateCMapStream(v, ctx)
-				validateViewerPreferences(v, ctx)
 			}
 			if expectedType != "" {
 				validateAgainstSchema(v, expectedType, ctx)
@@ -1462,6 +1428,9 @@ func validateHexString(v pdf.PDFHexString, owner pdf.PDFValue, ctx *ValidationCo
 
 // validateStreamObject validates requirements outlined in 6.1.7 and 6.1.10.
 func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
+	if !v.IsStream() {
+		return
+	}
 	if v.Entries.Get("F") != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileSpec, v, "stream object contains invalid key F")
 	}

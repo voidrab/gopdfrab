@@ -53,6 +53,9 @@ notice.
 - Conversion allocates less: on an object-heavy file, about a third fewer
   allocations and 28% fewer bytes, a 12% lower peak heap and about 15% less
   time. Verification allocates 6–14% less.
+- Verify skips a family of checks, such as the font or XMP checks, when the
+  profile enables none of its checks, rather than running it and filtering
+  its findings out.
 
 ### Deprecated
 

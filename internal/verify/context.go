@@ -80,6 +80,10 @@ type ValidationContext struct {
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
 	schemaOnly bool
 
+	// dictRules are the dict rules the profile enables, run on each dict of
+	// the walk. Nil, in a context built outside a verify, runs them all.
+	dictRules []dictRule
+
 	// resourceScope is the resource dictionary in force where the walk
 	// currently is: the nearest /Resources at or above it. Default* colour
 	// spaces (6.2.3.3) are looked up there, so content in a form XObject with
