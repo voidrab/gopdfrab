@@ -114,17 +114,24 @@ func TestParseClassicXRefTableReaderPath(t *testing.T) {
 		t.Errorf("subsection header with the wrong field count ends the table: err = %v", err)
 	}
 
-	src := newFaulty("xref\n0 1")
-	src.readLimit = len("xref\n0 1")
+	// A section longer than the first window, whose widening read fails.
+	src := newFaulty("xref\n0 1000\n" + strings.Repeat("0000000017 00000 n \n", 1000))
+	src.failReadAt = func(n int) bool { return n == 2 }
 	d := &Reader{file: src, size: int64(src.Len())}
 	if err := d.parseXRefTable(0); !errors.Is(err, errInjected) {
-		t.Errorf("read failure mid subsection header: err = %v, want the injected failure", err)
+		t.Errorf("read failure mid section: err = %v, want the injected failure", err)
+	}
+	src = newFaulty("xref\n")
+	src.failReadAt = func(int) bool { return true }
+	d = &Reader{file: src, size: int64(src.Len())}
+	if err := d.parseXRefTable(0); !errors.Is(err, errInjected) {
+		t.Errorf("read failure at the keyword: err = %v, want the injected failure", err)
 	}
 }
 
-func TestParseXRefSectionAtReadFailureMidHeader(t *testing.T) {
-	src := newFaulty("xref\n0 1")
-	src.readLimit = len("xref\n0 1")
+func TestParseXRefSectionAtReadFailureMidSection(t *testing.T) {
+	src := newFaulty("xref\n0 1000\n" + strings.Repeat("0000000017 00000 n \n", 1000))
+	src.failReadAt = func(n int) bool { return n == 2 }
 	d := &Reader{file: src, size: int64(src.Len()), xrefTable: map[int]int64{}}
 	if _, err := d.ParseXRefSectionAt(0, false); err == nil {
 		t.Error("expected an error: the trailer is unreachable")

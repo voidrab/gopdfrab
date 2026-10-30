@@ -7,21 +7,6 @@ import (
 	"testing"
 )
 
-func TestReadLineBytes(t *testing.T) {
-	if _, _, ok := readLineBytes([]byte("x"), 5); ok {
-		t.Error("readLineBytes past the end reported ok")
-	}
-	if line, next, ok := readLineBytes([]byte("abc"), 0); !ok || string(line) != "abc" || next != 3 {
-		t.Errorf("readLineBytes(no terminator) = %q, %d, %v", line, next, ok)
-	}
-	if line, next, ok := readLineBytes([]byte("ab\ncd"), 0); !ok || string(line) != "ab" || next != 3 {
-		t.Errorf("readLineBytes(LF) = %q, %d, %v", line, next, ok)
-	}
-	if line, next, ok := readLineBytes([]byte("ab\r\ncd"), 0); !ok || string(line) != "ab" || next != 4 {
-		t.Errorf("readLineBytes(CRLF) = %q, %d, %v", line, next, ok)
-	}
-}
-
 func TestXrefEntryOffset(t *testing.T) {
 	cases := []struct {
 		field string
