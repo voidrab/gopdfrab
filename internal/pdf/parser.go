@@ -11,10 +11,9 @@ import (
 )
 
 // xrefEntryOffset parses the 10-byte offset field of a classic xref entry
-// without allocating. trimPadding mirrors ParseXRefSectionAt's historical
-// TrimSpace tolerance for space-padded fields; without it all ten bytes must
-// be digits (parseXRefTable's strictness). A malformed field yields 0,
-// matching the ignored strconv errors this replaces.
+// without allocating. When trimPadding is true, spaces around the digits are
+// ignored; otherwise every byte of the field must be a digit, as in
+// readXRefSection's strict mode. A malformed field yields 0.
 func xrefEntryOffset(field []byte, trimPadding bool) int64 {
 	if trimPadding {
 		field = bytes.TrimSpace(field)
@@ -41,7 +40,8 @@ func (d *Reader) parseXRefTable(offset int64) error {
 }
 
 // ParseXRefSectionAt parses the xref table and trailer dict at offset.
-// If fillIn is true, only entries not already in d.xrefTable are added, preserving newer revisions.
+// If fillIn is true, only entries not already in d.xrefTable are added,
+// preserving newer revisions.
 func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) {
 	c, err := d.readXRefSection(offset, false, fillIn)
 	if err != nil {

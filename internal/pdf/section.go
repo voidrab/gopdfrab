@@ -103,8 +103,8 @@ func (c *SectionCursor) Next(n int) ([]byte, bool) {
 	return b, true
 }
 
-// Rest returns up to n bytes from the read position on, without reading
-// them.
+// Rest returns up to n bytes from the read position on, without advancing
+// past them.
 func (c *SectionCursor) Rest(n int) []byte {
 	c.ensure(n)
 	return c.buf[c.pos:min(c.pos+n, len(c.buf))]
