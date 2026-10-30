@@ -15,7 +15,8 @@ type Point struct {
 }
 
 // Mul composes two matrices so that applying the result equals applying m
-// then n (PDF's cm semantics: the new CTM is m concatenated with n).
+// then n. For the transformation-matrix operator (cm) with operand m, the new
+// current transformation matrix is m.Mul(ctm).
 func (m Matrix) Mul(n Matrix) Matrix {
 	return Matrix{
 		A: m.A*n.A + m.B*n.C,
