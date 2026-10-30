@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -387,31 +386,6 @@ func TestRenderPageImageWithStencilMask(t *testing.T) {
 	}
 }
 
-func TestGlyphNameToWinAnsiCode(t *testing.T) {
-	if c, ok := glyphNameToWinAnsiCode("A"); !ok || c != 65 {
-		t.Errorf("glyphNameToWinAnsiCode(A) = %d, %v", c, ok)
-	}
-	if _, ok := glyphNameToWinAnsiCode("no_such_glyph"); ok {
-		t.Error("glyphNameToWinAnsiCode(unknown) should be false")
-	}
-}
-
-func TestSimpleCodeToGID(t *testing.T) {
-	gidMap := map[uint16]uint16{'A': 10, 66: 20}
-	var names [256]string
-	names[65] = "A"
-	if gid := simpleCodeToGID(gidMap, 65, names); gid != 10 {
-		t.Errorf("simpleCodeToGID via name = %d, want 10", gid)
-	}
-	if gid := simpleCodeToGID(gidMap, 66, [256]string{}); gid != 20 {
-		t.Errorf("simpleCodeToGID direct = %d, want 20", gid)
-	}
-	if gid := simpleCodeToGID(nil, 99, [256]string{}); gid != 99 {
-		t.Errorf("simpleCodeToGID nil map = %d, want passthrough 99", gid)
-	}
-	_ = fontprog.WinAnsiToUnicode // ensure the encoding table is linked
-}
-
 // TestRenderPageOperatorCoverage drives RenderPage with a content stream that
 // exercises the full operator dispatch: path construction, every fill/stroke
 // paint variant, clipping, colour (gray/rgb/cmyk/named), graphics-state save/
@@ -568,27 +542,6 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 	})}
 	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
-	}
-}
-
-func TestResolveSimpleEncoding(t *testing.T) {
-	// WinAnsi base with a Differences override.
-	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"BaseEncoding": pdf.PDFName{Value: "WinAnsiEncoding"},
-		"Differences":  pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "Alpha"}, pdf.PDFName{Value: "Beta"}},
-	})}
-	names := resolveSimpleEncoding(enc)
-	if names[65] != "Alpha" || names[66] != "Beta" {
-		t.Errorf("Differences override = %q,%q; want Alpha,Beta", names[65], names[66])
-	}
-
-	// Named encoding.
-	if n := resolveSimpleEncoding(pdf.PDFName{Value: "WinAnsiEncoding"}); n[65] != "A" {
-		t.Errorf("WinAnsi code 65 = %q, want A", n[65])
-	}
-	// Default / unknown falls back to StandardEncoding.
-	if n := resolveSimpleEncoding(pdf.PDFInteger(0)); n[65] != "A" {
-		t.Errorf("default encoding code 65 = %q, want A", n[65])
 	}
 }
 

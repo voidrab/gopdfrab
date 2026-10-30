@@ -3,6 +3,7 @@ package convert
 import (
 	"fmt"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -105,27 +106,15 @@ func type3GlyphWidths(font pdf.PDFDict) map[string]float64 {
 	if !ok {
 		return out
 	}
-	diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray)
-	if !ok {
-		return out
-	}
 	widths, _ := font.Entries.Get("Widths").(pdf.PDFArray)
 	first := pdf.DictInt(font, "FirstChar", 0)
-
-	code := 0
-	for _, item := range diffs {
-		switch v := item.(type) {
-		case pdf.PDFInteger:
-			code = int(v)
-		case pdf.PDFName:
-			if i := code - first; i >= 0 && i < len(widths) {
-				if w, ok := pdf.PDFNumberToFloat(widths[i]); ok {
-					out[v.Value] = w
-				}
+	fontprog.EachDifference(enc, func(code int, name string) {
+		if i := code - first; i >= 0 && i < len(widths) {
+			if w, ok := pdf.PDFNumberToFloat(widths[i]); ok {
+				out[name] = w
 			}
-			code++
 		}
-	}
+	})
 	return out
 }
 

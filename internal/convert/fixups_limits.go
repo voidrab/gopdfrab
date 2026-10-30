@@ -649,40 +649,13 @@ func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
 // bytes (preserving everything else byte-for-byte) so it never needs to
 // re-serialize the surrounding PostScript.
 func clampCMapCIDs(data []byte, limit int) ([]byte, bool) {
-	tokens := fontprog.CmapTokenize(data)
 	type span struct{ start, end int }
 	var spans []span
-
-	inCIDRange, inCIDChar, pos := false, false, 0
-	for _, tok := range tokens {
-		switch tok.Text {
-		case "begincidrange":
-			inCIDRange, inCIDChar, pos = true, false, 0
-		case "endcidrange":
-			inCIDRange, pos = false, 0
-		case "begincidchar":
-			inCIDChar, inCIDRange, pos = true, false, 0
-		case "endcidchar":
-			inCIDChar, pos = false, 0
-		default:
-			target := 0
-			if inCIDRange {
-				target = 3
-			} else if inCIDChar {
-				target = 2
-			}
-			if target == 0 {
-				continue
-			}
-			pos++
-			if pos == target {
-				if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > int64(limit) {
-					spans = append(spans, span{tok.Start, tok.End})
-				}
-				pos = 0
-			}
+	fontprog.EachCMapCID(data, func(tok fontprog.CmapToken) {
+		if cid, ok := fontprog.CmapParseInt(tok.Text); ok && cid > int64(limit) {
+			spans = append(spans, span{tok.Start, tok.End})
 		}
-	}
+	})
 	if len(spans) == 0 {
 		return nil, false
 	}

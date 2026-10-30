@@ -1,6 +1,7 @@
 package raster
 
 import (
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -36,7 +37,8 @@ func buildType3FontInfo(font pdf.PDFDict) *fontInfo {
 
 	fi.t3Resources, _ = font.Entries.Get("Resources").(pdf.PDFDict)
 	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
-	names := resolveSimpleEncoding(font.Entries.Get("Encoding"))
+	// A Type 3 font has no built-in encoding: /Differences names its glyphs.
+	names := fontprog.EncodingGlyphNames(font.Entries.Get("Encoding"), [256]string{})
 	for code, name := range names {
 		if name == "" {
 			continue

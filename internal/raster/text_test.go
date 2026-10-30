@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -111,24 +110,6 @@ func TestSimpleFontMissingWidth(t *testing.T) {
 	}
 }
 
-func TestResolveSimpleEncodingDictWithoutBase(t *testing.T) {
-	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Differences": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFName{Value: "Alpha"}},
-	})}
-	names := resolveSimpleEncoding(enc)
-	if names[1] != "Alpha" || names[65] != fontprog.StandardEncoding[65] {
-		t.Errorf("names[1]=%q names[65]=%q, want Alpha over StandardEncoding", names[1], names[65])
-	}
-}
-
-func TestSimpleCodeToGIDSymbolicCmap(t *testing.T) {
-	var names [256]string
-	// A (3,0) symbol cmap maps codes into the F000 private-use block.
-	if got := simpleCodeToGID(map[uint16]uint16{0xF041: 7}, 0x41, names); got != 7 {
-		t.Errorf("gid = %d, want 7 via the 0xF000 offset", got)
-	}
-}
-
 // type1Glyphs builds a Type 1 program with one glyph, "sq", a 100-unit square
 // whose lower-left corner is at (10, 10).
 func type1Glyphs() []byte {
@@ -184,30 +165,6 @@ func TestBundledFaceFallbackGaps(t *testing.T) {
 	}
 	if _, ok := fi.glyphFor(65); ok {
 		t.Error("a private-use code point absent from every bundled face produced a glyph")
-	}
-}
-
-func TestResolveSimpleEncodingNamedBases(t *testing.T) {
-	// MacRomanEncoding has its own glyph names (PDF 32000-1 Annex D): code
-	// 0x27 is quotesingle, not StandardEncoding's quoteright, and the high
-	// half carries the accented letters.
-	mac := resolveSimpleEncoding(pdf.PDFName{Value: "MacRomanEncoding"})
-	for code, want := range map[int]string{0x27: "quotesingle", 0x60: "grave", 0x80: "Adieresis", 0xCA: "space", 0xD5: "quoteright", 0xDB: "currency", 0xAD: ""} {
-		if got := mac[code]; got != want {
-			t.Errorf("MacRomanEncoding[%#x] = %q, want %q", code, got, want)
-		}
-	}
-	base := resolveSimpleEncoding(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"BaseEncoding": pdf.PDFName{Value: "MacRomanEncoding"},
-	})})
-	if base != mac {
-		t.Error("a /BaseEncoding /MacRomanEncoding dictionary did not resolve to MacRomanEncoding")
-	}
-	// Any other name falls back to StandardEncoding.
-	for _, name := range []string{"StandardEncoding", "Whatever"} {
-		if resolveSimpleEncoding(pdf.PDFName{Value: name}) != fontprog.StandardEncoding {
-			t.Errorf("%s did not resolve to StandardEncoding", name)
-		}
 	}
 }
 

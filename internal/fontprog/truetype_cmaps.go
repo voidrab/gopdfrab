@@ -76,3 +76,16 @@ func (r SimpleTrueTypeCmaps) RawCode(cc int) (gid int, found bool) {
 	}
 	return 0, false
 }
+
+// Lenient resolves cc the way a viewer draws it: through (3,1), then the
+// step Fallback leaves, then RawCode, which lenient viewers try for a
+// non-symbolic font the strict lookup fails on.
+func (r SimpleTrueTypeCmaps) Lenient(cc int) (gid int, found bool) {
+	if gid, _, found := r.Windows(cc); found {
+		return gid, true
+	}
+	if gid, found := r.Fallback(cc); found {
+		return gid, true
+	}
+	return r.RawCode(cc)
+}

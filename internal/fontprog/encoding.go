@@ -160,24 +160,11 @@ func SimpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
 	case pdf.PDFDict:
 		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
 		applyBase(base.Value)
-		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						if u, ok := GlyphNameToUnicode(d.Value); ok {
-							table[code] = u
-						} else {
-							table[code] = 0
-						}
-					}
-					code++
-				}
+		EachDifference(e, func(code int, name string) {
+			if code >= 0 && code < 256 {
+				table[code], _ = GlyphNameToUnicode(name)
 			}
-		}
+		})
 	default:
 		applyBase("WinAnsiEncoding")
 	}
@@ -198,12 +185,14 @@ func namedEncodingTable(name string) (glyphNames [256]string, ok bool) {
 	return glyphNames, false
 }
 
-// applyDifferences overlays an /Encoding dictionary's /Differences array onto
-// a base table (ISO 32000-1 9.6.6.1).
-func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
+// EachDifference calls fn for each glyph name an /Encoding dictionary's
+// /Differences array assigns, with the code it assigns it to (ISO 32000-1
+// 9.6.6.1). Codes are passed as the array gives them, in or out of the byte
+// range. It reports whether enc has a /Differences array.
+func EachDifference(enc pdf.PDFDict, fn func(code int, name string)) bool {
 	diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray)
 	if !ok {
-		return
+		return false
 	}
 	code := 0
 	for _, item := range diffs {
@@ -211,12 +200,44 @@ func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
 		case pdf.PDFInteger:
 			code = int(d)
 		case pdf.PDFName:
-			if code >= 0 && code < 256 {
-				glyphNames[code] = d.Value
-			}
+			fn(code, d.Value)
 			code++
 		}
 	}
+	return true
+}
+
+// applyDifferences overlays an /Encoding dictionary's /Differences array onto
+// a base table (ISO 32000-1 9.6.6.1).
+func applyDifferences(glyphNames *[256]string, enc pdf.PDFDict) {
+	EachDifference(enc, func(code int, name string) {
+		if code >= 0 && code < 256 {
+			glyphNames[code] = name
+		}
+	})
+}
+
+// EncodingGlyphNames resolves a simple font's /Encoding entry to a
+// code->glyph-name table over builtin, the encoding the font program has
+// built in: a name selects that standard encoding, and a dictionary its
+// /BaseEncoding with /Differences overlaid. builtin stands in for an absent
+// entry or base and for an encoding this package does not model.
+func EncodingGlyphNames(enc pdf.PDFValue, builtin [256]string) [256]string {
+	switch e := enc.(type) {
+	case pdf.PDFName:
+		if names, ok := namedEncodingTable(e.Value); ok {
+			return names
+		}
+	case pdf.PDFDict:
+		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
+		names, ok := namedEncodingTable(base.Value)
+		if !ok {
+			names = builtin
+		}
+		applyDifferences(&names, e)
+		return names
+	}
+	return builtin
 }
 
 // SimpleFontGlyphNameTable builds a code->glyph-name table from a simple
@@ -620,21 +641,11 @@ func OriginalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnow
 		} else if !fontFlagsSymbolic(d) {
 			table, baseKnown = StandardToUnicode, true
 		}
-		if diffs, ok := enc.Entries.Get("Differences").(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch v := item.(type) {
-				case pdf.PDFInteger:
-					code = int(v)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						u, _ := symbolGlyphNameToUnicode(v.Value)
-						table[code] = u
-					}
-					code++
-				}
+		EachDifference(enc, func(code int, name string) {
+			if code >= 0 && code < 256 {
+				table[code], _ = symbolGlyphNameToUnicode(name)
 			}
-		}
+		})
 	default:
 		if t, ok := standardSymbolBuiltinTable(d); ok {
 			table, baseKnown = t, true

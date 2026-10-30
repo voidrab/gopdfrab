@@ -142,6 +142,35 @@ func CmapTokenize(data []byte) []CmapToken {
 	return tokens
 }
 
+// EachCMapCID calls fn with the CID token of each cidrange and cidchar entry
+// in CMap PostScript content: the third token of a "<lo> <hi> cid" range,
+// and the second of a "<code> cid" mapping.
+func EachCMapCID(data []byte, fn func(tok CmapToken)) {
+	entryLen, pos := 0, 0
+	for _, tok := range CmapTokenize(data) {
+		switch tok.Text {
+		case "begincidrange":
+			entryLen, pos = 3, 0
+		case "begincidchar":
+			entryLen, pos = 2, 0
+		case "endcidrange", "endcidchar":
+			// Each keyword ends only its own kind of block.
+			if tok.Text == "endcidrange" && entryLen == 3 || tok.Text == "endcidchar" && entryLen == 2 {
+				entryLen = 0
+			}
+			pos = 0
+		default:
+			if entryLen == 0 {
+				continue
+			}
+			if pos++; pos == entryLen {
+				fn(tok)
+				pos = 0
+			}
+		}
+	}
+}
+
 // CmapParseInt parses a decimal integer token from a CMap stream.
 func CmapParseInt(tok string) (int64, bool) {
 	if len(tok) == 0 {

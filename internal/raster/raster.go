@@ -1097,11 +1097,15 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		fi.defaultWidth = mw
 	}
 
-	names := resolveSimpleEncoding(font.Entries.Get("Encoding"))
+	enc := font.Entries.Get("Encoding")
 
 	if ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff)
 		if err == nil {
+			names, namesOK := fontprog.Type1GlyphNameTable(data, enc)
+			if !namesOK {
+				names = fontprog.EncodingGlyphNames(enc, fontprog.StandardEncoding)
+			}
 			// Decrypted once here, not once per glyph drawn.
 			prog, ok := fontprog.ParseType1Charstrings(data)
 			fi.glyphFor = func(code int) (GlyphPath, bool) {
@@ -1117,9 +1121,18 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 		data, err := pdf.DecodeStream(ff2)
 		if err == nil {
 			if tables, ok := fontprog.ParseSfnt(data); ok {
-				gidMap := fontprog.ParseCmapFormat4(fontprog.TTWindowsBMPCmap(tables))
+				cmaps := fontprog.NewSimpleTrueTypeCmaps(enc, tables)
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					return glyphOutlineFromTrueType(tables, simpleCodeToGID(gidMap, code, names))
+					if code < 0 || code > 255 {
+						return GlyphPath{}, false
+					}
+					// A code no cmap resolves is drawn as the glyph of that
+					// number, as viewers do for a font without a usable cmap.
+					gid, found := cmaps.Lenient(code)
+					if !found {
+						gid = code
+					}
+					return glyphOutlineFromTrueType(tables, gid)
 				}
 				return fi
 			}
@@ -1128,11 +1141,28 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	if ff3, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
 		data, err := pdf.DecodeStream(ff3)
 		if err == nil {
-			if prog, ok := fontprog.ParseCFFCharstrings(fontprog.ExtractCFFBytes(data)); ok {
+			cff := fontprog.ExtractCFFBytes(data)
+			if prog, ok := fontprog.ParseCFFCharstrings(cff); ok {
+				// The program's own encoding is not read; StandardEncoding,
+				// which most Type 1C programs have built in, stands in for it.
+				names := fontprog.EncodingGlyphNames(enc, fontprog.StandardEncoding)
+				gidByName := map[string]int{}
+				for gid, name := range fontprog.CFFGlyphNames(cff) {
+					if _, dup := gidByName[name]; !dup && name != "" {
+						gidByName[name] = gid
+					}
+				}
 				fi.glyphFor = func(code int) (GlyphPath, bool) {
-					// No charset-based name->GID resolution is implemented;
-					// falling back to code-as-GID is a documented approximation.
-					return cffOutline(prog, code)
+					if code < 0 || code > 255 {
+						return GlyphPath{}, false
+					}
+					// A code whose glyph name the charset lacks is drawn as
+					// the glyph of that number.
+					gid, found := gidByName[names[code]]
+					if !found {
+						gid = code
+					}
+					return cffOutline(prog, gid)
 				}
 				return fi
 			}
@@ -1171,93 +1201,6 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 	}
 	fi.glyphFor = func(int) (GlyphPath, bool) { return GlyphPath{}, false }
 	return fi
-}
-
-// simpleCodeToGID resolves a simple TrueType font's character code to a GID.
-// gidMap is the pre-parsed (3,1) cmap (nil if absent).
-func simpleCodeToGID(gidMap map[uint16]uint16, code int, names [256]string) int {
-	if gidMap != nil && code >= 0 && code < 256 {
-		if name := names[code]; name != "" {
-			if uni, ok := glyphNameToWinAnsiCode(name); ok {
-				if gid, ok := gidMap[fontprog.WinAnsiToUnicode[uni]]; ok {
-					return int(gid)
-				}
-			}
-		}
-	}
-	if gidMap != nil {
-		if gid, ok := gidMap[uint16(code)]; ok {
-			return int(gid)
-		}
-		if gid, ok := gidMap[0xF000+uint16(code)]; ok {
-			return int(gid)
-		}
-	}
-	return code
-}
-
-// winAnsiCodeByName inverts fontprog.WinAnsiGlyphName once, mapping each glyph
-// name to the lowest WinAnsi code producing it (matching the front-to-back
-// scan it replaces).
-var winAnsiCodeByName = func() map[string]int {
-	m := make(map[string]int, len(fontprog.WinAnsiGlyphName))
-	for i := len(fontprog.WinAnsiGlyphName) - 1; i >= 0; i-- {
-		m[fontprog.WinAnsiGlyphName[i]] = i
-	}
-	return m
-}()
-
-// glyphNameToWinAnsiCode reverse-looks-up fontprog.WinAnsiGlyphName for name,
-// returning the WinAnsi code that produces it (used to recover a Unicode
-// value for a Differences-renamed glyph).
-func glyphNameToWinAnsiCode(name string) (int, bool) {
-	i, ok := winAnsiCodeByName[name]
-	return i, ok
-}
-
-// resolveSimpleEncoding builds a code->glyph-name table from a simple font's
-// /Encoding entry, mirroring validateType1SubsetCoverage's pattern
-// (checks_font_program.go).
-func resolveSimpleEncoding(enc pdf.PDFValue) [256]string {
-	var names [256]string
-	switch e := enc.(type) {
-	case pdf.PDFName:
-		switch e.Value {
-		case "WinAnsiEncoding":
-			names = fontprog.WinAnsiGlyphName
-		case "MacRomanEncoding":
-			names = fontprog.MacRomanGlyphName
-		default:
-			names = fontprog.StandardEncoding
-		}
-	case pdf.PDFDict:
-		base, _ := e.Entries.Get("BaseEncoding").(pdf.PDFName)
-		switch base.Value {
-		case "WinAnsiEncoding":
-			names = fontprog.WinAnsiGlyphName
-		case "MacRomanEncoding":
-			names = fontprog.MacRomanGlyphName
-		default:
-			names = fontprog.StandardEncoding
-		}
-		if diffs, ok := e.Entries.Get("Differences").(pdf.PDFArray); ok {
-			code := 0
-			for _, item := range diffs {
-				switch d := item.(type) {
-				case pdf.PDFInteger:
-					code = int(d)
-				case pdf.PDFName:
-					if code >= 0 && code < 256 {
-						names[code] = d.Value
-					}
-					code++
-				}
-			}
-		}
-	default:
-		names = fontprog.StandardEncoding
-	}
-	return names
 }
 
 // paintInlineImage decodes an inline image and composites it exactly as an

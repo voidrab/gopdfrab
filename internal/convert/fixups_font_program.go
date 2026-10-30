@@ -643,21 +643,9 @@ func fixType3Widths(v pdf.PDFDict) bool {
 	if !fcOK || !wOK || !cpOK || !encOK {
 		return false
 	}
-	diffs, _ := enc.Entries.Get("Differences").(pdf.PDFArray)
-	if diffs == nil {
-		return false
-	}
-
 	codeToGlyph := map[int]string{}
-	code := 0
-	for _, item := range diffs {
-		switch d := item.(type) {
-		case pdf.PDFInteger:
-			code = int(d)
-		case pdf.PDFName:
-			codeToGlyph[code] = d.Value
-			code++
-		}
+	if !fontprog.EachDifference(enc, func(code int, name string) { codeToGlyph[code] = name }) {
+		return false
 	}
 
 	changed := false
