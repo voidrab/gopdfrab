@@ -242,8 +242,8 @@ func TestRunWrapsSerializeError(t *testing.T) {
 	}
 }
 
-// TestApplyPreemptiveAfterFixupError covers the after-walk phase's
-// error propagation.
+// TestApplyPreemptiveAfterFixupError verifies that an error returned by an
+// after-walk fixup propagates out of applyPreemptive.
 func TestApplyPreemptiveAfterFixupError(t *testing.T) {
 	rs := standardRepairs
 	rs.postWalk = append(slices.Clone(rs.postWalk), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error {

@@ -94,7 +94,7 @@ type repairs struct {
 	// preFixups run first, in order, each over the graph on its own.
 	preFixups []preemptiveFixup
 	// preVisitors share one walk after preFixups, so a visitor sees their
-	// edits. A visitor builder returning nil sits the run out.
+	// edits. A visitor builder that returns nil contributes no visitor.
 	preVisitors []preemptiveVisitor
 	// postWalk run last, for steps that must see the visitors' edits.
 	postWalk []preemptiveFixup

@@ -315,8 +315,8 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 }
 
 // TestRunBindsItsSpecIntoEveryFixer verifies that every fixer a run uses
-// carries the run's spec. A fixer
-// holding a spec reads its rules from it, and a nil one panics.
+// carries the run's spec. A fixer reads its rules from the spec it holds, and
+// a nil spec panics.
 func TestRunBindsItsSpecIntoEveryFixer(t *testing.T) {
 	spec := a1b()
 	local := standardRepairs.fixersFor(&fixerRun{spec: &spec, dpi: 72})

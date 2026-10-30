@@ -15,10 +15,10 @@ type fakeFixer struct{ check pdf.Check }
 
 func (f fakeFixer) Applies(c pdf.Check) bool { return c == f.check }
 
-// TestFixersForPanicsOnOverlap confirms fixersFor panics rather than silently
-// letting one fixer displace another on a check -- every real Fixer's own
-// tests rely on this invariant (see e.g.
-// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter).
+// TestFixersForPanicsOnOverlap verifies that fixersFor panics when two fixers
+// claim the same check, instead of letting one silently displace the other.
+// Every real Fixer's own tests rely on this invariant; see, for example,
+// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter.
 func TestFixersForPanicsOnOverlap(t *testing.T) {
 	defer func() {
 		if recover() == nil {
@@ -44,9 +44,9 @@ func TestStandardFixersCanRepair(t *testing.T) {
 	}
 }
 
-// TestApplyPreemptivePropagatesError confirms a failing preemptive fixup's
-// error surfaces from applyPreemptive, and that a later fixup never runs once
-// an earlier one has failed.
+// TestApplyPreemptivePropagatesError verifies that an error from a preemptive
+// fixup is returned by applyPreemptive, and that a later fixup does not run
+// once an earlier one has failed.
 func TestApplyPreemptivePropagatesError(t *testing.T) {
 	wantErr := errors.New("boom")
 	ranSecond := false
