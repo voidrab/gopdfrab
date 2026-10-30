@@ -150,8 +150,9 @@ func TestProfileByNameRejectsOtherNames(t *testing.T) {
 	}
 }
 
-// TestDerivedProfilesHaveNoName verifies that a profile derived from a
-// ready-made one does not report its name, since it no longer has its checks.
+// TestDerivedProfilesHaveNoName verifies that Name is empty for a cloned or
+// edited ready-made profile and for a profile from NewProfile, because only
+// the ready-made profiles carry a name.
 func TestDerivedProfilesHaveNoName(t *testing.T) {
 	for name, p := range map[string]*Profile{
 		"Clone":       PDFA1B.Clone(),

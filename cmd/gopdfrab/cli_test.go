@@ -21,8 +21,8 @@ type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-// TestProfileNames verifies that the flag help lists the ready-made profiles
-// in the form the help text has always used.
+// TestProfileNames verifies that profileNames lists the ready-made profile
+// names in the comma-separated form used by the flag help.
 func TestProfileNames(t *testing.T) {
 	if got, want := profileNames(), "pdfa1b, legacy1b, or pdf"; got != want {
 		t.Errorf("profileNames() = %q, want %q", got, want)

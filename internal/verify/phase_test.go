@@ -67,9 +67,9 @@ func TestDiagnosticChecksArePostStructural(t *testing.T) {
 	}
 }
 
-// TestCheckPhasesMatchParts verifies that, across the Isartor and veraPDF
-// corpora under both PDF/A-1b profiles, every issue VerifyParts returns sits
-// in a part its check is declared for.
+// TestCheckPhasesMatchParts verifies that, across the reference corpora under
+// both PDF/A-1b profiles, every issue VerifyParts returns sits in a part its
+// check is declared for.
 func TestCheckPhasesMatchParts(t *testing.T) {
 	var files []string
 	for _, dir := range []string{isartorDir, veraPDFDir} {
