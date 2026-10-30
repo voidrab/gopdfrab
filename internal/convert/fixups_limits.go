@@ -642,20 +642,16 @@ func (f cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	return changed, nil
 }
 
-// fixTargeted clamps only the CMap streams the issues reference, writing the
-// rewritten dict back into every referencing slot via the pass index.
+// fixTargeted clamps only the CMap streams the issues reference.
 func (f cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
-		if !ok {
-			continue
+		if _, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID); ok {
+			changed = true
 		}
-		p.replaceObject(d, updated)
-		changed = true
 	}
 	return changed, true, nil
 }

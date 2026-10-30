@@ -23,19 +23,10 @@ type fixPass struct {
 	trailer *pdf.PDFDict
 	objs    map[int]pdf.PDFValue
 
-	// parents maps a dict's Entries identity to every graph slot holding it,
-	// lazily built on first replaceObject call and shared for the iteration.
-	parents map[uintptr][]parentSlot
-
 	// contentStreams holds the Entries identities of content-bearing streams,
 	// lazily built on first isContentStream call.
 	contentStreams map[uintptr]bool
 }
-
-// parentSlot writes a replacement dict value into one graph location that
-// held it; stream-field edits don't propagate through the shared Entries map,
-// so every referencing slot must be rewritten (see walkStreamDicts).
-type parentSlot func(pdf.PDFDict)
 
 // dictForRef resolves ref against the iteration index. ok is false unless the
 // numbered object exists, is a dict, and still carries the matching reference.
@@ -105,26 +96,6 @@ func (p *fixPass) dictsForIssues(issues []pdf.PDFError) ([]pdf.PDFDict, bool) {
 		out[i] = t.d
 	}
 	return out, true
-}
-
-// replaceObject writes updated into every graph slot currently holding a dict
-// with old's Entries identity, and into the iteration index, so stream-field
-// changes take effect. Dicts synthesized after the index was built have no
-// recorded slots; callers only replace dicts resolved via dictsForIssues.
-func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
-	if p.parents == nil {
-		p.parents = map[uintptr][]parentSlot{}
-		collectParentSlots(*p.trailer, map[uintptr]bool{}, p.parents)
-	}
-	ptr := pdf.ValuePointer(old.Entries)
-	for _, set := range p.parents[ptr] {
-		set(updated)
-	}
-	if ref, ok := old.Ref(); ok {
-		if _, exists := p.objs[ref.ObjNum]; exists {
-			p.objs[ref.ObjNum] = updated
-		}
-	}
 }
 
 // isContentStream reports whether d is one of the content-bearing streams
@@ -214,40 +185,4 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 		}
 	}
 	return changed
-}
-
-// collectParentSlots records, for every dict reachable from v, a setter per
-// graph slot holding it, mirroring walkStreamDicts' traversal.
-func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintptr][]parentSlot) {
-	switch val := v.(type) {
-	case pdf.PDFDict:
-		ptr := pdf.ValuePointer(val.Entries)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for k, child := range val.Entries.All() {
-			if cd, ok := child.(pdf.PDFDict); ok {
-				entries, key := val.Entries, k
-				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],
-					func(nd pdf.PDFDict) { entries.Set(key, nd) })
-			}
-			collectParentSlots(child, visited, out)
-		}
-
-	case pdf.PDFArray:
-		ptr := pdf.ArrayPointer(val)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for i, child := range val {
-			if cd, ok := child.(pdf.PDFDict); ok {
-				arr, idx := val, i
-				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],
-					func(nd pdf.PDFDict) { arr[idx] = nd })
-			}
-			collectParentSlots(child, visited, out)
-		}
-	}
 }

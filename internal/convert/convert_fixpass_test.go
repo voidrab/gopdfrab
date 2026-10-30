@@ -122,40 +122,6 @@ func TestFixPassDictsForIssuesGateAndOrder(t *testing.T) {
 	}
 }
 
-// TestFixPassReplaceObjectReachesAllParents shares one stream dict between a
-// dict entry and an array slot and asserts replaceObject rewrites both plus
-// the iteration index, since stream fields don't propagate via Entries.
-func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
-	stream := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("old")), pdf.PDFRef{ObjNum: 5})
-	root := pdf.NewPDFDict()
-	root.SetRef(pdf.PDFRef{ObjNum: 1})
-	root.Entries.Set("Direct", stream)
-	root.Entries.Set("List", pdf.PDFArray{stream})
-	trailer := pdf.NewPDFDict()
-	trailer.Entries.Set("Root", root)
-
-	objs := writer.NumberObjects(trailer, 0)
-	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref, _ := stream.Ref()
-
-	updated := stream
-	updated.SetStream([]byte("new"))
-	pass.replaceObject(stream, updated)
-
-	if got := root.Entries.Get("Direct").(pdf.PDFDict).Stream(); string(got) != "new" {
-		t.Errorf("dict-entry slot Stream() = %q, want %q", got, "new")
-	}
-	if got := root.Entries.Get("List").(pdf.PDFArray)[0].(pdf.PDFDict).Stream(); string(got) != "new" {
-		t.Errorf("array slot Stream() = %q, want %q", got, "new")
-	}
-	if got, ok := pass.objs[ref.ObjNum].(pdf.PDFDict); !ok || string(got.Stream()) != "new" {
-		t.Errorf("iteration index not updated: %v", pass.objs[ref.ObjNum])
-	}
-	if d, ok := pass.dictForRef(ref); !ok || string(d.Stream()) != "new" {
-		t.Errorf("dictForRef after replaceObject returned stale copy")
-	}
-}
-
 // TestFixPassIsContentStream drives collectContentStreamPtrs' four dispatch
 // shapes -- array-form Page /Contents, a tiling Pattern, a Form XObject, and
 // a Type3 CharProcs glyph -- plus a plain (non-content) stream that must not
@@ -265,22 +231,5 @@ func TestFixOwnedScalarsNestedAndCyclicArrays(t *testing.T) {
 	}
 	if child.Entries.Get("Skip") != pdf.PDFInteger(9) {
 		t.Error("a child dict's scalar was rewritten; it belongs to the child")
-	}
-}
-
-func TestCollectParentSlotsCyclicArray(t *testing.T) {
-	child := pdf.NewPDFDict()
-	arr := pdf.PDFArray{child, nil}
-	arr[1] = arr
-	out := map[uintptr][]parentSlot{}
-	collectParentSlots(arr, map[uintptr]bool{}, out)
-	slots := out[pdf.ValuePointer(child.Entries)]
-	if len(slots) != 1 {
-		t.Fatalf("child has %d parent slots, want exactly 1 (cycle must not revisit)", len(slots))
-	}
-	repl := pdf.NewPDFDict()
-	slots[0](repl)
-	if got := arr[0].(pdf.PDFDict); pdf.ValuePointer(got.Entries) != pdf.ValuePointer(repl.Entries) {
-		t.Error("slot setter did not replace the array element")
 	}
 }

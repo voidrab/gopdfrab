@@ -133,12 +133,9 @@ func (f contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chan
 		if !d.IsStream() || !p.isContentStream(d) {
 			continue
 		}
-		updated, ok := f.repairContentStream(d)
-		if !ok {
-			continue
+		if _, ok := f.repairContentStream(d); ok {
+			changed = true
 		}
-		p.replaceObject(d, updated)
-		changed = true
 	}
 	return changed, true, nil
 }
