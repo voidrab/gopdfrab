@@ -452,12 +452,9 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 func cloneFontDescriptor(desc pdf.PDFDict, nextObjNum *int) pdf.PDFDict {
 	clone := pdf.NewPDFDict()
 	for k, v := range desc.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
 		clone.Entries.Set(k, v)
 	}
-	clone.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
+	clone.SetRef(pdf.PDFRef{ObjNum: *nextObjNum})
 	*nextObjNum++
 	return clone
 }
@@ -827,7 +824,7 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	descCounts := map[uintptr]int{}
 	maxRef := 0
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok && ref.ObjNum > maxRef {
+		if ref, ok := d.Ref(); ok && ref.ObjNum > maxRef {
 			maxRef = ref.ObjNum
 		}
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {

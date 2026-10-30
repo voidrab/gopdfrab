@@ -119,7 +119,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	if wc := ot.Wildcard; wc != nil {
 		keysBase := len(ctx.keyScratch)
 		for _, k := range ctx.sortedKeys(v.Entries) {
-			if k == pdf.RefKey || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
+			if hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
 				continue
 			}
 			val := v.Entries.Get(k)
@@ -156,7 +156,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// Post14Keys, so it is never flagged either.
 	if ot.Wildcard == nil {
 		for k := range v.Entries.All() {
-			if k != pdf.RefKey && stringInList(k, ot.Post14Keys) {
+			if stringInList(k, ot.Post14Keys) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
 					v, typeName, k,
@@ -555,7 +555,7 @@ func numericValue(val pdf.PDFValue) (float64, bool) {
 }
 
 // isIndirect reports whether val was reached through an indirect reference. Only dicts and
-// streams carry the resolver's pdf.RefKey marker (internal/pdf/resolver.go); arrays required to be
+// streams carry the reference the resolver records (internal/pdf/resolver.go); arrays required to be
 // indirect (3 rows in the model) have no such marker and are always treated as satisfied,
 // erring toward false negatives.
 func isIndirect(val pdf.PDFValue) bool {
@@ -563,7 +563,7 @@ func isIndirect(val pdf.PDFValue) bool {
 	if !ok {
 		return true
 	}
-	_, ok = d.Entries.Lookup(pdf.RefKey)
+	_, ok = d.Ref()
 	return ok
 }
 

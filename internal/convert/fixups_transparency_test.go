@@ -1937,7 +1937,7 @@ func TestPagePaintAtDoUnreadableContents(t *testing.T) {
 func TestWalkPageTreeVisitsAnIndirectNodeOnce(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
+	page.SetRef(pdf.PDFRef{ObjNum: 7})
 	root := pdf.NewPDFDict()
 	root.Entries.Set("Kids", pdf.PDFArray{page, page})
 	visits := 0

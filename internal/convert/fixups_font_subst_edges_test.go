@@ -146,8 +146,8 @@ func TestSubstituteSimpleFontClonesSharedDescriptor(t *testing.T) {
 	if own.Entries.Get("FontFile2") == nil {
 		t.Error("clone has no substitute program")
 	}
-	if ref, _ := own.Entries.Get(pdf.RefKey).(pdf.PDFRef); ref.ObjNum != 100 || next != 101 {
-		t.Errorf("clone ref = %v, next = %d; want object 100, next 101", own.Entries.Get(pdf.RefKey), next)
+	if ref, _ := own.Ref(); ref.ObjNum != 100 || next != 101 {
+		t.Errorf("clone ref = %v, next = %d; want object 100, next 101", ref, next)
 	}
 }
 
@@ -317,7 +317,7 @@ func TestFontSubstitutionFixerSharedDescriptorAndNoFonts(t *testing.T) {
 	// Two fonts reference one descriptor dict: each gets its own copy.
 	a, b := unembeddedHelvetica(), unembeddedHelvetica()
 	shared := dictOf(nil)
-	shared.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
+	shared.SetRef(pdf.PDFRef{ObjNum: 7})
 	a.Entries.Set("FontDescriptor", shared)
 	b.Entries.Set("FontDescriptor", shared)
 	trailer = trailerWith("Fonts", pdf.PDFArray{a, b})

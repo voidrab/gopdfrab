@@ -116,9 +116,6 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 				return
 			}
 			for k, child := range val.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
 				descend(child, func(u pdf.PDFValue) { val.Entries.Set(k, u) }, depth)
 			}
 
@@ -136,11 +133,11 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 	walk(v, 0)
 }
 
-// clearDict deletes every entry from d except the synthetic pdf.RefKey (so it
-// remains a validly-targetable indirect object, just inert), used to
-// neutralize a forbidden action dictionary in place.
+// clearDict deletes every entry from d, keeping its reference so it remains
+// a validly-targetable indirect object, just inert. It neutralizes a
+// forbidden action dictionary in place.
 func clearDict(d pdf.PDFDict) {
-	d.Entries.DeleteFunc(func(k string, _ pdf.PDFValue) bool { return k != pdf.RefKey })
+	d.Entries.DeleteFunc(func(string, pdf.PDFValue) bool { return true })
 }
 
 // clearJSNameTree recursively clears JS action dicts within a /Names/JavaScript

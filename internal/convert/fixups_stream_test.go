@@ -68,20 +68,20 @@ func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 // content stream is LZW-encoded, with optional DecodeParms (for predictor
 // coverage), for exercising lzwStreamFixer.
 func lzwStreamTrailer(encoded []byte, decodeParms pdf.PDFDict) pdf.PDFDict {
-	entries := pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 4}, "Filter": pdf.PDFName{Value: "LZWDecode"}})
+	entries := pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}})
 	if decodeParms.Entries != nil {
 		entries.Set("DecodeParms", decodeParms)
 	}
 	streamDict := pdf.PDFDict{Entries: entries, HasStream: true, RawStream: encoded}
+	streamDict.SetRef(pdf.PDFRef{ObjNum: 4})
 
-	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		pdf.RefKey: pdf.PDFRef{ObjNum: 3},
+	page := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(100)},
 		"Contents": streamDict,
-	})}
-	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})}
-	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})}
+	})}, pdf.PDFRef{ObjNum: 3})
+	pages := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})}, pdf.PDFRef{ObjNum: 2})
+	catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})}, pdf.PDFRef{ObjNum: 1})
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 }
 
@@ -350,7 +350,7 @@ func TestUndecodableStreamFixerRebuildsType3Glyph(t *testing.T) {
 	proc.HasStream = true
 	proc.RawStream = []byte("this was never deflate")
 	proc.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	proc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 21})
+	proc.SetRef(pdf.PDFRef{ObjNum: 21})
 
 	procs := pdf.NewPDFDict()
 	procs.Entries.Set("g108", proc)

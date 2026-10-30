@@ -224,10 +224,7 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		if v.HasStream {
 			changed = in.run(v, resourcesOf(v, pdf.PDFDict{})) || changed
 		} else {
-			for k, sv := range v.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
+			for _, sv := range v.Entries.All() {
 				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
 					changed = in.run(sd, resourcesOf(sd, pdf.PDFDict{})) || changed
 				}
@@ -465,10 +462,7 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 		scanContentColour(v, apRes, claim, decode, emit)
 		return
 	}
-	for k, sv := range v.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
+	for _, sv := range v.Entries.All() {
 		if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
 			apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentColour(sd, apRes, claim, decode, emit)

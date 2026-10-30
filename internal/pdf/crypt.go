@@ -513,8 +513,8 @@ func (d *Reader) decryptStream(m *PDFDict, ref PDFRef) error {
 }
 
 // decryptStrings decrypts every string in v for object ref, in place, recursing
-// through dicts (skipping the synthetic _ref) and arrays. Indirect references
-// are left alone -- they decrypt when their own object resolves.
+// through dicts and arrays. Indirect references are left alone -- they decrypt
+// when their own object resolves.
 func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 	switch t := v.(type) {
 	case PDFString, PDFHexString:
@@ -527,9 +527,6 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 		}
 	case PDFDict:
 		for k, val := range t.Entries.All() {
-			if k == RefKey {
-				continue
-			}
 			t.Entries.Set(k, d.decryptStrings(val, ref))
 		}
 	}

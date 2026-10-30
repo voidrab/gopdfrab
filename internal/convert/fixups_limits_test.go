@@ -44,7 +44,7 @@ func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
 		if !pruneUnusedResourceEntries(sub, used, maxDictEntries) {
 			t.Fatal("oversized dict was not pruned")
 		}
-		if got := dictRealEntryCount(sub); got != maxDictEntries {
+		if got := sub.Entries.Len(); got != maxDictEntries {
 			t.Errorf("pruned to %d entries, want %d", got, maxDictEntries)
 		}
 		for k := range used {
@@ -559,12 +559,12 @@ func TestNameTooLongFixerTruncatesNameValues(t *testing.T) {
 
 func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 	mk := func(num int, typ string, raw string, filter bool) pdf.PDFDict {
-		d := pdf.PDFDict{
+		d := withRef(pdf.PDFDict{
 			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Type": pdf.PDFName{Value: typ}, pdf.RefKey: pdf.PDFRef{ObjNum: num},
+				"Type": pdf.PDFName{Value: typ},
 			}),
 			HasStream: true, RawStream: []byte(raw),
-		}
+		}, pdf.PDFRef{ObjNum: num})
 		if filter {
 			d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 		}
@@ -577,7 +577,7 @@ func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 		mk(22, "CMap", inRange, false),                                      // nothing to clamp
 	}
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	root.SetRef(pdf.PDFRef{ObjNum: 1})
 	for i, d := range skipped {
 		root.Entries.Set(fmt.Sprintf("K%d", i), d)
 	}
@@ -587,7 +587,7 @@ func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 	// Numbering assigns the real object numbers, so read the refs afterwards.
 	var issues []pdf.PDFError
 	for _, d := range skipped {
-		ref := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+		ref, _ := d.Ref()
 		issues = append(issues, pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref))
 	}
 

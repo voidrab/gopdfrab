@@ -20,7 +20,7 @@ func TestCrasher_WriterDeepNesting(t *testing.T) {
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Junk", deep)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)

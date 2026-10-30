@@ -838,8 +838,8 @@ func TestBuildPageIndex(t *testing.T) {
 		t.Error("expected error for nil Pages")
 	}
 
-	page1 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 10}})}
-	page2 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 20}})}
+	page1 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 10})
+	page2 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 20})
 	kids := PDFDict{Entries: DictOf(map[string]PDFValue{"Kids": PDFArray{page1, page2}})}
 	graph := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{"Pages": kids})},
@@ -1312,4 +1312,11 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	}
 
 	d.ReleaseCaches() // idempotent
+}
+
+// withRef marks d as the indirect object ref and returns it, so a literal can
+// be built in one expression.
+func withRef(d PDFDict, ref PDFRef) PDFDict {
+	d.SetRef(ref)
+	return d
 }

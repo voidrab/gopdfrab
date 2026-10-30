@@ -650,7 +650,8 @@ func TestDecoderForWithoutReaderIsPlainDecode(t *testing.T) {
 // alternate becomes the bundled gray profile when no OutputIntent exists, that
 // two colourants of one model share a single replacement space, and that arrays
 // which are not Separation or DeviceN (wrong head, non-name head, too short, or
-// an Indexed space with four elements) are left alone, as is a RefKey entry.
+// an Indexed space with four elements) are left alone, as is an indirect
+// colour space map.
 func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	tint := pdf.NewPDFDict()
 	sep := func(alt string) pdf.PDFArray {
@@ -666,7 +667,7 @@ func TestSeparationAlternateFixerGrayAndSharedSpaces(t *testing.T) {
 	spaces.Entries.Set("R", rgbSep)
 	spaces.Entries.Set("C", indexed)
 	spaces.Entries.Set("D", numHead)
-	spaces.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	spaces.SetRef(pdf.PDFRef{ObjNum: 9})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Spaces", spaces)
 

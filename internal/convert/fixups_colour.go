@@ -142,10 +142,7 @@ func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		for k, v := range d.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
+		for _, v := range d.Entries.All() {
 			visit(v)
 			// A colour space also appears as the base of an Indexed
 			// space and as an element of a /ColorSpace array

@@ -113,7 +113,7 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 		return true
 	}
 	for k := range ap.Entries.All() {
-		if k != "N" && k != pdf.RefKey {
+		if k != "N" {
 			return true
 		}
 	}

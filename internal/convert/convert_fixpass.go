@@ -38,7 +38,7 @@ type fixPass struct {
 type parentSlot func(pdf.PDFDict)
 
 // dictForRef resolves ref against the iteration index. ok is false unless the
-// numbered object exists, is a dict, and still carries the matching _ref.
+// numbered object exists, is a dict, and still carries the matching reference.
 func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if p == nil || p.objs == nil {
 		return pdf.PDFDict{}, false
@@ -47,7 +47,7 @@ func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	r, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	r, ok := d.Ref()
 	if !ok || r.ObjNum != ref.ObjNum {
 		return pdf.PDFDict{}, false
 	}
@@ -120,7 +120,7 @@ func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
 	for _, set := range p.parents[ptr] {
 		set(updated)
 	}
-	if ref, ok := old.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+	if ref, ok := old.Ref(); ok {
 		if _, exists := p.objs[ref.ObjNum]; exists {
 			p.objs[ref.ObjNum] = updated
 		}
@@ -202,9 +202,6 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 		}
 	}
 	for k, val := range d.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
 		switch v := val.(type) {
 		case pdf.PDFDict:
 		case pdf.PDFArray:
@@ -230,9 +227,6 @@ func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintpt
 		}
 		visited[ptr] = true
 		for k, child := range val.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
 			if cd, ok := child.(pdf.PDFDict); ok {
 				entries, key := val.Entries, k
 				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],

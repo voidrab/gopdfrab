@@ -36,16 +36,16 @@ func init() {
 	})
 }
 
-// nextAvailableObjNum scans the graph for the highest existing _ref object
-// number and returns one past it, for synthesizing a fresh, guaranteed-
+// nextAvailableObjNum scans the graph for the highest existing reference's
+// object number and returns one past it, for synthesizing a fresh, guaranteed-
 // unique indirect-object identity (isIndirectDict/identityOf, writer.go) for
 // a brand-new dict that needs to be referenced from more than one place
 // (the actual output object number WriteDocument assigns is unrelated --
-// this only has to avoid colliding with any _ref already in the graph).
+// this only has to avoid colliding with any reference already in the graph).
 func nextAvailableObjNum(trailer pdf.PDFDict) int {
 	max := 0
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok && ref.ObjNum > max {
+		if ref, ok := d.Ref(); ok && ref.ObjNum > max {
 			max = ref.ObjNum
 		}
 	})
@@ -161,7 +161,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool, limit int) bool
 		}
 		visited[ptr] = true
 		for k, e := range t.Entries.All() {
-			if k == pdf.RefKey || k == "Parent" || k == "P" {
+			if k == "Parent" || k == "P" {
 				continue
 			}
 			if hasOversizedArray(e, visited, limit) {
@@ -182,7 +182,7 @@ func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int, 
 	for i := 0; i < len(kids); i += chunkSize {
 		chunk := append(pdf.PDFArray{}, kids[i:min(i+chunkSize, len(kids))]...)
 		node := pdf.NewPDFDict()
-		node.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
+		node.SetRef(pdf.PDFRef{ObjNum: *nextObjNum})
 		*nextObjNum++
 		node.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 		node.Entries.Set("Parent", parent)
@@ -262,32 +262,21 @@ func (f resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError)
 	return changed, nil
 }
 
-// dictRealEntryCount mirrors validateArchitecturalLimits' own count
-// (verifier.go): every entry except the synthetic pdf.RefKey bookkeeping key.
-func dictRealEntryCount(d pdf.PDFDict) int {
-	n := d.Entries.Len()
-	if _, ok := d.Entries.Lookup(pdf.RefKey); ok {
-		n--
-	}
-	return n
-}
-
 // pruneUnusedResourceEntries deletes entries from sub not named in used,
-// down to at most limit, counted as validateArchitecturalLimits counts them
-// (verifier.go): without the synthetic pdf.RefKey bookkeeping key.
+// down to at most limit.
 //
 // Candidates are taken in sorted order because the dictionary usually holds
 // more unused entries than there is excess to shed: which ones go is a real
 // choice, and map order would make it a different choice on every run -- a
 // conversion that is not byte-reproducible.
 func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool, limit int) bool {
-	excess := dictRealEntryCount(sub) - limit
+	excess := sub.Entries.Len() - limit
 	if excess <= 0 {
 		return false
 	}
 	candidates := make([]string, 0, sub.Entries.Len())
 	for k := range sub.Entries.All() {
-		if k == pdf.RefKey || used[k] {
+		if used[k] {
 			continue
 		}
 		candidates = append(candidates, k)
@@ -532,7 +521,7 @@ func truncateOverlongName(v pdf.PDFValue, limit int) (pdf.PDFValue, bool) {
 func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string, limit int) bool {
 	var overlong []string
 	for k := range d.Entries.All() {
-		if k != pdf.RefKey && len(k) > limit {
+		if len(k) > limit {
 			overlong = append(overlong, k)
 		}
 	}

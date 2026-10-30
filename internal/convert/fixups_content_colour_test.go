@@ -595,7 +595,7 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
 	states := pdf.NewPDFDict()
-	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
+	states.SetRef(pdf.PDFRef{ObjNum: 5})
 	states.Entries.Set("On", streamDict("q Q"))
 	noAP := pdf.NewPDFDict()
 	nonDictN := pdf.NewPDFDict()

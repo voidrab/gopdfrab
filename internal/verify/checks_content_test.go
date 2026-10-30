@@ -292,7 +292,7 @@ func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
 	// An indirect state dictionary carries the reader's synthetic ref entry,
 	// which is not an appearance state.
-	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	states.SetRef(pdf.PDFRef{ObjNum: 9})
 
 	ctx := &ValidationContext{Spec: a1bSpec}
 	scanAPEntry(states, ctx)

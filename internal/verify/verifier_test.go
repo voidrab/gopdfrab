@@ -561,7 +561,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFHexString{Value: "XXXX"})
-	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	info.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -594,7 +594,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFHexString{Value: "AAA"})
-	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	info.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -630,7 +630,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("F", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	stream.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -664,7 +664,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("FFilter", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	stream.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -698,7 +698,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("FDecodeParms", pdf.PDFHexString{Value: "aaaa"})
-	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	stream.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -736,7 +736,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.HasStream = true
 	stream.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
-	stream.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	stream.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
@@ -771,7 +771,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("EF", pdf.PDFHexString{Value: "aaaa"})
-	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	info.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -804,7 +804,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	minimalConformantRoot(trailer)
 	info := pdf.NewPDFDict()
 	info.Entries.Set("EmbeddedFiles", pdf.PDFHexString{Value: "aaaa"})
-	info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	info.SetRef(pdf.PDFRef{ObjNum: 90})
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
@@ -1238,7 +1238,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 // threading through arrays -- so convert's targeted fixers can resolve them.
 func TestScalarLimitViolationsCarryOwnerRef(t *testing.T) {
 	owner := pdf.NewPDFDict()
-	owner.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
+	owner.SetRef(pdf.PDFRef{ObjNum: 7})
 	owner.Entries.Set("Big", pdf.PDFInteger(3_000_000_000))
 	owner.Entries.Set("List", pdf.PDFArray{pdf.PDFName{Value: strings.Repeat("x", 130)}})
 	owner.Entries.Set("Hex", pdf.PDFHexString{Value: "abc"})
@@ -1308,8 +1308,8 @@ func TestCollectAPEntryUsage(t *testing.T) {
 	// Subdictionary-of-states form (Btn widget).
 	states := pdf.NewPDFDict()
 	states.Entries.Set("On", direct)
-	states.Entries.Set("Off", pdf.NewPDFDict())           // no stream: skipped
-	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9}) // indirect dict: not a state
+	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
+	states.SetRef(pdf.PDFRef{ObjNum: 9})        // indirect dict: not a state
 	reachable2 := map[uintptr]bool{}
 	collectAPEntryUsage(ctx, states, reachable2, fu)
 	if !reachable2[xobjPtr] {
@@ -2239,7 +2239,7 @@ func TestUndecodableContentReportsItsPage(t *testing.T) {
 		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 		p.Entries.Set("Contents", contents)
 		p.Entries.Set("Resources", pdf.NewPDFDict())
-		p.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: obj})
+		p.SetRef(pdf.PDFRef{ObjNum: obj})
 		return p
 	}
 	pages := pdf.NewPDFDict()
@@ -2462,7 +2462,7 @@ func TestArchitecturalLimitsScalarsAndDicts(t *testing.T) {
 	for i := 0; i < 4095; i++ {
 		atLimit.Entries.Set(fmt.Sprintf("K%d", i), pdf.PDFInteger(i))
 	}
-	atLimit.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3}) // not counted
+	atLimit.SetRef(pdf.PDFRef{ObjNum: 3}) // not counted
 
 	for _, tc := range []struct {
 		name string

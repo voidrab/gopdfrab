@@ -16,6 +16,11 @@ type Dict = *DictBody
 type DictBody struct {
 	ent []DictEntry
 	idx map[string]int // nil below promoteThreshold; key -> index into ent
+	// ref is the reference the dictionary was read or numbered under, set
+	// only on an indirect object. It is not an entry, so Len, All and Keys
+	// do not see it and the writer never emits it.
+	ref    PDFRef
+	hasRef bool
 }
 
 // DictEntry is one key/value pair, in insertion order.
@@ -145,18 +150,18 @@ func (d Dict) Len() int {
 	return len(d.ent)
 }
 
-// Clone returns a dictionary holding d's entries in a body of its own, so
-// editing the clone leaves d -- and everything reading it -- as it was. The
-// values themselves are shared, not copied.
+// Clone returns a dictionary holding d's entries and reference in a body of
+// its own, so editing the clone leaves d -- and everything reading it -- as it
+// was. The values themselves are shared, not copied.
 func (d Dict) Clone() Dict {
-	return &DictBody{ent: slices.Clone(d.ent), idx: maps.Clone(d.idx)}
+	return &DictBody{ent: slices.Clone(d.ent), idx: maps.Clone(d.idx), ref: d.ref, hasRef: d.hasRef}
 }
 
-// Assign makes d hold exactly src's entries. Every value sharing d's body,
-// which is every reference to the object, sees the change: the way to publish
-// an edit prepared on a Clone.
+// Assign makes d hold exactly src's entries and reference. Every value sharing
+// d's body, which is every reference to the object, sees the change: the way
+// to publish an edit prepared on a Clone.
 func (d Dict) Assign(src Dict) {
-	*d = DictBody{ent: slices.Clone(src.ent), idx: maps.Clone(src.idx)}
+	*d = DictBody{ent: slices.Clone(src.ent), idx: maps.Clone(src.idx), ref: src.ref, hasRef: src.hasRef}
 }
 
 // All iterates in insertion order. Safe on a nil Dict.
@@ -199,20 +204,31 @@ func (d Dict) DeleteFunc(pred func(k string, v PDFValue) bool) {
 	}
 }
 
-// String formats the dictionary in map[...] form with its keys sorted. Without
-// it, fmt prints the pointer, which puts a heap address into every check
-// message.
+// refLabel is the key String prints a dictionary's reference under. The
+// leading space keeps it apart from any parsed key: a space ends a name token.
+const refLabel = " ref"
+
+// String formats the dictionary in map[...] form with its keys sorted, and its
+// reference, if any, under the key " ref". Without it, fmt prints the pointer,
+// which puts a heap address into every check message.
 func (d Dict) String() string {
 	if d == nil {
 		return "map[]"
 	}
 	keys := d.Keys()
+	if d.hasRef {
+		keys = append(keys, refLabel)
+	}
 	slices.Sort(keys)
 	var b strings.Builder
 	b.WriteString("map[")
 	for i, k := range keys {
 		if i > 0 {
 			b.WriteByte(' ')
+		}
+		if k == refLabel && d.hasRef {
+			fmt.Fprintf(&b, "%s:%v", k, d.ref)
+			continue
 		}
 		fmt.Fprintf(&b, "%s:%v", k, d.Get(k))
 	}

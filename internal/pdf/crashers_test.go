@@ -89,13 +89,13 @@ func TestBuildPageIndexBranches(t *testing.T) {
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
+	page.SetRef(pdf.PDFRef{ObjNum: 3})
 
 	pagesDict := func(kids pdf.PDFArray, ref int) pdf.PDFDict {
 		p := pdf.NewPDFDict()
 		p.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 		p.Entries.Set("Kids", kids)
-		p.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: ref})
+		p.SetRef(pdf.PDFRef{ObjNum: ref})
 		return p
 	}
 	graphWith := func(pages pdf.PDFValue) pdf.PDFDict {

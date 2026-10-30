@@ -269,7 +269,7 @@ func walkPageTree(pages pdf.PDFDict, visit func(page, resources pdf.PDFDict, med
 		if depth > pdf.MaxPageTreeDepth {
 			return
 		}
-		if ref, ok := node.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+		if ref, ok := node.Ref(); ok {
 			if seen[ref.ObjNum] {
 				return
 			}

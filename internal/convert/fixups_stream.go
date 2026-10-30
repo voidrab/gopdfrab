@@ -87,7 +87,7 @@ func (f undecodableStreamFixer) fixType3CharProcs(trailer pdf.PDFDict) bool {
 			procs.Entries.Set(name, proc)
 			changed = true
 			if f.lost != nil {
-				ref, _ := proc.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+				ref, _ := proc.Ref()
 				*f.lost = append(*f.lost, pdf.NewError(
 					pdf.Checks.Structure.StreamUndecodable,
 					[]error{fmt.Errorf("Type 3 glyph /%s could not be decoded; replaced by its declared advance", name)},

@@ -54,6 +54,10 @@ func TestEqualPDFValue(t *testing.T) {
 			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 		},
+		{
+			withRef(PDFDict{Entries: NewDict()}, PDFRef{ObjNum: 3}),
+			withRef(PDFDict{Entries: NewDict()}, PDFRef{ObjNum: 3}),
+		},
 		{nil, nil},
 	}
 	for i, c := range equal {
@@ -83,6 +87,14 @@ func TestEqualPDFValue(t *testing.T) {
 		{
 			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)}), HasStream: true},
 			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
+		},
+		{
+			withRef(PDFDict{Entries: NewDict()}, PDFRef{ObjNum: 3}),
+			PDFDict{Entries: NewDict()},
+		},
+		{
+			withRef(PDFDict{Entries: NewDict()}, PDFRef{ObjNum: 3}),
+			withRef(PDFDict{Entries: NewDict()}, PDFRef{ObjNum: 4}),
 		},
 		{PDFInteger(1), PDFName{Value: "N"}}, // type mismatch
 		{PDFInteger(1), nil},                 // one nil

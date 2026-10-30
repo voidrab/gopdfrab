@@ -72,18 +72,18 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	changed := false
 	promote := func(v pdf.PDFValue) {
 		child, ok := v.(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if !ok || child.Entries == nil {
 			return
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
 			if indirectRequiredKeys[k] {
 				promote(v)
 			}
@@ -101,10 +101,13 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
 	promote := func(child pdf.PDFDict) bool {
-		if child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if child.Entries == nil {
 			return false
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return false
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		return true
 	}
@@ -163,7 +166,7 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	changed := false
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || detail.Key == pdf.RefKey || isArrayIndexKey(detail.Key) {
+		if !ok || isArrayIndexKey(detail.Key) {
 			continue
 		}
 		ref, ok := iss.ObjectRef()
