@@ -481,6 +481,15 @@ profiles. A profile is immutable — `AddCheck`, `RemoveCheck` and `Clear` each
 return a clone — but the variables are not: reassigning one changes the default
 for the whole process.
 
+Each ready-made profile has a name, the one the CLI's `--profile` flag takes:
+`pdfa1b`, `legacy1b` or `pdf`. `Profile.Name` reports it, `ProfileByName` looks
+a profile up by it, and `Profiles` lists all three. A profile derived from one
+of them has no name.
+
+```go
+p, ok := gopdfrab.ProfileByName("legacy1b")
+```
+
 ### Start from the full profile and remove checks
 
 ```go

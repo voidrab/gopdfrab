@@ -18,7 +18,7 @@ import (
 func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	profileName := fs.String("profile", "pdfa1b", "target profile: pdfa1b, legacy1b, or pdf")
+	profileName := fs.String("profile", "pdfa1b", "target profile: "+profileNames())
 	password := fs.String("password", "", passwordFlagHelp)
 	dpi := fs.Int("dpi", 0, "raster fallback resolution in DPI (0 = default 150)")
 	maxIter := fs.Int("max-iterations", 0, "verify/fix loop bound (0 = default 4)")
@@ -36,9 +36,9 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	applyLimits(*maxDecodedMB, *maxResidentMB)
 
-	profile := profileByName(*profileName)
-	if profile == nil {
-		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want pdfa1b, legacy1b, or pdf)\n", *profileName)
+	profile, ok := gopdfrab.ProfileByName(*profileName)
+	if !ok {
+		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want %s)\n", *profileName, profileNames())
 		return exitError
 	}
 	if fs.NArg() < 1 {
