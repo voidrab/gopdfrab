@@ -90,21 +90,22 @@ func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		}
 	}
 
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		isForm := (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"})
 		isTiling := d.Entries.Get("PatternType") == pdf.PDFInteger(1)
 		if !d.IsStream() || (!isForm && !isTiling) {
-			return d, false
+			return false
 		}
 		resources, ok := d.Entries.Get("Resources").(pdf.PDFDict)
 		if !ok || resources.Entries == nil {
-			return d, false
+			return false
 		}
 		bbox, ok := rectOf(d.Entries.Get("BBox"))
 		if !ok {
-			return d, false
+			return false
 		}
-		return rewrite(d, resources, bbox, true)
+		_, ok = rewrite(d, resources, bbox, true)
+		return ok
 	})
 	return changed, nil
 }

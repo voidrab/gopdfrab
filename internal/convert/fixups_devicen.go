@@ -208,23 +208,23 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 // /SMask.
 func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
-			return d, false
+			return false
 		}
 		if !isOversizedDeviceN(d.Entries.Get("ColorSpace")) {
-			return d, false
+			return false
 		}
 		img, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
-			return d, false
+			return false
 		}
 		d.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 		d.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 		d.Entries.Del("Decode")
 		writer.SetStreamFlate(&d, packRGBSamples(img))
 		changed = true
-		return d, true
+		return true
 	})
 	return changed
 }

@@ -169,19 +169,19 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 // so this pass skips them on its own.
 func bakeStraySoftMasks(trailer *pdf.PDFDict) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || !hasSoftMask(d) {
-			return d, false
+			return false
 		}
 		// No resource dictionary: an image reached outside any content stream
 		// has no named colour spaces in scope, and one that needs them stays
 		// as it is rather than being decoded against the wrong names.
-		fixed, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
+		_, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
 		if !ok {
-			return d, false
+			return false
 		}
 		changed = true
-		return fixed, true
+		return true
 	})
 	return changed
 }

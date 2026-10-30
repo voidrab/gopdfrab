@@ -632,12 +632,12 @@ func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 
 func (f cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		_, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
 		if ok {
 			changed = true
 		}
-		return updated, ok
+		return ok
 	})
 	return changed, nil
 }

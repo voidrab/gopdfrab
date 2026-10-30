@@ -56,20 +56,20 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 	// are not reachable here, since a content stream is none of these things.
 	// walkContentStreamDicts covers the same four shapes for the rewrites that
 	// do not need to know which resource a name selects.
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		switch {
 		case d.IsStream() && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
 			d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
-			fixed, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
+			_, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
 			if ok {
 				changed = true
 			}
-			return fixed, ok
+			return ok
 
 		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
 			procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict)
 			if !ok {
-				return d, false
+				return false
 			}
 			resources := resourcesOf(d, pdf.PDFDict{})
 			for _, name := range sortedKeys(procs.Entries) {
@@ -83,7 +83,7 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 				}
 			}
 		}
-		return d, false
+		return false
 	})
 	return changed
 }

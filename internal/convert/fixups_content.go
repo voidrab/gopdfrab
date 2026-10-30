@@ -238,7 +238,7 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 // carry state across the stream, which rescaling a path needs.
 func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		switch {
 		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
 			switch contents := d.Entries.Get("Contents").(type) {
@@ -261,15 +261,15 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 					}
 				}
 			}
-			return d, false
+			return false
 
 		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.IsStream(),
 			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.IsStream():
-			if fixed, ok := rewrite(d); ok {
+			if _, ok := rewrite(d); ok {
 				changed = true
-				return fixed, true
+				return true
 			}
-			return d, false
+			return false
 
 		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
 			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
@@ -284,9 +284,9 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 					}
 				}
 			}
-			return d, false
+			return false
 		}
-		return d, false
+		return false
 	})
 	return changed
 }

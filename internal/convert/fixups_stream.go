@@ -40,13 +40,13 @@ func (undecodableStreamFixer) Applies(c pdf.Check) bool {
 
 func (f undecodableStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if !d.IsStream() || len(d.Stream()) != 0 || d.Entries.Get("Filter") == nil {
-			return d, false
+			return false
 		}
 		dropFilters(&d)
 		changed = true
-		return d, true
+		return true
 	})
 	if f.fixType3CharProcs(*trailer) {
 		changed = true
@@ -149,29 +149,39 @@ func (lzwStreamFixer) Applies(c pdf.Check) bool {
 
 func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if !d.IsStream() || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW) {
-			return d, false
+			return false
 		}
 		plaintext, err := pdf.DecodeStream(d)
 		if err != nil {
-			return d, false
+			return false
 		}
 		writer.SetStreamFlate(&d, plaintext)
 		changed = true
-		return d, true
+		return true
 	})
 	return changed, nil
 }
 
 // walkStreamDicts calls fix for every pdf.PDFDict found within v's dictionary
-// entries or array elements, using cycle protection. Unlike walkDicts, it
-// writes modified dictionaries back to the parent structure so that changes to
-// stream fields take effect.
-func walkStreamDicts(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFDict) (pdf.PDFDict, bool)) {
+// entries or array elements, using cycle protection. fix edits the dict in
+// place and reports whether it changed it. Unlike walkDicts, it runs fix once
+// per slot holding a dict, except that a stream fix has changed is not fixed
+// again through its other slots.
+func walkStreamDicts(v pdf.PDFValue, visited map[uintptr]bool, fix func(pdf.PDFDict) bool) {
+	fixed := map[uintptr]bool{}
 	walkGraph(v, visited, nil, func(child pdf.PDFValue) (pdf.PDFValue, bool) {
-		if cd, ok := child.(pdf.PDFDict); ok {
-			return fix(cd)
+		cd, ok := child.(pdf.PDFDict)
+		if !ok {
+			return nil, false
+		}
+		ptr, isStream := pdf.ValuePointer(cd.Entries), cd.IsStream()
+		if isStream && fixed[ptr] {
+			return nil, false
+		}
+		if fix(cd) && isStream {
+			fixed[ptr] = true
 		}
 		return nil, false
 	})

@@ -56,34 +56,29 @@ func TestWalkGraphDepthCap(t *testing.T) {
 	}, nil)
 }
 
-// TestWalkGraphSharedStreamReplacement pins that a stream replaced through one
-// slot is replaced in every slot holding the same object: those already
-// passed, and those still ahead without edit running again. Each slot holds
-// its own copy of Stream(), so the replacement must reach every slot, not
-// only the one that was patched.
-func TestWalkGraphSharedStreamReplacement(t *testing.T) {
+// TestWalkStreamDictsSharedStream verifies that a stream fixed through one
+// slot reads as fixed through every slot holding the same object, those
+// already passed and those still ahead, and that fix does not run again on a
+// slot whose stream it has already changed.
+func TestWalkStreamDictsSharedStream(t *testing.T) {
 	s := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "X"}}), []byte("old"))
 	arr := pdf.PDFArray{s, s, s}
 	var calls int
-	walkGraph(arr, map[uintptr]bool{}, nil, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
-		d, ok := v.(pdf.PDFDict)
-		if !ok {
-			return nil, false
-		}
+	walkStreamDicts(arr, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		calls++
-		if calls != 2 { // fire on the middle slot, so one copy lies behind it
-			return nil, false
+		if calls != 2 { // fire on the middle slot, so one slot lies behind it
+			return false
 		}
 		d.SetStream([]byte("new"))
-		return d, true
+		return true
 	})
 	for i, v := range arr {
 		if got := string(v.(pdf.PDFDict).Stream()); got != "new" {
-			t.Errorf("slot %d holds %q, want the replacement's bytes", i, got)
+			t.Errorf("slot %d holds %q, want the fixed bytes", i, got)
 		}
 	}
 	if calls != 2 {
-		t.Errorf("edit ran %d times, want 2 (not again on a slot already replaced)", calls)
+		t.Errorf("fix ran %d times, want 2 (not again on a stream already fixed)", calls)
 	}
 }
 
