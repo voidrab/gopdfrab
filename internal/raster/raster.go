@@ -1126,8 +1126,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 					if code < 0 || code > 255 {
 						return GlyphPath{}, false
 					}
-					// A code no cmap resolves is drawn as the glyph of that
-					// number, as viewers do for a font without a usable cmap.
+					// A code that no cmap maps is used as the glyph ID.
 					gid, found := cmaps.Lenient(code)
 					if !found {
 						gid = code
@@ -1156,8 +1155,8 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 					if code < 0 || code > 255 {
 						return GlyphPath{}, false
 					}
-					// A code whose glyph name the charset lacks is drawn as
-					// the glyph of that number.
+					// A code whose glyph name the charset lacks is used as
+					// the glyph ID.
 					gid, found := gidByName[names[code]]
 					if !found {
 						gid = code
