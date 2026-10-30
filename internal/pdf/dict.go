@@ -150,16 +150,16 @@ func (d Dict) Len() int {
 	return len(d.ent)
 }
 
-// Clone returns a dictionary holding d's entries and reference in a body of
-// its own, so editing the clone leaves d -- and everything reading it -- as it
-// was. The values themselves are shared, not copied.
+// Clone returns a dictionary with d's entries and reference in a body of its
+// own, so edits to the clone are not visible through d. The values themselves
+// are shared, not copied.
 func (d Dict) Clone() Dict {
 	return &DictBody{ent: slices.Clone(d.ent), idx: maps.Clone(d.idx), ref: d.ref, hasRef: d.hasRef}
 }
 
-// Assign makes d hold exactly src's entries and reference. Every value sharing
-// d's body, which is every reference to the object, sees the change: the way
-// to publish an edit prepared on a Clone.
+// Assign replaces d's entries and reference with src's. Every copy of d shares
+// its body, so all references to the object see the change. Use Assign to
+// publish an edit prepared on a Clone.
 func (d Dict) Assign(src Dict) {
 	*d = DictBody{ent: slices.Clone(src.ent), idx: maps.Clone(src.idx), ref: src.ref, hasRef: src.hasRef}
 }
@@ -209,8 +209,8 @@ func (d Dict) DeleteFunc(pred func(k string, v PDFValue) bool) {
 const refLabel = " ref"
 
 // String formats the dictionary in map[...] form with its keys sorted, and its
-// reference, if any, under the key " ref". Without it, fmt prints the pointer,
-// which puts a heap address into every check message.
+// reference, if any, under the key " ref". Without this method, fmt prints the
+// pointer, which puts a heap address into check messages.
 func (d Dict) String() string {
 	if d == nil {
 		return "map[]"

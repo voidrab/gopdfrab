@@ -214,8 +214,8 @@ func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) {
 // objectIdentity is the dedup key WriteDocument uses to recognise that two
 // pdf.PDFValue occurrences refer to the same logical indirect object: either the
 // object number it was read from disk under (PDFDict.Ref), or, for a dict with
-// no reference (synthesized fresh by a fixup, never read from disk), its Entries
-// map's pointer identity.
+// no reference (synthesized fresh by a fixup, never read from disk), the
+// pointer of its Entries body.
 type objectIdentity struct {
 	hasRef bool
 	objNum int

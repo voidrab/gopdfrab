@@ -36,12 +36,11 @@ func init() {
 	})
 }
 
-// nextAvailableObjNum scans the graph for the highest existing reference's
-// object number and returns one past it, for synthesizing a fresh, guaranteed-
-// unique indirect-object identity (isIndirectDict/identityOf, writer.go) for
-// a brand-new dict that needs to be referenced from more than one place
-// (the actual output object number WriteDocument assigns is unrelated --
-// this only has to avoid colliding with any reference already in the graph).
+// nextAvailableObjNum returns one more than the highest object number among
+// the references in the graph under trailer. The result gives a synthesized
+// dict an identity (see isIndirectDict and identityOf in writer.go) that no
+// existing reference uses. WriteDocument assigns output object numbers
+// independently.
 func nextAvailableObjNum(trailer pdf.PDFDict) int {
 	max := 0
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {

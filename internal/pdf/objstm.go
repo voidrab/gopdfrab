@@ -37,7 +37,7 @@ func (d *Reader) resolveCompressedObject(ref PDFRef, entry compressedXrefEntry) 
 
 // findObjStmEntry returns the entry for objNum: the one at index when its
 // declared number agrees, else the first declaring objNum. A wrong xref index
-// must not hand back -- and stamp its reference on -- some other object.
+// must not return, or stamp its reference onto, a different object.
 func findObjStmEntry(entries []objStmEntry, index, objNum int) (objStmEntry, bool) {
 	if index >= 0 && index < len(entries) && entries[index].objNum == objNum {
 		return entries[index], true
@@ -126,9 +126,8 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 
 		// Compressed objects may not themselves be streams (ISO 32000-1
 		// 7.5.7), so there is no RawStream to capture here. Record the
-		// object's reference, which the rest of the package relies on, the
-		// same as resolver.go's parseClassicReference does for
-		// classically-stored objects.
+		// object's reference, which the rest of the package relies on, as
+		// parseClassicReference in resolver.go does for classic objects.
 		if dictVal, ok := val.(PDFDict); ok {
 			dictVal.SetRef(PDFRef{ObjNum: p.objNum})
 			val = dictVal

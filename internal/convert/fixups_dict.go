@@ -133,9 +133,8 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 	walk(v, 0)
 }
 
-// clearDict deletes every entry from d, keeping its reference so it remains
-// a validly-targetable indirect object, just inert. It neutralizes a
-// forbidden action dictionary in place.
+// clearDict deletes every entry from d and keeps its reference, so references
+// to d stay valid. It neutralizes a forbidden action dictionary in place.
 func clearDict(d pdf.PDFDict) {
 	d.Entries.DeleteFunc(func(string, pdf.PDFValue) bool { return true })
 }

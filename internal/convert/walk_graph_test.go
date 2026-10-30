@@ -6,9 +6,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// TestWalkGraph pins the shared traversal's contract: each dict is visited
-// once even through a cycle, a false visit prunes the subtree, and an edit's
-// replacement is written back and walked.
+// TestWalkGraph verifies that each dict is visited once even through a cycle,
+// that a false visit prunes the subtree, and that an edit's replacement is
+// written back and walked.
 func TestWalkGraph(t *testing.T) {
 	leaf := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Leaf": pdf.PDFBoolean(true)})}
 	pruned := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Stop": pdf.PDFBoolean(true), "Under": leaf})}

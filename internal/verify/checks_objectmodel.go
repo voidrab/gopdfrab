@@ -554,9 +554,10 @@ func numericValue(val pdf.PDFValue) (float64, bool) {
 	return 0, false
 }
 
-// isIndirect reports whether val was reached through an indirect reference. Only dicts and
-// streams carry the reference the resolver records (internal/pdf/resolver.go); arrays required to be
-// indirect (3 rows in the model) have no such marker and are always treated as satisfied,
+// isIndirect reports whether val was reached through an indirect reference.
+// Only dicts and streams carry the reference the resolver records
+// (internal/pdf/resolver.go). Arrays required to be indirect (3 rows in the
+// model) have no such marker, so they are always treated as satisfied,
 // erring toward false negatives.
 func isIndirect(val pdf.PDFValue) bool {
 	d, ok := val.(pdf.PDFDict)

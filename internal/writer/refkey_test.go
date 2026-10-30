@@ -8,10 +8,11 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestLiteralUnderscoreKeysRoundTrip pins that a document's own /_ref and
-// /_dirty keys are ordinary data: kept on an indirect object, kept on a direct
-// dict without making it look indirect, and written back out. The reader keeps
-// an object's own reference outside its entries, so no key collides with it.
+// TestLiteralUnderscoreKeysRoundTrip verifies that a document's own /_ref and
+// /_dirty keys are ordinary data: they survive a write and read on an indirect
+// object and on a direct dict, which stays direct. The reader keeps an
+// object's own reference outside its entries, so the keys do not collide with
+// it.
 func TestLiteralUnderscoreKeysRoundTrip(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /_ref (mine) /D << /_ref 7 /_dirty true >> >>")
