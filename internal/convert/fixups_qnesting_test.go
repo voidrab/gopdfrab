@@ -378,18 +378,10 @@ func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 	}
 }
 
-// TestCmMatrixRejectsMalformedOperands verifies that a cm with the wrong
-// operand count or a non-number operand is not read as a matrix, and that the
-// repair steps over it.
-func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
-	if _, ok := cmMatrix([]pdf.PDFValue{pdf.PDFInteger(1)}); ok {
-		t.Error("a one-operand cm was read as a matrix")
-	}
-	six := []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFName{Value: "x"}}
-	if _, ok := cmMatrix(six); ok {
-		t.Error("a cm with a name operand was read as a matrix")
-	}
-	// The repair steps over both, and over a Q with nothing to restore.
+// TestQNestingStepsOverMalformedOperators verifies that the repair steps over
+// a cm with the wrong operand count or a non-number operand, and over a Q
+// with nothing to restore.
+func TestQNestingStepsOverMalformedOperators(t *testing.T) {
 	trailer, page, _ := pageWithContent("Q\n1 cm\n1 0 0 1 0 /x cm\n" + nestedQ(30, ""))
 	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")

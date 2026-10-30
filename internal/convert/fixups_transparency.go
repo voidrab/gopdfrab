@@ -5,8 +5,8 @@ import (
 	"image"
 	"runtime"
 	"sort"
-	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -314,80 +314,19 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 // invocation wins: a form
 // drawn twice under two colours cannot be flattened to suit both, and the
 // first is what the rest of the flattening assumes.
-func paintAtDo(content []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
-	type paintState struct {
-		fill, stroke     [3]float64
-		fillCS, strokeCS pdf.PDFValue
-	}
-	// A drawing starts black in DeviceGray (ISO 32000-1 table 52).
-	cur := paintState{fillCS: pdf.PDFName{Value: "DeviceGray"}, strokeCS: pdf.PDFName{Value: "DeviceGray"}}
-	var stack []paintState
+func paintAtDo(data []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
+	gs := content.NewTracker()
 	at := map[string]raster.InheritedPaint{}
-
-	colour := func(space pdf.PDFValue, operands []pdf.PDFValue) ([3]float64, bool) {
-		comps := pdf.NumericOperands(operands)
-		if len(comps) == 0 {
-			return [3]float64{}, false
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if gs.Step(op, operands, resources) || op != "Do" || len(operands) == 0 {
+			return
 		}
-		r, g, b := pdf.ResolveColor(space, comps, resources)
-		return [3]float64{r, g, b}, true
-	}
-
-	pdf.NewContentScanner(content).Scan(func(op string, operands []pdf.PDFValue) {
-		switch op {
-		case "q":
-			stack = append(stack, cur)
-		case "Q":
-			if n := len(stack); n > 0 {
-				cur = stack[n-1]
-				stack = stack[:n-1]
-			}
-		case "g", "rg", "k", "sc", "scn":
-			space := cur.fillCS
-			if named, ok := deviceSpaces[op]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.fillCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.fill = rgb
-			}
-		case "G", "RG", "K", "SC", "SCN":
-			space := cur.strokeCS
-			if named, ok := deviceSpaces[strings.ToLower(op)]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.strokeCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.stroke = rgb
-			}
-		case "cs", "CS":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			space, ok := pdf.LookupNamedColorSpace(name.Value, resources)
-			if !ok {
-				space = name
-			}
-			if op == "cs" {
-				cur.fillCS = space
-			} else {
-				cur.strokeCS = space
-			}
-		case "Do":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			if _, seen := at[name.Value]; !seen {
-				at[name.Value] = raster.InheritedPaint{Set: true, Fill: cur.fill, Stroke: cur.stroke}
-			}
+		name, ok := operands[len(operands)-1].(pdf.PDFName)
+		if !ok {
+			return
+		}
+		if _, seen := at[name.Value]; !seen {
+			at[name.Value] = raster.InheritedPaint{Set: true, Fill: gs.Fill.RGB, Stroke: gs.Stroke.RGB}
 		}
 	})
 	return at

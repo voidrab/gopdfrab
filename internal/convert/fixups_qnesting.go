@@ -183,20 +183,19 @@ type unnester struct {
 // may be closed there.
 func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]writer.ContentOp, bool) {
 	out := make([]writer.ContentOp, 0, len(ops))
-	ctm := content.IdentityMatrix
-	var saved []content.Matrix
+	gs := content.NewTracker()
 	inText := false
 	for i := 0; i < len(ops); i++ {
 		op := ops[i]
 		switch op.Op {
 		case "q":
-			if len(saved)+1 == u.limit {
+			if gs.Depth()+1 == u.limit {
 				end, deepest := blockEnd(ops, i, u.limit)
 				if deepest > u.limit {
 					if inText || (end == len(ops) && !closed) || !selfContained(ops[i+1:min(end, len(ops))]) {
 						return nil, false
 					}
-					do, ok := u.extract(ops[i+1:min(end, len(ops))], ctm, visible)
+					do, ok := u.extract(ops[i+1:min(end, len(ops))], gs.CTM, visible)
 					if !ok {
 						return nil, false
 					}
@@ -205,20 +204,12 @@ func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]wri
 					continue
 				}
 			}
-			saved = append(saved, ctm)
-		case "Q":
-			if n := len(saved); n > 0 {
-				ctm, saved = saved[n-1], saved[:n-1]
-			}
-		case "cm":
-			if m, ok := cmMatrix(op.Operands); ok {
-				ctm = m.Mul(ctm)
-			}
 		case "BT":
 			inText = true
 		case "ET":
 			inText = false
 		}
+		gs.Step(op.Op, op.Operands, pdf.PDFDict{})
 		out = append(out, op)
 	}
 	return out, true
@@ -329,22 +320,6 @@ func selfContained(ops []writer.ContentOp) bool {
 		}
 	}
 	return !inText && marked == 0 && compat == 0
-}
-
-// cmMatrix reads a cm operator's six operands.
-func cmMatrix(operands []pdf.PDFValue) (content.Matrix, bool) {
-	if len(operands) != 6 {
-		return content.Matrix{}, false
-	}
-	var v [6]float64
-	for i, o := range operands {
-		f, ok := numericValue(o)
-		if !ok {
-			return content.Matrix{}, false
-		}
-		v[i] = f
-	}
-	return content.Matrix{A: v[0], B: v[1], C: v[2], D: v[3], E: v[4], F: v[5]}, true
 }
 
 // transformRect maps r through m and returns the bounds of the result.

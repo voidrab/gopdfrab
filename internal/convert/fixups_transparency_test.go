@@ -1507,6 +1507,7 @@ func TestPaintAtDo(t *testing.T) {
 			"q 0 0 1 rg 1 0 0 RG /Inner Do Q\n"+ // saved and restored around
 			"/AfterRestore Do\n"+
 			"/Gray cs 0.5 sc /Named Do\n"+
+			"1 0 0 rg /Gray cs /Reset Do\n"+ // cs starts the colour at black
 			"1 g /Wrapper Do\n"), // a repeat does not overwrite the first
 		resources)
 
@@ -1518,6 +1519,7 @@ func TestPaintAtDo(t *testing.T) {
 		{"Inner", [3]float64{0, 0, 1}, [3]float64{1, 0, 0}},
 		{"AfterRestore", [3]float64{1, 1, 1}, [3]float64{0, 0, 0}},
 		{"Named", [3]float64{0.5, 0.5, 0.5}, [3]float64{0, 0, 0}},
+		{"Reset", [3]float64{0, 0, 0}, [3]float64{0, 0, 0}},
 	} {
 		got, ok := at[tc.name]
 		if !ok || !got.Set {

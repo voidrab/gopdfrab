@@ -86,6 +86,10 @@ notice.
   encoding rather than StandardEncoding, a symbolic TrueType font resolves
   through its (3,0) cmap, and a Type 1C font finds its glyphs by name
   instead of taking the code as the glyph ID.
+- The DeviceN colorant repair kept the colour space a q block set after its
+  Q, and rewrote a later colour in the restored space as black.
+- Transparency flattening carried the previous colour into a form drawn
+  after a colour space operator, which starts the colour at black.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

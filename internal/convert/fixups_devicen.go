@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -114,32 +115,31 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	// here would alias the scanner's reused stack.
 	var cw writer.ContentStreamWriter
 	modified := false
-	var fillCS, strokeCS pdf.PDFValue
+	gs := content.NewTracker()
 	cs := pdf.NewContentScanner(data)
 	cs.Scan(func(op string, operands []pdf.PDFValue) {
+		gs.Step(op, operands, resources)
 		switch op {
 		case "cs":
-			fillCS = raster.ResolveOperandColorSpace(operands, resources)
-			if isOversizedDeviceN(fillCS) {
+			if isOversizedDeviceN(gs.Fill.Space) {
 				modified = true
 				return
 			}
 		case "CS":
-			strokeCS = raster.ResolveOperandColorSpace(operands, resources)
-			if isOversizedDeviceN(strokeCS) {
+			if isOversizedDeviceN(gs.Stroke.Space) {
 				modified = true
 				return
 			}
 		case "scn":
-			if isOversizedDeviceN(fillCS) {
-				r, g, b := pdf.ResolveColor(fillCS, pdf.NumericOperands(operands), resources)
+			if isOversizedDeviceN(gs.Fill.Space) {
+				r, g, b := pdf.ResolveColor(gs.Fill.Space, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("rg", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
 			}
 		case "SCN":
-			if isOversizedDeviceN(strokeCS) {
-				r, g, b := pdf.ResolveColor(strokeCS, pdf.NumericOperands(operands), resources)
+			if isOversizedDeviceN(gs.Stroke.Space) {
+				r, g, b := pdf.ResolveColor(gs.Stroke.Space, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("RG", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
