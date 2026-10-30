@@ -21,20 +21,11 @@ type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-func TestProfileByName(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want *gopdfrab.Profile
-	}{
-		{"pdfa1b", gopdfrab.PDFA1B},
-		{"legacy1b", gopdfrab.Legacy1B},
-		{"pdf", gopdfrab.PDF},
-		{"bogus", nil},
-		{"", nil},
-	} {
-		if got := profileByName(tc.name); got != tc.want {
-			t.Errorf("profileByName(%q) = %v, want %v", tc.name, got, tc.want)
-		}
+// TestProfileNames verifies that profileNames lists the ready-made profile
+// names in the comma-separated form used by the flag help.
+func TestProfileNames(t *testing.T) {
+	if got, want := profileNames(), "pdfa1b, legacy1b, or pdf"; got != want {
+		t.Errorf("profileNames() = %q, want %q", got, want)
 	}
 }
 

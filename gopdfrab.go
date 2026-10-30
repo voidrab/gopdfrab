@@ -44,7 +44,7 @@ type (
 	//	SkipUnusedSimpleFonts   only report embedding for fonts actually drawn
 	//
 	// Methods: Clone, Clear, AddCheck, RemoveCheck, Checks, Has,
-	// OnlyObjectModelChecks, Allows, String.
+	// OnlyObjectModelChecks, Allows, Name, String.
 	Profile = pdf.Profile
 
 	// LevelType is a conformance level: A1B for PDF/A-1b, ObjectModel for the
@@ -234,6 +234,14 @@ func NewProfile(level LevelType) *Profile { return pdf.NewProfile(level) }
 // useful for asking "is this even valid PDF" on its own. Use PDF unless the
 // caller wants a profile nothing else shares.
 func ObjectModelOnly() *Profile { return pdf.ObjectModelOnly() }
+
+// Profiles returns the ready-made profiles: [PDFA1B], [Legacy1B] and [PDF].
+func Profiles() []*Profile { return pdf.Profiles() }
+
+// ProfileByName returns the ready-made profile with the given name, as
+// [Profile.Name] reports it: "pdfa1b", "legacy1b" or "pdf". ok is false for
+// any other name.
+func ProfileByName(name string) (p *Profile, ok bool) { return pdf.ProfileByName(name) }
 
 // AllChecks returns every registered check with its name, description, and
 // clause number.

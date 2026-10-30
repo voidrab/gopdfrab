@@ -14,7 +14,7 @@ import (
 func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	profileName := fs.String("profile", "pdfa1b", "conformance profile: pdfa1b, legacy1b, or pdf")
+	profileName := fs.String("profile", "pdfa1b", "conformance profile: "+profileNames())
 	password := fs.String("password", "", passwordFlagHelp)
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
 	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 64)")
@@ -29,9 +29,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	applyLimits(*maxDecodedMB, *maxResidentMB)
 
-	profile := profileByName(*profileName)
-	if profile == nil {
-		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want pdfa1b, legacy1b, or pdf)\n", *profileName)
+	profile, ok := verify.ProfileByName(*profileName)
+	if !ok {
+		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want %s)\n", *profileName, profileNames())
 		return exitError
 	}
 	if fs.NArg() == 0 {

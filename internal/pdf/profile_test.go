@@ -120,3 +120,49 @@ func TestOnlyObjectModelChecks(t *testing.T) {
 		t.Error("adding a PDF/A check must clear OnlyObjectModelChecks")
 	}
 }
+
+// TestProfileByNameFindsEachReadyMadeProfile verifies that each profile
+// Profiles lists is found again under the name it reports.
+func TestProfileByNameFindsEachReadyMadeProfile(t *testing.T) {
+	want := []string{"pdfa1b", "legacy1b", "pdf"}
+	ps := Profiles()
+	if len(ps) != len(want) {
+		t.Fatalf("Profiles() has %d profiles, want %d", len(ps), len(want))
+	}
+	for i, p := range ps {
+		if p.Name() != want[i] {
+			t.Errorf("Profiles()[%d].Name() = %q, want %q", i, p.Name(), want[i])
+		}
+		if got, ok := ProfileByName(p.Name()); !ok || got != p {
+			t.Errorf("ProfileByName(%q) = %v, %v; want %v, true", p.Name(), got, ok, p)
+		}
+	}
+}
+
+// TestProfileByNameRejectsOtherNames verifies that ProfileByName finds
+// nothing for a name no ready-made profile has, including the empty name of
+// every custom profile.
+func TestProfileByNameRejectsOtherNames(t *testing.T) {
+	for _, name := range []string{"", "bogus", "PDFA1B", "A-1b"} {
+		if p, ok := ProfileByName(name); ok || p != nil {
+			t.Errorf("ProfileByName(%q) = %v, %v; want nil, false", name, p, ok)
+		}
+	}
+}
+
+// TestDerivedProfilesHaveNoName verifies that Name is empty for a cloned or
+// edited ready-made profile and for a profile from NewProfile, because only
+// the ready-made profiles carry a name.
+func TestDerivedProfilesHaveNoName(t *testing.T) {
+	for name, p := range map[string]*Profile{
+		"Clone":       PDFA1B.Clone(),
+		"Clear":       PDFA1B.Clear(),
+		"AddCheck":    PDF.AddCheck(Checks.Structure.TrailerID),
+		"RemoveCheck": Legacy1B.RemoveCheck(Checks.Structure.TrailerID),
+		"NewProfile":  NewProfile(A1B),
+	} {
+		if got := p.Name(); got != "" {
+			t.Errorf("%s: Name() = %q, want empty", name, got)
+		}
+	}
+}

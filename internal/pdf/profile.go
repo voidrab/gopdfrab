@@ -25,6 +25,7 @@ type Profile struct {
 	// Level is the conformance level this profile verifies against.
 	Level   LevelType
 	enabled map[int]bool // set of enabled check IDs
+	name    string       // set on the ready-made profiles only
 
 	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
 	// never drawn from a reachable content stream. ISO 19005-1
@@ -76,6 +77,26 @@ func init() {
 		Checks.Image.FormPostScript,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
+
+	PDFA1B.name = "pdfa1b"
+	Legacy1B.name = "legacy1b"
+	PDF.name = "pdf"
+}
+
+// Profiles returns the ready-made profiles: PDFA1B, Legacy1B and PDF.
+func Profiles() []*Profile {
+	return []*Profile{PDFA1B, Legacy1B, PDF}
+}
+
+// ProfileByName returns the ready-made profile with the given name, as
+// Profile.Name reports it. ok is false for any other name.
+func ProfileByName(name string) (p *Profile, ok bool) {
+	for _, p := range Profiles() {
+		if p.name == name {
+			return p, true
+		}
+	}
+	return nil, false
 }
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -195,6 +216,11 @@ func (p *Profile) Allows(clause string, subclause int) bool {
 	}
 	return p.enabled[c.ID()]
 }
+
+// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b" or
+// "pdf". It is empty for any other profile, including one derived from a
+// ready-made profile by Clone, Clear, AddCheck or RemoveCheck.
+func (p *Profile) Name() string { return p.name }
 
 // String returns a human-readable summary of the profile.
 func (p *Profile) String() string {
