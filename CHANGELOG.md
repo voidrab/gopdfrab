@@ -90,6 +90,10 @@ notice.
   Q, and rewrote a later colour in the restored space as black.
 - Transparency flattening carried the previous colour into a form drawn
   after a colour space operator, which starts the colour at black.
+- Raster fallback: a colour space operator started the colour at black in
+  every space; it starts at the space's initial colour, such as full tint
+  in a Separation space. A cm or colour operator short of operands is
+  skipped instead of setting a zero matrix or black.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

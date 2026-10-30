@@ -106,34 +106,6 @@ func TestPaintOperatorsWithoutPathDoNothing(t *testing.T) {
 	}
 }
 
-func TestResolveOperandColorSpaceUnknownNameIsKept(t *testing.T) {
-	unknown := pdf.PDFName{Value: "NoSuchSpace"}
-	got := ResolveOperandColorSpace([]pdf.PDFValue{unknown}, pdf.PDFDict{})
-	if !pdf.EqualPDFValue(got, unknown) {
-		t.Errorf("unresolvable name = %v, want it returned as written", got)
-	}
-}
-
-func TestPatternNameOperand(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		operands []pdf.PDFValue
-		want     string
-		ok       bool
-	}{
-		{"none", nil, "", false},
-		{"numbers only", []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFReal(0.5)}, "", false},
-		{"name last", []pdf.PDFValue{pdf.PDFReal(0.5), pdf.PDFName{Value: "P1"}}, "P1", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := patternNameOperand(tc.operands)
-			if got != tc.want || ok != tc.ok {
-				t.Errorf("patternNameOperand = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
-			}
-		})
-	}
-}
-
 func TestExtGStateOperator(t *testing.T) {
 	resources := resourcesWith("ExtGState", map[string]pdf.PDFValue{
 		"Half":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)})},

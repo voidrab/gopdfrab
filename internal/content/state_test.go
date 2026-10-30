@@ -170,3 +170,42 @@ func TestTracker(t *testing.T) {
 		t.Error("re was tracked")
 	}
 }
+
+// TestInitialColour verifies the colour a cs operator starts each kind of
+// space at.
+func TestInitialColour(t *testing.T) {
+	// Tint 1.0 maps to black and 0.0 to white, so a start at 0.0 shows.
+	tint := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"FunctionType": pdf.PDFInteger(2), "Domain": pdf.PDFArray(nums(0, 1)),
+		"C0": pdf.PDFArray(nums(1)), "C1": pdf.PDFArray(nums(0)), "N": pdf.PDFInteger(1),
+	})}
+	iccCMYK := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"N": pdf.PDFInteger(4)}), nil)
+	spaces := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Sep":   pdf.PDFArray{name("Separation"), name("Spot"), name("DeviceGray"), tint},
+		"DN":    pdf.PDFArray{name("DeviceN"), pdf.PDFArray{name("Spot")}, name("DeviceGray"), tint},
+		"Idx":   pdf.PDFArray{name("Indexed"), name("DeviceRGB"), pdf.PDFInteger(1), pdf.PDFString{Value: "\xff\x00\x00\x00\xff\x00"}},
+		"ICC":   pdf.PDFArray{name("ICCBased"), iccCMYK},
+		"Empty": pdf.PDFArray{},
+	})}
+	res := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ColorSpace": spaces})}
+	for _, tc := range []struct {
+		space string
+		want  [3]float64
+	}{
+		{"DeviceGray", [3]float64{}},
+		{"DeviceCMYK", [3]float64{}},
+		{"Sep", [3]float64{}},
+		{"DN", [3]float64{}},
+		{"Idx", [3]float64{1, 0, 0}},
+		{"ICC", [3]float64{1, 1, 1}},
+		{"Pattern", [3]float64{}},
+		{"Empty", [3]float64{}},
+	} {
+		g := NewGState()
+		g.Apply("rg", nums(0.5, 0.5, 0.5), res)
+		g.Apply("cs", []pdf.PDFValue{name(tc.space)}, res)
+		if g.Fill.RGB != tc.want {
+			t.Errorf("%s: starts at %v, want %v", tc.space, g.Fill.RGB, tc.want)
+		}
+	}
+}

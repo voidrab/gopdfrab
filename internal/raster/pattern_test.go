@@ -175,30 +175,6 @@ func TestPatternRestoredByGraphicsState(t *testing.T) {
 	}
 }
 
-func TestIsPatternColorSpace(t *testing.T) {
-	pat := pdf.PDFName{Value: "Pattern"}
-	for _, tc := range []struct {
-		name string
-		cs   pdf.PDFValue
-		want bool
-	}{
-		{"bare name", pat, true},
-		{"other name", pdf.PDFName{Value: "DeviceRGB"}, false},
-		{"array with base", pdf.PDFArray{pat, pdf.PDFName{Value: "DeviceRGB"}}, true},
-		{"array of other space", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}, false},
-		{"empty array", pdf.PDFArray{}, false},
-		{"array not led by a name", pdf.PDFArray{pdf.PDFInteger(1)}, false},
-		{"unrelated value", pdf.PDFInteger(1), false},
-		{"nil", nil, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isPatternColorSpace(tc.cs); got != tc.want {
-				t.Errorf("isPatternColorSpace = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // shiftedAxial is axialPattern with the given /Matrix and, unless extend, no
 // extension past the gradient's ends (so pixels outside are unpainted).
 func shiftedAxial(matrix pdf.PDFValue, extend bool) pdf.PDFDict {

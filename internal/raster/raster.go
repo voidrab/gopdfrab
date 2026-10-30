@@ -94,16 +94,15 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 	scale := float64(dpi) / 72
 	// Device CTM: PDF user space origin bottom-left Y-up -> image space origin top-left Y-down.
 	base := content.Matrix{A: scale, D: -scale, E: -bounds[0] * scale, F: bounds[3] * scale}
+	// The colour a drawing starts in is black in DeviceGray, so "1 sc"
+	// without a preceding cs selects white.
 	gs := renderState{
-		ctm: base, fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
+		GState: content.NewGState(), fillAlpha: 1, strokeAlpha: 1, lineWidth: 1, hScale: 1,
 		clip: [4]float64{0, 0, float64(width), float64(height)},
-		// The colour a drawing starts in is black in DeviceGray (ISO 32000-1
-		// table 52), so "1 sc" without a preceding cs selects white.
-		fillCS:   pdf.PDFName{Value: "DeviceGray"},
-		strokeCS: pdf.PDFName{Value: "DeviceGray"},
 	}
+	gs.CTM = base
 	if inherited.Set {
-		gs.fillRGB, gs.strokeRGB = inherited.Fill, inherited.Stroke
+		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
 	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
 	r.execContent(src, resources, gs)
@@ -154,18 +153,15 @@ func PageContentBytes(page pdf.PDFDict) ([]byte, error) {
 // renderState is the graphics state saved/restored by q/Q (the current path
 // under construction is tracked separately, since q/Q does not affect it).
 type renderState struct {
-	ctm                    content.Matrix
-	fillRGB, strokeRGB     [3]float64
-	fillCS, strokeCS       pdf.PDFValue
+	content.GState
 	fillAlpha, strokeAlpha float64
-	// Pattern colour: fillIsPattern records that the colour space is a
-	// Pattern one, so a fill paints the pattern or nothing -- never the black
-	// a bare Pattern cs would otherwise leave in fillRGB. fillPattern is the
-	// selected shading pattern, zero when none is usable. See pattern.go.
-	fillIsPattern, strokeIsPattern bool
-	fillPattern, strokePattern     pdf.PDFDict
-	lineWidth                      float64
-	clip                           [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
+	// fillPattern and strokePattern are the pattern dictionaries the
+	// colours' pattern names select, zero when none is selected or usable.
+	// A colour that paints with a pattern paints it or nothing, never the
+	// black a bare Pattern cs leaves in its RGB. See pattern.go.
+	fillPattern, strokePattern pdf.PDFDict
+	lineWidth                  float64
+	clip                       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
 
 	font       pdf.PDFDict
 	fontSize   float64
@@ -295,7 +291,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			return
 		}
 		pendingClip = false
-		contours := path.deviceContours(gs.ctm)
+		contours := path.deviceContours(gs.CTM)
 		if len(contours) == 0 {
 			return
 		}
@@ -325,9 +321,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 				gsStack = gsStack[:n-1]
 			}
 		case "cm":
-			a := nums(6)
-			m := content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
-			gs.ctm = m.Mul(gs.ctm)
+			gs.Apply(op, operands, resources)
 		case "w":
 			a := nums(1)
 			gs.lineWidth = a[0]
@@ -361,62 +355,11 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 			applyPendingClip()
 			_ = pendingClipEvenOdd
 			path.reset()
-		case "g":
-			a := nums(1)
-			gs.fillRGB = [3]float64{a[0], a[0], a[0]}
-			gs.fillCS = pdf.PDFName{Value: "DeviceGray"}
-			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
-		case "G":
-			a := nums(1)
-			gs.strokeRGB = [3]float64{a[0], a[0], a[0]}
-			gs.strokeCS = pdf.PDFName{Value: "DeviceGray"}
-			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
-		case "rg":
-			a := nums(3)
-			gs.fillRGB = [3]float64{a[0], a[1], a[2]}
-			gs.fillCS = pdf.PDFName{Value: "DeviceRGB"}
-			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
-		case "RG":
-			a := nums(3)
-			gs.strokeRGB = [3]float64{a[0], a[1], a[2]}
-			gs.strokeCS = pdf.PDFName{Value: "DeviceRGB"}
-			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
-		case "k":
-			a := nums(4)
-			gs.fillRGB[0], gs.fillRGB[1], gs.fillRGB[2] = pdf.CMYKToRGB(a)
-			gs.fillCS = pdf.PDFName{Value: "DeviceCMYK"}
-			gs.fillPattern, gs.fillIsPattern = pdf.PDFDict{}, false
-		case "K":
-			a := nums(4)
-			gs.strokeRGB[0], gs.strokeRGB[1], gs.strokeRGB[2] = pdf.CMYKToRGB(a)
-			gs.strokeCS = pdf.PDFName{Value: "DeviceCMYK"}
-			gs.strokePattern, gs.strokeIsPattern = pdf.PDFDict{}, false
-		case "cs":
-			gs.fillCS = ResolveOperandColorSpace(operands, resources)
-			gs.fillRGB = [3]float64{0, 0, 0}
-			gs.fillPattern = pdf.PDFDict{}
-			gs.fillIsPattern = isPatternColorSpace(gs.fillCS)
-		case "CS":
-			gs.strokeCS = ResolveOperandColorSpace(operands, resources)
-			gs.strokeRGB = [3]float64{0, 0, 0}
-			gs.strokePattern = pdf.PDFDict{}
-			gs.strokeIsPattern = isPatternColorSpace(gs.strokeCS)
-		case "sc", "scn":
-			if name, ok := patternNameOperand(operands); ok {
-				gs.fillIsPattern = true
-				gs.fillPattern, _ = r.selectPattern(name, resources)
-			} else if comps := pdf.NumericOperands(operands); len(comps) > 0 && gs.fillCS != nil {
-				r, g, b := pdf.ResolveColor(gs.fillCS, comps, resources)
-				gs.fillRGB = [3]float64{r, g, b}
-			}
-		case "SC", "SCN":
-			if name, ok := patternNameOperand(operands); ok {
-				gs.strokeIsPattern = true
-				gs.strokePattern, _ = r.selectPattern(name, resources)
-			} else if comps := pdf.NumericOperands(operands); len(comps) > 0 && gs.strokeCS != nil {
-				r, g, b := pdf.ResolveColor(gs.strokeCS, comps, resources)
-				gs.strokeRGB = [3]float64{r, g, b}
-			}
+		case "g", "G", "rg", "RG", "k", "K", "cs", "CS", "sc", "scn", "SC", "SCN":
+			fill, stroke := gs.Fill.Pattern, gs.Stroke.Pattern
+			gs.Apply(op, operands, resources)
+			gs.fillPattern = r.trackPattern(gs.fillPattern, fill, gs.Fill.Pattern, resources)
+			gs.strokePattern = r.trackPattern(gs.strokePattern, stroke, gs.Stroke.Pattern, resources)
 		case "gs":
 			r.applyExtGState(operands, resources, &gs)
 		case "Do":
@@ -507,7 +450,7 @@ func intersectRect(a, b [4]float64) [4]float64 {
 // StrokePath only paint within canvas.Bounds(), the clip is applied by
 // further restricting the canvas rect passed to a scratch sub-image.
 func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
-	contours := path.deviceContours(gs.ctm)
+	contours := path.deviceContours(gs.CTM)
 	if len(contours) == 0 {
 		return
 	}
@@ -517,18 +460,18 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 	// Under a Pattern colour space there is no numeric fill colour, so an
 	// unusable pattern paints nothing rather than the black fillRGB holds.
 	fill := func() {
-		if gs.fillIsPattern {
+		if gs.Fill.IsPattern() {
 			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
 			return
 		}
-		FillPath(target, contours, gs.fillRGB, gs.fillAlpha, evenOdd)
+		FillPath(target, contours, gs.Fill.RGB, gs.fillAlpha, evenOdd)
 	}
 	stroke := func() {
-		if gs.strokeIsPattern {
+		if gs.Stroke.IsPattern() {
 			r.paintPatternPath(target, contours, gs.strokePattern, gs, false, true)
 			return
 		}
-		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.ctm), gs.strokeRGB, gs.strokeAlpha)
+		StrokePath(target, contours, gs.lineWidth*ctmScale(gs.CTM), gs.Stroke.RGB, gs.strokeAlpha)
 	}
 
 	switch op {
@@ -573,40 +516,6 @@ func ctmScale(ctm content.Matrix) float64 {
 	sx := math.Hypot(ctm.A, ctm.B)
 	sy := math.Hypot(ctm.C, ctm.D)
 	return (sx + sy) / 2
-}
-
-// patternNameOperand reports an scn/SCN operand list's trailing pattern name.
-// Only a Pattern colour space takes a name here, so its presence is what
-// distinguishes a pattern colour from a numeric one.
-func patternNameOperand(operands []pdf.PDFValue) (string, bool) {
-	if len(operands) == 0 {
-		return "", false
-	}
-	name, ok := operands[len(operands)-1].(pdf.PDFName)
-	if !ok {
-		return "", false
-	}
-	return name.Value, true
-}
-
-// ResolveOperandColorSpace resolves a cs/CS operator's color-space name
-// operand against resources (DeviceGray/RGB/CMYK pass through as-is).
-func ResolveOperandColorSpace(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFValue {
-	if len(operands) == 0 {
-		return nil
-	}
-	name, ok := operands[len(operands)-1].(pdf.PDFName)
-	if !ok {
-		return operands[len(operands)-1]
-	}
-	switch name.Value {
-	case "DeviceGray", "DeviceRGB", "DeviceCMYK", "Pattern":
-		return name
-	}
-	if cs, ok := pdf.LookupNamedColorSpace(name.Value, resources); ok {
-		return cs
-	}
-	return name
 }
 
 // applyExtGState applies a gs operator's ca/CA alpha from the named
@@ -665,14 +574,14 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 		childGS := *gs
 		if m, err := pdf.FloatArray(xobj.Entries.Get("content.Matrix")); err == nil && len(m) == 6 {
 			fm := content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
-			childGS.ctm = fm.Mul(gs.ctm)
+			childGS.CTM = fm.Mul(gs.CTM)
 		}
 		// The form paints only inside its /BBox (ISO 32000-1 8.10.1), mapped
 		// through Matrix and CTM -- like a W clip, as its device-space bounds.
 		if bbox, err := pdf.FloatArray(xobj.Entries.Get("BBox")); err == nil && len(bbox) == 4 {
 			var box pathBuilder
 			box.rect(bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1])
-			minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(childGS.ctm))
+			minX, minY, maxX, maxY := boundsOfContours(box.deviceContours(childGS.CTM))
 			childGS.clip = intersectRect(childGS.clip, [4]float64{minX, minY, maxX, maxY})
 		}
 		data, err := pdf.DecodeStream(xobj)
@@ -812,7 +721,7 @@ func isImageMask(dict pdf.PDFDict) bool {
 // compositeImage maps an image's unit square through the CTM, sampling the
 // decoded RGBA (and, if present, a soft mask's luminosity as a per-pixel alpha
 // multiplier) into the canvas with nearest-neighbour resampling. A stencil
-// mask paints gs.fillRGB through its alpha, since its samples carry only
+// mask paints gs.Fill.RGB through its alpha, since its samples carry only
 // coverage (DecodeImageRGBA renders those as opaque black).
 func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *renderState) {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
@@ -824,7 +733,7 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 		smW, smH = smask.Bounds().Dx(), smask.Bounds().Dy()
 	}
 
-	ctm := gs.ctm
+	ctm := gs.CTM
 	inv, ok := ctm.Invert()
 	if !ok {
 		return
@@ -864,7 +773,7 @@ func (r *renderer) compositeImage(img, smask *image.RGBA, stencil bool, gs *rend
 			}
 			rgb := [3]float64{float64(img.Pix[po]) / 255, float64(img.Pix[po+1]) / 255, float64(img.Pix[po+2]) / 255}
 			if stencil {
-				rgb = gs.fillRGB
+				rgb = gs.Fill.RGB
 			}
 			blendPixel(r.canvas, x, y, rgb, alpha)
 		}
@@ -963,7 +872,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
 			// rise) -> user space (tm) -> device (ctm).
 			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
-			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.ctm)
+			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
 			contours := make([][]content.Point, len(gp.Contours))
 			for ci, c := range gp.Contours {
 				dc := make([]content.Point, len(c))
@@ -972,7 +881,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 				}
 				contours[ci] = dc
 			}
-			FillPath(r.clipTarget(gs), contours, gs.fillRGB, gs.fillAlpha, false)
+			FillPath(r.clipTarget(gs), contours, gs.Fill.RGB, gs.fillAlpha, false)
 		}
 
 		ws := 0.0
@@ -1279,6 +1188,20 @@ func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDic
 	return pdf.PDFDict{}, false
 }
 
+// trackPattern returns the pattern dictionary for a colour whose pattern name
+// went from was to name: cur when the name is unchanged, the newly selected
+// pattern when it changed, and none when no pattern is selected.
+func (r *renderer) trackPattern(cur pdf.PDFDict, was, name string, resources pdf.PDFDict) pdf.PDFDict {
+	switch {
+	case name == "":
+		return pdf.PDFDict{}
+	case name == was:
+		return cur
+	}
+	pattern, _ := r.selectPattern(name, resources)
+	return pattern
+}
+
 // patternSampler returns a per-pixel colour source for a shading pattern, or
 // false when the shading is a mesh (which is geometry, not a field, and so is
 // painted separately).
@@ -1315,7 +1238,7 @@ func (r *renderer) paintPatternPath(target *image.RGBA, contours [][]content.Poi
 	}
 	if sample, ok := r.patternSampler(pattern, alpha); ok {
 		if stroke {
-			StrokePathShaded(target, contours, gs.lineWidth*ctmScale(gs.ctm), sample)
+			StrokePathShaded(target, contours, gs.lineWidth*ctmScale(gs.CTM), sample)
 		} else {
 			FillPathShaded(target, contours, evenOdd, sample)
 		}
@@ -1365,7 +1288,7 @@ func (r *renderer) paintShadingOp(operands []pdf.PDFValue, resources pdf.PDFDict
 	if !ok {
 		return
 	}
-	r.paintShading(sh, gs.ctm, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
+	r.paintShading(sh, gs.CTM, gs.fillAlpha, clipToBounds(r.canvas.Bounds(), gs.clip))
 }
 
 // namedShading resolves an operator's shading-name operand against the
@@ -1448,10 +1371,10 @@ func (r *renderer) drawType3Glyph(fi *fontInfo, code int, pageResources pdf.PDFD
 	child := *gs
 	// Glyph space -> text space (the font matrix) -> user space (font size,
 	// horizontal scale and rise, then the text matrix) -> device.
-	child.ctm = fi.fontMatrix.
+	child.CTM = fi.fontMatrix.
 		Mul(content.Matrix{A: gs.fontSize * gs.hScale, D: gs.fontSize, F: gs.rise}).
 		Mul(gs.tm).
-		Mul(gs.ctm)
+		Mul(gs.CTM)
 	// The glyph procedure starts its own text object if it shows text at all.
 	child.tm, child.tlm = content.IdentityMatrix, content.IdentityMatrix
 	child.font = pdf.PDFDict{}

@@ -71,8 +71,8 @@ func (g *GState) Apply(op string, operands []pdf.PDFValue, resources pdf.PDFDict
 		}
 		*g.colour(op) = c
 	case "cs", "CS":
-		// The colour starts as black, whatever the space.
-		*g.colour(op) = Colour{Space: ColorSpaceOperand(operands, resources)}
+		space := ColorSpaceOperand(operands, resources)
+		*g.colour(op) = Colour{Space: space, RGB: initialRGB(space, resources)}
 	case "sc", "scn", "SC", "SCN":
 		c := g.colour(op)
 		if len(operands) > 0 {
@@ -135,6 +135,45 @@ func ColorSpaceOperand(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFVa
 		return cs
 	}
 	return name
+}
+
+// initialRGB returns the colour a cs or CS operator starts space at (ISO
+// 32000-1 8.6): a tint of 1.0 in a Separation or DeviceN space, black in
+// DeviceCMYK, and every component 0.0 in any other, which an Indexed space
+// reads as its first entry. A Pattern space has no colour until a pattern is
+// selected.
+func initialRGB(space pdf.PDFValue, resources pdf.PDFDict) [3]float64 {
+	family := ""
+	switch v := space.(type) {
+	case pdf.PDFName:
+		family = v.Value
+	case pdf.PDFArray:
+		if len(v) == 0 {
+			break
+		}
+		if head, ok := v[0].(pdf.PDFName); ok {
+			family = head.Value
+		}
+	}
+	var comps []float64
+	switch family {
+	case "Pattern", "":
+		return [3]float64{}
+	case "DeviceCMYK":
+		comps = []float64{0, 0, 0, 1}
+	case "Indexed":
+		comps = []float64{0}
+	default:
+		comps = make([]float64, max(pdf.ColorSpaceComponents(space), 1))
+		if family == "Separation" || family == "DeviceN" {
+			for i := range comps {
+				comps[i] = 1
+			}
+		}
+	}
+	var rgb [3]float64
+	rgb[0], rgb[1], rgb[2] = pdf.ResolveColor(space, comps, resources)
+	return rgb
 }
 
 // IsPatternSpace reports whether cs is a Pattern colour space. It accepts the

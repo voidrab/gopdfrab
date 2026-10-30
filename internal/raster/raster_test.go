@@ -587,34 +587,6 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 	})
 }
 
-// TestResolveOperandColorSpace covers the empty-operands, non-name-operand,
-// device-name, and named-resource-lookup branches.
-func TestResolveOperandColorSpace(t *testing.T) {
-	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"CS0": pdf.PDFName{Value: "DeviceGray"},
-		})},
-	})}
-
-	if got := ResolveOperandColorSpace(nil, resources); got != nil {
-		t.Errorf("empty operands = %v, want nil", got)
-	}
-
-	arrayOperand := pdf.PDFArray{pdf.PDFName{Value: "DeviceRGB"}}
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{arrayOperand}, resources); !pdf.EqualPDFValue(got, arrayOperand) {
-		t.Errorf("non-name operand = %v, want passthrough %v", got, arrayOperand)
-	}
-
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "DeviceRGB"}}, resources); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceRGB"}) {
-		t.Errorf("device name = %v, want /DeviceRGB passthrough", got)
-	}
-
-	got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "CS0"}}, resources)
-	if !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceGray"}) {
-		t.Errorf("named resource lookup = %v, want /DeviceGray", got)
-	}
-}
-
 // TestBuildSimpleFontInfoFontFile3AndFallback covers the FontFile3 (CFF)
 // branch, the bundled-face fallback for a standard-encoded font with no
 // embedded program, and the final "no glyph" closure when neither applies --
