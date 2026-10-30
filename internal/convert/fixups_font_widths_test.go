@@ -18,8 +18,7 @@ func dictOf(entries map[string]pdf.PDFValue) pdf.PDFDict {
 // streamOf is a decoded (unfiltered) stream dict carrying raw.
 func streamOf(raw []byte) pdf.PDFDict {
 	d := dictOf(map[string]pdf.PDFValue{})
-	d.HasStream = true
-	d.RawStream = raw
+	d.SetStream(raw)
 	return d
 }
 

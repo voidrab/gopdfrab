@@ -50,6 +50,9 @@ notice.
   that compiled to about 680 KB of startup code. Every binary is about 1 MB
   smaller (1.6 MB in WebAssembly), and a program that never runs the
   object-model checks no longer pays to build the table at startup.
+- Conversion allocates less: on an object-heavy file, about a third fewer
+  allocations and 28% fewer bytes, a 12% lower peak heap and about 15% less
+  time. Verification allocates 6–14% less.
 
 ### Deprecated
 
@@ -64,6 +67,9 @@ notice.
   with a count, not once per operator, which could run verify out of memory.
 - Convert rewrote a stream shared by several objects through only one of them,
   writing a corrupt stream into output it reported conformant.
+- A font repair on an embedded program that several fonts share reached only
+  one of them; the others kept the original bytes under the repaired
+  `/Length1` and `/Filter`. Every font sharing the program now gets the repair.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

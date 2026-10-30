@@ -194,7 +194,7 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 		if err != nil {
 			return nil, err
 		}
-		m.Entries.Set(RefKey, ref)
+		m.SetRef(ref)
 
 		// 6.1.8: capture EOL/whitespace right after '>>' before NextToken swallows it;
 		// only used if next token is 'endobj'. Skipped when l.pushed is non-empty, since
@@ -212,7 +212,7 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 
 		switch next.Type {
 		case TokenStreamStart:
-			m.HasStream = true
+			m.SetStream(nil)
 			err := d.validateStream(l, &m, ref.ObjNum)
 			if err != nil {
 				return nil, err

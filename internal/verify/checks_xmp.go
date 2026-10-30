@@ -904,7 +904,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.HasStream {
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.IsStream() {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 
@@ -919,7 +919,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				return
 			}
 			visited[ptr] = true
-			if val.HasStream && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
+			if val.IsStream() && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
 				ptr != catalogMetaPtr {
 				// A stream that will not decode is a structural defect, not a
 				// missing xpacket wrapper; the chokepoint reports it as

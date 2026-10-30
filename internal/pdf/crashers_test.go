@@ -89,13 +89,13 @@ func TestBuildPageIndexBranches(t *testing.T) {
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
+	page.SetRef(pdf.PDFRef{ObjNum: 3})
 
 	pagesDict := func(kids pdf.PDFArray, ref int) pdf.PDFDict {
 		p := pdf.NewPDFDict()
 		p.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 		p.Entries.Set("Kids", kids)
-		p.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: ref})
+		p.SetRef(pdf.PDFRef{ObjNum: ref})
 		return p
 	}
 	graphWith := func(pages pdf.PDFValue) pdf.PDFDict {
@@ -158,8 +158,7 @@ func TestCrasher_DeepNesting(t *testing.T) {
 func TestCrasher_PostScriptDepth(t *testing.T) {
 	prog := strings.Repeat("{", 5000) + strings.Repeat("}", 5000)
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(prog)
+	d.SetStream([]byte(prog))
 	d.Entries.Set("FunctionType", pdf.PDFInteger(4))
 	d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
 	d.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
@@ -201,8 +200,7 @@ func TestCrasher_SampledBlowup(t *testing.T) {
 		size[i] = pdf.PDFInteger(2)
 	}
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte{0, 0, 0, 0}
+	d.SetStream([]byte{0, 0, 0, 0})
 	d.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	d.Entries.Set("Domain", size)
 	// reuse: just needs to be long enough not to matter
@@ -247,8 +245,7 @@ func TestParseFunctionRejectsMalformed(t *testing.T) {
 
 	sampled := func(entries map[string]pdf.PDFValue) pdf.PDFValue {
 		d := pdf.NewPDFDict()
-		d.HasStream = true
-		d.RawStream = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+		d.SetStream([]byte{0, 0, 0, 0, 0, 0, 0, 0})
 		d.Entries.Set("FunctionType", pdf.PDFInteger(0))
 		d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
 		d.Entries.Set("Range", unit)
@@ -335,8 +332,7 @@ func TestCrasher_PNGPredictorColumns(t *testing.T) {
 // lie in 1 to 32, so that a negative value cannot panic Eval on `1 << bps`.
 func TestCrasher_NegativeBitsPerSample(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte{0, 0, 0, 0}
+	d.SetStream([]byte{0, 0, 0, 0})
 	d.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	d.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
 	d.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
@@ -369,8 +365,7 @@ func TestCrasher_ObjStmHugeN(t *testing.T) {
 	defer r.Close()
 
 	objstm := pdf.NewPDFDict()
-	objstm.HasStream = true
-	objstm.RawStream = []byte("1 0 ")
+	objstm.SetStream([]byte("1 0 "))
 	objstm.Entries.Set("Type", pdf.PDFName{Value: "ObjStm"})
 	objstm.Entries.Set("N", pdf.PDFInteger(100_000_000))
 	objstm.Entries.Set("First", pdf.PDFInteger(0))

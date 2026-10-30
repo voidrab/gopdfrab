@@ -452,12 +452,9 @@ func substituteSimpleFontSymbolic(d pdf.PDFDict, usedCodes map[uintptr]map[int]b
 func cloneFontDescriptor(desc pdf.PDFDict, nextObjNum *int) pdf.PDFDict {
 	clone := pdf.NewPDFDict()
 	for k, v := range desc.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
 		clone.Entries.Set(k, v)
 	}
-	clone.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
+	clone.SetRef(pdf.PDFRef{ObjNum: *nextObjNum})
 	*nextObjNum++
 	return clone
 }
@@ -566,7 +563,7 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 		return nil, false
 	}
 	toUni, ok := type0.Entries.Get("ToUnicode").(pdf.PDFDict)
-	if !ok || !toUni.HasStream {
+	if !ok || !toUni.IsStream() {
 		return nil, false
 	}
 	data, err := pdf.DecodeStream(toUni)
@@ -827,7 +824,7 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	descCounts := map[uintptr]int{}
 	maxRef := 0
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok && ref.ObjNum > maxRef {
+		if ref, ok := d.Ref(); ok && ref.ObjNum > maxRef {
 			maxRef = ref.ObjNum
 		}
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Font"}) {
@@ -960,7 +957,7 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 // subtable in place, leaving glyph data untouched.
 func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		return false
 	}
 	data, err := pdf.DecodeStream(ff)

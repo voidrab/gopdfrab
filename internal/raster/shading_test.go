@@ -110,7 +110,7 @@ func renderShading(t *testing.T, sh pdf.PDFValue) (*image.RGBA, []string) {
 func renderShadingContent(t *testing.T, sh pdf.PDFValue, content string) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Shading": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Sh1": sh})},

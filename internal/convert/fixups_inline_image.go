@@ -184,8 +184,7 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 		}
 	}
 	head := pdf.NewPDFDict()
-	head.HasStream = true
-	head.RawStream = raw.Data
+	head.SetStream(raw.Data)
 	headFilter := make(pdf.PDFArray, 0, lastLZW+1)
 	headParms := make(pdf.PDFArray, 0, lastLZW+1)
 	for i := 0; i <= lastLZW; i++ {

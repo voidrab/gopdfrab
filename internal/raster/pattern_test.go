@@ -26,7 +26,7 @@ func axialPattern() pdf.PDFDict {
 func renderPattern(t *testing.T, content string, pattern pdf.PDFValue) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
@@ -99,18 +99,14 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 // and must be reported rather than painting the flat black that a Pattern
 // colour space leaves behind.
 func TestTilingPatternReportsDrop(t *testing.T) {
-	pattern := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"PatternType": pdf.PDFInteger(1),
-			"PaintType":   pdf.PDFInteger(1),
-			"TilingType":  pdf.PDFInteger(1),
-			"BBox":        numArray(0, 0, 4, 4),
-			"XStep":       pdf.PDFInteger(4),
-			"YStep":       pdf.PDFInteger(4),
-		}),
-		HasStream: true,
-		RawStream: []byte("1 0 0 rg 0 0 4 4 re f"),
-	}
+	pattern := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"PatternType": pdf.PDFInteger(1),
+		"PaintType":   pdf.PDFInteger(1),
+		"TilingType":  pdf.PDFInteger(1),
+		"BBox":        numArray(0, 0, 4, 4),
+		"XStep":       pdf.PDFInteger(4),
+		"YStep":       pdf.PDFInteger(4),
+	}), []byte("1 0 0 rg 0 0 4 4 re f"))
 
 	img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", pattern)
 	if !hasDrop(drops, dropTilingPattern) {

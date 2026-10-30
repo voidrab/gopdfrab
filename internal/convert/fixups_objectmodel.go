@@ -72,18 +72,18 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	changed := false
 	promote := func(v pdf.PDFValue) {
 		child, ok := v.(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if !ok || child.Entries == nil {
 			return
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
 			if indirectRequiredKeys[k] {
 				promote(v)
 			}
@@ -101,10 +101,13 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
 	promote := func(child pdf.PDFDict) bool {
-		if child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if child.Entries == nil {
 			return false
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return false
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		return true
 	}
@@ -163,7 +166,7 @@ func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool
 	changed := false
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || detail.Key == pdf.RefKey || isArrayIndexKey(detail.Key) {
+		if !ok || isArrayIndexKey(detail.Key) {
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -504,7 +507,7 @@ func repairTrailerInfo(trailer *pdf.PDFDict) bool {
 	if !present || v == nil {
 		return false
 	}
-	if d, ok := v.(pdf.PDFDict); ok && !d.HasStream {
+	if d, ok := v.(pdf.PDFDict); ok && !d.IsStream() {
 		return false
 	}
 	trailer.Entries.Set("Info", pdf.NewPDFDict())
@@ -889,7 +892,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if key == "Descent" && negateDescent(d) {
 		return true // a descriptor without /Type, missed by the whole-graph pass
 	}
-	if key == "Filter" && d.HasStream {
+	if key == "Filter" && d.IsStream() {
 		if nv, ok := expandFilterAbbrevs(d.Entries.Get(key)); ok {
 			d.Entries.Set(key, nv)
 			return true
@@ -946,7 +949,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 // bytes are read as they stand -- as content-stream operators, say -- so the
 // schema fixers leave such a violation as a residual instead.
 func streamDataKey(d pdf.PDFDict, key string) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	switch key {

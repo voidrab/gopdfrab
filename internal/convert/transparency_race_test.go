@@ -22,7 +22,7 @@ func TestFlattenWorkersDoNotEditWhatOthersRender(t *testing.T) {
 	formB := groupFormDrawingIm0(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im0": masked, "FmA": formA})},
 	})})
-	formB.RawStream = []byte("q /GS0 gs 20 0 0 20 0 0 cm /Im0 Do Q /FmA Do")
+	formB.SetStream([]byte("q /GS0 gs 20 0 0 20 0 0 cm /Im0 Do Q /FmA Do"))
 
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FmA": formA, "FmB": formB, "Im1": masked})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{

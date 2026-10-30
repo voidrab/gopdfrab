@@ -79,7 +79,7 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uintptr]bool, changed *bool) {
 	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if fixed, ok := rewriteDeviceNStream(v, resources, visitedForm); ok {
 				page.Entries.Set("Contents", fixed)
 				*changed = true
@@ -88,7 +88,7 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 	case pdf.PDFArray:
 		for i, item := range v {
 			d, ok := item.(pdf.PDFDict)
-			if !ok || !d.HasStream {
+			if !ok || !d.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteDeviceNStream(d, resources, visitedForm); ok {
@@ -180,7 +180,7 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 		return pdf.PDFDict{}, false
 	}
 	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || (xobj.Entries.Get("Subtype") != pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+	if !ok || (xobj.Entries.Get("Subtype") != pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 		return pdf.PDFDict{}, false
 	}
 	ptr := pdf.ValuePointer(xobj.Entries)
@@ -208,23 +208,23 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 // /SMask.
 func rewriteDeviceNImageDicts(trailer *pdf.PDFDict) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
-			return d, false
+			return false
 		}
 		if !isOversizedDeviceN(d.Entries.Get("ColorSpace")) {
-			return d, false
+			return false
 		}
 		img, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
-			return d, false
+			return false
 		}
 		d.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 		d.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 		d.Entries.Del("Decode")
 		writer.SetStreamFlate(&d, packRGBSamples(img))
 		changed = true
-		return d, true
+		return true
 	})
 	return changed
 }

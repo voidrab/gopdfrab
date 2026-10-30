@@ -63,16 +63,11 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errBoom }
 // stage's error return is exercised, and the error always surfaces.
 func TestWriteDocumentIndexedWriteFailures(t *testing.T) {
 	build := func(pad int) pdf.PDFDict {
-		stream := pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 9}}),
-			HasStream: true,
-			RawStream: bytes.Repeat([]byte{'x'}, pad),
-		}
-		catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			pdf.RefKey: pdf.PDFRef{ObjNum: 1},
-			"Type":     pdf.PDFName{Value: "Catalog"},
-			"Data":     stream,
-		})}
+		stream := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), bytes.Repeat([]byte{'x'}, pad)), pdf.PDFRef{ObjNum: 9})
+		catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Catalog"},
+			"Data": stream,
+		})}, pdf.PDFRef{ObjNum: 1})
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 	}
 
@@ -91,9 +86,9 @@ func TestWriteDocumentIndexedWriteFailures(t *testing.T) {
 // the final flush (a small document that never fills the buffer) is returned.
 func TestWriteDocumentIndexedFlushError(t *testing.T) {
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			pdf.RefKey: pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"},
-		})},
+		"Root": withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: "Catalog"},
+		})}, pdf.PDFRef{ObjNum: 1}),
 	})}
 	if _, err := WriteDocumentIndexed(failingWriter{}, trailer, 0); !errors.Is(err, errBoom) {
 		t.Fatalf("error = %v, want errBoom", err)
@@ -103,13 +98,12 @@ func TestWriteDocumentIndexedFlushError(t *testing.T) {
 // TestDiscoverSharedArrayVisitedOnce checks that an array reachable from two
 // places is walked once, so an indirect object inside it is numbered once.
 func TestDiscoverSharedArrayVisitedOnce(t *testing.T) {
-	inner := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 7}})}
+	inner := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, pdf.PDFRef{ObjNum: 7})
 	shared := pdf.PDFArray{inner}
-	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		pdf.RefKey: pdf.PDFRef{ObjNum: 1},
-		"A":        shared,
-		"B":        shared,
-	})}
+	catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"A": shared,
+		"B": shared,
+	})}, pdf.PDFRef{ObjNum: 1})
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 
 	order, err := WriteDocumentIndexed(io.Discard, trailer, 0)

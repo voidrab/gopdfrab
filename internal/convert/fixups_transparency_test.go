@@ -41,7 +41,7 @@ func TestSmaskFullyOpaque(t *testing.T) {
 // each operator and graphics state entry that makes it unsafe.
 func TestCanDropGroupSafely(t *testing.T) {
 	streamOf := func(content string) pdf.PDFDict {
-		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(content)}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(content))
 	}
 	gsResources := func(entries map[string]pdf.PDFValue) pdf.PDFDict {
 		gs := pdf.PDFDict{Entries: pdf.DictOf(entries)}
@@ -53,7 +53,7 @@ func TestCanDropGroupSafely(t *testing.T) {
 
 	// Flate with bytes that are not a zlib stream at all: a genuine decode
 	// failure, so the guard must refuse to judge the content.
-	if canDropGroupSafely(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), HasStream: true, RawStream: []byte("not zlib")}, none) {
+	if canDropGroupSafely(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("not zlib")), none) {
 		t.Error("canDropGroupSafely on an undecodable stream = true, want false")
 	}
 
@@ -121,16 +121,12 @@ func TestTransparencyFlattenerFlattensInsideAGroupPage(t *testing.T) {
 	group := func() pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
 	}
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":    pdf.PDFName{Value: "XObject"},
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-			"Group":   group(),
-		}),
-		HasStream: true,
-		RawStream: []byte("0 0 0 rg 0 0 10 10 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+		"Group":   group(),
+	}), []byte("0 0 0 rg 0 0 10 10 re f"))
 	trailer, page, resources := pageWithContent("/Fm0 Do\n")
 	page.Entries.Set("Group", group())
 	resources.Entries.Set("XObject", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})})
@@ -161,19 +157,15 @@ func TestTransparencyFlattenerKeepsAnOpaqueGroupVector(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"CA": tc.alpha, "ca": tc.alpha})}
-			form := pdf.PDFDict{
-				Entries: pdf.DictOf(map[string]pdf.PDFValue{
-					"Type":    pdf.PDFName{Value: "XObject"},
-					"Subtype": pdf.PDFName{Value: "Form"},
-					"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-					"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-					"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-						"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a0": gs})},
-					})},
-				}),
-				HasStream: true,
-				RawStream: []byte(content),
-			}
+			form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+				"Type":    pdf.PDFName{Value: "XObject"},
+				"Subtype": pdf.PDFName{Value: "Form"},
+				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+				"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+				"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+					"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a0": gs})},
+				})},
+			}), []byte(content))
 			trailer, _, resources := pageWithContent("/Fm0 Do\n")
 			xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
 			resources.Entries.Set("XObject", xobjects)
@@ -213,16 +205,12 @@ func TestTransparencyFlattenerReachesAnnotationAppearances(t *testing.T) {
 	// A form whose content is provably transparency-free, so the fixer can drop
 	// the group outright rather than rasterizing it.
 	form := func(g pdf.PDFDict) pdf.PDFDict {
-		return pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Type":    pdf.PDFName{Value: "XObject"},
-				"Subtype": pdf.PDFName{Value: "Form"},
-				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-				"Group":   g,
-			}),
-			HasStream: true,
-			RawStream: []byte("0 0 0 rg 0 0 10 10 re f"),
-		}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Type":    pdf.PDFName{Value: "XObject"},
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+			"Group":   g,
+		}), []byte("0 0 0 rg 0 0 10 10 re f"))
 	}
 
 	// /AP /N as a Form XObject directly, and as a dictionary of appearance
@@ -230,17 +218,13 @@ func TestTransparencyFlattenerReachesAnnotationAppearances(t *testing.T) {
 	direct := form(group())
 	stated := form(group())
 	nested := form(group())
-	outer := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":    pdf.PDFName{Value: "XObject"},
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": nested})},
-			})},
-		}),
-		HasStream: true,
-		RawStream: []byte("/Fm1 Do"),
-	}
+	outer := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": nested})},
+		})},
+	}), []byte("/Fm1 Do"))
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Page"},
@@ -316,20 +300,14 @@ func TestPackRGBSamples(t *testing.T) {
 // include these.
 func TestFlattenFormReportsDrops(t *testing.T) {
 	// An unresolvable shading is content the rasterizer must report losing.
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":    pdf.PDFName{Value: "XObject"},
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Group": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"S": pdf.PDFName{Value: "Transparency"},
-			})},
-		}),
-		HasStream: true,
-		// The graphics state keeps canDropGroupSafely from skipping the
-		// rasterization.
-		RawStream: []byte("q /GS0 gs /Sh1 sh Q 0 0 0 rg 2 2 5 5 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"S": pdf.PDFName{Value: "Transparency"},
+		})},
+	}), []byte("q /GS0 gs /Sh1 sh Q 0 0 0 rg 2 2 5 5 re f"))
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"XObject": xobjects})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -366,18 +344,14 @@ func TestFlattenFormReportsDrops(t *testing.T) {
 // drop sink. The registry prototype carries no sink, so flattening must not
 // depend on one being present.
 func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":    pdf.PDFName{Value: "XObject"},
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Group": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"S": pdf.PDFName{Value: "Transparency"},
-			})},
-		}),
-		HasStream: true,
-		RawStream: []byte("q /GS0 gs /Sh1 sh Q"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":    pdf.PDFName{Value: "XObject"},
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"S": pdf.PDFName{Value: "Transparency"},
+		})},
+	}), []byte("q /GS0 gs /Sh1 sh Q"))
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Page"},
@@ -399,18 +373,14 @@ func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
 
 // grayImage builds a minimal DeviceGray image XObject from its samples.
 func grayImage(w, h int, samples []byte) pdf.PDFDict {
-	return pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":             pdf.PDFName{Value: "XObject"},
-			"Subtype":          pdf.PDFName{Value: "Image"},
-			"Width":            pdf.PDFInteger(w),
-			"Height":           pdf.PDFInteger(h),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: samples,
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type":             pdf.PDFName{Value: "XObject"},
+		"Subtype":          pdf.PDFName{Value: "Image"},
+		"Width":            pdf.PDFInteger(w),
+		"Height":           pdf.PDFInteger(h),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), samples)
 }
 
 func TestHasSoftMask(t *testing.T) {
@@ -486,8 +456,8 @@ func TestBakeSoftMaskOutFullyOpaque(t *testing.T) {
 	if _, still := got.Entries.Lookup("SMask"); still {
 		t.Error("/SMask survived a fully-opaque bake")
 	}
-	if !bytes.Equal(got.RawStream, samples) {
-		t.Errorf("stream was re-encoded: % x, want the original % x", got.RawStream, samples)
+	if !bytes.Equal(got.Stream(), samples) {
+		t.Errorf("stream was re-encoded: % x, want the original % x", got.Stream(), samples)
 	}
 	if cs, _ := got.Entries.Get("ColorSpace").(pdf.PDFName); cs.Value != "DeviceGray" {
 		t.Errorf("ColorSpace = %v, want the original DeviceGray", got.Entries.Get("ColorSpace"))
@@ -510,8 +480,8 @@ func TestBakeSoftMaskOutStencils(t *testing.T) {
 	if _, still := got.Entries.Lookup("SMask"); still {
 		t.Error("/SMask survived")
 	}
-	if !bytes.Equal(got.RawStream, samples) {
-		t.Errorf("the image was re-encoded: % x, want the original % x", got.RawStream, samples)
+	if !bytes.Equal(got.Stream(), samples) {
+		t.Errorf("the image was re-encoded: % x, want the original % x", got.Stream(), samples)
 	}
 
 	stencil, ok := got.Entries.Get("Mask").(pdf.PDFDict)
@@ -616,7 +586,7 @@ func TestCollectXObjectTargetsWalk(t *testing.T) {
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
 	collectXObjectTargets(resources, visited, 1, nil, &out)
-	if len(out) != 1 || out[0].name != "Fm1" {
+	if len(out) != 1 || pdf.ValuePointer(out[0].dict.Entries) != pdf.ValuePointer(inner.Entries) {
 		t.Fatalf("targets = %+v, want just Fm1", out)
 	}
 
@@ -641,11 +611,7 @@ func groupFormDrawingIm0(resources pdf.PDFValue) pdf.PDFDict {
 	if resources != nil {
 		entries["Resources"] = resources
 	}
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(entries),
-		HasStream: true,
-		RawStream: []byte("q /GS0 gs 20 0 0 20 0 0 cm /Im0 Do Q"),
-	}
+	return pdf.NewStreamDict(pdf.DictOf(entries), []byte("q /GS0 gs 20 0 0 20 0 0 cm /Im0 Do Q"))
 }
 
 // flattenedInk rasterizes what a flattened form now paints and returns how
@@ -817,11 +783,7 @@ func TestFlattenUnrenderableLeavesObjectUntouched(t *testing.T) {
 	group := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
 
 	// A Form with no /BBox cannot be rendered in isolation.
-	form := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group}),
-		HasStream: true,
-		RawStream: []byte("q Q"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group}), []byte("q Q"))
 	if _, _, ok := flattenFormToImage(form, pdf.PDFDict{}, 150, raster.InheritedPaint{}); ok {
 		t.Error("flattenFormToImage on a Form with no /BBox reported success")
 	}
@@ -849,11 +811,7 @@ func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 	group := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})}
 	// No /BBox, and content the safety check refuses to call transparency-free,
 	// so neither dropping the group nor flattening is available.
-	form := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group}),
-		HasStream: true,
-		RawStream: []byte("/GS0 gs"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}, "Group": group}), []byte("/GS0 gs"))
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm0": form})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
@@ -880,24 +838,23 @@ func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 	}
 }
 
-// TestUniqueByDictCollapsesAliases verifies that one Form reachable under two
-// resource names is treated as a single object: it must be flattened once and
-// the result written back to both slots.
+// TestUniqueByDictCollapsesAliases verifies that one Form object reached from
+// two places is treated as a single object, so it is flattened once.
 func TestUniqueByDictCollapsesAliases(t *testing.T) {
 	shared := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 	other := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 
 	targets := []flaggedTarget{
-		{kind: "form", dict: shared, name: "Fm0"},
-		{kind: "form", dict: shared, name: "Fm1"},
-		{kind: "form", dict: other, name: "Fm2"},
+		{kind: "form", dict: shared, page: 1},
+		{kind: "form", dict: shared, page: 2},
+		{kind: "form", dict: other, page: 3},
 	}
 	got := uniqueByDict(targets)
 	if len(got) != 2 {
 		t.Fatalf("uniqueByDict returned %d targets, want 2", len(got))
 	}
-	if got[0].name != "Fm0" || got[1].name != "Fm2" {
-		t.Errorf("uniqueByDict kept %q and %q, want the first of each object", got[0].name, got[1].name)
+	if got[0].page != 1 || got[1].page != 3 {
+		t.Errorf("uniqueByDict kept the targets of pages %d and %d, want 1 and 3: the first of each object", got[0].page, got[1].page)
 	}
 }
 
@@ -966,7 +923,7 @@ func alphaStates() pdf.PDFDict {
 
 // contentStream is an unfiltered stream dictionary holding content.
 func contentStream(content string) pdf.PDFDict {
-	return pdf.PDFDict{Entries: pdf.NewPDFDict().Entries, HasStream: true, RawStream: []byte(content)}
+	return pdf.NewStreamDict(pdf.NewPDFDict().Entries, []byte(content))
 }
 
 // streamText decodes a stream dictionary back to its operators.
@@ -1205,11 +1162,7 @@ func TestDropInvisibleGate(t *testing.T) {
 	}
 
 	// A stream nothing can decode is left as it is rather than emptied.
-	broken := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}),
-		HasStream: true,
-		RawStream: []byte("not zlib"),
-	}
+	broken := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("not zlib"))
 	trailer, page = onePageAlphaTrailer(broken, alphaStates())
 	// The graphics state has to be reachable for the gate to open at all.
 	page.Entries.Set("Resources", alphaStates())
@@ -1399,23 +1352,15 @@ func TestFadePartialOpacityKeepsTheZeroCase(t *testing.T) {
 // (which is also how an annotation's appearance is drawn), a tiling pattern and
 // a Type 3 glyph.
 func TestDropInvisibleBeyondPageContents(t *testing.T) {
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": alphaStates(),
-		}),
-		HasStream: true,
-		RawStream: []byte("/F0 gs\n0 0 10 10 re\nf\n"),
-	}
-	pattern := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"PatternType": pdf.PDFInteger(1),
-			"Resources":   alphaStates(),
-		}),
-		HasStream: true,
-		RawStream: []byte("/B0 gs\n0 0 10 10 re\nB\n"),
-	}
-	glyph := pdf.PDFDict{HasStream: true, RawStream: []byte("/S0 gs\n0 0 10 10 re\nS\n"), Entries: pdf.NewPDFDict().Entries}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"Resources": alphaStates(),
+	}), []byte("/F0 gs\n0 0 10 10 re\nf\n"))
+	pattern := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"PatternType": pdf.PDFInteger(1),
+		"Resources":   alphaStates(),
+	}), []byte("/B0 gs\n0 0 10 10 re\nB\n"))
+	glyph := pdf.NewStreamDict(pdf.NewPDFDict().Entries, []byte("/S0 gs\n0 0 10 10 re\nS\n"))
 	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":   pdf.PDFName{Value: "Type3"},
 		"Resources": alphaStates(),
@@ -1600,15 +1545,11 @@ func TestPaintAtDo(t *testing.T) {
 func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 	// A fresh one each time: flattening rewrites the form's own dictionary.
 	newForm := func() pdf.PDFDict {
-		return pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Subtype": pdf.PDFName{Value: "Form"},
-				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-				"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-			}),
-			HasStream: true,
-			RawStream: []byte("0 0 10 10 re\nf\n"), // filled in whatever colour it inherits
-		}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+		}), []byte("0 0 10 10 re\nf\n"))
 	}
 
 	white := raster.InheritedPaint{Set: true, Fill: [3]float64{1, 1, 1}}
@@ -1647,15 +1588,11 @@ func TestFlattenFormKeepsTheColourItWasDrawnUnder(t *testing.T) {
 // not cover the page beneath.
 func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 	formWith := func(content string) pdf.PDFDict {
-		return pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Subtype": pdf.PDFName{Value: "Form"},
-				"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-				"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-			}),
-			HasStream: true,
-			RawStream: []byte(content),
-		}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Form"},
+			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+		}), []byte(content))
 	}
 	flattenedImage := func(t *testing.T, form pdf.PDFDict) pdf.PDFDict {
 		t.Helper()
@@ -1716,15 +1653,11 @@ func TestFlattenFormMasksWhatItDidNotPaint(t *testing.T) {
 // samples unchanged would yield grey (204,204,204).
 func TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.8)})}
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-		}),
-		HasStream: true,
-		RawStream: []byte("/GS0 gs 1 1 1 rg 0 0 20 20 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+	}), []byte("/GS0 gs 1 1 1 rg 0 0 20 20 re f"))
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": gs})},
 	})}
@@ -1749,15 +1682,11 @@ func TestFlattenFormKeepsTheColourOfWhatItPaintedTranslucently(t *testing.T) {
 // blended over white rather than masked out by the stencil.
 func TestFlattenFormKeepsAFaintFill(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-		}),
-		HasStream: true,
-		RawStream: []byte("/GS0 gs 1 0 0 rg 0 0 20 20 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+	}), []byte("/GS0 gs 1 0 0 rg 0 0 20 20 re f"))
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": gs})},
 	})}
@@ -1937,7 +1866,7 @@ func TestPagePaintAtDoUnreadableContents(t *testing.T) {
 func TestWalkPageTreeVisitsAnIndirectNodeOnce(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
+	page.SetRef(pdf.PDFRef{ObjNum: 7})
 	root := pdf.NewPDFDict()
 	root.Entries.Set("Kids", pdf.PDFArray{page, page})
 	visits := 0

@@ -45,7 +45,6 @@ func inlineImageDict(params []pdf.PDFValue, raw pdf.InlineImageRaw) (pdf.PDFDict
 	if pdf.DictInt(dict, "Width", 0) <= 0 || pdf.DictInt(dict, "Height", 0) <= 0 {
 		return pdf.PDFDict{}, false
 	}
-	dict.HasStream = true
-	dict.RawStream = raw.Data
+	dict.SetStream(raw.Data)
 	return dict, true
 }

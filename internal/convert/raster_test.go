@@ -29,10 +29,7 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 	if err != nil {
 		t.Skipf("font asset not available: %v", err)
 	}
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}),
-		HasStream: true, RawStream: ttf,
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}), ttf)
 }
 
 func hasDrop(drops []string, want string) bool {
@@ -63,8 +60,7 @@ func TestRasterInvisibleTextRenderMode(t *testing.T) {
 	})}
 	render := func(tr string) *image.RGBA {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Contents": pdf.PDFDict{HasStream: true,
-				RawStream: []byte("BT /F1 20 Tf 0 0 0 rg " + tr + " 5 15 Td (ABC) Tj ET")},
+			"Contents": pdf.NewStreamDict(nil, []byte("BT /F1 20 Tf 0 0 0 rg "+tr+" 5 15 Td (ABC) Tj ET")),
 		})}
 		img, _, err := raster.RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72)
 		if err != nil {
@@ -86,7 +82,7 @@ func TestRasterInvisibleTextRenderMode(t *testing.T) {
 // ConvertResult.RasterDrops.
 func TestFlattenPageReportsDrops(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q\n0 0 0 rg 2 2 5 5 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q /Sh1 sh Q\n0 0 0 rg 2 2 5 5 re f")),
 	})}
 	drops, changed := flattenPageToImage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if !changed {
@@ -112,11 +108,7 @@ func TestCCITTEncodedBytes(t *testing.T) {
 		{"ASCII85Decode prefilter", "ASCII85Decode", encodeASCII85(payload)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dict := pdf.PDFDict{
-				Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: tc.filter}, pdf.PDFName{Value: "CCITTFaxDecode"}}}),
-				HasStream: true,
-				RawStream: tc.encoded,
-			}
+			dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: tc.filter}, pdf.PDFName{Value: "CCITTFaxDecode"}}}), tc.encoded)
 			s, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict))
 			if err != nil {
 				t.Fatalf("DecodeStreamFull: %v", err)
@@ -131,11 +123,7 @@ func TestCCITTEncodedBytes(t *testing.T) {
 	}
 
 	t.Run("broken filter before CCITT", func(t *testing.T) {
-		dict := pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}}),
-			HasStream: true,
-			RawStream: payload, // not valid zlib
-		}
+		dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "CCITTFaxDecode"}}}), payload)
 		if _, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict)); err == nil {
 			t.Error("want error for an undecodable pre-filter, got nil")
 		}
@@ -173,11 +161,7 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 
 	t.Run("LZWDecode filter", func(t *testing.T) {
 		want := []byte{1, 2, 3, 4, 5, 6}
-		dict := pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-			HasStream: true,
-			RawStream: encodeLZW(t, want),
-		}
+		dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), encodeLZW(t, want))
 		if got := decode(t, dict); !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -187,13 +171,9 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 	// before the LZW stage that follows it.
 	t.Run("ASCII85 then LZW", func(t *testing.T) {
 		want := []byte{1, 2, 3, 4, 5, 6}
-		dict := pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{
-				pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"},
-			}}),
-			HasStream: true,
-			RawStream: encodeASCII85(encodeLZW(t, want)),
-		}
+		dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFArray{
+			pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"},
+		}}), encodeASCII85(encodeLZW(t, want)))
 		if got := decode(t, dict); !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -202,17 +182,13 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 	t.Run("TIFF predictor", func(t *testing.T) {
 		// 2 columns, 1 colour, 8bpc: row [10, 5] TIFF-delta-encoded is [10, 5]
 		// itself (each sample is a delta from the previous, first is raw).
-		dict := pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Width":  pdf.PDFInteger(2),
-				"Filter": pdf.PDFName{Value: "FlateDecode"},
-				"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-					"Predictor": pdf.PDFInteger(2), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
-				})},
-			}),
-			HasStream: true,
-			RawStream: flated(t, []byte{10, 5}),
-		}
+		dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Width":  pdf.PDFInteger(2),
+			"Filter": pdf.PDFName{Value: "FlateDecode"},
+			"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Predictor": pdf.PDFInteger(2), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
+			})},
+		}), flated(t, []byte{10, 5}))
 		if got, want := decode(t, dict), []byte{10, 15}; !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -221,17 +197,13 @@ func TestImageDecodeChainLZWAndPredictors(t *testing.T) {
 	t.Run("PNG predictor", func(t *testing.T) {
 		// PNG predictor 12 (up): a 1-byte-per-pixel filter tag (0=None)
 		// followed by the raw row, decodes to the row unchanged.
-		dict := pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Width":  pdf.PDFInteger(2),
-				"Filter": pdf.PDFName{Value: "FlateDecode"},
-				"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-					"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
-				})},
-			}),
-			HasStream: true,
-			RawStream: flated(t, []byte{0x00, 7, 9}),
-		}
+		dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Width":  pdf.PDFInteger(2),
+			"Filter": pdf.PDFName{Value: "FlateDecode"},
+			"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(2), "Colors": pdf.PDFInteger(1), "BitsPerComponent": pdf.PDFInteger(8),
+			})},
+		}), flated(t, []byte{0x00, 7, 9}))
 		if got, want := decode(t, dict), []byte{7, 9}; !bytes.Equal(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -251,7 +223,7 @@ func numArray(v ...float64) pdf.PDFArray {
 func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDFDict {
 	charProcs := pdf.NewPDFDict()
 	if procName != "" {
-		charProcs.Entries.Set(procName, pdf.PDFDict{HasStream: true, RawStream: []byte(proc)})
+		charProcs.Entries.Set(procName, pdf.NewStreamDict(nil, []byte(proc)))
 	}
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":       pdf.PDFName{Value: "Font"},
@@ -272,7 +244,7 @@ func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDF
 func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
@@ -362,7 +334,7 @@ func TestFixersDoNotStorePlaceholderSamples(t *testing.T) {
 		for k, v := range extra {
 			entries[k] = v
 		}
-		return pdf.PDFDict{Entries: pdf.DictOf(entries), HasStream: true, RawStream: []byte{0}}
+		return pdf.NewStreamDict(pdf.DictOf(entries), []byte{0})
 	}
 
 	t.Run("sample depth", func(t *testing.T) {
@@ -376,14 +348,11 @@ func TestFixersDoNotStorePlaceholderSamples(t *testing.T) {
 	})
 
 	t.Run("soft mask", func(t *testing.T) {
-		img := pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
-				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
-				"SMask": jbig2(nil),
-			}),
-			HasStream: true, RawStream: []byte{0},
-		}
+		img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+			"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+			"SMask": jbig2(nil),
+		}), []byte{0})
 		if _, ok := bakeSoftMaskOut(img, pdf.PDFDict{}); ok {
 			t.Error("bakeSoftMaskOut baked a placeholder soft mask")
 		}

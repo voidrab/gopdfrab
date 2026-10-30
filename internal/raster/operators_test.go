@@ -15,7 +15,7 @@ import (
 func renderSized(t *testing.T, w, h float64, content string, resources pdf.PDFDict) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	canvas, drops, err := RenderPage(page, resources, [4]float64{0, 0, w, h}, 72)
 	if err != nil {
@@ -167,13 +167,13 @@ func formXObject(content string, extra map[string]pdf.PDFValue) pdf.PDFDict {
 	for k, v := range extra {
 		entries[k] = v
 	}
-	return pdf.PDFDict{Entries: pdf.DictOf(entries), HasStream: true, RawStream: []byte(content)}
+	return pdf.NewStreamDict(pdf.DictOf(entries), []byte(content))
 }
 
 func TestDoOperatorIgnoresUnusableOperands(t *testing.T) {
 	resources := resourcesWith("XObject", map[string]pdf.PDFValue{
 		"NotAStream": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})},
-		"Untyped":    pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: []byte("0 0 20 20 re f")},
+		"Untyped":    pdf.NewStreamDict(pdf.DictOf(nil), []byte("0 0 20 20 re f")),
 	})
 	for name, op := range map[string]string{
 		"no operand":      "Do",
@@ -247,7 +247,7 @@ func TestFormXObjectBehaviour(t *testing.T) {
 
 	t.Run("undecodable content paints nothing", func(t *testing.T) {
 		form := formXObject("", map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}})
-		form.RawStream = []byte{0xFF, 0xFF, 0xFF}
+		form.SetStream([]byte{0xFF, 0xFF, 0xFF})
 		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
 		if n, _, _, _, _ := ink(render20(t, "0 0 0 rg /Fm Do", resources)); n != 0 {
 			t.Errorf("undecodable form painted %d pixels", n)

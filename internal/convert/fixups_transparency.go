@@ -134,29 +134,19 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		}
 	}
 
-	byDict := make(map[uintptr]result, len(unique))
-	for i, t := range unique {
-		r := &results[i]
-		if r.ok && !r.dropGroup {
-			t.dict.Entries.Assign(r.fixed.Entries)
-			r.fixed.Entries = t.dict.Entries
-		}
-		byDict[pdf.ValuePointer(t.dict.Entries)] = *r
-	}
+	// Publishing to the shared body reaches every alias of the target.
 	changed := false
-	for _, t := range targets {
-		r := byDict[pdf.ValuePointer(t.dict.Entries)]
+	for i, t := range unique {
+		r := results[i]
 		if !r.ok {
 			continue
 		}
 		changed = true
 		if r.dropGroup {
-			r.fixed.Entries.Del("Group")
+			t.dict.Entries.Del("Group")
 			continue
 		}
-		if t.kind != "page" {
-			t.xobjects.Entries.Set(t.name, r.fixed)
-		}
+		t.dict.Entries.Assign(r.fixed.Entries)
 	}
 	return changed
 }
@@ -169,25 +159,25 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 // so this pass skips them on its own.
 func bakeStraySoftMasks(trailer *pdf.PDFDict) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || !hasSoftMask(d) {
-			return d, false
+			return false
 		}
 		// No resource dictionary: an image reached outside any content stream
 		// has no named colour spaces in scope, and one that needs them stays
 		// as it is rather than being decoded against the wrong names.
-		fixed, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
+		_, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
 		if !ok {
-			return d, false
+			return false
 		}
 		changed = true
-		return fixed, true
+		return true
 	})
 	return changed
 }
 
 // uniqueByDict drops targets addressing the same underlying object so each is
-// computed only once; the caller writes the shared result back to every alias.
+// computed only once.
 func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
 	seen := map[uintptr]bool{}
 	var out []flaggedTarget
@@ -215,8 +205,6 @@ type flaggedTarget struct {
 	inherited raster.InheritedPaint
 	dict      pdf.PDFDict
 	resources pdf.PDFDict
-	xobjects  pdf.PDFDict
-	name      string
 	mediaBox  [4]float64
 	page      int // 1-based, for the drop report
 }
@@ -269,7 +257,7 @@ func walkPageTree(pages pdf.PDFDict, visit func(page, resources pdf.PDFDict, med
 		if depth > pdf.MaxPageTreeDepth {
 			return
 		}
-		if ref, ok := node.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+		if ref, ok := node.Ref(); ok {
 			if seen[ref.ObjNum] {
 				return
 			}
@@ -465,13 +453,13 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 			formRes := resourcesOf(xobj, resources)
 			if hasTransparencyGroup(xobj) {
 				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: formRes,
-					xobjects: xobjects, name: name, page: page, inherited: inherited[name]})
+					page: page, inherited: inherited[name]})
 				continue
 			}
 			collectXObjectTargets(formRes, visited, page, formPaintAtDo(xobj, formRes), out)
 		case "Image":
 			if hasSoftMask(xobj) {
-				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
+				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, page: page})
 			}
 		}
 	}
@@ -507,13 +495,13 @@ func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]b
 				continue
 			}
 			if isFormXObject(entry) {
-				collectAppearanceForm(entry, ap, state, resources, visited, pageNum, out)
+				collectAppearanceForm(entry, resources, visited, pageNum, out)
 				continue
 			}
 			// /AP /N << /Off ... /On ... >>: one appearance per state name.
 			for _, name := range sortedKeys(entry.Entries) {
 				if form, ok := entry.Entries.Get(name).(pdf.PDFDict); ok && isFormXObject(form) {
-					collectAppearanceForm(form, entry, name, resources, visited, pageNum, out)
+					collectAppearanceForm(form, resources, visited, pageNum, out)
 				}
 			}
 		}
@@ -521,13 +509,11 @@ func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]b
 }
 
 // collectAppearanceForm flags one appearance Form XObject, or descends into its
-// resources when it is itself clean. container+name address the slot the fixed
-// dict is written back into, exactly as an /XObject resource entry does.
-func collectAppearanceForm(form, container pdf.PDFDict, name string, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+// resources when it is itself clean.
+func collectAppearanceForm(form, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	formRes := resourcesOf(form, resources)
 	if hasTransparencyGroup(form) {
-		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes,
-			xobjects: container, name: name, page: pageNum})
+		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes, page: pageNum})
 		return
 	}
 	collectXObjectTargets(formRes, visited, pageNum, formPaintAtDo(form, formRes), out)
@@ -536,7 +522,7 @@ func collectAppearanceForm(form, container pdf.PDFDict, name string, resources p
 // isFormXObject distinguishes an appearance stream from the sub-dictionary of
 // appearance states that can stand in the same slot.
 func isFormXObject(d pdf.PDFDict) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)

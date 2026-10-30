@@ -312,8 +312,7 @@ func TestOriginalCodeToUnicodeNonSymbolicDefaults(t *testing.T) {
 func TestOriginalCodeToUnicodeToUnicodeFallback(t *testing.T) {
 	d := simpleFontDict("MySymbols", 4)
 	toUni := pdf.NewPDFDict()
-	toUni.HasStream = true
-	toUni.RawStream = []byte("beginbfchar\n<34> <2714>\nendbfchar")
+	toUni.SetStream([]byte("beginbfchar\n<34> <2714>\nendbfchar"))
 	d.Entries.Set("ToUnicode", toUni)
 
 	table := mustTable(d)

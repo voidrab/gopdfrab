@@ -789,7 +789,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// text strings or dates, except Trapped which is a name; custom keys are unchecked.
 	var typeErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
+		if !slices.Contains(allowedFields, k) {
 			continue
 		}
 		switch v.(type) {
@@ -812,7 +812,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 	// PDF Reference 4th ed. are checked for emptiness.
 	var emptyErrs []error
 	for k, v := range infoDict.Entries.All() {
-		if k == pdf.RefKey || !slices.Contains(allowedFields, k) {
+		if !slices.Contains(allowedFields, k) {
 			continue
 		}
 		var s string
@@ -892,7 +892,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			// /Contents) would own the issues still to come on the page that
 			// links to it, and the raster fallback picks pages by these numbers.
 			if (v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-				if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+				if ref, ok := v.Ref(); ok {
 					savedPage := ctx.CurrentPage
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 					defer func() { ctx.CurrentPage = savedPage }()
@@ -911,7 +911,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if first && !ctx.schemaOnly {
-				if v.HasStream {
+				if v.IsStream() {
 					validateStreamObject(v, ctx)
 				}
 
@@ -935,10 +935,6 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 
 			keysBase := len(ctx.keyScratch)
 			for _, k := range ctx.sortedKeys(v.Entries) {
-				if k == pdf.RefKey {
-					// Synthetic bookkeeping, not a PDF entry.
-					continue
-				}
 				val := v.Entries.Get(k)
 				if first && !ctx.schemaOnly {
 					// 6.1.12: a dictionary key shall not exceed the name limit
@@ -1105,7 +1101,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 				// decode failure here would be reported as document-level.
 				// Restored afterwards so nothing outside the page inherits it.
 				prevPage := ctx.CurrentPage
-				if ref, ok := val.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+				if ref, ok := val.Ref(); ok {
 					ctx.CurrentPage = ctx.PageIndex[ref.ObjNum]
 				}
 				resources := inheritedResources(val)
@@ -1172,15 +1168,12 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 	complete := true
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
-			for k, sv := range v.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+			for _, sv := range v.Entries.All() {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
 						complete = false
@@ -1208,12 +1201,12 @@ func collectContentUsage(
 	st := &usageState{}
 	switch v := contents.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu, st)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := item.(pdf.PDFDict); ok && d.IsStream() {
 				if !collectUsageFromBytes(ctx, d, resources, reachable, fu, st) {
 					complete = false
 				}
@@ -1371,7 +1364,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				return
 			}
 			pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict)
-			if !ok || !pat.HasStream {
+			if !ok || !pat.IsStream() {
 				return // shading patterns (PatternType 2) carry no content
 			}
 			ptr := pdf.ValuePointer(pat.Entries)
@@ -1400,7 +1393,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
 			reachable[ptr] = true
-			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 				return
 			}
 			key := formScan{
@@ -1523,14 +1516,10 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 			ctx.Report(pdf.Checks.Structure.StringTooLong, owner, fmt.Sprintf("string exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFDict:
-		realCount := v.Entries.Len()
-		if _, has := v.Entries.Lookup(pdf.RefKey); has {
-			realCount--
-		}
-		if limit := ctx.Spec.Limits.MaxDictEntries; overLimit(realCount, limit) {
+		if limit := ctx.Spec.Limits.MaxDictEntries; overLimit(v.Entries.Len(), limit) {
 			ctx.Report(pdf.Checks.Structure.DictTooLarge, v, fmt.Sprintf(
 				"dictionary exceeds %d entries: %d",
-				limit, realCount,
+				limit, v.Entries.Len(),
 			))
 		}
 	}
@@ -1691,7 +1680,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		}
 
 		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
-		if profileMap.HasStream {
+		if profileMap.IsStream() {
 			if iccErr := ValidateICCProfileStream(profileMap, spec); iccErr != nil {
 				errs = append(errs, *iccErr)
 			}

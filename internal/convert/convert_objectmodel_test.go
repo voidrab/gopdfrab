@@ -18,27 +18,26 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	t.Helper()
 
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = []byte(onePageContent)
-	contents.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
+	contents.SetStream([]byte(onePageContent))
+	contents.SetRef(pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("Parent", pages)
 	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
 	page.Entries.Set("Contents", contents)
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
+	page.SetRef(pdf.PDFRef{ObjNum: 3})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
@@ -98,7 +97,7 @@ func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 		info := pdf.NewPDFDict()
 		info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
 		// enum allows True/False/Unknown
-		info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
+		info.SetRef(pdf.PDFRef{ObjNum: 5})
 		trailer.Entries.Set("Info", info)
 	})
 
@@ -155,9 +154,11 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
-		contents.RawStream = []byte(hex.EncodeToString([]byte(onePageContent)) + ">")
+		contents.SetStream([]byte(hex.EncodeToString([]byte(onePageContent)) + ">"))
 		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
-		page.Entries.Set("Contents", contents) // RawStream lives on the copy
+		// The stream lives in contents' shared body, so this Set does not
+		// change what the page holds.
+		page.Entries.Set("Contents", contents)
 	})
 
 	res, err := verify.VerifyBytes(data, pdf.PDF, nil)

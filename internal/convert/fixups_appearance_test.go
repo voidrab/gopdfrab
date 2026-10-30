@@ -76,7 +76,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 		t.Fatalf("AP = %#v, want a pdf.PDFDict", widget.Entries.Get("AP"))
 	}
 	n, ok := ap.Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Fatalf("AP/N = %#v, want a stream pdf.PDFDict", ap.Entries.Get("N"))
 	}
 	if ap.Entries.Len() != 1 {
@@ -142,11 +142,11 @@ func TestAppearanceFixerSynthesizesButtonStateSubdictionary(t *testing.T) {
 
 	ap := widget.Entries.Get("AP").(pdf.PDFDict)
 	n := ap.Entries.Get("N").(pdf.PDFDict)
-	if n.HasStream {
+	if n.IsStream() {
 		t.Fatalf("Btn AP/N is a direct stream, want a subdictionary")
 	}
 	state, ok := n.Entries.Get(as.Value).(pdf.PDFDict)
-	if !ok || !state.HasStream {
+	if !ok || !state.IsStream() {
 		t.Fatalf("AP/N[%q] = %#v, want a stream matching /AS", as.Value, n.Entries.Get(as.Value))
 	}
 }
@@ -158,8 +158,7 @@ func TestAppearanceFixerWrapsExistingBtnStreamIntoSubdictionary(t *testing.T) {
 	original := pdf.NewPDFDict()
 	original.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	original.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	original.HasStream = true
-	original.RawStream = []byte("q Q")
+	original.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", original)
@@ -201,8 +200,7 @@ func TestAppearanceFixerStripsExtraEntriesPreservingValidN(t *testing.T) {
 	validN := pdf.NewPDFDict()
 	validN.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	validN.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	validN.HasStream = true
-	validN.RawStream = []byte("q Q")
+	validN.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", validN)
@@ -253,7 +251,7 @@ func TestAppearanceFixerBuildsEmptyAppearanceForPlainAnnotation(t *testing.T) {
 
 	ap := annot.Entries.Get("AP").(pdf.PDFDict)
 	n := ap.Entries.Get("N").(pdf.PDFDict)
-	if !n.HasStream {
+	if !n.IsStream() {
 		t.Fatalf("AP/N is not a stream")
 	}
 	if bbox, ok := n.Entries.Get("BBox").(pdf.PDFArray); !ok || len(bbox) != 4 {
@@ -297,8 +295,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 	original := pdf.NewPDFDict()
 	original.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	original.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	original.HasStream = true
-	original.RawStream = []byte("q Q")
+	original.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", original)
@@ -324,7 +321,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 
 	newAP := widget.Entries.Get("AP").(pdf.PDFDict)
 	newN := newAP.Entries.Get("N").(pdf.PDFDict)
-	if newN.HasStream {
+	if newN.IsStream() {
 		t.Fatalf("AP/N is still a direct stream after fix, want subdictionary")
 	}
 	if _, ok := newN.Entries.Lookup("Yes"); !ok {
@@ -337,8 +334,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 // byte-for-byte unchanged.
 func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 	validN := pdf.NewPDFDict()
-	validN.HasStream = true
-	validN.RawStream = []byte("q Q")
+	validN.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", validN)
@@ -537,7 +533,7 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Errorf("AP/N = %#v, want a synthesized stream", annot.Entries.Get("AP"))
 	}
 }
@@ -572,7 +568,7 @@ func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Errorf("AP/N = %#v, want a plain stream (non-Btn)", annot.Entries.Get("AP"))
 	}
 }
@@ -627,7 +623,7 @@ func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n := a.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !n.HasStream || len(contentBytesOf(t, n)) != 0 {
+	if !n.IsStream() || len(contentBytesOf(t, n)) != 0 {
 		t.Errorf("want an empty appearance stream, got %q", contentBytesOf(t, n))
 	}
 }

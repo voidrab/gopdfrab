@@ -41,7 +41,7 @@ func buildType3FontInfo(font pdf.PDFDict) *fontInfo {
 		if name == "" {
 			continue
 		}
-		if proc, ok := procs.Entries.Get(name).(pdf.PDFDict); ok && proc.HasStream {
+		if proc, ok := procs.Entries.Get(name).(pdf.PDFDict); ok && proc.IsStream() {
 			fi.charProcs[code] = proc
 		}
 	}

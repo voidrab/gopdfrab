@@ -56,25 +56,25 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 	// are not reachable here, since a content stream is none of these things.
 	// walkContentStreamDicts covers the same four shapes for the rewrites that
 	// do not need to know which resource a name selects.
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		switch {
-		case d.HasStream && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
-			d.HasStream && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
-			fixed, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
+		case d.IsStream() && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
+			d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
+			_, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
 			if ok {
 				changed = true
 			}
-			return fixed, ok
+			return ok
 
 		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
 			procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict)
 			if !ok {
-				return d, false
+				return false
 			}
 			resources := resourcesOf(d, pdf.PDFDict{})
 			for _, name := range sortedKeys(procs.Entries) {
 				proc, ok := procs.Entries.Get(name).(pdf.PDFDict)
-				if !ok || !proc.HasStream {
+				if !ok || !proc.IsStream() {
 					continue
 				}
 				if fixed, ok := rewriteAlphaStream(proc, resources, newAlphaState()); ok {
@@ -83,7 +83,7 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 				}
 			}
 		}
-		return d, false
+		return false
 	})
 	return changed
 }
@@ -117,7 +117,7 @@ func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
 	state := newAlphaState()
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if !contents.HasStream {
+		if !contents.IsStream() {
 			return
 		}
 		if fixed, ok := rewriteAlphaStream(contents, resources, state); ok {
@@ -128,7 +128,7 @@ func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
 	case pdf.PDFArray:
 		for i, item := range contents {
 			part, ok := item.(pdf.PDFDict)
-			if !ok || !part.HasStream {
+			if !ok || !part.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteAlphaStream(part, resources, state); ok {

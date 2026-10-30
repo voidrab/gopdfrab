@@ -18,15 +18,11 @@ func oversizedDeviceN() pdf.PDFArray {
 	for range 9 {
 		domain = append(domain, pdf.PDFReal(0), pdf.PDFReal(1))
 	}
-	tint := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"FunctionType": pdf.PDFInteger(4),
-			"Domain":       domain,
-			"Range":        pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(1)},
-		}),
-		HasStream: true,
-		RawStream: []byte("{ pop pop pop pop pop pop pop pop pop 0 0 0 }"),
-	}
+	tint := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"FunctionType": pdf.PDFInteger(4),
+		"Domain":       domain,
+		"Range":        pdf.PDFArray{pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(1)},
+	}), []byte("{ pop pop pop pop pop pop pop pop pop 0 0 0 }"))
 	return pdf.PDFArray{pdf.PDFName{Value: "DeviceN"}, names, pdf.PDFName{Value: "DeviceRGB"}, tint}
 }
 
@@ -35,23 +31,15 @@ func oversizedDeviceN() pdf.PDFArray {
 func TestDeviceNColorantsFixer(t *testing.T) {
 	dn := oversizedDeviceN()
 
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})}})},
-		}),
-		HasStream: true,
-		RawStream: []byte("/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn"),
-	}
-	image := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": dn,
-		}),
-		HasStream: true,
-		RawStream: []byte{10, 20, 30, 40, 50, 60, 70, 80, 90},
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})}})},
+	}), []byte("/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn"))
+	image := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": dn,
+	}), []byte{10, 20, 30, 40, 50, 60, 70, 80, 90})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})},
 		"XObject":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form, "Im1": image})},
@@ -59,8 +47,8 @@ func TestDeviceNColorantsFixer(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(
-			"/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn /DN CS 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 SCN /Fm1 Do")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(
+			"/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn /DN CS 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 SCN /Fm1 Do")),
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -92,9 +80,9 @@ func TestDeviceNColorantsFixerArrayContents(t *testing.T) {
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})},
 	})}
-	unrelated := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")}
-	offending := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(
-		"/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn")}
+	unrelated := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("1 0 0 rg 0 0 10 10 re f"))
+	offending := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(
+		"/DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn"))
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
@@ -119,14 +107,14 @@ func TestDeviceNColorantsFixerArrayContents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeStream(offending): %v", err)
 	}
-	if string(decodedOffending) == string(offending.RawStream) {
+	if string(decodedOffending) == string(offending.Stream()) {
 		t.Errorf("offending stream (array[1]) was not rewritten: %q", decodedOffending)
 	}
 	decodedUnrelated, err := pdf.DecodeStream(contents[0].(pdf.PDFDict))
 	if err != nil {
 		t.Fatalf("DecodeStream(unrelated): %v", err)
 	}
-	if string(decodedUnrelated) != string(unrelated.RawStream) {
+	if string(decodedUnrelated) != string(unrelated.Stream()) {
 		t.Errorf("unrelated stream (array[0]) was rewritten unexpectedly: %q", decodedUnrelated)
 	}
 }
@@ -137,9 +125,9 @@ func TestDeviceNColorantsFixerArrayContents(t *testing.T) {
 // inheritance fallback, and a Form whose content needs no rewriting at all.
 func TestRecurseDeviceNFormEdgeCases(t *testing.T) {
 	resourcesNoXObject := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	notForm := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), HasStream: true}
+	notForm := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), nil)
 	noStream := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
-	plainForm := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), HasStream: true, RawStream: []byte("1 0 0 rg 0 0 1 1 re f")}
+	plainForm := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), []byte("1 0 0 rg 0 0 1 1 re f"))
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"NotForm": notForm, "NoStream": noStream, "Fm1": plainForm,
@@ -203,11 +191,7 @@ func TestDeviceNRewritePreservesUntouchedOperators(t *testing.T) {
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"DN": dn})},
 	})}
-	stream := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
-		HasStream: true,
-		RawStream: []byte("1 0 0 RG 5 w /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn 10 20 m 30 40 l S"),
-	}
+	stream := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("1 0 0 RG 5 w /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn 10 20 m 30 40 l S"))
 
 	out, changed := rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
 	if !changed {
@@ -241,13 +225,13 @@ func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
 			"Big": oversizedDeviceN(), "Small": small,
 		})},
 	})}
-	bad := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), HasStream: true, RawStream: []byte("not flate")}
-	brokenImage := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	bad := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("not flate"))
+	brokenImage := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Image"}, "ColorSpace": oversizedDeviceN(),
-	}), HasStream: true, RawStream: []byte{1, 2, 3}}
-	smallImage := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	}), []byte{1, 2, 3})
+	smallImage := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "Image"}, "ColorSpace": small,
-	}), HasStream: true, RawStream: []byte{1}}
+	}), []byte{1})
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
@@ -270,8 +254,8 @@ func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
 	if _, ok := cs.Entries.Lookup("Small"); !ok {
 		t.Error("small DeviceN entry pruned")
 	}
-	if string(bad.RawStream) != "not flate" {
-		t.Errorf("undecodable content stream rewritten: %q", bad.RawStream)
+	if string(bad.Stream()) != "not flate" {
+		t.Errorf("undecodable content stream rewritten: %q", bad.Stream())
 	}
 	if _, isName := brokenImage.Entries.Get("ColorSpace").(pdf.PDFName); isName {
 		t.Error("image with undecodable pixels was converted to a device space")

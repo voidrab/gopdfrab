@@ -646,7 +646,7 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 	}
 	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
 	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || !xobj.HasStream {
+	if !ok || !xobj.IsStream() {
 		return
 	}
 	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)
@@ -1037,7 +1037,7 @@ func buildCompositeFontInfo(desc pdf.PDFDict) *fontInfo {
 	}
 
 	cidToGID := func(cid int) int { return cid }
-	if c2g, ok := desc.Entries.Get("CIDToGIDMap").(pdf.PDFDict); ok && c2g.HasStream {
+	if c2g, ok := desc.Entries.Get("CIDToGIDMap").(pdf.PDFDict); ok && c2g.IsStream() {
 		if data, err := pdf.DecodeStream(c2g); err == nil {
 			cidToGID = func(cid int) int {
 				if cid*2+2 > len(data) {

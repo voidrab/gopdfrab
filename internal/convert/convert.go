@@ -602,7 +602,7 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // updating cr.Output and cr.Result. Called exactly once at the end of Run.
 // The loop Reader's stream caches carry over: the graph is the same in-heap
 // one, so unchanged streams keep their decoded/tokenized results while
-// rewritten streams miss on their fresh RawStream identity.
+// rewritten streams miss on their fresh stream bytes' identity.
 //
 // When the graph is clean -- unchanged since the last inHeapVerify -- the
 // graph-side checks would be a deterministic replay of that verify (the

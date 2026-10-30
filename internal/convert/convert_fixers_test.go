@@ -60,8 +60,7 @@ func TestApplyPreemptiveFixupsPropagatesError(t *testing.T) {
 // emptied.
 func TestStreamUndecodableFixerLeavesRealContentAlone(t *testing.T) {
 	broken := pdf.NewPDFDict()
-	broken.HasStream = true
-	broken.RawStream = []byte("not deflate data at all")
+	broken.SetStream([]byte("not deflate data at all"))
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
 	trailer := pdf.NewPDFDict()

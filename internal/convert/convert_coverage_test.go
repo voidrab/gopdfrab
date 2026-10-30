@@ -23,7 +23,7 @@ import (
 func onePageTrailer() pdf.PDFDict {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("1 0 0 rg 0 0 10 10 re f")),
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
 	})}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -286,9 +286,9 @@ func TestPromoteEmptyGlyphsInFontGuards(t *testing.T) {
 	})}
 	promoteEmptyGlyphsInFont(streamless)
 
-	badFF := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	badFF := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Filter": pdf.PDFName{Value: "NoSuchFilter"},
-	}), HasStream: true, RawStream: []byte("junk")}
+	}), []byte("junk"))
 	undecodable := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype": pdf.PDFName{Value: "CIDFontType2"},
 		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -296,7 +296,7 @@ func TestPromoteEmptyGlyphsInFontGuards(t *testing.T) {
 		})},
 	})}
 	promoteEmptyGlyphsInFont(undecodable)
-	if string(badFF.RawStream) != "junk" {
+	if string(badFF.Stream()) != "junk" {
 		t.Error("undecodable FontFile2 was rewritten")
 	}
 }
@@ -376,10 +376,8 @@ func TestPagesTreeArrayFixerDropsOversizedStructure(t *testing.T) {
 func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 	renderable := func(content string) pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type": pdf.PDFName{Value: "Page"},
-			"Contents": pdf.PDFDict{
-				Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(content),
-			},
+			"Type":     pdf.PDFName{Value: "Page"},
+			"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(content)),
 		})}
 	}
 

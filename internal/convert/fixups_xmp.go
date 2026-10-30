@@ -51,8 +51,7 @@ func regenerateXMP(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
 		meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 		meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
 	}
-	meta.HasStream = true
-	meta.RawStream = []byte(xmp)
+	meta.SetStream([]byte(xmp))
 	// Deliberately not MarkStreamDirty: the XMP packet must stay unfiltered
 	// (6.7.2 forbids a Filter on the Metadata stream), whereas MarkStreamDirty
 	// tells the writer to Flate-encode and add /Filter /FlateDecode.
@@ -162,7 +161,7 @@ func normalizeInfoDict(trailer *pdf.PDFDict) {
 	// is dropped (real-world producers park integers/names here, e.g. /SPDF).
 	info.Entries.DeleteFunc(func(key string, v pdf.PDFValue) bool {
 		switch key {
-		case pdf.RefKey, "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
+		case "Title", "Author", "Subject", "Keywords", "Creator", "Producer",
 			"Trapped", "CreationDate", "ModDate":
 			return false
 		}

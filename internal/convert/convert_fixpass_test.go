@@ -14,11 +14,11 @@ import (
 func fixPassTrailer(t *testing.T, n int) (*fixPass, map[int]pdf.PDFDict) {
 	t.Helper()
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	root.SetRef(pdf.PDFRef{ObjNum: 1})
 	kids := make(pdf.PDFArray, 0, n)
 	for i := 0; i < n; i++ {
 		child := pdf.NewPDFDict()
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 100 + i})
+		child.SetRef(pdf.PDFRef{ObjNum: 100 + i})
 		kids = append(kids, child)
 	}
 	root.Entries.Set("Kids", kids)
@@ -67,7 +67,7 @@ func TestFixPassDictForRef(t *testing.T) {
 		anyNum = num
 		break
 	}
-	byNum[anyNum].Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 777})
+	byNum[anyNum].SetRef(pdf.PDFRef{ObjNum: 777})
 	if _, ok := pass.dictForRef(pdf.PDFRef{ObjNum: anyNum}); ok {
 		t.Error("dictForRef ok = true for a dict whose _ref no longer matches")
 	}
@@ -122,59 +122,21 @@ func TestFixPassDictsForIssuesGateAndOrder(t *testing.T) {
 	}
 }
 
-// TestFixPassReplaceObjectReachesAllParents shares one stream dict between a
-// dict entry and an array slot and asserts replaceObject rewrites both plus
-// the iteration index, since stream fields don't propagate via Entries.
-func TestFixPassReplaceObjectReachesAllParents(t *testing.T) {
-	stream := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 5}}),
-		HasStream: true,
-		RawStream: []byte("old"),
-	}
-	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
-	root.Entries.Set("Direct", stream)
-	root.Entries.Set("List", pdf.PDFArray{stream})
-	trailer := pdf.NewPDFDict()
-	trailer.Entries.Set("Root", root)
-
-	objs := writer.NumberObjects(trailer, 0)
-	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := stream.Entries.Get(pdf.RefKey).(pdf.PDFRef)
-
-	updated := stream
-	updated.RawStream = []byte("new")
-	pass.replaceObject(stream, updated)
-
-	if got := root.Entries.Get("Direct").(pdf.PDFDict).RawStream; string(got) != "new" {
-		t.Errorf("dict-entry slot RawStream = %q, want %q", got, "new")
-	}
-	if got := root.Entries.Get("List").(pdf.PDFArray)[0].(pdf.PDFDict).RawStream; string(got) != "new" {
-		t.Errorf("array slot RawStream = %q, want %q", got, "new")
-	}
-	if got, ok := pass.objs[ref.ObjNum].(pdf.PDFDict); !ok || string(got.RawStream) != "new" {
-		t.Errorf("iteration index not updated: %v", pass.objs[ref.ObjNum])
-	}
-	if d, ok := pass.dictForRef(ref); !ok || string(d.RawStream) != "new" {
-		t.Errorf("dictForRef after replaceObject returned stale copy")
-	}
-}
-
 // TestFixPassIsContentStream drives collectContentStreamPtrs' four dispatch
 // shapes -- array-form Page /Contents, a tiling Pattern, a Form XObject, and
 // a Type3 CharProcs glyph -- plus a plain (non-content) stream that must not
 // be flagged.
 func TestFixPassIsContentStream(t *testing.T) {
-	pageStreamA := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
-	pageStreamB := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
-	pattern := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"PatternType": pdf.PDFInteger(1)}), HasStream: true, RawStream: []byte("q Q")}
-	form := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), HasStream: true, RawStream: []byte("q Q")}
-	glyph := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q Q")}
+	pageStreamA := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("q Q"))
+	pageStreamB := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("q Q"))
+	pattern := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"PatternType": pdf.PDFInteger(1)}), []byte("q Q"))
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), []byte("q Q"))
+	glyph := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("q Q"))
 	type3Font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":   pdf.PDFName{Value: "Type3"},
 		"CharProcs": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"g1": glyph})},
 	})}
-	notContent := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), HasStream: true, RawStream: []byte("\x00\x01")}
+	notContent := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), []byte("\x00\x01"))
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
@@ -269,22 +231,5 @@ func TestFixOwnedScalarsNestedAndCyclicArrays(t *testing.T) {
 	}
 	if child.Entries.Get("Skip") != pdf.PDFInteger(9) {
 		t.Error("a child dict's scalar was rewritten; it belongs to the child")
-	}
-}
-
-func TestCollectParentSlotsCyclicArray(t *testing.T) {
-	child := pdf.NewPDFDict()
-	arr := pdf.PDFArray{child, nil}
-	arr[1] = arr
-	out := map[uintptr][]parentSlot{}
-	collectParentSlots(arr, map[uintptr]bool{}, out)
-	slots := out[pdf.ValuePointer(child.Entries)]
-	if len(slots) != 1 {
-		t.Fatalf("child has %d parent slots, want exactly 1 (cycle must not revisit)", len(slots))
-	}
-	repl := pdf.NewPDFDict()
-	slots[0](repl)
-	if got := arr[0].(pdf.PDFDict); pdf.ValuePointer(got.Entries) != pdf.ValuePointer(repl.Entries) {
-		t.Error("slot setter did not replace the array element")
 	}
 }

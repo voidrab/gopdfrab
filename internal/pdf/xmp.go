@@ -64,7 +64,7 @@ func (d *Reader) RawXMP() (data []byte, meta PDFDict, err error) {
 		return nil, PDFDict{}, ErrNoXMPMetadata
 	}
 	meta, ok := value.(PDFDict)
-	if !ok || !meta.HasStream {
+	if !ok || !meta.IsStream() {
 		return nil, PDFDict{}, ErrXMPMetadataNotStream
 	}
 

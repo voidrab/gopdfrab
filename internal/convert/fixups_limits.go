@@ -36,16 +36,15 @@ func init() {
 	})
 }
 
-// nextAvailableObjNum scans the graph for the highest existing _ref object
-// number and returns one past it, for synthesizing a fresh, guaranteed-
-// unique indirect-object identity (isIndirectDict/identityOf, writer.go) for
-// a brand-new dict that needs to be referenced from more than one place
-// (the actual output object number WriteDocument assigns is unrelated --
-// this only has to avoid colliding with any _ref already in the graph).
+// nextAvailableObjNum returns one more than the highest object number among
+// the references in the graph under trailer. The result gives a synthesized
+// dict an identity (see isIndirectDict and identityOf in writer.go) that no
+// existing reference uses. WriteDocument assigns output object numbers
+// independently.
 func nextAvailableObjNum(trailer pdf.PDFDict) int {
 	max := 0
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if ref, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok && ref.ObjNum > max {
+		if ref, ok := d.Ref(); ok && ref.ObjNum > max {
 			max = ref.ObjNum
 		}
 	})
@@ -161,7 +160,7 @@ func hasOversizedArray(v pdf.PDFValue, visited map[uintptr]bool, limit int) bool
 		}
 		visited[ptr] = true
 		for k, e := range t.Entries.All() {
-			if k == pdf.RefKey || k == "Parent" || k == "P" {
+			if k == "Parent" || k == "P" {
 				continue
 			}
 			if hasOversizedArray(e, visited, limit) {
@@ -182,7 +181,7 @@ func rebalancePagesKids(parent pdf.PDFDict, kids pdf.PDFArray, nextObjNum *int, 
 	for i := 0; i < len(kids); i += chunkSize {
 		chunk := append(pdf.PDFArray{}, kids[i:min(i+chunkSize, len(kids))]...)
 		node := pdf.NewPDFDict()
-		node.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: *nextObjNum})
+		node.SetRef(pdf.PDFRef{ObjNum: *nextObjNum})
 		*nextObjNum++
 		node.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 		node.Entries.Set("Parent", parent)
@@ -262,32 +261,21 @@ func (f resourceDictPruneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError)
 	return changed, nil
 }
 
-// dictRealEntryCount mirrors validateArchitecturalLimits' own count
-// (verifier.go): every entry except the synthetic pdf.RefKey bookkeeping key.
-func dictRealEntryCount(d pdf.PDFDict) int {
-	n := d.Entries.Len()
-	if _, ok := d.Entries.Lookup(pdf.RefKey); ok {
-		n--
-	}
-	return n
-}
-
 // pruneUnusedResourceEntries deletes entries from sub not named in used,
-// down to at most limit, counted as validateArchitecturalLimits counts them
-// (verifier.go): without the synthetic pdf.RefKey bookkeeping key.
+// down to at most limit.
 //
 // Candidates are taken in sorted order because the dictionary usually holds
 // more unused entries than there is excess to shed: which ones go is a real
 // choice, and map order would make it a different choice on every run -- a
 // conversion that is not byte-reproducible.
 func pruneUnusedResourceEntries(sub pdf.PDFDict, used map[string]bool, limit int) bool {
-	excess := dictRealEntryCount(sub) - limit
+	excess := sub.Entries.Len() - limit
 	if excess <= 0 {
 		return false
 	}
 	candidates := make([]string, 0, sub.Entries.Len())
 	for k := range sub.Entries.All() {
-		if k == pdf.RefKey || used[k] {
+		if used[k] {
 			continue
 		}
 		candidates = append(candidates, k)
@@ -334,14 +322,14 @@ func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 func collectResourceUsageFromContents(contents pdf.PDFValue, resources pdf.PDFDict, ru *resourceUsage) {
 	switch v := contents.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if data, err := pdf.DecodeStream(v); err == nil {
 				collectResourceUsageFromBytes(data, resources, ru)
 			}
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := item.(pdf.PDFDict); ok && d.IsStream() {
 				if data, err := pdf.DecodeStream(d); err == nil {
 					collectResourceUsageFromBytes(data, resources, ru)
 				}
@@ -384,7 +372,7 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 				return
 			}
 			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-			if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
@@ -532,7 +520,7 @@ func truncateOverlongName(v pdf.PDFValue, limit int) (pdf.PDFValue, bool) {
 func renameOverlongKeys(d pdf.PDFDict, renames map[uintptr]map[string]string, limit int) bool {
 	var overlong []string
 	for k := range d.Entries.All() {
-		if k != pdf.RefKey && len(k) > limit {
+		if len(k) > limit {
 			overlong = append(overlong, k)
 		}
 	}
@@ -644,30 +632,26 @@ func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 
 func (f cmapCIDClampFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		_, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
 		if ok {
 			changed = true
 		}
-		return updated, ok
+		return ok
 	})
 	return changed, nil
 }
 
-// fixTargeted clamps only the CMap streams the issues reference, writing the
-// rewritten dict back into every referencing slot via the pass index.
+// fixTargeted clamps only the CMap streams the issues reference.
 func (f cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
 	targets, ok := p.dictsForIssues(issues)
 	if !ok {
 		return false, false, nil
 	}
 	for _, d := range targets {
-		updated, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID)
-		if !ok {
-			continue
+		if _, ok := clampCMapStreamDict(d, f.spec.Limits.MaxCID); ok {
+			changed = true
 		}
-		p.replaceObject(d, updated)
-		changed = true
 	}
 	return changed, true, nil
 }
@@ -676,7 +660,7 @@ func (f cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chang
 // decoded stream, or ok=false when d is not a CMap stream or needs no fix. A
 // zero limit sets none.
 func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.HasStream || limit == 0 {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.IsStream() || limit == 0 {
 		return d, false
 	}
 	data, err := pdf.DecodeStream(d)
@@ -780,7 +764,7 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 func rewritePageContents(page, resources pdf.PDFDict, rewrite resourceOpRewriter, visitedForm map[uintptr]bool, changed *bool) {
 	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if fixed, ok := rewriteResourceAwareStream(v, resources, rewrite, visitedForm); ok {
 				page.Entries.Set("Contents", fixed)
 				*changed = true
@@ -789,7 +773,7 @@ func rewritePageContents(page, resources pdf.PDFDict, rewrite resourceOpRewriter
 	case pdf.PDFArray:
 		for i, item := range v {
 			d, ok := item.(pdf.PDFDict)
-			if !ok || !d.HasStream {
+			if !ok || !d.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteResourceAwareStream(d, resources, rewrite, visitedForm); ok {
@@ -827,7 +811,7 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 			return
 		}
 		xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-		if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+		if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 			return
 		}
 		ptr := pdf.ValuePointer(xobj.Entries)

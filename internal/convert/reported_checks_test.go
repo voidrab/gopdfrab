@@ -214,24 +214,20 @@ var allContentLimits = contentLimitsFixer{spec: a1bSpec}.reporting(everyCheck(co
 // fills accumulate: two red fills at opacity 0.3 must yield 0.51, not 0.3.
 func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.3)})}
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Form"},
-			"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"A": gs})},
-			})},
-		}),
-		HasStream: true,
-		RawStream: []byte("/A gs 1 0 0 rg 0 0 20 20 re f 0 0 20 20 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Form"},
+		"BBox":    pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		"Group":   pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"S": pdf.PDFName{Value: "Transparency"}})},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"A": gs})},
+		})},
+	}), []byte("/A gs 1 0 0 rg 0 0 20 20 re f 0 0 20 20 re f"))
 	xobjects := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm": form})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"MediaBox":  pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
 		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"XObject": xobjects})},
-		"Contents":  pdf.PDFDict{HasStream: true, RawStream: []byte("/Fm Do")},
+		"Contents":  pdf.NewStreamDict(nil, []byte("/Fm Do")),
 	})}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1),

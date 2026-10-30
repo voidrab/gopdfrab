@@ -62,8 +62,8 @@ func TestParseIndirectObjectAtErrors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseIndirectObjectAt: %v", err)
 		}
-		if objNum != 1 || dict.HasStream || !EqualPDFValue(dict.Entries.Get("A"), PDFInteger(1)) {
-			t.Errorf("got objNum=%d dict=%#v, want objNum=1, A=1, HasStream=false", objNum, dict)
+		if objNum != 1 || dict.IsStream() || !EqualPDFValue(dict.Entries.Get("A"), PDFInteger(1)) {
+			t.Errorf("got objNum=%d dict=%#v, want objNum=1, A=1, IsStream()=false", objNum, dict)
 		}
 	})
 

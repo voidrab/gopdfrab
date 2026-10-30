@@ -270,12 +270,12 @@ func TestPostScriptXObjectFixer(t *testing.T) {
 // XObject becomes an empty Form XObject, with the stream filter metadata
 // cleared. Viewers never render PS passthrough, so nothing visual is lost.
 func TestPostScriptXObjectFixerNeutersPSSubtype(t *testing.T) {
-	xobj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	xobj := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "XObject"},
 		"Subtype": pdf.PDFName{Value: "PS"},
 		"Filter":  pdf.PDFName{Value: "FlateDecode"},
 		"Level1":  pdf.PDFRef{ObjNum: 9},
-	}), HasStream: true, RawStream: []byte("compressed ps")}
+	}), []byte("compressed ps"))
 	trailer := trailerWith("XObj", xobj)
 	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
@@ -348,28 +348,20 @@ func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
 // them; an image mask, whose depth is a different rule's business, is left.
 func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	// A 2x1 16-bit grayscale image: two big-endian samples per pixel.
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":          pdf.PDFName{Value: "Image"},
-			"Width":            pdf.PDFInteger(2),
-			"Height":           pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(16),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
-	}
-	mask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":          pdf.PDFName{Value: "Image"},
-			"Width":            pdf.PDFInteger(2),
-			"Height":           pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(16),
-			"ImageMask":        pdf.PDFBoolean(true),
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
-	}
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":          pdf.PDFName{Value: "Image"},
+		"Width":            pdf.PDFInteger(2),
+		"Height":           pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(16),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0x00, 0x00, 0xff, 0xff})
+	mask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":          pdf.PDFName{Value: "Image"},
+		"Width":            pdf.PDFInteger(2),
+		"Height":           pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(16),
+		"ImageMask":        pdf.PDFBoolean(true),
+	}), []byte{0x00, 0x00, 0xff, 0xff})
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Im0", img)
 	xobjects.Entries.Set("Im1", mask)
@@ -441,19 +433,13 @@ func TestDeadAction(t *testing.T) {
 // with no depth to repair, and a 16-bit one that cannot be decoded, are both
 // left exactly as they were.
 func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
-	noDepth := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
-		}),
-		HasStream: true, RawStream: []byte{0},
-	}
-	undecodable := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(0), "Height": pdf.PDFInteger(2),
-			"BitsPerComponent": pdf.PDFInteger(16), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true, RawStream: []byte{0, 0, 0, 0}, // a zero /Width is invalid
-	}
+	noDepth := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+	}), []byte{0})
+	undecodable := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(0), "Height": pdf.PDFInteger(2),
+		"BitsPerComponent": pdf.PDFInteger(16), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0, 0, 0, 0})
 	if _, err := raster.DecodeImageRGBA(undecodable, pdf.PDFDict{}); err == nil {
 		t.Fatal("fixture decodes; it must not for this test to exercise the failure path")
 	}

@@ -34,7 +34,7 @@ func (fileSpecFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 			d.Entries.Del("EmbeddedFiles")
 			*changed = true
 		}
-		if !d.HasStream {
+		if !d.IsStream() {
 			return
 		}
 		for _, key := range []string{"F", "FFilter", "FDecodeParms"} {

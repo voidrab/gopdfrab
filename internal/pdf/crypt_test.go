@@ -43,7 +43,7 @@ func markerAndTitle(t *testing.T, r *Reader) (bool, string) {
 		if err != nil {
 			continue
 		}
-		if d, ok := v.(PDFDict); ok && d.HasStream {
+		if d, ok := v.(PDFDict); ok && d.IsStream() {
 			if dec, err := DecodeStream(d); err == nil && bytes.Contains(dec, []byte(cryptMarker)) {
 				found = true
 			}
@@ -171,7 +171,7 @@ func TestDecryptIsartorFixture(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		if d, ok := v.(PDFDict); ok && d.HasStream && !isXRefStream(d) {
+		if d, ok := v.(PDFDict); ok && d.IsStream() && !isXRefStream(d) {
 			if _, err := DecodeStream(d); err != nil {
 				t.Errorf("obj %d: decode after decrypt: %v", objNum, err)
 			}
@@ -402,7 +402,7 @@ func TestCleartextMetadataStreamIsNotDecrypted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RawXMP: %v", err)
 	}
-	if !meta.HasStream {
+	if !meta.IsStream() {
 		t.Fatal("catalog /Metadata is not a stream")
 	}
 	if !bytes.Contains(data, []byte("<x:xmpmeta")) || !bytes.Contains(data, []byte("pdfaid")) {

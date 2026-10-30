@@ -494,27 +494,28 @@ func (d *Reader) shouldDecrypt(ref PDFRef) bool {
 	return d.crypt != nil && ref.ObjNum != d.crypt.encryptObjNum
 }
 
-// decryptStream replaces m.RawStream with its decrypted bytes. Cross-reference
-// streams are never encrypted and are left untouched, and neither is the
-// metadata stream of a document that declares /EncryptMetadata false.
+// decryptStream replaces m's stream bytes with their decryption.
+// Cross-reference streams are never encrypted and are left untouched, and
+// neither is the metadata stream of a document that declares
+// /EncryptMetadata false.
 func (d *Reader) decryptStream(m *PDFDict, ref PDFRef) error {
-	if !m.HasStream || len(m.RawStream) == 0 || isXRefStream(*m) {
+	if !m.IsStream() || len(m.Stream()) == 0 || isXRefStream(*m) {
 		return nil
 	}
 	if isCleartextMetadata(*m, d.crypt) {
 		return nil
 	}
-	dec, err := d.crypt.decrypt(m.RawStream, ref.ObjNum, ref.GenNum, false)
+	dec, err := d.crypt.decrypt(m.Stream(), ref.ObjNum, ref.GenNum, false)
 	if err != nil {
 		return err
 	}
-	m.RawStream = dec
+	m.SetStream(dec)
 	return nil
 }
 
 // decryptStrings decrypts every string in v for object ref, in place, recursing
-// through dicts (skipping the synthetic _ref) and arrays. Indirect references
-// are left alone -- they decrypt when their own object resolves.
+// through dicts and arrays. Indirect references are left alone, because they
+// are decrypted when their own object resolves.
 func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 	switch t := v.(type) {
 	case PDFString, PDFHexString:
@@ -527,9 +528,6 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 		}
 	case PDFDict:
 		for k, val := range t.Entries.All() {
-			if k == RefKey {
-				continue
-			}
 			t.Entries.Set(k, d.decryptStrings(val, ref))
 		}
 	}

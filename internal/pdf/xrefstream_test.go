@@ -276,7 +276,7 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	// The graph-resolved Page dict (from inside the ObjStm) must carry the
 	// synthetic _ref stamp like any classically-stored object, since
 	// buildPageIndex and every checker key off it.
-	if ref, ok := page.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok || ref.ObjNum != 3 {
+	if ref, ok := page.Ref(); !ok || ref.ObjNum != 3 {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
@@ -323,7 +323,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !contents.HasStream {
+	if !ok || !contents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	data, err := pdf.DecodeStream(contents)

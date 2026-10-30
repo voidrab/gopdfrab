@@ -431,8 +431,7 @@ func TestValidateAnnotationInheritsBtn(t *testing.T) {
 	parent.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 
 	nStream := pdf.NewPDFDict()
-	nStream.HasStream = true
-	nStream.RawStream = []byte("")
+	nStream.SetStream([]byte(""))
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", nStream)
 
@@ -461,7 +460,7 @@ func TestValidateAnnotationInheritedBtnSubdictOK(t *testing.T) {
 	parent.Entries.Set("FT", pdf.PDFName{Value: "Btn"})
 
 	stateStream := pdf.NewPDFDict()
-	stateStream.HasStream = true
+	stateStream.SetStream(nil)
 	nSubdict := pdf.NewPDFDict()
 	nSubdict.Entries.Set("Off", stateStream)
 	ap := pdf.NewPDFDict()

@@ -292,7 +292,7 @@ func ValidateCIDCFFSubset(obj pdf.PDFValue, ff pdf.PDFDict, w pdf.PDFArray, ctx 
 // Each byte covers 8 CIDs, MSB first: bit j of byte i is CID i*8+j.
 func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
-	if !ok || !cidSet.HasStream {
+	if !ok || !cidSet.IsStream() {
 		return
 	}
 	bitmap, err := ctx.decodeStreamCached(cidSet)
@@ -342,7 +342,7 @@ func validateCIDSetBitmap(obj pdf.PDFValue, desc pdf.PDFDict, ff pdf.PDFDict, ct
 // rule that an incomplete usage set must not drive a report.
 func validateCIDSetTrueType(obj pdf.PDFDict, desc pdf.PDFDict, ff pdf.PDFDict, ctx *ValidationContext) {
 	cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
-	if !ok || !cidSet.HasStream {
+	if !ok || !cidSet.IsStream() {
 		return
 	}
 	bitmap, err := ctx.decodeStreamCached(cidSet)
@@ -856,7 +856,7 @@ func formatWidth(w float64) string {
 // validateCMapWMode flags an embedded CMap whose dictionary WMode disagrees with
 // the WMode declared in its stream (6.3.3.3).
 func validateCMapWMode(obj pdf.PDFValue, cmap pdf.PDFDict, ctx *ValidationContext) {
-	if !cmap.HasStream {
+	if !cmap.IsStream() {
 		return
 	}
 	dictWMode, ok := cmap.Entries.Get("WMode").(pdf.PDFInteger)

@@ -44,7 +44,7 @@ func TestPruneUnusedResourceEntriesIsDeterministic(t *testing.T) {
 		if !pruneUnusedResourceEntries(sub, used, maxDictEntries) {
 			t.Fatal("oversized dict was not pruned")
 		}
-		if got := dictRealEntryCount(sub); got != maxDictEntries {
+		if got := sub.Entries.Len(); got != maxDictEntries {
 			t.Errorf("pruned to %d entries, want %d", got, maxDictEntries)
 		}
 		for k := range used {
@@ -192,13 +192,10 @@ func TestClampCMapCIDs(t *testing.T) {
 // and markResourceUsed over a page whose content references every resource
 // category plus a nested Form XObject with its own resources.
 func TestComputeResourceUsage(t *testing.T) {
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F2": pdf.PDFInteger(1)})}})},
-		}),
-		HasStream: true, RawStream: []byte("/F2 12 Tf"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F2": pdf.PDFInteger(1)})}})},
+	}), []byte("/F2 12 Tf"))
 	fontSub := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": pdf.PDFInteger(1)})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject":    pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}})}, "Fm1": form})},
@@ -213,7 +210,7 @@ func TestComputeResourceUsage(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
-		"Contents":  pdf.PDFArray{pdf.PDFDict{HasStream: true, RawStream: []byte(content)}},
+		"Contents":  pdf.PDFArray{pdf.NewStreamDict(nil, []byte(content))},
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -242,19 +239,16 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 		longKey: pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}})},
 	})}
 
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": fontsDict})},
-		}),
-		HasStream: true, RawStream: []byte("/" + longKey + " 12 Tf"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": fontsDict})},
+	}), []byte("/"+longKey+" 12 Tf"))
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font":    fontsDict,
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form})},
 	})}
-	streamA := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("/" + longKey + " 10 Tf")}
-	streamB := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("/Fm1 Do")}
+	streamA := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("/"+longKey+" 10 Tf"))
+	streamB := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("/Fm1 Do"))
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
@@ -310,7 +304,7 @@ func TestNameTooLongFixerRenamesResourceReferencesAcrossContentShapes(t *testing
 // TestClampCMapStreamDictSkipsNonCMap covers the type/stream guard: a dict
 // that isn't a stream-bearing /Type /CMap must be left untouched.
 func TestClampCMapStreamDictSkipsNonCMap(t *testing.T) {
-	notCMap := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}), HasStream: true, RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n")}
+	notCMap := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Font"}}), []byte("1 begincidchar\n<0041> 70000\nendcidchar\n"))
 	if _, ok := clampCMapStreamDict(notCMap, maxCMapCID); ok {
 		t.Error("clampCMapStreamDict on a non-CMap dict = true, want false")
 	}
@@ -323,11 +317,7 @@ func TestClampCMapStreamDictSkipsNonCMap(t *testing.T) {
 // TestCMapCIDClampFixer drives the whole-graph CMap CID clamp fixer over a
 // CMap stream containing an out-of-range CID.
 func TestCMapCIDClampFixer(t *testing.T) {
-	cmap := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}}),
-		HasStream: true,
-		RawStream: []byte("1 begincidchar\n<0041> 70000\nendcidchar\n"),
-	}
+	cmap := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "CMap"}}), []byte("1 begincidchar\n<0041> 70000\nendcidchar\n"))
 	trailer := trailerWith("Enc", cmap)
 	changed, err := cmapCIDClampFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
@@ -359,11 +349,7 @@ func TestResourceAwareRewritePreservesUntouchedOperators(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
-		"Contents": pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
-			HasStream: true,
-			RawStream: []byte("1 0 0 RG 5 w BT /" + longKey + " 12 Tf (hi) Tj ET 10 20 m 30 40 l S"),
-		},
+		"Contents":  pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("1 0 0 RG 5 w BT /"+longKey+" 12 Tf (hi) Tj ET 10 20 m 30 40 l S")),
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -418,7 +404,7 @@ func contentPage(content string, resources pdf.PDFDict) pdf.PDFDict {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":      pdf.PDFName{Value: "Page"},
 		"Resources": resources,
-		"Contents":  pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: []byte(content)},
+		"Contents":  pdf.NewStreamDict(pdf.DictOf(nil), []byte(content)),
 	})}
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -430,10 +416,7 @@ func contentPage(content string, resources pdf.PDFDict) pdf.PDFDict {
 // degenerateFormResources is a Resources dict whose XObject Fm1 is a form with
 // no Resources of its own (so it inherits the page's), and a Font category.
 func degenerateFormResources() (resources, fonts, form pdf.PDFDict) {
-	form = pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}),
-		HasStream: true, RawStream: []byte("/F9 12 Tf"),
-	}
+	form = pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}), []byte("/F9 12 Tf"))
 	fonts = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F9": pdf.PDFInteger(1)})}
 	resources = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Fm1": form})},
@@ -500,11 +483,8 @@ func TestWalkResourceAwareContentDegenerateOperators(t *testing.T) {
 }
 
 func TestRewritePageContentsSkipsUnusableStreams(t *testing.T) {
-	good := pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: []byte("/F1 12 Tf")}
-	corrupt := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}),
-		HasStream: true, RawStream: []byte("not a zlib stream"),
-	}
+	good := pdf.NewStreamDict(pdf.DictOf(nil), []byte("/F1 12 Tf"))
+	corrupt := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), []byte("not a zlib stream"))
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Page"},
 		"Contents": pdf.PDFArray{
@@ -530,7 +510,7 @@ func TestRewritePageContentsSkipsUnusableStreams(t *testing.T) {
 	if err != nil || !strings.Contains(string(data), "/F2") {
 		t.Errorf("good stream = %q, %v; want the rewritten operand", data, err)
 	}
-	if string(arr[2].(pdf.PDFDict).RawStream) != "not a zlib stream" {
+	if string(arr[2].(pdf.PDFDict).Stream()) != "not a zlib stream" {
 		t.Error("the undecodable stream was modified")
 	}
 }
@@ -539,7 +519,7 @@ func TestRenameResourceReferencesSkipsMissingCategory(t *testing.T) {
 	trailer := contentPage("/F1 12 Tf", pdf.PDFDict{Entries: pdf.DictOf(nil)})
 	renameResourceReferences(&trailer, map[uintptr]map[string]string{})
 	page := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
-	if got := string(page.Entries.Get("Contents").(pdf.PDFDict).RawStream); got != "/F1 12 Tf" {
+	if got := string(page.Entries.Get("Contents").(pdf.PDFDict).Stream()); got != "/F1 12 Tf" {
 		t.Errorf("content = %q, want it untouched", got)
 	}
 }
@@ -559,12 +539,9 @@ func TestNameTooLongFixerTruncatesNameValues(t *testing.T) {
 
 func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 	mk := func(num int, typ string, raw string, filter bool) pdf.PDFDict {
-		d := pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Type": pdf.PDFName{Value: typ}, pdf.RefKey: pdf.PDFRef{ObjNum: num},
-			}),
-			HasStream: true, RawStream: []byte(raw),
-		}
+		d := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"Type": pdf.PDFName{Value: typ},
+		}), []byte(raw)), pdf.PDFRef{ObjNum: num})
 		if filter {
 			d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 		}
@@ -577,7 +554,7 @@ func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 		mk(22, "CMap", inRange, false),                                      // nothing to clamp
 	}
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	root.SetRef(pdf.PDFRef{ObjNum: 1})
 	for i, d := range skipped {
 		root.Entries.Set(fmt.Sprintf("K%d", i), d)
 	}
@@ -587,7 +564,7 @@ func TestCMapCIDClampFixTargetedSkipsUnclampable(t *testing.T) {
 	// Numbering assigns the real object numbers, so read the refs afterwards.
 	var issues []pdf.PDFError
 	for _, d := range skipped {
-		ref := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+		ref, _ := d.Ref()
 		issues = append(issues, pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref))
 	}
 

@@ -94,6 +94,10 @@ jobs:
         go build ./...
         go vet ./...
 
+    - name: Test benchmarks (allocation ceilings)
+      working-directory: benchmarks
+      run: go test ./micro/...
+
     - name: Lint benchmarks
       uses: golangci/golangci-lint-action@v8
       with:

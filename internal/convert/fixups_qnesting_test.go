@@ -191,7 +191,7 @@ func TestQNestingFixerRepairsSharedStreamOnce(t *testing.T) {
 	}
 	a, _ := pages[0].Entries.Get("Contents").(pdf.PDFDict)
 	b, _ := pages[1].Entries.Get("Contents").(pdf.PDFDict)
-	if !bytes.Equal(a.RawStream, b.RawStream) {
+	if !bytes.Equal(a.Stream(), b.Stream()) {
 		t.Error("the pages sharing a stream ended up with different content")
 	}
 	if xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict); xobjects.Entries.Len() != 1 {
@@ -274,11 +274,11 @@ func TestQNestingFixerLeavesUnsafeBlocks(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			trailer, page, _ := pageWithContent(content)
-			before := page.Entries.Get("Contents").(pdf.PDFDict).RawStream
+			before := page.Entries.Get("Contents").(pdf.PDFDict).Stream()
 			if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 				t.Error("Fix changed the page")
 			}
-			if after := page.Entries.Get("Contents").(pdf.PDFDict).RawStream; !bytes.Equal(before, after) {
+			if after := page.Entries.Get("Contents").(pdf.PDFDict).Stream(); !bytes.Equal(before, after) {
 				t.Error("the page's content was rewritten")
 			}
 		})

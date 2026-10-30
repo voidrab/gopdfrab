@@ -23,8 +23,7 @@ func buildAPWithRGB(t *testing.T) (page pdf.PDFDict, pageRes pdf.PDFDict) {
 		t.Fatal(err)
 	}
 	apStream := pdf.NewPDFDict()
-	apStream.HasStream = true
-	apStream.RawStream = apContent
+	apStream.SetStream(apContent)
 	apStream.Entries.Set("Resources", pdf.NewPDFDict()) // no DefaultRGB here
 
 	ap := pdf.NewPDFDict()
@@ -101,8 +100,7 @@ func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
 
 func TestScanContentValue(t *testing.T) {
 	single := pdf.NewPDFDict()
-	single.HasStream = true
-	single.RawStream = []byte("ZzBadOp\n")
+	single.SetStream([]byte("ZzBadOp\n"))
 	ctx := &ValidationContext{Spec: a1bSpec}
 	scanContentValue(single, pdf.NewPDFDict(), ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
@@ -248,8 +246,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	// Tiling pattern: always scanned.
 	pattern := pdf.NewPDFDict()
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
-	pattern.HasStream = true
-	pattern.RawStream = []byte("ZzBadOp\n")
+	pattern.SetStream([]byte("ZzBadOp\n"))
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateContentStreams(pattern, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
@@ -259,8 +256,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 	// Unreachable Form XObject: skipped.
 	form := pdf.NewPDFDict()
 	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	form.HasStream = true
-	form.RawStream = []byte("ZzBadOp\n")
+	form.SetStream([]byte("ZzBadOp\n"))
 	ctx2 := &ValidationContext{Spec: a1bSpec, ReachableXObjectPtrs: map[uintptr]bool{}} // non-nil, form's ptr absent
 	validateContentStreams(form, ctx2)
 	if len(ctx2.errs) != 0 {
@@ -269,8 +265,7 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 
 	// Type3 CharProcs: every glyph stream scanned.
 	proc := pdf.NewPDFDict()
-	proc.HasStream = true
-	proc.RawStream = []byte("ZzBadOp\n")
+	proc.SetStream([]byte("ZzBadOp\n"))
 	charProcs := pdf.NewPDFDict()
 	charProcs.Entries.Set("g1", proc)
 	t3 := pdf.NewPDFDict()
@@ -285,14 +280,13 @@ func TestValidateContentStreamsDispatch(t *testing.T) {
 
 func TestScanAPEntryStateSubdictionary(t *testing.T) {
 	onState := pdf.NewPDFDict()
-	onState.HasStream = true
-	onState.RawStream = []byte("ZzBadOp\n")
+	onState.SetStream([]byte("ZzBadOp\n"))
 	states := pdf.NewPDFDict()
 	states.Entries.Set("On", onState)
 	states.Entries.Set("Off", pdf.NewPDFDict()) // no stream: skipped
 	// An indirect state dictionary carries the reader's synthetic ref entry,
 	// which is not an appearance state.
-	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	states.SetRef(pdf.PDFRef{ObjNum: 9})
 
 	ctx := &ValidationContext{Spec: a1bSpec}
 	scanAPEntry(states, ctx)
@@ -314,8 +308,7 @@ func TestFormXObjectWithOwnResourcesLosesPageDefaultRGB(t *testing.T) {
 	form := pdf.NewPDFDict()
 	form.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	form.Entries.Set("Resources", pdf.NewPDFDict()) // its own, and empty
-	form.HasStream = true
-	form.RawStream = content
+	form.SetStream(content)
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Fx0", form)
@@ -362,8 +355,7 @@ func TestPageContentFormXObjectStillInheritsPageDefaultRGB(t *testing.T) {
 	// scanContentDict is called with the XObject's own (empty) resources and the
 	// page resources as ctx.resourceScope — reportContentColour should not fire.
 	xobj := pdf.NewPDFDict()
-	xobj.HasStream = true
-	xobj.RawStream = fContent
+	xobj.SetStream(fContent)
 
 	cs := pdf.NewPDFDict()
 	cs.Entries.Set("DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}})
@@ -411,8 +403,7 @@ func TestScanContentDictPredictorEncoded(t *testing.T) {
 	}
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buf.Bytes()
+	stream.SetStream(buf.Bytes())
 	stream.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	stream.Entries.Set("DecodeParms", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Predictor": pdf.PDFInteger(12), "Columns": pdf.PDFInteger(columns), "Colors": pdf.PDFInteger(1),

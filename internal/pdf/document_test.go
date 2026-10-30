@@ -380,13 +380,13 @@ func TestBruteForceXRefRecovery(t *testing.T) {
 func TestDecodeStreamCachedConcurrent(t *testing.T) {
 	d := &Reader{}
 
-	// No RawStream bytes: not cacheable, falls back to plain DecodeStream,
+	// No Stream() bytes: not cacheable, falls back to plain DecodeStream,
 	// which errors because the dict isn't a stream at all.
 	if _, err := d.DecodeStreamCachedConcurrent(PDFDict{}); err == nil {
 		t.Error("expected error decoding a non-stream dict")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("cached")}
+	streamDict := NewStreamDict(nil, []byte("cached"))
 	got1, err := d.DecodeStreamCachedConcurrent(streamDict)
 	if err != nil || string(got1) != "cached" {
 		t.Fatalf("first decode = %q, %v", got1, err)
@@ -400,10 +400,7 @@ func TestDecodeStreamCachedConcurrent(t *testing.T) {
 		t.Fatalf("second (cache-hit) decode = %q, %v", got2, err)
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := d.DecodeStreamCachedConcurrent(badDict); err == nil {
 		t.Error("expected error for an unsupported filter")
 	}
@@ -501,10 +498,7 @@ func TestGetMetadataBranches(t *testing.T) {
 func TestRawXMPDecodeError(t *testing.T) {
 	d := &Reader{trailer: PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{
-			"Metadata": PDFDict{
-				HasStream: true, RawStream: []byte("x"),
-				Entries: DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-			},
+			"Metadata": NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x")),
 		})},
 	})}}
 	if _, _, err := d.RawXMP(); err == nil {
@@ -838,8 +832,8 @@ func TestBuildPageIndex(t *testing.T) {
 		t.Error("expected error for nil Pages")
 	}
 
-	page1 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 10}})}
-	page2 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 20}})}
+	page1 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 10})
+	page2 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 20})
 	kids := PDFDict{Entries: DictOf(map[string]PDFValue{"Kids": PDFArray{page1, page2}})}
 	graph := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{"Pages": kids})},
@@ -861,7 +855,7 @@ func TestDecodeStreamCached(t *testing.T) {
 		t.Error("expected error decoding a non-stream dict")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("sync-cached")}
+	streamDict := NewStreamDict(nil, []byte("sync-cached"))
 	got1, err := d.DecodeStreamCached(streamDict)
 	if err != nil || string(got1) != "sync-cached" {
 		t.Fatalf("first decode = %q, %v", got1, err)
@@ -874,10 +868,7 @@ func TestDecodeStreamCached(t *testing.T) {
 		t.Fatalf("second (cache-hit) decode = %q, %v", got2, err)
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := d.DecodeStreamCached(badDict); err == nil {
 		t.Error("expected error decoding an unsupported filter")
 	}
@@ -899,7 +890,7 @@ func scanOps(d *Reader, dict PDFDict) ([]ScannedOp, error) {
 // with-key decode-error branch, and its cache-hit path.
 func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 	d := &Reader{}
-	ops, err := scanOps(d, PDFDict{HasStream: true, RawStream: nil})
+	ops, err := scanOps(d, NewStreamDict(nil, nil))
 	if err != nil {
 		t.Fatalf("ScanStreamFunc (no key): %v", err)
 	}
@@ -911,15 +902,12 @@ func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 		t.Error("expected error scanning a non-stream dict (no-key decode error)")
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := scanOps(d, badDict); err == nil {
 		t.Error("expected error scanning an unsupported filter (with-key decode error)")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("1 2 Tj")}
+	streamDict := NewStreamDict(nil, []byte("1 2 Tj"))
 	ops1, err := scanOps(d, streamDict)
 	if err != nil || len(ops1) != 1 || ops1[0].Op != "Tj" {
 		t.Fatalf("ScanStreamFunc (first) = %+v, %v", ops1, err)
@@ -1041,7 +1029,7 @@ func TestFootprintCountsCaches(t *testing.T) {
 	}
 
 	content := []byte("BT /F1 12 Tf (hi) Tj ET")
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: content}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), content)
 
 	data, err := d.DecodeStreamCached(dict)
 	if err != nil {
@@ -1103,7 +1091,7 @@ func TestScannedOpsBytesGrowsWithContent(t *testing.T) {
 // maps, so the adopting Reader reports what they hold rather than zero.
 func TestFootprintAdoptedWithCaches(t *testing.T) {
 	src := &Reader{}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("0 0 m 1 1 l S")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("0 0 m 1 1 l S"))
 	if _, err := src.DecodeStreamCached(dict); err != nil {
 		t.Fatalf("DecodeStreamCached: %v", err)
 	}
@@ -1150,8 +1138,7 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	old := residentCap.Load()
 	defer residentCap.Store(old)
 
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,
-		RawStream: []byte("BT /F1 12 Tf (hello) Tj ET 0 0 m 1 1 l S")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("BT /F1 12 Tf (hello) Tj ET 0 0 m 1 1 l S"))
 
 	SetMaxResidentBytes(-1)
 	warm := &Reader{}
@@ -1207,7 +1194,7 @@ func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	for i := range 400 {
 		content = append(content, fmt.Sprintf("%d %d m %d %d l S\n", i, i, i+1, i+1)...)
 	}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: content}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), content)
 
 	SetMaxResidentBytes(-1)
 	warm := &Reader{}
@@ -1267,8 +1254,7 @@ func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 // state and that the next call rebuilds it to the same result.
 func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d := &Reader{}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,
-		RawStream: []byte("q 1 0 0 1 0 0 cm BT ET Q")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("q 1 0 0 1 0 0 cm BT ET Q"))
 
 	before, err := d.DecodeStreamCached(dict)
 	if err != nil {
@@ -1312,4 +1298,11 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	}
 
 	d.ReleaseCaches() // idempotent
+}
+
+// withRef marks d as the indirect object ref and returns it, so a literal can
+// be built in one expression.
+func withRef(d PDFDict, ref PDFRef) PDFDict {
+	d.SetRef(ref)
+	return d
 }

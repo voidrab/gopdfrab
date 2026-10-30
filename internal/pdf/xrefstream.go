@@ -56,7 +56,7 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 		l.UnreadToken(next)
 		return objNum, dict, nil
 	}
-	dict.HasStream = true
+	dict.SetStream(nil)
 
 	lengthVal, ok := dict.Entries.Get("Length").(PDFInteger)
 	if !ok {
@@ -79,7 +79,7 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 	if _, err := file.ReadAt(data, l.pos); err != nil {
 		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
 	}
-	dict.RawStream = data
+	dict.SetStream(data)
 
 	return objNum, dict, nil
 }
@@ -103,7 +103,7 @@ func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) 
 	if err != nil {
 		return PDFDict{}, err
 	}
-	if !dict.HasStream {
+	if !dict.IsStream() {
 		return PDFDict{}, fmt.Errorf("object at offset %d has no stream body", offset)
 	}
 	if !EqualPDFValue(dict.Entries.Get("Type"), PDFName{Value: "XRef"}) {

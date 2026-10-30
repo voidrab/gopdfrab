@@ -62,12 +62,12 @@ func minimalConformantRoot(trailer pdf.PDFDict) {
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{})
 	pages.Entries.Set("Count", pdf.PDFInteger(0))
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 	trailer.Entries.Set("Root", catalog)
 	if trailer.Entries.Get("Size") == nil {
 		trailer.Entries.Set("Size", pdf.PDFInteger(1))
@@ -95,8 +95,7 @@ func clauseMatches(got, expected string) bool {
 // streamDict returns a stream dictionary whose (unfiltered) data is raw.
 func streamDict(raw string) pdf.PDFDict {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(raw)
+	d.SetStream([]byte(raw))
 	return d
 }
 

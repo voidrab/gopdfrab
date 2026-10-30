@@ -23,7 +23,7 @@ func TestValidateAgainstSchema_InheritableKeyNotFlagged(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	parent := pdf.NewPDFDict()
-	parent.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	parent.SetRef(pdf.PDFRef{ObjNum: 9})
 	page.Entries.Set("Parent", parent)
 	// Resources/MediaBox omitted: both are Inheritable on PageObject, so their
 	// absence here is not itself a violation.
@@ -80,7 +80,7 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 	catalog.Entries.Set("Pages", pages)
 	catalog.Entries.Set("ACustomVendorKey", pdf.PDFInteger(42))
 
@@ -93,10 +93,10 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 
 func TestValidateAgainstSchema_LengthSkippedOnStream(t *testing.T) {
 	meta := pdf.NewPDFDict()
-	meta.HasStream = true
+	meta.SetStream(nil)
 	meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
-	// Length omitted: the writer always recomputes it from RawStream at
+	// Length omitted: the writer always recomputes it from Stream() at
 	// serialization time, so its in-memory absence must not be flagged.
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAgainstSchema(meta, "Metadata", ctx)
@@ -178,7 +178,7 @@ func TestValidateAgainstSchema_IndirectRequiredSatisfied(t *testing.T) {
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 	catalog.Entries.Set("Pages", pages)
 
 	ctx := &ValidationContext{Spec: a1bSpec}
@@ -222,7 +222,7 @@ func TestValidateAgainstSchema_WildcardTypeSkipsKeyIntroducedAfterPDF14(t *testi
 
 func TestIsIndirect(t *testing.T) {
 	ref := pdf.NewPDFDict()
-	ref.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	ref.SetRef(pdf.PDFRef{ObjNum: 1})
 	if !isIndirect(ref) {
 		t.Error("a dict carrying _ref must be indirect")
 	}
@@ -272,7 +272,7 @@ func TestMatchesValueType(t *testing.T) {
 	}
 
 	streamDict := pdf.NewPDFDict()
-	streamDict.HasStream = true
+	streamDict.SetStream(nil)
 	if !matchesValueType(streamDict, []arlington.ValueType{arlington.Stream}) {
 		t.Error("a stream dict must match Stream")
 	}
@@ -373,7 +373,7 @@ func TestResolveLinkGroups(t *testing.T) {
 
 func TestLinkGroupMatchesKind(t *testing.T) {
 	streamDict := pdf.NewPDFDict()
-	streamDict.HasStream = true
+	streamDict.SetStream(nil)
 
 	cases := []struct {
 		name       string
@@ -569,7 +569,7 @@ func TestValidateArrayAgainstSchema_WildcardElement(t *testing.T) {
 	indirect.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	indirect.Entries.Set("Kids", pdf.PDFArray{})
 	indirect.Entries.Set("Count", pdf.PDFInteger(0))
-	indirect.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 7})
+	indirect.SetRef(pdf.PDFRef{ObjNum: 7})
 	ctx = &ValidationContext{Spec: a1bSpec}
 	validateArrayAgainstSchema(pdf.PDFArray{indirect}, "ArrayOfPageTreeNodeKids", pdf.NewPDFDict(), "", ctx)
 	if len(ctx.errs) != 0 {
@@ -587,12 +587,12 @@ func TestArraySchemaCheckedInWalk(t *testing.T) {
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{kid})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
@@ -627,7 +627,7 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	}
 
 	direct := pdf.NewPDFDict()
-	direct.HasStream = true
+	direct.SetStream(nil)
 	m = pdf.NewPDFDict()
 	m.Entries.Set("Im1", direct)
 	ctx = &ValidationContext{Spec: a1bSpec}
@@ -637,8 +637,8 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	}
 
 	indirect := pdf.NewPDFDict()
-	indirect.HasStream = true
-	indirect.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	indirect.SetStream(nil)
+	indirect.SetRef(pdf.PDFRef{ObjNum: 9})
 	m = pdf.NewPDFDict()
 	m.Entries.Set("Im1", indirect)
 	ctx = &ValidationContext{Spec: a1bSpec}
@@ -673,7 +673,7 @@ func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
 // declares a dictionary.
 func TestChildTypeRequiresMatchingKind(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 	if got := arlingtonChildType("FileTrailer", "Info", stream); got != "" {
 		t.Errorf("arlingtonChildType(FileTrailer, Info, stream) = %q, want \"\"", got)
 	}
@@ -912,7 +912,7 @@ func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
 func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	// A plain (non-JPX, non-mask) image stream must carry ColorSpace and BitsPerComponent.
 	img := pdf.NewPDFDict()
-	img.HasStream = true
+	img.SetStream(nil)
 	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	img.Entries.Set("Width", pdf.PDFInteger(1))
 	img.Entries.Set("Height", pdf.PDFInteger(1))
@@ -963,7 +963,7 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	// A DCT-encoded image must use 8 bits per component; the pin fires on 4, and 16 is
 	// outside the (now unpredicated) enum regardless of filter.
 	img := pdf.NewPDFDict()
-	img.HasStream = true
+	img.SetStream(nil)
 	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	img.Entries.Set("Width", pdf.PDFInteger(1))
 	img.Entries.Set("Height", pdf.PDFInteger(1))
@@ -994,7 +994,7 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// A stream's DecodeParms array must be as long as its Filter array.
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 	stream.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
 	stream.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
 	ctx := &ValidationContext{Spec: a1bSpec}
@@ -1070,7 +1070,7 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 
 	// An odd-length function Domain violates the mod-2 coupling.
 	fn := pdf.NewPDFDict()
-	fn.HasStream = true
+	fn.SetStream(nil)
 	fn.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	fn.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(2)})
 	fn.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
@@ -1287,7 +1287,7 @@ func TestValidateAgainstSchema_ConditionallyRequired(t *testing.T) {
 	// FileTrailer.ID is required when Encrypt is present.
 	trailer := pdf.NewPDFDict()
 	enc := pdf.NewPDFDict()
-	enc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 9})
+	enc.SetRef(pdf.PDFRef{ObjNum: 9})
 	trailer.Entries.Set("Encrypt", enc)
 	ctx = &ValidationContext{Spec: a1bSpec}
 	validateAgainstSchema(trailer, "FileTrailer", ctx)
@@ -1390,7 +1390,7 @@ func TestWalkReanchorsSelfIdentifyingDict(t *testing.T) {
 // name at index 0 of a colour-space array picks the candidate type.
 func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 
 	icc := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", icc); got != "ICCBasedColorSpace" {
@@ -1436,7 +1436,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 	}
 	directPages := dict(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}})
 	directStream := pdf.NewPDFDict()
-	directStream.HasStream = true
+	directStream.SetStream(nil)
 
 	cases := []struct {
 		name                 string
@@ -1469,7 +1469,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 				"Filter":      pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
 				"DecodeParms": pdf.PDFArray{pdf.NewPDFDict()},
 			})
-			s.HasStream = true
+			s.SetStream(nil)
 			validateAgainstSchema(s, "Stream", ctx)
 		}, pdf.Checks.ObjectModel.ConstraintViolated, "Stream", "DecodeParms", ""},
 		{"dict indirect required", func(ctx *ValidationContext) {

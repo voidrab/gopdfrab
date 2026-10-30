@@ -31,10 +31,9 @@ func TestFixSimpleTrueTypeWidthsMacCmap(t *testing.T) {
 	cmap := append([]byte{0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 12}, sub...) // one (1,0) record
 
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = fontedit.PackSfnt(map[string][]byte{
+	ff.SetStream(fontedit.PackSfnt(map[string][]byte{
 		"head": head, "maxp": {0, 0, 0x50, 0, 0, 2}, "hhea": hhea, "hmtx": hmtx, "cmap": cmap,
-	})
+	}))
 	v := pdf.NewPDFDict()
 	v.Entries.Set("Encoding", pdf.PDFName{Value: "WinAnsiEncoding"})
 	v.Entries.Set("FirstChar", pdf.PDFInteger(0xE9))
@@ -58,8 +57,7 @@ func symbolOnlyTrueType() pdf.PDFDict {
 	cmap := []byte{0, 0, 0, 2, 0, 1, 0, 0, 0, 0, 0, 20, 0, 3, 0, 0, 0, 0, 0, 20}
 	cmap = append(cmap, sub...)
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = fontedit.PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": cmap})
+	ff.SetStream(fontedit.PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 2}, "cmap": cmap}))
 	return ff
 }
 
@@ -117,6 +115,27 @@ func TestRepairNonSymbolicTrueTypeCmap(t *testing.T) {
 	}
 }
 
+// TestRepairNonSymbolicTrueTypeCmapSharedProgram verifies that a font program
+// two descriptors share is repaired for both: the other descriptor reads the
+// repaired bytes, and /Length1 matches them.
+func TestRepairNonSymbolicTrueTypeCmapSharedProgram(t *testing.T) {
+	shared := symbolOnlyTrueType()
+	a := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, shared)
+	b := simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, shared)
+	repairNonSymbolicTrueTypeCmap(a)
+	if got := windowsCmapOf(t, b); got[0x00B0] != 1 {
+		t.Fatalf("other font's (3,1) = %v, want U+00B0 -> 1", got)
+	}
+	ff := b.Entries.Get("FontDescriptor").(pdf.PDFDict).Entries.Get("FontFile2").(pdf.PDFDict)
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := ff.Entries.Get("Length1"); n != pdf.PDFInteger(len(data)) {
+		t.Errorf("/Length1 = %v, want %d, the repaired program's length", n, len(data))
+	}
+}
+
 // TestRepairNonSymbolicTrueTypeCmapEdges verifies that without FirstChar and
 // LastChar every code is considered, and that a program that will not decode
 // is left alone.
@@ -130,13 +149,12 @@ func TestRepairNonSymbolicTrueTypeCmapEdges(t *testing.T) {
 	}
 
 	broken := pdf.NewPDFDict()
-	broken.HasStream = true
-	broken.RawStream = []byte("not zlib")
+	broken.SetStream([]byte("not zlib"))
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	d = simpleTrueTypeFont(pdf.PDFName{Value: "WinAnsiEncoding"}, broken)
 	repairNonSymbolicTrueTypeCmap(d)
 	ff := d.Entries.Get("FontDescriptor").(pdf.PDFDict).Entries.Get("FontFile2").(pdf.PDFDict)
-	if string(ff.RawStream) != "not zlib" {
+	if string(ff.Stream()) != "not zlib" {
 		t.Error("undecodable program was rewritten")
 	}
 }
@@ -167,8 +185,7 @@ func TestInlineType1WidthSubrsInFont(t *testing.T) {
 	program := append([]byte(header), eexec...)
 
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = program
+	ff.SetStream(program)
 	ff.Entries.Set("Length1", pdf.PDFInteger(len(header)))
 	ff.Entries.Set("Length2", pdf.PDFInteger(len(eexec)))
 	ff.Entries.Set("Length3", pdf.PDFInteger(0))
@@ -203,8 +220,7 @@ func TestInlineType1WidthSubrsInFont(t *testing.T) {
 	// Length1/Length2 missing or wrong: left alone.
 	for _, drop := range []string{"Length1", "Length2"} {
 		ff := pdf.NewPDFDict()
-		ff.HasStream = true
-		ff.RawStream = program
+		ff.SetStream(program)
 		ff.Entries.Set("Length1", pdf.PDFInteger(len(header)))
 		ff.Entries.Set("Length2", pdf.PDFInteger(len(eexec)))
 		ff.Entries.Del(drop)
@@ -214,7 +230,7 @@ func TestInlineType1WidthSubrsInFont(t *testing.T) {
 		d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
 		d.Entries.Set("FontDescriptor", desc)
 		inlineType1WidthSubrsInFont(d)
-		if got := desc.Entries.Get("FontFile").(pdf.PDFDict).RawStream; !bytes.Equal(got, program) {
+		if got := desc.Entries.Get("FontFile").(pdf.PDFDict).Stream(); !bytes.Equal(got, program) {
 			t.Errorf("no %s: program rewritten", drop)
 		}
 	}
@@ -222,8 +238,7 @@ func TestInlineType1WidthSubrsInFont(t *testing.T) {
 
 func TestInlineType1WidthSubrsInFontUndecodable(t *testing.T) {
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = []byte("not zlib")
+	ff.SetStream([]byte("not zlib"))
 	ff.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	ff.Entries.Set("Length1", pdf.PDFInteger(1))
 	ff.Entries.Set("Length2", pdf.PDFInteger(4))
@@ -233,7 +248,7 @@ func TestInlineType1WidthSubrsInFontUndecodable(t *testing.T) {
 	d.Entries.Set("Subtype", pdf.PDFName{Value: "Type1"})
 	d.Entries.Set("FontDescriptor", desc)
 	inlineType1WidthSubrsInFont(d)
-	if got := desc.Entries.Get("FontFile").(pdf.PDFDict).RawStream; string(got) != "not zlib" {
+	if got := desc.Entries.Get("FontFile").(pdf.PDFDict).Stream(); string(got) != "not zlib" {
 		t.Error("undecodable program was rewritten")
 	}
 }

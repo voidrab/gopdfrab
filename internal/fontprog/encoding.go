@@ -646,7 +646,7 @@ func OriginalSimpleFontCodeToUnicode(d pdf.PDFDict) (table [256]uint16, baseKnow
 	}
 
 	// A /ToUnicode CMap authoritatively fills codes still unresolved.
-	if toUni, ok := d.Entries.Get("ToUnicode").(pdf.PDFDict); ok && toUni.HasStream {
+	if toUni, ok := d.Entries.Get("ToUnicode").(pdf.PDFDict); ok && toUni.IsStream() {
 		if data, err := pdf.DecodeStream(toUni); err == nil {
 			for code, u := range ParseToUnicodeCMap(data) {
 				if code >= 0 && code < 256 && table[code] == 0 {

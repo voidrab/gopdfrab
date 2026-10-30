@@ -340,7 +340,7 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 		}
 		var extras []string
 		for k := range ap.Entries.All() {
-			if k != "N" && k != pdf.RefKey {
+			if k != "N" {
 				extras = append(extras, k)
 			}
 		}
@@ -356,10 +356,10 @@ func validateAnnotation(v pdf.PDFDict, ctx *ValidationContext) {
 				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream or subdictionary")
 			} else if isBtn {
 				// Btn widget N shall be a state-name-to-stream subdictionary, not direct.
-				if nd.HasStream {
+				if nd.IsStream() {
 					ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "Btn widget appearance N shall be a subdictionary, not a direct stream")
 				}
-			} else if !nd.HasStream {
+			} else if !nd.IsStream() {
 				ctx.Report(pdf.Checks.Annotation.AppearanceNNotStream, v, "appearance N value is not a stream")
 			}
 		}
