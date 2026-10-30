@@ -423,10 +423,10 @@ func verifyInteractiveForms(d *pdf.Reader) []pdf.PDFError {
 
 	errs := []pdf.PDFError{}
 	if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
-		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedAppearances, []error{fmt.Errorf("AcroForm NeedAppearances shall not be true")}, 0, nil))
+		errs = append(errs, pdf.NewError(pdf.Checks.Form.NeedAppearances, []error{fmt.Errorf("AcroForm NeedAppearances shall not be true")}, 0, refOf(form)))
 	}
 	if form.Entries.Get("XFA") != nil {
-		errs = append(errs, pdf.NewError(pdf.Checks.Form.XFA, []error{fmt.Errorf("AcroForm shall not contain XFA")}, 0, nil))
+		errs = append(errs, pdf.NewError(pdf.Checks.Form.XFA, []error{fmt.Errorf("AcroForm shall not contain XFA")}, 0, refOf(form)))
 	}
 
 	if len(errs) > 0 {

@@ -56,6 +56,9 @@ notice.
 - Verify skips a family of checks, such as the font or XMP checks, when the
   profile enables none of its checks, rather than running it and filtering
   its findings out.
+- A document-level issue from the Info dictionary, optional content, output
+  intent, interactive form or XMP checks names the object it was found in,
+  such as the Info dictionary, the output intent or the metadata stream.
 
 ### Deprecated
 

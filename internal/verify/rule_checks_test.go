@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
 // packageRefs is a name-level reference graph of this package's production
@@ -217,8 +218,10 @@ func TestRunDocRulesStopsWhenCancelled(t *testing.T) {
 		ran = true
 		return nil
 	}}}
-	if issues := runDocRules(rules, nil, nil, &ValidationContext{cancelled: true}); ran || issues != nil {
-		t.Errorf("a cancelled run ran a document rule (issues %v)", issues)
+	ctx := &ValidationContext{cancelled: true}
+	runDocRules(rules, nil, nil, ctx)
+	if ran || ctx.errs != nil {
+		t.Errorf("a cancelled run ran a document rule (issues %v)", ctx.errs)
 	}
 }
 
@@ -290,5 +293,71 @@ func TestNarrowProfileReportsWhatTheFullOneDoes(t *testing.T) {
 	}
 	if compared == 0 {
 		t.Fatal("no corpus file reported a rule's check")
+	}
+}
+
+// TestDocRulesNameTheObject verifies that each document-level family reports
+// against the object it judged: document-level, so on no page, but with that
+// object's reference.
+func TestDocRulesNameTheObject(t *testing.T) {
+	const catalog = "/Type /Catalog /Pages 2 0 R"
+	for _, tc := range []struct {
+		name    string
+		check   pdf.Check
+		catalog string            // extra catalog entries
+		objs    map[int]string    // extra objects
+		streams map[int][2]string // extra stream objects: dict, data
+		info    bool
+		want    int
+	}{
+		{name: "info", check: pdf.Checks.Structure.InfoDictEmptyValues,
+			objs: map[int]string{5: "<< /Title () >>"}, info: true, want: 5},
+		{name: "optional content", check: pdf.Checks.Structure.OptionalContent,
+			catalog: "/OCProperties << /OCGs [] /D << >> >>", want: 1},
+		{name: "forms", check: pdf.Checks.Form.NeedAppearances,
+			catalog: "/AcroForm 5 0 R", objs: map[int]string{5: "<< /Fields [] /NeedAppearances true >>"}, want: 5},
+		{name: "output intent", check: pdf.Checks.Colour.OutputIntentWrongS,
+			catalog: "/OutputIntents [5 0 R]", objs: map[int]string{5: "<< /Type /OutputIntent /S /GTS_PDFX /OutputConditionIdentifier (x) >>"}, want: 5},
+		{name: "missing metadata", check: pdf.Checks.Metadata.MetadataMissing, want: 1},
+		{name: "metadata", check: pdf.Checks.Metadata.XMPNotWellFormed,
+			catalog: "/Metadata 5 0 R", streams: map[int][2]string{5: {"<< /Type /Metadata /Subtype /XML", "<x:xmpmeta"}}, want: 5},
+		{name: "object metadata", check: pdf.Checks.Metadata.ObjectXMPNoXPacket,
+			objs:    map[int]string{3: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Metadata 5 0 R >>"},
+			streams: map[int][2]string{5: {"<< /Type /Metadata /Subtype /XML", "<x:xmpmeta/>"}}, want: 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := pdfgen.NewBuilder("%PDF-1.4\n")
+			b.Obj(1, "<< "+catalog+" "+tc.catalog+" >>")
+			b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+			if _, ok := tc.objs[3]; !ok {
+				b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>")
+			}
+			for _, n := range []int{3, 5} {
+				if body, ok := tc.objs[n]; ok {
+					b.Obj(n, body)
+				}
+				if s, ok := tc.streams[n]; ok {
+					b.StreamObj(n, s[0], []byte(s[1]))
+				}
+			}
+			trailer := "<< /Size 6 /Root 1 0 R >>"
+			if tc.info {
+				trailer = "<< /Size 6 /Root 1 0 R /Info 5 0 R >>"
+			}
+			res, err := VerifyBytes(b.FinishClassic(trailer), pdf.PDFA1B, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			issues := res.IssuesForCheck(tc.check)
+			if len(issues) == 0 {
+				t.Fatalf("no %s issue; got %v", tc.check.Name(), res.Issues)
+			}
+			for _, iss := range issues {
+				ref, ok := iss.ObjectRef()
+				if !ok || ref.ObjNum != tc.want || iss.Page() != 0 {
+					t.Errorf("%v: ref %v (%v), page %d; want object %d on no page", iss, ref, ok, iss.Page(), tc.want)
+				}
+			}
+		})
 	}
 }

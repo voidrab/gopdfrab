@@ -242,17 +242,18 @@ func (ctx *ValidationContext) enabledDictRules() []dictRule {
 	return ctx.dictRules
 }
 
-// runDocRules runs rules in order and returns their findings, stopping early
-// once the run is cancelled.
-func runDocRules(rules []docRule, d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) []pdf.PDFError {
-	var issues []pdf.PDFError
+// runDocRules runs rules in order and reports their findings on ctx, stopping
+// early once the run is cancelled. A document-level finding has no page; it
+// names the object it was found in.
+func runDocRules(rules []docRule, d *pdf.Reader, graph pdf.PDFValue, ctx *ValidationContext) {
 	for _, r := range rules {
 		if ctx.stopped() {
-			break
+			return
 		}
-		issues = append(issues, r.fn(d, graph, ctx)...)
+		for _, e := range r.fn(d, graph, ctx) {
+			ctx.report(e)
+		}
 	}
-	return issues
 }
 
 // The document rules adapt the document-level families to docRule.
