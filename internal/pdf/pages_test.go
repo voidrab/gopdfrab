@@ -2,9 +2,9 @@ package pdf
 
 import "testing"
 
-// TestWalkPagesCapsDepth pins the depth guard: a page nested deeper than
-// MaxPageTreeDepth is not visited, while a shallow sibling still is and is
-// numbered 1, matching BuildPageIndex.
+// TestWalkPagesCapsDepth verifies that a page nested deeper than
+// MaxPageTreeDepth is not visited, while a shallow sibling is visited and
+// numbered 1, as Reader.BuildPageIndex does.
 func TestWalkPagesCapsDepth(t *testing.T) {
 	page := func() PDFDict {
 		p := NewPDFDict()
@@ -55,8 +55,9 @@ func TestWalkPagesVisitsAnIndirectNodeOnce(t *testing.T) {
 	}
 }
 
-// TestPageResourcesStopsOnACycle verifies that a /Parent chain that points
-// back at itself must not spin.
+// TestPageResourcesStopsOnACycle verifies that PageResources returns no
+// resources, rather than looping, when a page's /Parent refers back to the
+// page itself.
 func TestPageResourcesStopsOnACycle(t *testing.T) {
 	page := NewPDFDict()
 	page.Entries.Set("Parent", page)
