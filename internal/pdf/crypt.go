@@ -494,9 +494,10 @@ func (d *Reader) shouldDecrypt(ref PDFRef) bool {
 	return d.crypt != nil && ref.ObjNum != d.crypt.encryptObjNum
 }
 
-// decryptStream replaces m's stream bytes with their decryption. Cross-reference
-// streams are never encrypted and are left untouched, and neither is the
-// metadata stream of a document that declares /EncryptMetadata false.
+// decryptStream replaces m's stream bytes with their decryption.
+// Cross-reference streams are never encrypted and are left untouched, and
+// neither is the metadata stream of a document that declares
+// /EncryptMetadata false.
 func (d *Reader) decryptStream(m *PDFDict, ref PDFRef) error {
 	if !m.IsStream() || len(m.Stream()) == 0 || isXRefStream(*m) {
 		return nil

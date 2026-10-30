@@ -156,7 +156,9 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
 		contents.SetStream([]byte(hex.EncodeToString([]byte(onePageContent)) + ">"))
 		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
-		page.Entries.Set("Contents", contents) // Stream() lives on the copy
+		// The stream lives in contents' shared body, so this Set does not
+		// change what the page holds.
+		page.Entries.Set("Contents", contents)
 	})
 
 	res, err := verify.VerifyBytes(data, pdf.PDF, nil)

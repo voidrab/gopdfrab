@@ -61,8 +61,8 @@ func (d PDFDict) Stream() []byte {
 
 // SetStream makes the dictionary a stream holding raw, its undecoded bytes. The
 // stream lives in the shared body, so every copy of d sees it. SetStream
-// panics on a nil Entries, as Dict.Set does; NewStreamDict starts from
-// nothing.
+// panics on a nil Entries, as Dict.Set does. NewStreamDict creates the entries
+// when given nil.
 func (d PDFDict) SetStream(raw []byte) {
 	if d.Entries == nil {
 		panic("pdf: SetStream on a nil Dict")

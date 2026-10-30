@@ -27,8 +27,8 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 		if kd.Name == "Length" && v.IsStream() {
 			// The writer always recomputes Length from the stream bytes at
 			// serialization time (internal/writer/writer.go), overwriting
-			// whatever is here, so its in-memory presence/value is never a
-			// meaningful conformance signal.
+			// whatever is here. Its in-memory presence or value is therefore
+			// never a meaningful conformance signal.
 			continue
 		}
 

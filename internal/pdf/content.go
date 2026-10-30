@@ -186,10 +186,10 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 // Readers) is sound only because both are seeded with the same graph.
 //
 // The decoded result also depends on /Filter and /DecodeParms, so the key
-// carries their identity too: a fixer that changes the filter chain without
-// replacing the stream bytes -- deleting /Filter, say -- must miss the cache, or
-// convert's own verify judges the old decoded bytes while the file holds the
-// new reading of them.
+// carries their identity too. A fixer that changes the filter chain without
+// replacing the stream bytes, by deleting /Filter for example, must miss the
+// cache. Otherwise convert's verify judges the old decoded bytes while the
+// file holds a new reading of them.
 type StreamKey struct {
 	ptr    uintptr
 	len    int

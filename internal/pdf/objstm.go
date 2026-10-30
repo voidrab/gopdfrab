@@ -125,7 +125,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		}
 
 		// Compressed objects may not themselves be streams (ISO 32000-1
-		// 7.5.7), so there are no stream bytes to capture here. Record the
+		// 7.5.7), so there are no stream bytes to capture. Record the
 		// object's reference, which the rest of the package relies on, as
 		// parseClassicReference in resolver.go does for classic objects.
 		if dictVal, ok := val.(PDFDict); ok {
