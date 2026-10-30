@@ -128,6 +128,23 @@ const plainPDF = "%PDF-1.4\n" +
 	"trailer\n<</Size 4/Root 1 0 R>>\n" +
 	"startxref\n170\n%%EOF"
 
+// TestProfileLookup verifies that the facade's profile lookup finds each
+// ready-made profile under its name and the package variable holding it.
+func TestProfileLookup(t *testing.T) {
+	want := []*Profile{PDFA1B, Legacy1B, PDF}
+	for i, p := range Profiles() {
+		if p != want[i] {
+			t.Errorf("Profiles()[%d] = %v, want %v", i, p, want[i])
+		}
+		if got, ok := ProfileByName(p.Name()); !ok || got != p {
+			t.Errorf("ProfileByName(%q) = %v, %v; want %v, true", p.Name(), got, ok, p)
+		}
+	}
+	if _, ok := ProfileByName("bogus"); ok {
+		t.Error(`ProfileByName("bogus") found a profile`)
+	}
+}
+
 // TestObjectModelWrappers exercises every ObjectModel-related facade
 // function, independent of any PDF/A profile or corpus fixture.
 func TestObjectModelWrappers(t *testing.T) {

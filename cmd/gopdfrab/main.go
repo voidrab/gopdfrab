@@ -91,17 +91,14 @@ func versionOf(bi *debug.BuildInfo, ok bool) string {
 	return "dev"
 }
 
-// profileByName maps a --profile flag value to a profile, or nil if unknown.
-func profileByName(name string) *verify.Profile {
-	switch name {
-	case "pdfa1b":
-		return verify.PDFA1B
-	case "legacy1b":
-		return verify.Legacy1B
-	case "pdf":
-		return verify.PDF
+// profileNames lists the ready-made profiles' names for flag help and errors,
+// as in "pdfa1b, legacy1b, or pdf".
+func profileNames() string {
+	var names []string
+	for _, p := range verify.Profiles() {
+		names = append(names, p.Name())
 	}
-	return nil
+	return strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
 }
 
 // applyLimits sets the process-wide resource caps from the --max-decoded-mb

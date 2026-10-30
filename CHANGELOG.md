@@ -31,6 +31,8 @@ notice.
 
 - `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
   `Check.AppliesTo` look checks up by clause within a conformance level.
+- `Profile.Name`, `ProfileByName` and `Profiles` name the ready-made
+  profiles (`pdfa1b`, `legacy1b`, `pdf`) and look them up by name.
 - `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
   the same names and over the same types, for programs that never convert.
   It does not compile or link the converter.
