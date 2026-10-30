@@ -12,29 +12,6 @@ import (
 
 // This file registers fixers for 6.1.12 architectural-limit
 // checks.
-func init() {
-	registerFixer(pagesTreeArrayFixer{})
-	registerFixer(resourceDictPruneFixer{})
-	registerFixer(nameTooLongFixer{})
-	registerFixer(cmapCIDClampFixer{})
-
-	// The Kids rebalance joins the shared pre-emptive walk; the structure
-	// drop runs after that walk, so it never sees an oversized Kids array
-	// the rebalance could have split (the struct tree reaches Pages nodes
-	// via Pg references).
-	registerPreemptiveVisitor(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
-		if spec.Limits.MaxArrayElements == 0 {
-			return nil
-		}
-		return pagesKidsRebalanceVisitor(trailer, nil, spec.Limits.MaxArrayElements)
-	})
-	registerPreemptiveAfterFixup(func(trailer *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) error {
-		if spec.Limits.MaxArrayElements != 0 {
-			dropOversizedStructure(trailer, spec.Limits.MaxArrayElements)
-		}
-		return nil
-	})
-}
 
 // nextAvailableObjNum returns one more than the highest object number among
 // the references in the graph under trailer. The result gives a synthesized
@@ -65,8 +42,6 @@ const pagesTreeChunkSize = 4096
 // arbitrary nesting depth, so this never changes page count, order, or any
 // page's content; it only restructures the tree.
 type pagesTreeArrayFixer struct{ spec *pdfa.Spec }
-
-func (f pagesTreeArrayFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (pagesTreeArrayFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.ArrayTooLarge
@@ -233,8 +208,6 @@ var resourceCategories = []string{"Font", "XObject", "ColorSpace", "Pattern", "S
 // used entries than the limit allows), it's left as residual rather than
 // risk breaking a live reference.
 type resourceDictPruneFixer struct{ spec *pdfa.Spec }
-
-func (f resourceDictPruneFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (resourceDictPruneFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.DictTooLarge
@@ -442,8 +415,6 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 // belongs to) rewritten to the new one so resource lookups still resolve.
 type nameTooLongFixer struct{ spec *pdfa.Spec }
 
-func (f nameTooLongFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
-
 // truncate is truncateOverlongName under the level's name limit.
 func (f nameTooLongFixer) truncate(v pdf.PDFValue) (pdf.PDFValue, bool) {
 	return truncateOverlongName(v, f.spec.Limits.MaxNameBytes)
@@ -623,8 +594,6 @@ func resourceOperatorTarget(op string) (category string, fromEnd int) {
 // checkCMapCIDLimits' own token-position state machine so it only ever
 // touches the exact values that check would flag.
 type cmapCIDClampFixer struct{ spec *pdfa.Spec }
-
-func (f cmapCIDClampFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (cmapCIDClampFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.CMapCIDOutOfRange

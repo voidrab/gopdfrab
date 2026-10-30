@@ -56,7 +56,7 @@ func TestFontDictFixerAddsIdentityCIDToGIDMap(t *testing.T) {
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing checks the Fixer/Applies
 // contract (mirroring the registration pattern in fixups_dict.go): the
 // fixer must claim exactly Checks.Font.CIDToGIDMapMissing and nothing else,
-// since registerFixer panics on a Check claimed by more than one Fixer.
+// since fixersFor panics on a Check claimed by more than one Fixer.
 func TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing(t *testing.T) {
 	fixer := fontDictFixer{}
 	for _, c := range pdf.AllChecks() {

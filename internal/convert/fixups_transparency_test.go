@@ -340,9 +340,8 @@ func TestFlattenFormReportsDrops(t *testing.T) {
 	}
 }
 
-// TestFlattenFormWithoutSinkIsSafe verifies that flattening succeeds without a
-// drop sink. The registry prototype carries no sink, so flattening must not
-// depend on one being present.
+// TestFlattenFormWithoutSinkIsSafe verifies that flattening a form succeeds
+// when no drop sink is set.
 func TestFlattenFormWithoutSinkIsSafe(t *testing.T) {
 	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "XObject"},

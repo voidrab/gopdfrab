@@ -8,7 +8,7 @@ import (
 
 // TestAppearanceFixerAppliesExclusively checks the Fixer/Applies contract
 // (mirroring fixups_font_test.go's pattern): the fixer must claim exactly
-// its five target checks and nothing else, since registerFixer panics on a
+// its five target checks and nothing else, since fixersFor panics on a
 // Check claimed by more than one Fixer.
 func TestAppearanceFixerAppliesExclusively(t *testing.T) {
 	fixer := appearanceFixer{spec: a1bSpec}

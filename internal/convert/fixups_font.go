@@ -22,12 +22,6 @@ import (
 // spec default) or reconciling metadata that already describes the same
 // embedded data two different ways.
 
-func init() {
-	registerFixer(fontDictFixer{})
-	registerFixer(type0FontFixer{})
-	registerFixer(baseFontFixer{})
-}
-
 // fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by adding the
 // spec-default /CIDToGIDMap /Identity to any CIDFontType2 descendant font
 // that lacks it, mirroring the detection in validateFontDict

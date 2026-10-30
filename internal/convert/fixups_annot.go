@@ -5,11 +5,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
-func init() {
-	registerFixer(disallowedAnnotFixer{})
-	registerFixer(annotColourFixer{})
-}
-
 // --- 6.5.2 Annotation subtypes ---
 
 // disallowedAnnotFixer remediates Checks.Annotation.DisallowedSubtype by
@@ -20,8 +15,6 @@ func init() {
 // membership, only each entry's own Type and Subtype, so an emptied dictionary
 // is ignored by every other check.
 type disallowedAnnotFixer struct{ spec *pdfa.Spec }
-
-func (f disallowedAnnotFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (disallowedAnnotFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Annotation.DisallowedSubtype
@@ -51,8 +44,6 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 // model (gray/rgb/cmyk, by array length) is not covered by the document's
 // output intent, mirroring checkAnnotColour in checks_dict.go.
 type annotColourFixer struct{ spec *pdfa.Spec }
-
-func (f annotColourFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (annotColourFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Annotation.ColourWithoutIntent

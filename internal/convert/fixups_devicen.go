@@ -19,10 +19,6 @@ import (
 // named it.
 type deviceNColorantsFixer struct{}
 
-func init() {
-	registerFixer(deviceNColorantsFixer{})
-}
-
 func (deviceNColorantsFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.DeviceNColorants
 }

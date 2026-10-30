@@ -9,14 +9,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
-func init() {
-	registerPreemptiveFixup(regenerateXMP)
-	// Joins the shared pre-emptive walk. Its prepare captures the catalog's
-	// metadata identity after regenerateXMP has installed the fresh packet,
-	// since plain fixups run before the walk.
-	registerPreemptiveVisitor(stripEmbeddedMetadataVisitor)
-}
-
 // regenerateXMP replaces the document's XMP metadata (Root/Metadata) with a
 // freshly-built, minimal packet that satisfies clause 6.7: a correct PDF/A-1b
 // identifier (pdfaid:part=1, pdfaid:conformance=B), no xpacket

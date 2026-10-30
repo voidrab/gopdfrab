@@ -381,7 +381,12 @@ func Run(doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
 
 // RunContext is Run honouring ctx cancellation, checked before each verify/fix
 // iteration and each raster pass.
-func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (_ ConvertResult, err error) {
+func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options) (ConvertResult, error) {
+	return runWith(ctx, doc, p, o, standardRepairs)
+}
+
+// runWith is RunContext with the repairs to use.
+func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs repairs) (_ ConvertResult, err error) {
 	defer pdf.RecoverAsError(&err)
 	trailer, err := resolveTrailer(doc)
 	if err != nil {
@@ -409,18 +414,22 @@ func RunContext(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options)
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
 
-	if err := applyPreemptiveFixups(&trailer, doc, spec); err != nil {
+	if err := rs.applyPreemptive(&trailer, doc, spec); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
-	// Per-run deviceColourFixer wired to the Reader's concurrent decode cache,
-	// shared with the pre-loop detectColourModelUsage scan.
-	dcFixer := deviceColourFixer{decode: decoderFor(doc)}
-	// Fixers have no handle on the result, so what they render or carry over
-	// incompletely is collected here and folded in below.
 	var formDrops []RasterDrop
 	var lost []pdf.PDFError
-	localFixers := buildLocalFixers(ctx, dcFixer, doc, o.dpi(), &formDrops, &lost, &spec)
+	localFixers := rs.fixersFor(&fixerRun{
+		ctx:       ctx,
+		doc:       doc,
+		spec:      &spec,
+		dpi:       o.dpi(),
+		decode:    decoderFor(doc),
+		fontSrc:   &appearanceFontSource{},
+		formDrops: &formDrops,
+		lost:      &lost,
+	})
 
 	var (
 		cr         ConvertResult
@@ -667,38 +676,6 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 	return nil
 }
 
-// buildLocalFixers returns a per-run fixer map with run-scoped instances
-// substituted for the registry singletons: the per-run dcFixer, a
-// fontSubstitutionFixer carrying the run's Reader for cached usage scans,
-// an appearanceFixer carrying the run's appearance font, and every fixer
-// that follows the level's rules bound to the run's spec.
-func buildLocalFixers(ctx context.Context, dcFixer deviceColourFixer, doc *pdf.Reader, dpi int, formDrops *[]RasterDrop, lost *[]pdf.PDFError, spec *pdfa.Spec) map[pdf.Check]Fixer {
-	fontSrc := &appearanceFontSource{}
-	local := make(map[pdf.Check]Fixer, len(fixerRegistry))
-	for c, f := range fixerRegistry {
-		switch bound := f.(type) {
-		case deviceColourFixer:
-			dcFixer.spec = spec
-			local[c] = dcFixer
-		case fontSubstitutionFixer:
-			local[c] = fontSubstitutionFixer{doc: doc, spec: spec}
-		case trueTypeEncodingFixer:
-			local[c] = trueTypeEncodingFixer{doc: doc}
-		case appearanceFixer:
-			local[c] = appearanceFixer{fontSrc: fontSrc, spec: spec}
-		case transparencyFlattener:
-			local[c] = transparencyFlattener{dpi: dpi, drops: formDrops, ctx: ctx}
-		case undecodableStreamFixer:
-			local[c] = undecodableStreamFixer{lost: lost}
-		case levelBound:
-			local[c] = bound.withSpec(spec)
-		default:
-			local[c] = f
-		}
-	}
-	return local
-}
-
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat
 // raster image (flattenPageToImage), the last-resort remediation for content
 // no targeted fixer could repair. Page numbers in issues align with the
@@ -838,7 +815,11 @@ func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]
 				continue
 			}
 		}
-		ch, err := fixer.Fix(pass.trailer, issues)
+		gf, ok := fixer.(graphFixer)
+		if !ok {
+			continue
+		}
+		ch, err := gf.Fix(pass.trailer, issues)
 		if err != nil {
 			return false, fmt.Errorf("fixer for check %q: %w", c.Name(), err)
 		}

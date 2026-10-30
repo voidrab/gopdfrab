@@ -242,12 +242,11 @@ func TestRunWrapsSerializeError(t *testing.T) {
 	}
 }
 
-// TestApplyPreemptiveFixupsAfterFixupError covers the after-walk phase's
-// error propagation.
-func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
-	old := preemptiveAfterFixups
-	t.Cleanup(func() { preemptiveAfterFixups = old })
-	preemptiveAfterFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error {
+// TestApplyPreemptiveAfterFixupError verifies that an error returned by an
+// after-walk fixup propagates out of applyPreemptive.
+func TestApplyPreemptiveAfterFixupError(t *testing.T) {
+	rs := standardRepairs
+	rs.postWalk = append(slices.Clone(rs.postWalk), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error {
 		return errors.New("after fixup failed")
 	})
 
@@ -257,8 +256,8 @@ func TestApplyPreemptiveFixupsAfterFixupError(t *testing.T) {
 		t.Fatalf("ResolveGraph: %v", err)
 	}
 	trailer := g.(pdf.PDFDict)
-	if err := applyPreemptiveFixups(&trailer, doc, a1b()); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
-		t.Errorf("applyPreemptiveFixups err = %v, want the after-fixup failure", err)
+	if err := rs.applyPreemptive(&trailer, doc, a1b()); err == nil || !strings.Contains(err.Error(), "after fixup failed") {
+		t.Errorf("applyPreemptive err = %v, want the after-fixup failure", err)
 	}
 }
 
@@ -477,7 +476,7 @@ func TestSortedChecksOrdering(t *testing.T) {
 	}
 }
 
-// failingFixer stands in for every registered fixer so a fixer error, a
+// failingFixer stands in for every fixer so a fixer error, a
 // targeted-fixer error or a mid-run cancellation can be provoked on any input
 // that has issues.
 type failingFixer struct {
@@ -513,16 +512,26 @@ func lzwPDF() []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// replaceAllFixers swaps every registered fixer for mk(check) until the test
-// ends.
-func replaceAllFixers(t *testing.T, mk func(pdf.Check) Fixer) {
-	t.Helper()
-	old := fixerRegistry
-	fixerRegistry = map[pdf.Check]Fixer{}
-	for c := range old {
-		fixerRegistry[c] = mk(c)
+// replacedFixers returns the standard repairs with mk(check) as the fixer of
+// every check that has one.
+func replacedFixers(mk func(pdf.Check) Fixer) repairs {
+	rs := standardRepairs
+	rs.fixers = nil
+	for c := range standardRepairs.fixersFor(&fixerRun{}) {
+		rs.fixers = append(rs.fixers, func(*fixerRun) Fixer { return mk(c) })
 	}
-	t.Cleanup(func() { fixerRegistry = old })
+	return rs
+}
+
+// convertWith is ConvertBytesContext with rs as the repairs.
+func convertWith(t *testing.T, ctx context.Context, data []byte, o Options, rs repairs) (ConvertResult, error) {
+	t.Helper()
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	t.Cleanup(func() { doc.Close() })
+	return runWith(ctx, doc, pdf.PDFA1B, o, rs)
 }
 
 func TestRunWrapsFixerErrors(t *testing.T) {
@@ -532,8 +541,7 @@ func TestRunWrapsFixerErrors(t *testing.T) {
 		"fixTargeted": func(c pdf.Check) Fixer { return failingTargetedFixer{failingFixer{check: c, err: boom}} },
 	} {
 		t.Run(name, func(t *testing.T) {
-			replaceAllFixers(t, mk)
-			_, err := ConvertBytes(lzwPDF(), pdf.PDFA1B, Options{})
+			_, err := convertWith(t, t.Context(), lzwPDF(), Options{}, replacedFixers(mk))
 			if !errors.Is(err, boom) || !strings.Contains(err.Error(), "fixer for check") {
 				t.Errorf("err = %v, want it to wrap the fixer error and name the check", err)
 			}
@@ -542,12 +550,11 @@ func TestRunWrapsFixerErrors(t *testing.T) {
 }
 
 func TestRunWrapsPreemptiveFixupError(t *testing.T) {
-	old := preemptiveFixups
-	t.Cleanup(func() { preemptiveFixups = old })
 	boom := errors.New("preemptive boom")
-	preemptiveFixups = append(slices.Clone(old), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { return boom })
+	rs := standardRepairs
+	rs.preFixups = append(slices.Clone(rs.preFixups), func(*pdf.PDFDict, *pdf.Reader, pdfa.Spec) error { return boom })
 
-	_, err := ConvertBytes(pdfgen.PlainThreeIssue(), pdf.PDFA1B, Options{})
+	_, err := convertWith(t, t.Context(), pdfgen.PlainThreeIssue(), Options{}, rs)
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "pre-emptive fixups") {
 		t.Errorf("err = %v, want the wrapped pre-emptive fixup error", err)
 	}
@@ -564,10 +571,9 @@ func (stalledFixer) Fix(*pdf.PDFDict, []pdf.PDFError) (bool, error) { return tru
 // changes but leave the same issues behind ends the loop on the next iteration
 // rather than running to the iteration cap.
 func TestRunStopsWhenFixesMakeNoProgress(t *testing.T) {
-	replaceAllFixers(t, func(c pdf.Check) Fixer { return stalledFixer{check: c} })
-
 	const limit = 10
-	cr, err := ConvertBytes(lzwPDF(), pdf.PDFA1B, Options{MaxIterations: limit})
+	rs := replacedFixers(func(c pdf.Check) Fixer { return stalledFixer{check: c} })
+	cr, err := convertWith(t, t.Context(), lzwPDF(), Options{MaxIterations: limit}, rs)
 	if err != nil {
 		t.Fatalf("ConvertBytes: %v", err)
 	}
@@ -584,9 +590,9 @@ func TestRunStopsWhenFixesMakeNoProgress(t *testing.T) {
 func TestRunCancelledDuringFixPassSkipsBackstop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	replaceAllFixers(t, func(c pdf.Check) Fixer { return failingFixer{check: c, onFix: cancel} })
+	rs := replacedFixers(func(c pdf.Check) Fixer { return failingFixer{check: c, onFix: cancel} })
 
-	_, err := ConvertBytesContext(ctx, lzwPDF(), pdf.PDFA1B, Options{})
+	_, err := convertWith(t, ctx, lzwPDF(), Options{}, rs)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}

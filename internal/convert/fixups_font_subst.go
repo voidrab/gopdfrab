@@ -21,10 +21,6 @@ import (
 
 // init registers the fixers that re-embed or substitute a bundled Liberation
 // face for fonts the converter cannot otherwise make conformant.
-func init() {
-	registerFixer(fontSubstitutionFixer{})
-	registerFixer(trueTypeEncodingFixer{})
-}
 
 // substituteFlags builds a FontDescriptor /Flags value for a substituted
 // font: always non-symbolic, since substitution always resolves glyphs via

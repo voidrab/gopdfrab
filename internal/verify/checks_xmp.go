@@ -863,7 +863,7 @@ func xmpErr(c pdf.Check, msg string) pdf.PDFError {
 func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	data, meta, err := d.RawXMP()
 	if errors.Is(err, pdf.ErrNoXMPMetadata) || errors.Is(err, pdf.ErrXMPMetadataNotStream) {
-		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}
+		return withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}, catalog(d))
 	}
 
 	var errs []pdf.PDFError
@@ -874,7 +874,7 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	}
 
 	if err != nil {
-		return append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream"))
+		return withRef(append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream")), meta)
 	}
 	xmp := string(data)
 
@@ -888,7 +888,7 @@ func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	errs = append(errs, checkInfoXMPSync(d, xmp)...)
 	errs = append(errs, checkExtensionSchemas(xmp)...)
 
-	return errs
+	return withRef(errs, meta)
 }
 
 // checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
@@ -926,8 +926,8 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				// StreamUndecodable rather than conflating the two.
 				data, err := ctx.decodeStreamCached(val)
 				if err == nil && !xpacketRe.Match(data) {
-					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
-						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
+					errs = append(errs, withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
+						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions")}, val)...)
 				}
 			}
 			for _, child := range val.Entries.All() {

@@ -35,12 +35,6 @@ var cmykICCProfile []byte
 //go:embed assets/profiles/sGrey-v2-micro.icc
 var grayICCProfile []byte
 
-func init() {
-	registerPreemptiveFixup(injectOutputIntent)
-	registerFixer(iccBasedProfileFixer{})
-	registerFixer(separationAlternateFixer{})
-}
-
 // colourModelN maps dominantColourModel's "rgb"/"cmyk" result to the /N an
 // OutputIntent's ICC profile must declare to cover it. "gray" deliberately
 // has no entry: it never needs a specific /N (see dominantColourModel).
@@ -92,8 +86,6 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 // to the colour the document asked for -- where dropping the space or
 // rasterizing the page would lose the colourant or the text on top of it.
 type separationAlternateFixer struct{ spec *pdfa.Spec }
-
-func (f separationAlternateFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (separationAlternateFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Colour.SeparationAlternateColour
@@ -370,8 +362,6 @@ func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
 // operator in the document into a malformed one. The profile is the part
 // nothing else depends on, so the profile is what gets replaced.
 type iccBasedProfileFixer struct{ spec *pdfa.Spec }
-
-func (f iccBasedProfileFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (iccBasedProfileFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Colour.ICCBasedComponentsMismatch ||

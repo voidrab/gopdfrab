@@ -281,13 +281,11 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 		pt.PreStructural = structuralPreIssues(d)
 	}
 
-	issues := []pdf.PDFError{}
-
 	// Resolve the graph once up front; all subsequent checks work on the
 	// resolved graph so no per-check lazy resolve occurs.
 	graph, err := d.ResolveGraph()
 	if err != nil {
-		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		pt.Graph = append(pt.Graph, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
 		// A document-level bail must still surface the per-object parse
 		// diagnostics accumulated so far (framing, degraded objects).
 		if !schemaOnly {
@@ -296,16 +294,21 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 		return pt
 	}
 
+	ctx := &ValidationContext{
+		reader:     d,
+		Spec:       &spec,
+		schemaOnly: schemaOnly,
+		run:        run,
+		dictRules:  enabledRules(dictRules, p, func(r dictRule) []pdf.Check { return r.checks }),
+	}
+	docChecks := func(r docRule) []pdf.Check { return r.checks }
 	if !schemaOnly {
-		errs := verifyDocumentInformationDictionary(graph)
-		if errs != nil {
-			issues = append(issues, errs...)
-		}
+		runDocRules(enabledRules(preWalkDocRules, p, docChecks), d, graph, ctx)
 	}
 
 	pageIndex, err := d.BuildPageIndex(graph)
 	if err != nil {
-		pt.Graph = append(issues, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
+		pt.Graph = append(ctx.errs, pdf.NewError(pdf.Checks.Structure.GraphResolutionFailure, []error{err}, 0, nil))
 		if !schemaOnly {
 			pt.PostStructural = structuralPostIssues(d, spec)
 		}
@@ -315,13 +318,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	if run.Err() != nil {
 		return pt
 	}
-	ctx := &ValidationContext{
-		PageIndex:  pageIndex,
-		reader:     d,
-		Spec:       &spec,
-		schemaOnly: schemaOnly,
-		run:        run,
-	}
+	ctx.PageIndex = pageIndex
 	if !schemaOnly {
 		reachable, invisibleOnly, usedCodes, usedCIDs, complete := ComputeContentUsage(graph, ctx)
 		// An object degraded to null makes the usage sets a subset of the
@@ -353,32 +350,12 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	if ctx.stopped() || run.Err() != nil {
 		return pt
 	}
-	issues = append(issues, ctx.errs...)
 	if schemaOnly {
-		pt.Graph = issues
+		pt.Graph = ctx.errs
 		return pt
 	}
-	errs := verifyOptionalContent(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyOutputIntent(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyInteractiveForms(d)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = verifyXMPMetadata(d, spec)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	errs = checkNonCatalogXMPStreams(graph, ctx)
-	if errs != nil {
-		issues = append(issues, errs...)
-	}
-	pt.Graph = issues
+	runDocRules(enabledRules(postWalkDocRules, p, docChecks), d, graph, ctx)
+	pt.Graph = ctx.errs
 
 	pt.PostStructural = structuralPostIssues(d, spec)
 	return pt
@@ -805,7 +782,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 		}
 	}
 	if len(typeErrs) > 0 {
-		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictXMPMismatch, typeErrs, 0, nil))
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictXMPMismatch, typeErrs, 0, refOf(infoDict)))
 	}
 
 	// Custom keys are permitted; only entries present in Table 10.2 of
@@ -829,7 +806,7 @@ func verifyDocumentInformationDictionary(graph pdf.PDFValue) []pdf.PDFError {
 		}
 	}
 	if len(emptyErrs) > 0 {
-		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictEmptyValues, emptyErrs, 0, nil))
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.InfoDictEmptyValues, emptyErrs, 0, refOf(infoDict)))
 	}
 
 	return errs
@@ -911,23 +888,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if first && !ctx.schemaOnly {
-				if v.IsStream() {
-					validateStreamObject(v, ctx)
+				for _, r := range ctx.enabledDictRules() {
+					r.fn(v, ctx)
 				}
-
-				validateObject(v, ctx)
-				validateActions(v, ctx)
-				validateAdditionalActions(v, ctx)
-				validateExtGState(v, ctx)
-				validateTransparencyGroup(v, ctx)
-				validateXObjectDict(v, ctx)
-				validateAnnotation(v, ctx)
-				validateFormField(v, ctx)
-				validateColourSpaceUsage(v, ctx)
-				validateContentStreams(v, ctx)
-				ValidateFontDict(v, ctx)
-				validateCMapStream(v, ctx)
-				validateViewerPreferences(v, ctx)
 			}
 			if expectedType != "" {
 				validateAgainstSchema(v, expectedType, ctx)
@@ -1462,6 +1425,9 @@ func validateHexString(v pdf.PDFHexString, owner pdf.PDFValue, ctx *ValidationCo
 
 // validateStreamObject validates requirements outlined in 6.1.7 and 6.1.10.
 func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
+	if !v.IsStream() {
+		return
+	}
 	if v.Entries.Get("F") != nil {
 		ctx.Report(pdf.Checks.Structure.StreamFileSpec, v, "stream object contains invalid key F")
 	}
@@ -1525,6 +1491,12 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 	}
 }
 
+// catalog returns d's document catalog, or nil if it has none.
+func catalog(d *pdf.Reader) pdf.PDFValue {
+	root, _ := d.ResolveGraphByPath([]string{"Root"})
+	return root
+}
+
 // verifyOptionalContent verifies requirements outlined in 6.1.13, in a level
 // without optional content.
 func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
@@ -1537,7 +1509,7 @@ func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			pdf.Checks.Structure.OptionalContent,
 			[]error{fmt.Errorf("OCProperties not allowed in document catalog")},
 			0,
-			nil,
+			refOf(catalog(d)),
 		)}
 	}
 	return nil
@@ -1559,7 +1531,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			pdf.Checks.Colour.OutputIntentNotArray,
 			[]error{fmt.Errorf("OutputIntents object is not an array")},
 			0,
-			nil,
+			refOf(catalog(d)),
 		)}
 	}
 
@@ -1574,7 +1546,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentNotDict,
 				[]error{fmt.Errorf("expected OutputIntent to be a pdf.PDFDict")},
 				0,
-				nil,
+				refOf(catalog(d)),
 			)
 			errs = append(errs, err)
 			continue
@@ -1585,7 +1557,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentInvalidS,
 				[]error{fmt.Errorf("expected S to be a pdf.PDFName")},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 			continue
@@ -1596,7 +1568,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentWrongS,
 				[]error{fmt.Errorf("expected S was not %s, but %v", spec.OutputIntentSubtype, intent.Entries.Get("S"))},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 		}
@@ -1606,7 +1578,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentMissingIdentifier,
 				[]error{fmt.Errorf("OutputConditionIdentifier is required but was nil")},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 			continue
@@ -1620,7 +1592,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
 				[]error{fmt.Errorf("DestOutputProfile is required when OutputConditionIdentifier does not specify a standard production condition")},
 				0,
-				nil,
+				refOf(intent),
 			))
 			continue
 		}
@@ -1635,7 +1607,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 					pdf.Checks.Colour.OutputIntentMultipleProfiles,
 					[]error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)},
 					0,
-					nil,
+					refOf(intent),
 				)
 				errs = append(errs, err)
 				continue
@@ -1650,7 +1622,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentInvalidProfile,
 				[]error{fmt.Errorf("unexpected format for DestOutputProfile encountered")},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 			continue
@@ -1662,7 +1634,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentMissingN,
 				[]error{fmt.Errorf("could not retrieve number of colour components N")},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 			continue
@@ -1674,7 +1646,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 				pdf.Checks.Colour.OutputIntentInvalidN,
 				[]error{fmt.Errorf("number of colour components N must be 1, 3, or 4")},
 				0,
-				nil,
+				refOf(intent),
 			)
 			errs = append(errs, err)
 		}
@@ -1713,42 +1685,42 @@ var iccOutputColourSpaces = map[string]bool{
 func ValidateICCProfileStream(dict pdf.PDFDict, spec pdfa.Spec) *pdf.PDFError {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("cannot decode ICC profile stream: %v", err)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("cannot decode ICC profile stream: %v", err)}, 0, refOf(dict))
 		return &newErr
 	}
 
 	if len(data) < 128 {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile too short (%d bytes)", len(data))}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile too short (%d bytes)", len(data))}, 0, refOf(dict))
 		return &newErr
 	}
 
 	// ICC signature ("acsp") at offset 36.
 	if string(data[36:40]) != "acsp" {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile missing 'acsp' signature at offset 36")}, 0, refOf(dict))
 		return &newErr
 	}
 
 	if major := data[8]; iccVersionTooNew(major, spec) {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-%s (must be < %d.0)", major, spec.XMPPart, spec.ICCMaxMajorVersion+1)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile version %d.x not allowed in PDF/A-%s (must be < %d.0)", major, spec.XMPPart, spec.ICCMaxMajorVersion+1)}, 0, refOf(dict))
 		return &newErr
 	}
 
 	// Device class must be prtr (output) or mntr (display).
 	deviceClass := string(data[12:16])
 	if !iccOutputDeviceClasses[deviceClass] {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid deviceClass %q", deviceClass)}, 0, refOf(dict))
 		return &newErr
 	}
 
 	// Color space must be one an output device actually renders in.
 	colorSpace := string(data[16:20])
 	if !iccOutputColourSpaces[colorSpace] {
-		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.OutputIntentICCVersion, []error{fmt.Errorf("ICC profile has invalid colorSpace %q", colorSpace)}, 0, refOf(dict))
 		return &newErr
 	}
 
 	if msg := ICCComponentsMismatch(dict, data); msg != "" {
-		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{errors.New(msg)}, 0, nil)
+		newErr := pdf.NewError(pdf.Checks.Colour.ICCBasedComponentsMismatch, []error{errors.New(msg)}, 0, refOf(dict))
 		return &newErr
 	}
 

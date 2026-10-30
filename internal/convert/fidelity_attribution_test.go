@@ -35,7 +35,7 @@ type inkMechanism struct {
 // over from the one before.
 var oneAtATime = []inkMechanism{
 	{"preemptive", func(trailer *pdf.PDFDict, doc *pdf.Reader) error {
-		return applyPreemptiveFixups(trailer, doc, a1b())
+		return standardRepairs.applyPreemptive(trailer, doc, a1b())
 	}},
 	{"opacity", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		repairOpacity(trailer)

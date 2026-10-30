@@ -80,6 +80,10 @@ type ValidationContext struct {
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
 	schemaOnly bool
 
+	// dictRules are the dict rules the profile enables, run on each dict of
+	// the walk. Nil, in a context built outside a verify, runs them all.
+	dictRules []dictRule
+
 	// resourceScope is the resource dictionary in force where the walk
 	// currently is: the nearest /Resources at or above it. Default* colour
 	// spaces (6.2.3.3) are looked up there, so content in a form XObject with
@@ -335,14 +339,37 @@ func (ctx *ValidationContext) ReportObjModelElem(c pdf.Check, obj pdf.PDFValue, 
 	ctx.report(err.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: strconv.Itoa(idx), Entry: entry}))
 }
 
-// newError builds a PDFError against obj, resolving the owner ref and current page.
-func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
-	var ref *pdf.PDFRef
+// refOf returns the reference of obj, or nil unless obj is a dict that has
+// one.
+func refOf(obj pdf.PDFValue) *pdf.PDFRef {
 	if dict, ok := obj.(pdf.PDFDict); ok {
 		if r, ok := dict.Ref(); ok {
-			ref = &r
+			return &r
 		}
 	}
+	return nil
+}
+
+// withRef returns errs reported against obj, for findings built before the
+// object was known.
+func withRef(errs []pdf.PDFError, obj pdf.PDFValue) []pdf.PDFError {
+	ref := refOf(obj)
+	if ref == nil {
+		return errs
+	}
+	for i, e := range errs {
+		var msgs []error
+		for _, m := range e.Messages() {
+			msgs = append(msgs, errors.New(m))
+		}
+		errs[i] = pdf.NewError(e.Check(), msgs, e.Page(), ref)
+	}
+	return errs
+}
+
+// newError builds a PDFError against obj, resolving the owner ref and current page.
+func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
+	ref := refOf(obj)
 
 	var page int
 	if ctx != nil {

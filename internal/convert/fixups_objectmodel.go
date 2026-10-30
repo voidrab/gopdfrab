@@ -10,15 +10,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-func init() {
-	registerFixer(indirectRequiredFixer{})
-	registerFixer(disallowedValueFixer{})
-	registerFixer(constraintFixer{})
-	registerFixer(missingRequiredKeyFixer{})
-	registerFixer(wrongValueTypeFixer{})
-	registerFixer(post14KeyFixer{})
-}
-
 // indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
 // reference (unpredicated rows only), computed once from the compiled-in model.
 var indirectRequiredKeys = func() map[string]bool {
@@ -150,16 +141,12 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 // post14KeyFixer remediates the object model's KeyIntroducedAfterPDF14 check by deleting
 // the reported key: the 1.4 model cannot require a key it does not know, so removal is
 // always conformant, and 1.4 readers must ignore unknown keys anyway. Only runs when the
-// profile enables the check (Legacy1B / ObjectModelOnly).
+// profile enables the check (Legacy1B / ObjectModelOnly). Like
+// missingRequiredKeyFixer, it is targeted only.
 type post14KeyFixer struct{}
 
 func (post14KeyFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14
-}
-
-// Fix is targeted-only, like missingRequiredKeyFixer.
-func (post14KeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
 }
 
 func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
@@ -451,17 +438,13 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 // missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
 // with exactly one legal value: a single-entry enum (e.g. /Type on most types) or a pinned
 // value whose condition definitely holds on the dict. Anything else has no synthesizable
-// value and stays a residual.
+// value and stays a residual. It is targeted only: without the walk's type
+// propagation a whole-graph pass cannot know which schema each dict was
+// validated under.
 type missingRequiredKeyFixer struct{}
 
 func (missingRequiredKeyFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.MissingRequiredKey
-}
-
-// Fix is targeted-only: without the walk's type propagation a full-graph pass
-// cannot know which schema each dict was validated under.
-func (missingRequiredKeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
 }
 
 func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
@@ -679,15 +662,11 @@ func scalarFromEnum(s string, types []arlington.ValueType) (pdf.PDFValue, bool) 
 // otherwise an unconditionally-optional key is deleted (absence is always conformant),
 // and a required key stays a residual. Array elements are coerced in place but never
 // deleted or nulled (index shift / null-element semantics are never neutral).
+// Like missingRequiredKeyFixer, it is targeted only.
 type wrongValueTypeFixer struct{}
 
 func (wrongValueTypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.WrongValueType
-}
-
-// Fix is targeted-only, like missingRequiredKeyFixer.
-func (wrongValueTypeFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
 }
 
 func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {

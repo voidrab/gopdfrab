@@ -22,27 +22,6 @@ import (
 // SubsetGlyphCoverage (a genuinely missing glyph), which needs re-subsetting
 // and stays out of scope here.
 
-func init() {
-	registerFixer(fontMetricFixer{})
-	registerFixer(fontSubsetMetaFixer{})
-	registerFixer(fontFileSubtypeFixer{})
-	// Font-program repairs for PDF/A's font rules, so plain-PDF levels skip
-	// them.
-	for _, visit := range []func(pdf.PDFDict){
-		promoteEmptyGlyphsInFont,
-		repairNonSymbolicTrueTypeCmap,
-		inlineType1WidthSubrsInFont,
-		normalizeCFFWidthDefaultsInFont,
-	} {
-		registerPreemptiveVisitor(func(_ *pdf.PDFDict, _ *pdf.Reader, spec pdfa.Spec) func(pdf.PDFDict) {
-			if !spec.PDFA {
-				return nil
-			}
-			return visit
-		})
-	}
-}
-
 // normalizeCFFWidthDefaultsInFont rewrites an embedded bare CFF program,
 // name-keyed or CID-keyed, whose nominalWidthX or defaultWidthX is fractional
 // so every one is whole and every glyph keeps its width
@@ -204,29 +183,12 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 // alone for the substitution fixer to pick up as an unusable program.
 type fontFileSubtypeFixer struct{ spec *pdfa.Spec }
 
-func (f fontFileSubtypeFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
-
 func (fontFileSubtypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Font.FontFileSubtype
 }
 
 func (f fontFileSubtypeFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	return runDictVisitor(trailer, issues, f.prepare)
-}
-
-// fixTargeted repairs only the fonts the issues reference; the verifier reports
-// every offending font per pass, so this covers all violations.
-func (f fontFileSubtypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error) {
-	targets, ok := p.dictsForIssues(issues)
-	if !ok {
-		return false, false, nil
-	}
-	for _, d := range targets {
-		if fixFontFileSubtypeDict(d, f.spec) {
-			changed = true
-		}
-	}
-	return changed, true, nil
 }
 
 func (f fontFileSubtypeFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
