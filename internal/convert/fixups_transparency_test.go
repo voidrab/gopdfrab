@@ -586,7 +586,7 @@ func TestCollectXObjectTargetsWalk(t *testing.T) {
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
 	collectXObjectTargets(resources, visited, 1, nil, &out)
-	if len(out) != 1 || out[0].name != "Fm1" {
+	if len(out) != 1 || pdf.ValuePointer(out[0].dict.Entries) != pdf.ValuePointer(inner.Entries) {
 		t.Fatalf("targets = %+v, want just Fm1", out)
 	}
 
@@ -839,23 +839,22 @@ func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 }
 
 // TestUniqueByDictCollapsesAliases verifies that one Form reachable under two
-// resource names is treated as a single object: it must be flattened once and
-// the result written back to both slots.
+// resource names is treated as a single object, so it is flattened once.
 func TestUniqueByDictCollapsesAliases(t *testing.T) {
 	shared := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 	other := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 
 	targets := []flaggedTarget{
-		{kind: "form", dict: shared, name: "Fm0"},
-		{kind: "form", dict: shared, name: "Fm1"},
-		{kind: "form", dict: other, name: "Fm2"},
+		{kind: "form", dict: shared, page: 1},
+		{kind: "form", dict: shared, page: 2},
+		{kind: "form", dict: other, page: 3},
 	}
 	got := uniqueByDict(targets)
 	if len(got) != 2 {
 		t.Fatalf("uniqueByDict returned %d targets, want 2", len(got))
 	}
-	if got[0].name != "Fm0" || got[1].name != "Fm2" {
-		t.Errorf("uniqueByDict kept %q and %q, want the first of each object", got[0].name, got[1].name)
+	if got[0].page != 1 || got[1].page != 3 {
+		t.Errorf("uniqueByDict kept the targets of pages %d and %d, want 1 and 3: the first of each object", got[0].page, got[1].page)
 	}
 }
 
