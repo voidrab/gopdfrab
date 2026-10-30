@@ -406,9 +406,6 @@ func TestPost14KeyFixerDeletesReportedKeys(t *testing.T) {
 	if err != nil || changed {
 		t.Errorf("second fixTargeted changed=%v err=%v, want idempotent no-op", changed, err)
 	}
-	if got, err := (post14KeyFixer{}).Fix(&trailer, nil); got || err != nil {
-		t.Errorf("Fix = (%v, %v), want targeted-only no-op", got, err)
-	}
 }
 
 // TestConvertObjectModelDeletesPost14Key proves the fixer end to end: a page
@@ -582,10 +579,6 @@ func TestMissingRequiredKeyFixerSkipsUnsynthesizable(t *testing.T) {
 	}
 	if _, ok := page.Entries.Lookup("3"); ok {
 		t.Error("an array-element key must never be injected into the owner dict")
-	}
-
-	if got, err := (missingRequiredKeyFixer{}).Fix(&trailer, nil); got || err != nil {
-		t.Errorf("Fix = (%v, %v), want targeted-only no-op", got, err)
 	}
 }
 
@@ -773,9 +766,6 @@ func TestWrongValueTypeFixerSkipsStaleAndUntargetable(t *testing.T) {
 	changed, handled, err := wrongValueTypeFixer{}.fixTargeted(pass, issues)
 	if err != nil || changed || !handled {
 		t.Fatalf("fixTargeted = (%v, %v, %v), want (false, true, nil)", changed, handled, err)
-	}
-	if got, err := (wrongValueTypeFixer{}).Fix(&trailer, nil); got || err != nil {
-		t.Errorf("Fix = (%v, %v), want targeted-only no-op", got, err)
 	}
 }
 

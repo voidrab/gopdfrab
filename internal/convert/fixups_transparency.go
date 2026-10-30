@@ -18,21 +18,16 @@ import (
 // content for a transparency group, or a single Image XObject's samples for
 // a soft mask -- never the whole page.
 // transparencyFlattener carries the raster resolution (dpi) its flattening
-// renders at; buildLocalFixers stamps the per-run value from Options.RasterDPI.
-// A zero dpi (the registry prototype) falls back to defaultRasterDPI.
-// drops, when non-nil, collects the features flattening could not render, so
-// they reach ConvertResult.RasterDrops like the page-level fallback's do. The
-// registry prototype leaves it nil.
+// renders at, the run's Options.RasterDPI. A zero dpi falls back to
+// defaultRasterDPI. drops, when non-nil, collects the features flattening
+// could not render, so they reach ConvertResult.RasterDrops like the
+// page-level fallback's do.
 type transparencyFlattener struct {
 	dpi   int
 	drops *[]RasterDrop
 	// ctx stops dispatching further renders once the run is cancelled; nil
-	// (the registry prototype) never cancels.
+	// never cancels.
 	ctx context.Context
-}
-
-func init() {
-	registerFixer(transparencyFlattener{})
 }
 
 // leadsItsClause reports that the flattener runs before the other 6.4 fixers.

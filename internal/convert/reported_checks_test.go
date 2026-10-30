@@ -238,7 +238,7 @@ func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
 
 	tr := pdf.Checks.Transparency
 	spec := a1b()
-	local := buildLocalFixers(t.Context(), deviceColourFixer{}, nil, 72, &[]RasterDrop{}, &[]pdf.PDFError{}, &spec)
+	local := standardRepairs.fixersFor(&fixerRun{spec: &spec, dpi: 72})
 	result := pdf.Result{Issues: issuesOf(tr.NonStrokingAlpha, tr.TransparencyGroup)}
 	if _, err := dispatchFixers(&fixPass{trailer: &trailer}, result, local); err != nil {
 		t.Fatal(err)

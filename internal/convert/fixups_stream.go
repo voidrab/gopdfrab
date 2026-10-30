@@ -7,11 +7,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-func init() {
-	registerFixer(lzwStreamFixer{})
-	registerFixer(undecodableStreamFixer{})
-}
-
 // undecodableStreamFixer remediates Structure.StreamUndecodable where the
 // stream's own bytes say what it should have been:
 //
@@ -29,7 +24,7 @@ func init() {
 // converter has no honest way to reconstruct.
 //
 // lost, when non-nil, collects what the second case gave up, so a caller sees
-// the glyph it no longer has. The registry prototype leaves it nil.
+// the glyph it no longer has.
 type undecodableStreamFixer struct {
 	lost *[]pdf.PDFError
 }

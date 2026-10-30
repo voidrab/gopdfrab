@@ -21,10 +21,6 @@ import (
 // inline images -- leaving the violation as a residual rather than risking
 // a corrupted image.
 
-func init() {
-	registerFixer(inlineImageLZWFixer{})
-}
-
 // removeInlineImageKeys drops every (key, value) pair whose key matches one
 // of keys from an inline image's params.
 func removeInlineImageKeys(params []pdf.PDFValue, keys ...string) []pdf.PDFValue {

@@ -4,10 +4,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-func init() {
-	registerFixer(fileSpecFixer{})
-}
-
 type fileSpecFixer struct{}
 
 func (fileSpecFixer) Applies(c pdf.Check) bool {

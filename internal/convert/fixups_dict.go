@@ -27,18 +27,6 @@ import (
 // editing every reference to the object, not just the object itself).
 // Annotation subtype/colour fixers live in fixups_annot.go.
 
-func init() {
-	registerFixer(actionFixer{})
-	registerFixer(extGStateFixer{})
-	registerFixer(annotationFlagsFixer{})
-	registerFixer(formFixer{})
-	registerFixer(imageMetadataFixer{})
-	registerFixer(imageSampleDepthFixer{})
-	registerFixer(postScriptXObjectFixer{})
-	registerFixer(optionalContentFixer{})
-	registerFixer(viewerPrefFixer{})
-}
-
 // walkDicts calls fn for every pdf.PDFDict reachable from v, recursing into dict
 // entries and array elements, with cycle protection. fn may edit the dict in
 // place; every slot holding it sees the edit.
@@ -150,8 +138,6 @@ func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
 // validateActions/validateAdditionalActions in checks_dict.go.
 type actionFixer struct{ spec *pdfa.Spec }
 
-func (f actionFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
-
 func (actionFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Action.ForbiddenActionType, pdf.Checks.Action.DisallowedNamedAction, pdf.Checks.Action.AdditionalActions:
@@ -221,8 +207,6 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 // first (fixups_alpha.go), because putting the opacity back to 1 would
 // otherwise paint it over the page.
 type extGStateFixer struct{ spec *pdfa.Spec }
-
-func (f extGStateFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (extGStateFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -421,8 +405,6 @@ func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) 
 // PostScriptXObject) belong to postScriptXObjectFixer below.
 type imageMetadataFixer struct{ spec *pdfa.Spec }
 
-func (f imageMetadataFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
-
 func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Image.ImageInterpolate, pdf.Checks.Image.ImageAlternates,
@@ -617,8 +599,6 @@ func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 // viewerPrefFixer removes the ViewerPreferences keys the level's PDF version
 // does not define.
 type viewerPrefFixer struct{ spec *pdfa.Spec }
-
-func (f viewerPrefFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (viewerPrefFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.PostPDF14ViewerPref

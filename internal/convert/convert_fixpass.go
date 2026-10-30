@@ -9,7 +9,7 @@ import (
 // targetedFixer is an optional capability for a Fixer that can remediate just
 // the objects its issues point at instead of walking the whole graph.
 // handled=false means the batch could not be targeted (e.g. a ref-less issue)
-// and the caller falls back to the ordinary Fix.
+// and the caller falls back to Fix, if the Fixer is also a graphFixer.
 type targetedFixer interface {
 	Fixer
 	fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error)

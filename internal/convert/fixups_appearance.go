@@ -12,7 +12,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// This file registers a Fixer for the appearance-stream checks classified
+// This file holds the Fixer for the appearance-stream checks classified
 // as family B (resource synthesis) in the converter plan: a missing /AP on
 // an annotation or form-field widget (6.9, 6.5.3), and a malformed /AP
 // (extra entries, missing N, or N of the wrong shape, 6.5.3). It rebuilds
@@ -21,14 +21,10 @@ import (
 // run-scoped appearance font (fixups_appearance_font.go) -- wherever no
 // already-valid N value can be kept as-is.
 
-func init() {
-	registerFixer(appearanceFixer{})
-}
-
 // appearanceFixer remediates WidgetMissingAppearance, MissingAppearance,
 // AppearanceMissingN, AppearanceExtraEntries and AppearanceNNotStream,
 // mirroring the /AP block of validateAnnotation (checks_dict.go). fontSrc is
-// the run-scoped appearance font, substituted by buildLocalFixers.
+// the run-scoped appearance font, set from the fixerRun.
 type appearanceFixer struct {
 	fontSrc *appearanceFontSource
 	spec    *pdfa.Spec

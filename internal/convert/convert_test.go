@@ -156,9 +156,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
-	if len(fixerRegistry) == 0 {
-		t.Skip("no fixers registered yet")
-	}
+	fixers := standardRepairs.fixersFor(&fixerRun{})
 
 	var tested, cleared int
 	for path := range fixtures {
@@ -176,7 +174,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 
 		var targetChecks []pdf.Check
 		for _, iss := range origRes.Issues {
-			if _, ok := fixerRegistry[iss.Check()]; ok {
+			if _, ok := fixers[iss.Check()]; ok {
 				targetChecks = append(targetChecks, iss.Check())
 			}
 		}

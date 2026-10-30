@@ -34,15 +34,9 @@ import (
 // across a marked-content or BX/EX section, and one still open where the
 // stream ends while later page content could close it.
 
-func init() {
-	registerFixer(qNestingFixer{})
-}
-
 // qNestingFixer remediates Checks.Structure.GraphicsStateNesting, to the
 // level's q/Q nesting limit.
 type qNestingFixer struct{ spec *pdfa.Spec }
-
-func (f qNestingFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (qNestingFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.GraphicsStateNesting

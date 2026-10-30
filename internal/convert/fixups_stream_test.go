@@ -53,7 +53,7 @@ func TestDecodeLZWRoundTrips(t *testing.T) {
 
 // TestLZWStreamFixerAppliesOnlyToStreamLZWFilter mirrors
 // TestLZWStreamFixerAppliesOnlyToStreamLZWFilter verifies that the fixer claims
-// exactly its one Check, since registerFixer panics on overlap.
+// exactly its one Check, since fixersFor panics on overlap.
 func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 	fixer := lzwStreamFixer{}
 	for _, c := range pdf.AllChecks() {

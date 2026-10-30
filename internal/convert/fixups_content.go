@@ -15,7 +15,7 @@ import (
 // hex strings) wherever they occur -- both inside content streams
 // (checks_content.go's per-operand checks) and as plain dictionary/array
 // values elsewhere in the graph (verifier.go's generic walk). One Fixer
-// must cover both sources of the same Check (the registry is one Fixer per
+// must cover both sources of the same Check (a run has one Fixer per
 // Check), so contentLimitsFixer runs a whole-graph scalar pass alongside
 // the content-stream rewrite.
 //
@@ -30,10 +30,6 @@ import (
 // fixes (ImageInterpolate, InlineImageLZWFilter) live in
 // fixups_inline_image.go, since they belong to checks this file doesn't own.
 
-func init() {
-	registerFixer(contentLimitsFixer{})
-}
-
 // contentLimitsFixer remediates Checks.Colour.UndefinedOperator,
 // Checks.Colour.RenderingIntent (the ri operator only), and the 6.1.12/6.1.6
 // scalar-limit checks, mirroring scanContent/validateHexString/
@@ -45,8 +41,6 @@ type contentLimitsFixer struct {
 	spec     *pdfa.Spec
 	reported map[pdf.Check]bool
 }
-
-func (f contentLimitsFixer) withSpec(s *pdfa.Spec) Fixer { f.spec = s; return f }
 
 func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	switch c {

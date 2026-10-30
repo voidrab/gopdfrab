@@ -16,10 +16,6 @@ import (
 // defaultColorSpaceDefined (checks_colour.go) treats either as sufficient
 // to excuse that model, by design, without inspecting its value.
 
-func init() {
-	registerFixer(deviceColourFixer{})
-}
-
 // decodeFunc supplies a stream's decoded bytes; a nil value falls back to the
 // uncached pdf.DecodeStream. Convert wires the Reader's concurrent cache here
 // so every colour scan in a run shares one decoded-stream cache.

@@ -20,8 +20,8 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 }
 
-// TestTransparencyFlattenerDPIFallback pins that a zero-dpi flattener (the
-// registry prototype) still renders at the default resolution rather than a
+// TestTransparencyFlattenerDPIFallback pins that a zero-dpi flattener still
+// renders at the default resolution rather than a
 // 0x0 image.
 func TestTransparencyFlattenerDPIFallback(t *testing.T) {
 	if got := (transparencyFlattener{}).renderDPI(); got != defaultRasterDPI {
