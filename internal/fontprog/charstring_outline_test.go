@@ -86,10 +86,10 @@ func lastPoint(t *testing.T, contours [][]Point) Point {
 	return c[len(c)-1]
 }
 
-// TestType2Subroutines pins that callsubr and callgsubr run the biased
-// local and global subroutine, that return resumes the caller, and that
-// endchar inside a subroutine ends the glyph. Subset CFF fonts route most
-// of their outlines through subroutines.
+// TestType2Subroutines pins that callsubr and callgsubr apply the subroutine
+// bias to their operand, that return resumes the caller, and that endchar
+// inside a subroutine ends the glyph. Subset CFF fonts draw most of their
+// outlines through subroutines.
 func TestType2Subroutines(t *testing.T) {
 	// Fewer than 1240 subrs: an operand of n-107 names subr n.
 	lsubrs := [][]byte{cs(nums(50, 0), []byte{5, 11})} // 50 0 rlineto return
@@ -177,8 +177,8 @@ func TestType2Flex(t *testing.T) {
 		if !hasMid {
 			t.Errorf("%s: no point at the joint %v: %v", tc.name, tc.mid, got[0])
 		}
-		// Short of operands draws nothing. (flex's last operand, the flex
-		// depth, only matters for hinting, so two are dropped.)
+		// Too few operands draw nothing. Two are dropped, because flex's
+		// last operand, the flex depth, is not needed to draw.
 		if got := interpretType2Charstring(cs(nums(0, 0), []byte{21}, nums(tc.args[2:]...), []byte{12, tc.op, 14})); len(got) != 0 {
 			t.Errorf("%s with too few operands drew %v", tc.name, got)
 		}
@@ -308,8 +308,8 @@ func TestType1Flex(t *testing.T) {
 		t.Errorf("ends at %v, want {60 30}: the line after setcurrentpoint(60, 0)", last)
 	}
 
-	// A flex end without its seven points draws nothing and leaves no
-	// result for pop beyond what it was given.
+	// A flex end without its seven points draws nothing and pushes no
+	// result for pop.
 	short := cs(nums(0, 100), []byte{t1Hsbw}, nums(0, 0), []byte{t1Rmoveto},
 		callOther(1), rm(5, 5), callOther(0, 50, 60), nums(10, 0), []byte{t1Rlineto, t1Endchar})
 	got = t1outline(t, t1(map[string][]byte{"g": short}), "g")

@@ -155,8 +155,9 @@ func (in *type1Interp) run(cs []byte, depth int) (ended bool) {
 			in.stack = in.stack[:0]
 			return true
 		}
-		// Every other command (hstem, vstem, closepath, and the undefined
-		// ones) only clears the stack, as do the ones above once run.
+		// Commands that draw nothing, such as hstem, vstem and closepath,
+		// and undefined commands clear the operand stack, as do the
+		// commands above once they have run.
 		in.stack = in.stack[:0]
 	}
 	return false
@@ -240,10 +241,10 @@ func (in *type1Interp) curveTo(x1, y1, x2, y2, x3, y3 float64) {
 	}
 }
 
-// callOtherSubr runs the OtherSubrs every Type1 program defines the same
-// way: 1 starts a flex, 2 marks one of its points, 0 draws it, and 3 (hint
-// replacement) hands its subr number back for pop. Any other leaves its
-// arguments for pop, as an unknown PostScript procedure would be assumed to.
+// callOtherSubr runs the OtherSubrs that every Type 1 program defines: 1
+// starts a flex, 2 marks one of its points, 0 draws the flex, and 3 (hint
+// replacement) leaves its argument for pop. Any other OtherSubr leaves its
+// arguments for pop.
 func (in *type1Interp) callOtherSubr() {
 	head := in.pop(2)
 	if head == nil {

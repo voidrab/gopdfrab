@@ -225,7 +225,7 @@ func (in *type2Interp) curveTo(x1, y1, x2, y2, x3, y3 float64) {
 }
 
 // rcurveTo draws the curve whose six operands, relative like rrcurveto's,
-// start a.
+// are the first six elements of a.
 func (in *type2Interp) rcurveTo(a []float64) {
 	in.curveTo(in.x+a[0], in.y+a[1], in.x+a[0]+a[2], in.y+a[1]+a[3], in.x+a[0]+a[2]+a[4], in.y+a[1]+a[3]+a[5])
 }
