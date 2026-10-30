@@ -12,8 +12,8 @@ type ttPoint struct {
 	on   bool // on the curve, rather than a quadratic control point
 }
 
-// UnitsPerEm returns the em size the head table declares, and false when
-// the table is missing or too short, or declares zero.
+// UnitsPerEm returns the em size the head table declares. It reports false
+// when the table is missing or too short, or when it declares zero.
 func UnitsPerEm(tables map[string][]byte) (int, bool) {
 	head := tables["head"]
 	if len(head) < 20 {
@@ -25,8 +25,8 @@ func UnitsPerEm(tables map[string][]byte) (int, bool) {
 
 // TrueTypeOutline draws glyph gid of a parsed sfnt into sink, in font units,
 // with each quadratic segment drawn as the cubic curve equal to it. It
-// reports false, having drawn nothing, when the glyph's record cannot be
-// decoded. A glyph without a record, such as a space, draws nothing.
+// reports whether the glyph decoded; when it did not, nothing is drawn. A
+// glyph without a record, such as a space, draws nothing and reports true.
 func TrueTypeOutline(tables map[string][]byte, gid int, sink PathSink) bool {
 	contours, ok := ttGlyphContours(tables, gid, 0)
 	if !ok {
@@ -38,8 +38,9 @@ func TrueTypeOutline(tables map[string][]byte, gid int, sink PathSink) bool {
 	return true
 }
 
-// ttGlyphContours returns gid's contours, following composite glyphs'
-// components depth levels deep.
+// ttGlyphContours returns the contours of glyph gid, following composite
+// components recursively. It reports false when nesting exceeds
+// maxCompositeDepth or a record is malformed.
 func ttGlyphContours(tables map[string][]byte, gid, depth int) ([][]ttPoint, bool) {
 	if depth > maxCompositeDepth {
 		return nil, false
@@ -54,8 +55,9 @@ func ttGlyphContours(tables map[string][]byte, gid, depth int) ([][]ttPoint, boo
 	return ttSimpleContours(rec)
 }
 
-// ttSimpleContours decodes a simple glyph record's contours: their end
-// points, flags, and delta-encoded coordinates.
+// ttSimpleContours decodes the contours of a simple glyph record: their end
+// points, flags, and delta-encoded coordinates. It reports false when the
+// record is truncated or its end points decrease.
 func ttSimpleContours(rec []byte) ([][]ttPoint, bool) {
 	if len(rec) < 10 {
 		return nil, false
@@ -72,8 +74,8 @@ func ttSimpleContours(rec []byte) ([][]ttPoint, bool) {
 		}
 		endPts[i] = int(binary.BigEndian.Uint16(rec[off:]))
 		off += 2
-		// The endpoints must climb: the point arrays below are sized from the
-		// last one, but indexed by all of them.
+		// The endpoints must not decrease. The point arrays are sized from the
+		// last one but indexed by all of them.
 		if i > 0 && endPts[i] < endPts[i-1] {
 			return nil, false
 		}
@@ -151,7 +153,8 @@ func ttSimpleContours(rec []byte) ([][]ttPoint, bool) {
 }
 
 // ttCompositeContours gathers a composite glyph's components, each placed
-// by its offset and scale.
+// by its offset and scale. It reports false when a component record is
+// truncated or a component cannot be decoded.
 func ttCompositeContours(tables map[string][]byte, rec []byte, depth int) ([][]ttPoint, bool) {
 	var contours [][]ttPoint
 	off := 10

@@ -6,7 +6,7 @@ import (
 )
 
 // glyfTables wraps raw glyph records in a minimal short-loca sfnt table set
-// (unitsPerEm 1000) so glyph ids index the records in order.
+// with the given unitsPerEm, so glyph ids index the records in order.
 func glyfTables(upm uint16, recs ...[]byte) map[string][]byte {
 	var glyf, loca []byte
 	loca = binary.BigEndian.AppendUint16(loca, 0)
@@ -56,7 +56,8 @@ func TestTTGlyphContoursCompositeNestingLimit(t *testing.T) {
 }
 
 func TestTTSimpleContoursTruncation(t *testing.T) {
-	// flagsOnly: one contour, endPts=[0], insLen=0, then body.
+	// rec returns a one-contour record with endPts=[0] and no
+	// instructions, followed by body.
 	rec := func(body ...byte) []byte { return append(glyfRecord(1, 0, 0), body...) }
 
 	for _, tc := range []struct {
@@ -115,8 +116,8 @@ func TestTTCompositeContoursTruncation(t *testing.T) {
 }
 
 // buildTriangleGlyfTables returns a tables map holding a single 3-point
-// simple glyph at gid 0, enough to drive ttGlyfContours/ttCompositeContours
-// directly without assembling a full sfnt binary.
+// simple glyph at gid 0, enough to drive ttGlyphContours and
+// ttCompositeContours directly without assembling a full sfnt binary.
 func buildTriangleGlyfTables() map[string][]byte {
 	var glyf []byte
 	putU16 := func(v uint16) { glyf = binary.BigEndian.AppendUint16(glyf, v) }
@@ -301,7 +302,7 @@ func TestDrawTTContour(t *testing.T) {
 	}
 }
 
-// TestTrueTypeOutline pins that a glyph is drawn whole or not at all.
+// TestTrueTypeOutline verifies that a glyph is drawn whole or not at all.
 func TestTrueTypeOutline(t *testing.T) {
 	tables := buildTriangleGlyfTables()
 	var s recSink
