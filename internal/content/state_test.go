@@ -174,7 +174,8 @@ func TestTracker(t *testing.T) {
 // TestInitialColour verifies the colour a cs operator starts each kind of
 // space at.
 func TestInitialColour(t *testing.T) {
-	// Tint 1.0 maps to black and 0.0 to white, so a start at 0.0 shows.
+	// The tint maps 1.0 to black and 0.0 to white, so a start at tint 0.0
+	// would show as white rather than black.
 	tint := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FunctionType": pdf.PDFInteger(2), "Domain": pdf.PDFArray(nums(0, 1)),
 		"C0": pdf.PDFArray(nums(1)), "C1": pdf.PDFArray(nums(0)), "N": pdf.PDFInteger(1),

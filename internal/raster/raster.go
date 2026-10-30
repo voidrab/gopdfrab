@@ -158,7 +158,7 @@ type renderState struct {
 	// fillPattern and strokePattern are the pattern dictionaries the
 	// colours' pattern names select, zero when none is selected or usable.
 	// A colour that paints with a pattern paints it or nothing, never the
-	// black a bare Pattern cs leaves in its RGB. See pattern.go.
+	// black a bare Pattern cs leaves in its RGB. See selectPattern.
 	fillPattern, strokePattern pdf.PDFDict
 	lineWidth                  float64
 	clip                       [4]float64 // device-space bbox: xmin,ymin,xmax,ymax
@@ -458,7 +458,7 @@ func (r *renderer) paintPath(path *pathBuilder, gs *renderState, op string) {
 
 	evenOdd := op == "f*" || op == "B*" || op == "b*"
 	// Under a Pattern colour space there is no numeric fill colour, so an
-	// unusable pattern paints nothing rather than the black fillRGB holds.
+	// unusable pattern paints nothing rather than the black Fill.RGB holds.
 	fill := func() {
 		if gs.Fill.IsPattern() {
 			r.paintPatternPath(target, contours, gs.fillPattern, gs, evenOdd, false)
@@ -870,7 +870,7 @@ func (r *renderer) showText(raw []byte, resources pdf.PDFDict, gs *renderState) 
 
 		if gp, ok := fi.glyphFor(code); ok && len(gp.Contours) > 0 && !invisible {
 			// Glyph space (1000-unit em) -> text space (font-size units, with Ts
-			// rise) -> user space (tm) -> device (ctm).
+			// rise) -> user space (tm) -> device (CTM).
 			glyphToText := content.Matrix{A: gs.fontSize * gs.hScale / 1000, D: gs.fontSize / 1000, F: gs.rise}
 			textToDevice := glyphToText.Mul(gs.tm).Mul(gs.CTM)
 			contours := make([][]content.Point, len(gp.Contours))
@@ -1189,8 +1189,8 @@ func (r *renderer) selectPattern(name string, resources pdf.PDFDict) (pdf.PDFDic
 }
 
 // trackPattern returns the pattern dictionary for a colour whose pattern name
-// went from was to name: cur when the name is unchanged, the newly selected
-// pattern when it changed, and none when no pattern is selected.
+// went from was to name: cur when the name is unchanged, the pattern that
+// selectPattern resolves when it changed, and none when name is empty.
 func (r *renderer) trackPattern(cur pdf.PDFDict, was, name string, resources pdf.PDFDict) pdf.PDFDict {
 	switch {
 	case name == "":
