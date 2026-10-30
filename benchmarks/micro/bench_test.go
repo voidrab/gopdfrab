@@ -113,7 +113,7 @@ func BenchmarkConvert(b *testing.B) {
 // environment, so this check is not flaky.
 //
 // Lower this value if further optimization reduces it further.
-const maxLargeFileAllocs = 1_025_000
+const maxLargeFileAllocs = 960_000
 
 // TestLargeFileAllocationsBounded guards against reintroducing quadratic-ish
 // re-parsing/re-decoding behavior on large, object-heavy PDFs. See
@@ -146,7 +146,7 @@ func TestLargeFileAllocationsBounded(t *testing.T) {
 // ConvertBytes pass over the "large" sample. Its 10k-element /Kids array makes
 // each verify pass scan 10k page content streams, which is the dominant
 // allocation source. Lower this value if further optimization reduces it.
-const maxConvertLargeAllocs = 1_680_000
+const maxConvertLargeAllocs = 1_475_000
 
 // TestConvertLargeAllocationsBounded guards conversion against regaining a
 // verify pass (or reintroducing per-object re-parsing) on large, object-heavy
@@ -186,10 +186,10 @@ type allocCase struct {
 // a tight target; allocs/op is deterministic and environment-independent, so the
 // checks are not flaky. Lower a ceiling if optimization reduces it.
 var costPathAllocCeilings = []allocCase{
-	{sample: "fonts", convert: false, ceiling: 1_800},       // measured ~1629
-	{sample: "fonts", convert: true, ceiling: 3_500},        // measured ~3175
-	{sample: "large_color", convert: false, ceiling: 1_300}, // measured ~1170
-	{sample: "raster", convert: true, ceiling: 3_500},       // measured ~3168
+	{sample: "fonts", convert: false, ceiling: 1_700},       // measured ~1517
+	{sample: "fonts", convert: true, ceiling: 3_250},        // measured ~2928
+	{sample: "large_color", convert: false, ceiling: 1_200}, // measured ~1081
+	{sample: "raster", convert: true, ceiling: 2_400},       // measured ~2135
 }
 
 // TestCostPathAllocationsBounded guards the font, colour, and raster cost paths

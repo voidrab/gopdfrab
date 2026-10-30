@@ -48,6 +48,9 @@ notice.
   that compiled to about 680 KB of startup code. Every binary is about 1 MB
   smaller (1.6 MB in WebAssembly), and a program that never runs the
   object-model checks no longer pays to build the table at startup.
+- Conversion allocates less: on an object-heavy file, about a third fewer
+  allocations and 28% fewer bytes, a 12% lower peak heap and about 15% less
+  time. Verification allocates 6–14% less.
 
 ### Deprecated
 
