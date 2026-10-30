@@ -63,11 +63,7 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errBoom }
 // stage's error return is exercised, and the error always surfaces.
 func TestWriteDocumentIndexedWriteFailures(t *testing.T) {
 	build := func(pad int) pdf.PDFDict {
-		stream := withRef(pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
-			HasStream: true,
-			RawStream: bytes.Repeat([]byte{'x'}, pad),
-		}, pdf.PDFRef{ObjNum: 9})
+		stream := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), bytes.Repeat([]byte{'x'}, pad)), pdf.PDFRef{ObjNum: 9})
 		catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Catalog"},
 			"Data": stream,

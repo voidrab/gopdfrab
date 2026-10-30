@@ -72,8 +72,7 @@ func injectOutputIntent(trailer *pdf.PDFDict, doc *pdf.Reader, spec pdfa.Spec) e
 	profile := pdf.NewPDFDict()
 	profile.Entries.Set("N", pdf.PDFInteger(wantN))
 	profile.Entries.Set("Alternate", pdf.PDFName{Value: alternate})
-	profile.HasStream = true
-	profile.RawStream = iccBytes
+	profile.SetStream(iccBytes)
 
 	intent := pdf.NewPDFDict()
 	intent.Entries.Set("Type", pdf.PDFName{Value: "OutputIntent"})
@@ -163,8 +162,7 @@ func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 func iccBasedColourSpace(n int, profile []byte) pdf.PDFArray {
 	stream := pdf.NewPDFDict()
 	stream.Entries.Set("N", pdf.PDFInteger(n))
-	stream.HasStream = true
-	stream.RawStream = profile
+	stream.SetStream(profile)
 	return pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 }
 
@@ -257,12 +255,12 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
 			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
-				if contents.HasStream {
+				if contents.IsStream() {
 					jobs = append(jobs, scanJob{contents, resources})
 				}
 			case pdf.PDFArray:
 				for _, item := range contents {
-					if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+					if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
 						jobs = append(jobs, scanJob{cd, resources})
 					}
 				}
@@ -273,7 +271,7 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 			pdf.EqualPDFValue(d.Entries.Get("Subtype"), pdf.PDFName{Value: "Type3"}) {
 			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
 				for _, proc := range procs.Entries.All() {
-					if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
+					if pd, ok := proc.(pdf.PDFDict); ok && pd.IsStream() {
 						jobs = append(jobs, scanJob{pd, resources})
 					}
 				}
@@ -342,7 +340,7 @@ func validPDFAOutputIntentN(root pdf.PDFDict, spec pdfa.Spec) (n int, ok bool) {
 			continue
 		}
 		profile, ok := intent.Entries.Get("DestOutputProfile").(pdf.PDFDict)
-		if !ok || !profile.HasStream {
+		if !ok || !profile.IsStream() {
 			continue
 		}
 		nVal, ok := profile.Entries.Get("N").(pdf.PDFInteger)
@@ -413,7 +411,7 @@ func isICCBasedSpace(arr pdf.PDFArray) bool {
 		return false
 	}
 	stream, ok := arr[1].(pdf.PDFDict)
-	return ok && stream.HasStream
+	return ok && stream.IsStream()
 }
 
 // fixICCBasedSpace repairs one ICCBased colour space, re-checking the
@@ -453,8 +451,7 @@ func fixICCBasedSpace(arr pdf.PDFArray, spec pdfa.Spec) bool {
 	stream.Entries.Set("N", pdf.PDFInteger(n))
 	stream.Entries.Del("Filter")
 	stream.Entries.Del("DecodeParms")
-	stream.HasStream = true
-	stream.RawStream = profile
+	stream.SetStream(profile)
 	arr[1] = stream
 	return true
 }

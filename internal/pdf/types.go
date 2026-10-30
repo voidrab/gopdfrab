@@ -20,19 +20,54 @@ type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue
 
+// PDFDict is a dictionary or a stream. Its body, Entries, holds the entries,
+// the object's own reference and the stream, so every copy of a PDFDict sees
+// every edit made through another.
 type PDFDict struct {
-	Entries   Dict
-	HasStream bool
-	// RawStream holds the undecoded stream bytes. The slice may alias a
-	// read-only memory-map; always assign a new slice, never mutate in place.
-	RawStream []byte
+	Entries Dict
 }
 
 func NewPDFDict() PDFDict {
-	return PDFDict{
-		Entries:   NewDict(),
-		HasStream: false,
+	return PDFDict{Entries: NewDict()}
+}
+
+// NewStreamDict makes e a stream holding raw, its undecoded bytes, and returns
+// it as a PDFDict. A nil e starts an empty dictionary. Every other copy of e
+// becomes the stream as well.
+func NewStreamDict(e Dict, raw []byte) PDFDict {
+	if e == nil {
+		e = NewDict()
 	}
+	d := PDFDict{Entries: e}
+	d.SetStream(raw)
+	return d
+}
+
+// IsStream reports whether the dictionary is a stream's. Safe on the zero
+// PDFDict.
+func (d PDFDict) IsStream() bool {
+	return d.Entries != nil && d.Entries.isStream
+}
+
+// Stream returns the stream's undecoded bytes, nil for a plain dictionary. The
+// slice may alias a read-only memory map: never write to it. Safe on the zero
+// PDFDict.
+func (d PDFDict) Stream() []byte {
+	if d.Entries == nil {
+		return nil
+	}
+	return d.Entries.stream
+}
+
+// SetStream makes the dictionary a stream holding raw, its undecoded bytes. The
+// stream lives in the shared body, so every copy of d sees it. SetStream
+// panics on a nil Entries, as Dict.Set does; NewStreamDict starts from
+// nothing.
+func (d PDFDict) SetStream(raw []byte) {
+	if d.Entries == nil {
+		panic("pdf: SetStream on a nil Dict")
+	}
+	d.Entries.stream, d.Entries.isStream = raw, true
 }
 
 // Ref returns the reference the dictionary was read or numbered under. The
@@ -114,7 +149,7 @@ func EqualPDFValue(a, b PDFValue) bool {
 
 	case PDFDict:
 		vb, ok := b.(PDFDict)
-		if !ok || va.Entries.Len() != vb.Entries.Len() || va.HasStream != vb.HasStream {
+		if !ok || va.Entries.Len() != vb.Entries.Len() || va.IsStream() != vb.IsStream() {
 			return false
 		}
 		ra, oka := va.Ref()

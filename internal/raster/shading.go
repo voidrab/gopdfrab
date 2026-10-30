@@ -336,7 +336,7 @@ func (sh *shading) initMesh(dict pdf.PDFDict) bool {
 		return false
 	}
 	sh.meshDecode = decode
-	return dict.HasStream
+	return dict.IsStream()
 }
 
 // readCoords reads one vertex's x,y through the /Decode ranges.

@@ -13,15 +13,11 @@ func evalPS(t *testing.T, prog string, nOut int, in ...float64) []float64 {
 	for i := 0; i < nOut; i++ {
 		rng = append(rng, PDFReal(-1e6), PDFReal(1e6))
 	}
-	d := PDFDict{
-		Entries: DictOf(map[string]PDFValue{
-			"FunctionType": PDFInteger(4),
-			"Domain":       dom,
-			"Range":        rng,
-		}),
-		HasStream: true,
-		RawStream: []byte(prog),
-	}
+	d := NewStreamDict(DictOf(map[string]PDFValue{
+		"FunctionType": PDFInteger(4),
+		"Domain":       dom,
+		"Range":        rng,
+	}), []byte(prog))
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction(%q): %v", prog, err)
@@ -93,7 +89,7 @@ func TestPostScriptErrors(t *testing.T) {
 		for k, v := range extra {
 			e.Set(k, v)
 		}
-		return PDFDict{Entries: e, HasStream: true, RawStream: []byte(raw)}
+		return NewStreamDict(e, []byte(raw))
 	}
 
 	if _, err := ParseFunction(mk("add }", nil)); err == nil {

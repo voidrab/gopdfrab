@@ -524,9 +524,9 @@ func TestCheckInfoXMPSyncCorpus(t *testing.T) {
 
 func TestCheckNonCatalogXMPStreams(t *testing.T) {
 	otherMeta := pdf.NewPDFDict()
-	otherMeta.HasStream = true
+	otherMeta.SetStream(nil)
 	otherMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
-	otherMeta.RawStream = []byte("no xpacket wrapper here")
+	otherMeta.SetStream([]byte("no xpacket wrapper here"))
 
 	root := pdf.NewPDFDict()
 	root.Entries.Set("Other", otherMeta)
@@ -540,9 +540,9 @@ func TestCheckNonCatalogXMPStreams(t *testing.T) {
 
 	// A non-catalog Metadata stream that *is* xpacket-wrapped is fine.
 	wrapped := pdf.NewPDFDict()
-	wrapped.HasStream = true
+	wrapped.SetStream(nil)
 	wrapped.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
-	wrapped.RawStream = []byte("<?xpacket begin=\"\"?><x:xmpmeta/><?xpacket end=\"w\"?>")
+	wrapped.SetStream([]byte("<?xpacket begin=\"\"?><x:xmpmeta/><?xpacket end=\"w\"?>"))
 	root2 := pdf.NewPDFDict()
 	root2.Entries.Set("Other", wrapped)
 	trailer2 := pdf.NewPDFDict()
@@ -748,10 +748,10 @@ func TestXmpIsIntegerAndContainerOK(t *testing.T) {
 // one.
 func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 	broken := pdf.NewPDFDict()
-	broken.HasStream = true
+	broken.SetStream(nil)
 	broken.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	broken.RawStream = []byte("not a zlib stream")
+	broken.SetStream([]byte("not a zlib stream"))
 
 	root := pdf.NewPDFDict()
 	root.Entries.Set("Other", broken)
@@ -771,9 +771,9 @@ func TestNonCatalogXMPUndecodableIsNotMisattributed(t *testing.T) {
 
 	// A stream that decodes but genuinely lacks the wrapper still reports.
 	plain := pdf.NewPDFDict()
-	plain.HasStream = true
+	plain.SetStream(nil)
 	plain.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
-	plain.RawStream = []byte("<x:xmpmeta/>")
+	plain.SetStream([]byte("<x:xmpmeta/>"))
 
 	root2 := pdf.NewPDFDict()
 	root2.Entries.Set("Other", plain)

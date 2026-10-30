@@ -103,7 +103,7 @@ func buildMinimalCIDCFF() []byte {
 func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDFDict {
 	charProcs := pdf.NewPDFDict()
 	if procName != "" {
-		charProcs.Entries.Set(procName, pdf.PDFDict{HasStream: true, RawStream: []byte(proc)})
+		charProcs.Entries.Set(procName, pdf.NewStreamDict(nil, []byte(proc)))
 	}
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":       pdf.PDFName{Value: "Font"},
@@ -124,7 +124,7 @@ func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDF
 func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
@@ -228,8 +228,7 @@ func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 func TestRenderType3GlyphFallsBackToPageResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 2 2 Td (A) Tj ET")},
+		"Contents": pdf.NewStreamDict(nil, []byte("BT /F1 20 Tf 2 2 Td (A) Tj ET")),
 	})}
 	resources := redShadingResources()
 	resources.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})})
@@ -253,7 +252,7 @@ func nrgbaAt(t *testing.T, img *image.RGBA, x, y int) color.NRGBA {
 
 func TestRenderPageRectangleFill(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
 	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -276,7 +275,7 @@ func TestRenderPageRectangleFill(t *testing.T) {
 // colour space first.
 func TestRenderStartsInDeviceGray(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 sc 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 sc 5 5 10 10 re f")),
 	})}
 	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -288,7 +287,7 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 
 	// The stroking half of the same state.
 	page = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 SC 4 w 0 10 m 20 10 l S")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 SC 4 w 0 10 m 20 10 l S")),
 	})}
 	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -300,20 +299,16 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 }
 
 func TestRenderPageImageXObject(t *testing.T) {
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255},
-	}
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
+	}), []byte{0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
 	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
@@ -327,28 +322,20 @@ func TestRenderPageImageXObject(t *testing.T) {
 }
 
 func TestRenderPageImageWithSoftMask(t *testing.T) {
-	smask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{128, 128, 128, 128},
-	}
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceRGB"}, "SMask": smask,
-		}),
-		HasStream: true,
-		RawStream: []byte{255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0},
-	}
+	smask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{128, 128, 128, 128})
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"}, "SMask": smask,
+	}), []byte{255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
 	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
@@ -370,30 +357,22 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 func TestRenderPageImageWithStencilMask(t *testing.T) {
 	// One bit per pixel, one byte per row: paint the left pixel, mask out the
 	// right one.
-	mask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(1), "ImageMask": pdf.PDFBoolean(true),
-		}),
-		HasStream: true,
-		RawStream: []byte{0x40},
-	}
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"}, "Mask": mask,
-		}),
-		HasStream: true,
-		RawStream: []byte{0, 0, 0, 0, 0, 0}, // both pixels black
-	}
+	mask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(1), "ImageMask": pdf.PDFBoolean(true),
+	}), []byte{0x40})
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"}, "Mask": mask,
+	}), []byte{0, 0, 0, 0, 0, 0})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
 	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
@@ -438,15 +417,11 @@ func TestSimpleCodeToGID(t *testing.T) {
 // paint variant, clipping, colour (gray/rgb/cmyk/named), graphics-state save/
 // restore, an ExtGState, a Form XObject, and the text-positioning operators.
 func TestRenderPageOperatorCoverage(t *testing.T) {
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"BBox":      pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
-		}),
-		HasStream: true,
-		RawStream: []byte("0 1 0 rg 0 0 5 5 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"BBox":      pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	}), []byte("0 1 0 rg 0 0 5 5 re f"))
 	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type1"},
 		"BaseFont": pdf.PDFName{Value: "Helvetica"},
@@ -494,7 +469,7 @@ T*
 ET
 `
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 
 	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72)
@@ -512,10 +487,7 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 	if err != nil {
 		t.Skipf("font asset not available: %v", err)
 	}
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}),
-		HasStream: true, RawStream: ttf,
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}), ttf)
 }
 
 // TestRenderPageEmbeddedSimpleText renders text with an embedded simple
@@ -523,8 +495,7 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 	resources := embeddedSimpleFontResources(t)
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")),
 	})}
 	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
@@ -593,8 +564,7 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")),
 	})}
 	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
 		t.Fatalf("RenderPage: %v", err)
@@ -629,8 +599,8 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 	t.Run("array of streams joined", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Contents": pdf.PDFArray{
-				pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg")},
-				pdf.PDFDict{HasStream: true, RawStream: []byte("5 5 10 10 re f")},
+				pdf.NewStreamDict(nil, []byte("1 0 0 rg")),
+				pdf.NewStreamDict(nil, []byte("5 5 10 10 re f")),
 			},
 		})}
 		got, err := PageContentBytes(page)
@@ -645,10 +615,7 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 
 	t.Run("single stream decode error", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Contents": pdf.PDFDict{
-				Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-				HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-			},
+			"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
 		})}
 		if _, err := PageContentBytes(page); err == nil {
 			t.Error("pageContentBytes: want error for undecodable stream, got nil")
@@ -658,10 +625,7 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 	t.Run("stream within array decode error", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Contents": pdf.PDFArray{
-				pdf.PDFDict{
-					Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-					HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-				},
+				pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
 			},
 		})}
 		if _, err := PageContentBytes(page); err == nil {
@@ -706,7 +670,7 @@ func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
 	t.Run("FontFile3 CFF", func(t *testing.T) {
 		cff := buildMinimalCIDCFF()
 		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"FontFile3": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: cff},
+			"FontFile3": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), cff),
 		})}
 		font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontDescriptor": desc})}
 		fi := buildSimpleFontInfo(font)
@@ -760,7 +724,7 @@ func TestRasterPixelBudget(t *testing.T) {
 	}
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 0 0 8424 5955 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg 0 0 8424 5955 re f")),
 	})}
 	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150)
 	if err != nil {
@@ -776,13 +740,9 @@ func TestRasterPixelBudget(t *testing.T) {
 // rather than white.
 func TestRenderFormRendersOnNothing(t *testing.T) {
 	formWith := func(content string) pdf.PDFDict {
-		return pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"BBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			}),
-			HasStream: true,
-			RawStream: []byte(content),
-		}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"BBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		}), []byte(content))
 	}
 
 	empty, _, _, err := RenderFormContent(formWith(""), pdf.PDFDict{}, 72, InheritedPaint{})
@@ -806,7 +766,7 @@ func TestRenderFormRendersOnNothing(t *testing.T) {
 
 	// A page still renders on paper: only a form composites onto something.
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("")},
+		"Contents": pdf.NewStreamDict(nil, []byte("")),
 	})}
 	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {

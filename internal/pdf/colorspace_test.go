@@ -213,17 +213,14 @@ func TestIndexedLookupBytes(t *testing.T) {
 	if b := indexedLookupBytes(PDFHexString{Value: "414243"}); string(b) != "ABC" {
 		t.Errorf("hex lookup = %q", b)
 	}
-	stream := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("xyz")}
+	stream := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("xyz"))
 	if b := indexedLookupBytes(stream); string(b) != "xyz" {
 		t.Errorf("stream lookup = %q", b)
 	}
 	if b := indexedLookupBytes(PDFInteger(1)); b != nil {
 		t.Errorf("unsupported lookup = %v, want nil", b)
 	}
-	badStream := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badStream := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if b := indexedLookupBytes(badStream); b != nil {
 		t.Errorf("undecodable stream lookup = %v, want nil", b)
 	}

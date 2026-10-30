@@ -16,7 +16,7 @@ func hasDrop(drops []string, want string) bool {
 // (A shading the rasterizer can draw is covered in shading_test.go.)
 func TestRasterReportsShading(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q /Sh1 sh Q")),
 	})}
 	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestRasterReportsShading(t *testing.T) {
 func TestRasterDrawsInlineImage(t *testing.T) {
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff EI Q"
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestRasterDrawsInlineImage(t *testing.T) {
 // drops nothing.
 func TestRasterCleanPageReportsNothing(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
 	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestRasterCleanPageReportsNothing(t *testing.T) {
 // placeholderImagePage paints a 20x20 Image XObject /Im0 over the whole page.
 func placeholderImagePage(im pdf.PDFDict) (pdf.PDFDict, pdf.PDFDict) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im0 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im0 Do Q")),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im0": im})},
@@ -139,7 +139,7 @@ func TestRasterPlaceholderMaskIsLeftOff(t *testing.T) {
 func TestRasterReportsPlaceholderInlineImage(t *testing.T) {
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 2 /BPC 1 /CS /G /F /CCF ID \x00 EI Q"
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
 	if err != nil {

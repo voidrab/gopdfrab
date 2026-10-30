@@ -103,7 +103,7 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (
 			}
 		}
 
-		if !cmap.HasStream {
+		if !cmap.IsStream() {
 			return
 		}
 		dictWMode, ok := cmap.Entries.Get("WMode").(pdf.PDFInteger)
@@ -178,7 +178,7 @@ func recoverBaseFontName(d pdf.PDFDict) string {
 	}
 	for _, key := range []string{"FontFile3", "FontFile2", "FontFile"} {
 		ff, ok := desc.Entries.Get(key).(pdf.PDFDict)
-		if !ok || !ff.HasStream {
+		if !ok || !ff.IsStream() {
 			continue
 		}
 		data, err := pdf.DecodeStream(ff)

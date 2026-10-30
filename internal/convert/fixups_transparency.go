@@ -536,7 +536,7 @@ func collectAppearanceForm(form, container pdf.PDFDict, name string, resources p
 // isFormXObject distinguishes an appearance stream from the sub-dictionary of
 // appearance states that can stand in the same slot.
 func isFormXObject(d pdf.PDFDict) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)

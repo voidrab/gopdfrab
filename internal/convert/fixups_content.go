@@ -130,7 +130,7 @@ func (f contentLimitsFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chan
 		if fixOwnedScalars(d, f.fixScalar) {
 			changed = true
 		}
-		if !d.HasStream || !p.isContentStream(d) {
+		if !d.IsStream() || !p.isContentStream(d) {
 			continue
 		}
 		updated, ok := f.repairContentStream(d)
@@ -246,7 +246,7 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
 			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
-				if contents.HasStream {
+				if contents.IsStream() {
 					if fixed, ok := rewrite(contents); ok {
 						d.Entries.Set("Contents", fixed)
 						changed = true
@@ -255,7 +255,7 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 			case pdf.PDFArray:
 				for i, item := range contents {
 					cd, ok := item.(pdf.PDFDict)
-					if !ok || !cd.HasStream {
+					if !ok || !cd.IsStream() {
 						continue
 					}
 					if fixed, ok := rewrite(cd); ok {
@@ -266,8 +266,8 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 			}
 			return d, false
 
-		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.HasStream,
-			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.HasStream:
+		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.IsStream(),
+			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.IsStream():
 			if fixed, ok := rewrite(d); ok {
 				changed = true
 				return fixed, true
@@ -278,7 +278,7 @@ func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf
 			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
 				for k, v := range procs.Entries.All() {
 					pd, ok := v.(pdf.PDFDict)
-					if !ok || !pd.HasStream {
+					if !ok || !pd.IsStream() {
 						continue
 					}
 					if fixed, ok := rewrite(pd); ok {

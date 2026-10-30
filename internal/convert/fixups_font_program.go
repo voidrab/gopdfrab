@@ -52,7 +52,7 @@ func init() {
 // d is any dict: only a font descriptor carries /FontFile3.
 func normalizeCFFWidthDefaultsInFont(d pdf.PDFDict) {
 	ff, ok := d.Entries.Get("FontFile3").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		return
 	}
 	switch ff.Entries.Get("Subtype") {
@@ -85,7 +85,7 @@ func inlineType1WidthSubrsInFont(d pdf.PDFDict) {
 	}
 	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	ff, ok := desc.Entries.Get("FontFile").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		return
 	}
 	length1, ok1 := ff.Entries.Get("Length1").(pdf.PDFInteger)
@@ -119,7 +119,7 @@ func repairNonSymbolicTrueTypeCmap(d pdf.PDFDict) {
 	enc := d.Entries.Get("Encoding")
 	desc, _ := d.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if enc == nil || !ok || !ff.HasStream {
+	if enc == nil || !ok || !ff.IsStream() {
 		return
 	}
 	data, err := pdf.DecodeStream(ff)
@@ -179,7 +179,7 @@ func promoteEmptyGlyphsInFont(d pdf.PDFDict) {
 		return
 	}
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		return
 	}
 	data, err := pdf.DecodeStream(ff)
@@ -714,7 +714,7 @@ func fixType3Widths(v pdf.PDFDict) bool {
 			continue
 		}
 		proc, ok := charProcs.Entries.Get(glyphName).(pdf.PDFDict)
-		if !ok || !proc.HasStream {
+		if !ok || !proc.IsStream() {
 			continue
 		}
 		data, err := pdf.DecodeStream(proc)
@@ -909,7 +909,7 @@ func fixCFFCIDSet(desc pdf.PDFDict, ff pdf.PDFDict) bool {
 		return false
 	}
 
-	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
+	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.IsStream() {
 		if existing, err := pdf.DecodeStream(current); err == nil && cidSetComplete(existing, cids) {
 			return false
 		}
@@ -952,7 +952,7 @@ func fixTrueTypeCIDSet(d, desc pdf.PDFDict, ff pdf.PDFDict) bool {
 		}
 	}
 
-	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.HasStream {
+	if current, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict); ok && current.IsStream() {
 		if existing, err := pdf.DecodeStream(current); err == nil && cidSetComplete(existing, cids) {
 			return false
 		}

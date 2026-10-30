@@ -148,7 +148,7 @@ func TestEmbeddedType1SimpleFont(t *testing.T) {
 		})},
 		"FirstChar": pdf.PDFInteger(65), "Widths": numArray(500),
 		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"FontFile": pdf.PDFDict{HasStream: true, RawStream: type1Glyphs()},
+			"FontFile": pdf.NewStreamDict(nil, type1Glyphs()),
 		})},
 	})}
 	draw := func(codes string) int {
@@ -232,7 +232,7 @@ func cidFont(desc, descriptor map[string]pdf.PDFValue) pdf.PDFDict {
 }
 
 func streamOf(data []byte) pdf.PDFDict {
-	return pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: data}
+	return pdf.NewStreamDict(pdf.DictOf(nil), data)
 }
 
 func TestCompositeFontDefaultWidthAndCIDToGIDStream(t *testing.T) {
@@ -281,10 +281,7 @@ func TestCompositeFontProgramSources(t *testing.T) {
 		"no descriptor":                nil,
 		"descriptor without a program": {},
 		"FontFile3 that is not a font": {"FontFile3": streamOf([]byte("not a font"))},
-		"FontFile3 that cannot decode": {"FontFile3": pdf.PDFDict{
-			Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-			HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-		}},
+		"FontFile3 that cannot decode": {"FontFile3": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF})},
 		"FontFile2 that is not a font": {"FontFile2": streamOf([]byte("not a font"))},
 	} {
 		t.Run(name, func(t *testing.T) {

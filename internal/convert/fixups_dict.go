@@ -79,7 +79,7 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 			slots := []func(pdf.PDFValue){set}
 			var ptr uintptr
 			cd, isStream := child.(pdf.PDFDict)
-			if isStream = isStream && cd.HasStream; isStream {
+			if isStream = isStream && cd.IsStream(); isStream {
 				ptr = pdf.ValuePointer(cd.Entries)
 				if r, done := replaced[ptr]; done {
 					set(r)
@@ -608,8 +608,7 @@ func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 			d.Entries.Del("DecodeParms")
 			d.Entries.Del("DP")
 			d.Entries.Del("Level1")
-			d.HasStream = true
-			d.RawStream = []byte("\n")
+			d.SetStream([]byte("\n"))
 			changed = true
 			return d, true
 		}

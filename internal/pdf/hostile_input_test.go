@@ -41,8 +41,8 @@ func TestStreamLengthBoundedOnBothPaths(t *testing.T) {
 			}
 			defer d.Close()
 			v, _ := d.ResolveReference(PDFRef{ObjNum: 4})
-			if sd, ok := v.(PDFDict); ok && len(sd.RawStream) > len(data) {
-				t.Fatalf("RawStream is %d bytes, larger than the %d-byte file", len(sd.RawStream), len(data))
+			if sd, ok := v.(PDFDict); ok && len(sd.Stream()) > len(data) {
+				t.Fatalf("Stream() is %d bytes, larger than the %d-byte file", len(sd.Stream()), len(data))
 			}
 		})
 	}
@@ -102,8 +102,8 @@ func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 					t.Fatalf("resolve: %v", err)
 				}
 				sd, ok := v.(PDFDict)
-				if !ok || string(sd.RawStream) != body {
-					t.Fatalf("RawStream = %q, want the %d-byte body", sd.RawStream, len(body))
+				if !ok || string(sd.Stream()) != body {
+					t.Fatalf("Stream() = %q, want the %d-byte body", sd.Stream(), len(body))
 				}
 				if d.HasDegradedObjects() {
 					t.Error("object degraded despite a recoverable extent")

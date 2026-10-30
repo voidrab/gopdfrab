@@ -21,7 +21,7 @@ func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
 func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	// Catalog metadata (must be kept).
 	catalogMeta := pdf.NewPDFDict()
-	catalogMeta.HasStream = true
+	catalogMeta.SetStream(nil)
 	catalogMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	root := pdf.NewPDFDict()
@@ -30,7 +30,7 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 
 	// Image XObject with its own embedded metadata (must be stripped).
 	imageMeta := pdf.NewPDFDict()
-	imageMeta.HasStream = true
+	imageMeta.SetStream(nil)
 	imageMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	image := pdf.NewPDFDict()

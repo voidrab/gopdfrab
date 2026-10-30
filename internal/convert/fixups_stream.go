@@ -41,7 +41,7 @@ func (undecodableStreamFixer) Applies(c pdf.Check) bool {
 func (f undecodableStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if !d.HasStream || len(d.RawStream) != 0 || d.Entries.Get("Filter") == nil {
+		if !d.IsStream() || len(d.Stream()) != 0 || d.Entries.Get("Filter") == nil {
 			return d, false
 		}
 		dropFilters(&d)
@@ -71,7 +71,7 @@ func (f undecodableStreamFixer) fixType3CharProcs(trailer pdf.PDFDict) bool {
 		// every run.
 		for _, name := range sortedKeys(procs.Entries) {
 			proc, ok := procs.Entries.Get(name).(pdf.PDFDict)
-			if !ok || !proc.HasStream {
+			if !ok || !proc.IsStream() {
 				continue
 			}
 			if _, err := pdf.DecodeStream(proc); err == nil {
@@ -83,7 +83,7 @@ func (f undecodableStreamFixer) fixType3CharProcs(trailer pdf.PDFDict) bool {
 			var cw writer.ContentStreamWriter
 			_ = cw.WriteOp("d0", []pdf.PDFValue{pdf.PDFReal(widths[name]), pdf.PDFReal(0)})
 			dropFilters(&proc)
-			proc.RawStream = cw.Bytes()
+			proc.SetStream(cw.Bytes())
 			procs.Entries.Set(name, proc)
 			changed = true
 			if f.lost != nil {
@@ -150,7 +150,7 @@ func (lzwStreamFixer) Applies(c pdf.Check) bool {
 func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
-		if !d.HasStream || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW) {
+		if !d.IsStream() || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW) {
 			return d, false
 		}
 		plaintext, err := pdf.DecodeStream(d)

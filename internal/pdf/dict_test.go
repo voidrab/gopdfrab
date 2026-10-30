@@ -74,3 +74,39 @@ func TestDictRef(t *testing.T) {
 	}()
 	PDFDict{}.SetRef(PDFRef{ObjNum: 1})
 }
+
+// TestDictStream verifies that a stream lives in the dictionary's shared body:
+// every alias sees it, Clone and Assign carry it, and NewStreamDict starts one
+// from a nil body.
+func TestDictStream(t *testing.T) {
+	if (PDFDict{}).IsStream() || (PDFDict{}).Stream() != nil {
+		t.Error("the zero PDFDict reports a stream")
+	}
+	d := NewPDFDict()
+	alias := d
+	d.SetStream([]byte("abc"))
+	if !alias.IsStream() || string(alias.Stream()) != "abc" {
+		t.Errorf("alias = %v, %q; want a stream holding abc", alias.IsStream(), alias.Stream())
+	}
+	c := PDFDict{Entries: d.Entries.Clone()}
+	c.SetStream([]byte("new"))
+	if string(d.Stream()) != "abc" {
+		t.Error("setting the clone's stream changed the original")
+	}
+	d.Entries.Assign(c.Entries)
+	if string(alias.Stream()) != "new" {
+		t.Errorf("assigned stream = %q, want new", alias.Stream())
+	}
+
+	s := NewStreamDict(nil, []byte("x"))
+	if !s.IsStream() || string(s.Stream()) != "x" || s.Entries.Len() != 0 {
+		t.Errorf("NewStreamDict(nil, x) = %v, %q, %d entries", s.IsStream(), s.Stream(), s.Entries.Len())
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("SetStream on a nil Dict did not panic")
+		}
+	}()
+	PDFDict{}.SetStream(nil)
+}

@@ -93,10 +93,10 @@ func TestValidateAgainstSchema_CustomKeyNotFlagged(t *testing.T) {
 
 func TestValidateAgainstSchema_LengthSkippedOnStream(t *testing.T) {
 	meta := pdf.NewPDFDict()
-	meta.HasStream = true
+	meta.SetStream(nil)
 	meta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
-	// Length omitted: the writer always recomputes it from RawStream at
+	// Length omitted: the writer always recomputes it from Stream() at
 	// serialization time, so its in-memory absence must not be flagged.
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateAgainstSchema(meta, "Metadata", ctx)
@@ -272,7 +272,7 @@ func TestMatchesValueType(t *testing.T) {
 	}
 
 	streamDict := pdf.NewPDFDict()
-	streamDict.HasStream = true
+	streamDict.SetStream(nil)
 	if !matchesValueType(streamDict, []arlington.ValueType{arlington.Stream}) {
 		t.Error("a stream dict must match Stream")
 	}
@@ -373,7 +373,7 @@ func TestResolveLinkGroups(t *testing.T) {
 
 func TestLinkGroupMatchesKind(t *testing.T) {
 	streamDict := pdf.NewPDFDict()
-	streamDict.HasStream = true
+	streamDict.SetStream(nil)
 
 	cases := []struct {
 		name       string
@@ -627,7 +627,7 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	}
 
 	direct := pdf.NewPDFDict()
-	direct.HasStream = true
+	direct.SetStream(nil)
 	m = pdf.NewPDFDict()
 	m.Entries.Set("Im1", direct)
 	ctx = &ValidationContext{Spec: a1bSpec}
@@ -637,7 +637,7 @@ func TestValidateAgainstSchema_WildcardDictEntries(t *testing.T) {
 	}
 
 	indirect := pdf.NewPDFDict()
-	indirect.HasStream = true
+	indirect.SetStream(nil)
 	indirect.SetRef(pdf.PDFRef{ObjNum: 9})
 	m = pdf.NewPDFDict()
 	m.Entries.Set("Im1", indirect)
@@ -673,7 +673,7 @@ func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
 // declares a dictionary.
 func TestChildTypeRequiresMatchingKind(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 	if got := arlingtonChildType("FileTrailer", "Info", stream); got != "" {
 		t.Errorf("arlingtonChildType(FileTrailer, Info, stream) = %q, want \"\"", got)
 	}
@@ -912,7 +912,7 @@ func TestValidateAgainstSchema_WidthsCoupling(t *testing.T) {
 func TestValidateAgainstSchema_ImageRequirements(t *testing.T) {
 	// A plain (non-JPX, non-mask) image stream must carry ColorSpace and BitsPerComponent.
 	img := pdf.NewPDFDict()
-	img.HasStream = true
+	img.SetStream(nil)
 	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	img.Entries.Set("Width", pdf.PDFInteger(1))
 	img.Entries.Set("Height", pdf.PDFInteger(1))
@@ -963,7 +963,7 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 	// A DCT-encoded image must use 8 bits per component; the pin fires on 4, and 16 is
 	// outside the (now unpredicated) enum regardless of filter.
 	img := pdf.NewPDFDict()
-	img.HasStream = true
+	img.SetStream(nil)
 	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	img.Entries.Set("Width", pdf.PDFInteger(1))
 	img.Entries.Set("Height", pdf.PDFInteger(1))
@@ -994,7 +994,7 @@ func TestValidateAgainstSchema_PinnedValues(t *testing.T) {
 func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 	// A stream's DecodeParms array must be as long as its Filter array.
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 	stream.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
 	stream.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
 	ctx := &ValidationContext{Spec: a1bSpec}
@@ -1070,7 +1070,7 @@ func TestValidateAgainstSchema_SpecialCaseConstraint(t *testing.T) {
 
 	// An odd-length function Domain violates the mod-2 coupling.
 	fn := pdf.NewPDFDict()
-	fn.HasStream = true
+	fn.SetStream(nil)
 	fn.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	fn.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(2)})
 	fn.Entries.Set("Range", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)})
@@ -1390,7 +1390,7 @@ func TestWalkReanchorsSelfIdentifyingDict(t *testing.T) {
 // name at index 0 of a colour-space array picks the candidate type.
 func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 
 	icc := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", icc); got != "ICCBasedColorSpace" {
@@ -1436,7 +1436,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 	}
 	directPages := dict(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}})
 	directStream := pdf.NewPDFDict()
-	directStream.HasStream = true
+	directStream.SetStream(nil)
 
 	cases := []struct {
 		name                 string
@@ -1469,7 +1469,7 @@ func TestObjModelDetailAttached(t *testing.T) {
 				"Filter":      pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
 				"DecodeParms": pdf.PDFArray{pdf.NewPDFDict()},
 			})
-			s.HasStream = true
+			s.SetStream(nil)
 			validateAgainstSchema(s, "Stream", ctx)
 		}, pdf.Checks.ObjectModel.ConstraintViolated, "Stream", "DecodeParms", ""},
 		{"dict indirect required", func(ctx *ValidationContext) {

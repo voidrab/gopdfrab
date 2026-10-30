@@ -135,8 +135,8 @@ func TestValidateStream(t *testing.T) {
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
-		if string(dict.RawStream) != "Hello" {
-			t.Errorf("RawStream = %q, want the extent recovered from endstream", dict.RawStream)
+		if string(dict.Stream()) != "Hello" {
+			t.Errorf("Stream() = %q, want the extent recovered from endstream", dict.Stream())
 		}
 	})
 
@@ -158,8 +158,8 @@ func TestValidateStream(t *testing.T) {
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
-		if string(dict.RawStream) != "data" {
-			t.Errorf("RawStream = %q, want %q", dict.RawStream, "data")
+		if string(dict.Stream()) != "data" {
+			t.Errorf("Stream() = %q, want %q", dict.Stream(), "data")
 		}
 	})
 
@@ -183,8 +183,8 @@ func TestValidateStream(t *testing.T) {
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
 		}
-		if string(dict.RawStream) != "data" {
-			t.Errorf("RawStream = %q, want %q", dict.RawStream, "data")
+		if string(dict.Stream()) != "data" {
+			t.Errorf("Stream() = %q, want %q", dict.Stream(), "data")
 		}
 	})
 

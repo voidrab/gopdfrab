@@ -229,7 +229,7 @@ func (d *Reader) rememberDecodeErr(key StreamKey, err error) {
 }
 
 // AdoptStreamCaches shares src's decoded-stream and token caches with d.
-// Sound because StreamKey identifies RawStream bytes by pointer identity and
+// Sound because StreamKey identifies stream bytes by pointer identity and
 // both Readers are seeded with the same in-memory graph.
 func (d *Reader) AdoptStreamCaches(src *Reader) {
 	if src == nil {

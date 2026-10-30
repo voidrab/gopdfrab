@@ -147,7 +147,7 @@ func meshShading(kind int, data []byte, extra map[string]pdf.PDFValue) pdf.PDFDi
 	for k, v := range extra {
 		entries.Set(k, v)
 	}
-	return pdf.PDFDict{Entries: entries, HasStream: true, RawStream: data}
+	return pdf.NewStreamDict(entries, data)
 }
 
 // vertex packs one 8-bit-per-field mesh vertex, without a leading flag.

@@ -225,7 +225,7 @@ func validateType3Metrics(v pdf.PDFDict, ctx *ValidationContext) {
 			continue
 		}
 		proc, ok := charProcs.Entries.Get(glyphName).(pdf.PDFDict)
-		if !ok || !proc.HasStream {
+		if !ok || !proc.IsStream() {
 			continue
 		}
 		data, err := ctx.decodeStreamCached(proc)
@@ -362,7 +362,7 @@ func cidInfoField(d pdf.PDFDict, key string) string {
 // validateCMapStream checks an embedded CMap stream for CID values exceeding
 // the architectural limit of 65535 (PDF/A-1, 6.1.12 / PDF Reference Table H.1).
 func validateCMapStream(v pdf.PDFDict, ctx *ValidationContext) {
-	if v.Entries.Get("Type") != (pdf.PDFName{Value: "CMap"}) || !v.HasStream {
+	if v.Entries.Get("Type") != (pdf.PDFName{Value: "CMap"}) || !v.IsStream() {
 		return
 	}
 	data, err := ctx.decodeStreamCached(v)

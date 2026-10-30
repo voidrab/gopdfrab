@@ -123,9 +123,9 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 		return true
 	}
 	if isBtnField(d) {
-		return nd.HasStream
+		return nd.IsStream()
 	}
-	return !nd.HasStream
+	return !nd.IsStream()
 }
 
 // isBtnField reports whether d is a Btn form field, resolving FT through
@@ -157,11 +157,11 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 		if n, ok := ap.Entries.Lookup("N"); ok {
 			if nd, ok := n.(pdf.PDFDict); ok {
 				switch {
-				case isBtn && !nd.HasStream:
+				case isBtn && !nd.IsStream():
 					newN = nd
-				case !isBtn && nd.HasStream:
+				case !isBtn && nd.IsStream():
 					newN = nd
-				case isBtn && nd.HasStream:
+				case isBtn && nd.IsStream():
 					newN = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{buttonState(d): nd})}
 				}
 			}

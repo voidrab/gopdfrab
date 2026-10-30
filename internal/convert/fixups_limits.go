@@ -322,14 +322,14 @@ func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 func collectResourceUsageFromContents(contents pdf.PDFValue, resources pdf.PDFDict, ru *resourceUsage) {
 	switch v := contents.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if data, err := pdf.DecodeStream(v); err == nil {
 				collectResourceUsageFromBytes(data, resources, ru)
 			}
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := item.(pdf.PDFDict); ok && d.IsStream() {
 				if data, err := pdf.DecodeStream(d); err == nil {
 					collectResourceUsageFromBytes(data, resources, ru)
 				}
@@ -372,7 +372,7 @@ func collectResourceUsageFromBytes(data []byte, resources pdf.PDFDict, ru *resou
 				return
 			}
 			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-			if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 				return
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
@@ -664,7 +664,7 @@ func (f cmapCIDClampFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (chang
 // decoded stream, or ok=false when d is not a CMap stream or needs no fix. A
 // zero limit sets none.
 func clampCMapStreamDict(d pdf.PDFDict, limit int) (pdf.PDFDict, bool) {
-	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.HasStream || limit == 0 {
+	if (d.Entries.Get("Type") != pdf.PDFName{Value: "CMap"}) || !d.IsStream() || limit == 0 {
 		return d, false
 	}
 	data, err := pdf.DecodeStream(d)
@@ -768,7 +768,7 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 func rewritePageContents(page, resources pdf.PDFDict, rewrite resourceOpRewriter, visitedForm map[uintptr]bool, changed *bool) {
 	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if fixed, ok := rewriteResourceAwareStream(v, resources, rewrite, visitedForm); ok {
 				page.Entries.Set("Contents", fixed)
 				*changed = true
@@ -777,7 +777,7 @@ func rewritePageContents(page, resources pdf.PDFDict, rewrite resourceOpRewriter
 	case pdf.PDFArray:
 		for i, item := range v {
 			d, ok := item.(pdf.PDFDict)
-			if !ok || !d.HasStream {
+			if !ok || !d.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteResourceAwareStream(d, resources, rewrite, visitedForm); ok {
@@ -815,7 +815,7 @@ func rewriteResourceAwareStream(dict, resources pdf.PDFDict, rewrite resourceOpR
 			return
 		}
 		xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-		if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+		if !ok || xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 			return
 		}
 		ptr := pdf.ValuePointer(xobj.Entries)

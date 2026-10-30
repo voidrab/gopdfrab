@@ -107,11 +107,11 @@ func InflateZlib(data []byte) ([]byte, error) {
 // image codec stops the chain and is reported through DecodedStream.Image, not
 // as an error.
 func DecodeStreamFull(dict PDFDict, opts DecodeOptions) (DecodedStream, error) {
-	if !dict.HasStream {
+	if !dict.IsStream() {
 		return DecodedStream{}, ErrNotAStream
 	}
 	names := FilterNames(dict.Entries.Get("Filter"))
-	data := dict.RawStream
+	data := dict.Stream()
 	for i, name := range names {
 		info, ok := LookupFilter(name)
 		if !ok {
@@ -173,8 +173,8 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 }
 
 // StreamKey identifies a stream's raw (undecoded) bytes by content identity:
-// the RawStream slice's data pointer and length. A fixer that rewrites a
-// stream always assigns a fresh RawStream slice (SetStreamFlate et al.), so
+// the stream slice's data pointer and length. A fixer that rewrites a stream
+// always assigns a fresh slice (SetStreamFlate et al.), so
 // keying a decode cache on StreamKey makes invalidation automatic -- an
 // unchanged stream keeps hitting, a rewritten one always misses.
 //
@@ -187,7 +187,7 @@ func DecodeStream(dict PDFDict) ([]byte, error) {
 //
 // The decoded result also depends on /Filter and /DecodeParms, so the key
 // carries their identity too: a fixer that changes the filter chain without
-// replacing RawStream -- deleting /Filter, say -- must miss the cache, or
+// replacing the stream bytes -- deleting /Filter, say -- must miss the cache, or
 // convert's own verify judges the old decoded bytes while the file holds the
 // new reading of them.
 type StreamKey struct {
@@ -206,13 +206,13 @@ type filterIdentity struct {
 }
 
 // StreamKeyOf returns dict's cache key and whether it is cacheable. Streams
-// with no bytes (nil/empty RawStream) are not cacheable, since there is no
+// with no bytes (a nil or empty Stream) are not cacheable, since there is no
 // address to key on and decoding them is trivial anyway.
 func StreamKeyOf(dict PDFDict) (StreamKey, bool) {
-	if !dict.HasStream || len(dict.RawStream) == 0 {
+	if !dict.IsStream() || len(dict.Stream()) == 0 {
 		return StreamKey{}, false
 	}
-	k := StreamKey{ptr: uintptr(unsafe.Pointer(&dict.RawStream[0])), len: len(dict.RawStream)}
+	k := StreamKey{ptr: uintptr(unsafe.Pointer(&dict.Stream()[0])), len: len(dict.Stream())}
 	switch f := dict.Entries.Get("Filter").(type) {
 	case PDFName:
 		k.filter.name = f.Value

@@ -125,7 +125,7 @@ func TestDecodeStreamPredictorInChain(t *testing.T) {
 		if parms != nil {
 			e.Set("DecodeParms", PDFDict{Entries: DictOf(parms)})
 		}
-		return PDFDict{Entries: e, HasStream: true, RawStream: flate(raw)}
+		return NewStreamDict(e, flate(raw))
 	}
 
 	// Predictor 1 (none): decodes verbatim.

@@ -21,6 +21,11 @@ type DictBody struct {
 	// do not see it and the writer never emits it.
 	ref    PDFRef
 	hasRef bool
+	// stream holds a stream's undecoded bytes. The slice may alias a
+	// read-only memory map, so assign a new slice and never mutate it in
+	// place.
+	stream   []byte
+	isStream bool
 }
 
 // DictEntry is one key/value pair, in insertion order.
@@ -150,18 +155,20 @@ func (d Dict) Len() int {
 	return len(d.ent)
 }
 
-// Clone returns a dictionary with d's entries and reference in a body of its
-// own, so edits to the clone are not visible through d. The values themselves
-// are shared, not copied.
+// Clone returns a dictionary with d's entries, reference and stream in a body
+// of its own, so edits to the clone are not visible through d. The values and
+// the stream bytes themselves are shared, not copied.
 func (d Dict) Clone() Dict {
-	return &DictBody{ent: slices.Clone(d.ent), idx: maps.Clone(d.idx), ref: d.ref, hasRef: d.hasRef}
+	c := *d
+	c.ent, c.idx = slices.Clone(d.ent), maps.Clone(d.idx)
+	return &c
 }
 
-// Assign replaces d's entries and reference with src's. Every copy of d shares
-// its body, so all references to the object see the change. Use Assign to
-// publish an edit prepared on a Clone.
+// Assign replaces d's entries, reference and stream with src's. Every copy of
+// d shares its body, so all references to the object see the change. Use
+// Assign to publish an edit prepared on a Clone.
 func (d Dict) Assign(src Dict) {
-	*d = DictBody{ent: slices.Clone(src.ent), idx: maps.Clone(src.idx), ref: src.ref, hasRef: src.hasRef}
+	*d = *src.Clone()
 }
 
 // All iterates in insertion order. Safe on a nil Dict.

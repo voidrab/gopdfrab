@@ -144,7 +144,7 @@ func TestCloneFontDescriptor(t *testing.T) {
 // convert_test.go).
 func TestCIDFontSubstitutionEligible(t *testing.T) {
 	toUnicodeStream := func(cmap string) pdf.PDFDict {
-		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte(cmap)}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(cmap))
 	}
 	validCMap := "1 beginbfchar\n<0001> <0041>\nendbfchar\n"
 
@@ -333,7 +333,7 @@ func TestTrimSymbolicCmap(t *testing.T) {
 	}
 
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"FontFile2": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: data},
+		"FontFile2": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), data),
 	})}
 	if !trimSymbolicCmap(desc) {
 		t.Fatal("trimSymbolicCmap on a multi-subtable face = false, want true")
@@ -349,7 +349,7 @@ func TestTrimSymbolicCmap(t *testing.T) {
 
 	// Re-running against the already-trimmed (single-subtable) program is a no-op.
 	desc2 := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"FontFile2": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: trimmed},
+		"FontFile2": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), trimmed),
 	})}
 	if trimSymbolicCmap(desc2) {
 		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")

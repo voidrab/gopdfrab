@@ -257,8 +257,7 @@ func iccBasedSpaceWithHeader(version byte, deviceClass, colorSpace string, n int
 	copy(profile[16:20], colorSpace)
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = profile
+	stream.SetStream(profile)
 	if n >= 0 {
 		stream.Entries.Set("N", pdf.PDFInteger(n))
 	}
@@ -341,14 +340,13 @@ func TestValidateICCBasedProfile(t *testing.T) {
 // a stream defect (6.1.7), and a non-integer /N is an object-model finding.
 func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 	short := pdf.NewPDFDict()
-	short.HasStream = true
-	short.RawStream = make([]byte, 10)
+	short.SetStream(make([]byte, 10))
 	short.Entries.Set("N", pdf.PDFInteger(3))
 
 	undecodable := pdf.NewPDFDict()
-	undecodable.HasStream = true
+	undecodable.SetStream(nil)
 	undecodable.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	undecodable.RawStream = []byte("not a zlib stream")
+	undecodable.SetStream([]byte("not a zlib stream"))
 
 	notAStream := pdf.NewPDFDict()
 
@@ -374,8 +372,7 @@ func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 	}
 
 	nonInteger := pdf.NewPDFDict()
-	nonInteger.HasStream = true
-	nonInteger.RawStream = buildValidICCProfile()
+	nonInteger.SetStream(buildValidICCProfile())
 	nonInteger.Entries.Set("N", pdf.PDFReal(3))
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, nonInteger}, ctx)

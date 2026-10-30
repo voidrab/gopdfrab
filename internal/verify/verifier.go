@@ -911,7 +911,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 			if first && !ctx.schemaOnly {
-				if v.HasStream {
+				if v.IsStream() {
 					validateStreamObject(v, ctx)
 				}
 
@@ -1168,12 +1168,12 @@ func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[u
 	complete := true
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
 		} else {
 			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
 						complete = false
@@ -1201,12 +1201,12 @@ func collectContentUsage(
 	st := &usageState{}
 	switch v := contents.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			complete = collectUsageFromBytes(ctx, v, resources, reachable, fu, st)
 		}
 	case pdf.PDFArray:
 		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := item.(pdf.PDFDict); ok && d.IsStream() {
 				if !collectUsageFromBytes(ctx, d, resources, reachable, fu, st) {
 					complete = false
 				}
@@ -1364,7 +1364,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				return
 			}
 			pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict)
-			if !ok || !pat.HasStream {
+			if !ok || !pat.IsStream() {
 				return // shading patterns (PatternType 2) carry no content
 			}
 			ptr := pdf.ValuePointer(pat.Entries)
@@ -1393,7 +1393,7 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 			}
 			ptr := pdf.ValuePointer(xobj.Entries)
 			reachable[ptr] = true
-			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+			if xobj.Entries.Get("Subtype") != (pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 				return
 			}
 			key := formScan{
@@ -1680,7 +1680,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		}
 
 		// 6.2.2: the ICC profile stream shall be a valid ICC.1:2003-09 profile (version ≤ 2.x).
-		if profileMap.HasStream {
+		if profileMap.IsStream() {
 			if iccErr := ValidateICCProfileStream(profileMap, spec); iccErr != nil {
 				errs = append(errs, *iccErr)
 			}

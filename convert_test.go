@@ -356,8 +356,7 @@ func objModelFixture(t *testing.T) []byte {
 	resources.Entries.Set("Font", fontMap)
 
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = []byte("BT /F1 12 Tf 72 720 Td (x) Tj ET")
+	contents.SetStream([]byte("BT /F1 12 Tf 72 720 Td (x) Tj ET"))
 	contents.SetRef(pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()

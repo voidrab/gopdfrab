@@ -85,7 +85,7 @@ func TestStreamLengthOverride(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			before, _ := entries.Lookup("Length")
-			obj := pdf.PDFDict{Entries: entries, HasStream: true, RawStream: []byte("hello")}
+			obj := pdf.NewStreamDict(entries, []byte("hello"))
 			var buf bytes.Buffer
 			if err := newPDFWriter(0).writeIndirectObject(&countingWriter{w: &buf}, 1, obj); err != nil {
 				t.Fatal(err)

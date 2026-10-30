@@ -212,7 +212,7 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 
 		switch next.Type {
 		case TokenStreamStart:
-			m.HasStream = true
+			m.SetStream(nil)
 			err := d.validateStream(l, &m, ref.ObjNum)
 			if err != nil {
 				return nil, err

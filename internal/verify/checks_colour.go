@@ -176,7 +176,7 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 // the decode chokepoint as 6.1.7, not as anything about its contents.
 func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
 	stream, ok := arr[1].(pdf.PDFDict)
-	if !ok || !stream.HasStream {
+	if !ok || !stream.IsStream() {
 		return
 	}
 	data, err := ctx.decodeStreamCached(stream)

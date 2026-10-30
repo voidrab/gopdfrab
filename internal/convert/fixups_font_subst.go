@@ -563,7 +563,7 @@ func cidFontSubstitutionEligible(type0 pdf.PDFDict) (map[int]uint16, bool) {
 		return nil, false
 	}
 	toUni, ok := type0.Entries.Get("ToUnicode").(pdf.PDFDict)
-	if !ok || !toUni.HasStream {
+	if !ok || !toUni.IsStream() {
 		return nil, false
 	}
 	data, err := pdf.DecodeStream(toUni)
@@ -957,7 +957,7 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 // subtable in place, leaving glyph data untouched.
 func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		return false
 	}
 	data, err := pdf.DecodeStream(ff)

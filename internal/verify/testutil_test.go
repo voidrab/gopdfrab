@@ -95,8 +95,7 @@ func clauseMatches(got, expected string) bool {
 // streamDict returns a stream dictionary whose (unfiltered) data is raw.
 func streamDict(raw string) pdf.PDFDict {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(raw)
+	d.SetStream([]byte(raw))
 	return d
 }
 

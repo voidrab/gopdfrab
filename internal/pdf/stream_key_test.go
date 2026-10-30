@@ -7,9 +7,9 @@ import "testing"
 // in place must not leave the cache returning stale decoded bytes.
 func TestStreamKeyTracksFilterChain(t *testing.T) {
 	raw := []byte("41>")
-	d := PDFDict{HasStream: true, RawStream: raw, Entries: DictOf(map[string]PDFValue{
+	d := NewStreamDict(DictOf(map[string]PDFValue{
 		"Filter": PDFName{Value: "ASCIIHexDecode"},
-	})}
+	}), raw)
 	r := &Reader{}
 	got, err := r.DecodeStreamCached(d)
 	if err != nil || string(got) != "A" {

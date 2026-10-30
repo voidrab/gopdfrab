@@ -58,8 +58,8 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 	// do not need to know which resource a name selects.
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
 		switch {
-		case d.HasStream && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
-			d.HasStream && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
+		case d.IsStream() && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
+			d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
 			fixed, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
 			if ok {
 				changed = true
@@ -74,7 +74,7 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 			resources := resourcesOf(d, pdf.PDFDict{})
 			for _, name := range sortedKeys(procs.Entries) {
 				proc, ok := procs.Entries.Get(name).(pdf.PDFDict)
-				if !ok || !proc.HasStream {
+				if !ok || !proc.IsStream() {
 					continue
 				}
 				if fixed, ok := rewriteAlphaStream(proc, resources, newAlphaState()); ok {
@@ -117,7 +117,7 @@ func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
 	state := newAlphaState()
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if !contents.HasStream {
+		if !contents.IsStream() {
 			return
 		}
 		if fixed, ok := rewriteAlphaStream(contents, resources, state); ok {
@@ -128,7 +128,7 @@ func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
 	case pdf.PDFArray:
 		for i, item := range contents {
 			part, ok := item.(pdf.PDFDict)
-			if !ok || !part.HasStream {
+			if !ok || !part.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteAlphaStream(part, resources, state); ok {

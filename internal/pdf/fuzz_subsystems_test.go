@@ -26,8 +26,7 @@ func FuzzDecodeStream(f *testing.F) {
 		}
 		for _, name := range filters {
 			d := pdf.NewPDFDict()
-			d.HasStream = true
-			d.RawStream = data
+			d.SetStream(data)
 			d.Entries.Set("Filter", pdf.PDFName{Value: name})
 			d.Entries.Set("Length", pdf.PDFInteger(len(data)))
 			pdf.DecodeStream(d)

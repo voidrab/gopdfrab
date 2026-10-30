@@ -756,7 +756,7 @@ func TestConvertEachCancelled(t *testing.T) {
 func TestFlattenAllPages(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 0 0 10 10 re f")),
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
 	})}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -905,7 +905,7 @@ func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type":     pdf.PDFName{Value: "Page"},
 			"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 2 2 5 5 re f")},
+			"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg 2 2 5 5 re f")),
 		})}
 	}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{

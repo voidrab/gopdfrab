@@ -806,7 +806,7 @@ func TestConvertObjectModelCoercesRotate(t *testing.T) {
 
 func TestDisallowedValueFixerReplacesSingleEnum(t *testing.T) {
 	meta := pdf.NewPDFDict()
-	meta.HasStream = true
+	meta.SetStream(nil)
 	meta.Entries.Set("Type", pdf.PDFName{Value: "Bogus"})
 	// Metadata.Type has the single legal value /Metadata
 	meta.Entries.Set("Subtype", pdf.PDFName{Value: "XML"})
@@ -1059,12 +1059,12 @@ func TestConstraintFixerClearsTargetedFlagBits(t *testing.T) {
 
 func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 	pad := pdf.NewPDFDict()
-	pad.HasStream = true
+	pad.SetStream(nil)
 	pad.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}})
 	pad.Entries.Set("DecodeParms", pdf.PDFArray{pdf.NewPDFDict()})
 	pad.SetRef(pdf.PDFRef{ObjNum: 4})
 	trim := pdf.NewPDFDict()
-	trim.HasStream = true
+	trim.SetStream(nil)
 	trim.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}})
 	trim.Entries.Set("DecodeParms", pdf.PDFArray{nil, nil, nil})
 	trim.SetRef(pdf.PDFRef{ObjNum: 5})
@@ -1096,9 +1096,9 @@ func TestConstraintFixerResizesDecodeParms(t *testing.T) {
 func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 	fd := pdf.NewPDFDict()
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
+	ff.SetStream(nil)
 	ff2 := pdf.NewPDFDict()
-	ff2.HasStream = true
+	ff2.SetStream(nil)
 	fd.Entries.Set("FontFile", ff)
 	fd.Entries.Set("FontFile2", ff2)
 	fd.SetRef(pdf.PDFRef{ObjNum: 4})
@@ -1127,7 +1127,7 @@ func TestConstraintFixerPrunesFontFiles(t *testing.T) {
 
 func TestConstraintFixerClampsLength1(t *testing.T) {
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
+	ff.SetStream(nil)
 	ff.Entries.Set("Length1", pdf.PDFInteger(-5))
 	ff.SetRef(pdf.PDFRef{ObjNum: 4})
 	trailer := pdf.NewPDFDict()
@@ -1182,7 +1182,7 @@ func TestConvertObjectModelResizesDecodeParms(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
 		hexed := []byte("30203020313030203130302072652066>") // "0 0 100 100 re f" hex-encoded
-		contents.RawStream = hexed
+		contents.SetStream(hexed)
 		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}})
 		contents.Entries.Set("DecodeParms", pdf.PDFArray{nil, nil})
 	})
@@ -1261,7 +1261,7 @@ func TestConstraintHelperEdges(t *testing.T) {
 
 	single := pdf.NewPDFDict()
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
+	ff.SetStream(nil)
 	single.Entries.Set("FontFile", ff)
 	if pruneFontFiles(single, "FontDescriptorType1") {
 		t.Error("a single present variant must not prune")
@@ -1378,7 +1378,7 @@ func TestPruneEmptyPageTreeNodes(t *testing.T) {
 // rather than removed.
 func TestRepairTrailerInfoReplacesStream(t *testing.T) {
 	metadata := pdf.NewPDFDict()
-	metadata.HasStream = true
+	metadata.SetStream(nil)
 	metadata.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	trailer := pdf.NewPDFDict()
@@ -1388,7 +1388,7 @@ func TestRepairTrailerInfoReplacesStream(t *testing.T) {
 		t.Fatal("repairTrailerInfo reported no change")
 	}
 	info, ok := trailer.Entries.Get("Info").(pdf.PDFDict)
-	if !ok || info.HasStream {
+	if !ok || info.IsStream() {
 		t.Fatalf("Info = %v, want a plain dictionary", trailer.Entries.Get("Info"))
 	}
 	if repairTrailerInfo(&trailer) {
@@ -1433,7 +1433,7 @@ func TestExpandFilterAbbrevs(t *testing.T) {
 // stream's decoding keys, and only on a stream.
 func TestStreamDataKey(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
+	stream.SetStream(nil)
 	for _, key := range []string{"Filter", "DecodeParms", "F", "FFilter", "FDecodeParms"} {
 		if !streamDataKey(stream, key) {
 			t.Errorf("streamDataKey(stream, %q) = false, want true", key)
@@ -1520,14 +1520,14 @@ func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 	}
 
 	metadata := pdf.NewPDFDict()
-	metadata.HasStream = true
+	metadata.SetStream(nil)
 	trailer.Entries.Set("Info", metadata)
 	issue = objModelIssue(pdf.Checks.ObjectModel.WrongValueType, nil, "FileTrailer", "Info")
 	changed, handled, err = wrongValueTypeFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil || !changed || !handled {
 		t.Fatalf("wrongValueTypeFixer.fixTargeted = %v, %v, %v; want changed and handled", changed, handled, err)
 	}
-	if info, ok := trailer.Entries.Get("Info").(pdf.PDFDict); !ok || info.HasStream {
+	if info, ok := trailer.Entries.Get("Info").(pdf.PDFDict); !ok || info.IsStream() {
 		t.Error("Info stream was not replaced by a plain dictionary")
 	}
 }
@@ -1538,7 +1538,7 @@ func TestObjectModelFixersRunDocumentRepairs(t *testing.T) {
 // a say.
 func TestRepairDisallowedValueExpandsStreamFilterName(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
+	d.SetStream(nil)
 	d.Entries.Set("Filter", pdf.PDFName{Value: "AHx"})
 	if !repairDisallowedValue(d, "Filter", nil) {
 		t.Fatal("repairDisallowedValue reported no change")

@@ -24,8 +24,8 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	}
 
 	for _, kd := range ot.Keys {
-		if kd.Name == "Length" && v.HasStream {
-			// The writer always recomputes Length from RawStream at
+		if kd.Name == "Length" && v.IsStream() {
+			// The writer always recomputes Length from the stream bytes at
 			// serialization time (internal/writer/writer.go), overwriting
 			// whatever is here, so its in-memory presence/value is never a
 			// meaningful conformance signal.
@@ -119,7 +119,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	if wc := ot.Wildcard; wc != nil {
 		keysBase := len(ctx.keyScratch)
 		for _, k := range ctx.sortedKeys(v.Entries) {
-			if hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
+			if hasNamedKey(ot, k) || (k == "Length" && v.IsStream()) {
 				continue
 			}
 			val := v.Entries.Get(k)
@@ -633,7 +633,7 @@ func valueTypeAllowed(val pdf.PDFValue, vt arlington.ValueType) bool {
 	case pdf.PDFArray:
 		return vt == arlington.Array || vt == arlington.Rectangle || vt == arlington.Matrix
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			return vt == arlington.Stream
 		}
 		return vt == arlington.Dictionary || vt == arlington.NameTree || vt == arlington.NumberTree
@@ -738,11 +738,11 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 				return true
 			}
 		case arlington.Dictionary, arlington.NameTree, arlington.NumberTree:
-			if d, ok := val.(pdf.PDFDict); ok && !d.HasStream {
+			if d, ok := val.(pdf.PDFDict); ok && !d.IsStream() {
 				return true
 			}
 		case arlington.Stream:
-			if d, ok := val.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := val.(pdf.PDFDict); ok && d.IsStream() {
 				return true
 			}
 		case arlington.Name:

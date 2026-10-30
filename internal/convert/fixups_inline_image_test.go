@@ -318,7 +318,7 @@ func inlineImageDecoded(t *testing.T, operands []pdf.PDFValue) (filters []string
 	if !ok {
 		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
 	}
-	d := pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: raw.Data}
+	d := pdf.NewStreamDict(pdf.DictOf(nil), raw.Data)
 	for i := 0; i+1 < len(params); i += 2 {
 		if key, ok := params[i].(pdf.PDFName); ok {
 			switch key.Value {

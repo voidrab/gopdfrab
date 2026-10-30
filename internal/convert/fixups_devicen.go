@@ -79,7 +79,7 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uintptr]bool, changed *bool) {
 	switch v := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			if fixed, ok := rewriteDeviceNStream(v, resources, visitedForm); ok {
 				page.Entries.Set("Contents", fixed)
 				*changed = true
@@ -88,7 +88,7 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 	case pdf.PDFArray:
 		for i, item := range v {
 			d, ok := item.(pdf.PDFDict)
-			if !ok || !d.HasStream {
+			if !ok || !d.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteDeviceNStream(d, resources, visitedForm); ok {
@@ -180,7 +180,7 @@ func recurseDeviceNForm(operands []pdf.PDFValue, resources pdf.PDFDict, visitedF
 		return pdf.PDFDict{}, false
 	}
 	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || (xobj.Entries.Get("Subtype") != pdf.PDFName{Value: "Form"}) || !xobj.HasStream {
+	if !ok || (xobj.Entries.Get("Subtype") != pdf.PDFName{Value: "Form"}) || !xobj.IsStream() {
 		return pdf.PDFDict{}, false
 	}
 	ptr := pdf.ValuePointer(xobj.Entries)

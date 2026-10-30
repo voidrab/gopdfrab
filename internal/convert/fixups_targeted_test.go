@@ -148,13 +148,9 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 // limit, undeflated so DecodeStream returns it as-is.
 func cmapStreamDict(objNum int) pdf.PDFDict {
 	content := "1 begincidrange\n<0000> <00ff> 70000\nendcidrange\n"
-	return withRef(pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type": pdf.PDFName{Value: "CMap"},
-		}),
-		HasStream: true,
-		RawStream: []byte(content),
-	}, pdf.PDFRef{ObjNum: objNum})
+	return withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "CMap"},
+	}), []byte(content)), pdf.PDFRef{ObjNum: objNum})
 }
 
 // TestCmapCIDClampFixerTargetsIssueRefs shares the flagged CMap between two
@@ -195,8 +191,8 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 			t.Errorf("%s not clamped: %q", slot, data)
 		}
 	}
-	if got := root.Entries.Get("List").(pdf.PDFArray)[1].(pdf.PDFDict); !bytes.Contains(got.RawStream, []byte("70000")) {
-		t.Errorf("unflagged CMap was touched by the targeted fix: %q", got.RawStream)
+	if got := root.Entries.Get("List").(pdf.PDFArray)[1].(pdf.PDFDict); !bytes.Contains(got.Stream(), []byte("70000")) {
+		t.Errorf("unflagged CMap was touched by the targeted fix: %q", got.Stream())
 	}
 }
 
@@ -259,14 +255,10 @@ func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 // set gets the content rewrite.
 func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) {
 	raw := []byte{0x00, 0x01, 0xfe, 0xff, ' ', 'q', ' ', 0x03}
-	img := withRef(pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Bad":     pdf.PDFInteger(3_000_000_000),
-		}),
-		HasStream: true,
-		RawStream: raw,
-	}, pdf.PDFRef{ObjNum: 50})
+	img := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Bad":     pdf.PDFInteger(3_000_000_000),
+	}), raw), pdf.PDFRef{ObjNum: 50})
 	root := pdf.NewPDFDict()
 	root.SetRef(pdf.PDFRef{ObjNum: 51})
 	root.Entries.Set("Img", img)
@@ -285,8 +277,8 @@ func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) 
 	if !handled || !changed {
 		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
 	}
-	if got := root.Entries.Get("Img").(pdf.PDFDict); !bytes.Equal(got.RawStream, raw) {
-		t.Errorf("image stream bytes were rewritten: %v", got.RawStream)
+	if got := root.Entries.Get("Img").(pdf.PDFDict); !bytes.Equal(got.Stream(), raw) {
+		t.Errorf("image stream bytes were rewritten: %v", got.Stream())
 	}
 	if got := img.Entries.Get("Bad"); got != pdf.PDFInteger(2147483647) {
 		t.Errorf("entry scalar = %v, want clamped", got)

@@ -11,15 +11,11 @@ func buildObjStmDict() PDFDict {
 	header := "1 0 2 5"
 	region := "true 42"
 	full := header + " " + region
-	return PDFDict{
-		HasStream: true,
-		RawStream: []byte(full),
-		Entries: DictOf(map[string]PDFValue{
-			"Type":  PDFName{Value: "ObjStm"},
-			"N":     PDFInteger(2),
-			"First": PDFInteger(len(header) + 1),
-		}),
-	}
+	return NewStreamDict(DictOf(map[string]PDFValue{
+		"Type":  PDFName{Value: "ObjStm"},
+		"N":     PDFInteger(2),
+		"First": PDFInteger(len(header) + 1),
+	}), []byte(full))
 }
 
 // TestDecodeObjStm covers the cache-hit path, every ResolveReference/format
@@ -56,10 +52,7 @@ func TestDecodeObjStm(t *testing.T) {
 	})
 
 	t.Run("decode failure", func(t *testing.T) {
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte("x"),
-			Entries: DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
 			t.Error("expected error decoding an unsupported filter")
@@ -67,7 +60,7 @@ func TestDecodeObjStm(t *testing.T) {
 	})
 
 	t.Run("missing N or First", func(t *testing.T) {
-		dict := PDFDict{HasStream: true, RawStream: []byte("1 0 true")}
+		dict := NewStreamDict(nil, []byte("1 0 true"))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
 			t.Error("expected error when /N or /First is missing")
@@ -75,10 +68,7 @@ func TestDecodeObjStm(t *testing.T) {
 	})
 
 	t.Run("malformed header", func(t *testing.T) {
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte("X Y true"),
-			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}), []byte("X Y true"))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.decodeObjStm(5); err == nil {
 			t.Error("expected error for a non-integer header pair")
@@ -86,10 +76,7 @@ func TestDecodeObjStm(t *testing.T) {
 	})
 
 	t.Run("out-of-range offset", func(t *testing.T) {
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte("1 1000 true"),
-			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(4)}), []byte("1 1000 true"))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		entries, err := d.decodeObjStm(5)
 		if err != nil {
@@ -103,10 +90,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("malformed nested object", func(t *testing.T) {
 		header := "1 0"
 		region := "[1 2" // unterminated array
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte(header + " " + region),
-			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}), []byte(header+" "+region))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		entries, err := d.decodeObjStm(5)
 		if err != nil {
@@ -137,10 +121,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("success with nested dict stamps _ref", func(t *testing.T) {
 		header := "7 0"
 		region := "<< /K 1 >>"
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte(header + " " + region),
-			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(1), "First": PDFInteger(len(header) + 1)}), []byte(header+" "+region))
 		d := &Reader{objCache: map[int]PDFValue{9: dict}}
 		entries, err := d.decodeObjStm(9)
 		if err != nil {
@@ -184,10 +165,7 @@ func TestResolveCompressedObject(t *testing.T) {
 	t.Run("malformed neighbour fails only itself", func(t *testing.T) {
 		header := "1 0 2 5"
 		region := "[1 2 true"
-		dict := PDFDict{
-			HasStream: true, RawStream: []byte(header + " " + region),
-			Entries: DictOf(map[string]PDFValue{"N": PDFInteger(2), "First": PDFInteger(len(header) + 1)}),
-		}
+		dict := NewStreamDict(DictOf(map[string]PDFValue{"N": PDFInteger(2), "First": PDFInteger(len(header) + 1)}), []byte(header+" "+region))
 		d := &Reader{objCache: map[int]PDFValue{5: dict}}
 		if _, err := d.resolveCompressedObject(PDFRef{ObjNum: 1}, compressedXrefEntry{streamObjNum: 5, index: 0}); err == nil {
 			t.Error("expected object 1's own parse error")

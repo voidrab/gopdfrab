@@ -65,7 +65,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		return nil, fmt.Errorf("object stream %d: %w", streamObjNum, err)
 	}
 	dict, ok := v.(PDFDict)
-	if !ok || !dict.HasStream {
+	if !ok || !dict.IsStream() {
 		return nil, fmt.Errorf("object %d is not an object stream", streamObjNum)
 	}
 
@@ -125,7 +125,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		}
 
 		// Compressed objects may not themselves be streams (ISO 32000-1
-		// 7.5.7), so there is no RawStream to capture here. Record the
+		// 7.5.7), so there are no stream bytes to capture here. Record the
 		// object's reference, which the rest of the package relies on, as
 		// parseClassicReference in resolver.go does for classic objects.
 		if dictVal, ok := val.(PDFDict); ok {

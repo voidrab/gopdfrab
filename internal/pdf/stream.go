@@ -68,13 +68,13 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	if d.data != nil {
 		// Fast path: alias the backing slice directly (mmap or caller buffer).
-		dict.RawStream = d.data[streamStart:end:end]
+		dict.SetStream(d.data[streamStart:end:end])
 	} else {
 		data := make([]byte, length)
 		if _, err := d.file.ReadAt(data, streamStart); err != nil {
 			return err
 		}
-		dict.RawStream = data
+		dict.SetStream(data)
 	}
 
 	// 6.1.7: Length must not include the EOL before endstream.

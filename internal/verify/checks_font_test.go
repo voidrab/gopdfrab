@@ -99,8 +99,7 @@ func TestType3GlyphWidthAndMetrics(t *testing.T) {
 
 func TestValidateType3Metrics(t *testing.T) {
 	proc := pdf.NewPDFDict()
-	proc.HasStream = true
-	proc.RawStream = []byte("500 0 d0\n")
+	proc.SetStream([]byte("500 0 d0\n"))
 
 	charProcs := pdf.NewPDFDict()
 	charProcs.Entries.Set("g65", proc)
@@ -214,8 +213,7 @@ func TestValidateType0Font(t *testing.T) {
 func TestValidateCMapStreamAndCIDLimits(t *testing.T) {
 	cmap := pdf.NewPDFDict()
 	cmap.Entries.Set("Type", pdf.PDFName{Value: "CMap"})
-	cmap.HasStream = true
-	cmap.RawStream = []byte("1 begincidrange\n<0000> <FFFF> 70000\nendcidrange\n")
+	cmap.SetStream([]byte("1 begincidrange\n<0000> <FFFF> 70000\nendcidrange\n"))
 
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateCMapStream(cmap, ctx)
@@ -288,8 +286,7 @@ func TestEmbeddedProgramMatchesSubtype(t *testing.T) {
 // buildType1Font's program, for exercising ValidateFontDict's Type1 path.
 func buildType1FontDict(baseFont string) pdf.PDFDict {
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = buildType1Font()
+	ff.SetStream(buildType1Font())
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("FontFile", ff)
@@ -338,8 +335,7 @@ func TestValidateFontDictTrueTypeSubset(t *testing.T) {
 	widthA := fontprog.TTAdvanceWidth(tables, int(gidA))
 
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = ttf
+	ff.SetStream(ttf)
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("FontFile2", ff)
 
@@ -371,8 +367,7 @@ func TestValidateFontDictCIDFontType2(t *testing.T) {
 			bm[i] = 0xFF
 		}
 		d := pdf.NewPDFDict()
-		d.HasStream = true
-		d.RawStream = bm
+		d.SetStream(bm)
 		return d
 	}())
 	desc.Entries.Set("FontFile2", ff)
@@ -405,14 +400,12 @@ func TestValidateFontDictCIDFontType2(t *testing.T) {
 func TestValidateFontDictCIDFontType0(t *testing.T) {
 	cff := buildMinimalCIDCFF()
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = cff
+	ff.SetStream(cff)
 
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("FontFile3", ff)
 	cidSet := pdf.NewPDFDict()
-	cidSet.HasStream = true
-	cidSet.RawStream = []byte{0xE0}
+	cidSet.SetStream([]byte{0xE0})
 	// CIDs 0, 1, 2 all marked
 	desc.Entries.Set("CIDSet", cidSet)
 
@@ -438,8 +431,7 @@ func TestValidateFontDictCIDFontType0(t *testing.T) {
 
 func TestValidateFontDictType3(t *testing.T) {
 	proc := pdf.NewPDFDict()
-	proc.HasStream = true
-	proc.RawStream = []byte("500 0 d0\n")
+	proc.SetStream([]byte("500 0 d0\n"))
 	charProcs := pdf.NewPDFDict()
 	charProcs.Entries.Set("g65", proc)
 	enc := pdf.NewPDFDict()
@@ -473,8 +465,7 @@ func TestValidateFontDictType3(t *testing.T) {
 func TestValidateFontDictSymbolicTrueType(t *testing.T) {
 	ttf := loadTTF(t)
 	ff := pdf.NewPDFDict()
-	ff.HasStream = true
-	ff.RawStream = ttf
+	ff.SetStream(ttf)
 	desc := pdf.NewPDFDict()
 	desc.Entries.Set("Flags", pdf.PDFInteger(4))
 	// symbolic
@@ -642,8 +633,7 @@ func type3Font(proc pdf.PDFDict, widths pdf.PDFArray) pdf.PDFDict {
 
 func type3Proc(content string) pdf.PDFDict {
 	proc := pdf.NewPDFDict()
-	proc.HasStream = true
-	proc.RawStream = []byte(content)
+	proc.SetStream([]byte(content))
 	return proc
 }
 
@@ -774,8 +764,7 @@ func TestValidateCMapStreamUndecodable(t *testing.T) {
 	cmap := pdf.NewPDFDict()
 	cmap.Entries.Set("Type", pdf.PDFName{Value: "CMap"})
 	cmap.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	cmap.HasStream = true
-	cmap.RawStream = []byte("not a zlib stream")
+	cmap.SetStream([]byte("not a zlib stream"))
 	ctx := &ValidationContext{Spec: a1bSpec}
 	validateCMapStream(cmap, ctx)
 	if !hasCheck(ctx, pdf.Checks.Structure.StreamUndecodable) {

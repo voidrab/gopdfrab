@@ -323,7 +323,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !contents.HasStream {
+	if !ok || !contents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	data, err := pdf.DecodeStream(contents)

@@ -48,8 +48,7 @@ func iccHeader(major byte, class string) []byte {
 
 func iccStream(major byte, class string) pdf.PDFDict {
 	s := specDict("N", pdf.PDFInteger(3))
-	s.HasStream = true
-	s.RawStream = iccHeader(major, class)
+	s.SetStream(iccHeader(major, class))
 	return s
 }
 
@@ -288,7 +287,7 @@ func TestChecksFollowTheLevelSpec(t *testing.T) {
 			func(s *pdfa.Spec) { s.FontFileSubtypes = pdfa.NewNames("OpenType") },
 			func(s pdfa.Spec) []pdf.PDFError {
 				ff := specDict("Subtype", specName("OpenType"))
-				ff.HasStream = true
+				ff.SetStream(nil)
 				return withSpec(s, func(ctx *ValidationContext) {
 					ValidateFontProgram(nil, specDict("FontFile3", ff), "F", ctx)
 				})

@@ -27,7 +27,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 		t.Errorf("Flags = %d, want symbolic set and non-symbolic clear", flags)
 	}
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		t.Fatalf("no embedded FontFile2")
 	}
 	data, err := pdf.DecodeStream(ff)
@@ -57,7 +57,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	}
 
 	toUni, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict)
-	if !ok || !toUni.HasStream {
+	if !ok || !toUni.IsStream() {
 		t.Fatalf("no ToUnicode CMap on symbolic substitute")
 	}
 	tuData, err := pdf.DecodeStream(toUni)

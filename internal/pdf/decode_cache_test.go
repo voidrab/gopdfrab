@@ -16,11 +16,7 @@ func TestDecodeCacheRemembersFailures(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			raw := []byte("zz>") // invalid hex digits
-			dict := PDFDict{
-				HasStream: true,
-				RawStream: raw,
-				Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "ASCIIHexDecode"}}),
-			}
+			dict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "ASCIIHexDecode"}}), raw)
 			d := &Reader{}
 			if _, err := decode(d, dict); err == nil {
 				t.Fatal("expected the invalid hex stream to fail")

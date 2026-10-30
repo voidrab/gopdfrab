@@ -36,16 +36,14 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 	unit := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
 
 	ps := pdf.NewPDFDict()
-	ps.HasStream = true
-	ps.RawStream = data
+	ps.SetStream(data)
 	ps.Entries.Set("FunctionType", pdf.PDFInteger(4))
 	ps.Entries.Set("Domain", unit)
 	ps.Entries.Set("Range", unit)
 	ps.Entries.Set("Length", pdf.PDFInteger(len(data)))
 
 	sampled := pdf.NewPDFDict()
-	sampled.HasStream = true
-	sampled.RawStream = data
+	sampled.SetStream(data)
 	sampled.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	sampled.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
 	sampled.Entries.Set("Range", unit)

@@ -81,7 +81,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 				return
 			}
 			xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
+			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.IsStream() {
 				scanContentColour(xobj, resourcesOf(xobj, resources), claim, decode, emit)
 			}
 		case "scn", "SCN":
@@ -93,7 +93,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 				return
 			}
 			patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
-			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.HasStream {
+			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.IsStream() {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
 		}
@@ -221,11 +221,11 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 	changed := false
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			changed = in.run(v, resourcesOf(v, pdf.PDFDict{})) || changed
 		} else {
 			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					changed = in.run(sd, resourcesOf(sd, pdf.PDFDict{})) || changed
 				}
 			}
@@ -239,12 +239,12 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 func forEachContentStream(page pdf.PDFDict, fn func(pdf.PDFDict)) {
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if contents.HasStream {
+		if contents.IsStream() {
 			fn(contents)
 		}
 	case pdf.PDFArray:
 		for _, item := range contents {
-			if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+			if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
 				fn(cd)
 			}
 		}
@@ -313,7 +313,7 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			return
 		}
 		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
-		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.HasStream {
+		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.IsStream() {
 			if in.run(sub, resourcesOf(sub, scope)) {
 				changed = true
 			}
@@ -375,12 +375,12 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if contents.HasStream {
+		if contents.IsStream() {
 			scanContentColour(contents, resources, claim, decode, emit)
 		}
 	case pdf.PDFArray:
 		for _, item := range contents {
-			if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+			if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
 				scanContentColour(cd, resources, claim, decode, emit)
 			}
 		}
@@ -457,13 +457,13 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 	if !ok {
 		return
 	}
-	if v.HasStream {
+	if v.IsStream() {
 		apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 		scanContentColour(v, apRes, claim, decode, emit)
 		return
 	}
 	for _, sv := range v.Entries.All() {
-		if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+		if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 			apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}

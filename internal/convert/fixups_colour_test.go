@@ -35,8 +35,7 @@ func iccBasedTrailer(colorSpace string, n int) (trailer pdf.PDFDict, cs pdf.PDFA
 // iccBasedTrailerWith is iccBasedTrailer over a profile the caller built.
 func iccBasedTrailerWith(profile []byte, n int) (trailer pdf.PDFDict, cs pdf.PDFArray) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = profile
+	stream.SetStream(profile)
 	if n >= 0 {
 		stream.Entries.Set("N", pdf.PDFInteger(n))
 	}
@@ -237,8 +236,7 @@ func TestICCBasedProfileFixerUnusableProfile(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := pdf.NewPDFDict()
-			stream.HasStream = true
-			stream.RawStream = tc.profile
+			stream.SetStream(tc.profile)
 			cs := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 			trailer := pdf.NewPDFDict()
 			trailer.Entries.Set("CS", cs)
@@ -286,8 +284,7 @@ func TestICCBasedProfileFixerSkipsConformingSpaces(t *testing.T) {
 // space reached only through another array, as /Indexed bases are.
 func TestICCBasedProfileFixerFindsNestedSpaces(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildICCProfileHeader("CMYK")
+	stream.SetStream(buildICCProfileHeader("CMYK"))
 	stream.Entries.Set("N", pdf.PDFInteger(3))
 
 	indexed := pdf.PDFArray{
@@ -409,8 +406,7 @@ func TestConvertClearsICCBasedProfileInvalid(t *testing.T) {
 // held by another array, as /Indexed bases are: it is repaired where it sits.
 func TestICCBasedProfileFixerRepairsNestedGraySpace(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildICCProfileHeader("RGB ")
+	stream.SetStream(buildICCProfileHeader("RGB "))
 	stream.Entries.Set("N", pdf.PDFInteger(1))
 
 	indexed := pdf.PDFArray{
@@ -442,8 +438,7 @@ func TestICCBasedProfileFixerRepairsNestedGraySpace(t *testing.T) {
 // same array in both, so repairing it once shows up in both.
 func TestICCBasedProfileFixerCollectsEverySlot(t *testing.T) {
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = buildICCProfileHeader("RGB ")
+	stream.SetStream(buildICCProfileHeader("RGB "))
 	stream.Entries.Set("N", pdf.PDFInteger(1))
 	cs := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
 
@@ -568,8 +563,7 @@ func TestBundledProfilesAreUsable(t *testing.T) {
 
 func iccProfileStream(n pdf.PDFValue, data []byte) pdf.PDFDict {
 	p := pdf.NewPDFDict()
-	p.HasStream = true
-	p.RawStream = data
+	p.SetStream(data)
 	if n != nil {
 		p.Entries.Set("N", n)
 	}
@@ -638,8 +632,7 @@ func TestInjectOutputIntentRejectsNonDictRoot(t *testing.T) {
 
 func TestDecoderForWithoutReaderIsPlainDecode(t *testing.T) {
 	s := pdf.NewPDFDict()
-	s.HasStream = true
-	s.RawStream = []byte("q Q")
+	s.SetStream([]byte("q Q"))
 	got, err := decoderFor(nil)(s)
 	if err != nil || string(got) != "q Q" {
 		t.Errorf("decoderFor(nil)(stream) = %q, %v; want %q", got, err, "q Q")

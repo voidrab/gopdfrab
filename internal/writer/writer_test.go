@@ -71,7 +71,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !contents.HasStream {
+	if !ok || !contents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	data, err := pdf.DecodeStream(contents)
@@ -91,11 +91,7 @@ func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want s
 // latter is the part a naive serializer would get wrong: they must remain the
 // same object on both sides of the cycle rather than being duplicated.
 func TestWriterRoundTripSyntheticGraph(t *testing.T) {
-	contents := withRef(pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Length": pdf.PDFInteger(4)}),
-		HasStream: true,
-		RawStream: []byte("q\nQ\n"),
-	}, pdf.PDFRef{ObjNum: 10})
+	contents := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Length": pdf.PDFInteger(4)}), []byte("q\nQ\n")), pdf.PDFRef{ObjNum: 10})
 	page := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(200), pdf.PDFInteger(300)},
@@ -202,7 +198,7 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	gotPage := assertOnePageGraph(t, graph)
 
 	gotContents, ok := gotPage.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !gotContents.HasStream {
+	if !ok || !gotContents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	if !pdf.EqualPDFValue(gotContents.Entries.Get("Filter"), pdf.PDFName{Value: "FlateDecode"}) {
@@ -311,7 +307,7 @@ func (e *errAfter) Write(p []byte) (int, error) {
 
 // TestIdentityOfPointerBranch covers identityOf's no-_ref (pointer-identity) path.
 func TestIdentityOfPointerBranch(t *testing.T) {
-	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true}
+	d := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), nil)
 	if id := identityOf(d); id.hasRef {
 		t.Error("identityOf(no _ref) reported hasRef, want pointer identity")
 	}
@@ -343,10 +339,7 @@ func TestWriteErrorPropagation(t *testing.T) {
 		_ = writeOperand(&errAfter{n: n}, op)
 	}
 
-	streamObj := withRef(pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
-		HasStream: true, RawStream: []byte("xyz"),
-	}, pdf.PDFRef{ObjNum: 1})
+	streamObj := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("xyz")), pdf.PDFRef{ObjNum: 1})
 	plainObj := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "X"},
 	})}, pdf.PDFRef{ObjNum: 2})
@@ -516,10 +509,7 @@ func TestSetStreamFlateVariants(t *testing.T) {
 func TestDeflateZlib(t *testing.T) {
 	data := []byte("hello deflate")
 	compressed := DeflateZlib(data)
-	d := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}),
-		HasStream: true, RawStream: compressed,
-	}
+	d := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), compressed)
 	assertFlateDecodes(t, d, data)
 }
 
@@ -545,11 +535,8 @@ func assertFlateDecodes(t *testing.T, d pdf.PDFDict, want []byte) {
 func TestSizeHintDoesNotChangeOutput(t *testing.T) {
 	build := func() pdf.PDFDict {
 		page := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type": pdf.PDFName{Value: "Page"},
-			"Contents": withRef(pdf.PDFDict{
-				Entries:   pdf.DictOf(map[string]pdf.PDFValue{}),
-				HasStream: true, RawStream: []byte("BT ET"),
-			}, pdf.PDFRef{ObjNum: 4}),
+			"Type":     pdf.PDFName{Value: "Page"},
+			"Contents": withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT ET")), pdf.PDFRef{ObjNum: 4}),
 		})}, pdf.PDFRef{ObjNum: 2})
 		catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type": pdf.PDFName{Value: "Catalog"},

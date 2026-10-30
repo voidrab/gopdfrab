@@ -85,7 +85,7 @@ func TestEqualPDFValue(t *testing.T) {
 			PDFDict{Entries: DictOf(map[string]PDFValue{"J": PDFInteger(1)})},
 		},
 		{
-			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)}), HasStream: true},
+			NewStreamDict(DictOf(map[string]PDFValue{"K": PDFInteger(1)}), nil),
 			PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFInteger(1)})},
 		},
 		{

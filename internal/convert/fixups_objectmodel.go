@@ -507,7 +507,7 @@ func repairTrailerInfo(trailer *pdf.PDFDict) bool {
 	if !present || v == nil {
 		return false
 	}
-	if d, ok := v.(pdf.PDFDict); ok && !d.HasStream {
+	if d, ok := v.(pdf.PDFDict); ok && !d.IsStream() {
 		return false
 	}
 	trailer.Entries.Set("Info", pdf.NewPDFDict())
@@ -892,7 +892,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if key == "Descent" && negateDescent(d) {
 		return true // a descriptor without /Type, missed by the whole-graph pass
 	}
-	if key == "Filter" && d.HasStream {
+	if key == "Filter" && d.IsStream() {
 		if nv, ok := expandFilterAbbrevs(d.Entries.Get(key)); ok {
 			d.Entries.Set(key, nv)
 			return true
@@ -949,7 +949,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 // bytes are read as they stand -- as content-stream operators, say -- so the
 // schema fixers leave such a violation as a residual instead.
 func streamDataKey(d pdf.PDFDict, key string) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	switch key {

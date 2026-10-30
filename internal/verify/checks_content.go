@@ -259,10 +259,10 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 		// its content uses may still come from one inherited up the tree.
 		scanContentValue(v.Entries.Get("Contents"), inheritedResources(v), ctx)
 		scanAnnotAppearances(v, ctx)
-	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.HasStream:
+	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.IsStream():
 		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).
 		scanContentDict(v, resources, ctx)
-	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"} && v.HasStream:
+	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"} && v.IsStream():
 		if !ctx.isReachableXObject(v) {
 			return
 		}
@@ -270,7 +270,7 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}:
 		if cp, ok := v.Entries.Get("CharProcs").(pdf.PDFDict); ok {
 			for _, proc := range cp.Entries.All() {
-				if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
+				if pd, ok := proc.(pdf.PDFDict); ok && pd.IsStream() {
 					scanContentDict(pd, resources, ctx)
 				}
 			}
@@ -308,13 +308,13 @@ func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentDict(v, apRes, ctx)
 		} else {
 			// Subdictionary of appearance states.
 			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 					scanContentDict(sd, apRes, ctx)
 				}

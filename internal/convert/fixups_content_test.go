@@ -276,8 +276,7 @@ func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
 // decode is left exactly as it is, rather than replaced with an empty one.
 func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte("not flate data")
+	dict.SetStream([]byte("not flate data"))
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
 	if _, changed := rescaleContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits, realLimit); changed {
@@ -290,7 +289,7 @@ func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 // branches: rewriteOperatorsAndLimits drops it, so a cleared stream proves
 // that branch was actually reached and rewritten.
 func undefinedOpStream() pdf.PDFDict {
-	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q 1 0 0 RG XX 1 2 Q\n")}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("q 1 0 0 RG XX 1 2 Q\n"))
 }
 
 // assertOperatorDropped decodes dict's content stream and fails the test if
@@ -372,8 +371,7 @@ func TestWalkContentStreamsDispatch(t *testing.T) {
 func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 	src := []byte("q 1 0 0 RG 0 0 100 100 re S XX 1 2 Q\n")
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = src
+	dict.SetStream(src)
 
 	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
 	if !changed {
@@ -413,8 +411,7 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	// content-stream token at all and stops the read.
 	src := []byte("q XX 1 2\n{ }\n0 0 100 100 re f Q\n")
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = src
+	dict.SetStream(src)
 
 	if _, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits); changed {
 		t.Error("a half-read stream was rewritten, want the original kept")
@@ -422,8 +419,8 @@ func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	if _, changed := allContentLimits.repairContentStream(dict); changed {
 		t.Error("a half-read stream was rescaled, want the original kept")
 	}
-	if !bytes.Equal(dict.RawStream, src) {
-		t.Errorf("stream = %q, want it untouched", dict.RawStream)
+	if !bytes.Equal(dict.Stream(), src) {
+		t.Errorf("stream = %q, want it untouched", dict.Stream())
 	}
 }
 
@@ -496,8 +493,7 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	const placed = "q 0.001968504 0 0 0.001968504 0 0 cm\n" +
 		"q 487680 0 0 274320 0 0 cm\n0 0 0 rg\n0 0 1 1 re\nf\nQ\nQ\n"
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte(placed)
+	dict.SetStream([]byte(placed))
 
 	fixed, changed := allContentLimits.repairContentStream(dict)
 	if !changed {
@@ -524,12 +520,11 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 // rewriteContentStreamDict leaves a stream it cannot decode exactly as it is.
 func TestRewriteContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte("not flate data")
+	dict.SetStream([]byte("not flate data"))
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
-	if changed || string(fixed.RawStream) != "not flate data" {
-		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.RawStream)
+	if changed || string(fixed.Stream()) != "not flate data" {
+		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.Stream())
 	}
 }
 

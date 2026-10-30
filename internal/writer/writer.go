@@ -187,8 +187,7 @@ func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) {
 }
 
 func setFlateStream(d *pdf.PDFDict, compressed []byte) {
-	d.RawStream = compressed
-	d.HasStream = true
+	d.SetStream(compressed)
 	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	d.Entries.Del("DecodeParms")
 	d.Entries.Del("DP")
@@ -228,7 +227,7 @@ func isIndirectDict(v pdf.PDFDict) bool {
 	if _, ok := v.Ref(); ok {
 		return true
 	}
-	return v.HasStream
+	return v.IsStream()
 }
 
 func identityOf(v pdf.PDFDict) objectIdentity {
@@ -353,7 +352,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 		return err
 	}
 
-	if !val.HasStream {
+	if !val.IsStream() {
 		if err := wr.writeDictEntries(cw, val.Entries); err != nil {
 			return err
 		}
@@ -361,7 +360,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 		return err
 	}
 
-	raw := val.RawStream
+	raw := val.Stream()
 	entries := val.Entries
 
 	// /Length is always recomputed from the bytes actually being written,

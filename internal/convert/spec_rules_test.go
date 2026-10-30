@@ -24,8 +24,7 @@ func specDict(kv ...any) pdf.PDFDict {
 // specStream is a stream dict holding data unfiltered.
 func specStream(data []byte, kv ...any) pdf.PDFDict {
 	d := specDict(kv...)
-	d.HasStream = true
-	d.RawStream = data
+	d.SetStream(data)
 	return d
 }
 
@@ -169,7 +168,7 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				space := pdf.PDFArray{specName("ICCBased"), icc}
 				trailer := trailerWith("CS", space)
 				_, _ = iccBasedProfileFixer{spec: s}.Fix(&trailer, nil)
-				return space[1].(pdf.PDFDict).RawStream[8] != 4
+				return space[1].(pdf.PDFDict).Stream()[8] != 4
 			}, false},
 		{"output intent profile version", func(s *pdfa.Spec) { s.ICCMaxMajorVersion = 4 },
 			func(t *testing.T, s *pdfa.Spec) bool {

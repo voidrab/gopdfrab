@@ -7,16 +7,13 @@ import (
 )
 
 func TestFileSpecFixer(t *testing.T) {
-	fs := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"EF":            pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
-			"EmbeddedFiles": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
-			"F":             pdf.PDFString{Value: "x"},
-			"FFilter":       pdf.PDFName{Value: "Fl"},
-			"FDecodeParms":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
-		}),
-		HasStream: true, RawStream: []byte("data"),
-	}
+	fs := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"EF":            pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		"EmbeddedFiles": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+		"F":             pdf.PDFString{Value: "x"},
+		"FFilter":       pdf.PDFName{Value: "Fl"},
+		"FDecodeParms":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	}), []byte("data"))
 	trailer := trailerWith("FS", fs)
 	changed, err := fileSpecFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {

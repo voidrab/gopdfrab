@@ -41,7 +41,7 @@ func TestParseFunctionErrors(t *testing.T) {
 			m[k] = v
 		}
 		d := fnDict(m)
-		d.HasStream, d.RawStream = true, []byte{0, 255}
+		d.SetStream([]byte{0, 255})
 		return d
 	}
 
@@ -64,7 +64,7 @@ func TestParseFunctionErrors(t *testing.T) {
 		"sample decode bad":   {sampled(map[string]PDFValue{"Decode": badArr}), "Decode"},
 		"sample data bad": {func() PDFDict {
 			d := sampled(nil)
-			d.HasStream = false
+			d.Entries.isStream = false
 			return d
 		}(), "sample data"},
 		"postscript stream bad": {fnDict(map[string]PDFValue{"FunctionType": PDFInteger(4), "Domain": unit}), "PostScript calculator stream"},

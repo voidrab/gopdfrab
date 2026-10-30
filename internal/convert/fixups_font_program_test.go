@@ -185,7 +185,7 @@ func findFontBySubtype(t *testing.T, trailer pdf.PDFDict, subtype string) pdf.PD
 // second pass over the already-promoted program is a no-op.
 func TestPromoteEmptyGlyphsInFontsIdempotent(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
-	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: ttf}
+	ff := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), ttf)
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontFile2": ff})}
 	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Subtype":        pdf.PDFName{Value: "CIDFontType2"},
@@ -305,7 +305,7 @@ func TestFontMetricFixerCorrectsType3Widths(t *testing.T) {
 // corpus fixture exercises a CIDFontType0/CFF width mismatch, so the font
 // program is hand-built (buildMinimalCIDCFF: CID 1 width 600, CID 2 width 700).
 func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
-	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
+	ff := pdf.NewStreamDict(nil, buildMinimalCIDCFF())
 	v := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"W": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFArray{pdf.PDFInteger(500), pdf.PDFInteger(500)}},
 	})}
@@ -328,7 +328,7 @@ func TestFixCIDCFFWidthsCorrectsMismatch(t *testing.T) {
 
 // TestFixCIDCFFWidthsNoOpWithoutW covers the missing-/W short-circuit.
 func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
-	ff := pdf.PDFDict{HasStream: true, RawStream: buildMinimalCIDCFF()}
+	ff := pdf.NewStreamDict(nil, buildMinimalCIDCFF())
 	if fixCIDCFFWidths(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}, ff) {
 		t.Error("fixCIDCFFWidths without /W = true, want false")
 	}
@@ -340,10 +340,10 @@ func TestFixCIDCFFWidthsNoOpWithoutW(t *testing.T) {
 func TestFixTrueTypeCIDSetSkipsNonIdentityCIDToGIDMap(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"CIDToGIDMap": pdf.PDFDict{HasStream: true, RawStream: []byte{0, 1, 0, 2}},
+		"CIDToGIDMap": pdf.NewStreamDict(nil, []byte{0, 1, 0, 2}),
 	})}
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
+	ff := pdf.NewStreamDict(nil, ttf)
 
 	if fixTrueTypeCIDSet(d, desc, ff) {
 		t.Error("fixTrueTypeCIDSet with a stream CIDToGIDMap = true, want false")
@@ -359,7 +359,7 @@ func TestFixTrueTypeCIDSetNoOpWhenAlreadyComplete(t *testing.T) {
 	ttf := loadLiberationSansForTest(t)
 	d := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	ff := pdf.PDFDict{HasStream: true, RawStream: ttf}
+	ff := pdf.NewStreamDict(nil, ttf)
 
 	if !fixTrueTypeCIDSet(d, desc, ff) {
 		t.Fatal("sanity: first pass should populate CIDSet")
@@ -435,7 +435,7 @@ func TestFontSubsetMetaFixerSynthesizesCFFCIDSet(t *testing.T) {
 			runFixerAndCheckIdempotent(t, fontSubsetMetaFixer{}, &trailer)
 
 			cidSet, ok := desc.Entries.Get("CIDSet").(pdf.PDFDict)
-			if !ok || !cidSet.HasStream || len(cidSet.RawStream) == 0 {
+			if !ok || !cidSet.IsStream() || len(cidSet.Stream()) == 0 {
 				t.Fatalf("CIDSet = %v, want a non-empty stream dict", desc.Entries.Get("CIDSet"))
 			}
 			if (cidSet.Entries.Get("Filter") != pdf.PDFName{Value: "FlateDecode"}) {
@@ -557,7 +557,7 @@ func wrapInSfnt(tag uint32, tables map[string][]byte) []byte {
 // fontWithFontFile3 builds a trailer holding one font of the given subtype
 // whose descriptor embeds program under FontFile3 with the given /Subtype.
 func fontWithFontFile3(fontSubtype, fileSubtype string, program []byte) pdf.PDFDict {
-	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: program}
+	ff := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), program)
 	if fileSubtype != "" {
 		ff.Entries.Set("Subtype", pdf.PDFName{Value: fileSubtype})
 	}
@@ -632,7 +632,7 @@ func TestFontFileSubtypeFixerRelabelsBareCFF(t *testing.T) {
 	if (ff.Entries.Get("Subtype") != pdf.PDFName{Value: "Type1C"}) {
 		t.Errorf("Subtype = %v, want /Type1C", ff.Entries.Get("Subtype"))
 	}
-	if !bytes.Equal(ff.RawStream, cff) {
+	if !bytes.Equal(ff.Stream(), cff) {
 		t.Error("a bare CFF was re-encoded, want it left untouched")
 	}
 }
@@ -700,9 +700,9 @@ func TestFontFileSubtypeFixerLeavesUnusableProgram(t *testing.T) {
 func TestFontFileSubtypeFixerDropsSpuriousSubtype(t *testing.T) {
 	for _, key := range []string{"FontFile", "FontFile2"} {
 		t.Run(key, func(t *testing.T) {
-			ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			ff := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 				"Subtype": pdf.PDFName{Value: "OpenType"},
-			}), HasStream: true, RawStream: []byte("program")}
+			}), []byte("program"))
 			desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: ff})}
 			font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 				"Type":           pdf.PDFName{Value: "Font"},

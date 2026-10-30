@@ -18,8 +18,7 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	t.Helper()
 
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = []byte(onePageContent)
+	contents.SetStream([]byte(onePageContent))
 	contents.SetRef(pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
@@ -155,9 +154,9 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
-		contents.RawStream = []byte(hex.EncodeToString([]byte(onePageContent)) + ">")
+		contents.SetStream([]byte(hex.EncodeToString([]byte(onePageContent)) + ">"))
 		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
-		page.Entries.Set("Contents", contents) // RawStream lives on the copy
+		page.Entries.Set("Contents", contents) // Stream() lives on the copy
 	})
 
 	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
