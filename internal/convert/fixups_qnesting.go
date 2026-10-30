@@ -51,9 +51,8 @@ func (qNestingFixer) Applies(c pdf.Check) bool {
 func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	limit := f.spec.Limits.MaxQNesting
 	changed := false
-	// One rewrite per stream: a stream two pages share is unnested once, since
-	// a second pass over a partly unnested stream could move more blocks. One
-	// that could not be unnested for one page is still tried for the next.
+	// A stream that two pages share is unnested only once. A stream that could
+	// not be unnested for one page is tried again for the next.
 	done := map[uintptr]bool{}
 	rewrite := func(d, resources pdf.PDFDict, visible rect, last bool) bool {
 		ptr := pdf.ValuePointer(d.Entries)
