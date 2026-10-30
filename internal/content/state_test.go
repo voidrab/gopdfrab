@@ -68,7 +68,7 @@ func TestGStateColourSpaces(t *testing.T) {
 		t.Errorf("after sc: fill = %v, want green", g.Fill.RGB)
 	}
 
-	// A pattern is selected by name, and the colour is left as it was.
+	// The Pattern space selects no pattern until an scn or SCN names one.
 	g.Apply("CS", []pdf.PDFValue{name("Pattern")}, resources)
 	if !g.Stroke.IsPattern() || g.Stroke.Pattern != "" {
 		t.Errorf("after CS /Pattern: stroke = %+v, want a pattern space with none selected", g.Stroke)

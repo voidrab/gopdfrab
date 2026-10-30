@@ -96,15 +96,11 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 	}
 }
 
-// rewriteDeviceNStream decodes dict's content stream into its full op
-// sequence, tracking the currently cs/CS-selected fill/stroke colour space
-// across it (an approximation of q/Q-scoped graphics state -- adequate here
-// since the Check this fixer clears cares only about the array's
-// reachability from the resource graph, not about exactly which q/Q scope
-// every scn/SCN call falls in). A cs/CS selecting an oversized DeviceN space
-// is dropped, and the scn/SCN call(s) that use it are replaced with a
-// literal rg/RG resolved via ResolveColor. Recurses into any Form XObject
-// that the stream draws, using that Form's own /Resources.
+// rewriteDeviceNStream rewrites dict's content stream, following the
+// graphics state through it. A cs or CS selecting an oversized DeviceN space
+// is dropped, and each scn or SCN that sets a colour in it is replaced with
+// the rg or RG of the same colour. Recurses into any Form XObject that the
+// stream draws, using that Form's own /Resources.
 func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]bool) (pdf.PDFDict, bool) {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {

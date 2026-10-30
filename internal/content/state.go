@@ -101,7 +101,7 @@ func (g *GState) colour(op string) *Colour {
 
 // numbers returns the last n operands as numbers. ok is false when there are
 // fewer than n or one of them is not a number, and the operator is then
-// skipped, as viewers skip it.
+// skipped.
 func numbers(operands []pdf.PDFValue, n int) (out []float64, ok bool) {
 	if len(operands) < n {
 		return nil, false
@@ -137,8 +137,8 @@ func ColorSpaceOperand(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFVa
 	return name
 }
 
-// IsPatternSpace reports whether cs is a Pattern colour space, uncoloured
-// ([/Pattern base]) or not.
+// IsPatternSpace reports whether cs is a Pattern colour space. It accepts the
+// name Pattern and the uncoloured form [/Pattern base].
 func IsPatternSpace(cs pdf.PDFValue) bool {
 	switch v := cs.(type) {
 	case pdf.PDFName:
