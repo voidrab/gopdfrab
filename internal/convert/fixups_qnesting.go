@@ -51,20 +51,21 @@ func (qNestingFixer) Applies(c pdf.Check) bool {
 func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	limit := f.spec.Limits.MaxQNesting
 	changed := false
-	// One rewrite per stream, so a stream two pages share is replaced in both
-	// by the same new dict.
-	done := map[uintptr]pdf.PDFDict{}
-	rewrite := func(d, resources pdf.PDFDict, visible rect, last bool) (pdf.PDFDict, bool) {
+	// One rewrite per stream: a stream two pages share is unnested once, since
+	// a second pass over a partly unnested stream could move more blocks. One
+	// that could not be unnested for one page is still tried for the next.
+	done := map[uintptr]bool{}
+	rewrite := func(d, resources pdf.PDFDict, visible rect, last bool) bool {
 		ptr := pdf.ValuePointer(d.Entries)
-		if fixed, ok := done[ptr]; ok {
-			return fixed, true
+		if done[ptr] {
+			return false
 		}
-		fixed, ok := unnestStream(d, resources, visible, last, limit)
+		_, ok := unnestStream(d, resources, visible, last, limit)
 		if ok {
-			done[ptr] = fixed
+			done[ptr] = true
 			changed = true
 		}
-		return fixed, ok
+		return ok
 	}
 
 	for _, page := range orderedPages(*trailer) {
@@ -74,17 +75,13 @@ func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		visible := rect{page.mediaBox[0], page.mediaBox[1], page.mediaBox[2], page.mediaBox[3]}
 		switch contents := page.dict.Entries.Get("Contents").(type) {
 		case pdf.PDFDict:
-			if fixed, ok := rewrite(contents, page.resources, visible, true); ok {
-				page.dict.Entries.Set("Contents", fixed)
-			}
+			rewrite(contents, page.resources, visible, true)
 		case pdf.PDFArray:
 			for i, item := range contents {
 				// The array is one drawing cut into pieces, so a block left
 				// open at the end of a piece may be closed by the next one.
 				if cd, ok := item.(pdf.PDFDict); ok {
-					if fixed, ok := rewrite(cd, page.resources, visible, i == len(contents)-1); ok {
-						contents[i] = fixed
-					}
+					rewrite(cd, page.resources, visible, i == len(contents)-1)
 				}
 			}
 		}
@@ -104,8 +101,7 @@ func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		if !ok {
 			return false
 		}
-		_, ok = rewrite(d, resources, bbox, true)
-		return ok
+		return rewrite(d, resources, bbox, true)
 	})
 	return changed, nil
 }
