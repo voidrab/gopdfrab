@@ -78,6 +78,9 @@ notice.
   `/Length1` and `/Filter`. Every font sharing the program now gets the repair.
 - The 6.3.6 width check and its repair skipped Type 1 glyphs that set their
   width with `sbw`, and misread widths computed with `div`.
+- Raster fallback: a TrueType contour made only of off-curve points, as
+  round dots often are, was drawn with each curve bent toward the wrong
+  control point.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

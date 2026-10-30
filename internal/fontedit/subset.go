@@ -211,11 +211,10 @@ func SubsetTrueTypeForCID(src []byte, targetCIDs map[uint16][]int, notdef map[in
 
 	out := buildSubsetTables(tables, nextClosureGID, oldGIDOf, remap)
 	out["cmap"] = BuildCmapFormat4Table(3, 1, nil)
-	if head := out["head"]; len(head) >= 20 {
-		upm := float64(binary.BigEndian.Uint16(head[18:20]))
+	if upm, ok := fontprog.UnitsPerEm(out); ok {
 		// buildSubsetTables writes a full hmtx: one long metric per glyph.
 		for cid, width := range notdef {
-			binary.BigEndian.PutUint16(out["hmtx"][cid*4:], uint16(math.Round(width*upm/1000)))
+			binary.BigEndian.PutUint16(out["hmtx"][cid*4:], uint16(math.Round(width*float64(upm)/1000)))
 		}
 	}
 	return PackSfnt(out), nil
