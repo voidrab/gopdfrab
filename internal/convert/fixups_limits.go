@@ -285,7 +285,7 @@ func computeResourceUsage(graph pdf.PDFValue) map[uintptr]map[string]bool {
 		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
 			return true
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		collectResourceUsageFromContents(d.Entries.Get("Contents"), resources, ru)
 		return false
 	}, nil)
@@ -696,7 +696,7 @@ func walkResourceAwareContent(trailer *pdf.PDFDict, rewrite resourceOpRewriter) 
 		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
 			return true
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		rewritePageContents(d, resources, rewrite, visitedForm, &changed)
 		return false
 	}, nil)

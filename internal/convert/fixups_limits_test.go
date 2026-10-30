@@ -589,3 +589,27 @@ func TestClampCMapCIDsClampsEveryOutOfRangeCID(t *testing.T) {
 		t.Errorf("clamped = %q, want %q", got, want)
 	}
 }
+
+// TestComputeResourceUsageInheritedResources verifies that a page's content
+// marks the resources it names as used when the page inherits its
+// /Resources from the page tree, so pruning cannot delete them.
+func TestComputeResourceUsageInheritedResources(t *testing.T) {
+	xobjects := pdf.NewPDFDict()
+	for _, name := range []string{"Im1", "Im2"} {
+		xobjects.Entries.Set(name, pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}), nil))
+	}
+	pages := pdf.NewPDFDict()
+	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
+	pages.Entries.Set("Resources", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"XObject": xobjects})})
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Parent", pages)
+	page.Entries.Set("Contents", pdf.NewStreamDict(pdf.NewPDFDict().Entries, []byte("/Im1 Do")))
+	pages.Entries.Set("Kids", pdf.PDFArray{page})
+	root := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Pages": pages})}
+
+	used := computeResourceUsage(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": root})})[pdf.ValuePointer(xobjects.Entries)]
+	if !used["Im1"] || used["Im2"] {
+		t.Errorf("usage of the inherited XObject dictionary = %v, want Im1 only", used)
+	}
+}

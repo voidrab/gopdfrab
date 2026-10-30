@@ -94,6 +94,10 @@ notice.
   every space; it starts at the space's initial colour, such as full tint
   in a Separation space. A cm or colour operator short of operands is
   skipped instead of setting a zero matrix or black.
+- Repairs that read a page's content used only the page's own /Resources,
+  not one inherited from the page tree. The resource pruning repair could
+  then delete resources such a page uses, and the colour, DeviceN and
+  resource-renaming repairs missed what it names.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

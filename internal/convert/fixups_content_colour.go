@@ -129,7 +129,7 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
 			return
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		used := pageDeviceColourModels(d, resources, f.decode)
 
 		needRGB := used["rgb"] && !rgbCovered && !verify.DefaultColorSpaceDefined("rgb", resources)

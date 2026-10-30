@@ -257,7 +257,7 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 	case v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}:
 		// The walk has already put this page's /Resources in scope; the names
 		// its content uses may still come from one inherited up the tree.
-		scanContentValue(v.Entries.Get("Contents"), inheritedResources(v), ctx)
+		scanContentValue(v.Entries.Get("Contents"), pdf.PageResources(v), ctx)
 		scanAnnotAppearances(v, ctx)
 	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.IsStream():
 		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).

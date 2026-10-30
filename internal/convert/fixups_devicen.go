@@ -66,7 +66,7 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
 			return true
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		rewriteDeviceNPageContents(d, resources, visitedForm, &changed)
 		return false
 	}, nil)

@@ -245,15 +245,16 @@ func detectColourModelUsage(trailer pdf.PDFDict, decode decodeFunc) map[string]i
 		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
 
 		if pdf.EqualPDFValue(d.Entries.Get("Type"), pdf.PDFName{Value: "Page"}) {
+			pageResources := pdf.PageResources(d)
 			switch contents := d.Entries.Get("Contents").(type) {
 			case pdf.PDFDict:
 				if contents.IsStream() {
-					jobs = append(jobs, scanJob{contents, resources})
+					jobs = append(jobs, scanJob{contents, pageResources})
 				}
 			case pdf.PDFArray:
 				for _, item := range contents {
 					if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
-						jobs = append(jobs, scanJob{cd, resources})
+						jobs = append(jobs, scanJob{cd, pageResources})
 					}
 				}
 			}
