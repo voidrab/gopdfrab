@@ -76,6 +76,8 @@ notice.
 - A font repair on an embedded program that several fonts share reached only
   one of them; the others kept the original bytes under the repaired
   `/Length1` and `/Filter`. Every font sharing the program now gets the repair.
+- The 6.3.6 width check and its repair skipped Type 1 glyphs that set their
+  width with `sbw`, and misread widths computed with `div`.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

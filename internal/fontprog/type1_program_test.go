@@ -60,14 +60,14 @@ func TestType1LenIV(t *testing.T) {
 	}
 }
 
-func TestParseType1AdvanceWidthSubrsAndEdges(t *testing.T) {
+func TestType1AdvanceWidthSubrsAndEdges(t *testing.T) {
 	// The hsbw lives in a subr the charstring calls.
 	subrs := [][]byte{{139, 249, 80, 13, 11}}
-	if w, ok := parseType1AdvanceWidth([]byte{139, 10, 14}, subrs); !ok || w != 700 {
+	if w, ok := type1AdvanceWidth([]byte{139, 10, 14}, subrs); !ok || w != 700 {
 		t.Errorf("hsbw in a subr = %v, %v, want 700, true", w, ok)
 	}
 	// 255 is a 32-bit integer in Type 1.
-	if w, ok := parseType1AdvanceWidth([]byte{139, 255, 0, 0, 2, 0x58, 13}, nil); !ok || w != 600 {
+	if w, ok := type1AdvanceWidth([]byte{139, 255, 0, 0, 2, 0x58, 13}, nil); !ok || w != 600 {
 		t.Errorf("32-bit operand = %v, %v, want 600, true", w, ok)
 	}
 	cases := []struct {
@@ -81,17 +81,17 @@ func TestParseType1AdvanceWidthSubrsAndEdges(t *testing.T) {
 		{"hsbw with too few operands", []byte{139, 13}, nil},
 		{"unterminated charstring", []byte{139, 139}, nil},
 		{"truncated 255 operand", []byte{255, 0, 0, 0}, nil},
-		{"escape that is not sbw clears the stack", []byte{139, 139, 139, 139, 12, 7, 13}, nil},
+		{"escape that is not sbw clears the stack", []byte{139, 139, 139, 139, 12, 0, 13}, nil},
 		{"subr ends the scan with endchar", []byte{139, 10, 139, 139, 13}, [][]byte{{14}}},
 		{"subr recursion is bounded", []byte{139, 10}, [][]byte{{139, 10}}},
 	}
 	for _, c := range cases {
-		if w, ok := parseType1AdvanceWidth(c.cs, c.subr); ok {
+		if w, ok := type1AdvanceWidth(c.cs, c.subr); ok {
 			t.Errorf("%s: got width %v, want none", c.name, w)
 		}
 	}
 	// A subr that returns without a width leaves the caller to find its own.
-	if w, ok := parseType1AdvanceWidth([]byte{139, 10, 139, 139, 13}, [][]byte{{11}}); !ok || w != 0 {
+	if w, ok := type1AdvanceWidth([]byte{139, 10, 139, 139, 13}, [][]byte{{11}}); !ok || w != 0 {
 		t.Errorf("return then hsbw = %v, %v, want 0, true", w, ok)
 	}
 }

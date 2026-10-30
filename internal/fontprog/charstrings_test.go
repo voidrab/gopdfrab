@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-func TestType1Charstrings(t *testing.T) {
+func TestParseType1Charstrings(t *testing.T) {
 	s := newType1()
 	s.subrs = []type1Entry{{"0", []byte{11}}}
 	s.glyphs = []type1Entry{{"a", hsbwCS(500)}, {"b", []byte{14}}}
-	glyphs, subrs, ok := Type1Charstrings(s.build())
+	p, ok := ParseType1Charstrings(s.build())
 	if !ok {
 		t.Fatal("a well-formed program was rejected")
 	}
+	glyphs, subrs := p.glyphs, p.subrs
 	if !bytes.Equal(glyphs["a"], hsbwCS(500)) || !bytes.Equal(glyphs["b"], []byte{14}) {
 		t.Errorf("glyphs = %v, want the decrypted charstrings by name", glyphs)
 	}
@@ -24,13 +25,13 @@ func TestType1Charstrings(t *testing.T) {
 	trunc := newType1()
 	trunc.glyphs = []type1Entry{{"a", hsbwCS(500)}}
 	trunc.privExtra = "/CharStrings 1 dict dup begin\n/huge 99999 RD x ND\n"
-	if glyphs, _, ok := Type1Charstrings(trunc.build()); !ok || glyphs["huge"] != nil {
-		t.Errorf("glyphs = %v ok=%v, want the overlong entry skipped", glyphs, ok)
+	if p, ok := ParseType1Charstrings(trunc.build()); !ok || p.glyphs["huge"] != nil {
+		t.Errorf("ParseType1Charstrings = %v, %v, want the overlong entry skipped", p, ok)
 	}
 
 	noChars := newType1()
 	noChars.noChars = true
-	if _, _, ok := Type1Charstrings(noChars.build()); ok {
+	if _, ok := ParseType1Charstrings(noChars.build()); ok {
 		t.Error("a program without CharStrings was accepted")
 	}
 }

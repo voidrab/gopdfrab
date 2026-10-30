@@ -87,12 +87,13 @@ func isHexEexec(b []byte) bool {
 func inlineWidthSubr(cs []byte, subrs [][]byte) ([]byte, bool) {
 	for depth := 0; depth <= fontprog.Type1SubrDepth; depth++ {
 		i, last := 0, -1 // last: start of the final operand before the command
+		var idx float64  // last's value
 		for i < len(cs) && (cs[i] >= 32 || cs[i] == 28) {
-			size := type1NumberSize(cs[i])
-			if i+size > len(cs) {
+			v, size, ok := fontprog.Type1Number(cs[i:])
+			if !ok {
 				return nil, false
 			}
-			last = i
+			last, idx = i, v
 			i += size
 		}
 		if i == len(cs) {
@@ -108,43 +109,14 @@ func inlineWidthSubr(cs []byte, subrs [][]byte) ([]byte, bool) {
 		if last < 0 {
 			return nil, false
 		}
-		idx := type1NumberValue(cs[last:i])
-		if idx < 0 || idx >= len(subrs) || subrs[idx] == nil {
+		n := int(idx)
+		if n < 0 || n >= len(subrs) || subrs[n] == nil {
 			return nil, false
 		}
-		sub := bytes.TrimSuffix(subrs[idx], []byte{11})
+		sub := bytes.TrimSuffix(subrs[n], []byte{11})
 		cs = append(append(append(make([]byte, 0, len(cs)+len(sub)), cs[:last]...), sub...), cs[i+1:]...)
 	}
 	return nil, false
-}
-
-// type1NumberSize is the encoded length of the charstring number whose first
-// byte is b (b >= 32, or 28).
-func type1NumberSize(b byte) int {
-	switch {
-	case b == 28:
-		return 3
-	case b <= 246:
-		return 1
-	case b <= 254:
-		return 2
-	}
-	return 5
-}
-
-// type1NumberValue decodes one charstring number, its bytes exactly.
-func type1NumberValue(n []byte) int {
-	switch b := n[0]; {
-	case b == 28:
-		return int(int16(uint16(n[1])<<8 | uint16(n[2])))
-	case b <= 246:
-		return int(b) - 139
-	case b <= 250:
-		return (int(b)-247)*256 + int(n[1]) + 108
-	case b <= 254:
-		return -((int(b)-251)*256 + int(n[1]) + 108)
-	}
-	return int(int32(uint32(n[1])<<24 | uint32(n[2])<<16 | uint32(n[3])<<8 | uint32(n[4])))
 }
 
 // encryptType1 is the eexec / charstring cipher's encryption direction; the

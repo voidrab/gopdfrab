@@ -55,99 +55,6 @@ func Type1LenIV(plain []byte) int {
 	return n
 }
 
-// parseType1AdvanceWidth parses a decrypted Type1 CharString and returns the
-// advance width (wx) from the hsbw (op 13) or sbw (escape op 8) command.
-// subrs are the program's decrypted Subrs: a subroutinized program pushes the
-// hsbw operands and leaves the command itself in a subr, so a scan that stops
-// at callsubr finds no width at all.
-func parseType1AdvanceWidth(cs []byte, subrs [][]byte) (int, bool) {
-	var stack []int
-	w, found, _ := scanType1Width(cs, subrs, &stack, 0)
-	return w, found
-}
-
-// scanType1Width walks one charstring, sharing the operand stack with any
-// subrs it calls. stop reports that the scan is over (endchar, or bytes that
-// do not decode) rather than that this charstring merely returned.
-func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, found, stop bool) {
-	push := func(v int) { *stack = append(*stack, v) }
-	i := 0
-	for i < len(cs) {
-		b := cs[i]
-		switch {
-		case b >= 32 && b <= 246:
-			push(int(b) - 139)
-			i++
-		case b >= 247 && b <= 250:
-			if i+1 >= len(cs) {
-				return 0, false, true
-			}
-			push((int(b)-247)*256 + int(cs[i+1]) + 108)
-			i += 2
-		case b >= 251 && b <= 254:
-			if i+1 >= len(cs) {
-				return 0, false, true
-			}
-			push(-((int(b)-251)*256 + int(cs[i+1]) + 108))
-			i += 2
-		case b == 28:
-			if i+2 >= len(cs) {
-				return 0, false, true
-			}
-			push(int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2]))))
-			i += 3
-		case b == 29 || b == 255: // 32-bit integer: 29 in Type 2, 255 in Type 1
-			if i+4 >= len(cs) {
-				return 0, false, true
-			}
-			push(int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4]))))
-			i += 5
-		case b == 10: // callsubr
-			n := len(*stack)
-			if n == 0 {
-				return 0, false, true
-			}
-			idx := (*stack)[n-1]
-			*stack = (*stack)[:n-1]
-			if depth >= Type1SubrDepth || idx < 0 || idx >= len(subrs) {
-				return 0, false, true
-			}
-			w, found, stop = scanType1Width(subrs[idx], subrs, stack, depth+1)
-			if found || stop {
-				return w, found, stop
-			}
-			i++
-		case b == 11: // return
-			return 0, false, false
-		case b == 12: // 2-byte escape
-			i++
-			if i >= len(cs) {
-				return 0, false, true
-			}
-			if cs[i] == 8 && len(*stack) >= 4 { // sbw: sbx sby wx wy
-				return (*stack)[2], true, true
-			}
-			*stack = (*stack)[:0]
-			i++
-		case b == 13: // hsbw: sbx wx -> wx is advance width
-			if len(*stack) >= 2 {
-				return (*stack)[1], true, true
-			}
-			return 0, false, true
-		case b == 14: // endchar
-			return 0, false, true
-		default:
-			*stack = (*stack)[:0]
-			i++
-		}
-	}
-	return 0, false, true
-}
-
-// Type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
-// other in a cycle cannot spin.
-const Type1SubrDepth = 10
-
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 // The operator that introduces the charstring bytes is whatever the Private
 // dict named it, so both "RD" and "-|" are matched.
@@ -231,8 +138,8 @@ func ExtractType1Program(fontData []byte, binStart int) Type1Program {
 			continue
 		}
 		dec := DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
-		if w, ok := parseType1AdvanceWidth(dec, subrs); ok && scaleOK {
-			p.Widths[name] = scaleWidth(float64(w), scale)
+		if w, ok := type1AdvanceWidth(dec, subrs); ok && scaleOK {
+			p.Widths[name] = scaleWidth(w, scale)
 		}
 	}
 	return p
