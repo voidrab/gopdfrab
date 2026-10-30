@@ -838,8 +838,8 @@ func TestTransparencyFlattenerSkipsUnfixableTargets(t *testing.T) {
 	}
 }
 
-// TestUniqueByDictCollapsesAliases verifies that one Form reachable under two
-// resource names is treated as a single object, so it is flattened once.
+// TestUniqueByDictCollapsesAliases verifies that one Form object reached from
+// two places is treated as a single object, so it is flattened once.
 func TestUniqueByDictCollapsesAliases(t *testing.T) {
 	shared := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
 	other := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}})}
