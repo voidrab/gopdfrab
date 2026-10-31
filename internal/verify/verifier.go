@@ -270,8 +270,8 @@ func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
-// verifyPdfAParts runs the checks of spec's level. A cancelled run returns early with
-// partial parts; the caller checks run.Err() and discards them.
+// verifyPdfAParts runs the checks of spec's level. A cancelled run returns
+// early with partial parts; the caller checks run.Err() and discards them.
 func verifyPdfAParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
