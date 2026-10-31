@@ -158,7 +158,6 @@ func TestPageBoundaryFixer(t *testing.T) {
 		parent pdf.PDFDict // the Pages node's own entries
 		page   pdf.PDFDict
 		want   map[string]pdf.PDFValue // nil means the key is absent
-		lost   bool
 	}{
 		{
 			desc: "every box too small",
@@ -178,10 +177,15 @@ func TestPageBoundaryFixer(t *testing.T) {
 			want: map[string]pdf.PDFValue{"MediaBox": box(10, 10, 14, 14), "CropBox": box(10, 10, 14, 14)},
 		},
 		{
-			desc: "MediaBox too large on one axis",
+			desc: "visible area too large on one axis",
 			page: kv("MediaBox", box(0, 0, 500, 20000)),
-			want: map[string]pdf.PDFValue{"MediaBox": box(0, 0, 500, 14400)},
-			lost: true,
+			want: map[string]pdf.PDFValue{"MediaBox": box(0, 0, 250, 10000), "UserUnit": pdf.PDFReal(2)},
+		},
+		{
+			desc: "visible area too large inside a larger MediaBox",
+			page: kv("MediaBox", box(0, 0, 60000, 60000), "CropBox", box(0, 0, 30000, 500), "UserUnit", pdf.PDFReal(1.5)),
+			want: map[string]pdf.PDFValue{"MediaBox": box(0, 0, 7500, 125), "CropBox": box(0, 0, 7500, 125),
+				"UserUnit": pdf.PDFReal(6)},
 		},
 		{
 			desc: "CropBox too small and outside the MediaBox",
@@ -214,8 +218,7 @@ func TestPageBoundaryFixer(t *testing.T) {
 			}
 			tc.page.Entries.Set("Parent", pages)
 			trailer := kv("Root", kv("Type", nm("Catalog"), "Pages", pages))
-			var lost []pdf.PDFError
-			f := pageBoundaryFixer{spec: a2bSpec, lost: &lost}
+			f := pageBoundaryFixer{spec: a2bSpec}
 			if changed, err := f.Fix(&trailer, nil); err != nil || !changed {
 				t.Fatalf("Fix = %v, %v, want a change", changed, err)
 			}
@@ -224,9 +227,6 @@ func TestPageBoundaryFixer(t *testing.T) {
 				if want == nil && got != nil || want != nil && !pdf.EqualPDFValue(got, want) {
 					t.Errorf("%s = %v, want %v", k, got, want)
 				}
-			}
-			if (len(lost) > 0) != tc.lost {
-				t.Errorf("lost = %v, want lost content: %v", lost, tc.lost)
 			}
 			if changed, _ := f.Fix(&trailer, nil); changed {
 				t.Error("a second Fix changed the graph")
@@ -408,5 +408,84 @@ func TestContentLimitsFixerZeroesTinyReals(t *testing.T) {
 	}
 	if !(contentLimitsFixer{}).Applies(st.RealTooCloseToZero) {
 		t.Error("contentLimitsFixer does not apply to RealTooCloseToZero")
+	}
+}
+
+// TestPageBoundaryFixerScalesThePage verifies that a page scaled through
+// /UserUnit keeps its content, annotations, beads and destinations in place
+// relative to its boundaries.
+func TestPageBoundaryFixerScalesThePage(t *testing.T) {
+	box := func(llx, lly, urx, ury float64) pdf.PDFArray { return boxArray([4]float64{llx, lly, urx, ury}) }
+	content := pdf.NewStreamDict(nil, []byte("0 0 m 20000 20000 l S"))
+	annot := kv("Type", nm("Annot"), "Subtype", nm("Ink"), "Rect", box(100, 100, 200, 200),
+		"InkList", pdf.PDFArray{pdf.PDFArray{pdf.PDFInteger(100), pdf.PDFInteger(100), nm("x")}})
+	bead := kv("R", box(0, 0, 400, 400))
+	page := kv("Type", nm("Page"), "Contents", content, "Annots", pdf.PDFArray{annot, pdf.PDFInteger(1)},
+		"B", pdf.PDFArray{bead, pdf.PDFInteger(1)})
+	other := kv("Type", nm("Page"), "MediaBox", box(0, 0, 612, 792), "Contents", pdf.PDFArray{content})
+	pages := kv("Type", nm("Pages"), "Kids", pdf.PDFArray{page, other}, "Count", pdf.PDFInteger(2),
+		"MediaBox", box(0, 0, 20000, 20000))
+	page.Entries.Set("Parent", pages)
+	other.Entries.Set("Parent", pages)
+	dests := pdf.PDFArray{
+		pdf.PDFArray{page, nm("XYZ"), pdf.PDFInteger(1000), pdf.PDFInteger(2000), nil},
+		pdf.PDFArray{page, nm("FitR"), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(400), pdf.PDFInteger(400)},
+		pdf.PDFArray{page, nm("FitH")},
+		pdf.PDFArray{page, nm("Fit")},
+		pdf.PDFArray{other, nm("XYZ"), pdf.PDFInteger(1000), pdf.PDFInteger(2000), nil},
+		pdf.PDFArray{nm("XYZ"), nm("x")},
+		pdf.PDFArray{pdf.PDFInteger(1)},
+	}
+	trailer := kv("Root", kv("Type", nm("Catalog"), "Pages", pages, "Dests", dests))
+
+	if changed, err := (pageBoundaryFixer{spec: a2bSpec}).Fix(&trailer, nil); err != nil || !changed {
+		t.Fatalf("Fix = %v, %v, want a change", changed, err)
+	}
+	for _, tc := range []struct {
+		desc      string
+		got, want pdf.PDFValue
+	}{
+		{"MediaBox", page.Entries.Get("MediaBox"), box(0, 0, 10000, 10000)},
+		{"UserUnit", page.Entries.Get("UserUnit"), pdf.PDFReal(2)},
+		{"annotation Rect", annot.Entries.Get("Rect"), box(50, 50, 100, 100)},
+		{"annotation InkList", annot.Entries.Get("InkList"), pdf.PDFArray{pdf.PDFArray{pdf.PDFInteger(50), pdf.PDFInteger(50), nm("x")}}},
+		{"bead", bead.Entries.Get("R"), box(0, 0, 200, 200)},
+		// The page element is left out: comparing it would follow the
+		// page tree's Parent cycle.
+		{"XYZ destination", dests[0].(pdf.PDFArray)[1:], pdf.PDFArray{nm("XYZ"), pdf.PDFInteger(500), pdf.PDFInteger(1000), nil}},
+		{"FitR destination", dests[1].(pdf.PDFArray)[1:], pdf.PDFArray{nm("FitR"), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(200), pdf.PDFInteger(200)}},
+		{"other page's destination", dests[4].(pdf.PDFArray)[1:], pdf.PDFArray{nm("XYZ"), pdf.PDFInteger(1000), pdf.PDFInteger(2000), nil}},
+		{"other page", other.Entries.Get("UserUnit"), nil},
+	} {
+		if !pdf.EqualPDFValue(tc.got, tc.want) {
+			t.Errorf("%s = %v, want %v", tc.desc, tc.got, tc.want)
+		}
+	}
+	contents, ok := page.Entries.Get("Contents").(pdf.PDFArray)
+	if !ok || len(contents) != 3 {
+		t.Fatalf("Contents = %v, want the content between a cm and a Q", page.Entries.Get("Contents"))
+	}
+	for i, want := range []string{"q\n0.5 0 0 0.5 0 0 cm\n", "0 0 m 20000 20000 l S", "Q\n"} {
+		if data, _ := pdf.DecodeStream(contents[i].(pdf.PDFDict)); string(data) != want {
+			t.Errorf("Contents[%d] = %q, want %q", i, data, want)
+		}
+	}
+}
+
+// TestPageBoundaryFixerScalesAnArrayOfContents verifies that a page whose
+// Contents is an array keeps every stream, in order, inside the scaling.
+func TestPageBoundaryFixerScalesAnArrayOfContents(t *testing.T) {
+	a, b := pdf.NewStreamDict(nil, []byte("a")), pdf.NewStreamDict(nil, []byte("b"))
+	page := kv("Type", nm("Page"), "MediaBox", boxArray([4]float64{0, 0, 30000, 100}), "Contents", pdf.PDFArray{a, b})
+	trailer := kv("Root", kv("Pages", kv("Type", nm("Pages"), "Kids", pdf.PDFArray{page})))
+	if _, err := (pageBoundaryFixer{spec: a2bSpec}).Fix(&trailer, nil); err != nil {
+		t.Fatal(err)
+	}
+	contents, _ := page.Entries.Get("Contents").(pdf.PDFArray)
+	if len(contents) != 4 || !pdf.EqualPDFValue(contents[1], a) || !pdf.EqualPDFValue(contents[2], b) {
+		t.Errorf("Contents = %v", contents)
+	}
+	if got := page.Entries.Get("UserUnit"); got != pdf.PDFReal(4) {
+		t.Errorf("UserUnit = %v, want 4", got)
 	}
 }

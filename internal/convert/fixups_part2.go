@@ -1,12 +1,12 @@
 package convert
 
 import (
-	"fmt"
 	"math"
 	"unicode/utf8"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // --- ISO 19005-2 6.1.8: names that must be UTF-8 ---
@@ -188,17 +188,14 @@ func (permissionsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 // --- ISO 19005-2 6.1.13: page boundary sizes ---
 
 // pageBoundaryFixer brings each page boundary within the level's size
-// limits. A MediaBox too small grows from its lower-left corner; one too
-// large shrinks around the visible area, the part inside the CropBox, so
-// nothing visible is lost unless that area is itself too large, which is
-// reported as lost content. The other boundaries are clipped to the
-// MediaBox, as a reader clips them. A CropBox that is still too small
-// becomes the MediaBox; another boundary is dropped, so that it defaults to
-// the CropBox.
-type pageBoundaryFixer struct {
-	spec *pdfa.Spec
-	lost *[]pdf.PDFError
-}
+// limits. A page whose visible area, the part of the MediaBox inside the
+// CropBox, is too large is scaled down through /UserUnit (see scalePage), so
+// that it keeps its physical size and all its content. A MediaBox too small
+// then grows from its lower-left corner, and one too large shrinks around the
+// visible area. The other boundaries are clipped to the MediaBox, as a reader
+// clips them. A CropBox that is still too small becomes the MediaBox; another
+// boundary is dropped, so that it defaults to the CropBox.
+type pageBoundaryFixer struct{ spec *pdfa.Spec }
 
 func (pageBoundaryFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.PageBoundarySize
@@ -216,20 +213,22 @@ func (f pageBoundaryFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 		return w >= lo && w <= hi && h >= lo && h <= hi
 	}
 	changed := false
-	pdf.WalkPages(pages, func(page, _ pdf.PDFDict, inherited [4]float64, pageNum int) {
+	scaled := map[uintptr]float64{}
+	pdf.WalkPages(pages, func(page, _ pdf.PDFDict, inherited [4]float64, _ int) {
 		media := normalizedBox(inherited)
-		crop, hasCrop := pageBox(page, "CropBox", true)
+		visible := media
+		if crop, ok := pageBox(page, "CropBox", true); ok {
+			if c, ok := intersectBoxes(crop, media); ok {
+				visible = c
+			}
+		}
+		if k := userUnitScale(visible, hi); k > 1 {
+			scalePage(page, media, k)
+			scaled[pdf.ValuePointer(page.Entries)] = k
+			media, visible = scaleBox(media, 1/k), scaleBox(visible, 1/k)
+			changed = true
+		}
 		if !fits(media) {
-			visible := media
-			if hasCrop {
-				if c, ok := intersectBoxes(crop, media); ok {
-					visible = c
-				}
-			}
-			if visible[2]-visible[0] > hi || visible[3]-visible[1] > hi {
-				reportLost(f.lost, pdf.Checks.Structure.PageBoundarySize, page, fmt.Sprintf(
-					"page %d: the visible area is larger than %g units, and is cropped to fit", pageNum, hi))
-			}
 			media = fitBox(media, visible, lo, hi)
 			page.Entries.Set("MediaBox", boxArray(media))
 			changed = true
@@ -252,7 +251,146 @@ func (f pageBoundaryFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 			changed = true
 		}
 	})
+	if len(scaled) > 0 {
+		scaleDestinations(*trailer, scaled)
+	}
 	return changed, nil
+}
+
+// userUnitScale returns the smallest power of two by which a visible area
+// must shrink for each of its sides to be at most hi units, or 1 when it fits.
+// A power of two keeps the scaled coordinates and the inverse matrix exact.
+func userUnitScale(visible [4]float64, hi float64) float64 {
+	side := max(visible[2]-visible[0], visible[3]-visible[1])
+	k := 1.0
+	for side/k > hi {
+		k *= 2
+	}
+	return k
+}
+
+// scalePage shrinks a page's user space by k and multiplies its /UserUnit by
+// k, so that it shows the same content at the same physical size: its
+// boundaries, its content (wrapped in a matching cm), the geometry of its
+// annotations and the rectangles of its thread beads are divided by k. media
+// is the MediaBox the page inherits, which it then holds itself.
+func scalePage(page pdf.PDFDict, media [4]float64, k float64) {
+	s := 1 / k
+	page.Entries.Set("MediaBox", boxArray(scaleBox(media, s)))
+	for _, key := range []string{"CropBox", "BleedBox", "TrimBox", "ArtBox"} {
+		if box, ok := pageBox(page, key, key == "CropBox"); ok {
+			page.Entries.Set(key, boxArray(scaleBox(box, s)))
+		}
+	}
+	unit, ok := pdf.PDFNumberToFloat(page.Entries.Get("UserUnit"))
+	if !ok || unit <= 0 {
+		unit = 1
+	}
+	page.Entries.Set("UserUnit", pdf.RealOf(unit*k))
+
+	if contents := page.Entries.Get("Contents"); contents != nil {
+		pre, _ := writer.WriteContentStream([]writer.ContentOp{{Op: "q"}, {Op: "cm", Operands: []pdf.PDFValue{
+			pdf.RealOf(s), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.RealOf(s), pdf.PDFInteger(0), pdf.PDFInteger(0),
+		}}})
+		post, _ := writer.WriteContentStream([]writer.ContentOp{{Op: "Q"}})
+		wrapped := pdf.PDFArray{flateContentStream(pre)}
+		if arr, ok := contents.(pdf.PDFArray); ok {
+			wrapped = append(wrapped, arr...)
+		} else {
+			wrapped = append(wrapped, contents)
+		}
+		page.Entries.Set("Contents", append(wrapped, flateContentStream(post)))
+	}
+
+	annots, _ := page.Entries.Get("Annots").(pdf.PDFArray)
+	for _, a := range annots {
+		annot, ok := a.(pdf.PDFDict)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"Rect", "QuadPoints", "Vertices", "L", "CL", "RD", "InkList"} {
+			if arr, ok := annot.Entries.Get(key).(pdf.PDFArray); ok {
+				annot.Entries.Set(key, scaleNumbers(arr, s))
+			}
+		}
+	}
+	beads, _ := page.Entries.Get("B").(pdf.PDFArray)
+	for _, b := range beads {
+		if bead, ok := b.(pdf.PDFDict); ok {
+			if r, ok := bead.Entries.Get("R").(pdf.PDFArray); ok {
+				bead.Entries.Set("R", scaleNumbers(r, s))
+			}
+		}
+	}
+}
+
+// flateContentStream returns a Flate-encoded content stream holding data.
+func flateContentStream(data []byte) pdf.PDFDict {
+	d := pdf.NewPDFDict()
+	writer.SetStreamFlate(&d, data)
+	return d
+}
+
+// scaleDestinations divides by its page's scale the coordinates of every
+// explicit destination, [page /XYZ left top zoom] and the like, whose page was
+// scaled.
+func scaleDestinations(trailer pdf.PDFDict, scaled map[uintptr]float64) {
+	walkGraph(trailer, map[uintptr]bool{}, nil, func(v pdf.PDFValue) (pdf.PDFValue, bool) {
+		dest, ok := v.(pdf.PDFArray)
+		if !ok || len(dest) < 2 {
+			return nil, false
+		}
+		page, ok := dest[0].(pdf.PDFDict)
+		if !ok {
+			return nil, false
+		}
+		k, ok := scaled[pdf.ValuePointer(page.Entries)]
+		if !ok {
+			return nil, false
+		}
+		fit, _ := dest[1].(pdf.PDFName)
+		var coords []int
+		switch fit.Value {
+		case "XYZ":
+			coords = []int{2, 3}
+		case "FitH", "FitBH", "FitV", "FitBV":
+			coords = []int{2}
+		case "FitR":
+			coords = []int{2, 3, 4, 5}
+		}
+		for _, i := range coords {
+			if i < len(dest) {
+				if f, ok := pdf.PDFNumberToFloat(dest[i]); ok {
+					dest[i] = number(f / k)
+				}
+			}
+		}
+		return nil, false
+	})
+}
+
+// scaleBox returns b with every coordinate multiplied by s.
+func scaleBox(b [4]float64, s float64) [4]float64 {
+	return [4]float64{b[0] * s, b[1] * s, b[2] * s, b[3] * s}
+}
+
+// scaleNumbers returns arr with every number multiplied by s, and every array
+// within it scaled the same way. Other values are kept.
+func scaleNumbers(arr pdf.PDFArray, s float64) pdf.PDFArray {
+	out := make(pdf.PDFArray, len(arr))
+	for i, v := range arr {
+		switch val := v.(type) {
+		case pdf.PDFArray:
+			out[i] = scaleNumbers(val, s)
+		default:
+			if f, ok := pdf.PDFNumberToFloat(val); ok {
+				out[i] = number(f * s)
+			} else {
+				out[i] = v
+			}
+		}
+	}
+	return out
 }
 
 // pageBox returns a page's boundary key, normalized, or the value it
@@ -303,16 +441,19 @@ func fitBox(media, visible [4]float64, lo, hi float64) [4]float64 {
 	return out
 }
 
-// boxArray returns b as a rectangle array, with integral coordinates written
-// as integers.
+// boxArray returns b as a rectangle array.
 func boxArray(b [4]float64) pdf.PDFArray {
 	arr := make(pdf.PDFArray, 4)
 	for i, f := range b {
-		if f == math.Trunc(f) && math.Abs(f) < 1<<31 {
-			arr[i] = pdf.PDFInteger(f)
-		} else {
-			arr[i] = pdf.PDFReal(f)
-		}
+		arr[i] = number(f)
 	}
 	return arr
+}
+
+// number returns f as an integer when it is integral, else as a real.
+func number(f float64) pdf.PDFValue {
+	if f == math.Trunc(f) && math.Abs(f) < 1<<31 {
+		return pdf.PDFInteger(f)
+	}
+	return pdf.RealOf(f)
 }
