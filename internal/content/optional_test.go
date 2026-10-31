@@ -25,8 +25,8 @@ func catalogWith(config pdf.PDFValue) pdf.PDFDict {
 	return ocDict("OCProperties", ocDict("D", config))
 }
 
-// TestNewOptionalContentHidesNothing covers the documents that turn no group
-// off, for which no tracking is set up.
+// TestNewOptionalContentHidesNothing verifies that NewOptionalContent returns
+// nil for a document that turns no group off, so that no tracking is set up.
 func TestNewOptionalContentHidesNothing(t *testing.T) {
 	g := ocg("A")
 	for name, catalog := range map[string]pdf.PDFDict{

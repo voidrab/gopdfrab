@@ -97,7 +97,7 @@ func (h *hiddenGroups) add(g pdf.PDFDict) {
 
 // layerTracker is what the hidden-layer pass adds to an alphaState: which
 // marked content of the stream is hidden, and where removals are recorded.
-// Every method of a nil tracker is a no-op, which is the opacity pass.
+// A nil tracker is the opacity pass: every method of it is a no-op.
 type layerTracker struct {
 	oc      *content.OptionalContent
 	marked  *content.MarkedContent

@@ -7,7 +7,8 @@ import "github.com/voidrab/gopdfrab/internal/pdf"
 // content groups. A nil *OptionalContent hides nothing.
 type OptionalContent struct {
 	on, off map[pdf.Dict]bool
-	// baseOff is a /BaseState of OFF: a group in neither list is hidden.
+	// baseOff reports whether /BaseState is OFF, which hides every group that
+	// neither /ON nor /OFF lists.
 	baseOff bool
 }
 
@@ -17,7 +18,7 @@ const maxVisibilityDepth = 64
 
 // NewOptionalContent reads the default configuration of catalog's
 // /OCProperties. It returns nil when that configuration turns no group off,
-// so a document whose layers are all visible pays for no tracking.
+// so that a document with every layer visible needs no tracking.
 func NewOptionalContent(catalog pdf.PDFDict) *OptionalContent {
 	props, ok := catalog.Entries.Get("OCProperties").(pdf.PDFDict)
 	if !ok {
@@ -118,7 +119,7 @@ func (oc *OptionalContent) membershipVisible(md pdf.PDFDict) bool {
 	case pdf.PDFName{Value: "AllOff"}:
 		return on == 0
 	}
-	return on > 0 // AnyOn, the default
+	return on > 0 // AnyOn is the default /P.
 }
 
 // expression evaluates a visibility expression. valid is false for an
