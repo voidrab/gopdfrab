@@ -34,31 +34,19 @@ func inheritanceOf(r pdf.ContentRoot, holder pdf.PDFDict, ctx *ValidationContext
 	return inheritance{from: ctx.resourceScope}
 }
 
-// check reports name when the stream finds it in the category of resources
-// it inherits rather than in its own.
-func (in inheritance) check(category, name string, obj pdf.PDFValue, ctx *ValidationContext) {
-	if hasResource(in.own, category, name) || !hasResource(in.from, category, name) {
-		return
-	}
-	ctx.Report(pdf.Checks.Colour.InheritedResources, obj,
-		fmt.Sprintf("content stream uses /%s from inherited %s resources instead of its own", name, category))
-}
-
 // checkOperands reports the operands of op that name a resource the stream
-// inherits.
+// finds in the resources it inherits rather than in its own.
 func (in inheritance) checkOperands(op string, operands []pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationContext) {
 	if in.from.Entries == nil {
 		return
 	}
 	ResourceNames(op, operands, func(category, name string) {
-		in.check(category, name, obj, ctx)
+		if pdf.LookupResource(in.own, category, name) != nil || pdf.LookupResource(in.from, category, name) == nil {
+			return
+		}
+		ctx.Report(pdf.Checks.Colour.InheritedResources, obj,
+			fmt.Sprintf("content stream uses /%s from inherited %s resources instead of its own", name, category))
 	})
-}
-
-// hasResource reports whether resources lists name in the given category.
-func hasResource(resources pdf.PDFDict, category, name string) bool {
-	sub, ok := resources.Entries.Get(category).(pdf.PDFDict)
-	return ok && sub.Entries.Get(name) != nil
 }
 
 // deviceSpaceNames are the colour space names that need no resource.
@@ -202,12 +190,7 @@ func (t *overprintTracker) step(op string, operands []pdf.PDFValue, resources pd
 // isICCBasedCMYK reports whether a colour space operand names an ICCBased
 // colour space of four components.
 func isICCBasedCMYK(name pdf.PDFValue, resources pdf.PDFDict) bool {
-	n, ok := name.(pdf.PDFName)
-	if !ok {
-		return false
-	}
-	spaces, _ := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
-	arr, ok := spaces.Entries.Get(n.Value).(pdf.PDFArray)
+	arr, ok := namedColourSpace(name, resources).(pdf.PDFArray)
 	if !ok || len(arr) < 2 || arr[0] != (pdf.PDFName{Value: "ICCBased"}) {
 		return false
 	}
@@ -397,9 +380,9 @@ func (ctx *ValidationContext) equivalentEntries(a, b pdf.PDFDict, depth int) boo
 
 // 6.2.4.5 Indexed and Pattern colour spaces (ISO 19005-2)
 
-// baseColourModel returns the device colour model an Indexed or Pattern
+// BaseColourModel returns the device colour model an Indexed or Pattern
 // colour space is based on, or "".
-func baseColourModel(cs pdf.PDFValue) string {
+func BaseColourModel(cs pdf.PDFValue) string {
 	arr, ok := cs.(pdf.PDFArray)
 	if !ok || len(arr) < 2 {
 		return ""
@@ -415,14 +398,16 @@ func baseColourModel(cs pdf.PDFValue) string {
 // device colour space that no output intent and no Default colour space in
 // resources or the enclosing scope covers.
 func checkBaseColour(cs pdf.PDFValue, resources pdf.PDFDict, obj pdf.PDFValue, ctx *ValidationContext) {
-	model := baseColourModel(cs)
+	if !ctx.part2() {
+		return
+	}
+	model := BaseColourModel(cs)
 	if model == "" || ctx.deviceColourAllowed(model) ||
 		DefaultColorSpaceDefined(model, resources) || DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
 	head, _ := cs.(pdf.PDFArray)[0].(pdf.PDFName)
-	ctx.uncoveredDeviceColour = true
-	ctx.Report(pdf.Checks.Colour.DeviceColourBase, obj,
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourBase, obj,
 		fmt.Sprintf("%s colour space is based on device colour (%s) without a matching output intent", head.Value, model))
 }
 
@@ -433,8 +418,8 @@ func namedColourSpace(name pdf.PDFValue, resources pdf.PDFDict) pdf.PDFValue {
 	if !ok {
 		return nil
 	}
-	spaces, _ := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
-	return spaces.Entries.Get(n.Value)
+	cs, _ := pdf.LookupNamedColorSpace(n.Value, resources)
+	return cs
 }
 
 // 6.2.5 Extended graphics state (ISO 19005-2)
@@ -450,11 +435,17 @@ func validateHalftones(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
+// HalftoneTypeAllowed reports whether a halftone is of type 1 or 5.
+func HalftoneTypeAllowed(ht pdf.PDFDict) bool {
+	kind := ht.Entries.Get("HalftoneType")
+	return kind == pdf.PDFInteger(1) || kind == pdf.PDFInteger(5)
+}
+
 // checkHalftone checks one halftone. colorant is the key a type 5 halftone
 // holds it under, or "" for a halftone an ExtGState names directly.
 func checkHalftone(ht pdf.PDFDict, colorant string, ctx *ValidationContext) {
 	kind := ht.Entries.Get("HalftoneType")
-	if kind != pdf.PDFInteger(1) && kind != pdf.PDFInteger(5) {
+	if !HalftoneTypeAllowed(ht) {
 		ctx.Report(pdf.Checks.Transparency.HalftoneType, ht, fmt.Sprintf("halftone type is %v, not 1 or 5", kind))
 	}
 	if ht.Entries.Get("HalftoneName") != nil {

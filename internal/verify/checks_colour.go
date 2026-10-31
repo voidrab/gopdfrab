@@ -115,8 +115,7 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 		return
 	}
 	checkBaseColour(cs, pdf.PDFDict{}, obj, ctx)
-	ctx.uncoveredDeviceColour = true
-	ctx.Report(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
 }
 
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
@@ -175,8 +174,7 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	ctx.uncoveredDeviceColour = true
-	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+	ctx.reportUncovered(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
 }
 
 // validateICCBasedColourSpace checks an [/ICCBased stream] colour space against

@@ -69,7 +69,10 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 	qDepth := 0
 	inherit := ctx.inherit
 	part2 := ctx.part2()
-	var over overprintTracker
+	var over *overprintTracker
+	if part2 {
+		over = &overprintTracker{}
+	}
 	return func(op string, operands []pdf.PDFValue) {
 		if part2 {
 			inherit.checkOperands(op, operands, obj, ctx)
@@ -177,8 +180,7 @@ func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, 
 	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
-	ctx.uncoveredDeviceColour = true
-	ctx.Report(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
 }
 
 // checkInlineImageColour inspects inline image parameters for a device colour

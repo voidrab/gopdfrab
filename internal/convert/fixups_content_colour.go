@@ -100,18 +100,13 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if len(operands) == 0 {
 				return
 			}
-			name, _ := operands[0].(pdf.PDFName)
-			fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
-			font, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict)
-			if !ok || font.Entries.Get("Subtype") != (pdf.PDFName{Value: "Type3"}) || !claim(pdf.ValuePointer(font.Entries)) {
+			font, ok := namedType3Font(operands[0], resources)
+			if !ok || !claim(pdf.ValuePointer(font.Entries)) {
 				return
 			}
-			procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
-			for _, v := range procs.Entries.All() {
-				if proc, ok := v.(pdf.PDFDict); ok && proc.IsStream() {
-					scanContentColour(proc, resourcesOf(font, resources), claim, decode, emit)
-				}
-			}
+			pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+				scanContentColour(r.Stream, resourcesOf(font, resources), claim, decode, emit)
+			})
 		}
 	})
 }
@@ -352,13 +347,8 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 // against the font's resources, which the page's Default colour spaces do not
 // reach.
 func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
-	name, ok := operand.(pdf.PDFName)
+	font, ok := namedType3Font(operand, scope)
 	if !ok {
-		return false
-	}
-	fonts, _ := scope.Entries.Get("Font").(pdf.PDFDict)
-	font, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || font.Entries.Get("Subtype") != (pdf.PDFName{Value: "Type3"}) {
 		return false
 	}
 	res, own := font.Entries.Get("Resources").(pdf.PDFDict)
@@ -369,15 +359,21 @@ func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) b
 	in.visited[ptr] = true
 	// injectDefaultCS edits the font's resources in place.
 	changed := injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
-	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
 	glyphs := in
 	glyphs.create = false
-	for _, v := range procs.Entries.All() {
-		if proc, ok := v.(pdf.PDFDict); ok && proc.IsStream() && glyphs.run(proc, res) {
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		if glyphs.run(r.Stream, res) {
 			changed = true
 		}
-	}
+	})
 	return changed
+}
+
+// namedType3Font returns the Type 3 font a Tf operand names in resources.
+func namedType3Font(operand pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	name, _ := operand.(pdf.PDFName)
+	font, ok := pdf.LookupResource(resources, "Font", name.Value).(pdf.PDFDict)
+	return font, ok && font.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"})
 }
 
 // injectDefaultCS injects missing Default* colour-space entries into the
@@ -531,12 +527,11 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 // patternBaseModel returns the device colour model of the base space of the
 // uncoloured Pattern colour space a cs or CS operand names, or "".
 func patternBaseModel(name pdf.PDFName, resources pdf.PDFDict) string {
-	spaces, _ := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
-	arr, ok := spaces.Entries.Get(name.Value).(pdf.PDFArray)
-	if !ok || len(arr) < 2 || arr[0] != (pdf.PDFName{Value: "Pattern"}) {
+	cs, _ := pdf.LookupNamedColorSpace(name.Value, resources)
+	if arr, ok := cs.(pdf.PDFArray); !ok || len(arr) == 0 || arr[0] != (pdf.PDFName{Value: "Pattern"}) {
 		return ""
 	}
-	return verify.DeviceColourModel(arr[1])
+	return verify.BaseColourModel(cs)
 }
 
 // namedOrAbbrevColourModel resolves a cs/CS or inline-image /CS operand name

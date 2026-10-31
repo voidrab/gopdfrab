@@ -77,45 +77,40 @@ func appearanceStreams(n pdf.PDFValue) []pdf.PDFDict {
 // followChildren adopts, for each form XObject, tiling pattern and Type 3
 // font the stream draws with, the resources it inherits from scope.
 func (f inheritedResourcesFixer) followChildren(stream, scope pdf.PDFDict, visited map[uintptr]bool) bool {
-	changed := false
+	var children []resourceName
 	f.scan(stream, func(op string, operands []pdf.PDFValue) {
-		if child, ok := contentChild(op, operands, scope); ok && f.adopt(child, scope, visited) {
-			changed = true
-		}
+		verify.ResourceNames(op, operands, func(category, name string) {
+			children = append(children, resourceName{category, name})
+		})
 	})
-	return changed
+	return f.adoptChildren(children, scope, visited)
 }
 
-// contentChild returns the form XObject, tiling pattern or Type 3 font that
-// an operator draws with, looked up in scope.
-func contentChild(op string, operands []pdf.PDFValue, scope pdf.PDFDict) (pdf.PDFDict, bool) {
-	var child pdf.PDFDict
-	verify.ResourceNames(op, operands, func(category, name string) {
-		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
-		d, ok := named.Entries.Get(name).(pdf.PDFDict)
+// resourceName is a resource a content stream names.
+type resourceName struct{ category, name string }
+
+// adoptChildren adopts, for each of names that is a form XObject, tiling
+// pattern or Type 3 font in scope, the resources it inherits from scope.
+func (f inheritedResourcesFixer) adoptChildren(names []resourceName, scope pdf.PDFDict, visited map[uintptr]bool) bool {
+	changed := false
+	for _, n := range names {
+		child, ok := pdf.LookupResource(scope, n.category, n.name).(pdf.PDFDict)
 		if !ok {
-			return
+			continue
 		}
-		switch category {
-		case "XObject":
-			if d.IsStream() && d.Entries.Get("Subtype") == (pdf.PDFName{Value: "Form"}) {
-				child = d
-			}
-		case "Pattern":
-			if d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1) {
-				child = d
-			}
-		case "Font":
-			if d.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"}) {
-				child = d
+		switch pdf.ContentRoots(child, func(pdf.ContentRoot) {}) {
+		case pdf.ContentForm, pdf.ContentPattern, pdf.ContentType3:
+			if f.adopt(child, scope, visited) {
+				changed = true
 			}
 		}
-	})
-	return child, child.Entries != nil
+	}
+	return changed
 }
 
 // adopt copies into holder's own resources each resource its content uses
 // that only scope has, then does the same for what it draws with in turn.
+// holder is a form XObject, tiling pattern, Type 3 font or appearance stream.
 func (f inheritedResourcesFixer) adopt(holder, scope pdf.PDFDict, visited map[uintptr]bool) bool {
 	ptr := pdf.ValuePointer(holder.Entries)
 	if visited[ptr] {
@@ -123,19 +118,21 @@ func (f inheritedResourcesFixer) adopt(holder, scope pdf.PDFDict, visited map[ui
 	}
 	visited[ptr] = true
 
+	var streams []pdf.PDFDict
+	if pdf.ContentRoots(holder, func(r pdf.ContentRoot) { streams = append(streams, r.Stream) }) == pdf.ContentNone {
+		streams = []pdf.PDFDict{holder}
+	}
 	own, _ := holder.Entries.Get("Resources").(pdf.PDFDict)
 	changed := false
-	streams := []pdf.PDFDict{holder}
-	if holder.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"}) {
-		streams = type3GlyphStreams(holder)
-	}
+	var names []resourceName
 	for _, s := range streams {
 		f.scan(s, func(op string, operands []pdf.PDFValue) {
 			verify.ResourceNames(op, operands, func(category, name string) {
-				if lookupResource(own, category, name) != nil {
+				names = append(names, resourceName{category, name})
+				if pdf.LookupResource(own, category, name) != nil {
 					return
 				}
-				v := lookupResource(scope, category, name)
+				v := pdf.LookupResource(scope, category, name)
 				if v == nil {
 					return
 				}
@@ -153,31 +150,10 @@ func (f inheritedResourcesFixer) adopt(holder, scope pdf.PDFDict, visited map[ui
 			})
 		})
 	}
-	for _, s := range streams {
-		if f.followChildren(s, own, visited) {
-			changed = true
-		}
+	if f.adoptChildren(names, own, visited) {
+		changed = true
 	}
 	return changed
-}
-
-// type3GlyphStreams returns the glyph procedures of a Type 3 font.
-func type3GlyphStreams(font pdf.PDFDict) []pdf.PDFDict {
-	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
-	var out []pdf.PDFDict
-	for _, v := range procs.Entries.All() {
-		if s, ok := v.(pdf.PDFDict); ok && s.IsStream() {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-// lookupResource returns the resource name names in the category of
-// resources, or nil.
-func lookupResource(resources pdf.PDFDict, category, name string) pdf.PDFValue {
-	sub, _ := resources.Entries.Get(category).(pdf.PDFDict)
-	return sub.Entries.Get(name)
 }
 
 // scan calls fn for each operator of a content stream that decodes.
@@ -429,7 +405,7 @@ func (halftoneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 		if !ok {
 			return
 		}
-		if reported[tr.HalftoneType] && (!halftoneTypeAllowed(ht) || !halftoneTypeAllowed(defaultHalftone(ht))) {
+		if reported[tr.HalftoneType] && (!verify.HalftoneTypeAllowed(ht) || !verify.HalftoneTypeAllowed(defaultHalftone(ht))) {
 			d.Entries.Set("HT", pdf.PDFName{Value: "Default"})
 			changed = true
 			return
@@ -452,12 +428,6 @@ func defaultHalftone(ht pdf.PDFDict) pdf.PDFDict {
 		return ht
 	}
 	return d
-}
-
-// halftoneTypeAllowed reports whether a halftone is of type 1 or 5.
-func halftoneTypeAllowed(ht pdf.PDFDict) bool {
-	kind := ht.Entries.Get("HalftoneType")
-	return kind == pdf.PDFInteger(1) || kind == pdf.PDFInteger(5)
 }
 
 // repairHalftone repairs one halftone, held under colorant by a type 5
@@ -493,7 +463,7 @@ func repairHalftone(ht pdf.PDFDict, colorant string, reported map[pdf.Check]bool
 		if !ok {
 			continue
 		}
-		if !halftoneTypeAllowed(d) {
+		if !verify.HalftoneTypeAllowed(d) {
 			if reported[tr.HalftoneType] {
 				drop = append(drop, k)
 			}

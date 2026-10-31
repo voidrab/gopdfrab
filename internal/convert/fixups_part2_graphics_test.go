@@ -84,11 +84,11 @@ func TestInheritedResourcesFixerCopiesIntoChildren(t *testing.T) {
 	}{
 		{"outer form", outer}, {"nested form", inner}, {"pattern", pattern}, {"Type 3 font", type3},
 	} {
-		if got := lookupResource(resourcesOf(tc.holder, pdf.PDFDict{}), "ExtGState", "GS0"); got == nil {
+		if got := pdf.LookupResource(resourcesOf(tc.holder, pdf.PDFDict{}), "ExtGState", "GS0"); got == nil {
 			t.Errorf("%s did not get /GS0", tc.desc)
 		}
 	}
-	if lookupResource(resourcesOf(outer, pdf.PDFDict{}), "ExtGState", "Missing") != nil {
+	if pdf.LookupResource(resourcesOf(outer, pdf.PDFDict{}), "ExtGState", "Missing") != nil {
 		t.Error("a name no scope has was added")
 	}
 	if changed, _ := (inheritedResourcesFixer{}).Fix(&trailer, nil); changed {
@@ -317,7 +317,7 @@ func TestInheritedResourcesFixerFollowsAppearances(t *testing.T) {
 	if changed, _ := (inheritedResourcesFixer{}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix made no change")
 	}
-	if lookupResource(resourcesOf(x, pdf.PDFDict{}), "ExtGState", "GS0") == nil {
+	if pdf.LookupResource(resourcesOf(x, pdf.PDFDict{}), "ExtGState", "GS0") == nil {
 		t.Error("the form did not get /GS0")
 	}
 }
@@ -351,7 +351,22 @@ func TestInheritedResourcesFixerAdoptsIntoAppearances(t *testing.T) {
 	if changed, _ := (inheritedResourcesFixer{}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix made no change")
 	}
-	if lookupResource(resourcesOf(ap, pdf.PDFDict{}), "Font", "Helv") == nil {
+	if pdf.LookupResource(resourcesOf(ap, pdf.PDFDict{}), "Font", "Helv") == nil {
+		t.Error("the appearance stream did not get /Helv")
+	}
+}
+
+// TestInheritedResourcesFixerAdoptsIntoUntypedAppearances verifies that an
+// appearance stream that does not declare itself a form is still given the
+// page resources it uses.
+func TestInheritedResourcesFixerAdoptsIntoUntypedAppearances(t *testing.T) {
+	ap := pdf.NewStreamDict(nil, []byte("/Helv 9 Tf"))
+	trailer, page := hoistPage("", kv("Font", kv("Helv", kv())))
+	page.Entries.Set("Annots", pdf.PDFArray{kv("AP", kv("N", ap))})
+	if changed, _ := (inheritedResourcesFixer{}).Fix(&trailer, nil); !changed {
+		t.Fatal("Fix made no change")
+	}
+	if pdf.LookupResource(resourcesOf(ap, pdf.PDFDict{}), "Font", "Helv") == nil {
 		t.Error("the appearance stream did not get /Helv")
 	}
 }

@@ -297,7 +297,7 @@ func (ctx *ValidationContext) usedCIDsFor(v pdf.PDFDict) (cids map[int]bool, kno
 // part2 reports whether the context verifies a level of ISO 19005-2, whose
 // graphics rules need state the Part 1 checks do not.
 func (ctx *ValidationContext) part2() bool {
-	return ctx.Spec != nil && pdf.Checks.Colour.InheritedResources.AppliesTo(ctx.Spec.Level)
+	return ctx.Spec != nil && ctx.Spec.Part >= 2
 }
 
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
@@ -324,6 +324,14 @@ func (ctx *ValidationContext) Issues() []pdf.PDFError {
 
 func (ctx *ValidationContext) report(err pdf.PDFError) {
 	ctx.errs = append(ctx.errs, err)
+}
+
+// reportUncovered reports c, a device colour space that no output intent
+// covers, and records that one was found for
+// deviceColourWithoutPDFAIntentRule.
+func (ctx *ValidationContext) reportUncovered(c pdf.Check, obj pdf.PDFValue, msg string) {
+	ctx.uncoveredDeviceColour = true
+	ctx.Report(c, obj, msg)
 }
 
 // Report records a single violation of c against obj.
