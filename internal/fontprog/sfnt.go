@@ -266,8 +266,9 @@ func ScaledAscentDescent(tables map[string][]byte) (ascent, descent int) {
 	return a * 1000 / upm, d * 1000 / upm
 }
 
-// ScaledCapHeight reads OS/2's sCapHeight scaled to PDF's 1000-unit em,
-// falling back when the field isn't present (OS/2 version < 2).
+// ScaledCapHeight reads OS/2's sCapHeight scaled to PDF's 1000-unit em. It
+// returns fallback when the table is too short to hold the field or the units
+// per em are unknown.
 func ScaledCapHeight(tables map[string][]byte, fallback int) int {
 	os2 := tables["OS/2"]
 	upm, ok := UnitsPerEm(tables)

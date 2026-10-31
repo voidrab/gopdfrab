@@ -220,11 +220,11 @@ type run struct {
 	fixers  map[pdf.Check]Fixer
 	cr      ConvertResult
 
-	// graphClean records whether the in-heap graph is byte-for-byte the
-	// graph the most recent verifyGraph checked -- true right after each
-	// verify, false once any fixer or flattener edits it. When the run ends
-	// clean, serializeAndVerify can reuse lastParts.Graph instead of
-	// replaying the whole graph verification against the output bytes.
+	// graphClean records whether the in-heap graph is unchanged since the
+	// most recent verifyGraph checked it. It is true right after each verify
+	// and false once a fixer or flattener edits the graph. When it is true at
+	// the end of the run, serializeAndVerify reuses lastParts.Graph instead of
+	// verifying the graph again against the output bytes.
 	graphClean bool
 	lastParts  verify.Parts
 
@@ -314,17 +314,17 @@ func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, spec pdf
 var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 
 // serializeAndVerify serializes the graph and verifies the output bytes,
-// updating the run's output and result. Called exactly once at the end of Run.
-// The loop Reader's stream caches carry over: the graph is the same in-heap
-// one, so unchanged streams keep their decoded/tokenized results while
-// rewritten streams miss on their fresh stream bytes' identity.
+// updating the run's output and result. It is called exactly once at the end
+// of Run. The output Reader adopts the stream caches of the Reader the fix
+// loop used: unchanged streams keep their decoded and tokenized results, while
+// rewritten streams miss because their bytes are new.
 //
-// When the graph is clean -- unchanged since the last inHeapVerify -- the
-// graph-side checks would be a deterministic replay of that verify (the
-// output reader is seeded with the very same graph and stream caches;
-// TestConvertSeededVerifyMatchesFreshVerify pins the equivalence), so only
-// the byte-level structural checks run against the output and lastParts
-// supplies the graph verdicts. A dirty graph gets today's full verify.
+// If the graph is clean, unchanged since the last inHeapVerify, its graph-side
+// checks would replay that verify exactly. The output Reader is seeded with the
+// same graph and stream caches, and TestConvertSeededVerifyMatchesFreshVerify
+// pins the equivalence. Only the byte-level structural checks then run against
+// the output, and lastParts supplies the graph verdicts. A dirty graph gets the
+// full verify.
 func (r *run) serializeAndVerify() (err error) {
 	loopDoc, trailer, cr, p := r.doc, r.trailer, &r.cr, r.p
 	var sw spillWriter

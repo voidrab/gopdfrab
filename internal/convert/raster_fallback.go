@@ -11,15 +11,16 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// backstop is the run's last-resort remediation: rasterize residual pages
-// so a resolvable graph always converts. Only fixer-addressable issues
-// trigger it; structural violations (no registered fixer) are fixed by
-// construction by the writer and do not need rasterization. It updates the
-// run's result and clean-graph state exactly as the fix loop's verifies do.
+// backstop is the run's last-resort remediation: it rasterizes the residual
+// pages so that a resolvable graph always converts. Only fixer-addressable
+// issues trigger it; structural violations (no registered fixer) are fixed by
+// construction by the writer and need no rasterization. It keeps the run's
+// result and clean-graph state current, as the fix loop does.
 //
-// A loop that ran out of iterations ends on a fix pass nothing verified, so
-// the result still lists what that pass repaired. Verify first: rasterizing
-// from the stale list flattened pages that were already conformant.
+// If the fix loop stopped at its iteration limit, its last fix pass was never
+// verified and the result is stale. backstop therefore verifies the graph
+// first, so that rasterization does not flatten pages that are already
+// conformant.
 func (r *run) backstop() error {
 	if !r.graphClean {
 		r.verifyGraph()

@@ -81,9 +81,8 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	}
 }
 
-// backstopRun returns a run whose graph is trailer and whose last verify of
-// it, a clean one, reported residual. The synthetic issue stands for that
-// verify.
+// backstopRun returns a run with graphClean set, whose most recent verify of
+// trailer reported residual as its only issue.
 func backstopRun(ctx context.Context, doc *pdf.Reader, trailer pdf.PDFDict, fixers map[pdf.Check]Fixer, residual pdf.PDFError) *run {
 	return &run{
 		ctx: ctx, doc: doc, p: pdf.PDFA1B, spec: a1b(), trailer: trailer, fixers: fixers,

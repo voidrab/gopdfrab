@@ -76,8 +76,8 @@ func TestFidelityIdentical(t *testing.T) {
 }
 
 // TestFidelityBlankedDetected verifies that an inked input against a blank
-// output is flagged as blanked with low similarity -- the destructive failure
-// the gate exists to catch.
+// output is flagged as blanked with low similarity. This is the destructive
+// failure the gate exists to catch.
 func TestFidelityBlankedDetected(t *testing.T) {
 	input := onePageDoc(filledPage)
 	output := onePageDoc("q\nQ\n") // renders nothing
@@ -96,8 +96,8 @@ func TestFidelityBlankedDetected(t *testing.T) {
 }
 
 // TestFidelityChangedNotBlanked verifies that a page whose content moves or
-// changes but still carries comparable ink is NOT flagged as blanked, even
-// though its pixel similarity drops. Legitimate changes, e.g. font
+// changes but still carries comparable ink is not flagged as blanked, even
+// though its pixel similarity drops. Legitimate changes, such as font
 // substitution, do not trip the destructive-loss gate.
 func TestFidelityChangedNotBlanked(t *testing.T) {
 	input := onePageDoc("0 0 0 rg\n20 20 70 70 re\nf\n")    // rectangle bottom-left
@@ -113,7 +113,8 @@ func TestFidelityChangedNotBlanked(t *testing.T) {
 	}
 }
 
-// TestInkFractionExtremes pins the ink metric at its bounds.
+// TestInkFractionExtremes verifies that a blank page has no ink and that two
+// blank pages are not reported as blanked.
 func TestInkFractionExtremes(t *testing.T) {
 	white := compareDocs(t, onePageDoc("q\nQ\n"), onePageDoc("q\nQ\n"))
 	if len(white) != 1 || white[0].InputInk >= inkThreshold {
@@ -195,11 +196,10 @@ func TestBlankedPages(t *testing.T) {
 	}
 }
 
-// TestOverpainted verifies that what counts is the page being covered, not the
-// ink going up. A conversion that makes text drawable which the input's own
-// fonts could not draw adds a great deal of ink and covers nothing, and it is
-// the commonest thing a conversion does -- counting that as damage would bury
-// the real thing.
+// TestOverpainted verifies that a page is judged overpainted by the area it
+// covers, not by the ink it gains. Restoring text that the input's own fonts
+// could not draw adds a great deal of ink and covers nothing. Conversions do
+// this often, so counting that ink as damage would hide real overpainting.
 func TestOverpainted(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -262,7 +262,7 @@ func TestCellMeansOnEmptyRender(t *testing.T) {
 	}
 }
 
-// TestOverpaintedPages verifies that the page list mirrors blankedPages: page
+// TestOverpaintedPages verifies that the page list mirrors BlankedPages: page
 // order, and nil when nothing was drawn over.
 func TestOverpaintedPages(t *testing.T) {
 	over := PageFidelity{Page: 2, Covered: 0.8}

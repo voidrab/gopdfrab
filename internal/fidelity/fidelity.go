@@ -77,11 +77,11 @@ func pagesWhere(report []PageFidelity, match func(PageFidelity) bool) []int {
 	return pages
 }
 
-// Summary is everything the comparison needs from one rendered page: how
-// much ink it carries, how dark each part of it is, and the samples the
-// similarity score is taken from. A few tens of kilobytes, where the page it
-// was measured from is a few megabytes -- and a document's worth of those is
-// what a comparison has to hold.
+// Summary holds the measurements of one rendered page that a comparison
+// needs: its ink fraction, the mean luminance of each cell of the comparison
+// grid, and the grayscale samples the similarity score is taken from. A Summary
+// is about 36 KiB, far smaller than the page it was measured from, so a
+// comparison holds summaries rather than renders.
 type Summary struct {
 	rendered bool
 	ink      float64
@@ -97,8 +97,10 @@ func summarize(img *image.RGBA) Summary {
 	return Summary{rendered: true, ink: inkFraction(img), cells: cellMeans(img), gray: grayGrid(img)}
 }
 
-// Compare builds the per-page report from two measured page lists. An unrendered input page is skipped (no baseline); an unrendered
-// output page with an inked input counts as fully lost.
+// Compare builds the per-page report from two lists of measured pages. An
+// input page that did not render is skipped, since it has no baseline. An
+// output page that did not render gets no output ink and zero similarity, so
+// an inked input page is reported as blanked.
 func Compare(in, out []Summary) []PageFidelity {
 	n := min(len(in), len(out))
 	var report []PageFidelity
@@ -207,9 +209,10 @@ func inkFraction(img *image.RGBA) float64 {
 	return float64(ink) / float64(total)
 }
 
-// gridSimilarity compares two renders sampled on the same fixed grid, so
-// differing pixel dimensions are handled, and returns 1 minus the mean
-// per-cell grayscale difference, normalized to [0,1].
+// gridSimilarity compares two grids of samples taken by grayGrid. Because
+// grayGrid samples every render on the same fixed grid, differing pixel
+// dimensions do not matter. It returns 1 minus the mean per-cell grayscale
+// difference, normalized to [0,1].
 func gridSimilarity(ga, gb [fidelityGrid * fidelityGrid]float64) float64 {
 	var sum float64
 	for i := range ga {
