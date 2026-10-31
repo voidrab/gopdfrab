@@ -174,8 +174,8 @@ func (d *Reader) parseBootstrapAt(offset int64) (PDFValue, error) {
 
 // readObjectAt reads the indirect object "N G obj <object> [stream ...]
 // endobj" at offset and returns it with its declared object number. Unless
-// bootstrap is set, the header must declare objNum, and the value is
-// decrypted and, if a dictionary, carries its reference.
+// bootstrap is set, a header declaring another object number is an error, and
+// the value is decrypted and, if a dictionary, carries its reference.
 func (d *Reader) readObjectAt(offset int64, objNum int, bootstrap bool) (_ PDFValue, _ int, err error) {
 	if offset < 0 {
 		return nil, objNum, fmt.Errorf("object %d: negative offset %d", objNum, offset)

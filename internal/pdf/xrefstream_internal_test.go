@@ -109,7 +109,7 @@ func itoa(n int) string {
 
 // TestTryParseXRefStream covers a full success parse (type-0/1/2 entries),
 // the fillIn skip-existing branches, and every error branch: a propagated
-// parseIndirectObjectAt error, a missing stream body, a non-/XRef object, a
+// parseBootstrapAt error, a missing stream body, a non-/XRef object, a
 // decode failure, malformed /W, malformed /Index, and a truncated entry
 // table.
 func TestTryParseXRefStream(t *testing.T) {
@@ -154,7 +154,7 @@ func TestTryParseXRefStream(t *testing.T) {
 		}
 	})
 
-	t.Run("propagated parseIndirectObjectAt error", func(t *testing.T) {
+	t.Run("propagated parseBootstrapAt error", func(t *testing.T) {
 		d := &Reader{file: newXRefTestFileReader([]byte("X 0 obj\n"))}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected propagated error")
