@@ -110,9 +110,8 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	}
 }
 
-// TestConvertReportsRemovedAttachments checks that the embedded files and
-// file attachments a conversion has to remove are reported as lost, not
-// deleted silently.
+// TestConvertReportsRemovedAttachments verifies that the embedded files and
+// file attachments removed by a conversion are recorded in LostObjects.
 func TestConvertReportsRemovedAttachments(t *testing.T) {
 	for _, tc := range []struct {
 		path  string

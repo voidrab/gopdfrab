@@ -171,8 +171,8 @@ func TestAnnotColourFixerCmykAndGrayModels(t *testing.T) {
 	}
 }
 
-// TestDisallowedAnnotFixerNamesAttachedFile checks that clearing a file
-// attachment reports the embedded file that goes with it.
+// TestDisallowedAnnotFixerNamesAttachedFile verifies that clearing a file
+// attachment reports the embedded file removed with it.
 func TestDisallowedAnnotFixerNamesAttachedFile(t *testing.T) {
 	fs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"F":  pdf.PDFString{Value: "notes.txt"},
@@ -195,8 +195,8 @@ func TestDisallowedAnnotFixerNamesAttachedFile(t *testing.T) {
 	}
 }
 
-// TestDisallowedAnnotFixerUntypedAnnotation checks the report for an
-// annotation that has no /Subtype to name it by.
+// TestDisallowedAnnotFixerUntypedAnnotation verifies the report for an
+// annotation that has no Subtype entry to name it by.
 func TestDisallowedAnnotFixerUntypedAnnotation(t *testing.T) {
 	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Annot"}})}
 	trailer := trailerWith("Annot0", annot)

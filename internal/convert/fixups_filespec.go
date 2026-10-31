@@ -61,7 +61,7 @@ func (f fileSpecFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) 
 }
 
 // embeddedFileName names the file that the file specification fs embeds, by
-// its /UF or /F name when it has one.
+// its Unicode file name (/UF) or else its file name (/F) when it has one.
 func embeddedFileName(fs pdf.PDFDict) string {
 	for _, key := range []string{"UF", "F"} {
 		if name := pdf.DecodeInfoTextString(fs.Entries.Get(key)); name != "" {
@@ -71,8 +71,8 @@ func embeddedFileName(fs pdf.PDFDict) string {
 	return "embedded file"
 }
 
-// reportLost appends to lost, when non-nil, the removal of d under check c,
-// with d's object reference when it has one.
+// reportLost appends a record for the removal of d under check c to lost,
+// when lost is non-nil. It includes d's object reference if d has one.
 func reportLost(lost *[]pdf.PDFError, c pdf.Check, d pdf.PDFDict, msg string) {
 	if lost == nil {
 		return

@@ -35,11 +35,10 @@ func TestFileSpecFixer(t *testing.T) {
 	}
 }
 
-// TestFileSpecFixerReportsEachEmbeddedFile checks that every embedded file
-// the fixer removes is reported once, by name and object, whether it was
-// reached through the /EmbeddedFiles name tree or through an annotation's
-// file specification, and that a file reached through both is reported only
-// once.
+// TestFileSpecFixerReportsEachEmbeddedFile verifies that each embedded file
+// the fixer removes is reported once, by name and object, whether it is
+// reached through the name tree (/EmbeddedFiles) or through an annotation's
+// file specification. A file reached through both is reported only once.
 func TestFileSpecFixerReportsEachEmbeddedFile(t *testing.T) {
 	ef := func() pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
