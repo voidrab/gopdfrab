@@ -62,7 +62,7 @@ func TestRasterInvisibleTextRenderMode(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Contents": pdf.NewStreamDict(nil, []byte("BT /F1 20 Tf 0 0 0 rg "+tr+" 5 15 Td (ABC) Tj ET")),
 		})}
-		img, _, err := raster.RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72)
+		img, _, err := raster.RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72, nil)
 		if err != nil {
 			t.Fatalf("RenderPage: %v", err)
 		}
@@ -249,7 +249,7 @@ func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, [
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
-	img, drops, err := raster.RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := raster.RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

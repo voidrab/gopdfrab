@@ -21,7 +21,7 @@ func formWithBBox(content string, bbox ...int64) pdf.PDFDict {
 
 func TestRenderPageUndecodableContentFails(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Contents": undecodableStream()})}
-	if _, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72); err == nil {
+	if _, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil); err == nil {
 		t.Error("RenderPage succeeded on undecodable content")
 	}
 }

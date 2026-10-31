@@ -67,6 +67,12 @@ notice.
 
 ### Fixed
 
+- Convert removed embedded files and forbidden annotations, file attachments
+  among them, without listing them in `LostObjects`.
+- Removing `/OCProperties` made the optional content layers that a document
+  turns off visible in the output. Their content is now removed and listed in
+  `LostObjects`, and the fidelity gate renders the input with those layers
+  hidden.
 - Convert rasterized a figure whose transparency group draws nested forms,
   as chart libraries write labels, even when nothing in it is transparent.
   Such a group is now dropped and the figure stays vector content.

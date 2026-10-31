@@ -467,10 +467,11 @@ can't draw — shadings, inline images, Type 3 fonts — is reported per page in
 the pixel comparison (which drops it symmetrically) cannot see it.
 
 Content the conversion could not carry over at all — an object the reader could
-not resolve, a stream nothing can decode — is listed in `cr.LostObjects`. That is
-a separate fact from conformance: the file that was written can meet PDF/A-1b and
-still be missing something the input had, and `cr.Result.Valid` answers only the
-first question.
+not resolve, a stream nothing can decode, an embedded file or annotation the
+level forbids, the content of a layer the document hides — is listed in
+`cr.LostObjects`. That is a separate fact from conformance: the file that was
+written can meet PDF/A-1b and still be missing something the input had, and
+`cr.Result.Valid` answers only the first question.
 
 ## Selective Check Profiles
 

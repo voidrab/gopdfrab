@@ -128,7 +128,7 @@ func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, [
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestRenderType3GlyphFallsBackToPageResources(t *testing.T) {
 	resources := redShadingResources()
 	resources.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})})
 
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestRenderPageRectangleFill(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("1 sc 5 5 10 10 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 	page = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("1 SC 4 w 0 10 m 20 10 l S")),
 	})}
-	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestRenderPageImageXObject(t *testing.T) {
 		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestRenderPageImageWithStencilMask(t *testing.T) {
 		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -446,7 +446,7 @@ ET
 		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")),
 	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72, nil); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
@@ -540,7 +540,7 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")),
 	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72, nil); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
@@ -651,7 +651,7 @@ func TestRasterPixelBudget(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg 0 0 8424 5955 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -693,7 +693,7 @@ func TestRenderFormRendersOnNothing(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("")),
 	})}
-	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

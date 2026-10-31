@@ -114,10 +114,12 @@ type ConvertResult struct {
 	// being text and vector content.
 	RasterizedPages []int
 	// LostObjects lists content the conversion could not carry over: an object
-	// the reader could not resolve, a stream nothing can decode. Each entry
-	// says what was lost and where it was. The output is still conformant --
-	// that is what Result reports -- but it no longer holds all of the input,
-	// so a caller who must not lose anything checks this list.
+	// the reader could not resolve, a stream nothing can decode, an embedded
+	// file or annotation the level forbids, the content of an optional content
+	// layer the document hides. Each entry says what was lost and where it
+	// was. The output is still conformant -- that is what Result reports --
+	// but it no longer holds all of the input, so a caller who must not lose
+	// anything checks this list.
 	LostObjects []pdf.PDFError
 }
 

@@ -30,7 +30,7 @@ func renderFirstPage(t *testing.T, data []byte) *image.RGBA {
 	if len(pages) == 0 {
 		t.Fatal("document has no pages")
 	}
-	img, _, err := raster.RenderPage(pages[0].dict, pages[0].resources, pages[0].mediaBox, 72)
+	img, _, err := raster.RenderPage(pages[0].dict, pages[0].resources, pages[0].mediaBox, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

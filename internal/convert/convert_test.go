@@ -110,6 +110,40 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	}
 }
 
+// TestConvertReportsRemovedAttachments verifies that the embedded files and
+// file attachments removed by a conversion are recorded in LostObjects.
+func TestConvertReportsRemovedAttachments(t *testing.T) {
+	for _, tc := range []struct {
+		path  string
+		check pdf.Check
+		msg   string
+	}{
+		{"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.11 Embedded Files/isartor-6-1-11-t02-fail-a.pdf",
+			pdf.Checks.Structure.EmbeddedFiles, `embedded file "img/pageA4.pdf" removed`},
+		{"../../tests/Isartor/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-a.pdf",
+			pdf.Checks.Annotation.DisallowedSubtype,
+			`FileAttachment annotation removed with its embedded file "nearly_empty_text_file.txt"`},
+	} {
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			data, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Skipf("fixture not present: %v", err)
+			}
+			cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+			if err != nil {
+				t.Fatalf("ConvertBytes: %v", err)
+			}
+			if !cr.Result.Valid {
+				t.Fatalf("output not conformant: %v", cr.Result.Issues)
+			}
+			if len(cr.LostObjects) != 1 || cr.LostObjects[0].Check() != tc.check ||
+				!slices.Equal(cr.LostObjects[0].Messages(), []string{tc.msg}) {
+				t.Errorf("LostObjects = %v, want one %q record under %v", cr.LostObjects, tc.msg, tc.check)
+			}
+		})
+	}
+}
+
 // failFixturesByExpectedClause walks both corpora and returns every "fail"
 // fixture's path paired with the clause its filename targets (see
 // veraClauseAndKind / expectedClauseFromName).

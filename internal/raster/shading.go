@@ -143,7 +143,7 @@ func (sh *shading) initFunctionBased(dict pdf.PDFDict) bool {
 		sh.dom4 = [4]float64{d[0], d[1], d[2], d[3]}
 	}
 	m := content.IdentityMatrix
-	if a, err := pdf.FloatArray(dict.Entries.Get("content.Matrix")); err == nil && len(a) == 6 {
+	if a, err := pdf.FloatArray(dict.Entries.Get("Matrix")); err == nil && len(a) == 6 {
 		m = content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	inv, ok := m.Invert()

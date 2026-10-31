@@ -45,9 +45,15 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 		return false
 	}
 
+	return removeInvisible(trailer, newAlphaState)
+}
+
+// removeInvisible rewrites every stream that draws, each starting from the
+// state start returns, and reports whether any changed.
+func removeInvisible(trailer *pdf.PDFDict, start func() *alphaState) bool {
 	changed := false
 	for _, p := range orderedPages(*trailer) {
-		rewritePageAlpha(p.dict, p.resources, &changed)
+		rewritePageAlpha(p.dict, p.resources, start(), &changed)
 	}
 
 	// Every other stream that draws: form XObjects (including the appearance
@@ -60,7 +66,7 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 		switch {
 		case d.IsStream() && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
 			d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
-			_, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
+			_, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), start())
 			if ok {
 				changed = true
 			}
@@ -77,7 +83,7 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 				if !ok || !proc.IsStream() {
 					continue
 				}
-				if fixed, ok := rewriteAlphaStream(proc, resources, newAlphaState()); ok {
+				if fixed, ok := rewriteAlphaStream(proc, resources, start()); ok {
 					procs.Entries.Set(name, fixed)
 					changed = true
 				}
@@ -110,11 +116,11 @@ func isTransparent(v pdf.PDFValue) bool {
 	return num && f < 1-invisibleAlpha
 }
 
-// rewritePageAlpha rewrites a page's content. A page's content can be written
-// as several streams, which are one stream split up: an opacity set in one
-// part is still in force in the next, so the state carries across them.
-func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
-	state := newAlphaState()
+// rewritePageAlpha rewrites a page's content, starting from state. A page's
+// content can be written as several streams, which are one stream split up: an
+// opacity set in one part is still in force in the next, so the state carries
+// across them.
+func rewritePageAlpha(page, resources pdf.PDFDict, state *alphaState, changed *bool) {
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
 		if !contents.IsStream() {
@@ -167,6 +173,10 @@ type alphaState struct {
 	strokeAlpha  float64
 	textMode     int
 	fill, stroke colourState
+	// layers is set only for the hidden-layer pass. It is a pointer so that
+	// q and Q, which save and restore the rest of the state, leave it alone:
+	// marked content nests independently of the graphics state.
+	layers *layerTracker
 }
 
 // newAlphaState is where a content stream starts: fully opaque.
@@ -174,8 +184,13 @@ func newAlphaState() *alphaState {
 	return &alphaState{fillAlpha: 1, strokeAlpha: 1}
 }
 
-func (s alphaState) fillHidden() bool   { return s.fillAlpha <= invisibleAlpha }
-func (s alphaState) strokeHidden() bool { return s.strokeAlpha <= invisibleAlpha }
+func (s alphaState) fillHidden() bool {
+	return s.fillAlpha <= invisibleAlpha || s.layers.hidden()
+}
+
+func (s alphaState) strokeHidden() bool {
+	return s.strokeAlpha <= invisibleAlpha || s.layers.hidden()
+}
 
 // faded reports an opacity that hides nothing but is not opaque either.
 func faded(alpha float64) bool { return alpha > invisibleAlpha && alpha < 1-invisibleAlpha }
@@ -201,18 +216,21 @@ type alphaRewriter struct {
 
 func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 	r.track(op, operands)
+	r.state.layers.step(op, operands, r.resources)
 
 	switch {
 	case paintOps[op]:
 		visible := r.visiblePaint(op)
 		if visible != op {
 			r.changed = true
+			r.state.layers.noteRemoved()
 		}
 		r.emitPainted(visible, nil, paintFills(visible), paintStrokes(visible))
 
 	case op == "sh", op == "Do", op == "INLINEIMAGE":
 		if r.marksNothing(op, operands) {
 			r.changed = true
+			r.state.layers.noteRemoved()
 			return
 		}
 		r.emit(op, operands)
@@ -231,6 +249,7 @@ func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 		r.emit(op, operands)
 		r.emitTextMode(r.state.textMode)
 		r.changed = true
+		r.state.layers.noteRemoved()
 
 	default:
 		r.emit(op, operands)
@@ -250,7 +269,11 @@ func (r *alphaRewriter) track(op string, operands []pdf.PDFValue) {
 			r.stack = r.stack[:n-1]
 		}
 	case "gs":
-		r.applyExtGState(operands)
+		// The hidden-layer pass leaves opacity to its own repair, which
+		// would otherwise blend a faded colour a second time.
+		if r.state.layers == nil {
+			r.applyExtGState(operands)
+		}
 	case "Tr":
 		if len(operands) == 1 {
 			if mode, ok := numericValue(operands[0]); ok {
@@ -501,6 +524,9 @@ func (r *alphaRewriter) marksNothing(op string, operands []pdf.PDFValue) bool {
 		return r.state.fillHidden()
 	}
 	if xobj, ok := r.namedResource("XObject", operands); ok {
+		if r.state.layers.hidesXObject(xobj) {
+			return true
+		}
 		if (xobj.Entries.Get("Subtype") == pdf.PDFName{Value: "Image"}) {
 			return r.state.fillHidden()
 		}
