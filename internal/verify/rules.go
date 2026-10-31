@@ -125,7 +125,7 @@ var dictRules = []dictRule{
 			pdf.Checks.Colour.ICCBasedCMYKOverprint, pdf.Checks.Colour.InheritedResources,
 			pdf.Checks.Colour.RenderingIntent,
 			pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Image.ImageInterpolate,
-			pdf.Checks.Image.InlineImageRenderingIntent,
+			pdf.Checks.Image.ImageRenderingIntent,
 			pdf.Checks.Structure.GraphicsStateNesting, pdf.Checks.Structure.HexStringInvalidChar,
 			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageFilterNotAllowed,
 			pdf.Checks.Structure.InlineImageLZWFilter,

@@ -102,9 +102,8 @@ var part2Clauses = map[string]clauseRef{
 	"HalftoneTransferFunction": {"6.2.5", 6, ""},
 	"ExtGStateRenderingIntent": {"6.2.5", 0, ""},
 	// 6.2.6 Rendering intents.
-	"InlineImageRenderingIntent": {"6.2.6", 1, ""},
+	"ImageRenderingIntent": {"6.2.6", 1, ""},
 	// 6.2.8 Image dictionaries.
-	"ImageRenderingIntent":      {"6.2.8", 0, ""},
 	"ImageAlternates":           {"6.2.8", 1, ""},
 	"ImageOPI":                  {"6.2.8", 2, ""},
 	"ImageInterpolate":          {"6.2.8", 3, ""},

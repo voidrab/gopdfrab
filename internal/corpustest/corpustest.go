@@ -53,9 +53,9 @@ type Corpus struct {
 	// does not implement every clause. A fail file counts when the clause its
 	// name targets is one of them or lies under one. Pass files always count.
 	Clauses []string
-	// Reclassified maps the base name of a file whose name targets a clause
-	// that its content does not violate to the clause it does violate, as
-	// veraPDF reports it.
+	// Reclassified maps the base name of a file whose name targets another
+	// clause than the one its violation falls under, as veraPDF reports it,
+	// to that clause.
 	Reclassified map[string]string
 }
 
@@ -89,6 +89,9 @@ var (
 		Naming:  VeraPDFNames,
 		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10"},
 		Reclassified: map[string]string{
+			// An image dictionary's rendering intent is a rule of the
+			// rendering intents.
+			"veraPDF test suite 6-2-8-1-t03-fail-a.pdf": "6.2.6",
 			// The transparent glyph of its Type 3 font is never shown, so
 			// the page contains no transparency; the file fails only for
 			// its uncovered DeviceGray.

@@ -436,7 +436,7 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
 // checks_dict.go. It also repairs the inline-image case of ImageInterpolate
-// and InlineImageRenderingIntent, which checkInlineImageOther in
+// and, under Part 2, of ImageRenderingIntent, which checkInlineImageOther in
 // checks_content.go reports; fixInlineImage handles it because a Check can
 // have only one registered Fixer. The PostScript-related checks
 // (FormPostScript, FormPSEntry, FormSubtype2PS, PostScriptXObject) belong to
@@ -447,7 +447,6 @@ func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Image.ImageInterpolate, pdf.Checks.Image.ImageAlternates,
 		pdf.Checks.Image.ImageOPI, pdf.Checks.Image.ImageRenderingIntent,
-		pdf.Checks.Image.InlineImageRenderingIntent,
 		pdf.Checks.Image.ReferenceXObject, pdf.Checks.Image.FormOPI:
 		return true
 	}
@@ -496,7 +495,8 @@ func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 	return changed, nil
 }
 
-// fixInlineImage repairs an inline image's Interpolate and rendering intent.
+// fixInlineImage repairs an inline image's Interpolate and, since a Part 2
+// level reports it as ImageRenderingIntent, its rendering intent.
 func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
 	cop, keep := fixInlineImageInterpolate(op, operands, changed)
 	if op != "INLINEIMAGE" {
