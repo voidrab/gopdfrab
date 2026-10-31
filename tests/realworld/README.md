@@ -4,9 +4,10 @@ The Isartor and veraPDF suites are hand-built to exercise one clause each. Real
 PDFs are not like that, so this directory holds a corpus of documents from actual
 producers. It answers two questions the synthetic suites cannot:
 
-- **`should-pass/`** — real files that are genuinely PDF/A-1b (an authoring tool
-  claims PDF/A and the veraPDF reference verifier agrees). gopdfrab must verify
-  every one of them clean. A verifier that flags real Acrobat/Ghostscript output
+- **`should-pass/<flavour>/`** — real files that genuinely conform to one
+  PDF/A flavour, `should-pass/1b/` for PDF/A-1b (an authoring tool claims PDF/A
+  and the veraPDF reference verifier agrees). gopdfrab must verify every one of
+  them clean against that flavour's level. A verifier that flags real Acrobat/Ghostscript output
   is unusable regardless of what the synthetic suites say, so a rejection here is
   a false positive and fails `TestRealWorldCorpus`.
 - **`should-convert/`** — ordinary, non-PDF/A documents across producers, page
@@ -32,7 +33,7 @@ carries download sidecars.
 ```sh
 scripts/source-realworld-corpus.py plan       # query the source APIs
 scripts/source-realworld-corpus.py fetch --max-bytes 3.5G
-scripts/source-realworld-corpus.py classify   # veraPDF decides the split
+scripts/source-realworld-corpus.py classify   # veraPDF decides the split (--flavour, default 1b)
 scripts/source-realworld-corpus.py manifest   # merge provenance, hash everything
 scripts/source-realworld-corpus.py status     # counts and sizes
 ```
@@ -60,7 +61,7 @@ recognise is treated as not-free and the candidate is dropped before download.
 
 ### Adding files by hand
 
-1. Drop PDFs into `should-pass/` (real PDF/A-1b — confirm with
+1. Drop PDFs into `should-pass/1b/` (real PDF/A-1b — confirm with
    `verapdf --flavour 1b file.pdf` first) or `should-convert/` (ordinary PDFs).
 2. Run `scripts/gen-realworld-manifest.sh`. It hashes each file and merges it
    into `manifest.json`, preserving fields you have already filled in and

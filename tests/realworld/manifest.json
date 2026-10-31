@@ -12640,7 +12640,7 @@
     "note": "Zenodo record 21294887; Profiling Influence: A Bottom-up Model of Cultural Impact"
   },
   {
-    "path": "should-pass/arxiv/arxiv-2002.12482.pdf",
+    "path": "should-pass/1b/arxiv/arxiv-2002.12482.pdf",
     "url": "https://arxiv.org/pdf/2002.12482",
     "sha256": "78d525b84596de5821f5740b635c1ed98551e9ae62e92bafe0ea46fe389cde79",
     "license": "CC-BY-4.0",
@@ -12648,7 +12648,7 @@
     "note": "arXiv 2002.12482, submitted 2020-02-27, set cs; An Improved Generic ER Schema for Conceptual Modeling of Information Systems"
   },
   {
-    "path": "should-pass/arxiv/arxiv-2008.01611.pdf",
+    "path": "should-pass/1b/arxiv/arxiv-2008.01611.pdf",
     "url": "https://arxiv.org/pdf/2008.01611",
     "sha256": "0e1ac7d3fec6acb516bec480c4b9f9d6021b1cd3d018f4900cfc69369b2d6d57",
     "license": "CC-BY-SA-4.0",
@@ -12656,7 +12656,7 @@
     "note": "arXiv 2008.01611, submitted 2020-08-29, set cs; Machine Learning in Ethnobotany -- a first experiment"
   },
   {
-    "path": "should-pass/arxiv/arxiv-2009.00597.pdf",
+    "path": "should-pass/1b/arxiv/arxiv-2009.00597.pdf",
     "url": "https://arxiv.org/pdf/2009.00597",
     "sha256": "9d8a41f1673e3e6be0143c199bc551bf5a902fedc281b84457625f87a1430e45",
     "license": "CC-BY-4.0",
@@ -12664,7 +12664,7 @@
     "note": "arXiv 2009.00597, submitted 2020-09-01, set cs; Return to Bali"
   },
   {
-    "path": "should-pass/selfmade/selfmade-gs-pdfa1.pdf",
+    "path": "should-pass/1b/selfmade/selfmade-gs-pdfa1.pdf",
     "url": "",
     "sha256": "f83e6c623e2f02a58f165bdeb4032dc76f5c161cc08a2860d613b15efc76f4c7",
     "license": "self-generated",
@@ -12672,7 +12672,7 @@
     "note": "Ghostscript pdfwrite, PDF/A-1b"
   },
   {
-    "path": "should-pass/selfmade/selfmade-lo-pdfa1b-plain.pdf",
+    "path": "should-pass/1b/selfmade/selfmade-lo-pdfa1b-plain.pdf",
     "url": "",
     "sha256": "7ca3575c33951eff0e4815af719fdf0bcc9d003606fa4e26ffaabbc0942a96da",
     "license": "self-generated",
