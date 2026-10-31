@@ -151,8 +151,8 @@ func TestNewLexerBytesNil(t *testing.T) {
 	}
 }
 
-// TestLexerReaderPath drives the io.Reader-backed lexer, covering peekByte and
-// NextToken's reader branches.
+// TestLexerReaderPath verifies that NextToken returns the tokens of a
+// dictionary, then EOF at the end of the input.
 func TestLexerReaderPath(t *testing.T) {
 	lex := NewLexerBytes([]byte("<< /K 7 >>"), 0)
 	want := []TokenType{TokenDictStart, TokenName, TokenInteger, TokenDictEnd}

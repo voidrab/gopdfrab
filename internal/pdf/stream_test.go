@@ -91,8 +91,7 @@ func TestCheckEndstreamFramingRecordsMissingEOL(t *testing.T) {
 // TestValidateStream covers validateStream's Length-lookup errors, the
 // in-memory and file-backed body-capture paths (including the
 // Length-includes-EOL diagnostic), the missing-endstream error, the
-// stray-bytes-before-endstream diagnostic, and the file-backed seek/reset
-// on success.
+// stray-bytes-before-endstream diagnostic.
 func TestValidateStream(t *testing.T) {
 	t.Run("missing Length", func(t *testing.T) {
 		data := []byte("\nHello\nendstream")
@@ -232,8 +231,7 @@ func TestValidateStream(t *testing.T) {
 	})
 }
 
-// seekFailFileSource wraps bytesFileSource but always fails Seek, to exercise
-// validateStream's file-backed post-endstream seek-back error branch.
+// seekFailFileSource wraps bytesFileSource and fails every Seek.
 type seekFailFileSource struct{ bytesFileSource }
 
 func (seekFailFileSource) Seek(offset int64, whence int) (int64, error) {

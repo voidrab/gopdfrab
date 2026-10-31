@@ -21,7 +21,8 @@ type xrefRange struct {
 func parseIndirectObjectAt(src *source, offset int64) (objNum int, dict PDFDict, err error) {
 	l := src.lexer(offset)
 	defer func() {
-		// A failed read, not the file's content, is why the parse failed.
+		// If the lexer hit a failed read, report that error instead of the
+		// parse error it caused.
 		if err != nil && l.err != nil {
 			err = fmt.Errorf("object at offset %d: %w", offset, l.err)
 		}

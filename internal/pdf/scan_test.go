@@ -44,8 +44,8 @@ func setScanChunk(t testing.TB, n int) {
 	t.Cleanup(func() { scanChunk = old })
 }
 
-// checkScanMatchesOracle runs the header scan over data on the in-memory path
-// and on the seek path at several chunk sizes, against the regexp oracle.
+// checkScanMatchesOracle runs the header scan over data in memory, and on a
+// file read on demand at several chunk sizes, against the regexp oracle.
 func checkScanMatchesOracle(t testing.TB, data []byte) {
 	want := oracleHeaders(data)
 	mem := &Reader{src: memSource(data)}
@@ -96,7 +96,8 @@ func FuzzScanObjectHeaders(f *testing.F) {
 }
 
 // TestForEachIndexFindsXRefLines pins the xref-keyword scan against its
-// regexp oracle on both read paths, including straddled chunk boundaries.
+// regexp oracle, both in memory and on a file read on demand, including
+// straddled chunk boundaries.
 func TestForEachIndexFindsXRefLines(t *testing.T) {
 	data := []byte("xref\n0 1\nstartxref\n9\nxref\r\nfoo xref\nxrefs\n\rxref\n")
 	var want []int64
@@ -125,15 +126,16 @@ func TestForEachIndexFindsXRefLines(t *testing.T) {
 	}
 }
 
-// truncatedSeekReader is a seek-path Reader whose declared size runs past its
-// bytes, as when the file shrinks after Open: ReadAt returns nothing for the
-// tail.
+// truncatedSeekReader is a Reader over a file read on demand whose declared
+// size runs past its bytes, as when the file shrinks after Open: ReadAt returns
+// nothing for the tail.
 func truncatedSeekReader(data []byte) *Reader {
 	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)) + 100}}
 }
 
-// TestScansStopAtTruncatedFile pins that the seek-path scans stop cleanly at
-// the first empty read instead of looping or reporting phantom matches.
+// TestScansStopAtTruncatedFile pins that the scans of a file read on demand
+// stop cleanly at the first empty read instead of looping or reporting phantom
+// matches.
 func TestScansStopAtTruncatedFile(t *testing.T) {
 	setScanChunk(t, 4)
 	data := []byte("1 0 obj\nxref\n")
@@ -155,8 +157,9 @@ func TestScansStopAtTruncatedFile(t *testing.T) {
 	}
 }
 
-// TestForEachIndexStopsEarly pins that fn returning false ends the scan on
-// both read paths, and that an empty pattern matches nothing.
+// TestForEachIndexStopsEarly pins that fn returning false ends the scan both
+// in memory and on a file read on demand, and that an empty pattern matches
+// nothing.
 func TestForEachIndexStopsEarly(t *testing.T) {
 	setScanChunk(t, 4)
 	data := []byte("ab ab ab ab")

@@ -11,13 +11,14 @@ func newXRefTestFileReader(data []byte) fileSource {
 	return bytesFileSource{bytes.NewReader(data)}
 }
 
-// parseIndirectObjectAtBytes runs parseIndirectObjectAt over an in-memory file.
+// parseIndirectObjectAtBytes runs parseIndirectObjectAt over data read on
+// demand through a file source.
 func parseIndirectObjectAtBytes(data []byte, offset int64) (int, PDFDict, error) {
 	return parseIndirectObjectAt(&source{file: newXRefTestFileReader(data), size: int64(len(data))}, offset)
 }
 
 // TestParseIndirectObjectAtErrors covers every malformed-input error branch:
-// a bad seek offset, each malformed header token, a dictionary parse error,
+// a negative offset, each malformed header token, a dictionary parse error,
 // a non-integer or negative /Length, a missing EOL after 'stream', and a
 // truncated stream body.
 func TestParseIndirectObjectAtErrors(t *testing.T) {

@@ -9,9 +9,10 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// openSeekFile writes data to a temp file and opens it through the ReadAt/seek
-// read path with a real *os.File source and no mmap -- the faithful equivalent
-// of what Open does on a platform without file mapping (Windows).
+// openSeekFile writes data to a temp file and opens it with a real *os.File
+// source and no mmap, so the file is read on demand through ReadAt. This is
+// the faithful equivalent of what Open does on a platform without file mapping
+// (Windows).
 func openSeekFile(t *testing.T, data []byte) *Reader {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "in.pdf")
@@ -34,11 +35,12 @@ func openSeekFile(t *testing.T, data []byte) *Reader {
 }
 
 // TestSeekPathParsesLikeBytes pins the Windows read path at the parse layer:
-// with src.mem == nil (parsing via NewLexerAt over the file source) resolution
-// must succeed or fail exactly as the byte-slice path does and expose the same
-// full bytes, driven from both an in-memory source (OpenBytesSeek) and a real
-// *os.File, on clean, generated, and damaged inputs. The damaged case exercises
-// the chunked ReadAt-backed brute-force recovery scan (scanObjectHeaders).
+// with src.mem == nil, the file is read on demand through ReadAt and lexed a
+// window at a time. Resolution must succeed or fail exactly as the byte-slice
+// path does and expose the same full bytes, driven from both an in-memory
+// source (OpenBytesSeek) and a real *os.File, on clean, generated, and damaged
+// inputs. The damaged case exercises the chunked ReadAt-backed brute-force
+// recovery scan (scanObjectHeaders).
 // Deep graph-content equivalence is proven end-to-end by the verify-result
 // parity test (internal/verify), which is cycle-safe where a page graph is not.
 func TestSeekPathParsesLikeBytes(t *testing.T) {

@@ -96,8 +96,8 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 var endstreamKeyword = []byte("endstream")
 
 // indexFrom returns the offset of the first occurrence of pat at or after off.
-// Read from the file, the search goes in bounded chunks, never the whole
-// remainder at once.
+// For a file read on demand, the search goes in bounded chunks, never over the
+// whole remainder at once.
 func (d *Reader) indexFrom(off int64, pat []byte) (int64, bool) {
 	found := int64(-1)
 	d.src.chunks(off, 64<<10, len(pat)-1, func(base int64, buf []byte, _ bool) bool {

@@ -158,7 +158,8 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error
 	}
 	l := d.src.lexer(offset)
 	defer func() {
-		// A failed read, not the file's content, is why the parse failed.
+		// If the lexer hit a failed read, report that error instead of the
+		// parse error it caused.
 		if err != nil && l.err != nil {
 			err = fmt.Errorf("object %d: %w", ref.ObjNum, l.err)
 		}

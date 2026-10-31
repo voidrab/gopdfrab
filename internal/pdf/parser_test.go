@@ -135,8 +135,8 @@ func TestParseXRefSectionAt(t *testing.T) {
 	})
 }
 
-// TestParseXRefTable covers parseXRefTable's Seek error, a successful parse,
-// and a truncated entry line (ReadFull error).
+// TestParseXRefTable covers a negative offset, which reads nothing, a
+// successful parse, and a truncated entry line.
 func TestParseXRefTable(t *testing.T) {
 	t.Run("negative offset seek error", func(t *testing.T) {
 		r := newTestFileReader([]byte("xref\n"))

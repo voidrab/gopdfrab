@@ -6,12 +6,12 @@ import (
 )
 
 // Whole-file scans for damaged-file recovery. They match bytes directly rather
-// than with regular expressions, because RE2 allocates per match and, on the
-// seek path, would need the whole file on the heap. These walk the in-memory
-// slice directly, or the file source in bounded chunks.
+// than with regular expressions, because RE2 allocates per match and, for a
+// file read on demand, would need the whole file on the heap. These walk the
+// in-memory slice directly, or the file source in bounded chunks.
 
-// scanChunk is the read size for chunked scans on the seek path. A var so
-// tests can shrink it to exercise matches straddling a chunk boundary.
+// scanChunk is the read size for chunked scans of a file read on demand. A var
+// so tests can shrink it to exercise matches straddling a chunk boundary.
 var scanChunk = 1 << 20
 
 // isLineEnd reports whether b ends a line.

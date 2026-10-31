@@ -30,7 +30,8 @@ func TestParseReferenceDanglingScan(t *testing.T) {
 }
 
 // TestParseClassicReferenceFileBacked covers the src.mem == nil path, which
-// reads the object through d.file instead of aliasing the in-memory file.
+// reads the object from the file on demand instead of aliasing an in-memory
+// file.
 func TestParseClassicReferenceFileBacked(t *testing.T) {
 	data := []byte("5 0 obj\n<< /Foo 1 >>\nendobj\n")
 	r := newTestFileReader(data)
@@ -97,8 +98,8 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 	})
 }
 
-// TestParseClassicReferenceDictBranches covers the file-backed Seek error,
-// the parseDictionary error, the validateStream error, the leadingWS/preEOL
+// TestParseClassicReferenceDictBranches covers the negative-offset error, the
+// parseDictionary error, the validateStream error, the leadingWS/preEOL
 // framing diagnostics before "endobj", and the "neither stream nor endobj
 // follows" default branch.
 func TestParseClassicReferenceDictBranches(t *testing.T) {

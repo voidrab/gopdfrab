@@ -38,13 +38,14 @@ func (t Token) RealValue() (float64, error) {
 	return strconv.ParseFloat(t.Value, 64)
 }
 
-// Lexer holds the state of the current chunk being parsed. It lexes buf, the
-// bytes from file offset base on: a whole slice, or, lexing a file read on
-// demand, a window that moves along the file as the position does.
+// Lexer holds the state of the current chunk being parsed. It lexes buf, which
+// holds the bytes from file offset base on. When the file is read on demand,
+// src is set and buf is a window that moves along the file with the position;
+// otherwise buf is the whole slice or in-memory file.
 type Lexer struct {
 	buf  []byte
 	base int64
-	src  *source // the file the window is read from; nil for a slice
+	src  *source // the file a window is read from; nil when buf is all input
 	pos  int64
 	// err is why a read of the file failed, which ends the lexing early.
 	err    error

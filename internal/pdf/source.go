@@ -7,8 +7,10 @@ import (
 
 // source holds the bytes of the file a Reader parses. Either the whole file is
 // in memory (mapped, or the slice OpenBytes was given) or it is read from the
-// file on demand. Every read of the file goes through source, so the two cases
-// differ nowhere else.
+// file on demand. Reads made while parsing go through source, so the two cases
+// differ only in how bytes are fetched. Two reads bypass it: the header read in
+// newDocument, which runs before the source is built, and the exported
+// Reader.ReadAt, which reads d.file directly.
 type source struct {
 	mem  []byte      // the whole file; nil when it is read on demand
 	file io.ReaderAt // read when mem is nil

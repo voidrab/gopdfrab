@@ -511,10 +511,9 @@ func OpenBytesWithPassword(data, password []byte) (*Reader, error) {
 }
 
 // OpenBytesSeek parses in-memory data like OpenBytes but leaves src.mem nil,
-// so parsing drives the file-source ReadAt/Seek path (NewLexerAt, an
-// incremental read) instead of indexing src.mem directly. That
-// is the exact read path Open takes on a platform without file mapping (Windows,
-// where mmapFile returns nil), which the byte-slice path otherwise never
+// so the data is read on demand through ReadAt instead of being indexed in
+// memory. That is the read path Open takes on a platform without file mapping
+// (Windows, where mmapFile returns nil), which the byte-slice path never
 // exercises. It exists so that path can be tested on any OS; on unix, Open uses
 // mmap and there is no reason to prefer it.
 func OpenBytesSeek(data []byte) (*Reader, error) {
