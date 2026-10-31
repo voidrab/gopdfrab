@@ -572,7 +572,7 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 			formRes = resources
 		}
 		childGS := *gs
-		if m, err := pdf.FloatArray(xobj.Entries.Get("content.Matrix")); err == nil && len(m) == 6 {
+		if m, err := pdf.FloatArray(xobj.Entries.Get("Matrix")); err == nil && len(m) == 6 {
 			fm := content.Matrix{A: m[0], B: m[1], C: m[2], D: m[3], E: m[4], F: m[5]}
 			childGS.CTM = fm.Mul(gs.CTM)
 		}
@@ -1157,7 +1157,7 @@ func (r *renderer) patternShading(pattern pdf.PDFDict) (*shading, bool) {
 // it is used in, not to the CTM in force when it is selected.
 func (r *renderer) patternToDevice(pattern pdf.PDFDict) content.Matrix {
 	m := content.IdentityMatrix
-	if a, err := pdf.FloatArray(pattern.Entries.Get("content.Matrix")); err == nil && len(a) == 6 {
+	if a, err := pdf.FloatArray(pattern.Entries.Get("Matrix")); err == nil && len(a) == 6 {
 		m = content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	return m.Mul(r.patternBase)

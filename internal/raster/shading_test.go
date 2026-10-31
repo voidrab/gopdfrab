@@ -211,8 +211,8 @@ func TestRenderFunctionBasedShading(t *testing.T) {
 		"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
 		"Domain":      numArray(0, 1, 0, 1),
 		// Maps the unit domain onto the lower-left 10x10 of the page.
-		"content.Matrix": numArray(10, 0, 0, 10, 0, 0),
-		"Function":       expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+		"Matrix":   numArray(10, 0, 0, 10, 0, 0),
+		"Function": expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 	})}
 	img, drops := renderShading(t, sh)
 	if len(drops) != 0 {
@@ -274,15 +274,15 @@ func TestRenderShadingMalformedDrops(t *testing.T) {
 			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		})}},
 		{"function-based without Function", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"ShadingType":    pdf.PDFInteger(1),
-			"ColorSpace":     pdf.PDFName{Value: "DeviceRGB"},
-			"content.Matrix": numArray(10, 0, 0, 10, 0, 0),
+			"ShadingType": pdf.PDFInteger(1),
+			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+			"Matrix":      numArray(10, 0, 0, 10, 0, 0),
 		})}},
 		{"function-based with a singular content.Matrix", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"ShadingType":    pdf.PDFInteger(1),
-			"ColorSpace":     pdf.PDFName{Value: "DeviceRGB"},
-			"content.Matrix": numArray(0, 0, 0, 0, 0, 0),
-			"Function":       expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
+			"ShadingType": pdf.PDFInteger(1),
+			"ColorSpace":  pdf.PDFName{Value: "DeviceRGB"},
+			"Matrix":      numArray(0, 0, 0, 0, 0, 0),
+			"Function":    expFunction([]float64{1, 0, 0}, []float64{0, 0, 1}),
 		})}},
 	}
 	for _, tc := range tests {
