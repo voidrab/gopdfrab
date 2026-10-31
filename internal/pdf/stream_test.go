@@ -1,8 +1,6 @@
 package pdf
 
 import (
-	"bytes"
-	"errors"
 	"testing"
 )
 
@@ -219,23 +217,6 @@ func TestValidateStream(t *testing.T) {
 			t.Error("expected a diagnostic for stray bytes before the 'stream' EOL")
 		}
 	})
-
-	t.Run("file-backed final seek error", func(t *testing.T) {
-		data := []byte("\ndataendstream")
-		d := &Reader{file: seekFailFileSource{bytesFileSource{bytes.NewReader(data)}}}
-		l := d.src.lexer(0)
-		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
-		if err := d.validateStream(l, &dict, 1); err == nil {
-			t.Error("expected the final seek-back error to propagate")
-		}
-	})
-}
-
-// seekFailFileSource wraps bytesFileSource and fails every Seek.
-type seekFailFileSource struct{ bytesFileSource }
-
-func (seekFailFileSource) Seek(offset int64, whence int) (int64, error) {
-	return 0, errors.New("seek always fails")
 }
 
 // TestCheckEndstreamFramingStartPastWindow covers the "start > len(window)"

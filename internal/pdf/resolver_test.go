@@ -103,10 +103,10 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 // framing diagnostics before "endobj", and the "neither stream nor endobj
 // follows" default branch.
 func TestParseClassicReferenceDictBranches(t *testing.T) {
-	t.Run("file-backed seek error", func(t *testing.T) {
+	t.Run("file-backed negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("data"))
 		if _, err := r.parseClassicReference(PDFRef{ObjNum: 1}, -1); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 

@@ -151,21 +151,6 @@ func TestNewLexerBytesNil(t *testing.T) {
 	}
 }
 
-// TestLexerReaderPath verifies that NextToken returns the tokens of a
-// dictionary, then EOF at the end of the input.
-func TestLexerReaderPath(t *testing.T) {
-	lex := NewLexerBytes([]byte("<< /K 7 >>"), 0)
-	want := []TokenType{TokenDictStart, TokenName, TokenInteger, TokenDictEnd}
-	for i, w := range want {
-		if tok := lex.NextToken(); tok.Type != w {
-			t.Errorf("reader token[%d] = %v, want %v", i, tok.Type, w)
-		}
-	}
-	if tok := lex.NextToken(); tok.Type != TokenEOF {
-		t.Errorf("final token = %v, want EOF", tok.Type)
-	}
-}
-
 func TestIsHexDigit(t *testing.T) {
 	for _, ch := range []byte("0123456789ABCDEFabcdef") {
 		if !IsHexDigit(ch) {

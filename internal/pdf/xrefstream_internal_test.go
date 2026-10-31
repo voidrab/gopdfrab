@@ -22,9 +22,9 @@ func parseIndirectObjectAtBytes(data []byte, offset int64) (int, PDFDict, error)
 // a non-integer or negative /Length, a missing EOL after 'stream', and a
 // truncated stream body.
 func TestParseIndirectObjectAtErrors(t *testing.T) {
-	t.Run("seek error", func(t *testing.T) {
+	t.Run("negative offset", func(t *testing.T) {
 		if _, _, err := parseIndirectObjectAtBytes([]byte("1 0 obj"), -1); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 

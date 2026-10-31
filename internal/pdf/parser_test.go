@@ -111,10 +111,10 @@ func TestParseXRefSectionAt(t *testing.T) {
 		}
 	})
 
-	t.Run("negative offset seek error", func(t *testing.T) {
+	t.Run("negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("xref\n"))
 		if _, err := r.ParseXRefSectionAt(-1, false); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 
@@ -138,10 +138,10 @@ func TestParseXRefSectionAt(t *testing.T) {
 // TestParseXRefTable covers a negative offset, which reads nothing, a
 // successful parse, and a truncated entry line.
 func TestParseXRefTable(t *testing.T) {
-	t.Run("negative offset seek error", func(t *testing.T) {
+	t.Run("negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("xref\n"))
 		if err := r.parseXRefTable(-1); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 
