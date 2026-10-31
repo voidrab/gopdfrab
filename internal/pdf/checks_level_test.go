@@ -173,6 +173,9 @@ var stableCheckIDs = map[string]int{
 	"PermissionsKeys":                 161,
 	"SignatureReferenceDigest":        162,
 	"PageBoundarySize":                163,
+	"StreamFilterNotAllowed":          164,
+	"InlineImageFilterNotAllowed":     165,
+	"RealTooCloseToZero":              166,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {
@@ -356,8 +359,9 @@ func TestPart2Clauses(t *testing.T) {
 }
 
 // TestPart2SharingStaysWithinAPart1Clause verifies that checks share a Part 2
-// clause and subclause only when they enforce the same Part 1 clause, so a
-// copied entry on an unrelated check is caught.
+// clause and subclause only when they enforce the same Part 1 clause, or one
+// of them is a rule of Part 2 only, so a copied entry on an unrelated check is
+// caught.
 func TestPart2SharingStaysWithinAPart1Clause(t *testing.T) {
 	owner := map[clauseRef]Check{}
 	byName := map[string]Check{}
@@ -367,7 +371,7 @@ func TestPart2SharingStaysWithinAPart1Clause(t *testing.T) {
 	for name, ref := range part2Clauses {
 		c := byName[name]
 		key := clauseRef{clause: ref.clause, subclause: ref.subclause}
-		if prev, ok := owner[key]; ok && prev.Clause() != c.Clause() {
+		if prev, ok := owner[key]; ok && prev.Clause() != c.Clause() && prev.Clause() != "" && c.Clause() != "" {
 			t.Errorf("%s (Part 1 %s) and %s (Part 1 %s) share the Part 2 rule %s/%d",
 				prev.Name(), prev.Clause(), c.Name(), c.Clause(), ref.clause, ref.subclause)
 		}

@@ -23,5 +23,8 @@ func NewNames(names ...string) Names {
 // Has reports whether name is in the set.
 func (n Names) Has(name string) bool { return n.set[name] }
 
+// Len returns the number of names in the set.
+func (n Names) Len() int { return len(n.list) }
+
 // All returns the names in the order they were given, as a fresh slice.
 func (n Names) All() []string { return append([]string(nil), n.list...) }

@@ -40,13 +40,15 @@ var part2Clauses = map[string]clauseRef{
 	"StreamFileFilter":        {"6.1.7.1", 3, ""},
 	"StreamFileDecodeParams":  {"6.1.7.1", 3, ""},
 	// 6.1.7.2 Filters.
-	"StreamLZWFilter": {"6.1.7.2", 1, ""},
+	"StreamLZWFilter":        {"6.1.7.2", 1, ""},
+	"StreamFilterNotAllowed": {"6.1.7.2", 1, ""},
 	// 6.1.8 Name objects.
 	"NameNotUTF8": {"6.1.8", 1, ""},
 	// 6.1.9 Indirect objects.
 	"ObjectFraming": {"6.1.9", 1, ""},
 	// 6.1.10 Inline image dictionaries.
-	"InlineImageLZWFilter": {"6.1.10", 1, ""},
+	"InlineImageLZWFilter":        {"6.1.10", 1, ""},
+	"InlineImageFilterNotAllowed": {"6.1.10", 1, ""},
 	// 6.1.12 Permissions.
 	"PermissionsKeys":          {"6.1.12", 1, ""},
 	"SignatureReferenceDigest": {"6.1.12", 2, ""},
@@ -55,6 +57,7 @@ var part2Clauses = map[string]clauseRef{
 	"RealOutOfRange":          {"6.1.13", 2, "Real values must have an absolute value not exceeding 3.403 x 10^38"},
 	"StringTooLong":           {"6.1.13", 3, "String objects must not exceed 32,767 bytes"},
 	"NameTooLong":             {"6.1.13", 4, ""},
+	"RealTooCloseToZero":      {"6.1.13", 5, ""},
 	"IndirectObjectsExceeded": {"6.1.13", 7, ""},
 	"GraphicsStateNesting":    {"6.1.13", 8, ""},
 	"DeviceNColorants":        {"6.1.13", 9, "DeviceN colour spaces must not exceed 32 colorants"},

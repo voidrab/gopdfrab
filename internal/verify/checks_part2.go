@@ -70,6 +70,34 @@ func validateColorantNames(arr pdf.PDFArray, ctx *ValidationContext) {
 	}
 }
 
+// 6.1.7.2 Filters (ISO 19005-2)
+
+// checkStreamFilters reports each filter of a stream that the level does not
+// allow, and a Crypt filter other than the Identity one. LZW is reported as
+// StreamLZWFilter.
+func checkStreamFilters(v pdf.PDFDict, ctx *ValidationContext) {
+	allowed := ctx.Spec.StreamFilters
+	if allowed.Len() == 0 {
+		return
+	}
+	names := pdf.FilterNames(v.Entries.Get("Filter"))
+	for i, f := range names {
+		if info, ok := pdf.LookupFilter(f); ok && info.Kind == pdf.FilterLZW {
+			continue
+		}
+		if !allowed.Has(f) {
+			ctx.Report(pdf.Checks.Structure.StreamFilterNotAllowed, v, fmt.Sprintf("stream uses filter /%s, which is not allowed", f))
+			continue
+		}
+		if f != "Crypt" {
+			continue
+		}
+		if n := pdf.FilterDecodeParms(v, i, len(names)).Entries.Get("Name"); n != nil && n != (pdf.PDFName{Value: "Identity"}) {
+			ctx.Report(pdf.Checks.Structure.StreamFilterNotAllowed, v, fmt.Sprintf("stream uses the Crypt filter %v, not the Identity one", n))
+		}
+	}
+}
+
 // 6.1.12 Permissions (ISO 19005-2)
 
 // permittedPermissions are the only keys a permissions dictionary may hold.

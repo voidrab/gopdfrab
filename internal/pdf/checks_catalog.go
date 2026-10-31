@@ -172,6 +172,10 @@ type structureChecks struct {
 	PermissionsKeys          Check
 	SignatureReferenceDigest Check
 	PageBoundarySize         Check
+	// 6.1.7.2 Filters, 6.1.10 Inline image dictionaries and 6.1.13 again.
+	StreamFilterNotAllowed      Check
+	InlineImageFilterNotAllowed Check
+	RealTooCloseToZero          Check
 }
 
 type colourChecks struct {
@@ -673,6 +677,15 @@ func init() {
 			PageBoundarySize: newPart2Check(163,
 				"PageBoundarySize",
 				"Each page boundary must be at least 3 and at most 14,400 units in either direction"),
+			StreamFilterNotAllowed: newPart2Check(164,
+				"StreamFilterNotAllowed",
+				"Streams must use only the standard filters other than LZWDecode, and the Crypt filter only as Identity"),
+			InlineImageFilterNotAllowed: newPart2Check(165,
+				"InlineImageFilterNotAllowed",
+				"Inline images must use only the standard filters other than LZW, JBIG2Decode, JPXDecode and Crypt"),
+			RealTooCloseToZero: newPart2Check(166,
+				"RealTooCloseToZero",
+				"Nonzero real values must have an absolute value of at least 1.175 x 10^-38"),
 		},
 
 		Colour: colourChecks{

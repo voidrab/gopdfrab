@@ -5,6 +5,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // a2bSpec is PDF/A-2b's spec for tests that only read it.
@@ -246,5 +247,166 @@ func TestPageBoundaryFixerSkips(t *testing.T) {
 	}
 	if !(pageBoundaryFixer{}).Applies(pdf.Checks.Structure.PageBoundarySize) {
 		t.Error("pageBoundaryFixer does not apply to PageBoundarySize")
+	}
+}
+
+func TestStreamFilterFixer(t *testing.T) {
+	st := pdf.Checks.Structure
+	flate := func() pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		writer.SetStreamFlate(&d, []byte("hello"))
+		return d
+	}
+	for _, tc := range []struct {
+		desc    string
+		stream  func() pdf.PDFDict
+		checks  []pdf.Check
+		changed bool
+		filter  pdf.PDFValue // the Filter after the fix
+		image   bool         // whether the chain ends in an image codec
+	}{
+		{
+			desc:    "abbreviated name",
+			stream:  func() pdf.PDFDict { d := flate(); d.Entries.Set("Filter", nm("Fl")); return d },
+			checks:  []pdf.Check{st.StreamFilterNotAllowed},
+			changed: true,
+			filter:  nm("FlateDecode"),
+		},
+		{
+			desc: "abbreviated names in an array",
+			stream: func() pdf.PDFDict {
+				d := flate()
+				d.Entries.Set("Filter", pdf.PDFArray{nm("Fl"), pdf.PDFInteger(1), nm("DCTDecode")})
+				return d
+			},
+			checks:  []pdf.Check{st.StreamFilterNotAllowed},
+			changed: true,
+			filter:  pdf.PDFArray{nm("FlateDecode"), pdf.PDFInteger(1), nm("DCTDecode")},
+			image:   true,
+		},
+		{
+			desc: "decodable chain with a non-Identity Crypt filter left as it is",
+			stream: func() pdf.PDFDict {
+				d := flate()
+				d.Entries.Set("Filter", nm("Crypt"))
+				d.Entries.Set("DecodeParms", kv("Name", nm("StdCF")))
+				return d
+			},
+			checks: []pdf.Check{st.StreamFilterNotAllowed},
+			filter: nm("Crypt"),
+		},
+		{
+			desc: "undecodable unknown filter",
+			stream: func() pdf.PDFDict {
+				d := flate()
+				d.Entries.Set("Filter", nm("BrotliDecode"))
+				return d
+			},
+			checks: []pdf.Check{st.StreamFilterNotAllowed},
+			filter: nm("BrotliDecode"),
+		},
+		{
+			desc: "abbreviation in a one-element array",
+			stream: func() pdf.PDFDict {
+				d := pdf.NewStreamDict(nil, []byte("68656c6c6f>"))
+				d.Entries.Set("Filter", pdf.PDFArray{nm("AHx")})
+				d.Entries.Set("DecodeParms", pdf.PDFArray{kv("Name", nm("X"))})
+				return d
+			},
+			checks:  []pdf.Check{st.StreamFilterNotAllowed},
+			changed: true,
+			filter:  pdf.PDFArray{nm("ASCIIHexDecode")},
+		},
+		{
+			desc: "LZW as a filter outside the level's set",
+			stream: func() pdf.PDFDict {
+				d := pdf.NewStreamDict(nil, encodeLZW(t, []byte("hello")))
+				d.Entries.Set("Filter", nm("LZWDecode"))
+				return d
+			},
+			checks:  []pdf.Check{st.StreamFilterNotAllowed},
+			changed: true,
+			filter:  nm("FlateDecode"),
+		},
+		{
+			desc:   "allowed chain",
+			stream: flate,
+			checks: []pdf.Check{st.StreamFilterNotAllowed},
+			filter: nm("FlateDecode"),
+		},
+		{
+			desc:   "not reported",
+			stream: func() pdf.PDFDict { d := flate(); d.Entries.Set("Filter", nm("Fl")); return d },
+			checks: []pdf.Check{st.StreamLZWFilter},
+			filter: nm("Fl"),
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			s := tc.stream()
+			trailer := kv("Root", kv("Things", pdf.PDFArray{s, kv("Plain", nm("x"))}))
+			changed, err := streamFilterFixer{spec: a2bSpec}.Fix(&trailer, issuesOf(tc.checks...))
+			if err != nil || changed != tc.changed {
+				t.Fatalf("Fix = %v, %v, want %v", changed, err, tc.changed)
+			}
+			if got := s.Entries.Get("Filter"); !pdf.EqualPDFValue(got, tc.filter) {
+				t.Errorf("Filter = %v, want %v", got, tc.filter)
+			}
+			if data, err := pdf.DecodeStream(s); tc.changed && !tc.image && (err != nil || string(data) != "hello") {
+				t.Errorf("decoded = %q, %v", data, err)
+			}
+		})
+	}
+}
+
+// TestStreamFilterFixerDisallowed verifies which chains the fixer counts as
+// outside the level's filters.
+func TestStreamFilterFixerDisallowed(t *testing.T) {
+	f := streamFilterFixer{spec: a2bSpec}
+	for _, tc := range []struct {
+		filter pdf.PDFValue
+		parms  pdf.PDFValue
+		want   bool
+	}{
+		{nm("FlateDecode"), nil, false},
+		{nm("LZWDecode"), nil, true},
+		{nm("Crypt"), nil, false},
+		{nm("Crypt"), kv("Name", nm("Identity")), false},
+		{nm("Crypt"), kv("Name", nm("StdCF")), true},
+	} {
+		d := pdf.NewStreamDict(nil, nil)
+		d.Entries.Set("Filter", tc.filter)
+		if tc.parms != nil {
+			d.Entries.Set("DecodeParms", tc.parms)
+		}
+		if got := f.disallowed(d); got != tc.want {
+			t.Errorf("disallowed(%v, %v) = %v, want %v", tc.filter, tc.parms, got, tc.want)
+		}
+	}
+}
+
+func TestContentLimitsFixerZeroesTinyReals(t *testing.T) {
+	st := pdf.Checks.Structure
+	tiny := pdf.PDFReal(1e-39)
+	for _, tc := range []struct {
+		checks []pdf.Check
+		want   pdf.PDFReal
+	}{
+		{[]pdf.Check{st.RealTooCloseToZero}, 0},
+		{[]pdf.Check{st.RealOutOfRange}, tiny},
+	} {
+		holder := kv("V", tiny, "W", pdf.PDFReal(0.5))
+		trailer := kv("Root", holder)
+		if _, err := (contentLimitsFixer{spec: a2bSpec}).Fix(&trailer, issuesOf(tc.checks...)); err != nil {
+			t.Fatal(err)
+		}
+		if got := holder.Entries.Get("V"); got != tc.want {
+			t.Errorf("%v: V = %v, want %v", tc.checks, got, tc.want)
+		}
+		if got := holder.Entries.Get("W"); got != pdf.PDFReal(0.5) {
+			t.Errorf("%v: W = %v, want 0.5", tc.checks, got)
+		}
+	}
+	if !(contentLimitsFixer{}).Applies(st.RealTooCloseToZero) {
+		t.Error("contentLimitsFixer does not apply to RealTooCloseToZero")
 	}
 }

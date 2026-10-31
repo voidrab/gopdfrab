@@ -144,6 +144,7 @@ func TestA2BLimits(t *testing.T) {
 		MaxInteger:          2147483647,
 		MinInteger:          -2147483648,
 		MaxReal:             3.403e38,
+		MinReal:             1.175e-38,
 		MaxStringBytes:      32767,
 		MaxNameBytes:        127,
 		MaxCID:              65535,

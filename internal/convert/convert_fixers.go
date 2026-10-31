@@ -172,7 +172,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return wrongValueTypeFixer{} },
 		func(r *fixerRun) Fixer { return post14KeyFixer{} },
 		func(r *fixerRun) Fixer { return qNestingFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return lzwStreamFixer{} },
+		func(r *fixerRun) Fixer { return streamFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return undecodableStreamFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer {
 			return transparencyFlattener{dpi: r.dpi, drops: r.formDrops, ctx: r.ctx}

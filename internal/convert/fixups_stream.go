@@ -5,6 +5,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -125,27 +126,86 @@ func dropFilters(d *pdf.PDFDict) {
 	d.Entries.Del("DL")
 }
 
-type lzwStreamFixer struct{}
+// streamFilterFixer repairs the streams whose filter chain the level does not
+// allow: one using LZW, and, for StreamFilterNotAllowed, one naming a filter
+// outside the level's set or a Crypt filter other than the Identity one. A
+// filter written in its inline-image abbreviation is renamed, which keeps the
+// bytes; any other such chain is decoded and re-encoded as Flate. A chain
+// that cannot be decoded to bytes, such as one ending in an image codec, is
+// left as it is. Each repair runs only for its reported check.
+type streamFilterFixer struct{ spec *pdfa.Spec }
 
-func (lzwStreamFixer) Applies(c pdf.Check) bool {
-	return c == pdf.Checks.Structure.StreamLZWFilter
+func (streamFilterFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.StreamLZWFilter || c == pdf.Checks.Structure.StreamFilterNotAllowed
 }
 
-func (lzwStreamFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f streamFilterFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	reported := reportedChecks(issues)
+	lzw := reported[pdf.Checks.Structure.StreamLZWFilter]
+	others := reported[pdf.Checks.Structure.StreamFilterNotAllowed] && f.spec.StreamFilters.Len() > 0
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
-		if !d.IsStream() || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW) {
+		if !d.IsStream() {
 			return false
+		}
+		renamed := others && renameAbbreviatedFilters(d)
+		changed = changed || renamed
+		if !(lzw && pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterLZW)) && !(others && f.disallowed(d)) {
+			return renamed
 		}
 		plaintext, err := pdf.DecodeStream(d)
 		if err != nil {
-			return false
+			return renamed
 		}
 		writer.SetStreamFlate(&d, plaintext)
 		changed = true
 		return true
 	})
 	return changed, nil
+}
+
+// disallowed reports whether a stream names a filter outside the level's set,
+// or a Crypt filter other than the Identity one.
+func (f streamFilterFixer) disallowed(d pdf.PDFDict) bool {
+	names := pdf.FilterNames(d.Entries.Get("Filter"))
+	for i, name := range names {
+		if !f.spec.StreamFilters.Has(name) {
+			return true
+		}
+		if n := pdf.FilterDecodeParms(d, i, len(names)).Entries.Get("Name"); name == "Crypt" && n != nil && n != (pdf.PDFName{Value: "Identity"}) {
+			return true
+		}
+	}
+	return false
+}
+
+// renameAbbreviatedFilters replaces each filter of a stream written in its
+// inline-image abbreviation with the filter's full name.
+func renameAbbreviatedFilters(d pdf.PDFDict) bool {
+	full := func(v pdf.PDFValue) (pdf.PDFName, bool) {
+		n, ok := v.(pdf.PDFName)
+		if !ok {
+			return n, false
+		}
+		info, ok := pdf.LookupFilter(n.Value)
+		return pdf.PDFName{Value: info.Name}, ok && info.Name != n.Value
+	}
+	switch filter := d.Entries.Get("Filter").(type) {
+	case pdf.PDFName:
+		if n, ok := full(filter); ok {
+			d.Entries.Set("Filter", n)
+			return true
+		}
+	case pdf.PDFArray:
+		renamed := false
+		for i, v := range filter {
+			if n, ok := full(v); ok {
+				filter[i], renamed = n, true
+			}
+		}
+		return renamed
+	}
+	return false
 }
 
 // walkStreamDicts calls fix for every pdf.PDFDict found within v's dictionary

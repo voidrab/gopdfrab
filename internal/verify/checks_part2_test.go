@@ -218,3 +218,102 @@ func TestInheritedPageAttributeStopsAtTheDepthCap(t *testing.T) {
 		t.Error("inheritedPageAttribute missed the parent's CropBox")
 	}
 }
+
+func TestCheckStreamFilters(t *testing.T) {
+	stream := func(filter pdf.PDFValue, parms pdf.PDFValue) pdf.PDFDict {
+		d := streamDict("x")
+		d.Entries.Set("Filter", filter)
+		if parms != nil {
+			d.Entries.Set("DecodeParms", parms)
+		}
+		return d
+	}
+	for _, tc := range []struct {
+		desc string
+		dict pdf.PDFDict
+		want bool
+	}{
+		{"standard filters", stream(pdf.PDFArray{name("ASCII85Decode"), name("FlateDecode")}, nil), false},
+		{"image codec", stream(name("JPXDecode"), nil), false},
+		{"abbreviation", stream(name("Fl"), nil), true},
+		{"unknown filter", stream(pdf.PDFArray{name("FlateDecode"), name("BrotliDecode")}, nil), true},
+		{"LZW is its own check", stream(name("LZWDecode"), nil), false},
+		{"Crypt without parameters", stream(name("Crypt"), nil), false},
+		{"Identity Crypt", stream(name("Crypt"), kv("Name", name("Identity"))), false},
+		{"other Crypt", stream(pdf.PDFArray{name("Crypt"), name("FlateDecode")}, pdf.PDFArray{kv("Name", name("StdCF")), nil}), true},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx := a2bContext()
+			validateStreamObject(tc.dict, ctx)
+			if got := hasCheck(ctx, pdf.Checks.Structure.StreamFilterNotAllowed); got != tc.want {
+				t.Errorf("StreamFilterNotAllowed reported = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	// PDF/A-1b restricts only LZW.
+	ctx := &ValidationContext{Spec: a1bSpec}
+	validateStreamObject(stream(name("BrotliDecode"), nil), ctx)
+	if len(ctx.errs) != 0 {
+		t.Errorf("PDF/A-1b reported %v", ctx.errs)
+	}
+}
+
+func TestCheckInlineImageFilterNotAllowed(t *testing.T) {
+	params := func(filter pdf.PDFValue) []pdf.PDFValue { return []pdf.PDFValue{name("F"), filter} }
+	for _, tc := range []struct {
+		desc     string
+		filter   pdf.PDFValue
+		notAllow bool
+		lzw      bool
+		under1b  bool // whether PDF/A-1b reports anything
+	}{
+		{"abbreviations", pdf.PDFArray{name("AHx"), name("Fl")}, false, false, false},
+		{"full names", name("DCTDecode"), false, false, false},
+		{"JPX", name("JPXDecode"), true, false, false},
+		{"LZW", name("LZW"), false, true, true},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx := a2bContext()
+			checkInlineImageFilter(pdf.PDFDict{}, params(tc.filter), ctx)
+			if got := hasCheck(ctx, pdf.Checks.Structure.InlineImageFilterNotAllowed); got != tc.notAllow {
+				t.Errorf("InlineImageFilterNotAllowed reported = %v, want %v", got, tc.notAllow)
+			}
+			if got := hasCheck(ctx, pdf.Checks.Structure.InlineImageLZWFilter); got != tc.lzw {
+				t.Errorf("InlineImageLZWFilter reported = %v, want %v", got, tc.lzw)
+			}
+			ctx1 := &ValidationContext{Spec: a1bSpec}
+			checkInlineImageFilter(pdf.PDFDict{}, params(tc.filter), ctx1)
+			if got := len(ctx1.errs) > 0; got != tc.under1b {
+				t.Errorf("PDF/A-1b reported %v", ctx1.errs)
+			}
+		})
+	}
+}
+
+func TestRealTooCloseToZero(t *testing.T) {
+	for _, tc := range []struct {
+		v    pdf.PDFReal
+		want bool
+	}{
+		{0, false},
+		{1e-39, true},
+		{-1e-39, true},
+		{1.2e-38, false},
+		{0.5, false},
+	} {
+		ctx := a2bContext()
+		validateArchitecturalLimits(tc.v, pdf.PDFDict{}, ctx)
+		if got := hasCheck(ctx, pdf.Checks.Structure.RealTooCloseToZero); got != tc.want {
+			t.Errorf("graph %g: RealTooCloseToZero reported = %v, want %v", tc.v, got, tc.want)
+		}
+		ctx = a2bContext()
+		checkOperandLimits(tc.v, pdf.PDFDict{}, ctx)
+		if got := hasCheck(ctx, pdf.Checks.Structure.RealTooCloseToZero); got != tc.want {
+			t.Errorf("content %g: RealTooCloseToZero reported = %v, want %v", tc.v, got, tc.want)
+		}
+		if realTooCloseToZero(tc.v, a1bSpec.Limits) {
+			t.Errorf("PDF/A-1b: %g is too close to zero", tc.v)
+		}
+	}
+}

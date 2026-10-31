@@ -140,6 +140,9 @@ func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationC
 		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
 		}
+		if realTooCloseToZero(v, ctx.Spec.Limits) {
+			ctx.Report(pdf.Checks.Structure.RealTooCloseToZero, obj, fmt.Sprintf("real number in content stream too close to zero: %g", float64(v)))
+		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
 			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
@@ -197,7 +200,8 @@ func checkInlineImageColour(obj pdf.PDFValue, params []pdf.PDFValue, resources p
 	}
 }
 
-// checkInlineImageFilter flags an inline image using the LZW filter (6.1.10).
+// checkInlineImageFilter flags an inline image using the LZW filter, or a
+// filter the level does not allow (6.1.10).
 func checkInlineImageFilter(obj pdf.PDFValue, params []pdf.PDFValue, ctx *ValidationContext) {
 	for i := 0; i+1 < len(params); i += 2 {
 		key, ok := params[i].(pdf.PDFName)
@@ -205,8 +209,11 @@ func checkInlineImageFilter(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Valida
 			continue
 		}
 		for _, f := range pdf.FilterNames(params[i+1]) {
-			if f == "LZW" || f == "LZWDecode" {
+			switch allowed := ctx.Spec.InlineImageFilters; {
+			case f == "LZW" || f == "LZWDecode":
 				ctx.Report(pdf.Checks.Structure.InlineImageLZWFilter, obj, "inline image uses forbidden LZW filter")
+			case allowed.Len() > 0 && !allowed.Has(f):
+				ctx.Report(pdf.Checks.Structure.InlineImageFilterNotAllowed, obj, fmt.Sprintf("inline image uses filter /%s, which is not allowed", f))
 			}
 		}
 	}
