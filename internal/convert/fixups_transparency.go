@@ -640,19 +640,44 @@ func smaskFullyOpaque(smask *image.RGBA) bool {
 
 // canDropGroupSafely reports whether a form's content provably uses no
 // transparency, so deleting /Group composites identically. Every graphics
-// state the content switches to must be one of resources' opaque ones, and
-// the content may draw no XObject, no inline image and no pattern.
+// state the content switches to must be one of resources' opaque ones, the
+// content may draw no inline image and no pattern, and every XObject it
+// draws must be an image without a soft mask or a form that passes the same
+// test, read with its own resources or, without them, with the ones it is
+// drawn with.
 //
-// A group whose graphics states all set both opacities to 1 is common and is
-// therefore kept as vector content rather than rasterized.
+// A group whose graphics states all set both opacities to 1 is kept as vector
+// content rather than rasterized, and so is a group whose nested forms are
+// opaque in the same way, as when each label is drawn through its own form.
 func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
+	return opaqueContent(form, resources, map[pdf.Dict]bool{})
+}
+
+// maxOpaqueFormDepth bounds how deeply opaqueContent follows nested forms; a
+// form nested deeper is treated as unsafe.
+const maxOpaqueFormDepth = 12
+
+// opaqueContent reports whether the content of form, read with resources,
+// passes the test of canDropGroupSafely. The forms in open enclose form, and
+// a form that is already open is treated as unsafe.
+func opaqueContent(form pdf.PDFDict, resources pdf.PDFDict, open map[pdf.Dict]bool) bool {
+	if open[form.Entries] || len(open) > maxOpaqueFormDepth {
+		return false
+	}
 	data, err := pdf.DecodeStream(form)
 	if err != nil {
 		return false
 	}
+	open[form.Entries] = true
+	defer delete(open, form.Entries)
+
 	states, _ := resources.Entries.Get("ExtGState").(pdf.PDFDict)
+	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
 	safe := true
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if !safe {
+			return
+		}
 		switch op {
 		case "gs":
 			if len(operands) == 0 {
@@ -664,7 +689,14 @@ func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 			if !ok || !opaqueGState(state) {
 				safe = false
 			}
-		case "Do", "INLINEIMAGE":
+		case "Do":
+			var name pdf.PDFName
+			if len(operands) > 0 {
+				name, _ = operands[len(operands)-1].(pdf.PDFName)
+			}
+			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+			safe = ok && opaqueXObject(xobj, resources, open)
+		case "INLINEIMAGE":
 			safe = false
 		case "scn", "SCN":
 			if len(operands) > 0 {
@@ -675,6 +707,23 @@ func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 		}
 	})
 	return safe
+}
+
+// opaqueXObject reports whether drawing xobj, from content read with
+// resources, uses no transparency.
+func opaqueXObject(xobj pdf.PDFDict, resources pdf.PDFDict, open map[pdf.Dict]bool) bool {
+	if !xobj.IsStream() {
+		return false
+	}
+	switch xobj.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Image"}:
+		_, smask := xobj.Entries.Lookup("SMask")
+		inData, _ := xobj.Entries.Get("SMaskInData").(pdf.PDFInteger)
+		return !smask && inData == 0
+	case pdf.PDFName{Value: "Form"}:
+		return opaqueContent(xobj, resourcesOf(xobj, resources), open)
+	}
+	return false
 }
 
 // opaqueGState reports whether a graphics state dictionary leaves what is

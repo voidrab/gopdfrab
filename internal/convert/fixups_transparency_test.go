@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfgen"
 	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
@@ -85,6 +86,115 @@ func TestCanDropGroupSafely(t *testing.T) {
 		if got := canDropGroupSafely(streamOf(tc.content), tc.resources); got != tc.want {
 			t.Errorf("%s: canDropGroupSafely = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestCanDropGroupSafelyFollowsXObjects verifies which XObjects a group may
+// draw and still be dropped: an image without a soft mask, or a form whose own
+// content passes the same test, read with its own resources or, without them,
+// with the ones it is drawn with.
+func TestCanDropGroupSafelyFollowsXObjects(t *testing.T) {
+	opaque := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFInteger(1)})}
+	faded := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)})}
+	resources := func(xobjects map[string]pdf.PDFValue, gs pdf.PDFDict) pdf.PDFDict {
+		r := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"XObject": pdf.PDFDict{Entries: pdf.DictOf(xobjects)},
+		})}
+		if gs.Entries != nil {
+			r.Entries.Set("ExtGState", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a0": gs})})
+		}
+		return r
+	}
+	form := func(content string, extra map[string]pdf.PDFValue) pdf.PDFDict {
+		entries := map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Form"}}
+		for k, v := range extra {
+			entries[k] = v
+		}
+		return pdf.NewStreamDict(pdf.DictOf(entries), []byte(content))
+	}
+	image := func(extra map[string]pdf.PDFValue) pdf.PDFDict {
+		entries := map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}}
+		for k, v := range extra {
+			entries[k] = v
+		}
+		return pdf.NewStreamDict(pdf.DictOf(entries), []byte{0})
+	}
+	label := "q /a0 gs BT ET Q"
+
+	selfDrawing := form("/Me Do", nil)
+	selfDrawing.Entries.Set("Resources", resources(map[string]pdf.PDFValue{"Me": selfDrawing}, pdf.PDFDict{}))
+
+	deep := form("0 0 1 1 re f", nil)
+	for range maxOpaqueFormDepth + 1 {
+		deep = form("/X Do", map[string]pdf.PDFValue{"Resources": resources(map[string]pdf.PDFValue{"X": deep}, pdf.PDFDict{})})
+	}
+
+	for _, tc := range []struct {
+		name string
+		x    pdf.PDFValue
+		gs   pdf.PDFDict
+		want bool
+	}{
+		{"opaque form using the drawing resources", form(label, nil), opaque, true},
+		{"opaque form with its own resources", form(label, map[string]pdf.PDFValue{
+			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"a0": opaque})},
+			})},
+		}), faded, true},
+		{"form with a faded graphics state", form(label, nil), faded, false},
+		{"undecodable form", form("x", map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "FlateDecode"}}), opaque, false},
+		{"form that draws itself", selfDrawing, opaque, false},
+		{"forms nested too deep", deep, opaque, false},
+		{"image", image(nil), opaque, true},
+		{"image with a soft mask", image(map[string]pdf.PDFValue{"SMask": pdf.NewPDFDict()}), opaque, false},
+		{"image with a soft mask in its data", image(map[string]pdf.PDFValue{"SMaskInData": pdf.PDFInteger(1)}), opaque, false},
+		{"PostScript XObject", pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "PS"}}), nil), opaque, false},
+		{"not a stream", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Subtype": pdf.PDFName{Value: "Image"}})}, opaque, false},
+		{"not a dictionary", pdf.PDFInteger(1), opaque, false},
+	} {
+		page := pdf.NewStreamDict(pdf.NewDict(), []byte("/X Do 0 0 1 1 re f"))
+		if got := canDropGroupSafely(page, resources(map[string]pdf.PDFValue{"X": tc.x}, tc.gs)); got != tc.want {
+			t.Errorf("%s: canDropGroupSafely = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if canDropGroupSafely(pdf.NewStreamDict(pdf.NewDict(), []byte("Do")), resources(nil, pdf.PDFDict{})) {
+		t.Error("a Do without an operand was judged safe")
+	}
+}
+
+// TestConvertKeepsNestedOpaqueGroupsAsVectors verifies that a form in a
+// transparency group, which draws each label through a nested form in a group
+// of its own, stays vector content with its text included. Both groups switch
+// only to a fully opaque graphics state, so neither is rasterized.
+func TestConvertKeepsNestedOpaqueGroupsAsVectors(t *testing.T) {
+	const group = "/Group << /Type /Group /S /Transparency /CS /DeviceRGB >>"
+	const opaque = "/ExtGState << /a0 << /CA 1 /ca 1 >> >>"
+	b := pdfgen.NewBuilder("%PDF-1.4\n")
+	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /XObject << /Fig 5 0 R >> >> /Contents 4 0 R >>")
+	b.StreamObj(4, "<<", []byte("q 1 0 0 1 20 20 cm /Fig Do Q\n"))
+	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 160 160] "+group+
+		" /Resources << "+opaque+" /XObject << /x1 6 0 R >> >>",
+		[]byte("q 0 0 0 RG /a0 gs 2 w 10 10 m 150 10 l S /x1 Do Q\n"))
+	b.StreamObj(6, "<< /Type /XObject /Subtype /Form /BBox [0 0 160 160] "+group+
+		" /Resources << "+opaque+" >>",
+		[]byte("q 0 0 0 rg /a0 gs 60 60 40 40 re f Q\n"))
+	data := b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
+
+	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{CheckFidelity: true})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid {
+		t.Fatalf("output not conformant: %v", cr.Result.Issues)
+	}
+	assertNotRasterized(t, cr)
+	if out := mustOutput(t, cr); bytes.Contains(out, []byte("/Image")) {
+		t.Error("the figure was flattened into an image")
+	}
+	if len(cr.Fidelity) != 1 || cr.Fidelity[0].Similarity < 0.999 {
+		t.Errorf("Fidelity = %+v, want the output to look like the input", cr.Fidelity)
 	}
 }
 
