@@ -24,8 +24,9 @@ type ContentRoot struct {
 	Stream    PDFDict
 	Resources PDFDict
 
-	// Where Stream was found, for Replace: an array element, or a dictionary
-	// entry. Both are unset for a pattern or form, which is the stream.
+	// The location of Stream, for Replace: an element of arr at index, or the
+	// key entry of dict. All are unset for a pattern or form, whose stream is
+	// the dictionary itself.
 	arr   PDFArray
 	index int
 	dict  PDFDict
@@ -44,13 +45,13 @@ func (r ContentRoot) Replace(s PDFDict) {
 	}
 }
 
-// ContentRoots calls fn for every content stream that d itself holds, and
-// returns the kind of object d is: a page (each stream of its /Contents, with
-// the resources it inherits), a tiling pattern or form XObject (d, with its own
-// /Resources), or a Type 3 font (each glyph procedure, with the font's
-// /Resources). Entries that are not streams are skipped. The streams a
-// dictionary reaches only through its resources are not its own, so a walk
-// over the whole graph reaches every content stream exactly once per holder.
+// ContentRoots calls fn for each content stream that d itself holds and
+// returns the kind of d. A page yields each stream of its /Contents with the
+// resources it inherits; a tiling pattern or form XObject yields itself with
+// its own /Resources; a Type 3 font yields each glyph procedure with the
+// font's /Resources. Non-stream entries are skipped. Streams reached only
+// through resources are not held by d and are not yielded, so a walk over the
+// whole graph reaches each content stream once, through its holder.
 func ContentRoots(d PDFDict, fn func(ContentRoot)) ContentKind {
 	switch {
 	case d.Entries.Get("Type") == PDFName{Value: "Page"}:

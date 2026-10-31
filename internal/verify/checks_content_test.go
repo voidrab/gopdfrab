@@ -98,8 +98,9 @@ func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
 	})
 }
 
-// TestValidateContentStreamsPage covers a page's /Contents as one stream, as
-// an array of streams with a non-stream element, and as neither.
+// TestValidateContentStreamsPage verifies that a page's /Contents is scanned
+// when it is one stream or an array of streams with a non-stream element, and
+// that a value of neither kind reports nothing.
 func TestValidateContentStreamsPage(t *testing.T) {
 	single := pdf.NewPDFDict()
 	single.SetStream([]byte("ZzBadOp\n"))
