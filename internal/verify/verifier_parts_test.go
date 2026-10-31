@@ -205,7 +205,7 @@ func TestVerifyContextCancelledBeforeStart(t *testing.T) {
 // level it has no checks for, naming it, instead of running nothing.
 func TestUnsupportedLevelRejected(t *testing.T) {
 	d := pdf.NewRawReader(failingSource{}, pdf.NewPDFDict(), 0, 0)
-	for _, level := range []pdf.LevelType{"A-2b", ""} {
+	for _, level := range []pdf.LevelType{"A-3b", ""} {
 		p := pdf.NewFullProfile(level)
 		want := fmt.Sprintf("unsupported conformance level %q", string(level))
 		if _, err := Verify(d, p); err == nil || !strings.Contains(err.Error(), want) {

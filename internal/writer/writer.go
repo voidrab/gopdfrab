@@ -79,13 +79,14 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 	if info, ok := trailer.Entries.Lookup("Info"); ok {
 		newTrailer.Set("Info", info)
 	}
-	if id, ok := trailer.Entries.Lookup("ID"); ok {
+	if id, ok := trailer.Entries.Lookup("ID"); ok && pdf.HasFileIdentifier(id) {
 		newTrailer.Set("ID", id)
 	} else {
-		// 6.1.3: the trailer shall contain an ID. Synthesize one deterministically
-		// from content already fixed at this point (object count and xref offset)
-		// rather than wall-clock time, so re-running WriteDocument on the same
-		// input is reproducible; PDF/A permits ID[0] == ID[1].
+		// 6.1.3: the trailer shall contain an ID holding file identifier
+		// bytes. Synthesize one deterministically from content already fixed
+		// at this point (object count and xref offset) rather than wall-clock
+		// time, so re-running WriteDocument on the same input is reproducible;
+		// PDF/A permits ID[0] == ID[1].
 		sum := md5.Sum(fmt.Appendf(nil, "gopdfrab:%d:%d", len(wr.order), xrefOffset))
 		id := pdf.PDFHexString{Value: hex.EncodeToString(sum[:])}
 		newTrailer.Set("ID", pdf.PDFArray{id, id})

@@ -73,7 +73,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 
 // TestConvertDegradesGracefullyOnUnresolvableGraph verifies that Convert
 // behaves like Verify, which reports a GraphResolutionFailure issue rather
-// than erroring (see verifyPdfA1b), when the object graph cannot be fully
+// than erroring (see verifyPdfAParts), when the object graph cannot be fully
 // resolved. The unparseable object degrades to null, the rewrite proceeds, and
 // the content it held is reported as lost, separately from the verdict on the
 // bytes, which are conformant. The input is a fixture whose object 2 body is
@@ -529,8 +529,12 @@ func TestConvertIsDeterministic(t *testing.T) {
 // corpora. One encrypted fixture is decrypted with the Standard security
 // handler (empty user password) before conversion, so its RC4 streams are
 // re-encoded as content and the output is conformant.
+//
+// The PDF/A-2b floor counts the fail fixtures of the clauses listed in
+// corpustest.VeraPDF2B.Clauses.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
+	pdf.A2B: 15,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to

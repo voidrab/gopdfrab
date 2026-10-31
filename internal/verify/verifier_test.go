@@ -142,7 +142,7 @@ func TestDocument_VerifyPDFAHeader(t *testing.T) {
 
 	defer doc.Close()
 
-	if err := verifyFileHeader(doc); err != nil {
+	if err := verifyFileHeader(doc, *a1bSpec); err != nil {
 		t.Errorf("Unexpected error while verifying header: %v", err)
 	}
 }
@@ -157,7 +157,7 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid header, got %v", errs)
@@ -178,7 +178,7 @@ func TestDocument_VerifyPDFAHeader_NoComment(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing comment, got %v", errs)
@@ -199,7 +199,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid comment length, got %v", errs)
 	}
@@ -219,7 +219,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyFileHeader(doc)
+	errs := verifyFileHeader(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for non-binary characters in comment, got %v", errs)
 	}
@@ -246,7 +246,7 @@ func TestDocument_VerifyPDFATrailer_NoId(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing ID key, got %v", errs)
 	}
@@ -271,7 +271,7 @@ func TestDocument_VerifyPDFATrailer_Encrypt(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for forbidden Encrypt key, got %v", errs)
 	}
@@ -295,7 +295,7 @@ func TestDocument_VerifyPDFATrailer_InvalidEOF(t *testing.T) {
 	doc := pdf.NewRawReader(f, trailer, info.Size(), 0)
 	defer doc.Close()
 
-	errs := verifyFileTrailer(doc)
+	errs := verifyFileTrailer(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid EOF, got %v", errs)
 	}
@@ -317,7 +317,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXref(t *testing.T) {
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing xref keyword, got %v", errs)
 	}
@@ -337,7 +337,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXrefHeader(t *testing.T) 
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for missing xref header, got %v", errs)
 	}
@@ -357,7 +357,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
-	errs := verifyCrossReferenceTable(doc)
+	errs := verifyCrossReferenceTable(doc, *a1bSpec)
 	if len(errs) != 1 {
 		t.Errorf("Expected one error for invalid EOL, got %v", errs)
 	}
@@ -400,7 +400,7 @@ func xrefSectionFile(t *testing.T, eol string, subsections ...[2]int) *pdf.Reade
 // in the middle of were reported as a malformed subsection header.
 func TestXRefSectionFormatLongTable(t *testing.T) {
 	doc := xrefSectionFile(t, "\n", [2]int{0, 500})
-	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+	if errs := checkXRefSectionFormat(doc, 0, *a1bSpec); len(errs) != 0 {
 		t.Errorf("long xref section reported %v, want no findings", errs)
 	}
 }
@@ -410,7 +410,7 @@ func TestXRefSectionFormatLongTable(t *testing.T) {
 // so its LF is only visible once the read has been widened.
 func TestXRefSectionFormatCRLFAcrossReads(t *testing.T) {
 	doc := xrefSectionFile(t, "\r\n", [2]int{0, 420})
-	if errs := checkXRefSectionFormat(doc, 0); len(errs) != 0 {
+	if errs := checkXRefSectionFormat(doc, 0, *a1bSpec); len(errs) != 0 {
 		t.Errorf("CRLF xref section reported %v, want no findings", errs)
 	}
 }
@@ -421,7 +421,7 @@ func TestXRefSectionFormatCRLFAcrossReads(t *testing.T) {
 func TestXRefSectionFormatMalformedHeaderPastFirstRead(t *testing.T) {
 	// A leading space is what the format rule forbids.
 	doc := xrefSectionFileWithHeader(t, 500, " 600 2")
-	errs := checkXRefSectionFormat(doc, 0)
+	errs := checkXRefSectionFormat(doc, 0, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
 		t.Fatalf("malformed header past the first read reported %v, want XRefSubsectionHeaderFormat", errs)
 	}
@@ -1484,7 +1484,7 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if errs := verifyCrossReferenceTable(xrefChainDoc(t, tc.section)); len(errs) != 0 {
+			if errs := verifyCrossReferenceTable(xrefChainDoc(t, tc.section), *a1bSpec); len(errs) != 0 {
 				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 			}
 		})
@@ -1493,7 +1493,7 @@ func TestVerifyCrossReferenceTablePrevChain(t *testing.T) {
 	t.Run("Prev pointing back at the current section", func(t *testing.T) {
 		d := xrefChainDoc(t, func(int64) string { return "" })
 		d.Trailer().Entries.Set("Prev", pdf.PDFInteger(d.XRefOffset()))
-		if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+		if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
 			t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 		}
 	})
@@ -1506,7 +1506,7 @@ func TestVerifyCrossReferenceTablePrevSectionFindings(t *testing.T) {
 	d := xrefChainDoc(t, func(int64) string {
 		return "xref\n 0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\n"
 	})
-	errs := verifyCrossReferenceTable(d)
+	errs := verifyCrossReferenceTable(d, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeaderFormat {
 		t.Errorf("verifyCrossReferenceTable = %v, want XRefSubsectionHeaderFormat from the Prev section", errs)
 	}
@@ -1519,7 +1519,7 @@ func TestVerifyCrossReferenceTablePrevSectionFindings(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := xrefChainDoc(t, func(int64) string { return section })
-			if errs := verifyCrossReferenceTable(d); len(errs) != 0 {
+			if errs := verifyCrossReferenceTable(d, *a1bSpec); len(errs) != 0 {
 				t.Errorf("verifyCrossReferenceTable = %v, want no findings", errs)
 			}
 		})
@@ -2642,7 +2642,7 @@ func TestXRefSectionBlankLineBeforeFirstHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0), 0)
+	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0), 0, *a1bSpec)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeader {
 		t.Errorf("blank line before the first header: %v, want one XRefSubsectionHeader", issueKeys(errs))
 	}

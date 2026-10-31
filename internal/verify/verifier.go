@@ -42,7 +42,7 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 		return pdf.Result{}, err
 	}
 
-	issues := verifyPdfA1bParts(ctx, d, p, spec).Issues()
+	issues := verifyPdfAParts(ctx, d, p, spec).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -83,7 +83,7 @@ func LevelSpec(p *pdf.Profile) (pdfa.Spec, error) {
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
 // and PostStructural are byte-level checks against the reader's file and
-// xref bytes, in exactly the positions verifyPdfA1b emits them (the header/
+// xref bytes, in exactly the positions verifyPdfAParts emits them (the header/
 // trailer/xref checks lead the list; object framing and the reader's parse
 // diagnostics trail it). Graph is everything in between: a function of the
 // resolved object graph and its streams only, so on a seeded reader it is a
@@ -94,7 +94,7 @@ type Parts struct {
 	PostStructural []pdf.PDFError
 }
 
-// Issues reassembles the parts in verifyPdfA1b's emission order.
+// Issues reassembles the parts in verifyPdfAParts's emission order.
 func (pt Parts) Issues() []pdf.PDFError {
 	out := make([]pdf.PDFError, 0, len(pt.PreStructural)+len(pt.Graph)+len(pt.PostStructural))
 	out = append(out, pt.PreStructural...)
@@ -119,7 +119,7 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // the byte-level checks. A validated profile leaves nothing to fail, so it
 // returns no error; a panic is the caller's to recover.
 func VerifyParts(d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
-	return verifyPdfA1bParts(context.Background(), d, p, spec).filter(p)
+	return verifyPdfAParts(context.Background(), d, p, spec).filter(p)
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -135,7 +135,7 @@ func VerifyStructural(d *pdf.Reader, p *pdf.Profile) (_ Parts, err error) {
 	}
 	var pt Parts
 	if !p.OnlyObjectModelChecks() {
-		pt.PreStructural = structuralPreIssues(d)
+		pt.PreStructural = structuralPreIssues(d, spec)
 		pt.PostStructural = structuralPostIssues(d, spec)
 	}
 	return pt.filter(p), nil
@@ -247,16 +247,19 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 	return out
 }
 
-// PDF/A-1b (ISO 19005-1:2005)
+// PDF/A (ISO 19005)
 
-// structuralPreIssues runs the byte-level checks that lead the A-1b issue
-// list: file header, linearized ID consistency, trailer, and xref format.
-func structuralPreIssues(d *pdf.Reader) []pdf.PDFError {
+// structuralPreIssues runs the byte-level checks that lead the issue list:
+// file header, linearized ID consistency where the level requires it,
+// trailer, and xref format.
+func structuralPreIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := []pdf.PDFError{}
-	issues = append(issues, verifyFileHeader(d)...)
-	issues = append(issues, checkLinearizedFileID(d)...)
-	issues = append(issues, verifyFileTrailer(d)...)
-	issues = append(issues, verifyCrossReferenceTable(d)...)
+	issues = append(issues, verifyFileHeader(d, spec)...)
+	if spec.LinearizedFileID {
+		issues = append(issues, checkLinearizedFileID(d)...)
+	}
+	issues = append(issues, verifyFileTrailer(d, spec)...)
+	issues = append(issues, verifyCrossReferenceTable(d, spec)...)
 	return issues
 }
 
@@ -267,9 +270,9 @@ func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
-// verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
-// partial parts; the caller checks run.Err() and discards them.
-func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
+// verifyPdfAParts runs the checks of spec's level. A cancelled run returns
+// early with partial parts; the caller checks run.Err() and discards them.
+func verifyPdfAParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -278,7 +281,7 @@ func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec 
 	var pt Parts
 
 	if !schemaOnly {
-		pt.PreStructural = structuralPreIssues(d)
+		pt.PreStructural = structuralPreIssues(d, spec)
 	}
 
 	// Resolve the graph once up front; all subsequent checks work on the
@@ -415,8 +418,18 @@ func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 // pdfVersionRe matches a valid %PDF-N.M header line.
 var pdfVersionRe = regexp.MustCompile(`^%PDF-\d\.\d$`)
 
+// headerVersionAllowed reports whether a %PDF-N.M header line names a version
+// the level allows. Single-digit versions compare as strings.
+func headerVersionAllowed(header string, spec pdfa.Spec) bool {
+	if !pdfVersionRe.MatchString(header) {
+		return false
+	}
+	version := header[len("%PDF-"):]
+	return spec.MaxPDFVersion == "" || version[0] == spec.MaxPDFVersion[0] && version <= spec.MaxPDFVersion
+}
+
 // verifyFileHeader verifies requirements outlined in 6.1.2.
-func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
+func verifyFileHeader(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	buf := make([]byte, 128)
 	n, _ := d.ReadAt(buf, 0)
 
@@ -425,10 +438,14 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	header, ok := cur.ReadLine()
-	if !ok || !pdfVersionRe.MatchString(header) {
+	if !ok || !headerVersionAllowed(header, spec) {
+		want := "%PDF-N.M"
+		if spec.MaxPDFVersion != "" {
+			want = fmt.Sprintf("%%PDF-%c.M, at most %%PDF-%s", spec.MaxPDFVersion[0], spec.MaxPDFVersion)
+		}
 		errs = append(errs, pdf.NewError(
 			pdf.Checks.Structure.FileHeaderSignature,
-			[]error{fmt.Errorf("invalid PDF header: %q (must be %%PDF-N.M)", header)},
+			[]error{fmt.Errorf("invalid PDF header: %q (must be %s)", header, want)},
 			1,
 			nil,
 		))
@@ -480,21 +497,27 @@ func verifyFileHeader(d *pdf.Reader) []pdf.PDFError {
 }
 
 // verifyFileTrailer verifies requirements outlined in 6.1.3
-func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
+func verifyFileTrailer(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	errs := []pdf.PDFError{}
 
 	// Use the effective trailer: for linearized PDFs with a minimal overflow
 	// trailer (no /Root), this is the first-page trailer that holds /ID, /Root, etc.
 	eff := d.EffectiveTrailer()
 
-	if eff.Entries.Get("ID") == nil {
-		err := pdf.NewError(
-			pdf.Checks.Structure.TrailerID,
-			[]error{fmt.Errorf("trailer does not contain the required ID keyword")},
-			0,
-			nil,
-		)
-		errs = append(errs, err)
+	id := eff.Entries.Get("ID")
+	var resolvedID pdf.PDFValue
+	if spec.FileIDBytes {
+		resolvedID, _ = d.ResolveObject(id) // nil when it cannot be resolved
+	}
+	var idErr error
+	switch {
+	case id == nil:
+		idErr = errors.New("trailer does not contain the required ID keyword")
+	case spec.FileIDBytes && !pdf.HasFileIdentifier(resolvedID):
+		idErr = errors.New("trailer ID is not an array of non-empty file identifier strings")
+	}
+	if idErr != nil {
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.TrailerID, []error{idErr}, 0, nil))
 	}
 
 	if eff.Entries.Get("Encrypt") != nil {
@@ -534,8 +557,8 @@ func verifyFileTrailer(d *pdf.Reader) []pdf.PDFError {
 
 // verifyCrossReferenceTable verifies requirements outlined in 6.1.4 for the
 // current xref section and all prior sections linked via Prev.
-func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
-	if errs := checkXRefSectionFormat(d, d.XRefOffset()); len(errs) > 0 {
+func verifyCrossReferenceTable(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
+	if errs := checkXRefSectionFormat(d, d.XRefOffset(), spec); len(errs) > 0 {
 		return errs
 	}
 
@@ -552,7 +575,7 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 		}
 		visited[prevOffset] = true
 
-		if errs := checkXRefSectionFormat(d, prevOffset); len(errs) > 0 {
+		if errs := checkXRefSectionFormat(d, prevOffset, spec); len(errs) > 0 {
 			return errs
 		}
 
@@ -568,11 +591,16 @@ func verifyCrossReferenceTable(d *pdf.Reader) []pdf.PDFError {
 
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
-func checkXRefSectionFormat(d *pdf.Reader, offset int64) []pdf.PDFError {
+// If the level permits cross-reference streams, a section that does not start
+// with the xref keyword is not checked.
+func checkXRefSectionFormat(d *pdf.Reader, offset int64, spec pdfa.Spec) []pdf.PDFError {
 	cur := d.SectionAt(offset + d.PDFStart())
 
 	// The xref keyword and the cross reference subsection header shall be separated by a single EOL marker.
 	xRef, ok := cur.ReadLine()
+	if spec.XRefStreams && !bytes.HasPrefix(xRef, []byte("xref")) {
+		return nil
+	}
 	if !ok || string(xRef) != "xref" {
 		return []pdf.PDFError{pdf.NewError(
 			pdf.Checks.Structure.XRefKeyword,
@@ -894,7 +922,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable while verifyPdfA1bParts resolves the graph first. The
+			// Unreachable while verifyPdfAParts resolves the graph first. The
 			// case is spelled out because falling through would leave an
 			// unresolved subtree unverified, without any report.
 			ctx.Report(

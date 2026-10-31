@@ -410,7 +410,7 @@ func a1bFixtures(wantFail bool) []string {
 func TestUnsupportedLevelIsAnError(t *testing.T) {
 	data := []byte(plainPDF)
 	for name, p := range map[string]*Profile{
-		"unknown level": NewProfile("A-2b").AddCheck(AllChecks()...),
+		"unknown level": NewProfile("A-3b").AddCheck(AllChecks()...),
 		"zero value":    {},
 	} {
 		t.Run(name, func(t *testing.T) {

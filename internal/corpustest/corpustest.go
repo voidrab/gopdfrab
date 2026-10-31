@@ -48,6 +48,11 @@ type Corpus struct {
 	Flavour string
 	// Naming is the corpus's filename convention.
 	Naming Naming
+	// Clauses, when not nil, lists the only clauses whose fail files the
+	// corpus's tests expect to be caught. It is set for a level whose verifier
+	// does not implement every clause. A fail file counts when the clause its
+	// name targets is one of them or lies under one. Pass files always count.
+	Clauses []string
 }
 
 // The committed corpora.
@@ -70,10 +75,20 @@ var (
 		Flavour: "1b",
 		Naming:  IsartorNames,
 	}
+	// VeraPDF2B covers only the clauses the PDF/A-2b verifier implements.
+	VeraPDF2B = Corpus{
+		Name:    "veraPDF-2b",
+		Dir:     "tests/veraPDF/PDF_A-2b",
+		Profile: pdf.PDFA2B,
+		Default: pdf.PDFA2B,
+		Flavour: "2b",
+		Naming:  VeraPDFNames,
+		Clauses: []string{"6.1.2", "6.1.3", "6.1.4"},
+	}
 )
 
 // All lists every committed corpus.
-var All = []Corpus{Isartor1B, VeraPDF1B}
+var All = []Corpus{Isartor1B, VeraPDF1B, VeraPDF2B}
 
 // repoRoot is the repository root, two directories above this file.
 var repoRoot = func() string {
@@ -126,12 +141,27 @@ type Fixture struct {
 	WantFail bool
 }
 
+// Covers reports whether the corpus's tests expect a fail file targeting the
+// given clause to be caught (see Clauses).
+func (c Corpus) Covers(clause string) bool {
+	if c.Clauses == nil {
+		return true
+	}
+	for _, covered := range c.Clauses {
+		if strings.HasPrefix(clause+".", covered+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // Fixtures returns the corpus files whose names follow its convention, in
-// lexical order.
+// lexical order, leaving out the fail files of clauses the corpus does not
+// cover.
 func (c Corpus) Fixtures() []Fixture {
 	var out []Fixture
 	for _, path := range c.Files() {
-		if clause, wantFail := c.Expect(path); clause != "" {
+		if clause, wantFail := c.Expect(path); clause != "" && (!wantFail || c.Covers(clause)) {
 			out = append(out, Fixture{Corpus: c, Path: path, Clause: clause, WantFail: wantFail})
 		}
 	}

@@ -55,11 +55,12 @@ type (
 	// clause it enforces under a conformance level. The Checks registry names
 	// every check; AllChecks, CheckByClauseIn and ChecksForClauseIn look them
 	// up. All fields are unexported, so a Check is only ever obtained, not
-	// built. Clause and Subclause give the PDF/A-1 clause; ClauseIn gives the
-	// clause under a given level, and AppliesTo whether there is one.
+	// built. Clause, Subclause and Description give the PDF/A-1 rule; ClauseIn
+	// and DescriptionIn give the rule under a given level, and AppliesTo
+	// whether there is one.
 	//
-	// Methods: Name, Description, Clause, Subclause, ClauseIn, AppliesTo, ID,
-	// MarshalJSON.
+	// Methods: Name, Description, DescriptionIn, Clause, Subclause, ClauseIn,
+	// AppliesTo, ID, MarshalJSON.
 	Check = pdf.Check
 
 	// PDFError is one violation: the check that failed, what was wrong, and

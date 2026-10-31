@@ -24,12 +24,15 @@ const (
 	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies
 	partA1B
 	partObjectModel
+	partA2B
 
 	// partsA1 is every Part 1 level: a Level B rule binds Level A too.
 	partsA1 = partA1A | partA1B
+	// partsA2 is every level that numbers its clauses as ISO 19005-2 does.
+	partsA2 = partA2B
 	// partsAll is every level, for the object-model checks: a file of any
 	// level must first be valid PDF.
-	partsAll = partsA1 | partObjectModel
+	partsAll = partsA1 | partsA2 | partObjectModel
 )
 
 // partOf returns the part a level stands for, or 0 for a level with none.
@@ -37,17 +40,46 @@ func partOf(level LevelType) parts {
 	switch level {
 	case A1B:
 		return partA1B
+	case A2B:
+		return partA2B
 	case ObjectModel:
 		return partObjectModel
 	}
 	return 0
 }
 
+// familyOf returns the set of levels in the ISO 19005 part that level belongs
+// to. The Part 1 family includes PDF/A-1a, so a Part 1 profile also enables
+// the Level A requirements.
+func familyOf(level LevelType) parts {
+	switch p := partOf(level); {
+	case p&partsA1 != 0:
+		return partsA1
+	case p&partsA2 != 0:
+		return partsA2
+	default:
+		return p
+	}
+}
+
 // Name returns the CamelCase identifier of this check (e.g. "ImageWithSoftMask").
 func (c Check) Name() string { return c.name }
 
-// Description returns a human-readable summary of what this check enforces.
+// Description returns a human-readable summary of what this check enforces
+// under PDF/A-1.
 func (c Check) Description() string { return c.description }
+
+// DescriptionIn returns a summary of what c enforces under the given level.
+// It returns the Part 1 description unless the level is a Part 2 level that
+// words the rule differently.
+func (c Check) DescriptionIn(level LevelType) string {
+	if partOf(level)&partsA2 != 0 {
+		if d := part2Clauses[c.name].description; d != "" {
+			return d
+		}
+	}
+	return c.description
+}
 
 // Clause returns the PDF/A-1 specification clause number (e.g. "6.1.2").
 func (c Check) Clause() string { return c.clause }
@@ -70,6 +102,9 @@ func (c Check) AppliesTo(level LevelType) bool {
 func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool) {
 	if !c.AppliesTo(level) {
 		return "", 0, false
+	}
+	if ref, ok := part2Clauses[c.name]; ok && partOf(level)&partsA2 != 0 {
+		return ref.clause, ref.subclause, true
 	}
 	return c.clause, c.subclause, true
 }
@@ -376,7 +411,10 @@ func ChecksForClause(clause string) []Check {
 }
 
 // CheckByClauseIn looks up the check that enforces (clause, subclause) under
-// the given conformance level. ok is false if no check of that level does.
+// the given conformance level. Under a Part 2 level several checks may enforce
+// one rule together; CheckByClauseIn returns the first of them in catalogue
+// order, and ChecksForClauseIn returns them all. ok is false if no check of
+// that level enforces the rule.
 func CheckByClauseIn(level LevelType, clause string, subclause int) (c Check, ok bool) {
 	for _, c := range allChecksCatalog {
 		if cl, sub, ok := c.ClauseIn(level); ok && cl == clause && sub == subclause {
@@ -399,9 +437,13 @@ func ChecksForClauseIn(level LevelType, clause string) []Check {
 }
 
 // newCheck registers a check under its stable id. A PDF/A clause makes it a
-// Part 1 rule, the object-model clause a rule of every level.
+// Part 1 rule, and a rule of the Part 2 levels too when part2Clauses numbers
+// it; the object-model clause makes it a rule of every level.
 func newCheck(id int, name, description, clause string, subclause int) Check {
 	p := partsA1
+	if _, ok := part2Clauses[name]; ok {
+		p |= partsA2
+	}
 	if clause == ObjectModelClause {
 		p = partsAll
 	}
