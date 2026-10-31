@@ -95,7 +95,7 @@ type ValidationContext struct {
 	// without any inherits the enclosing one.
 	resourceScope pdf.PDFDict
 	// parentResourceScope is the scope that was in force above the nearest
-	// dict that brought its own /Resources: what a form XObject, tiling
+	// dict that has its own Resources entry: what a form XObject, tiling
 	// pattern or Type 3 font with its own resources would inherit from.
 	parentResourceScope pdf.PDFDict
 	// inherit is the inheritance of the content stream being checked

@@ -48,10 +48,11 @@ type Spec struct {
 
 	// ICCMaxMajorVersion is the newest ICC profile major version allowed.
 	ICCMaxMajorVersion int
-	// OutputIntentSubtype is the /S of the level's own output intent.
+	// OutputIntentSubtype is the subtype (/S) of the level's own output
+	// intent.
 	OutputIntentSubtype string
-	// OtherOutputIntents says whether output intents with another /S, such
-	// as PDF/X ones, may stand beside the level's own.
+	// OtherOutputIntents says whether output intents with another subtype,
+	// such as PDF/X ones, may stand beside the level's own.
 	OtherOutputIntents bool
 
 	// XMPPart and XMPConformance are the pdfaid:part and pdfaid:conformance

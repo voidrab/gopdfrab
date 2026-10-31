@@ -54,8 +54,8 @@ func (f inheritedResourcesFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bo
 	return changed, nil
 }
 
-// appearanceStreams returns the streams of an /AP entry: the entry itself, or
-// each stream of its subdictionary of appearance states.
+// appearanceStreams returns the streams of an appearance (AP) entry: the entry
+// itself, or each stream of its subdictionary of appearance states.
 func appearanceStreams(n pdf.PDFValue) []pdf.PDFDict {
 	d, ok := n.(pdf.PDFDict)
 	if !ok {
@@ -389,9 +389,10 @@ func (separationConsistencyFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 
 // --- ISO 19005-2 6.2.5: halftones ---
 
-// halftoneFixer removes an ExtGState's HTP entry and repairs its halftone:
-// a halftone of a type other than 1 or 5 is replaced by the device default,
-// a HalftoneName is removed, and a TransferFunction is removed from a
+// halftoneFixer removes the halftone (HTP) entry of an ExtGState and repairs
+// the halftone (HT) it holds. A halftone of a type other than 1 or 5 is
+// replaced by the Default halftone, the halftone name (HalftoneName) is
+// removed, and the transfer function (TransferFunction) is removed from a
 // primary colorant's halftone and set to Identity on a spot colorant's. Each
 // repair runs only for its reported check.
 type halftoneFixer struct{}
@@ -433,8 +434,8 @@ func (halftoneFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 	return changed, nil
 }
 
-// defaultHalftone returns the Default component of a type 5 halftone, or ht
-// itself for any other.
+// defaultHalftone returns the default halftone (Default) of a type 5 halftone,
+// or ht itself for any other.
 func defaultHalftone(ht pdf.PDFDict) pdf.PDFDict {
 	if ht.Entries.Get("HalftoneType") != pdf.PDFInteger(5) {
 		return ht

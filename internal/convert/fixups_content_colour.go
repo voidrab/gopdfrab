@@ -94,8 +94,9 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
 		case "Tf":
-			// A Type 3 font's glyph procedures paint with the colours
-			// they set themselves, in the font's resources.
+			// A Type 3 font's glyph procedures are scanned with the font's
+			// own Resources when it has them, and otherwise with the
+			// resources the text is shown in.
 			if len(operands) == 0 {
 				return
 			}
@@ -115,13 +116,14 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 	})
 }
 
-// deviceColourFixer remediates DeviceColourContentStream (content-stream
-// operators/inline images), DeviceColourSpaceUsage (Image/Shading
-// /ColorSpace entries) and DeviceColourBase (the base of an Indexed or
-// uncoloured Pattern space), mirroring reportContentColour/checkDeviceColour in
-// checks_content.go/checks_colour.go -- both consult a page's /Resources
-// (directly, or via ctx.pageResources as a fallback for nested Form
-// XObjects/patterns), so injecting the missing Default* there clears both.
+// deviceColourFixer remediates DeviceColourContentStream (device colour in
+// content stream operators and inline images), DeviceColourSpaceUsage (device
+// colour spaces of Image and Shading dictionaries) and DeviceColourBase (the
+// base space of an Indexed or uncoloured Pattern space). It mirrors
+// reportContentColour and checkDeviceColour in the verify package, which both
+// consult the page's Resources (or the page resources, for nested Form XObjects
+// and patterns), so injecting the missing Default colour space entries there
+// clears both.
 // deviceColourFixer holds the run's decode function (the Reader's concurrent
 // cache) so repeated content scans across fixer iterations hit warm bytes.
 type deviceColourFixer struct {
@@ -344,10 +346,11 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 	return changed
 }
 
-// runType3 injects into the resources of the Type 3 font a Tf operand names,
-// when it has its own, and follows the form XObjects its glyph procedures
-// draw. Its glyph procedures are checked in the font's resources, which the
-// page's Default* does not reach.
+// runType3 injects Default colour spaces into the resources of the Type 3 font
+// that a Tf operand names, if the font has its own Resources, and follows the
+// form XObjects its glyph procedures draw. The glyph procedures are checked
+// against the font's resources, which the page's Default colour spaces do not
+// reach.
 func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
 	name, ok := operand.(pdf.PDFName)
 	if !ok {

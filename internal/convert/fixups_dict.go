@@ -435,12 +435,12 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
-// checks_dict.go, plus the inline-image flavours of ImageInterpolate and,
-// under Part 2, ImageRenderingIntent (checkInlineImageOther,
-// checks_content.go) via fixInlineImage -- a Check can only have one registered Fixer,
-// so the inline case is folded in here rather than given its own. The
-// PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
-// PostScriptXObject) belong to postScriptXObjectFixer below.
+// checks_dict.go. It also repairs the inline-image case of ImageInterpolate
+// and, under Part 2, of ImageRenderingIntent, which checkInlineImageOther in
+// checks_content.go reports; fixInlineImage handles it because a Check can
+// have only one registered Fixer. The PostScript-related checks
+// (FormPostScript, FormPSEntry, FormSubtype2PS, PostScriptXObject) belong to
+// postScriptXObjectFixer below.
 type imageMetadataFixer struct{ spec *pdfa.Spec }
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {

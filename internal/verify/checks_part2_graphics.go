@@ -18,9 +18,9 @@ type inheritance struct {
 }
 
 // inheritanceOf returns the inheritance of a content root while the walk is
-// at its holder. A page uses its own /Resources only; the page tree's are
-// inherited. A form XObject, tiling pattern or Type 3 font inherits from the
-// scope its holder sits in.
+// at its holder. A page uses its own Resources dictionary only; the page
+// tree's are inherited. A form XObject, tiling pattern or Type 3 font inherits
+// from the scope its holder sits in.
 func inheritanceOf(r pdf.ContentRoot, holder pdf.PDFDict, ctx *ValidationContext) inheritance {
 	own, hasOwn := holder.Entries.Get("Resources").(pdf.PDFDict)
 	switch {
