@@ -67,6 +67,9 @@ notice.
 
 ### Fixed
 
+- The 6.2.2 finding for output intents with differing profiles printed both
+  profile streams byte by byte. It names them by object reference, and the
+  findings for a wrong or mistyped `/S` name the value.
 - Convert removed embedded files and forbidden annotations, file attachments
   among them, without listing them in `LostObjects`.
 - Removing `/OCProperties` made the optional content layers that a document

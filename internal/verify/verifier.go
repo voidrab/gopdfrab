@@ -1431,6 +1431,17 @@ func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 
 // 6.2 Graphics
 
+// describeObject names v for a message: an indirect object by its reference,
+// anything else as direct.
+func describeObject(v pdf.PDFValue) string {
+	if d, ok := v.(pdf.PDFDict); ok {
+		if r, ok := d.Ref(); ok {
+			return fmt.Sprintf("%d %d R", r.ObjNum, r.GenNum)
+		}
+	}
+	return "a direct object"
+}
+
 // verifyOutputIntent verifies requirements outlined in 6.2.2
 func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	values, err := d.ResolveGraphByPath([]string{"Root", "OutputIntents"})
@@ -1469,7 +1480,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		if !ok {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentInvalidS,
-				[]error{fmt.Errorf("expected S to be a pdf.PDFName")},
+				[]error{fmt.Errorf("S is not a name")},
 				0,
 				refOf(intent),
 			)
@@ -1480,7 +1491,7 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		if s.Value != spec.OutputIntentSubtype {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentWrongS,
-				[]error{fmt.Errorf("expected S was not %s, but %v", spec.OutputIntentSubtype, intent.Entries.Get("S"))},
+				[]error{fmt.Errorf("S is /%s, expected /%s", s.Value, spec.OutputIntentSubtype)},
 				0,
 				refOf(intent),
 			)
@@ -1519,7 +1530,8 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			if !pdf.EqualPDFValue(indirectObject, destOutputProfile) {
 				err := pdf.NewError(
 					pdf.Checks.Colour.OutputIntentMultipleProfiles,
-					[]error{fmt.Errorf("expected DestOutputProfile to be %v but was %v", indirectObject, destOutputProfile)},
+					[]error{fmt.Errorf("DestOutputProfile is %s, but an earlier output intent's is %s",
+						describeObject(destOutputProfile), describeObject(indirectObject))},
 					0,
 					refOf(intent),
 				)
