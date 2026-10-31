@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"image"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -185,4 +186,29 @@ func assertContentStream(t *testing.T, page pdf.PDFDict, want string) {
 	if string(data) != want {
 		t.Errorf("content stream = %q, want %q", data, want)
 	}
+}
+
+// inkThreshold is the share of non-white pixels under which a render counts
+// as blank, the fidelity gate's own bar.
+const inkThreshold = 0.004
+
+// inkFraction returns the share of img's pixels that are clearly not white,
+// measured the way the fidelity gate measures a page.
+func inkFraction(img *image.RGBA) float64 {
+	if img == nil {
+		return 0
+	}
+	b := img.Bounds()
+	total := b.Dx() * b.Dy()
+	if total == 0 {
+		return 0
+	}
+	ink := 0
+	pix := img.Pix
+	for i := 0; i+3 < len(pix); i += 4 {
+		if pix[i] < 245 || pix[i+1] < 245 || pix[i+2] < 245 {
+			ink++
+		}
+	}
+	return float64(ink) / float64(total)
 }

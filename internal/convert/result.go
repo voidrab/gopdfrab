@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -27,7 +28,7 @@ type ConvertResult struct {
 	Iterations int
 	// Fidelity is the per-page input-vs-output rendering comparison, populated
 	// only when Options.CheckFidelity was set. See PageFidelity.
-	Fidelity []PageFidelity
+	Fidelity []fidelity.PageFidelity
 	// BlankedPages lists, in ascending order, the 1-based pages that had visible
 	// content on the way in and almost none on the way out. It is the one loss a
 	// conformance verdict cannot see: the output is valid PDF/A, it is simply no

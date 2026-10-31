@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/voidrab/gopdfrab/internal/convert"
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -129,7 +130,7 @@ type (
 	//	Covered    fraction that was paper going in and is solid coming out
 	//
 	// Methods: Blanked, Overpainted.
-	PageFidelity = convert.PageFidelity
+	PageFidelity = fidelity.PageFidelity
 
 	// RasterDrop lists content the raster fallback could not render on a page
 	// (see ConvertResult.RasterDrops).

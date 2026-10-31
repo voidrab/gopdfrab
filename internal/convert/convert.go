@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -129,9 +130,9 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 
 	// Capture the input's appearance before any fixup mutates the graph, so
 	// the final fidelity comparison sees the original.
-	var inputRenders []pageSummary
+	var inputRenders []fidelity.Summary
 	if o.CheckFidelity {
-		inputRenders = summarizeTrailerPages(trailer, fidelityDPI)
+		inputRenders = fidelity.Summarize(trailer, fidelity.DPI)
 	}
 
 	spec, err := verify.LevelSpec(p)
@@ -198,9 +199,9 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	// Compare the converted output's appearance to the input captured above.
 	if o.CheckFidelity && cr.backing.len() > 0 {
 		if out, err := cr.backing.open(); err == nil {
-			cr.Fidelity = comparePageSummaries(inputRenders, summarizeTrailerPagesOf(out))
-			cr.BlankedPages = blankedPages(cr.Fidelity)
-			cr.OverpaintedPages = overpaintedPages(cr.Fidelity)
+			cr.Fidelity = fidelity.Compare(inputRenders, summarizeTrailerPagesOf(out))
+			cr.BlankedPages = fidelity.BlankedPages(cr.Fidelity)
+			cr.OverpaintedPages = fidelity.OverpaintedPages(cr.Fidelity)
 			out.Close()
 		}
 	}
@@ -287,12 +288,12 @@ func (r *run) verifyGraph() map[int]pdf.PDFValue {
 // summarizeTrailerPagesOf resolves out's graph and measures its pages at the
 // fidelity DPI, returning nil on any resolve failure (the comparison then has
 // no output baseline and reports the pages as lost).
-func summarizeTrailerPagesOf(out *pdf.Reader) []pageSummary {
+func summarizeTrailerPagesOf(out *pdf.Reader) []fidelity.Summary {
 	trailer, err := resolveTrailer(out)
 	if err != nil {
 		return nil
 	}
-	return summarizeTrailerPages(trailer, fidelityDPI)
+	return fidelity.Summarize(trailer, fidelity.DPI)
 }
 
 // inHeapVerify verifies the in-memory trailer graph without serializing it,
