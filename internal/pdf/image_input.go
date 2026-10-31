@@ -14,7 +14,7 @@ import (
 // the start of the data, such as an image header, reads only that much.
 // Any other filter before the codec is decoded whole when the reader is
 // built. codec is nil for a chain that ends in no image codec. A bad zlib
-// header, and a filter decoded whole that yields nothing, are returned as
+// header, and a filter decoded whole that fails, are returned as
 // err; damage later in lazily inflated data is returned by Read after the
 // bytes before it.
 func ImageCodecInput(dict PDFDict) (r io.Reader, codec *FilterInfo, err error) {
