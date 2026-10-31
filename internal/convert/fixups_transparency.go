@@ -646,9 +646,9 @@ func smaskFullyOpaque(smask *image.RGBA) bool {
 // test, read with its own resources or, without them, with the ones it is
 // drawn with.
 //
-// A group whose graphics states all set both opacities to 1 is common and is
-// therefore kept as vector content rather than rasterized. Figures often draw
-// each label through a nested form of their own that wraps it the same way.
+// A group whose graphics states all set both opacities to 1 is kept as vector
+// content rather than rasterized, and so is a group whose nested forms are
+// opaque in the same way, as when each label is drawn through its own form.
 func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 	return opaqueContent(form, resources, map[pdf.Dict]bool{})
 }
@@ -657,8 +657,9 @@ func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
 // form nested deeper is treated as unsafe.
 const maxOpaqueFormDepth = 12
 
-// opaqueContent is canDropGroupSafely for a form reached through the forms in
-// open, which it treats as unsafe if it reaches one again.
+// opaqueContent reports whether the content of form, read with resources,
+// passes the test of canDropGroupSafely. The forms in open enclose form, and
+// a form that is already open is treated as unsafe.
 func opaqueContent(form pdf.PDFDict, resources pdf.PDFDict, open map[pdf.Dict]bool) bool {
 	if open[form.Entries] || len(open) > maxOpaqueFormDepth {
 		return false

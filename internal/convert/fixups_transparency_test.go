@@ -89,10 +89,10 @@ func TestCanDropGroupSafely(t *testing.T) {
 	}
 }
 
-// TestCanDropGroupSafelyFollowsXObjects checks the XObjects a group may draw
-// and still be dropped: an image without a soft mask, and a form whose own
-// content passes the same test, read with its own resources or with the
-// ones it is drawn with.
+// TestCanDropGroupSafelyFollowsXObjects verifies which XObjects a group may
+// draw and still be dropped: an image without a soft mask, or a form whose own
+// content passes the same test, read with its own resources or, without them,
+// with the ones it is drawn with.
 func TestCanDropGroupSafelyFollowsXObjects(t *testing.T) {
 	opaque := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFInteger(1)})}
 	faded := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)})}
@@ -162,11 +162,10 @@ func TestCanDropGroupSafelyFollowsXObjects(t *testing.T) {
 	}
 }
 
-// TestConvertKeepsNestedOpaqueGroupsAsVectors converts a figure laid out the
-// way chart libraries write one: a form in a transparency group draws each
-// label through a nested form in a group of its own, and both only switch to
-// a fully opaque graphics state. Nothing in it is transparent, so the groups
-// are dropped and the figure stays vector content, text included.
+// TestConvertKeepsNestedOpaqueGroupsAsVectors verifies that a form in a
+// transparency group, which draws each label through a nested form in a group
+// of its own, stays vector content with its text included. Both groups switch
+// only to a fully opaque graphics state, so neither is rasterized.
 func TestConvertKeepsNestedOpaqueGroupsAsVectors(t *testing.T) {
 	const group = "/Group << /Type /Group /S /Transparency /CS /DeviceRGB >>"
 	const opaque = "/ExtGState << /a0 << /CA 1 /ca 1 >> >>"
