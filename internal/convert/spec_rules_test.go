@@ -82,7 +82,7 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 			func(t *testing.T, s *pdfa.Spec) bool {
 				action := specDict("S", specName("Launch"), "F", pdf.PDFString{Value: "x"})
 				trailer := trailerWith("X", action)
-				_, _ = actionFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = actionFixer{spec: s}.Fix(&trailer, everyCheck(actionFixer{}))
 				return action.Entries.Get("S") == nil
 			}, false},
 		{"forbidden action in a JavaScript tree", func(s *pdfa.Spec) { s.ForbiddenActions = pdfa.Names{} },
@@ -90,7 +90,7 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				action := specDict("S", specName("JavaScript"))
 				tree := specDict("Names", pdf.PDFArray{pdf.PDFString{Value: "a"}, action})
 				trailer := trailerWith("Names", specDict("JavaScript", tree))
-				_, _ = actionFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = actionFixer{spec: s}.Fix(&trailer, everyCheck(actionFixer{}))
 				return action.Entries.Get("S") == nil
 			}, false},
 		{"dead action owner", func(s *pdfa.Spec) { s.ForbiddenActions = pdfa.Names{} },
@@ -98,14 +98,14 @@ func TestFixersFollowTheLevelSpec(t *testing.T) {
 				annot := specDict("Type", specName("Annot"), "Subtype", specName("Link"),
 					"A", specDict("S", specName("Launch")))
 				trailer := trailerWith("L", annot)
-				_, _ = actionFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = actionFixer{spec: s}.Fix(&trailer, everyCheck(actionFixer{}))
 				return annot.Entries.Get("A") == nil
 			}, false},
 		{"named action", func(s *pdfa.Spec) { s.NamedActions = pdfa.NewNames("Print") },
 			func(t *testing.T, s *pdfa.Spec) bool {
 				action := specDict("S", specName("Named"), "N", specName("Print"))
 				trailer := trailerWith("OpenAction", action)
-				_, _ = actionFixer{spec: s}.Fix(&trailer, nil)
+				_, _ = actionFixer{spec: s}.Fix(&trailer, everyCheck(actionFixer{}))
 				return action.Entries.Get("S") == nil
 			}, false},
 		{"ExtGState rendering intent", func(s *pdfa.Spec) { s.RenderingIntents = pdfa.NewNames("Custom") },

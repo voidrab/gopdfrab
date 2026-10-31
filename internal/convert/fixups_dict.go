@@ -131,11 +131,19 @@ func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
 	return !ok || spec.ForbiddenActions.Has(s.Value)
 }
 
+// isCleared reports whether v is one of the dictionaries in cleared.
+func isCleared(v pdf.PDFValue, cleared map[uintptr]bool) bool {
+	d, ok := v.(pdf.PDFDict)
+	return ok && cleared[pdf.ValuePointer(d.Entries)]
+}
+
 // --- 6.6 Actions ---
 
 // actionFixer remediates Checks.Action.ForbiddenActionType,
 // DisallowedNamedAction and AdditionalActions, mirroring
-// validateActions/validateAdditionalActions in checks_dict.go.
+// validateActions/validateAdditionalActions in checks_dict.go. Each repair
+// runs only when its own check was reported. The JavaScript name tree goes
+// with the forbidden action types, because its leaves are JavaScript actions.
 type actionFixer struct{ spec *pdfa.Spec }
 
 func (actionFixer) Applies(c pdf.Check) bool {
@@ -150,16 +158,23 @@ func (f actionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, err
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	ac := pdf.Checks.Action
+	forbidden, named := reported[ac.ForbiddenActionType], reported[ac.DisallowedNamedAction]
+	additional := reported[ac.AdditionalActions]
+	// The named actions this pass emptied: their owners are dead too, even
+	// when the forbidden types were not reported.
+	cleared := map[uintptr]bool{}
 	return func(d pdf.PDFDict) {
-		if _, ok := d.Entries.Lookup("AA"); ok {
+		if _, ok := d.Entries.Lookup("AA"); ok && additional {
 			d.Entries.Del("AA")
 			*changed = true
 		}
 
 		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
 		// action dicts first -- walkDicts won't reach them after the key is gone.
-		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok {
+		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok && forbidden {
 			clearJSNameTree(jsTree, changed, f.spec)
 			d.Entries.Del("JavaScript")
 			*changed = true
@@ -168,7 +183,7 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 		// Take a dead action off whatever points at it. Emptying the action
 		// dictionary is not enough on its own: the owner still names it.
 		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && deadAction(v, f.spec) {
+			if v, ok := d.Entries.Lookup(key); ok && (forbidden && deadAction(v, f.spec) || isCleared(v, cleared)) {
 				d.Entries.Del(key)
 				*changed = true
 			}
@@ -179,14 +194,17 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 			return
 		}
 		if f.spec.ForbiddenActions.Has(s.Value) {
-			clearDict(d)
-			*changed = true
+			if forbidden {
+				clearDict(d)
+				*changed = true
+			}
 			return
 		}
-		if s.Value == "Named" {
+		if s.Value == "Named" && named {
 			n, ok := d.Entries.Get("N").(pdf.PDFName)
 			if !ok || !f.spec.NamedActions.Has(n.Value) {
 				clearDict(d)
+				cleared[pdf.ValuePointer(d.Entries)] = true
 				*changed = true
 			}
 		}
@@ -360,7 +378,8 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, chang
 
 // formFixer remediates AcroForm-level (NeedAppearances, XFA) and
 // field-level (A, AA) form violations, mirroring verifyInteractiveForms and
-// validateFormField in checks_dict.go/document.go.
+// validateFormField in checks_dict.go/document.go. Each key is repaired only
+// when its own check was reported.
 type formFixer struct{}
 
 func (formFixer) Applies(c pdf.Check) bool {
@@ -376,20 +395,23 @@ func (f formFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	fm := pdf.Checks.Form
 	if root, ok := trailer.Entries.Get("Root").(pdf.PDFDict); ok {
 		if form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict); ok {
-			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
+			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) && reported[fm.NeedAppearances] {
 				form.Entries.Set("NeedAppearances", pdf.PDFBoolean(false))
 				*changed = true
 			}
-			if _, ok := form.Entries.Lookup("XFA"); ok {
+			if _, ok := form.Entries.Lookup("XFA"); ok && reported[fm.XFA] {
 				form.Entries.Del("XFA")
 				*changed = true
 			}
 		}
 	}
 
+	action, additional := reported[fm.FieldAction], reported[fm.FieldAdditionalActions]
 	return func(d pdf.PDFDict) {
 		isWidget := d.Entries.Get("Type") == pdf.PDFName{Value: "Annot"} &&
 			d.Entries.Get("Subtype") == pdf.PDFName{Value: "Widget"}
@@ -397,11 +419,11 @@ func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) 
 		if !isWidget && !isField {
 			return
 		}
-		if _, ok := d.Entries.Lookup("A"); ok {
+		if _, ok := d.Entries.Lookup("A"); ok && action {
 			d.Entries.Del("A")
 			*changed = true
 		}
-		if _, ok := d.Entries.Lookup("AA"); ok {
+		if _, ok := d.Entries.Lookup("AA"); ok && additional {
 			d.Entries.Del("AA")
 			*changed = true
 		}

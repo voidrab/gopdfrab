@@ -296,3 +296,108 @@ func TestAnnotationFlagsFixerRepairsOnlyReportedChecks(t *testing.T) {
 		})
 	}
 }
+
+// repairProbe reports whether one repair of a fixer was made on a fixture.
+type repairProbe struct {
+	check    pdf.Check
+	what     string
+	repaired func() bool
+}
+
+// assertRepairsOnlyReported runs fix once per probe on a fresh fixture that
+// breaks every rule, with only that probe's check reported, and verifies that
+// exactly the probes of that check were repaired.
+func assertRepairsOnlyReported(t *testing.T, fixture func() (pdf.PDFDict, graphFixer, []repairProbe)) {
+	t.Helper()
+	_, _, probes := fixture()
+	seen := map[pdf.Check]bool{}
+	for _, p := range probes {
+		if seen[p.check] {
+			continue
+		}
+		seen[p.check] = true
+		t.Run(p.check.Name(), func(t *testing.T) {
+			trailer, f, probes := fixture()
+			changed, err := f.Fix(&trailer, issuesOf(p.check))
+			if err != nil || !changed {
+				t.Fatalf("Fix = %v, %v; want changed", changed, err)
+			}
+			for _, q := range probes {
+				if got, want := q.repaired(), q.check == p.check; got != want {
+					t.Errorf("%s repaired = %v, want %v with only %s reported", q.what, got, want, p.check.Name())
+				}
+			}
+		})
+	}
+}
+
+// TestActionFixerRepairsOnlyReportedChecks verifies that the forbidden action,
+// named action and additional-actions repairs each run only when their own
+// check was reported.
+func TestActionFixerRepairsOnlyReportedChecks(t *testing.T) {
+	ac := pdf.Checks.Action
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		launch := specDict("S", specName("Launch"))
+		named := specDict("S", specName("Named"), "N", specName("Quit"))
+		link := specDict("Type", specName("Annot"), "Subtype", specName("Link"), "A", named)
+		trailer := trailerWith("OpenAction", launch)
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("AA", specDict("WC", specDict("S", specName("GoTo"))))
+		root.Entries.Set("Names", specDict("JavaScript",
+			specDict("Names", pdf.PDFArray{pdf.PDFString{Value: "a"}, specDict("S", specName("JavaScript"))})))
+		root.Entries.Set("Link", link)
+		names := root.Entries.Get("Names").(pdf.PDFDict)
+		return trailer, actionFixer{spec: a1bSpec}, []repairProbe{
+			{ac.ForbiddenActionType, "/OpenAction", func() bool { return root.Entries.Get("OpenAction") == nil }},
+			{ac.ForbiddenActionType, "JavaScript name tree", func() bool { return names.Entries.Get("JavaScript") == nil }},
+			{ac.DisallowedNamedAction, "named action", func() bool { return named.Entries.Get("S") == nil }},
+			{ac.AdditionalActions, "/AA", func() bool { return root.Entries.Get("AA") == nil }},
+		}
+	})
+}
+
+// TestFormFixerRepairsOnlyReportedChecks verifies that each AcroForm and form
+// field repair runs only when its own check was reported.
+func TestFormFixerRepairsOnlyReportedChecks(t *testing.T) {
+	fm := pdf.Checks.Form
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		form := specDict("NeedAppearances", pdf.PDFBoolean(true), "XFA", pdf.PDFArray{})
+		field := specDict("FT", specName("Tx"), "A", specDict("S", specName("GoTo")),
+			"AA", specDict("K", specDict("S", specName("GoTo"))))
+		trailer := trailerWith("AcroForm", form)
+		form.Entries.Set("Fields", pdf.PDFArray{field})
+		return trailer, formFixer{}, []repairProbe{
+			{fm.NeedAppearances, "/NeedAppearances", func() bool { return form.Entries.Get("NeedAppearances") == pdf.PDFBoolean(false) }},
+			{fm.XFA, "/XFA", func() bool { return form.Entries.Get("XFA") == nil }},
+			{fm.FieldAction, "field /A", func() bool { return field.Entries.Get("A") == nil }},
+			{fm.FieldAdditionalActions, "field /AA", func() bool { return field.Entries.Get("AA") == nil }},
+		}
+	})
+}
+
+// TestFileSpecFixerRepairsOnlyReportedChecks verifies that each embedded file
+// and external stream file repair runs only when its own check was reported.
+func TestFileSpecFixerRepairsOnlyReportedChecks(t *testing.T) {
+	st := pdf.Checks.Structure
+	assertRepairsOnlyReported(t, func() (pdf.PDFDict, graphFixer, []repairProbe) {
+		spec := specDict("Type", specName("Filespec"), "EF", specDict("F", specStream([]byte("x"))))
+		annot := specDict("Type", specName("Annot"), "Subtype", specName("FileAttachment"), "FS", spec)
+		names := specDict("EmbeddedFiles", specDict("Names", pdf.PDFArray{}))
+		stream := specStream([]byte("x"), "F", pdf.PDFString{Value: "a"},
+			"FFilter", specName("FlateDecode"), "FDecodeParms", specDict())
+		trailer := trailerWith("Names", names)
+		root := trailer.Entries.Get("Root").(pdf.PDFDict)
+		root.Entries.Set("Annot0", annot)
+		root.Entries.Set("S", stream)
+		gone := func(d pdf.PDFDict, key string) func() bool {
+			return func() bool { return d.Entries.Get(key) == nil }
+		}
+		return trailer, fileSpecFixer{}, []repairProbe{
+			{st.EmbeddedFileSpec, "/EF", gone(spec, "EF")},
+			{st.EmbeddedFiles, "/EmbeddedFiles", gone(names, "EmbeddedFiles")},
+			{st.StreamFileSpec, "stream /F", gone(stream, "F")},
+			{st.StreamFileFilter, "stream /FFilter", gone(stream, "FFilter")},
+			{st.StreamFileDecodeParams, "stream /FDecodeParms", gone(stream, "FDecodeParms")},
+		}
+	})
+}

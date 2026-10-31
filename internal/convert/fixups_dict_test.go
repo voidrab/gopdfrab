@@ -84,7 +84,7 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	trailer.Entries.Set("Root", root)
 
 	fixer := actionFixer{spec: a1bSpec}
-	changed, err := fixer.Fix(&trailer, nil)
+	changed, err := fixer.Fix(&trailer, everyCheck(fixer))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestFormFixer(t *testing.T) {
 			"Type": pdf.PDFName{Value: "Catalog"}, "AcroForm": acroForm,
 		})},
 	})}
-	changed, err := formFixer{}.Fix(&trailer, nil)
+	changed, err := formFixer{}.Fix(&trailer, everyCheck(formFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("formFixer.Fix = %v, %v", changed, err)
 	}

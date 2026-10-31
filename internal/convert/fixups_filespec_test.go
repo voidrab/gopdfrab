@@ -21,7 +21,7 @@ func TestFileSpecFixer(t *testing.T) {
 	}), []byte("data"))
 	trailer := trailerWith("FS", fs)
 	var lost []pdf.PDFError
-	changed, err := fileSpecFixer{lost: &lost}.Fix(&trailer, nil)
+	changed, err := fileSpecFixer{lost: &lost}.Fix(&trailer, everyCheck(fileSpecFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("fileSpecFixer.Fix = %v, %v", changed, err)
 	}
@@ -66,7 +66,7 @@ func TestFileSpecFixerReportsEachEmbeddedFile(t *testing.T) {
 	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("Annot0", annot)
 
 	var lost []pdf.PDFError
-	changed, err := fileSpecFixer{lost: &lost}.Fix(&trailer, nil)
+	changed, err := fileSpecFixer{lost: &lost}.Fix(&trailer, everyCheck(fileSpecFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("fileSpecFixer.Fix = %v, %v", changed, err)
 	}
