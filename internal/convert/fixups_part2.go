@@ -189,12 +189,13 @@ func (permissionsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, 
 
 // pageBoundaryFixer brings each page boundary within the level's size
 // limits. A page whose visible area, the part of the MediaBox inside the
-// CropBox, is too large is scaled down through /UserUnit (see scalePage), so
-// that it keeps its physical size and all its content. A MediaBox too small
-// then grows from its lower-left corner, and one too large shrinks around the
-// visible area. The other boundaries are clipped to the MediaBox, as a reader
-// clips them. A CropBox that is still too small becomes the MediaBox; another
-// boundary is dropped, so that it defaults to the CropBox.
+// CropBox, is too large is scaled down through its user unit (/UserUnit, see
+// scalePage), so that it keeps its physical size and all its content. A
+// MediaBox too small then grows from its lower-left corner, and one too large
+// shrinks around the visible area. The other boundaries are clipped to the
+// MediaBox, as a reader clips them. A CropBox that is still too small becomes
+// the MediaBox; another boundary is dropped, so that it defaults to the
+// CropBox.
 type pageBoundaryFixer struct{ spec *pdfa.Spec }
 
 func (pageBoundaryFixer) Applies(c pdf.Check) bool {
@@ -269,11 +270,11 @@ func userUnitScale(visible [4]float64, hi float64) float64 {
 	return k
 }
 
-// scalePage shrinks a page's user space by k and multiplies its /UserUnit by
-// k, so that it shows the same content at the same physical size: its
-// boundaries, its content (wrapped in a matching cm), the geometry of its
-// annotations and the rectangles of its thread beads are divided by k. media
-// is the MediaBox the page inherits, which it then holds itself.
+// scalePage shrinks a page's user space by k and multiplies its user unit
+// (/UserUnit) by k, so that it shows the same content at the same physical
+// size. Its boundaries, its content (wrapped in a matching cm), the geometry
+// of its annotations and the rectangles of its thread beads are divided by k.
+// media is the MediaBox the page inherits, which it then holds itself.
 func scalePage(page pdf.PDFDict, media [4]float64, k float64) {
 	s := 1 / k
 	page.Entries.Set("MediaBox", boxArray(scaleBox(media, s)))

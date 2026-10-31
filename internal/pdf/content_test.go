@@ -568,8 +568,8 @@ func TestShownStringBytes(t *testing.T) {
 }
 
 // TestContentScannerInlineImageDictAndStrings verifies that an inline image's
-// dictionary and string parameters, such as a /DP dictionary, are read as
-// values rather than spilled into the parameter list.
+// dictionary and string parameters, such as the DecodeParms entry (/DP), are
+// read as single values rather than split into separate parameters.
 func TestContentScannerInlineImageDictAndStrings(t *testing.T) {
 	ops := TokenizeContent([]byte(`BI /W 8 /F /CCF /DP << /K -1 /Columns 8 >> /A (s) /B <00> ID X EI`))
 	if len(ops) != 1 || ops[0].Op != "INLINEIMAGE" {

@@ -411,9 +411,9 @@ func TestContentLimitsFixerZeroesTinyReals(t *testing.T) {
 	}
 }
 
-// TestPageBoundaryFixerScalesThePage verifies that a page scaled through
-// /UserUnit keeps its content, annotations, beads and destinations in place
-// relative to its boundaries.
+// TestPageBoundaryFixerScalesThePage verifies that a page scaled through its
+// user unit (/UserUnit) keeps its content, annotations, beads and destinations
+// in place relative to its boundaries.
 func TestPageBoundaryFixerScalesThePage(t *testing.T) {
 	box := func(llx, lly, urx, ury float64) pdf.PDFArray { return boxArray([4]float64{llx, lly, urx, ury}) }
 	content := pdf.NewStreamDict(nil, []byte("0 0 m 20000 20000 l S"))
@@ -490,8 +490,8 @@ func TestPageBoundaryFixerScalesAnArrayOfContents(t *testing.T) {
 	}
 }
 
-// hoistPage returns a page drawing content, with the given resources, in a
-// trailer.
+// hoistPage returns a trailer holding one page, which draws content with the
+// given resources, and returns that page too.
 func hoistPage(content string, resources pdf.PDFValue) (trailer, page pdf.PDFDict) {
 	page = kv("Type", nm("Page"), "Contents", pdf.NewStreamDict(nil, []byte(content)))
 	if resources != nil {

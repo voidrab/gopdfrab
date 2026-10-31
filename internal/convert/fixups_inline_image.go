@@ -254,10 +254,10 @@ func inlineImageFilterChain(v pdf.PDFValue) (names []pdf.PDFName, ok bool) {
 // inlineImageFilterFixer remediates Checks.Structure.InlineImageFilterNotAllowed
 // by moving each inline image whose filters a stream may use, though an
 // inline image may not (JBIG2Decode, JPXDecode, an Identity Crypt filter),
-// into an image XObject that the content draws in its place with Do. An image
-// XObject paints the same unit square of user space as an inline image, so
-// the page looks the same. An inline image with a filter no stream may use
-// either is left as it is.
+// into an image XObject that the content draws in its place with the Do
+// operator. An image XObject paints the same unit square of user space as an
+// inline image, so the page looks the same. An inline image with a filter no
+// stream may use either is left as it is.
 type inlineImageFilterFixer struct{ spec *pdfa.Spec }
 
 func (inlineImageFilterFixer) Applies(c pdf.Check) bool {
@@ -341,7 +341,8 @@ func (h *inlineImageHoist) rewrite(op string, operands []pdf.PDFValue, changed *
 				return unchanged, true
 			}
 		case "Length":
-			// The writer sets the XObject's own.
+			// The writer sets the Length of the image XObject itself, so the
+			// inline image's is dropped.
 			continue
 		}
 		image.Entries.Set(name, value)

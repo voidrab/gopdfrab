@@ -19,16 +19,16 @@ type PDFString struct{ Value string }
 type PDFInteger int
 type PDFReal float32
 
-// RealOf returns the PDFReal nearest f that keeps f's sign and, when f is
-// nonzero, stays nonzero: a value too close to zero for a float32 becomes the
-// smallest one, so that a check against a level's smallest real still sees
-// it.
+// RealOf returns the PDFReal nearest f. A nonzero f keeps its sign and stays
+// nonzero: a value too close to zero for a float32 becomes the smallest
+// nonzero float32, so that a check against the level's MinReal still sees it.
 func RealOf(f float64) PDFReal {
 	if r := float32(f); r != 0 || f == 0 {
 		return PDFReal(r)
 	}
 	return PDFReal(math.Copysign(math.SmallestNonzeroFloat32, f))
 }
+
 type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue
