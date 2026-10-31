@@ -489,3 +489,160 @@ func TestPageBoundaryFixerScalesAnArrayOfContents(t *testing.T) {
 		t.Errorf("UserUnit = %v, want 4", got)
 	}
 }
+
+// hoistPage returns a page drawing content, with the given resources, in a
+// trailer.
+func hoistPage(content string, resources pdf.PDFValue) (trailer, page pdf.PDFDict) {
+	page = kv("Type", nm("Page"), "Contents", pdf.NewStreamDict(nil, []byte(content)))
+	if resources != nil {
+		page.Entries.Set("Resources", resources)
+	}
+	return kv("Root", kv("Type", nm("Catalog"), "Pages", kv("Type", nm("Pages"), "Kids", pdf.PDFArray{page}))), page
+}
+
+func TestInlineImageFilterFixerHoistsTheImage(t *testing.T) {
+	cs := pdf.PDFArray{nm("ICCBased"), pdf.NewStreamDict(nil, nil)}
+	resources := kv("ColorSpace", kv("CS0", cs), "XObject", kv("InlineIm1", pdf.NewStreamDict(nil, nil)))
+	trailer, page := hoistPage("q 10 0 0 10 0 0 cm\nBI /W 1 /H 1 /CS /CS0 /BPC 8 /F [/AHx /JPXDecode] /DP [null << /Q 1 >>] /L 3 ID\nxyz\nEI\nQ\n", resources)
+
+	changed, err := inlineImageFilterFixer{spec: a2bSpec}.Fix(&trailer, nil)
+	if err != nil || !changed {
+		t.Fatalf("Fix = %v, %v, want a change", changed, err)
+	}
+	content, _ := pdf.DecodeStream(page.Entries.Get("Contents").(pdf.PDFDict))
+	if string(content) != "q\n10 0 0 10 0 0 cm\n/InlineIm2 Do\nQ\n" {
+		t.Errorf("content = %q", content)
+	}
+	image, ok := resources.Entries.Get("XObject").(pdf.PDFDict).Entries.Get("InlineIm2").(pdf.PDFDict)
+	if !ok {
+		t.Fatal("no image XObject InlineIm2")
+	}
+	for _, tc := range []struct {
+		key  string
+		want pdf.PDFValue
+	}{
+		{"Type", nm("XObject")},
+		{"Subtype", nm("Image")},
+		{"Width", pdf.PDFInteger(1)},
+		{"Height", pdf.PDFInteger(1)},
+		{"BitsPerComponent", pdf.PDFInteger(8)},
+		{"Filter", pdf.PDFArray{nm("ASCIIHexDecode"), nm("JPXDecode")}},
+		{"DecodeParms", pdf.PDFArray{nil, kv("Q", pdf.PDFInteger(1))}},
+		{"Length", nil},
+	} {
+		if got := image.Entries.Get(tc.key); !pdf.EqualPDFValue(got, tc.want) {
+			t.Errorf("%s = %v, want %v", tc.key, got, tc.want)
+		}
+	}
+	if got, ok := image.Entries.Get("ColorSpace").(pdf.PDFArray); !ok || len(got) != 2 || got[0] != (nm("ICCBased")) {
+		t.Errorf("ColorSpace = %v, want the resource's colour space", image.Entries.Get("ColorSpace"))
+	}
+	if string(image.Stream()) != "xyz" {
+		t.Errorf("image data = %q, want xyz", image.Stream())
+	}
+	if !(inlineImageFilterFixer{}).Applies(pdf.Checks.Structure.InlineImageFilterNotAllowed) {
+		t.Error("inlineImageFilterFixer does not apply to InlineImageFilterNotAllowed")
+	}
+}
+
+func TestInlineImageFilterFixerColourSpaces(t *testing.T) {
+	h := inlineImageHoist{resources: kv("ColorSpace", kv("Named", nm("DeviceRGB")))}
+	for _, tc := range []struct {
+		in   pdf.PDFValue
+		want pdf.PDFValue
+		ok   bool
+	}{
+		{nm("G"), nm("DeviceGray"), true},
+		{nm("DeviceCMYK"), nm("DeviceCMYK"), true},
+		{nm("Named"), nm("DeviceRGB"), true},
+		{nm("Missing"), nil, false},
+		{pdf.PDFArray{nm("I"), nm("RGB"), pdf.PDFInteger(1), pdf.PDFString{Value: "abcdef"}},
+			pdf.PDFArray{nm("Indexed"), nm("DeviceRGB"), pdf.PDFInteger(1), pdf.PDFString{Value: "abcdef"}}, true},
+		{pdf.PDFArray{nm("Indexed"), nm("Missing")}, nil, false},
+		{pdf.PDFArray{nm("I")}, nil, false},
+		{pdf.PDFInteger(1), nil, false},
+	} {
+		got, ok := h.colourSpace(tc.in)
+		if ok != tc.ok || ok && !pdf.EqualPDFValue(got, tc.want) {
+			t.Errorf("colourSpace(%v) = %v, %v, want %v, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestInlineImageFilterFixerLeavesOtherImages(t *testing.T) {
+	for _, tc := range []struct {
+		desc    string
+		content string
+	}{
+		{"allowed filters", "BI /W 1 /H 1 /CS /G /BPC 8 /F /Fl ID\nxyz\nEI\n"},
+		{"no filter", "BI /W 1 /H 1 /CS /G /BPC 8 ID\nx\nEI\n"},
+		{"unknown filter", "BI /W 1 /H 1 /CS /G /BPC 8 /F [/JPXDecode /Brotli] ID\nxyz\nEI\n"},
+		{"non-Identity Crypt", "BI /W 1 /H 1 /CS /G /BPC 8 /F /Crypt /DP << /Name /StdCF >> ID\nxyz\nEI\n"},
+		{"unresolvable colour space", "BI /W 1 /H 1 /CS /Missing /BPC 8 /F /JPXDecode ID\nxyz\nEI\n"},
+		{"other operators", "0 0 m 1 1 l S\n"},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			trailer, _ := hoistPage(tc.content, nil)
+			if changed, _ := (inlineImageFilterFixer{spec: a2bSpec}).Fix(&trailer, nil); changed {
+				t.Error("Fix changed the content")
+			}
+		})
+	}
+	trailer, _ := hoistPage("BI /W 1 /H 1 /F /JPXDecode ID\nxyz\nEI\n", nil)
+	if changed, _ := (inlineImageFilterFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
+		t.Error("Fix changed the content under a level without inline image filter rules")
+	}
+}
+
+// TestInlineImageFilterFixerGivesResources verifies that a page without
+// resources gets them, once, for the images of all its content streams.
+func TestInlineImageFilterFixerGivesResources(t *testing.T) {
+	img := "BI /W 1 /H 1 /IM true /F /Crypt ID\nx\nEI\n"
+	page := kv("Type", nm("Page"), "Contents", pdf.PDFArray{
+		pdf.NewStreamDict(nil, []byte(img)), pdf.NewStreamDict(nil, []byte(img)),
+	})
+	trailer := kv("Root", kv("Pages", kv("Type", nm("Pages"), "Kids", pdf.PDFArray{page})))
+	if changed, _ := (inlineImageFilterFixer{spec: a2bSpec}).Fix(&trailer, nil); !changed {
+		t.Fatal("Fix made no change")
+	}
+	res, _ := page.Entries.Get("Resources").(pdf.PDFDict)
+	xobjects, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	if xobjects.Entries.Len() != 2 {
+		t.Errorf("XObject resources = %v, want both images", xobjects.Entries)
+	}
+}
+
+// TestInlineImageHoistKeepsMalformedImages verifies that an inline image
+// whose parameters are not key and value pairs is left as it is.
+func TestInlineImageHoistKeepsMalformedImages(t *testing.T) {
+	h := inlineImageHoist{spec: a2bSpec}
+	changed := false
+	operands := []pdf.PDFValue{pdf.PDFInteger(1), nm("JPXDecode"), pdf.InlineImageRaw{Data: []byte("x")}}
+	if op, _ := h.rewrite("INLINEIMAGE", operands, &changed); op.Op != "INLINEIMAGE" || changed {
+		t.Errorf("rewrite = %v, %v", op, changed)
+	}
+	if op, _ := h.rewrite("INLINEIMAGE", nil, &changed); op.Op != "INLINEIMAGE" || changed {
+		t.Errorf("rewrite without operands = %v, %v", op, changed)
+	}
+}
+
+// TestInlineImageFilterFixerHoistsFromAForm verifies that an inline image in
+// a form XObject moves into the form's own resources.
+func TestInlineImageFilterFixerHoistsFromAForm(t *testing.T) {
+	form := pdf.NewStreamDict(nil, []byte("BI /W 1 /H 1 /CS /G /BPC 8 /F /JBIG2Decode ID\nx\nEI\n"))
+	form.Entries.Set("Type", nm("XObject"))
+	form.Entries.Set("Subtype", nm("Form"))
+	trailer := kv("Root", kv("Things", pdf.PDFArray{form}))
+	if changed, _ := (inlineImageFilterFixer{spec: a2bSpec}).Fix(&trailer, nil); !changed {
+		t.Fatal("Fix made no change")
+	}
+	res, _ := form.Entries.Get("Resources").(pdf.PDFDict)
+	xobjects, _ := res.Entries.Get("XObject").(pdf.PDFDict)
+	image, _ := xobjects.Entries.Get("InlineIm1").(pdf.PDFDict)
+	if image.Entries.Get("Filter") != (nm("JBIG2Decode")) {
+		t.Errorf("form resources = %v", res.Entries)
+	}
+	if data, _ := pdf.DecodeStream(form); string(data) != "/InlineIm1 Do\n" {
+		t.Errorf("form content = %q", data)
+	}
+}

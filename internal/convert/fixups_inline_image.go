@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"fmt"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -247,4 +249,209 @@ func inlineImageFilterChain(v pdf.PDFValue) (names []pdf.PDFName, ok bool) {
 		return names, true
 	}
 	return nil, false
+}
+
+// inlineImageFilterFixer remediates Checks.Structure.InlineImageFilterNotAllowed
+// by moving each inline image whose filters a stream may use, though an
+// inline image may not (JBIG2Decode, JPXDecode, an Identity Crypt filter),
+// into an image XObject that the content draws in its place with Do. An image
+// XObject paints the same unit square of user space as an inline image, so
+// the page looks the same. An inline image with a filter no stream may use
+// either is left as it is.
+type inlineImageFilterFixer struct{ spec *pdfa.Spec }
+
+func (inlineImageFilterFixer) Applies(c pdf.Check) bool {
+	return c == pdf.Checks.Structure.InlineImageFilterNotAllowed
+}
+
+func (f inlineImageFilterFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	if f.spec.InlineImageFilters.Len() == 0 {
+		return false, nil
+	}
+	changed := false
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
+		fixedSelf := false
+		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
+			h := inlineImageHoist{spec: f.spec, holder: d, resources: r.Resources}
+			fixed, ok := rewriteContentStreamDict(r.Stream, h.rewrite)
+			if !ok {
+				return
+			}
+			r.Replace(fixed)
+			changed = true
+			if r.Kind == pdf.ContentPattern || r.Kind == pdf.ContentForm {
+				fixedSelf = true
+			}
+		})
+		return fixedSelf
+	})
+	return changed, nil
+}
+
+// inlineImageHoist moves the inline images of one content stream into image
+// XObjects of the stream's resources. holder is the dictionary that holds
+// the stream and, when the stream has no resources yet, receives them.
+type inlineImageHoist struct {
+	spec      *pdfa.Spec
+	holder    pdf.PDFDict
+	resources pdf.PDFDict
+}
+
+// inlineImageKeys are the full names of the inline image keys ISO 32000-1
+// Table 93 abbreviates, and of the L (Length) some writers add.
+var inlineImageKeys = map[string]string{
+	"BPC": "BitsPerComponent", "CS": "ColorSpace", "D": "Decode", "DP": "DecodeParms",
+	"F": "Filter", "H": "Height", "IM": "ImageMask", "I": "Interpolate", "W": "Width",
+	"L": "Length",
+}
+
+// inlineColourSpaces are the full names of the colour space names ISO
+// 32000-1 Table 94 abbreviates.
+var inlineColourSpaces = map[string]string{
+	"G": "DeviceGray", "RGB": "DeviceRGB", "CMYK": "DeviceCMYK", "I": "Indexed",
+}
+
+func (h *inlineImageHoist) rewrite(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
+	unchanged := writer.ContentOp{Op: op, Operands: operands}
+	if op != "INLINEIMAGE" {
+		return unchanged, true
+	}
+	params, raw, ok := pdf.InlineImageRawOperand(operands)
+	if !ok {
+		return unchanged, true
+	}
+	image := pdf.NewStreamDict(nil, raw.Data)
+	image.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
+	image.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
+	for i := 0; i+1 < len(params); i += 2 {
+		key, ok := params[i].(pdf.PDFName)
+		if !ok {
+			return unchanged, true
+		}
+		name := key.Value
+		if full, ok := inlineImageKeys[name]; ok {
+			name = full
+		}
+		value := params[i+1]
+		switch name {
+		case "Filter":
+			value = fullFilterNames(value)
+		case "ColorSpace":
+			if value, ok = h.colourSpace(value); !ok {
+				return unchanged, true
+			}
+		case "Length":
+			// The writer sets the XObject's own.
+			continue
+		}
+		image.Entries.Set(name, value)
+	}
+	if !h.needsHoisting(image) {
+		return unchanged, true
+	}
+	*changed = true
+	return writer.ContentOp{Op: "Do", Operands: []pdf.PDFValue{h.addXObject(image)}}, true
+}
+
+// needsHoisting reports whether an inline image, as an image XObject, names
+// a filter an inline image may not use while every one of its filters is one
+// a stream may use.
+func (h *inlineImageHoist) needsHoisting(image pdf.PDFDict) bool {
+	names := pdf.FilterNames(image.Entries.Get("Filter"))
+	inlineOnly := false
+	for i, name := range names {
+		if !h.spec.StreamFilters.Has(name) {
+			return false
+		}
+		if n := pdf.FilterDecodeParms(image, i, len(names)).Entries.Get("Name"); name == "Crypt" && n != nil && n != (pdf.PDFName{Value: "Identity"}) {
+			return false
+		}
+		if !h.spec.InlineImageFilters.Has(name) {
+			inlineOnly = true
+		}
+	}
+	return inlineOnly
+}
+
+// fullFilterNames returns an inline image's filter, a name or an array of
+// names, with each abbreviation replaced by the filter's full name.
+func fullFilterNames(filter pdf.PDFValue) pdf.PDFValue {
+	full := func(v pdf.PDFValue) pdf.PDFValue {
+		if n, ok := v.(pdf.PDFName); ok {
+			if info, ok := pdf.LookupFilter(n.Value); ok {
+				return pdf.PDFName{Value: info.Name}
+			}
+		}
+		return v
+	}
+	if arr, ok := filter.(pdf.PDFArray); ok {
+		out := make(pdf.PDFArray, len(arr))
+		for i, v := range arr {
+			out[i] = full(v)
+		}
+		return out
+	}
+	return full(filter)
+}
+
+// colourSpace returns an inline image's colour space as an image XObject
+// names it: an abbreviation is expanded, and a name the resources define is
+// replaced by the colour space it stands for. ok is false for a name that is
+// neither, which an image XObject could not resolve.
+func (h *inlineImageHoist) colourSpace(cs pdf.PDFValue) (_ pdf.PDFValue, ok bool) {
+	switch v := cs.(type) {
+	case pdf.PDFName:
+		if full, ok := inlineColourSpaces[v.Value]; ok {
+			return pdf.PDFName{Value: full}, true
+		}
+		switch v.Value {
+		case "DeviceGray", "DeviceRGB", "DeviceCMYK":
+			return v, true
+		}
+		spaces, _ := h.resources.Entries.Get("ColorSpace").(pdf.PDFDict)
+		if named := spaces.Entries.Get(v.Value); named != nil {
+			return named, true
+		}
+		return nil, false
+	case pdf.PDFArray:
+		if len(v) < 2 {
+			return nil, false
+		}
+		out := append(pdf.PDFArray{}, v...)
+		if head, ok := v[0].(pdf.PDFName); ok && head.Value == "I" {
+			out[0] = pdf.PDFName{Value: "Indexed"}
+		}
+		base, ok := h.colourSpace(v[1])
+		if !ok {
+			return nil, false
+		}
+		out[1] = base
+		return out, true
+	}
+	return nil, false
+}
+
+// addXObject adds image to the stream's XObject resources under a name not
+// yet in use, and returns that name. A stream without resources gets them.
+func (h *inlineImageHoist) addXObject(image pdf.PDFDict) pdf.PDFName {
+	if h.resources.Entries == nil {
+		if own, ok := h.holder.Entries.Get("Resources").(pdf.PDFDict); ok {
+			h.resources = own
+		} else {
+			h.resources = pdf.NewPDFDict()
+			h.holder.Entries.Set("Resources", h.resources)
+		}
+	}
+	xobjects, ok := h.resources.Entries.Get("XObject").(pdf.PDFDict)
+	if !ok {
+		xobjects = pdf.NewPDFDict()
+		h.resources.Entries.Set("XObject", xobjects)
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("InlineIm%d", i)
+		if xobjects.Entries.Get(name) == nil {
+			xobjects.Entries.Set(name, image)
+			return pdf.PDFName{Value: name}
+		}
+	}
 }
