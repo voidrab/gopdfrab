@@ -70,8 +70,8 @@ func (c Check) Name() string { return c.name }
 func (c Check) Description() string { return c.description }
 
 // DescriptionIn returns a summary of what c enforces under the given level.
-// It is the Part 1 description for a level that does not word the rule
-// differently, and for a level c is no rule of.
+// It returns the Part 1 description unless the level is a Part 2 level that
+// words the rule differently.
 func (c Check) DescriptionIn(level LevelType) string {
 	if partOf(level)&partsA2 != 0 && c.parts&partsA2 != 0 {
 		if d := part2Clauses[c.id].description; d != "" {

@@ -1,8 +1,7 @@
 package pdf
 
-// HasFileIdentifier reports whether a trailer ID value is an array whose
-// string elements hold at least one byte between them, the least a file
-// identifier must be.
+// HasFileIdentifier reports whether a trailer ID value is an array with at
+// least one non-empty string element.
 func HasFileIdentifier(id PDFValue) bool {
 	arr, ok := id.(PDFArray)
 	if !ok {

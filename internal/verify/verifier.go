@@ -600,9 +600,8 @@ func verifyCrossReferenceTable(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 
 // checkXRefSectionFormat reads the xref section at the given file offset and
 // validates the xref keyword, all subsection headers, and their format per 6.1.4.
-// A level that permits cross-reference streams sets these rules for the
-// classic tables only, so a section that does not start with the xref keyword
-// is not checked.
+// If the level permits cross-reference streams, a section that does not start
+// with the xref keyword is not checked.
 func checkXRefSectionFormat(d *pdf.Reader, offset int64, spec pdfa.Spec) []pdf.PDFError {
 	cur := d.SectionAt(offset + d.PDFStart())
 
