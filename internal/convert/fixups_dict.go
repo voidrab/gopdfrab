@@ -511,12 +511,10 @@ func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, c
 
 // --- 6.2.4 sample depth ---
 
-// imageSampleDepthFixer remediates ImageBitsPerComponent: PDF/A-1 allows 1, 2,
-// 4 or 8 bits per component, PDF/A-2 also 16, and other depths turn up in
-// real documents.
-// The samples are decoded and written back at 8 bits, which is the depth the
-// standard allows and the one a viewer shows anyway; the alternative -- leaving
-// it -- ends with the page rasterized around it.
+// imageSampleDepthFixer remediates ImageBitsPerComponent. PDF/A-1 allows 1, 2,
+// 4 or 8 bits per component, and PDF/A-2 also 16. The fixer rewrites an image
+// at any other depth that it can decode. The samples are written back at 8
+// bits, a depth both parts allow.
 //
 // It also clears the object model's matching finding on the same key, since the
 // enumeration it fails is the same rule.

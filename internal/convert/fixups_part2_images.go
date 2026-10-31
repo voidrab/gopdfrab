@@ -38,12 +38,12 @@ var channelModels = map[int]string{1: "gray", 3: "rgb", 4: "cmyk"}
 
 // --- ISO 19005-2 6.2.8.3: JPEG2000 ---
 
-// jpxColourSpaceFixer gives a JPEG 2000 image whose data has no single
-// colour specification a reader may use a ColorSpace entry, which then
-// overrides the data's own. The entry is an ICCBased space with as many
-// components as the data has channels. Data with another number of channels,
-// or with bit depths the rules do not allow, cannot be repaired without
-// decoding it.
+// jpxColourSpaceFixer gives a JPEG 2000 image without a ColorSpace entry one
+// when its data has no single colour specification a reader can use. The
+// entry overrides the data's own colour space. It is an ICCBased space with
+// as many components as the data has channels. Data with another number of
+// channels, or with bit depths the rules do not allow, cannot be repaired
+// without decoding it.
 type jpxColourSpaceFixer struct{}
 
 func (jpxColourSpaceFixer) Applies(c pdf.Check) bool {
