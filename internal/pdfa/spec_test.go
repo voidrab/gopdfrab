@@ -20,6 +20,9 @@ func TestForKnownLevels(t *testing.T) {
 	if s := mustFor(t, pdf.A1B); s.Level != pdf.A1B || !s.PDFA {
 		t.Errorf("A1B spec: Level %q, PDFA %v", s.Level, s.PDFA)
 	}
+	if s := mustFor(t, pdf.A2B); s.Level != pdf.A2B || !s.PDFA {
+		t.Errorf("A2B spec: Level %q, PDFA %v", s.Level, s.PDFA)
+	}
 	if s := mustFor(t, pdf.ObjectModel); s.Level != pdf.ObjectModel || s.PDFA {
 		t.Errorf("ObjectModel spec: Level %q, PDFA %v", s.Level, s.PDFA)
 	}
@@ -29,7 +32,7 @@ func TestForKnownLevels(t *testing.T) {
 // verify against, so For must say so rather than hand back a permissive zero
 // Spec.
 func TestForUnknownLevels(t *testing.T) {
-	for _, level := range []pdf.LevelType{pdf.Undefined, "", "A-2b"} {
+	for _, level := range []pdf.LevelType{pdf.Undefined, "", "A-3b"} {
 		if _, ok := For(level); ok {
 			t.Errorf("For(%q) found a spec", level)
 		}
@@ -127,6 +130,77 @@ func TestA1BPolicySets(t *testing.T) {
 	if got := s.ForbiddenViewerPrefKeys.All(); !slices.Equal(got,
 		[]string{"PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"}) {
 		t.Errorf("ForbiddenViewerPrefKeys = %v", got)
+	}
+}
+
+// TestA2BLimits pins ISO 19005-2 6.1.13: arrays and dictionaries have no
+// limit, and reals, strings and DeviceN colorants have Part 2's.
+func TestA2BLimits(t *testing.T) {
+	want := Limits{
+		MaxInteger:          2147483647,
+		MinInteger:          -2147483648,
+		MaxReal:             3.403e38,
+		MaxStringBytes:      32767,
+		MaxNameBytes:        127,
+		MaxCID:              65535,
+		MaxDeviceNColorants: 32,
+		MaxIndirectObjects:  8388607,
+		MaxQNesting:         28,
+	}
+	if got := mustFor(t, pdf.A2B).Limits; got != want {
+		t.Errorf("A2B limits = %+v, want %+v", got, want)
+	}
+}
+
+func TestA2BSwitchesAndIdentity(t *testing.T) {
+	s := mustFor(t, pdf.A2B)
+	if !s.Transparency || !s.OptionalContent || !s.XRefStreams || !s.EmbeddedFiles {
+		t.Errorf("PDF/A-2 forbids a feature it permits: %+v", s)
+	}
+	if s.ICCMaxMajorVersion != 4 || s.OutputIntentSubtype != "GTS_PDFA1" {
+		t.Errorf("ICC version %d, output intent %q", s.ICCMaxMajorVersion, s.OutputIntentSubtype)
+	}
+	if s.XMPPart != "2" || s.XMPConformance != "B" {
+		t.Errorf("XMP identity = part %q conformance %q, want 2/B", s.XMPPart, s.XMPConformance)
+	}
+	if got := s.XMPConformances.All(); !slices.Equal(got, []string{"A", "B", "U"}) {
+		t.Errorf("XMPConformances = %v, want [A B U]", got)
+	}
+	if s.ModelVersion != "1.7" {
+		t.Errorf("ModelVersion = %q, want 1.7", s.ModelVersion)
+	}
+	if got := s.ForbiddenViewerPrefKeys.All(); len(got) != 0 {
+		t.Errorf("ForbiddenViewerPrefKeys = %v: PDF 1.7 defines them all", got)
+	}
+}
+
+func TestA2BPolicySets(t *testing.T) {
+	s := mustFor(t, pdf.A2B)
+	for _, tc := range []struct {
+		set     string
+		names   Names
+		in, out []string
+	}{
+		{"AnnotationSubtypes", s.AnnotationSubtypes,
+			[]string{"Polygon", "PolyLine", "Caret", "FileAttachment", "Watermark", "Redact", "Widget"},
+			[]string{"3D", "Sound", "Screen", "Movie", "RichMedia"}},
+		{"BlendModes", s.BlendModes,
+			[]string{"Normal", "Compatible", "Multiply", "Luminosity"},
+			[]string{"Add", ""}},
+		{"FontFileSubtypes", s.FontFileSubtypes,
+			[]string{"Type1C", "CIDFontType0C", "OpenType"},
+			[]string{"Type1"}},
+	} {
+		for _, n := range tc.in {
+			if !tc.names.Has(n) {
+				t.Errorf("%s lacks %q", tc.set, n)
+			}
+		}
+		for _, n := range tc.out {
+			if tc.names.Has(n) {
+				t.Errorf("%s has %q", tc.set, n)
+			}
+		}
 	}
 }
 
