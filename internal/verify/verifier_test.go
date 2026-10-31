@@ -2517,6 +2517,58 @@ func TestOutputIntentDifferingProfilesReported(t *testing.T) {
 	}
 }
 
+// TestOutputIntentMessages verifies the messages of the 6.2.2 findings. A /S
+// that is not a name is reported as such, a wrong /S names the value found,
+// and differing profiles are named by their references rather than printed
+// as stream data.
+func TestOutputIntentMessages(t *testing.T) {
+	intent := func(s pdf.PDFValue, profile pdf.PDFDict) pdf.PDFDict {
+		d := pdf.NewPDFDict()
+		d.Entries.Set("S", s)
+		d.Entries.Set("OutputConditionIdentifier", pdf.PDFString{Value: "Test"})
+		d.Entries.Set("DestOutputProfile", profile)
+		return d
+	}
+	profile := func(ref int) pdf.PDFDict {
+		p := pdf.NewStreamDict(pdf.NewDict(), []byte("icc bytes"))
+		p.Entries.Set("N", pdf.PDFInteger(ref))
+		if ref > 0 {
+			p.SetRef(pdf.PDFRef{ObjNum: ref})
+		}
+		return p
+	}
+	gts := pdf.PDFName{Value: "GTS_PDFA1"}
+	for _, tc := range []struct {
+		name    string
+		intents pdf.PDFArray
+		check   pdf.Check
+		want    string
+	}{
+		{"S not a name", pdf.PDFArray{intent(pdf.PDFString{Value: "GTS_PDFA1"}, profile(4))},
+			pdf.Checks.Colour.OutputIntentInvalidS, "S is not a name"},
+		{"wrong S", pdf.PDFArray{intent(pdf.PDFName{Value: "GTS_PDFX"}, profile(4))},
+			pdf.Checks.Colour.OutputIntentWrongS, "S is /GTS_PDFX, expected /GTS_PDFA1"},
+		{"differing indirect profiles", pdf.PDFArray{intent(gts, profile(4)), intent(gts, profile(9))},
+			pdf.Checks.Colour.OutputIntentMultipleProfiles, "DestOutputProfile is 9 0 R, but an earlier output intent's is 4 0 R"},
+		{"differing direct profile", pdf.PDFArray{intent(gts, profile(4)), intent(gts, profile(0))},
+			pdf.Checks.Colour.OutputIntentMultipleProfiles, "DestOutputProfile is a direct object, but an earlier output intent's is 4 0 R"},
+	} {
+		root := pdf.NewPDFDict()
+		root.Entries.Set("OutputIntents", tc.intents)
+		trailer := pdf.NewPDFDict()
+		trailer.Entries.Set("Root", root)
+		var got []string
+		for _, e := range verifyOutputIntent(rawReaderWithTrailer(t, trailer), a1b()) {
+			if e.Check() == tc.check {
+				got = append(got, e.Messages()...)
+			}
+		}
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%s: messages = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestInformationDictionaryValueKinds pins how each kind of standard-entry
 // value is treated by 6.1.5: null counts as absent, a non-string, non-name
 // value or a name outside Trapped is a type violation, and an empty hex
