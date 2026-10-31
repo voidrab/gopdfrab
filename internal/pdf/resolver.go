@@ -158,8 +158,8 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
 		return nil, fmt.Errorf("object %d: negative offset %d", ref.ObjNum, offset)
 	}
 	var l *Lexer
-	if d.data != nil {
-		l = NewLexerBytes(d.data, offset)
+	if d.src.mem != nil {
+		l = NewLexerBytes(d.src.mem, offset)
 	} else {
 		if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
 			return nil, err

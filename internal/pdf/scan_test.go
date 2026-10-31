@@ -48,13 +48,13 @@ func setScanChunk(t testing.TB, n int) {
 // and on the seek path at several chunk sizes, against the regexp oracle.
 func checkScanMatchesOracle(t testing.TB, data []byte) {
 	want := oracleHeaders(data)
-	mem := &Reader{data: data}
+	mem := &Reader{src: memSource(data)}
 	if got := scannedHeaders(mem); !slices.Equal(got, want) {
 		t.Fatalf("in-memory scan of %q:\n got %v\nwant %v", data, got, want)
 	}
 	for _, chunk := range []int{1, 3, 7, 64} {
 		setScanChunk(t, chunk)
-		seek := &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}
+		seek := &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}}
 		if got := scannedHeaders(seek); !slices.Equal(got, want) {
 			t.Fatalf("seek scan (chunk %d) of %q:\n got %v\nwant %v", chunk, data, got, want)
 		}
@@ -106,8 +106,8 @@ func TestForEachIndexFindsXRefLines(t *testing.T) {
 	for _, chunk := range []int{1, 2, 5, 1 << 20} {
 		setScanChunk(t, chunk)
 		for name, d := range map[string]*Reader{
-			"bytes": {data: data},
-			"seek":  {file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))},
+			"bytes": {src: memSource(data)},
+			"seek":  {file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}},
 		} {
 			var got []int64
 			d.forEachIndex([]byte("xref"), func(off int64) bool {
@@ -129,7 +129,7 @@ func TestForEachIndexFindsXRefLines(t *testing.T) {
 // bytes, as when the file shrinks after Open: ReadAt returns nothing for the
 // tail.
 func truncatedSeekReader(data []byte) *Reader {
-	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)) + 100}
+	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)) + 100}}
 }
 
 // TestScansStopAtTruncatedFile pins that the seek-path scans stop cleanly at
@@ -149,7 +149,7 @@ func TestScansStopAtTruncatedFile(t *testing.T) {
 		t.Errorf("forEachIndex = %v, want [8]", offs)
 	}
 	// indexFrom reads 64 KiB chunks; declare a size past the first one.
-	short := &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: 1 << 20}
+	short := &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: 1 << 20}}
 	if off, ok := short.indexFrom(0, []byte("endstream")); ok {
 		t.Errorf("indexFrom found endstream at %d in a file without one", off)
 	}
@@ -161,8 +161,8 @@ func TestForEachIndexStopsEarly(t *testing.T) {
 	setScanChunk(t, 4)
 	data := []byte("ab ab ab ab")
 	for name, d := range map[string]*Reader{
-		"bytes": {data: data},
-		"seek":  {file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))},
+		"bytes": {src: memSource(data)},
+		"seek":  {file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}},
 	} {
 		calls := 0
 		d.forEachIndex([]byte("ab"), func(int64) bool { calls++; return calls < 2 })
@@ -184,7 +184,7 @@ func TestMatchObjHeaderNeedsDigit(t *testing.T) {
 // TestIndexFromPastEnd pins the in-memory guard for a start offset beyond the
 // data.
 func TestIndexFromPastEnd(t *testing.T) {
-	d := &Reader{data: []byte("endstream")}
+	d := &Reader{src: memSource([]byte("endstream"))}
 	if _, ok := d.indexFrom(10, []byte("endstream")); ok {
 		t.Error("indexFrom past the end reported a match")
 	}

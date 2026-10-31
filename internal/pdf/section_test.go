@@ -8,7 +8,7 @@ import (
 // bothBackings runs f over a Reader holding data in memory and over one that
 // reads it from a file.
 func bothBackings(t *testing.T, data string, f func(t *testing.T, d *Reader)) {
-	t.Run("in memory", func(t *testing.T) { f(t, &Reader{data: []byte(data)}) })
+	t.Run("in memory", func(t *testing.T) { f(t, &Reader{src: memSource([]byte(data))}) })
 	t.Run("file", func(t *testing.T) { f(t, newTestFileReader([]byte(data))) })
 }
 

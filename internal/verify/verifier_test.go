@@ -138,7 +138,7 @@ func TestDocument_VerifyPDFAHeader(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 
 	defer doc.Close()
 
@@ -154,7 +154,7 @@ func TestDocument_VerifyPDFAHeader_InvalidHeader(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyFileHeader(doc)
@@ -175,7 +175,7 @@ func TestDocument_VerifyPDFAHeader_NoComment(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyFileHeader(doc)
@@ -196,7 +196,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentLength(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyFileHeader(doc)
@@ -216,7 +216,7 @@ func TestDocument_VerifyPDFAHeader_InvalidCommentContent(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyFileHeader(doc)
@@ -314,7 +314,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXref(t *testing.T) {
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyCrossReferenceTable(doc)
@@ -334,7 +334,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MissingXrefHeader(t *testing.T) 
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyCrossReferenceTable(doc)
@@ -354,7 +354,7 @@ func TestDocument_VerifyPDFACrossReferenceTable_MultipleEOLSeperators(t *testing
 	defer os.Remove(filename)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	doc := pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyCrossReferenceTable(doc)
@@ -392,7 +392,7 @@ func xrefSectionFile(t *testing.T, eol string, subsections ...[2]int) *pdf.Reade
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	return pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	return pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 }
 
 // TestXRefSectionFormatLongTable pins the real-world false positive: a section
@@ -448,7 +448,7 @@ func xrefSectionFileWithHeader(t *testing.T, first int, second string) *pdf.Read
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	return pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0)
+	return pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0)
 }
 
 // 6.1.5
@@ -464,7 +464,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_InvalidMetadata(t *tes
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyDocumentInformationDictionary(trailer)
@@ -492,7 +492,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyAllowed(t *te
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyDocumentInformationDictionary(trailer)
@@ -513,7 +513,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_EmptyValue(t *testing.
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyDocumentInformationDictionary(trailer)
@@ -540,7 +540,7 @@ func TestDocument_VerifyPDFADocumentInformationDictionary_CustomKeyEmptyValueAll
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyDocumentInformationDictionary(trailer)
@@ -565,7 +565,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidChar(t *testing.T) {
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -598,7 +598,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidLength(t *testing.T) {
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -634,7 +634,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyF(t *testing.T) {
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -668,7 +668,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFFilter(t *testing.T) {
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -702,7 +702,7 @@ func TestDocument_VerifyPDFADocumentHex_InvalidKeyFDecodeParms(t *testing.T) {
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -740,7 +740,7 @@ func TestDocument_VerifyPDFAFilter_LZWDecode(t *testing.T) {
 	trailer.Entries.Set("XStream", stream)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -775,7 +775,7 @@ func TestDocument_VerifyPDFAEmbeddedFiles_EF(t *testing.T) {
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -808,7 +808,7 @@ func TestDocument_VerifyPDFAObjectEmbeddedFiles_EmbeddedFiles(t *testing.T) {
 	trailer.Entries.Set("Info", info)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -842,7 +842,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxNameSize(t *testing.T) {
 	trailer.Entries.Set("TooLarge", pdf.PDFName{Value: strings.Repeat("a", 128)})
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -875,7 +875,7 @@ func TestDocument_VerifyPDFAArchitecturalLimits_MaxIntSize(t *testing.T) {
 	trailer.Entries.Set("TooSmall", pdf.PDFInteger(-2_147_483_649))
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	graph, _ := doc.ResolveGraph()
@@ -946,7 +946,7 @@ func TestDocument_VerifyPDFAOutputIntent(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -968,7 +968,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntents(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -995,7 +995,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidOutputIntent(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1023,7 +1023,7 @@ func TestDocument_VerifyPDFAOutputIntent_InvalidSType(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1055,7 +1055,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongS(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1084,7 +1084,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongOutputConditionIdentifier(t *testi
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1125,7 +1125,7 @@ func TestDocument_VerifyPDFAOutputIntent_DifferingDestOutputProfiles(t *testing.
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1156,7 +1156,7 @@ func TestDocument_VerifyPDFAOutputIntent_DestOutputProfileWrongFormat(t *testing
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1188,7 +1188,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongNType(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -1220,7 +1220,7 @@ func TestDocument_VerifyPDFAOutputIntent_WrongN(t *testing.T) {
 	trailer.Entries.Set("Root", outputIntents)
 
 	f, _ := os.Open(filename)
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	defer doc.Close()
 
 	errs := verifyOutputIntent(doc, a1b())
@@ -2475,7 +2475,7 @@ func rawReaderWithTrailer(t *testing.T, trailer pdf.PDFDict) *pdf.Reader {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := pdf.NewRawReader(f, trailer, 0, 0)
+	doc := pdf.NewRawReader(f, trailer, fileSize(t, f), 0)
 	t.Cleanup(func() { doc.Close() })
 	return doc
 }
@@ -2590,7 +2590,7 @@ func TestXRefSectionBlankLineBeforeFirstHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { f.Close() })
-	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, 0, 0), 0)
+	errs := checkXRefSectionFormat(pdf.NewRawReader(f, pdf.PDFDict{}, fileSize(t, f), 0), 0)
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Structure.XRefSubsectionHeader {
 		t.Errorf("blank line before the first header: %v, want one XRefSubsectionHeader", issueKeys(errs))
 	}
@@ -2612,4 +2612,14 @@ func TestOutputIntentWithoutProfileReported(t *testing.T) {
 	if len(errs) != 1 || errs[0].Check() != pdf.Checks.Colour.OutputIntentUnresolvedProfile {
 		t.Errorf("got %v, want one OutputIntentUnresolvedProfile", issueKeys(errs))
 	}
+}
+
+// fileSize returns the size of the open file f.
+func fileSize(t *testing.T, f *os.File) int64 {
+	t.Helper()
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Size()
 }

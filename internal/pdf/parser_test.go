@@ -10,7 +10,7 @@ import (
 // Open/OpenBytes's structure parsing so ParseXRefSectionAt can be driven
 // directly against hand-crafted xref sections at a known offset.
 func newTestFileReader(data []byte) *Reader {
-	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)), xrefTable: map[int]int64{}}
+	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}, xrefTable: map[int]int64{}}
 }
 
 // TestParseXRefSectionAt covers a valid classic table+trailer, a bad (past
@@ -47,7 +47,7 @@ func TestParseXRefSectionAt(t *testing.T) {
 				name string
 				r    *Reader
 			}{
-				{"bytes", &Reader{data: data, xrefTable: map[int]int64{}}},
+				{"bytes", &Reader{src: memSource(data), xrefTable: map[int]int64{}}},
 				{"seek", newTestFileReader(data)},
 			} {
 				dict, err := tc.r.ParseXRefSectionAt(0, false)
@@ -259,7 +259,7 @@ func TestScalarDispatchAgreesAcrossParsers(t *testing.T) {
 			l := NewLexerBytes([]byte(c.literal), 0)
 			want, wantErr := parseObject(l, l.NextToken())
 
-			d := &Reader{data: []byte("1 0 obj " + c.literal + " endobj")}
+			d := &Reader{src: memSource([]byte("1 0 obj " + c.literal + " endobj"))}
 			got, gotErr := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
 
 			if (wantErr == nil) != (gotErr == nil) {
@@ -286,7 +286,7 @@ func TestObjectBodyIntegerIsNotAReference(t *testing.T) {
 		t.Fatalf("inside an object, 1 0 R = %#v, want PDFRef{1,0}", inside)
 	}
 
-	d := &Reader{data: []byte("1 0 obj 1 0 R endobj")}
+	d := &Reader{src: memSource([]byte("1 0 obj 1 0 R endobj"))}
 	body, err := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
 	if err != nil {
 		t.Fatalf("parseClassicAt: %v", err)

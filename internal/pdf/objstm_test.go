@@ -32,7 +32,7 @@ func TestDecodeObjStm(t *testing.T) {
 	t.Run("ResolveReference error", func(t *testing.T) {
 		d := &Reader{
 			xrefTable: map[int]int64{5: 0},
-			data:      []byte("5 0 obj\n[1 2\nendobj\n"), // malformed: unterminated array
+			src:       memSource([]byte("5 0 obj\n[1 2\nendobj\n")), // malformed: unterminated array
 		}
 		if _, err := d.decodeObjStm(5); err == nil {
 			t.Error("expected error when the container object fails to resolve")

@@ -63,7 +63,7 @@ const streamObj = "4 0 obj\n<< /Length 5 >>\nstream\nhello\nendstream\nendobj\n"
 // faultyReader opens data[...] as a Reader over src with object 4 at offset 0.
 // Errors are not degraded, so they surface from ResolveReference.
 func faultyReader(src *faultySource) *Reader {
-	return &Reader{file: src, size: int64(src.Len()), xrefTable: map[int]int64{4: 0}}
+	return &Reader{file: src, src: source{file: src, size: int64(src.Len())}, xrefTable: map[int]int64{4: 0}}
 }
 
 func TestResolveSeekFailure(t *testing.T) {
@@ -117,13 +117,13 @@ func TestParseClassicXRefTableReaderPath(t *testing.T) {
 	// A section longer than the first window, whose widening read fails.
 	src := newFaulty("xref\n0 1000\n" + strings.Repeat("0000000017 00000 n \n", 1000))
 	src.failReadAt = func(n int) bool { return n == 2 }
-	d := &Reader{file: src, size: int64(src.Len())}
+	d := &Reader{file: src, src: source{file: src, size: int64(src.Len())}}
 	if err := d.parseXRefTable(0); !errors.Is(err, errInjected) {
 		t.Errorf("read failure mid section: err = %v, want the injected failure", err)
 	}
 	src = newFaulty("xref\n")
 	src.failReadAt = func(int) bool { return true }
-	d = &Reader{file: src, size: int64(src.Len())}
+	d = &Reader{file: src, src: source{file: src, size: int64(src.Len())}}
 	if err := d.parseXRefTable(0); !errors.Is(err, errInjected) {
 		t.Errorf("read failure at the keyword: err = %v, want the injected failure", err)
 	}
@@ -132,7 +132,7 @@ func TestParseClassicXRefTableReaderPath(t *testing.T) {
 func TestParseXRefSectionAtReadFailureMidSection(t *testing.T) {
 	src := newFaulty("xref\n0 1000\n" + strings.Repeat("0000000017 00000 n \n", 1000))
 	src.failReadAt = func(n int) bool { return n == 2 }
-	d := &Reader{file: src, size: int64(src.Len()), xrefTable: map[int]int64{}}
+	d := &Reader{file: src, src: source{file: src, size: int64(src.Len())}, xrefTable: map[int]int64{}}
 	if _, err := d.ParseXRefSectionAt(0, false); err == nil {
 		t.Error("expected an error: the trailer is unreachable")
 	}

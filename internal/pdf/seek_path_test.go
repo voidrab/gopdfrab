@@ -69,7 +69,7 @@ func TestSeekPathParsesLikeBytes(t *testing.T) {
 			for src, seek := range seekOpeners {
 				func() {
 					defer seek.Close()
-					if seek.data != nil {
+					if seek.src.mem != nil {
 						t.Fatalf("%s: seek reader unexpectedly holds a data slice", src)
 					}
 					_, seekErr := seek.ResolveGraph()

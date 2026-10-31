@@ -99,7 +99,7 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 // conformant file never reaches this path; it exists purely so arbitrary
 // modern input PDFs (e.g. for conversion) using one can still be read.
 func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) {
-	_, dict, err := parseIndirectObjectAt(d.file, d.sourceSize(), offset)
+	_, dict, err := parseIndirectObjectAt(d.file, d.src.size, offset)
 	if err != nil {
 		return PDFDict{}, err
 	}

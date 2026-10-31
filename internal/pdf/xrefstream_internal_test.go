@@ -131,7 +131,7 @@ func itoa(n int) string {
 func TestTryParseXRefStream(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 3]")
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		dict, err := d.tryParseXRefStream(0, false)
 		if err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
@@ -155,7 +155,7 @@ func TestTryParseXRefStream(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 3]")
 		d := &Reader{
 			file:           newXRefTestFileReader(data),
-			size:           int64(len(data)),
+			src:            source{file: newXRefTestFileReader(data), size: int64(len(data))},
 			xrefTable:      map[int]int64{1: 999},
 			compressedXref: map[int]compressedXrefEntry{2: {streamObjNum: 1, index: 1}},
 		}
@@ -179,7 +179,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("no stream body", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /XRef >>\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error: object has no stream body")
 		}
@@ -187,7 +187,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("not a cross-reference stream", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /Other /Length 4 >>\nstream\ndata\nendstream\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error: not a /Type /XRef object")
 		}
@@ -195,7 +195,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("decode failure", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Type /XRef /Filter /JPXDecode /Length 4 >>\nstream\ndata\nendstream\nendobj\n")
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error decoding an unsupported filter")
 		}
@@ -203,7 +203,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("malformed W", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /Index [0 3]") // no /W at all
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for missing /W")
 		}
@@ -211,7 +211,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("malformed Index", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0]") // odd length
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for a malformed /Index")
 		}
@@ -219,7 +219,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("truncated entry table", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [1 1 1] /Index [0 10]") // claims 10 entries, only has 3
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for a truncated entry table")
 		}
@@ -227,7 +227,7 @@ func TestTryParseXRefStream(t *testing.T) {
 
 	t.Run("zero-width /W fields", func(t *testing.T) {
 		data := buildXRefStreamBytes(" /W [0 0 0] /Index [0 3]")
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err == nil {
 			t.Error("expected error for all-zero /W field widths")
 		}
@@ -246,7 +246,7 @@ func TestTryParseXRefStream(t *testing.T) {
 		data := append([]byte("1 0 obj\n"+body), raw...)
 		data = append(data, []byte("\nendstream\nendobj\n")...)
 
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data))}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}}
 		if _, err := d.tryParseXRefStream(0, false); err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
 		}
@@ -360,7 +360,7 @@ func TestXRefStreamHostileFields(t *testing.T) {
 		body := "<< /Type /XRef /W [1 8 1] /Index [0 2] /Length " + itoa(len(raw)) + " >>\nstream\n"
 		data := append([]byte("1 0 obj\n"+body), raw...)
 		data = append(data, []byte("\nendstream\nendobj\n")...)
-		d := &Reader{file: newXRefTestFileReader(data), size: int64(len(data)), xrefTable: map[int]int64{}}
+		d := &Reader{file: newXRefTestFileReader(data), src: source{file: newXRefTestFileReader(data), size: int64(len(data))}, xrefTable: map[int]int64{}}
 		if _, err := d.tryParseXRefStream(0, false); err != nil {
 			t.Fatalf("tryParseXRefStream: %v", err)
 		}

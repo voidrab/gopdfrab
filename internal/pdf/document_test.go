@@ -46,7 +46,7 @@ func TestDocument_OpenAndRead(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if doc.size == 0 {
+	if doc.src.size == 0 {
 		t.Error("Reader size reported as 0")
 	}
 
@@ -458,8 +458,8 @@ func TestRecordStreamFramingDedup(t *testing.T) {
 func TestNewRawReaderAndSeedResolvedGraph(t *testing.T) {
 	trailer := PDFDict{Entries: DictOf(map[string]PDFValue{"Root": PDFRef{ObjNum: 1}})}
 	d := NewRawReader(nil, trailer, 100, 50)
-	if d.size != 100 || d.xrefOffset != 50 {
-		t.Errorf("NewRawReader: size=%d xrefOffset=%d, want 100, 50", d.size, d.xrefOffset)
+	if d.src.size != 100 || d.xrefOffset != 50 {
+		t.Errorf("NewRawReader: size=%d xrefOffset=%d, want 100, 50", d.src.size, d.xrefOffset)
 	}
 	if !EqualPDFValue(d.trailer.Entries.Get("Root"), trailer.Entries.Get("Root")) {
 		t.Error("NewRawReader did not set trailer")
@@ -554,7 +554,7 @@ func TestResolveGraphByPathEmptyPath(t *testing.T) {
 func TestResolveGraphError(t *testing.T) {
 	d := &Reader{
 		xrefTable: map[int]int64{404: 0},
-		data:      []byte("404 0 obj\n[1 2"),
+		src:       memSource([]byte("404 0 obj\n[1 2")),
 		trailer:   PDFDict{Entries: DictOf(map[string]PDFValue{"Bad": PDFRef{ObjNum: 404}})},
 	}
 	if _, err := d.ResolveGraph(); err == nil {
@@ -644,7 +644,7 @@ func TestClaimedConformanceAndRawXMP(t *testing.T) {
 // the exhausted-loop error when no such object exists.
 func TestRecoverTrailerFromXRefStream(t *testing.T) {
 	r := &Reader{
-		data:      []byte{}, // any offset lookup fails to parse -> resolve error, continue
+		src:       memSource([]byte{}), // any offset lookup fails to parse -> resolve error, continue
 		xrefTable: map[int]int64{1: 0, 2: 0, 3: 0},
 		objCache: map[int]PDFValue{
 			2: PDFInteger(7), // resolves fine but isn't a dict -> continue
@@ -681,7 +681,7 @@ func TestFollowXRefPrevChainMergesOlderRevision(t *testing.T) {
 	data := []byte(older + fmt.Sprintf(newer, olderOffset))
 
 	r := &Reader{
-		data:       data,
+		src:        memSource(data),
 		file:       bytesFileSource{bytes.NewReader(data)},
 		xrefTable:  map[int]int64{1: 222},
 		xrefOffset: int64(newerOffset),
@@ -704,7 +704,7 @@ func TestFollowXRefPrevChainMergesOlderRevision(t *testing.T) {
 func TestFollowXRefPrevChainCyclicPrevStops(t *testing.T) {
 	data := []byte("xref\n0 2\n0000000000 65535 f \n0000000010 00000 n \ntrailer\n<< /Size 2 >>\n")
 	r := &Reader{
-		data:       data,
+		src:        memSource(data),
 		file:       bytesFileSource{bytes.NewReader(data)},
 		xrefTable:  map[int]int64{1: 10},
 		xrefOffset: 0,
@@ -733,7 +733,7 @@ func TestFindAndLoadFirstPageTrailer(t *testing.T) {
 	laterRoot := "xref\n0 2\n0000000000 65535 f \n0000000030 00000 n \ntrailer\n<< /Size 2 /Root 2 0 R >>\n"
 	data := []byte(noRoot + firstRoot + laterRoot)
 
-	r := &Reader{data: data, file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	r := &Reader{src: memSource(data), file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
 	r.findAndLoadFirstPageTrailer()
 
 	if !EqualPDFValue(r.firstPageTrailer.Entries.Get("Root"), PDFRef{ObjNum: 1}) {
@@ -745,14 +745,14 @@ func TestFindAndLoadFirstPageTrailer(t *testing.T) {
 // return and the continue-on-parse-error branch (an "xref" line that isn't a
 // parseable section).
 func TestFindAndLoadFirstPageTrailerBranches(t *testing.T) {
-	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	bad.findAndLoadFirstPageTrailer()
 	if bad.firstPageTrailer.Entries != nil {
 		t.Error("expected no firstPageTrailer when fullBytes fails")
 	}
 
 	data := []byte("garbage\nxref\nnot a valid section\n")
-	r := &Reader{data: data, file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	r := &Reader{src: memSource(data), file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
 	r.findAndLoadFirstPageTrailer()
 	if r.firstPageTrailer.Entries != nil {
 		t.Error("expected no firstPageTrailer for an unparseable xref section")
@@ -762,19 +762,19 @@ func TestFindAndLoadFirstPageTrailerBranches(t *testing.T) {
 // TestFullBytes covers both branches: the in-memory d.data shortcut and the
 // file-backed read, including its error path.
 func TestFullBytes(t *testing.T) {
-	r := &Reader{data: []byte("in-memory")}
+	r := &Reader{src: memSource([]byte("in-memory"))}
 	got, err := r.fullBytes()
 	if err != nil || string(got) != "in-memory" {
 		t.Errorf("fullBytes(in-memory) = %q, %v", got, err)
 	}
 
-	fileBacked := &Reader{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, size: 7}
+	fileBacked := &Reader{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, size: 7}}
 	got, err = fileBacked.fullBytes()
 	if err != nil || string(got) != "on-disk" {
 		t.Errorf("fullBytes(file-backed) = %q, %v", got, err)
 	}
 
-	short := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	short := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	if _, err := short.fullBytes(); err == nil {
 		t.Error("expected error reading past the end of a short file source")
 	}
@@ -784,7 +784,7 @@ func TestFullBytes(t *testing.T) {
 // loop, the duplicate-skip continue branch, and the fullBytes-error branch.
 func TestRecoverXRefByBruteForceScanBranches(t *testing.T) {
 	data := []byte("1 0 obj\n<<>>\nendobj\n5 0 obj\n<<>>\nendobj\n")
-	d := &Reader{data: data, xrefTable: map[int]int64{5: 999}}
+	d := &Reader{src: memSource(data), xrefTable: map[int]int64{5: 999}}
 	if err := d.recoverXRefByBruteForceScan(true); err != nil {
 		t.Fatalf("recoverXRefByBruteForceScan(fillIn): %v", err)
 	}
@@ -795,7 +795,7 @@ func TestRecoverXRefByBruteForceScanBranches(t *testing.T) {
 		t.Error("expected object 1 to be added by the scan")
 	}
 
-	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	if err := bad.recoverXRefByBruteForceScan(false); err == nil {
 		t.Error("expected fullBytes error to propagate")
 	}
@@ -925,7 +925,7 @@ func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 // out-of-range), dict-key (found, missing), and scalar-fallthrough branches,
 // plus the initial ResolveObject error and the final ResolveObject call.
 func TestResolvePath(t *testing.T) {
-	d := &Reader{xrefTable: map[int]int64{404: 0}, data: []byte("404 0 obj\n[1 2")}
+	d := &Reader{xrefTable: map[int]int64{404: 0}, src: memSource([]byte("404 0 obj\n[1 2"))}
 
 	if _, err := d.resolvePath(PDFRef{ObjNum: 404}, nil); err == nil {
 		t.Error("expected error resolving a ref to a malformed object")
@@ -990,7 +990,7 @@ func TestResolveInPlace(t *testing.T) {
 	}
 
 	d.xrefTable = map[int]int64{404: 0}
-	d.data = []byte("404 0 obj\n[1 2")
+	d.src = memSource([]byte("404 0 obj\n[1 2"))
 
 	badDict := PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFRef{ObjNum: 404}})}
 	d.resolvedPtrs = nil
