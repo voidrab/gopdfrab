@@ -1078,20 +1078,10 @@ func collectAnnotAppearanceUsage(ctx *ValidationContext, page pdf.PDFDict, reach
 
 func collectAPEntryUsage(ctx *ValidationContext, n pdf.PDFValue, reachable map[uintptr]bool, fu *fontUsage) bool {
 	complete := true
-	switch v := n.(type) {
-	case pdf.PDFDict:
-		if v.IsStream() {
-			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-			complete = collectContentUsage(ctx, v, apRes, reachable, fu)
-		} else {
-			for _, sv := range v.Entries.All() {
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
-					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
-					if !collectContentUsage(ctx, sd, apRes, reachable, fu) {
-						complete = false
-					}
-				}
-			}
+	for _, s := range pdf.AppearanceStreams(n) {
+		apRes, _ := s.Entries.Get("Resources").(pdf.PDFDict)
+		if !collectContentUsage(ctx, s, apRes, reachable, fu) {
+			complete = false
 		}
 	}
 	return complete

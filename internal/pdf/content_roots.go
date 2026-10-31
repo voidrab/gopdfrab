@@ -93,3 +93,37 @@ func ContentRoots(d PDFDict, fn func(ContentRoot)) ContentKind {
 	}
 	return ContentNone
 }
+
+// AppearanceStreams returns the streams of an annotation's appearance entry,
+// such as /N in its /AP dictionary: the entry itself when it is a stream, or
+// each stream of its subdictionary of appearance states.
+func AppearanceStreams(entry PDFValue) []PDFDict {
+	d, ok := entry.(PDFDict)
+	if !ok {
+		return nil
+	}
+	if d.IsStream() {
+		return []PDFDict{d}
+	}
+	var out []PDFDict
+	for _, v := range d.Entries.All() {
+		if s, ok := v.(PDFDict); ok && s.IsStream() {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// TextRenderPaints reports whether a text rendering mode (the Tr operator)
+// fills and strokes the glyphs it shows.
+func TextRenderPaints(mode int) (fills, strokes bool) {
+	switch mode {
+	case 0, 4:
+		return true, false
+	case 1, 5:
+		return false, true
+	case 2, 6:
+		return true, true
+	}
+	return false, false
+}

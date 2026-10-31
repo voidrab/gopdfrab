@@ -59,16 +59,11 @@ func (jpxColourSpaceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 	spaces := iccSpaces{}
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
-		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || d.Entries.Get("ColorSpace") != nil ||
-			!pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterJPX) {
+		if d.Entries.Get("ColorSpace") != nil {
 			return false
 		}
-		data, codec, err := pdf.ImageCodecInput(d)
-		if err != nil || codec == nil {
-			return false
-		}
-		h := verify.ReadJPXHeader(data)
-		if h.ColourSpecificationUsable() {
+		h, ok := verify.JPXImageHeader(d)
+		if !ok || h.ColourSpecificationUsable() {
 			return false
 		}
 		cs := spaces.forModel(channelModels[h.Channels])
@@ -94,8 +89,7 @@ func (blendingSpaceFixer) Applies(c pdf.Check) bool {
 }
 
 func (f blendingSpaceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
-	covered := map[string]bool{"gray": hasIntent, "rgb": rgbCovered, "cmyk": cmykCovered}
+	covered := coveredModels(*trailer, f.spec.OutputIntentSubtype)
 	spaces := iccSpaces{}
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {

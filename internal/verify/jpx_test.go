@@ -82,8 +82,8 @@ func TestReadJPXHeader(t *testing.T) {
 		{"top-level box longer than the data", append(append([]byte{}, jp2Signature...), 0, 0, 0, 99, 'f', 't', 'y', 'p'), JPXHeader{EnumCS: -1}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := ReadJPXHeader(bytes.NewReader(tc.data)); got != tc.want {
-				t.Errorf("ReadJPXHeader = %+v, want %+v", got, tc.want)
+			if got := readJPXHeader(bytes.NewReader(tc.data)); got != tc.want {
+				t.Errorf("readJPXHeader = %+v, want %+v", got, tc.want)
 			}
 		})
 	}
@@ -147,11 +147,11 @@ func (t *tripwire) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
-// TestReadJPXHeaderStopsAtTheHeaderBox verifies that ReadJPXHeader reads
+// TestreadJPXHeaderStopsAtTheHeaderBox verifies that readJPXHeader reads
 // nothing past the header box, so the codestream after it is never read.
 func TestReadJPXHeaderStopsAtTheHeaderBox(t *testing.T) {
 	codestream := &tripwire{}
-	h := ReadJPXHeader(io.MultiReader(bytes.NewReader(jp2File(ihdr(3, 8), colr(1, 0, 16))), codestream))
+	h := readJPXHeader(io.MultiReader(bytes.NewReader(jp2File(ihdr(3, 8), colr(1, 0, 16))), codestream))
 	if h.Channels != 3 {
 		t.Errorf("Channels = %d, want 3", h.Channels)
 	}

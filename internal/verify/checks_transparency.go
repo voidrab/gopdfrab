@@ -3,6 +3,7 @@ package verify
 import (
 	"fmt"
 
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -21,7 +22,10 @@ func validatePageTransparency(v pdf.PDFDict, ctx *ValidationContext) {
 	if group, ok := v.Entries.Get("Group").(pdf.PDFDict); ok && group.Entries.Get("CS") != nil {
 		return
 	}
-	if !PageContainsTransparency(v, ctx.reader) {
+	if ctx.transparency == nil {
+		ctx.transparency = newTransparencyScan(ctx.reader)
+	}
+	if !ctx.transparency.page(v) {
 		return
 	}
 	ctx.Report(pdf.Checks.Transparency.TransparencyWithoutBlendingSpace, v,
@@ -74,26 +78,26 @@ func BlendingColourSpace(v pdf.PDFDict) (cs pdf.PDFValue, resources pdf.PDFDict,
 	return nil, pdf.PDFDict{}, false
 }
 
-// PageContainsTransparency reports whether painting the page, or one of its
-// annotations' appearances, involves transparency: a painting operator under
-// a soft mask, a blend mode other than Normal or a constant alpha below 1 for
-// the colour it paints, an image with a soft mask, a transparency group, or a
-// tiling pattern or Type 3 glyph whose own content involves it. d, when not
-// nil, decodes the content streams through its cache.
-func PageContainsTransparency(page pdf.PDFDict, d *pdf.Reader) bool {
-	t := transparencyScan{reader: d, visiting: map[uintptr]bool{}, scanned: map[scanKey]bool{}, encodings: map[uintptr]map[byte]string{}}
-	resources := pdf.PageResources(page)
-	for _, stream := range pageContentStreams(page) {
-		if t.stream(stream, resources, opaque, 0) {
-			return true
-		}
+// page reports whether painting the page, or one of its annotations'
+// appearances, involves transparency: a painting operator under a soft mask,
+// a blend mode other than Normal or a constant alpha below 1 for the colour
+// it paints, an image with a soft mask, a transparency group, or a tiling
+// pattern or Type 3 glyph whose own content involves it.
+func (t *transparencyScan) page(page pdf.PDFDict) bool {
+	found := false
+	pdf.ContentRoots(page, func(r pdf.ContentRoot) {
+		found = found || t.stream(r.Stream, r.Resources, opaque, 0)
+	})
+	if found {
+		return true
 	}
+	resources := pdf.PageResources(page)
 	annots, _ := page.Entries.Get("Annots").(pdf.PDFArray)
 	for _, item := range annots {
 		annot, _ := item.(pdf.PDFDict)
 		ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
 		for _, key := range []string{"N", "R", "D"} {
-			for _, appearance := range appearanceStreams(ap.Entries.Get(key)) {
+			for _, appearance := range pdf.AppearanceStreams(ap.Entries.Get(key)) {
 				if t.form(appearance, resources, opaque, 0) {
 					return true
 				}
@@ -101,44 +105,6 @@ func PageContainsTransparency(page pdf.PDFDict, d *pdf.Reader) bool {
 		}
 	}
 	return false
-}
-
-// pageContentStreams returns the page's content streams.
-func pageContentStreams(page pdf.PDFDict) []pdf.PDFDict {
-	switch v := page.Entries.Get("Contents").(type) {
-	case pdf.PDFDict:
-		if v.IsStream() {
-			return []pdf.PDFDict{v}
-		}
-	case pdf.PDFArray:
-		var out []pdf.PDFDict
-		for _, item := range v {
-			if s, ok := item.(pdf.PDFDict); ok && s.IsStream() {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-// appearanceStreams returns the streams of one appearance entry: the stream
-// itself, or the streams of its subdictionary of appearance states.
-func appearanceStreams(entry pdf.PDFValue) []pdf.PDFDict {
-	d, ok := entry.(pdf.PDFDict)
-	if !ok {
-		return nil
-	}
-	if d.IsStream() {
-		return []pdf.PDFDict{d}
-	}
-	var out []pdf.PDFDict
-	for _, v := range d.Entries.All() {
-		if s, ok := v.(pdf.PDFDict); ok && s.IsStream() {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // alphaState is the part of the graphics state that decides whether painting
@@ -161,8 +127,8 @@ type alphaState struct {
 // opaque is the initial graphics state.
 var opaque = alphaState{fill: 1, stroke: 1}
 
-// transparencyScan follows one page's content into the forms, patterns and
-// glyphs it paints.
+// transparencyScan follows a document's page content into the forms,
+// patterns and glyphs it paints.
 type transparencyScan struct {
 	reader *pdf.Reader
 	// visiting holds the streams being scanned, so a stream that draws
@@ -172,8 +138,17 @@ type transparencyScan struct {
 	// state with given resources, so content drawn many times is scanned
 	// once.
 	scanned map[scanKey]bool
+	// cutShort is set while a scan has stopped at maxTransparencyDepth, whose
+	// outcome then depends on the depth it started at and is not kept.
+	cutShort bool
 	// encodings holds the Differences of each Type 3 font met.
 	encodings map[uintptr]map[byte]string
+}
+
+// newTransparencyScan returns a scan that decodes content through d's cache
+// when d is not nil.
+func newTransparencyScan(d *pdf.Reader) *transparencyScan {
+	return &transparencyScan{reader: d, visiting: map[uintptr]bool{}, scanned: map[scanKey]bool{}, encodings: map[uintptr]map[byte]string{}}
 }
 
 // scanKey identifies one scan of a stream: the stream, the resources its
@@ -189,24 +164,32 @@ type paintCall struct {
 	stream    pdf.PDFDict
 	resources pdf.PDFDict
 	state     alphaState
-	form      bool
 }
 
 // stream reports whether painting one content stream, started in state with
 // resources, involves transparency.
 func (t *transparencyScan) stream(s, resources pdf.PDFDict, state alphaState, depth int) bool {
 	key := pdf.ValuePointer(s.Entries)
-	if depth > maxTransparencyDepth || t.visiting[key] {
+	if depth > maxTransparencyDepth {
+		t.cutShort = true
+		return false
+	}
+	if t.visiting[key] {
 		return false
 	}
 	memo := scanKey{key, pdf.ValuePointer(resources.Entries), state}
 	if found, ok := t.scanned[memo]; ok {
 		return found
 	}
+	outer := t.cutShort
+	t.cutShort = false
 	t.visiting[key] = true
 	found := t.walkContent(s, resources, state, depth)
 	delete(t.visiting, key)
-	t.scanned[memo] = found
+	if !t.cutShort {
+		t.scanned[memo] = found
+	}
+	t.cutShort = t.cutShort || outer
 	return found
 }
 
@@ -216,7 +199,7 @@ func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaStat
 	found := false
 	var calls []paintCall
 	var saved []alphaState
-	err := t.scan(s, func(op string, operands []pdf.PDFValue) {
+	err := scanContent(t.reader, s, func(op string, operands []pdf.PDFValue) {
 		if found {
 			return
 		}
@@ -260,10 +243,9 @@ func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaStat
 		case "B", "B*", "b", "b*":
 			found = state.paints(true, true, &calls, resources)
 		case "sh", "INLINEIMAGE":
-			found = state.blends() || state.fill < 1
+			found = state.fillTransparent()
 		case "Do":
-			if state.blends() || state.fill < 1 {
-				found = true
+			if found = state.fillTransparent(); found {
 				return
 			}
 			xobject, ok := lastResource(operands, resources, "XObject")
@@ -274,17 +256,19 @@ func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaStat
 			case pdf.PDFName{Value: "Image"}:
 				found = imageHasSoftMask(xobject)
 			case pdf.PDFName{Value: "Form"}:
-				calls = append(calls, paintCall{stream: xobject, resources: resources, state: state, form: true})
+				if found = transparencyGroup(xobject); !found {
+					calls = append(calls, paintCall{stream: xobject, resources: resourcesOr(xobject, resources), state: state})
+				}
 			}
 		case "Tj", "TJ", "'", "\"":
-			fill, stroke := textPaints(state.textMode)
+			fill, stroke := pdf.TextRenderPaints(state.textMode)
 			if !fill && !stroke {
 				return
 			}
 			if found = state.paints(fill, stroke, &calls, resources); found {
 				return
 			}
-			for _, glyph := range t.type3Glyphs(state.font, operands) {
+			for _, glyph := range t.type3Glyphs(state.font, op, operands) {
 				calls = append(calls, paintCall{stream: glyph, resources: resourcesOr(state.font, resources), state: state})
 			}
 		}
@@ -293,8 +277,7 @@ func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaStat
 		return found
 	}
 	for _, c := range calls {
-		if c.form && t.form(c.stream, c.resources, c.state, depth+1) ||
-			!c.form && t.stream(c.stream, c.resources, c.state, depth+1) {
+		if t.stream(c.stream, c.resources, c.state, depth+1) {
 			return true
 		}
 	}
@@ -304,29 +287,21 @@ func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaStat
 // form reports whether painting a form XObject, started in state from a
 // stream with resources, involves transparency.
 func (t *transparencyScan) form(f, resources pdf.PDFDict, state alphaState, depth int) bool {
-	if group, ok := f.Entries.Get("Group").(pdf.PDFDict); ok &&
-		(group.Entries.Get("S") == pdf.PDFName{Value: "Transparency"}) {
-		return true
-	}
-	return t.stream(f, resourcesOr(f, resources), state, depth)
+	return transparencyGroup(f) || t.stream(f, resourcesOr(f, resources), state, depth)
 }
 
-// scan tokenizes a content stream, through the reader's cache when there is
-// one. A stream that does not decode is reported by the content checks.
-func (t *transparencyScan) scan(s pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
-	if t.reader != nil {
-		return t.reader.ScanStreamFunc(s, fn)
-	}
-	data, err := pdf.DecodeStream(s)
-	if err != nil {
-		return err
-	}
-	pdf.NewContentScanner(data).Scan(fn)
-	return nil
+// transparencyGroup reports whether a form XObject is a transparency group.
+func transparencyGroup(f pdf.PDFDict) bool {
+	group, ok := f.Entries.Get("Group").(pdf.PDFDict)
+	return ok && (group.Entries.Get("S") == pdf.PDFName{Value: "Transparency"})
 }
 
 // blends reports whether painting in this state blends, whatever the alpha.
 func (s alphaState) blends() bool { return s.softMask || s.blendMode }
+
+// fillTransparent reports whether painting with the nonstroking colour, or an
+// image or shading, involves transparency in this state.
+func (s alphaState) fillTransparent() bool { return s.blends() || s.fill < 1 }
 
 // paints reports whether painting with the nonstroking colour (fill) or the
 // stroking colour (stroke) involves transparency in this state. The tiling
@@ -335,13 +310,11 @@ func (s alphaState) paints(fill, stroke bool, calls *[]paintCall, resources pdf.
 	if s.blends() || fill && s.fill < 1 || stroke && s.stroke < 1 {
 		return true
 	}
-	for _, p := range []struct {
-		uses    bool
-		pattern pdf.PDFDict
-	}{{fill, s.fillPattern}, {stroke, s.strokePattern}} {
-		if p.uses && p.pattern.Entries != nil {
-			*calls = append(*calls, paintCall{stream: p.pattern, resources: resourcesOr(p.pattern, resources), state: opaque})
-		}
+	if fill && s.fillPattern.Entries != nil {
+		*calls = append(*calls, paintCall{stream: s.fillPattern, resources: resourcesOr(s.fillPattern, resources), state: opaque})
+	}
+	if stroke && s.strokePattern.Entries != nil {
+		*calls = append(*calls, paintCall{stream: s.strokePattern, resources: resourcesOr(s.strokePattern, resources), state: opaque})
 	}
 	return false
 }
@@ -377,19 +350,6 @@ func normalBlendMode(bm pdf.PDFValue) bool {
 	return false
 }
 
-// textPaints reports whether a text rendering mode fills and strokes glyphs.
-func textPaints(mode int) (fill, stroke bool) {
-	switch mode {
-	case 0, 4:
-		return true, false
-	case 1, 5:
-		return false, true
-	case 2, 6:
-		return true, true
-	}
-	return false, false
-}
-
 // imageHasSoftMask reports whether an image XObject carries a soft mask, as a
 // stream or in its JPEG 2000 data.
 func imageHasSoftMask(image pdf.PDFDict) bool {
@@ -412,8 +372,9 @@ func tilingPattern(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFDict {
 
 // type3Glyphs returns the glyph procedures of a Type 3 font that a text
 // showing operator's strings select, through the font's Encoding
-// Differences.
-func (t *transparencyScan) type3Glyphs(font pdf.PDFDict, operands []pdf.PDFValue) []pdf.PDFDict {
+// Differences. A glyph shown twice is listed twice; its second scan is
+// remembered.
+func (t *transparencyScan) type3Glyphs(font pdf.PDFDict, op string, operands []pdf.PDFValue) []pdf.PDFDict {
 	if font.Entries == nil {
 		return nil
 	}
@@ -421,63 +382,22 @@ func (t *transparencyScan) type3Glyphs(font pdf.PDFDict, operands []pdf.PDFValue
 	key := pdf.ValuePointer(font.Entries)
 	names, ok := t.encodings[key]
 	if !ok {
+		names = map[byte]string{}
 		enc, _ := font.Entries.Get("Encoding").(pdf.PDFDict)
-		names = differences(enc)
+		fontprog.EachDifference(enc, func(code int, name string) {
+			if code >= 0 && code < 256 {
+				names[byte(code)] = name
+			}
+		})
 		t.encodings[key] = names
 	}
 	var out []pdf.PDFDict
-	seen := map[uintptr]bool{}
-	forEachShownByte(operands, func(code byte) {
-		glyph, ok := procs.Entries.Get(names[code]).(pdf.PDFDict)
-		if !ok || !glyph.IsStream() || seen[pdf.ValuePointer(glyph.Entries)] {
-			return
+	for _, code := range pdf.ShownStringBytes(op, operands) {
+		if glyph, ok := procs.Entries.Get(names[code]).(pdf.PDFDict); ok && glyph.IsStream() {
+			out = append(out, glyph)
 		}
-		seen[pdf.ValuePointer(glyph.Entries)] = true
-		out = append(out, glyph)
-	})
+	}
 	return out
-}
-
-// differences maps the codes of an Encoding dictionary's Differences array
-// to their glyph names.
-func differences(enc pdf.PDFDict) map[byte]string {
-	diffs, _ := enc.Entries.Get("Differences").(pdf.PDFArray)
-	names := map[byte]string{}
-	code := 0
-	for _, item := range diffs {
-		switch v := item.(type) {
-		case pdf.PDFInteger:
-			code = int(v)
-		case pdf.PDFName:
-			if code >= 0 && code < 256 {
-				names[byte(code)] = v.Value
-			}
-			code++
-		}
-	}
-	return names
-}
-
-// forEachShownByte calls fn with each byte of the strings a text showing
-// operator shows.
-func forEachShownByte(operands []pdf.PDFValue, fn func(byte)) {
-	for _, operand := range operands {
-		var s string
-		switch v := operand.(type) {
-		case pdf.PDFString:
-			s = v.Value
-		case pdf.PDFHexString:
-			s = string(pdf.DecodePDFHexStringBytes(v.Value))
-		case pdf.PDFArray:
-			forEachShownByte(v, fn)
-			continue
-		default:
-			continue
-		}
-		for i := 0; i < len(s); i++ {
-			fn(s[i])
-		}
-	}
 }
 
 // lastResource returns the dictionary that an operator's last operand names

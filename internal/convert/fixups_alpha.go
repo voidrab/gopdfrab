@@ -238,7 +238,7 @@ func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 	case textShowOps[op]:
 		mode, hidden := r.hiddenTextMode()
 		if !hidden {
-			fills, strokes := textPaints(r.state.textMode)
+			fills, strokes := pdf.TextRenderPaints(r.state.textMode)
 			r.emitPainted(op, operands, fills, strokes)
 			return
 		}
@@ -433,19 +433,6 @@ func paintStrokes(op string) bool {
 		return true
 	}
 	return false
-}
-
-// textPaints reports the same for a text render mode.
-func textPaints(mode int) (fills, strokes bool) {
-	switch mode {
-	case 0, 4:
-		return true, false
-	case 1, 5:
-		return false, true
-	case 2, 6:
-		return true, true
-	}
-	return false, false
 }
 
 // applyExtGState takes the opacities out of the named extended graphics state.

@@ -2,7 +2,6 @@ package pdf
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 
 	"github.com/klauspost/compress/zlib"
@@ -21,21 +20,16 @@ func ImageCodecInput(dict PDFDict) (r io.Reader, codec *FilterInfo, err error) {
 	if !dict.IsStream() {
 		return nil, nil, ErrNotAStream
 	}
-	names := FilterNames(dict.Entries.Get("Filter"))
+	steps, err := filterChain(dict)
+	if err != nil {
+		return nil, nil, err
+	}
 	r = bytes.NewReader(dict.Stream())
-	for i, name := range names {
-		info, ok := LookupFilter(name)
-		if !ok {
-			return nil, nil, fmt.Errorf("%w %q", ErrUnsupportedFilter, name)
-		}
-		parms := FilterDecodeParms(dict, i, len(names))
+	for _, s := range steps {
 		switch {
-		case info.Image:
-			if i != len(names)-1 {
-				return nil, nil, fmt.Errorf("%w: %s must be the last filter", ErrUnsupportedFilter, info.Name)
-			}
-			return r, &info, nil
-		case info.Kind == FilterFlate && DictInt(parms, "Predictor", 1) == 1:
+		case s.info.Image:
+			return r, &s.info, nil
+		case s.info.Kind == FilterFlate && DictInt(s.parms, "Predictor", 1) == 1:
 			zr, err := zlib.NewReader(r)
 			if err != nil {
 				return nil, nil, err
@@ -46,14 +40,10 @@ func ImageCodecInput(dict PDFDict) (r io.Reader, codec *FilterInfo, err error) {
 			if err != nil && len(data) == 0 {
 				return nil, nil, err
 			}
-			out, err := applyFilter(info, data, parms)
-			if err == nil && info.Predictor {
-				out, err = UndoStreamPredictor(out, parms, DecodeOptions{})
-			}
-			if err != nil {
+			if data, err = s.decode(data, DecodeOptions{}); err != nil {
 				return nil, nil, err
 			}
-			r = bytes.NewReader(out)
+			r = bytes.NewReader(data)
 		}
 	}
 	return r, nil, nil

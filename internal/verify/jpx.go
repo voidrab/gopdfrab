@@ -44,51 +44,65 @@ var jp2Signature = []byte{0, 0, 0, 0x0C, 'j', 'P', ' ', ' ', 0x0D, 0x0A, 0x87, 0
 // The box holds a few small boxes and at most an ICC profile.
 const maxJP2HeaderBytes = 16 << 20
 
-// ReadJPXHeader reads the JP2 header box of JPEG 2000 data, the way veraPDF
+// JPXImageHeader reads the JP2 header box of the JPEG 2000 data of an image
+// XObject that uses the JPXDecode filter. ok is false for any other
+// dictionary and for data whose filters before the codec do not decode.
+func JPXImageHeader(d pdf.PDFDict) (h JPXHeader, ok bool) {
+	if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || !pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterJPX) {
+		return JPXHeader{}, false
+	}
+	data, _, err := pdf.ImageCodecInput(d)
+	if err != nil {
+		return JPXHeader{}, false
+	}
+	return readJPXHeader(data), true
+}
+
+// readJPXHeader reads the JP2 header box of JPEG 2000 data, the way veraPDF
 // does: a box it cannot read ends the parse, keeping what was read so far.
 // It reads r only up to the end of that box, skipping the boxes before it,
 // and treats a read error as the end of the data.
-func ReadJPXHeader(r io.Reader) JPXHeader {
-	sig := make([]byte, len(jp2Signature))
-	if _, err := io.ReadFull(r, sig); err != nil || !bytes.Equal(sig, jp2Signature) {
+func readJPXHeader(r io.Reader) JPXHeader {
+	var sig [12]byte
+	if _, err := io.ReadFull(r, sig[:]); err != nil || !bytes.Equal(sig[:], jp2Signature) {
 		return JPXHeader{EnumCS: -1}
 	}
-	header, ok := readJP2Box(r, "jp2h")
+	header, ok := readJP2HeaderBox(r)
 	if !ok {
 		return JPXHeader{EnumCS: -1}
 	}
 	return parseJP2Header(header)
 }
 
-// readJP2Box reads top-level boxes from r up to the first of a kind, and
-// returns its contents, which may be cut short by the end of the data or by
-// maxJP2HeaderBytes. found is false when no box of the kind is read.
-func readJP2Box(r io.Reader, kind string) (body []byte, found bool) {
+// readJP2HeaderBox reads top-level boxes from r up to the first header box,
+// and returns its contents, which may be cut short by the end of the data or
+// by maxJP2HeaderBytes. found is false when no header box is read.
+func readJP2HeaderBox(r io.Reader) (body []byte, found bool) {
+	var head [8]byte
 	for {
-		head := make([]byte, 8)
-		if _, err := io.ReadFull(r, head); err != nil {
+		if _, err := io.ReadFull(r, head[:]); err != nil {
 			return nil, false
 		}
-		length, headerLen, boxKind := uint64(binary.BigEndian.Uint32(head)), uint64(8), string(head[4:])
+		length, headerLen, kind := uint64(binary.BigEndian.Uint32(head[:])), uint64(8), string(head[4:])
 		if length == 1 {
-			if _, err := io.ReadFull(r, head); err != nil {
+			if _, err := io.ReadFull(r, head[:]); err != nil {
 				return nil, false
 			}
-			length, headerLen = binary.BigEndian.Uint64(head), 16
+			length, headerLen = binary.BigEndian.Uint64(head[:]), 16
 		}
 		toEnd := length == 0
 		if !toEnd && length < headerLen {
 			return nil, false
 		}
-		if boxKind == kind {
-			limit := uint64(maxJP2HeaderBytes)
-			if !toEnd {
-				limit = min(limit, length-headerLen)
-			}
-			body, _ = io.ReadAll(io.LimitReader(r, int64(limit)))
+		switch {
+		case kind == "jp2h" && toEnd:
+			body, _ = io.ReadAll(io.LimitReader(r, maxJP2HeaderBytes))
 			return body, true
-		}
-		if toEnd {
+		case kind == "jp2h":
+			body = make([]byte, min(length-headerLen, maxJP2HeaderBytes))
+			n, _ := io.ReadFull(r, body)
+			return body[:n], true
+		case toEnd:
 			return nil, false
 		}
 		if _, err := io.CopyN(io.Discard, r, int64(length-headerLen)); err != nil {
@@ -97,11 +111,12 @@ func readJP2Box(r io.Reader, kind string) (body []byte, found bool) {
 	}
 }
 
-// parseJP2Header reads the boxes of a JP2 header box's contents.
+// parseJP2Header reads the boxes of a JP2 header box's contents. The colour
+// specification a reader uses is the first with APPROX 1, or else the only
+// one.
 func parseJP2Header(header []byte) JPXHeader {
 	h := JPXHeader{EnumCS: -1}
-	firstMethod, firstEnum := -1, -1
-	approxMethod, approxEnum := -1, -1
+	chosen := false
 	forEachJP2Box(header, func(kind string, body []byte) bool {
 		switch kind {
 		case "ihdr":
@@ -118,37 +133,26 @@ func parseJP2Header(header []byte) JPXHeader {
 			}
 			h.ColourSpecs++
 			method, approx := int(body[0]), body[2] == 1
-			first := h.ColourSpecs == 1
-			usedApprox := approx && approxMethod < 0
-			if first {
-				firstMethod = method
-			}
 			if approx {
 				h.ApproxSpecs++
 			}
-			if usedApprox {
-				approxMethod = method
+			use := !chosen && (approx || h.ColourSpecs == 1)
+			if use {
+				h.Method, h.EnumCS, chosen = method, -1, approx
 			}
 			if method == 1 {
 				if len(body) < 7 {
 					return false
 				}
-				enum := int(binary.BigEndian.Uint32(body[3:7]))
-				if first {
-					firstEnum = enum
-				}
-				if usedApprox {
-					approxEnum = enum
+				if use {
+					h.EnumCS = int(binary.BigEndian.Uint32(body[3:7]))
 				}
 			}
 		}
 		return true
 	})
-	switch {
-	case h.ApproxSpecs > 0:
-		h.Method, h.EnumCS = approxMethod, approxEnum
-	case h.ColourSpecs == 1:
-		h.Method, h.EnumCS = firstMethod, firstEnum
+	if !chosen && h.ColourSpecs != 1 {
+		h.Method, h.EnumCS = 0, -1
 	}
 	return h
 }
@@ -184,22 +188,20 @@ func forEachJP2Box(data []byte, fn func(kind string, body []byte) bool) {
 // the JPXDecode filter. The colour specification rules do not apply to an
 // image whose ColorSpace entry overrides the data's own colour space.
 func validateJPXImage(v pdf.PDFDict, ctx *ValidationContext) {
-	if !ctx.part2() || (v.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) ||
-		!pdf.HasFilter(v.Entries.Get("Filter"), pdf.FilterJPX) {
+	if !ctx.part2() {
 		return
 	}
-	data, codec, err := pdf.ImageCodecInput(v)
-	if err != nil || codec == nil || codec.Kind != pdf.FilterJPX {
+	h, ok := JPXImageHeader(v)
+	if !ok {
 		return
 	}
-	h := ReadJPXHeader(data)
 	if h.Channels != 1 && h.Channels != 3 && h.Channels != 4 {
 		ctx.Report(pdf.Checks.Image.JPXColourChannels, v, fmt.Sprintf("JPEG 2000 data has %d colour channels, not 1, 3 or 4", h.Channels))
 	}
 	if h.BPCC || h.BitDepth < 1 || h.BitDepth > 38 {
 		ctx.Report(pdf.Checks.Image.JPXBitDepth, v, fmt.Sprintf("JPEG 2000 data has bit depth %d or a bpcc box, not one depth from 1 to 38", h.BitDepth))
 	}
-	if cs := v.Entries.Get("ColorSpace"); cs != nil {
+	if v.Entries.Get("ColorSpace") != nil {
 		return
 	}
 	if h.ColourSpecs != 1 && h.ApproxSpecs != 1 {

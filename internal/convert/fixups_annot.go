@@ -97,6 +97,14 @@ func (f annotColourFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, change
 	}, true
 }
 
+// coveredModels returns, for each device colour model, whether the level's
+// output intent covers it: DeviceGray by any such intent, DeviceRGB and
+// DeviceCMYK by its profile's number of components.
+func coveredModels(trailer pdf.PDFDict, subtype string) map[string]bool {
+	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(trailer, subtype)
+	return map[string]bool{"gray": hasIntent, "rgb": rgbCovered, "cmyk": cmykCovered}
+}
+
 // outputIntentCoverage replicates Document.computeColourCoverage
 // (checks_colour.go) directly over the in-memory trailer: Convert's Fixers
 // operate on a resolved graph that was never opened as a *Document, so the

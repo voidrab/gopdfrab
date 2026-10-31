@@ -11,7 +11,7 @@ func transparentPage(content string, resources pdf.PDFDict) pdf.PDFDict {
 	return kv("Type", name("Page"), "Contents", streamDict(content), "Resources", resources)
 }
 
-func TestPageContainsTransparency(t *testing.T) {
+func TestTransparencyScan(t *testing.T) {
 	half := kv("ca", pdf.PDFReal(0.5))
 	halfStroke := kv("CA", pdf.PDFReal(0.5))
 	gsRes := func(gs pdf.PDFDict) pdf.PDFDict { return kv("ExtGState", kv("GS0", gs)) }
@@ -91,8 +91,8 @@ func TestPageContainsTransparency(t *testing.T) {
 		{"gs without operands", "gs 0 0 1 1 re f", kv(), false},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := PageContainsTransparency(transparentPage(tc.content, tc.resources), nil); got != tc.want {
-				t.Errorf("PageContainsTransparency = %v, want %v", got, tc.want)
+			if got := newTransparencyScan(nil).page(transparentPage(tc.content, tc.resources)); got != tc.want {
+				t.Errorf("page = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -105,7 +105,7 @@ func streamDictWith(raw, key string, value pdf.PDFValue) pdf.PDFDict {
 	return d
 }
 
-func TestPageContainsTransparencyContentsAndAnnotations(t *testing.T) {
+func TestTransparencyScanContentsAndAnnotations(t *testing.T) {
 	gsRes := kv("ExtGState", kv("GS0", kv("ca", pdf.PDFReal(0.5))))
 	transparent := streamDict("/GS0 gs 0 0 1 1 re f")
 	opaque := streamDict("0 0 1 1 re f")
@@ -115,8 +115,8 @@ func TestPageContainsTransparencyContentsAndAnnotations(t *testing.T) {
 		page pdf.PDFDict
 		want bool
 	}{
-		{"contents array", kv("Contents", pdf.PDFArray{opaque, pdf.PDFInteger(1), transparent}, "Resources", gsRes), true},
-		{"contents not a stream", kv("Contents", kv()), false},
+		{"contents array", kv("Type", name("Page"), "Contents", pdf.PDFArray{opaque, pdf.PDFInteger(1), transparent}, "Resources", gsRes), true},
+		{"contents not a stream", kv("Type", name("Page"), "Contents", kv()), false},
 		{"no contents", kv(), false},
 		{"normal appearance", kv("Annots", pdf.PDFArray{kv("AP", kv("N", appearance))}), true},
 		{"rollover appearance state", kv("Annots", pdf.PDFArray{kv("AP", kv("R", kv("On", appearance, "Off", pdf.PDFInteger(1))))}), true},
@@ -124,8 +124,8 @@ func TestPageContainsTransparencyContentsAndAnnotations(t *testing.T) {
 		{"opaque appearance", kv("Annots", pdf.PDFArray{kv("AP", kv("N", opaque))}), false},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := PageContainsTransparency(tc.page, nil); got != tc.want {
-				t.Errorf("PageContainsTransparency = %v, want %v", got, tc.want)
+			if got := newTransparencyScan(nil).page(tc.page); got != tc.want {
+				t.Errorf("page = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -133,10 +133,10 @@ func TestPageContainsTransparencyContentsAndAnnotations(t *testing.T) {
 
 // TestPageContainsTransparencyStops verifies that the analysis ends on a form
 // that draws itself, on nesting too deep and on content that does not decode.
-func TestPageContainsTransparencyStops(t *testing.T) {
+func TestTransparencyScanStops(t *testing.T) {
 	self := streamDictWith("/X0 Do", "Subtype", name("Form"))
 	self.Entries.Set("Resources", kv("XObject", kv("X0", self)))
-	if PageContainsTransparency(transparentPage("/X0 Do", kv("XObject", kv("X0", self))), nil) {
+	if newTransparencyScan(nil).page(transparentPage("/X0 Do", kv("XObject", kv("X0", self)))) {
 		t.Error("a form drawing itself contains transparency")
 	}
 
@@ -148,17 +148,17 @@ func TestPageContainsTransparencyStops(t *testing.T) {
 		form.Entries.Set("Resources", kv("XObject", kv("X0", deepest)))
 		deepest = form
 	}
-	if PageContainsTransparency(transparentPage("/X0 Do", kv("XObject", kv("X0", form))), nil) {
+	if newTransparencyScan(nil).page(transparentPage("/X0 Do", kv("XObject", kv("X0", form)))) {
 		t.Error("transparency found past the depth limit")
 	}
 
 	page := kv("Type", name("Page"), "Contents", brokenStreamDict())
-	if PageContainsTransparency(page, nil) {
+	if newTransparencyScan(nil).page(page) {
 		t.Error("undecodable content contains transparency")
 	}
 }
 
-func TestPageContainsTransparencyThroughReader(t *testing.T) {
+func TestTransparencyScanThroughReader(t *testing.T) {
 	path := t.TempDir() + "/t.pdf"
 	if err := createValidPDF(path); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestPageContainsTransparencyThroughReader(t *testing.T) {
 	}
 	defer d.Close()
 	gsRes := kv("ExtGState", kv("GS0", kv("ca", pdf.PDFReal(0.5))))
-	if !PageContainsTransparency(transparentPage("/GS0 gs 0 0 1 1 re f", gsRes), d) {
+	if !newTransparencyScan(d).page(transparentPage("/GS0 gs 0 0 1 1 re f", gsRes)) {
 		t.Error("transparency not found through the reader")
 	}
 }
@@ -285,16 +285,36 @@ func TestNormalBlendModeNull(t *testing.T) {
 // TestPageContainsTransparencyScansSharedContentOnce verifies that a form
 // drawn many times from the same state is scanned once, and that a Type 3
 // font's encoding is read once however many strings it shows.
-func TestPageContainsTransparencyScansSharedContentOnce(t *testing.T) {
+func TestTransparencyScanScansSharedContentOnce(t *testing.T) {
 	shared := streamDictWith("0 0 1 1 re f", "Subtype", name("Form"))
 	outer := streamDictWith("/X0 Do /X0 Do", "Subtype", name("Form"))
 	outer.Entries.Set("Resources", kv("XObject", kv("X0", shared)))
-	scan := transparencyScan{visiting: map[uintptr]bool{}, scanned: map[scanKey]bool{}, encodings: map[uintptr]map[byte]string{}}
+	scan := newTransparencyScan(nil)
 	res := kv("XObject", kv("X0", outer), "Font", kv("F1", kv("Subtype", name("Type3"), "CharProcs", kv())))
 	if scan.stream(streamDict("/X0 Do /X0 Do BT /F1 1 Tf (a) Tj (a) Tj ET"), res, opaque, 0) {
 		t.Fatal("opaque content contains transparency")
 	}
 	if len(scan.scanned) != 3 || len(scan.encodings) != 1 {
 		t.Errorf("scanned %d streams and read %d encodings, want 3 and 1", len(scan.scanned), len(scan.encodings))
+	}
+}
+
+// TestTransparencyScanKeepsNoCutShortOutcome verifies that a stream whose scan
+// stopped at the depth limit is scanned again when a later page draws it from
+// nearer the top.
+func TestTransparencyScanKeepsNoCutShortOutcome(t *testing.T) {
+	chain := []pdf.PDFDict{streamDictWith("/GS0 gs 0 0 1 1 re f", "Subtype", name("Form"))}
+	chain[0].Entries.Set("Resources", kv("ExtGState", kv("GS0", kv("ca", pdf.PDFReal(0.5)))))
+	for i := 1; i <= maxTransparencyDepth; i++ {
+		form := streamDictWith("/X0 Do", "Subtype", name("Form"))
+		form.Entries.Set("Resources", kv("XObject", kv("X0", chain[i-1])))
+		chain = append(chain, form)
+	}
+	scan := newTransparencyScan(nil)
+	if scan.page(transparentPage("/X0 Do", kv("XObject", kv("X0", chain[maxTransparencyDepth])))) {
+		t.Fatal("transparency found past the depth limit")
+	}
+	if !scan.page(transparentPage("/X0 Do", kv("XObject", kv("X0", chain[5])))) {
+		t.Error("a form cut short on one page is not scanned in full on the next")
 	}
 }

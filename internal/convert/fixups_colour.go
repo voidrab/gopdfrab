@@ -92,8 +92,7 @@ func (separationAlternateFixer) Applies(c pdf.Check) bool {
 }
 
 func (f separationAlternateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	hasIntent, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
-	covered := map[string]bool{"rgb": rgbCovered, "cmyk": cmykCovered, "gray": hasIntent}
+	covered := coveredModels(*trailer, f.spec.OutputIntentSubtype)
 
 	// One shared space per model, so the writer emits a single ICC stream
 	// however many colourants the document defines.
