@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestModelRoundTrip re-encodes each decoded model and requires the embedded
-// bytes back: every field decodeModel reads, EncodeModel writes, in the same
-// order, and neither drops anything the data carries.
+// TestModelRoundTrip verifies that re-encoding each decoded model yields the
+// embedded bytes. Every field decodeModel reads is written back by EncodeModel
+// in the same order, so neither drops anything the data carries.
 func TestModelRoundTrip(t *testing.T) {
 	for _, m := range []*Model{pdf14, pdf17} {
 		m.load()
@@ -24,9 +24,10 @@ func TestModelRoundTrip(t *testing.T) {
 	}
 }
 
-// TestModelCodecCoversEveryField pins the field counts of the types the codec
-// serializes. A new field is silently dropped by EncodeModel until the codec
-// learns it, so adding one must fail here first.
+// TestModelCodecCoversEveryField verifies that the types the codec serializes
+// have the field counts it handles. A new field is silently dropped by
+// EncodeModel until the codec learns it, so adding one must fail this test
+// first.
 func TestModelCodecCoversEveryField(t *testing.T) {
 	for typ, want := range map[reflect.Type]int{
 		reflect.TypeOf(ObjectType{}):  5, // keyByName is rebuilt, not serialized
@@ -43,7 +44,8 @@ func TestModelCodecCoversEveryField(t *testing.T) {
 }
 
 // TestDecodeModelCorrupt verifies that data that is not a flate stream is a
-// build defect and panics with a message naming the file.
+// build defect, and that decodeModel panics with a message reporting corrupt
+// model data.
 func TestDecodeModelCorrupt(t *testing.T) {
 	defer func() {
 		r, _ := recover().(string)
@@ -77,9 +79,10 @@ func TestModelFor(t *testing.T) {
 	}
 }
 
-// TestPDF17Model pins what the PDF 1.7 model adds over PDF 1.4: JPXDecode as
-// an image filter, the object and cross-reference stream types, and the
-// ViewerPreferences keys PDF 1.4 lacks, which are no longer later keys.
+// TestPDF17Model verifies what the PDF 1.7 model adds over PDF 1.4: JPXDecode
+// as an image filter, the object and cross-reference stream types, and the
+// ViewerPreferences keys that PDF 1.4 lacks. Those keys must not appear in the
+// PDF 1.7 model's LaterKeys.
 func TestPDF17Model(t *testing.T) {
 	m14, m17 := ModelFor("1.4"), ModelFor("1.7")
 

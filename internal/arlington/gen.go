@@ -1,13 +1,13 @@
 //go:build ignore
 
-// Command gen reads the vendored Arlington PDF Model TSVs for one PDF version under
-// testdata/tsv/<version>, builds one ObjectType per TSV file, and writes them with
-// arlington.EncodeModel to model-<version>.bin, which the package embeds and decodes on first
-// use.
+// Command gen reads the vendored Arlington PDF Model TSVs for one PDF version
+// under testdata/tsv/<version>, builds one ObjectType per TSV file, and writes
+// them with arlington.EncodeModel to model-<version>.bin, which the package
+// embeds and decodes on first use.
 //
-// Invoke via `go generate ./internal/arlington/...`; -version picks the TSV set (1.4 or 1.7)
-// and -out writes elsewhere (the idempotence test regenerates into a scratch file and
-// compares).
+// Invoke via `go generate ./internal/arlington/...`. The -version flag picks
+// the TSV set (1.4 or 1.7), and -out writes elsewhere; the idempotence test
+// regenerates into a scratch file and compares.
 package main
 
 import (
@@ -27,8 +27,9 @@ import (
 const latestDir = "testdata/tsv/latest"
 
 var (
-	// modelVersion pins the PDF version version-gate predicates are folded against. It names
-	// the vendored TSV subset under tsvDir and is set from the -version flag.
+	// modelVersion is the PDF version that version-gate predicates are
+	// folded against. It names the vendored TSV subset under tsvDir and is
+	// set from the -version flag.
 	modelVersion string
 	tsvDir       string
 )
@@ -416,10 +417,11 @@ func compileValueCond(raw string) (tree *condExpr, ok bool) {
 	}
 }
 
-// computeLaterKeys returns, per type name (TSV basename), the keys present in testdata/tsv/latest
-// but absent from tsvDir -- i.e. keys the Arlington PDF Model says were introduced after
-// modelVersion. A type absent from tsv/latest (renamed across versions) is simply omitted,
-// which yields an empty, safe (false-negative) LaterKeys for it.
+// computeLaterKeys returns, per type name (TSV basename), the keys present in
+// testdata/tsv/latest but absent from tsvDir. These are the keys the Arlington
+// PDF Model says were introduced after modelVersion. A type absent from
+// tsv/latest (renamed across versions) is omitted, which yields an empty, safe
+// (false-negative) LaterKeys for it.
 func computeLaterKeys() (map[string][]string, error) {
 	keysOld, err := keySetsByType(tsvDir)
 	if err != nil {

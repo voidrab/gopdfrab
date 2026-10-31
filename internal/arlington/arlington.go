@@ -223,8 +223,9 @@ type KeyDef struct {
 	// Predicated.Values.
 	ValueCond         *Cond
 	IndirectReference IndirectRule
-	// SinceVersion/DeprecatedIn are unread at runtime (each version's TSV set is pre-filtered);
-	// kept as groundwork for the predicate evaluator's version-gate families.
+	// SinceVersion/DeprecatedIn are unread at runtime (each version's TSV
+	// set is pre-filtered); kept as groundwork for the predicate
+	// evaluator's version-gate families.
 	SinceVersion   string
 	DeprecatedIn   string   // empty if never deprecated
 	PossibleValues []string // enumerated legal values, when constrained; predicate-only entries are dropped
@@ -250,10 +251,10 @@ type ObjectType struct {
 	Name     string
 	Keys     []KeyDef // named keys and fixed array indices, in TSV row order
 	Wildcard *KeyDef  // the "*" row, if this type has one; nil otherwise
-	// LaterKeys lists keys this type gained after the model's PDF version, computed by
-	// diffing the vendored tsv/latest set against the model's own set. Empty if the type
-	// itself did not exist in tsv/latest (e.g. renamed across versions), which is a safe
-	// (false-negative) default.
+	// LaterKeys lists keys this type gained after the model's PDF version,
+	// computed by diffing the vendored tsv/latest set against the model's
+	// own set. Empty if the type itself did not exist in tsv/latest (e.g.
+	// renamed across versions), which is a safe (false-negative) default.
 	LaterKeys []string
 
 	// keyByName indexes Keys by row name (first row wins on duplicates,

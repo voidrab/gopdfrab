@@ -211,8 +211,9 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // EncodeModel serializes ts and the self-identification table into the
-// model-<version>.bin format decodeModel reads. The output depends only on the content,
-// not on map order, so regenerating an unchanged model is byte-identical.
+// model-<version>.bin format that decodeModel reads. The output depends only
+// on the content, not on map order, so regenerating an unchanged model is
+// byte-identical.
 func EncodeModel(ts map[string]ObjectType, self map[[2]string]string) []byte {
 	e := &encoder{index: map[string]int{}}
 
@@ -390,9 +391,9 @@ func (d *decoder) keyDef() KeyDef {
 	return kd
 }
 
-// decodeModel reads the model-<version>.bin format: the types keyed by name, each with
-// its key index built, and the self-identification table. It panics on data
-// EncodeModel did not write.
+// decodeModel reads the model-<version>.bin format: the types keyed by name,
+// each with its key index built, and the self-identification table. It panics
+// on data that EncodeModel did not write.
 func decodeModel(data []byte) (map[string]ObjectType, map[[2]string]string) {
 	raw, err := io.ReadAll(flate.NewReader(bytes.NewReader(data)))
 	if err != nil {

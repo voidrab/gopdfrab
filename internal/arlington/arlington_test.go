@@ -598,9 +598,10 @@ func TestClassificationFloor(t *testing.T) {
 	t.Logf("simple-row fraction: %.3f (%d/%d)", fraction, simple, total)
 }
 
-// TestGeneratorIdempotent regenerates each model-<version>.bin into a scratch file and
-// asserts it is byte-identical to the checked-in one, guarding against edits to gen.go or the
-// vendored TSVs that were never regenerated.
+// TestGeneratorIdempotent verifies that regenerating each model-<version>.bin
+// into a scratch file gives a file byte-identical to the checked-in one. This
+// guards against edits to gen.go or to the vendored TSVs that were never
+// regenerated.
 func TestGeneratorIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("invokes `go run`; skipped in -short mode")
