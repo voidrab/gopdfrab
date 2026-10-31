@@ -8,8 +8,8 @@ import (
 )
 
 // jp2Data returns JP2 data whose image header gives nc components of 8 bits
-// and whose header box holds specs enumerated sRGB colour specifications.
-// With two of them a reader has no single one to use.
+// and whose header box holds specs colour specification boxes, each
+// enumerating sRGB. With two of them a reader has no single one to use.
 func jp2Data(nc, specs int) []byte {
 	box := func(kind string, body ...byte) []byte {
 		b := binary.BigEndian.AppendUint32(nil, uint32(8+len(body)))

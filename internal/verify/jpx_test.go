@@ -147,7 +147,7 @@ func (t *tripwire) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
-// TestreadJPXHeaderStopsAtTheHeaderBox verifies that readJPXHeader reads
+// TestReadJPXHeaderStopsAtTheHeaderBox verifies that readJPXHeader reads
 // nothing past the header box, so the codestream after it is never read.
 func TestReadJPXHeaderStopsAtTheHeaderBox(t *testing.T) {
 	codestream := &tripwire{}

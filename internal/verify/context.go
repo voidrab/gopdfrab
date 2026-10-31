@@ -243,8 +243,9 @@ func (ctx *ValidationContext) scanStream(dict pdf.PDFDict, fn func(op string, op
 	return err
 }
 
-// scanContent reports dict's content-stream operators to fn, through d's
-// cache when d is not nil, and reports nothing itself.
+// scanContent calls fn with the operators of dict's content stream, through
+// d's cache when d is not nil. It returns the error from reading the stream,
+// if any.
 func scanContent(d *pdf.Reader, dict pdf.PDFDict, fn func(op string, operands []pdf.PDFValue)) error {
 	if d != nil {
 		return d.ScanStreamFunc(dict, fn)

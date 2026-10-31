@@ -114,8 +114,8 @@ func AppearanceStreams(entry PDFValue) []PDFDict {
 	return out
 }
 
-// TextRenderPaints reports whether a text rendering mode (the Tr operator)
-// fills and strokes the glyphs it shows.
+// TextRenderPaints reports whether the text rendering mode set by the Tr
+// operator fills the glyphs it shows, and whether it strokes them.
 func TextRenderPaints(mode int) (fills, strokes bool) {
 	switch mode {
 	case 0, 4:

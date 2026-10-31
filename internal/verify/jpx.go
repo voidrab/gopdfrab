@@ -40,7 +40,7 @@ func (h JPXHeader) ColourSpecificationUsable() bool {
 // jp2Signature is the JPEG 2000 signature box that starts a JP2 file.
 var jp2Signature = []byte{0, 0, 0, 0x0C, 'j', 'P', ' ', ' ', 0x0D, 0x0A, 0x87, 0x0A}
 
-// maxJP2HeaderBytes bounds how much of a JP2 header box ReadJPXHeader reads.
+// maxJP2HeaderBytes bounds how much of a JP2 header box readJPXHeader reads.
 // The box holds a few small boxes and at most an ICC profile.
 const maxJP2HeaderBytes = 16 << 20
 

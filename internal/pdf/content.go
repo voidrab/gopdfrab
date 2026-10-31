@@ -132,9 +132,9 @@ type filterStep struct {
 	parms PDFDict
 }
 
-// filterChain returns the filters dict's /Filter entry names, in order. Every
-// filter must be one PDF defines, and an image codec, which consumes the
-// stream, must be the last.
+// filterChain returns the steps of dict's /Filter chain, in order, each with
+// its decode parameters. Every filter must be one PDF defines, and an image
+// codec, which consumes the stream, must be the last.
 func filterChain(dict PDFDict) ([]filterStep, error) {
 	names := FilterNames(dict.Entries.Get("Filter"))
 	steps := make([]filterStep, len(names))

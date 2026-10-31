@@ -138,8 +138,9 @@ type transparencyScan struct {
 	// state with given resources, so content drawn many times is scanned
 	// once.
 	scanned map[scanKey]bool
-	// cutShort is set while a scan has stopped at maxTransparencyDepth, whose
-	// outcome then depends on the depth it started at and is not kept.
+	// cutShort is set when a scan has stopped at maxTransparencyDepth. The
+	// outcome of such a scan depends on the depth it started at, so it is not
+	// remembered in scanned.
 	cutShort bool
 	// encodings holds the Differences of each Type 3 font met.
 	encodings map[uintptr]map[byte]string
