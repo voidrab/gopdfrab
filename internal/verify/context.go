@@ -326,9 +326,9 @@ func (ctx *ValidationContext) report(err pdf.PDFError) {
 	ctx.errs = append(ctx.errs, err)
 }
 
-// reportUncovered reports c, a device colour space that no output intent
-// covers, and records that one was found for
-// deviceColourWithoutPDFAIntentRule.
+// reportUncovered reports c against obj and records that a device colour
+// space without a matching output intent was found, for
+// deviceColourWithoutPDFAIntentRule to read.
 func (ctx *ValidationContext) reportUncovered(c pdf.Check, obj pdf.PDFValue, msg string) {
 	ctx.uncoveredDeviceColour = true
 	ctx.Report(c, obj, msg)

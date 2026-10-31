@@ -89,8 +89,8 @@ func (f inheritedResourcesFixer) followChildren(stream, scope pdf.PDFDict, visit
 // resourceName is a resource a content stream names.
 type resourceName struct{ category, name string }
 
-// adoptChildren adopts, for each of names that is a form XObject, tiling
-// pattern or Type 3 font in scope, the resources it inherits from scope.
+// adoptChildren calls adopt for each of names that resolves in scope to a
+// form XObject, tiling pattern or Type 3 font.
 func (f inheritedResourcesFixer) adoptChildren(names []resourceName, scope pdf.PDFDict, visited map[uintptr]bool) bool {
 	changed := false
 	for _, n := range names {

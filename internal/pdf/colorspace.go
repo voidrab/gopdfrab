@@ -111,7 +111,7 @@ func clamp01(v float64) float64 {
 	return math.Min(1, math.Max(0, v))
 }
 
-// LookupResource returns the resource name names in the given category of a
+// LookupResource returns the value of name in the given category of a
 // Resources dictionary, such as Font or XObject, or nil.
 func LookupResource(resources PDFDict, category, name string) PDFValue {
 	sub, _ := resources.Entries.Get(category).(PDFDict)
