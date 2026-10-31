@@ -48,9 +48,9 @@ type Corpus struct {
 	Flavour string
 	// Naming is the corpus's filename convention.
 	Naming Naming
-	// Clauses, when not nil, are the only clauses whose fail files the
-	// corpus's tests expect to be caught: the clauses of a level whose
-	// verifier is still being built. A fail file counts when the clause its
+	// Clauses, when not nil, lists the only clauses whose fail files the
+	// corpus's tests expect to be caught. It is set for a level whose verifier
+	// does not implement every clause. A fail file counts when the clause its
 	// name targets is one of them or lies under one. Pass files always count.
 	Clauses []string
 }
