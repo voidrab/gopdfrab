@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // issuesOf is one issue under each of checks, the shape a verify that
@@ -258,5 +259,40 @@ func TestDispatchFlattensBeforeTheOpacityRepair(t *testing.T) {
 	// Red at 0.51 over white: G and B at 255 * 0.49, about 125.
 	if g := int(samples[1]); g < 120 || g > 130 {
 		t.Errorf("flattened pixel = %v, want G about 125 (two fills at 0.3 built up)", samples[:3])
+	}
+}
+
+// TestAnnotationFlagsFixerRepairsOnlyReportedChecks verifies that an
+// annotation breaking all five flag and opacity rules has only the reported
+// rule repaired.
+func TestAnnotationFlagsFixerRepairsOnlyReportedChecks(t *testing.T) {
+	an := pdf.Checks.Annotation
+	const bad = verify.AnnotFlagHidden | verify.AnnotFlagInvisible | verify.AnnotFlagNoView
+	for _, tc := range []struct {
+		check pdf.Check
+		flags int
+		ca    pdf.PDFValue
+	}{
+		{an.PrintFlagNotSet, bad | verify.AnnotFlagPrint, pdf.PDFReal(0.5)},
+		{an.HiddenFlagSet, bad &^ verify.AnnotFlagHidden, pdf.PDFReal(0.5)},
+		{an.InvisibleFlagSet, bad &^ verify.AnnotFlagInvisible, pdf.PDFReal(0.5)},
+		{an.NoViewFlagSet, bad &^ verify.AnnotFlagNoView, pdf.PDFReal(0.5)},
+		{an.OpacityNotOne, bad, pdf.PDFReal(1)},
+	} {
+		t.Run(tc.check.Name(), func(t *testing.T) {
+			annot := specDict("Type", specName("Annot"), "F", pdf.PDFInteger(bad), "CA", pdf.PDFReal(0.5))
+			trailer := trailerWith("Annot0", annot)
+
+			changed, err := annotationFlagsFixer{}.Fix(&trailer, issuesOf(tc.check))
+			if err != nil || !changed {
+				t.Fatalf("Fix = %v, %v; want changed", changed, err)
+			}
+			if got := annot.Entries.Get("F"); got != pdf.PDFInteger(tc.flags) {
+				t.Errorf("/F = %v, want %d", got, tc.flags)
+			}
+			if got := annot.Entries.Get("CA"); got != tc.ca {
+				t.Errorf("/CA = %v, want %v", got, tc.ca)
+			}
+		})
 	}
 }

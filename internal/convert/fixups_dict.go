@@ -296,7 +296,8 @@ func extGStateDictVisitor(changed *bool, spec *pdfa.Spec, reported map[pdf.Check
 
 // annotationFlagsFixer remediates the annotation flag-bit and opacity
 // checks, mirroring the relevant part of validateAnnotation in
-// checks_dict.go. It deliberately does not touch DisallowedSubtype,
+// checks_dict.go. Each flag bit and /CA is repaired only when its own check
+// was reported. It deliberately does not touch DisallowedSubtype,
 // ColourWithoutIntent, or the appearance-stream checks (resource synthesis
 // or harder per the converter plan).
 type annotationFlagsFixer struct{}
@@ -315,7 +316,23 @@ func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (
 	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
+	an := pdf.Checks.Annotation
+	set, unset := 0, 0
+	if reported[an.PrintFlagNotSet] {
+		set |= verify.AnnotFlagPrint
+	}
+	if reported[an.HiddenFlagSet] {
+		unset |= verify.AnnotFlagHidden
+	}
+	if reported[an.InvisibleFlagSet] {
+		unset |= verify.AnnotFlagInvisible
+	}
+	if reported[an.NoViewFlagSet] {
+		unset |= verify.AnnotFlagNoView
+	}
+	opacity := reported[an.OpacityNotOne]
 	return func(d pdf.PDFDict) {
 		if !verify.IsAnnotationDict(d) {
 			return
@@ -325,14 +342,12 @@ func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *b
 		if f, ok := d.Entries.Get("F").(pdf.PDFInteger); ok {
 			flags = int(f)
 		}
-		want := flags | verify.AnnotFlagPrint
-		want &^= verify.AnnotFlagHidden | verify.AnnotFlagInvisible | verify.AnnotFlagNoView
-		if want != flags {
+		if want := (flags | set) &^ unset; want != flags {
 			d.Entries.Set("F", pdf.PDFInteger(want))
 			*changed = true
 		}
 
-		if ca, ok := d.Entries.Lookup("CA"); ok {
+		if ca, ok := d.Entries.Lookup("CA"); ok && opacity {
 			if f, num := pdf.PDFNumberToFloat(ca); num && f != 1.0 {
 				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true

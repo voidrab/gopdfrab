@@ -196,7 +196,7 @@ func TestAnnotationFlagsFixer(t *testing.T) {
 		"CA":   pdf.PDFReal(0.5),
 	})}
 	trailer := trailerWith("Annot0", annot)
-	changed, err := annotationFlagsFixer{}.Fix(&trailer, nil)
+	changed, err := annotationFlagsFixer{}.Fix(&trailer, everyCheck(annotationFlagsFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("annotationFlagsFixer.Fix = %v, %v", changed, err)
 	}
