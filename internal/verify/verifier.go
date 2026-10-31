@@ -751,6 +751,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 	// addressable). expectedType is the Arlington type name this node should
 	// conform to (per the parent key's Link), or "" once the descent has lost
 	// track of it; see arlingtonChildType/arlingtonElementType.
+	model := ctx.objectModel()
 	var walk func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int)
 
 	walk = func(node any, owner pdf.PDFValue, ownerKey, expectedType string, depth int) {
@@ -766,7 +767,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			// A subtree that lost its schema type can re-anchor when the dict's own
 			// /Type (+/Subtype) names identify exactly one Arlington type.
 			if expectedType == "" {
-				expectedType = selfIdentifiedType(v)
+				expectedType = selfIdentifiedType(model, v)
 			}
 			ptr := pdf.ValuePointer(v.Entries)
 			first := !visited[ptr]
@@ -834,7 +835,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				var childType string
 				if expectedType != "" {
-					childType = arlingtonChildType(expectedType, k, val)
+					childType = arlingtonChildType(model, expectedType, k, val)
 				}
 				// Pass node (v already boxed) to avoid re-boxing v per call.
 				walk(val, node, k, childType, depth+1)
@@ -877,7 +878,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 				}
 				var elemType string
 				if expectedType != "" {
-					elemType = arlingtonElementType(expectedType, item)
+					elemType = arlingtonElementType(model, expectedType, item)
 				}
 				walk(item, owner, "", elemType, depth+1)
 			}

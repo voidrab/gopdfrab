@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/voidrab/gopdfrab/internal/arlington"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
@@ -102,6 +103,10 @@ type ValidationContext struct {
 	// fall back on, and guessing PDF/A-1b's would hide a missing one.
 	Spec *pdfa.Spec
 
+	// model caches the Arlington model Spec.ModelVersion names; see
+	// objectModel.
+	model *arlington.Model
+
 	// stream collects the reports of the content stream being checked, or is
 	// nil outside one. See collapsingStreamReports.
 	stream *streamReports
@@ -112,6 +117,19 @@ type ValidationContext struct {
 	// throwaway contexts built outside a real verify pass, which then decode
 	// uncached.
 	reader *pdf.Reader
+}
+
+// objectModel returns the Arlington object model of the context's level: the
+// one for Spec.ModelVersion. It panics, like any read of Spec, on a context
+// without a Spec, and on a version no model is vendored for.
+func (c *ValidationContext) objectModel() *arlington.Model {
+	if c.model == nil || c.model.Version() != c.Spec.ModelVersion {
+		c.model = arlington.ModelFor(c.Spec.ModelVersion)
+		if c.model == nil {
+			panic("verify: no Arlington model for PDF " + c.Spec.ModelVersion)
+		}
+	}
+	return c.model
 }
 
 // stopped reports whether the run has been cancelled. It is called once per

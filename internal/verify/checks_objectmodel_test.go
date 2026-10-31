@@ -283,7 +283,7 @@ func TestMatchesValueType(t *testing.T) {
 
 func TestArlingtonChildType(t *testing.T) {
 	pagesDict := pdf.NewPDFDict()
-	if got := arlingtonChildType("Catalog", "Pages", pagesDict); got != "PageTreeNodeRoot" {
+	if got := arlingtonChildType(pdf14, "Catalog", "Pages", pagesDict); got != "PageTreeNodeRoot" {
 		t.Errorf("arlingtonChildType(Catalog, Pages) = %q, want PageTreeNodeRoot", got)
 	}
 
@@ -291,60 +291,60 @@ func TestArlingtonChildType(t *testing.T) {
 	// JavaScript -> ActionECMAScript case (not a naive "Action"+S concatenation).
 	goTo := pdf.NewPDFDict()
 	goTo.Entries.Set("S", pdf.PDFName{Value: "GoTo"})
-	if got := arlingtonChildType("Catalog", "OpenAction", goTo); got != "ActionGoTo" {
+	if got := arlingtonChildType(pdf14, "Catalog", "OpenAction", goTo); got != "ActionGoTo" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=GoTo) = %q, want ActionGoTo", got)
 	}
 	js := pdf.NewPDFDict()
 	js.Entries.Set("S", pdf.PDFName{Value: "JavaScript"})
-	if got := arlingtonChildType("Catalog", "OpenAction", js); got != "ActionECMAScript" {
+	if got := arlingtonChildType(pdf14, "Catalog", "OpenAction", js); got != "ActionECMAScript" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, S=JavaScript) = %q, want ActionECMAScript", got)
 	}
 	unknownAction := pdf.NewPDFDict()
 	unknownAction.Entries.Set("S", pdf.PDFName{Value: "NotARealActionType"})
-	if got := arlingtonChildType("Catalog", "OpenAction", unknownAction); got != "" {
+	if got := arlingtonChildType(pdf14, "Catalog", "OpenAction", unknownAction); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, unrecognized S) = %q, want \"\" (no guess)", got)
 	}
 	noDiscriminator := pdf.NewPDFDict()
-	if got := arlingtonChildType("Catalog", "OpenAction", noDiscriminator); got != "" {
+	if got := arlingtonChildType(pdf14, "Catalog", "OpenAction", noDiscriminator); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, OpenAction, no S) = %q, want \"\" (no guess)", got)
 	}
 
-	if got := arlingtonChildType("NotAType", "Pages", pagesDict); got != "" {
+	if got := arlingtonChildType(pdf14, "NotAType", "Pages", pagesDict); got != "" {
 		t.Errorf("arlingtonChildType(unknown type) = %q, want \"\"", got)
 	}
-	if got := arlingtonChildType("Catalog", "NoSuchKey", pagesDict); got != "" {
+	if got := arlingtonChildType(pdf14, "Catalog", "NoSuchKey", pagesDict); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, NoSuchKey) = %q, want \"\"", got)
 	}
-	if got := arlingtonChildType("Catalog", "Pages", nil); got != "" {
+	if got := arlingtonChildType(pdf14, "Catalog", "Pages", nil); got != "" {
 		t.Errorf("arlingtonChildType(Catalog, Pages, nil) = %q, want \"\" (null never resolves)", got)
 	}
 }
 
 func TestArlingtonElementType(t *testing.T) {
 	oi := pdf.NewPDFDict()
-	if got := arlingtonElementType("ArrayOfOutputIntents", oi); got != "OutputIntents" {
+	if got := arlingtonElementType(pdf14, "ArrayOfOutputIntents", oi); got != "OutputIntents" {
 		t.Errorf("arlingtonElementType(ArrayOfOutputIntents) = %q, want OutputIntents", got)
 	}
 
 	// ArrayOfAnnots' wildcard resolves each element via its own Subtype.
 	widget := pdf.NewPDFDict()
 	widget.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
-	if got := arlingtonElementType("ArrayOfAnnots", widget); got != "AnnotWidget" {
+	if got := arlingtonElementType(pdf14, "ArrayOfAnnots", widget); got != "AnnotWidget" {
 		t.Errorf("arlingtonElementType(ArrayOfAnnots, Subtype=Widget) = %q, want AnnotWidget", got)
 	}
 	noSubtype := pdf.NewPDFDict()
-	if got := arlingtonElementType("ArrayOfAnnots", noSubtype); got != "" {
+	if got := arlingtonElementType(pdf14, "ArrayOfAnnots", noSubtype); got != "" {
 		t.Errorf("arlingtonElementType(ArrayOfAnnots, no Subtype) = %q, want \"\" (no guess)", got)
 	}
 
-	if got := arlingtonElementType("NotAType", oi); got != "" {
+	if got := arlingtonElementType(pdf14, "NotAType", oi); got != "" {
 		t.Errorf("arlingtonElementType(unknown type) = %q, want \"\"", got)
 	}
 	// ArrayOf_2Numbers has fixed-position keys ("0", "1"), not a wildcard.
-	if got := arlingtonElementType("ArrayOf_2Numbers", oi); got != "" {
+	if got := arlingtonElementType(pdf14, "ArrayOf_2Numbers", oi); got != "" {
 		t.Errorf("arlingtonElementType(ArrayOf_2Numbers) = %q, want \"\" (no wildcard)", got)
 	}
-	if got := arlingtonElementType("ArrayOfOutputIntents", nil); got != "" {
+	if got := arlingtonElementType(pdf14, "ArrayOfOutputIntents", nil); got != "" {
 		t.Errorf("arlingtonElementType(ArrayOfOutputIntents, nil) = %q, want \"\" (null never resolves)", got)
 	}
 }
@@ -674,11 +674,11 @@ func TestValidateAgainstSchema_WildcardSkipsNamedRows(t *testing.T) {
 func TestChildTypeRequiresMatchingKind(t *testing.T) {
 	stream := pdf.NewPDFDict()
 	stream.SetStream(nil)
-	if got := arlingtonChildType("FileTrailer", "Info", stream); got != "" {
+	if got := arlingtonChildType(pdf14, "FileTrailer", "Info", stream); got != "" {
 		t.Errorf("arlingtonChildType(FileTrailer, Info, stream) = %q, want \"\"", got)
 	}
 	plain := pdf.NewPDFDict()
-	if got := arlingtonChildType("FileTrailer", "Info", plain); got != "DocInfo" {
+	if got := arlingtonChildType(pdf14, "FileTrailer", "Info", plain); got != "DocInfo" {
 		t.Errorf("arlingtonChildType(FileTrailer, Info, dict) = %q, want DocInfo", got)
 	}
 }
@@ -1344,7 +1344,7 @@ func TestSelfIdentifiedType(t *testing.T) {
 		{mk("", ""), ""},               // no /Type at all
 	}
 	for _, c := range cases {
-		if got := selfIdentifiedType(c.d); got != c.want {
+		if got := selfIdentifiedType(pdf14, c.d); got != c.want {
 			t.Errorf("selfIdentifiedType(%v) = %q, want %q", c.d.Entries, got, c.want)
 		}
 	}
@@ -1352,7 +1352,7 @@ func TestSelfIdentifiedType(t *testing.T) {
 	// A non-name /Type never re-anchors.
 	d := pdf.NewPDFDict()
 	d.Entries.Set("Type", pdf.PDFInteger(3))
-	if got := selfIdentifiedType(d); got != "" {
+	if got := selfIdentifiedType(pdf14, d); got != "" {
 		t.Errorf("selfIdentifiedType(non-name Type) = %q, want \"\"", got)
 	}
 }
@@ -1393,18 +1393,18 @@ func TestArlingtonChildTypeColourSpaceArray(t *testing.T) {
 	stream.SetStream(nil)
 
 	icc := pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, stream}
-	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", icc); got != "ICCBasedColorSpace" {
+	if got := arlingtonChildType(pdf14, "ColorSpaceMap", "DefaultRGB", icc); got != "ICCBasedColorSpace" {
 		t.Errorf("arlingtonChildType(DefaultRGB, [/ICCBased ...]) = %q, want ICCBasedColorSpace", got)
 	}
 
 	// Unknown first element, an empty array, and a non-scalar discriminator all fail closed.
-	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "Bogus"}}); got != "" {
+	if got := arlingtonChildType(pdf14, "ColorSpaceMap", "DefaultRGB", pdf.PDFArray{pdf.PDFName{Value: "Bogus"}}); got != "" {
 		t.Errorf("unknown colour-space family resolved to %q, want \"\"", got)
 	}
-	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{}); got != "" {
+	if got := arlingtonChildType(pdf14, "ColorSpaceMap", "DefaultRGB", pdf.PDFArray{}); got != "" {
 		t.Errorf("empty colour-space array resolved to %q, want \"\"", got)
 	}
-	if got := arlingtonChildType("ColorSpaceMap", "DefaultRGB", pdf.PDFArray{stream}); got != "" {
+	if got := arlingtonChildType(pdf14, "ColorSpaceMap", "DefaultRGB", pdf.PDFArray{stream}); got != "" {
 		t.Errorf("non-scalar discriminator resolved to %q, want \"\"", got)
 	}
 }

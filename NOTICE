@@ -48,12 +48,12 @@ Small-footprint_FOGRA39v2.icc
     Askary".
 
 
-internal/arlington/testdata/tsv/, internal/arlington/model.bin
--------------------------------------------------------------
+internal/arlington/testdata/tsv/, internal/arlington/model-*.bin
+----------------------------------------------------------------
 
 Arlington PDF Model
     https://github.com/pdf-association/arlington-pdf-model
     Apache License 2.0 (internal/arlington/testdata/LICENSE).
     Copyright PDF Association, Inc.
-    model.bin is derived from these TSVs by internal/arlington/gen.go and is
-    compiled into every gopdfrab binary.
+    model-1.4.bin and model-1.7.bin are derived from these TSVs by
+    internal/arlington/gen.go and are compiled into every gopdfrab binary.

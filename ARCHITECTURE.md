@@ -157,9 +157,9 @@ What it cannot draw it does not guess at. Every render returns a list of the ope
 
 ## internal/arlington
 
-`model.bin` contains the generated Arlington PDF Model. For every object type defined by ISO 32000, it specifies which keys are required, which types those keys may contain, and the PDF version in which they were introduced.
+`model-1.4.bin` and `model-1.7.bin` contain the generated Arlington PDF Model, one per PDF version. For every object type that version of ISO 32000 defines, a model specifies which keys are required, which types those keys may contain, and which keys later versions added. `ModelFor` selects a model by version; a level's spec names the version its checks use (`pdfa.Spec.ModelVersion`, 1.4 for PDF/A-1b).
 
-This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. `gen.go` builds it from the vendored TSVs and writes it with `EncodeModel` (`model.go`); `go generate ./internal/arlington/...` regenerates it, and `TestGeneratorIdempotent` fails when the checked-in file is stale. The package embeds the file and decodes it on the first lookup (`Types`, `Type`, `SelfIdentified`). It used to be a Go map literal, which compiled into a single initialisation function of about 680 KB that every binary carried and ran at startup; as data it is 17.5 KB.
+This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. `gen.go -version <v>` builds a model from the vendored TSVs under `testdata/tsv/<v>` and writes it with `EncodeModel` (`model.go`); `go generate ./internal/arlington/...` regenerates both, and `TestGeneratorIdempotent` fails when a checked-in file is stale. The package embeds the files and decodes each on its first lookup (`Model.Types`, `Model.Type`, `Model.SelfIdentified`; the package-level functions of the same names read the 1.4 model). It used to be a Go map literal, which compiled into a single initialisation function of about 680 KB that every binary carried and ran at startup; as data the 1.4 model is 17.5 KB and the 1.7 model 34 KB.
 
 ## Tests
 
