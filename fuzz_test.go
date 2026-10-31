@@ -14,26 +14,39 @@ import (
 // heaviest path, hence a modest cap.
 const fuzzInputCap = 512 << 10 // 512 KiB
 
+// fuzzProfiles are the profiles a fuzz input's selector byte picks from. A
+// profile for a new conformance level is added here, so every target that
+// takes a selector covers it.
+var fuzzProfiles = []*gopdfrab.Profile{gopdfrab.PDFA1B, gopdfrab.Legacy1B}
+
+// fuzzProfile returns the profile a selector byte picks.
+func fuzzProfile(sel byte) *gopdfrab.Profile {
+	return fuzzProfiles[int(sel)%len(fuzzProfiles)]
+}
+
+// seedFuzz seeds a target that takes a profile selector and the input bytes,
+// pairing every seed with every profile.
 func seedFuzz(f *testing.F) {
 	f.Helper()
-	for _, s := range pdfgen.Seeds() {
-		f.Add(s)
-	}
-	for _, b := range pdfgen.GenerateN(0, 128) {
-		f.Add(b)
+	seeds := append(pdfgen.Seeds(), pdfgen.GenerateN(0, 128)...)
+	for i := range fuzzProfiles {
+		for _, s := range seeds {
+			f.Add(byte(i), s)
+		}
 	}
 }
 
-// FuzzVerifyBytes drives the full verification pipeline against both the
-// PDF/A-1b and generic object-model profiles. The invariant is no panic on any
+// FuzzVerifyBytes drives the full verification pipeline against the selected
+// PDF/A profile and the generic object-model profile. The invariant is no panic on any
 // input; a returned error (or a Result reporting violations) is expected.
 func FuzzVerifyBytes(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		p := fuzzProfile(sel)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+		gopdfrab.VerifyBytes(data, p)
 		gopdfrab.VerifyObjectModelBytes(data)
 	})
 }
@@ -44,16 +57,17 @@ func FuzzVerifyBytes(f *testing.F) {
 // fuzzer flags them (do not recover here).
 func FuzzGeneratedSeed(f *testing.F) {
 	for i := int64(0); i < 128; i++ {
-		f.Add(i)
+		f.Add(byte(i), i)
 	}
-	f.Fuzz(func(t *testing.T, seed int64) {
+	f.Fuzz(func(t *testing.T, sel byte, seed int64) {
+		p := fuzzProfile(sel)
 		data := pdfgen.Generate(seed)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+		gopdfrab.VerifyBytes(data, p)
 		gopdfrab.VerifyObjectModelBytes(data)
-		gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		gopdfrab.ConvertBytes(data, p)
 	})
 }
 
@@ -62,11 +76,12 @@ func FuzzGeneratedSeed(f *testing.F) {
 // panic.
 func FuzzConvertBytes(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		p := fuzzProfile(sel)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		gopdfrab.ConvertBytes(data, p)
 	})
 }
 
@@ -76,11 +91,12 @@ func FuzzConvertBytes(f *testing.F) {
 // gopdfrab when read back.
 func FuzzConvertRoundTrip(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		p := fuzzProfile(sel)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		res, err := gopdfrab.ConvertBytes(data, p)
 		if err != nil {
 			return
 		}
@@ -108,12 +124,13 @@ func FuzzConvertRoundTrip(f *testing.F) {
 // into the result.
 func FuzzVerifyDeterministic(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		p := fuzzProfile(sel)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		a, ea := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
-		b, eb := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
+		a, ea := gopdfrab.VerifyBytes(data, p)
+		b, eb := gopdfrab.VerifyBytes(data, p)
 		if (ea == nil) != (eb == nil) || a.Valid != b.Valid || a.Count() != b.Count() {
 			t.Fatalf("VerifyBytes nondeterministic: (%v,%d,err=%v) vs (%v,%d,err=%v)",
 				a.Valid, a.Count(), ea, b.Valid, b.Count(), eb)
@@ -125,12 +142,13 @@ func FuzzVerifyDeterministic(f *testing.F) {
 // byte-identical output. Catches nondeterminism in object numbering/writing.
 func FuzzConvertDeterministic(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		p := fuzzProfile(sel)
 		if len(data) > fuzzInputCap {
 			return
 		}
-		a, ea := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-		b, eb := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+		a, ea := gopdfrab.ConvertBytes(data, p)
+		b, eb := gopdfrab.ConvertBytes(data, p)
 		defer a.Close()
 		defer b.Close()
 		if (ea == nil) != (eb == nil) {
@@ -155,14 +173,16 @@ func FuzzConvertDeterministic(f *testing.F) {
 // converter claimed success while emitting a non-conformant PDF.
 func FuzzConvertHonest(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(checkConvertHonest)
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		checkConvertHonest(t, fuzzProfile(sel), data)
+	})
 }
 
-func checkConvertHonest(t *testing.T, data []byte) {
+func checkConvertHonest(t *testing.T, p *gopdfrab.Profile, data []byte) {
 	if len(data) > fuzzInputCap {
 		return
 	}
-	res, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+	res, err := gopdfrab.ConvertBytes(data, p)
 	if err != nil || !res.Result.Valid {
 		return
 	}
@@ -171,7 +191,7 @@ func checkConvertHonest(t *testing.T, data []byte) {
 	if err != nil || len(out) == 0 {
 		return
 	}
-	v, err := gopdfrab.VerifyBytes(out, gopdfrab.PDFA1B)
+	v, err := gopdfrab.VerifyBytes(out, p)
 	if err != nil || !v.Valid {
 		t.Fatalf("Convert reported Valid but independent verify disagreed: err=%v valid=%v", err, v.Valid)
 	}
@@ -181,14 +201,16 @@ func checkConvertHonest(t *testing.T, data []byte) {
 // must stay valid -- Convert is a fixed point on conformant input.
 func FuzzConvertConverges(f *testing.F) {
 	seedFuzz(f)
-	f.Fuzz(checkConvertConverges)
+	f.Fuzz(func(t *testing.T, sel byte, data []byte) {
+		checkConvertConverges(t, fuzzProfile(sel), data)
+	})
 }
 
-func checkConvertConverges(t *testing.T, data []byte) {
+func checkConvertConverges(t *testing.T, p *gopdfrab.Profile, data []byte) {
 	if len(data) > fuzzInputCap {
 		return
 	}
-	r1, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
+	r1, err := gopdfrab.ConvertBytes(data, p)
 	if err != nil || !r1.Result.Valid {
 		return
 	}
@@ -197,7 +219,7 @@ func checkConvertConverges(t *testing.T, data []byte) {
 	if err != nil || len(out1) == 0 {
 		return
 	}
-	r2, err := gopdfrab.ConvertBytes(out1, gopdfrab.PDFA1B)
+	r2, err := gopdfrab.ConvertBytes(out1, p)
 	if err == nil {
 		defer r2.Close()
 	}
