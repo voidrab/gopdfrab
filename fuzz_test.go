@@ -37,8 +37,8 @@ func seedFuzz(f *testing.F) {
 }
 
 // FuzzVerifyBytes drives the full verification pipeline against the selected
-// PDF/A profile and the generic object-model profile. The invariant is no panic on any
-// input; a returned error (or a Result reporting violations) is expected.
+// PDF/A profile and the generic object-model profile. The invariant is that no
+// input panics; a returned error or a Result reporting violations is expected.
 func FuzzVerifyBytes(f *testing.F) {
 	seedFuzz(f)
 	f.Fuzz(func(t *testing.T, sel byte, data []byte) {

@@ -470,8 +470,8 @@ type veraValidationReport struct {
 }
 
 // runVeraPDF invokes the bundled veraPDF binary with the given --flavour
-// ("1b", "2b", ...) and returns the parsed MRR report. veraPDF exits non-zero for non-compliant files, so only an empty
-// output is treated as a failed run.
+// ("1b", "2b", ...) and returns the parsed MRR report. veraPDF exits non-zero
+// for non-compliant files, so only an empty output is treated as a failed run.
 func runVeraPDF(flavour string, args ...string) (veraReport, error) {
 	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", flavour}, args...)...)
 	out, err := cmd.Output()
@@ -668,9 +668,10 @@ func realWorldPDFs(t *testing.T, dir string) []string {
 }
 
 // realWorldPassSets returns the files under each should-pass/<flavour>
-// directory, keyed by flavour, and a problem for every entry of dir that is
-// not the directory of a flavour some corpus in corpustest.All is checked
-// against: a file placed directly in should-pass, or an unknown flavour.
+// directory, keyed by flavour. It also returns a problem for each entry of dir
+// that is not the directory of a flavour checked by a corpus in
+// corpustest.All, such as a file placed directly in should-pass or an unknown
+// flavour.
 func realWorldPassSets(t *testing.T, dir string) (sets map[string][]string, problems []string) {
 	t.Helper()
 	sets = map[string][]string{}
@@ -873,9 +874,9 @@ func (r *realWorldReporter) flush(t *testing.T) {
 	t.Logf("wrote %d records to %s", len(r.records), r.path)
 }
 
-// distinctIssueClauses is the issues' PDF/A-1b clauses, deduped and sorted: a
-// real-world file can report the same clause on dozens of objects, and triage
-// groups by clause.
+// distinctIssueClauses returns the PDF/A-1b clauses of issues, deduplicated and
+// sorted. A real-world file can report the same clause on dozens of objects,
+// and triage groups by clause.
 func distinctIssueClauses(issues []PDFError) []string {
 	set := make(map[string]bool, len(issues))
 	for _, c := range corpustest.Clauses(issues, pdf.A1B) {
@@ -896,18 +897,17 @@ func fileSize(path string) int64 {
 // rejects, keyed by sha256 (content-addressed, so a re-classified or renamed
 // file keeps its justification) with the reason as the value.
 //
-// The corpus puts a file in should-pass/<flavour> when veraPDF accepts it under
-// that flavour, so a rejection is normally a gopdfrab false positive and a bug.
-// The exception is a veraPDF *false negative*: a file that genuinely violates
-// the standard and that gopdfrab is right to reject. Each entry has to make
-// that case, and a listed file that starts verifying clean fails the test, so a
-// deviation cannot outlive the reason for it.
+// A file is placed in should-pass/<flavour> when veraPDF accepts it under that
+// flavour, so a rejection is normally a gopdfrab false positive. The exception
+// is a veraPDF false negative: a file that violates the standard and that
+// gopdfrab is right to reject. Each entry must document that case. A listed
+// file that verifies clean fails the test, so an entry cannot outlive its
+// reason.
 var shouldPassDeviations = map[string]string{}
 
-// checkShouldPass verifies each file against p and returns the paths gopdfrab
-// wrongly rejected. These are real files a tool and veraPDF both call
-// conformant to p's level, so any rejection is a false positive unless
-// shouldPassDeviations justifies it.
+// checkShouldPass verifies each file against p and returns a message for each
+// file that fails: a parse error, a rejection not covered by
+// shouldPassDeviations, or a deviation entry for a file that verifies clean.
 //
 // VerifyAllContext rather than a loop: it is the batch entry point real callers
 // use, so the corpus exercises it on real input rather than only on fixtures.

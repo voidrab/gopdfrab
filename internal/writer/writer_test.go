@@ -208,13 +208,12 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	}
 }
 
-// TestWriterRoundTripConformantCorpusFiles takes every pass fixture of the
-// committed corpora, round-trips each through WritePDF,
-// and checks that the rewritten file is still reported fully conformant. This
-// verifies that renumbering and verbatim stream pass-through do not corrupt a
-// structurally rich, potentially cyclic (for example Page/Parent) document.
-// The "pass" files span annotations, forms, optional content and transparency
-// groups, so they cover far more structure than a single hand-picked fixture.
+// TestWriterRoundTripConformantCorpusFiles round-trips every pass fixture of
+// the committed corpora through WritePDF and checks that each rewritten file is
+// still reported fully conformant. Renumbering and verbatim stream pass-through
+// must not corrupt structurally rich documents with cycles, such as
+// Page/Parent references. The pass files cover annotations, forms, optional
+// content and transparency groups.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 	fixtures := corpustest.AllFixtures(false)
 	if len(fixtures) == 0 {

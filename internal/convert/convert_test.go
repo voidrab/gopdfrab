@@ -146,7 +146,8 @@ func TestConvertReportsRemovedAttachments(t *testing.T) {
 }
 
 // failFixtures returns every fail fixture of every committed corpus
-// (corpustest.All). Each is converted with its corpus's default profile.
+// (corpustest.All). Each fixture's Corpus field gives that corpus's default
+// profile.
 func failFixtures(t *testing.T) []corpustest.Fixture {
 	t.Helper()
 	return corpustest.AllFixtures(true)
@@ -524,10 +525,10 @@ func TestConvertIsDeterministic(t *testing.T) {
 // of the corpora's fail fixtures Convert turns fully conformant. A drop means
 // something regressed. Every level with a corpus needs an entry.
 //
-// The PDF/A-1b floor is 510, which is every fail fixture of both its corpora. isartor-6-1-3-t02-fail-a.pdf,
-// the only encrypted fixture in either corpus, is decrypted with the Standard
-// security handler (empty user password), so its RC4 streams are re-encoded as
-// content and the output is conformant.
+// The PDF/A-1b floor is 510, the number of fail fixtures in both of its
+// corpora. One encrypted fixture is decrypted with the Standard security
+// handler (empty user password) before conversion, so its RC4 streams are
+// re-encoded as content and the output is conformant.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
 }

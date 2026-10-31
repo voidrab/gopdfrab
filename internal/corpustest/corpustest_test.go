@@ -78,7 +78,7 @@ func TestCheckMatchesIsLevelAware(t *testing.T) {
 
 func TestCorpusFiles(t *testing.T) {
 	// Corpus.Dir is relative to the repository root, so the fixture corpus
-	// has to sit under it: t.TempDir can be on another drive on Windows.
+	// must sit under it. t.TempDir may be on another volume on Windows.
 	dir, err := os.MkdirTemp(".", "testcorpus-")
 	if err != nil {
 		t.Fatal(err)

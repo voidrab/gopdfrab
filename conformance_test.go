@@ -1,5 +1,5 @@
-// Conformance suites over the committed corpora (corpustest.All), each file
-// asserted against the clause its filename targets and against veraPDF.
+// Conformance suites over the committed corpora (corpustest.All). Each file is
+// checked against the clause its filename targets, and against veraPDF.
 
 package gopdfrab
 
@@ -11,10 +11,10 @@ import (
 	"github.com/voidrab/gopdfrab/internal/corpustest"
 )
 
-// TestConformanceCorpora runs every file of every committed corpus
+// TestConformanceCorpora verifies every file of every committed corpus
 // (corpustest.All) through Verify with the corpus's profile. A fail file must
 // be reported non-conformant by a check whose clause under the corpus's level
-// matches the one its name targets; a pass file must validate cleanly.
+// matches the clause its name targets, and a pass file must validate cleanly.
 func TestConformanceCorpora(t *testing.T) {
 	for _, c := range corpustest.All {
 		t.Run(c.Name, func(t *testing.T) {
@@ -91,21 +91,20 @@ func runConformanceCorpus(t *testing.T, c corpustest.Corpus) {
 }
 
 // differentialDeviations lists files where gopdfrab's verdict deliberately
-// differs from the veraPDF binary's, keyed by the corpus name and the
-// corpus-relative path ("veraPDF-1b/6.1 File structure/x.pdf"), with the
-// justification as the value. Every entry must explain why gopdfrab is right
-// (or at least defensible); an undocumented disagreement fails the test.
+// differs from the veraPDF binary's. Each key is the corpus name and the
+// corpus-relative path, joined by a slash; each value is the justification.
+// Every entry must explain why gopdfrab is right (or at least defensible); an
+// undocumented disagreement fails the test.
 var differentialDeviations = map[string]string{}
 
-// TestDifferentialVeraPDFCorpora runs the bundled veraPDF binary, with each
-// corpus's flavour, over every committed conformance corpus in one batch each
-// and diffs its verdict against gopdfrab's under the corpus's default profile,
-// file by file. This compares against veraPDF the implementation, not the
-// suite's filename expectations (which TestConformanceCorpora already
-// asserts): a verdict disagreement is
-// a gopdfrab bug or a documented deviation in differentialDeviations. Clause
-// sets are diffed as diagnostics only, since check granularity legitimately
-// differs between implementations.
+// TestDifferentialVeraPDFCorpora runs the bundled veraPDF binary over each
+// committed conformance corpus, in one batch per corpus with the corpus's
+// flavour. It diffs each file's verdict against gopdfrab's under the corpus's
+// default profile. The comparison is with the veraPDF implementation, not with
+// the filename expectations that TestConformanceCorpora asserts. A verdict
+// disagreement is a gopdfrab bug unless it is a documented deviation in
+// differentialDeviations. Clause sets are diffed as diagnostics only, since
+// check granularity legitimately differs between implementations.
 func TestDifferentialVeraPDFCorpora(t *testing.T) {
 	if testing.Short() {
 		t.Skip("differential cross-check skipped in short mode")

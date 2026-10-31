@@ -22,11 +22,12 @@ import (
 type Naming int
 
 const (
-	// IsartorNames are names like "isartor-6-6-1-t01-fail-a.pdf". Every
-	// Isartor file is a fail file.
+	// IsartorNames are names of the form isartor-<clause>-t<NN>-..., with the
+	// clause numbers joined by dashes. Every Isartor file is a fail file.
 	IsartorNames Naming = iota
-	// VeraPDFNames are names like "veraPDF test suite 6-1-2-t01-fail-a.pdf"
-	// or "6-3-5-t02-pass-a.pdf".
+	// VeraPDFNames are names of the form <clause>-t<NN>-pass-... or
+	// <clause>-t<NN>-fail-..., optionally prefixed with "veraPDF test suite ".
+	// The clause numbers are joined by dashes.
 	VeraPDFNames
 )
 
@@ -37,7 +38,7 @@ type Corpus struct {
 	// Dir is the corpus directory relative to the repository root.
 	Dir string
 	// Profile is the profile the corpus's conformance suite verifies with.
-	// Its Level is the level the filename clauses are numbered in.
+	// Profile.Level is the level the filename clauses are numbered in.
 	Profile *pdf.Profile
 	// Default is the level's default profile, tuned to veraPDF's reading of
 	// the standard. The differential check against veraPDF and the convert
