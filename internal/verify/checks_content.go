@@ -44,21 +44,6 @@ func scanContentDict(dict pdf.PDFDict, resources pdf.PDFDict, ctx *ValidationCon
 	})
 }
 
-// scanContentValue inspects a /Contents value that may be a single stream or an
-// array of streams.
-func scanContentValue(contents pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
-	switch v := contents.(type) {
-	case pdf.PDFDict:
-		scanContentDict(v, resources, ctx)
-	case pdf.PDFArray:
-		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok {
-				scanContentDict(d, resources, ctx)
-			}
-		}
-	}
-}
-
 // NamedColourModel resolves a colour-space name to a device model, consulting
 // the /ColorSpace resource dictionary for named spaces.
 func NamedColourModel(name pdf.PDFName, resources pdf.PDFDict) string {
@@ -249,32 +234,19 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 	}
 }
 
-// validateContentStreams dispatches content-stream inspection for pages, form
-// XObjects, Type3 glyph procedures and tiling patterns.
+// validateContentStreams inspects the content streams v holds (see
+// pdf.ContentRoots): a page's, with its annotation appearances, a tiling
+// pattern, a form XObject that page content reaches, or a Type 3 font's
+// glyph procedures.
 func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
-	resources, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-	switch {
-	case v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}:
-		// The walk has already put this page's /Resources in scope; the names
-		// its content uses may still come from one inherited up the tree.
-		scanContentValue(v.Entries.Get("Contents"), pdf.PageResources(v), ctx)
-		scanAnnotAppearances(v, ctx)
-	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.IsStream():
-		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).
-		scanContentDict(v, resources, ctx)
-	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"} && v.IsStream():
-		if !ctx.isReachableXObject(v) {
+	kind := pdf.ContentRoots(v, func(r pdf.ContentRoot) {
+		if r.Kind == pdf.ContentForm && !ctx.isReachableXObject(v) {
 			return
 		}
-		scanContentDict(v, resources, ctx)
-	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}:
-		if cp, ok := v.Entries.Get("CharProcs").(pdf.PDFDict); ok {
-			for _, proc := range cp.Entries.All() {
-				if pd, ok := proc.(pdf.PDFDict); ok && pd.IsStream() {
-					scanContentDict(pd, resources, ctx)
-				}
-			}
-		}
+		scanContentDict(r.Stream, r.Resources, ctx)
+	})
+	if kind == pdf.ContentPage {
+		scanAnnotAppearances(v, ctx)
 	}
 }
 

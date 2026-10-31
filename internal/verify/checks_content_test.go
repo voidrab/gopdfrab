@@ -98,26 +98,33 @@ func scanRaw(data []byte, resources pdf.PDFDict, ctx *ValidationContext) {
 	})
 }
 
-func TestScanContentValue(t *testing.T) {
+// TestValidateContentStreamsPage covers a page's /Contents as one stream, as
+// an array of streams with a non-stream element, and as neither.
+func TestValidateContentStreamsPage(t *testing.T) {
 	single := pdf.NewPDFDict()
 	single.SetStream([]byte("ZzBadOp\n"))
-	ctx := &ValidationContext{Spec: a1bSpec}
-	scanContentValue(single, pdf.NewPDFDict(), ctx)
-	if !hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator) {
-		t.Error("expected the single content stream dict to be scanned")
+	page := func(contents pdf.PDFValue) pdf.PDFDict {
+		p := pdf.NewPDFDict()
+		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+		p.Entries.Set("Contents", contents)
+		return p
 	}
-
-	arr := pdf.PDFArray{single, pdf.PDFInteger(1) /* non-dict: skipped */}
-	ctx2 := &ValidationContext{Spec: a1bSpec}
-	scanContentValue(arr, pdf.NewPDFDict(), ctx2)
-	if !hasCheck(ctx2, pdf.Checks.Colour.UndefinedOperator) {
-		t.Error("expected an array of content streams to be scanned")
-	}
-
-	ctx3 := &ValidationContext{Spec: a1bSpec}
-	scanContentValue(pdf.PDFName{Value: "x"}, pdf.NewPDFDict(), ctx3)
-	if len(ctx3.errs) != 0 {
-		t.Error("unexpected violation for a non-dict/array Contents value")
+	for _, tc := range []struct {
+		name     string
+		contents pdf.PDFValue
+		want     bool
+	}{
+		{"single stream", single, true},
+		{"array of streams", pdf.PDFArray{single, pdf.PDFInteger(1)}, true},
+		{"neither", pdf.PDFName{Value: "x"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &ValidationContext{Spec: a1bSpec}
+			validateContentStreams(page(tc.contents), ctx)
+			if got := hasCheck(ctx, pdf.Checks.Colour.UndefinedOperator); got != tc.want {
+				t.Errorf("undefined operator reported = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
