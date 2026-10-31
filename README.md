@@ -8,30 +8,16 @@ PDF/A processing for go!
 
 Verify and convert PDF documents with a small, predictable open source library.
 
-## Status
+- PDF/A-1b verification and conversion, passing the full Isartor and veraPDF
+  conformance suites
+- PDF structural verification and repair against the Arlington object model
+- Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256)
+- A CLI and two WebAssembly builds
 
-PDF/A-1b verification and conversion are implemented and tested against the full
-Isartor and veraPDF conformance suites (see [Performance](#performance) and
-[Fuzzing & Stress Testing](#fuzzing--stress-testing)). The API is **stable as of
-1.0** — [CHANGELOG.md](CHANGELOG.md) states the versioning and stability policy.
-To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## Features
-
-- PDF structural integrity verification (Arlington model)
-- PDF/A-1b verification
-- PDF/A-1b conversion
-- Decryption of encrypted PDFs (RC4 40/128, AES-128, AES-256), with the empty or
-  a supplied user/owner password
-
-## Roadmap
-
-PDF/A-1b is complete: every check in scope is implemented and both conformance
-suites pass. PDF/A-2, -3 and -4 come next.
+The API is **stable as of 1.0**; [CHANGELOG.md](CHANGELOG.md) states the
+versioning policy. PDF/A-2, -3 and -4 come next.
 
 ## Command-line tool
-
-A CLI ships under `cmd/gopdfrab`:
 
 ```bash
 go install github.com/voidrab/gopdfrab/cmd/gopdfrab@latest
@@ -40,14 +26,11 @@ gopdfrab verify docs/                     # verify every PDF under a directory
 gopdfrab verify --json report.pdf         # machine-readable output
 gopdfrab convert in.pdf out.pdf           # rewrite towards PDF/A-1b
 gopdfrab convert --dpi 300 in.pdf         # tune the raster fallback
-gopdfrab verify --max-decoded-mb 64 x.pdf # cap decoded stream output at 64 MB
 ```
 
 Subcommands are `verify`, `convert`, `version` and `help`. Exit codes are `0`
-conformant, `1` non-conformant, `2` error, so it drops into scripts and CI
-directly. `verify` walks directories recursively.
-
-`verify` prints a fixed layout that scripts can parse:
+conformant, `1` non-conformant, `2` error. `verify` walks directories
+recursively and prints a fixed layout that scripts can parse:
 
 ```text
 profile: pdfa1b
@@ -56,7 +39,6 @@ FAIL  issues=974 distinct=36  docs/L34a.pdf
   6.1.2/5     count=1    pages=doc        objs=1    "ViewerPreferences entry /PrintScaling requires PDF 1.5 or later"
   6.2.3.3/2   count=149  pages=1-2        objs=127  "device colour (gray) used in content stream without matching OutputIntent"
   6.3.4/1     count=3    pages=doc,1      objs=3    "font Courier-Bold is not embedded"
-  6.6.1/1     count=258  pages=doc,1-2,4  objs=258  "forbidden action type /JavaScript"
   ...
   objmodel/1  count=3    pages=1-2        objs=0    "Appearance is missing required key \"N\""
 PASS  docs/ok.pdf
@@ -66,355 +48,133 @@ ERROR docs/broken.pdf
 summary: pass=1 fail=1 error=1 files=3
 ```
 
-- A file line starts with `PASS`, `FAIL` or `ERROR`; the path is the rest of the
-  line. `FAIL` gives the number of issues and of issue lines.
-- Indented lines belong to the file above. An issue line covers every report of
-  one check with one message: clause[/subclause], `count=<n>` reports,
-  `pages=` the pages they were on (`doc` for document-level, runs as ranges),
-  `objs=<n>` distinct objects, and the messages as one Go-quoted string. Lines
+- A file line starts with `PASS`, `FAIL` or `ERROR` and ends with the path.
+  `FAIL` gives the number of issues and of issue lines.
+- An indented issue line covers every report of one check with one message:
+  clause[/subclause], `count=` reports, `pages=` as ranges (`doc` for
+  document-level), `objs=` distinct objects, and the Go-quoted messages. Lines
   are sorted by clause, then message.
-- `--detail` lists every location instead, one line per page and object:
-  clause, `page=<n|doc>`, `obj=<num>.<gen>` or `obj=-`, `count=<n>` repeats there,
-  and the messages.
-- `convert` prints `profile:`, `input:`, `output:`, `iterations:`, then
-  optionally `rasterized: pages=<ranges>` for pages rebuilt as an image,
-  `dropped: pages=<ranges> features=<n>` with one `pages=<ranges>` line per
-  feature the rasterizer could not draw (the feature Go-quoted), and
-  `lost: objects=<n> distinct=<n>`, and last `result: conformant` or
-  `result: residual issues=<n> distinct=<n>`, with the same issue lines beneath.
+- `--detail` lists one line per page and object instead (`page=<n|doc>`,
+  `obj=<num>.<gen>` or `obj=-`, `count=`). `--json` reports every occurrence,
+  ungrouped.
+- `convert` prints `profile:`, `input:`, `output:` and `iterations:`, then
+  optionally `rasterized: pages=<ranges>`,
+  `dropped: pages=<ranges> features=<n>` with one line per feature the
+  rasterizer could not draw, and `lost: objects=<n> distinct=<n>`, and last
+  `result: conformant` or `result: residual issues=<n> distinct=<n>` with
+  issue lines beneath.
 
-`--json` reports every occurrence, ungrouped.
+| Flag                | Meaning                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `--profile`         | `pdfa1b` (default), `legacy1b`, or `pdf`                                                |
+| `--password`        | password for an encrypted input; visible in `ps`, so prefer `$GOPDFRAB_PASSWORD`        |
+| `--max-decoded-mb`  | cap a single stream's decoded output in MB (0 = default 256)                            |
+| `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64)                              |
+| `--json`            | emit machine-readable JSON                                                              |
+| `--detail`          | list every page and object an issue was found on                                        |
+| `--dpi`             | `convert` only: raster fallback resolution (0 = default 150)                            |
+| `--max-iterations`  | `convert` only: verify/fix loop bound (0 = default 4)                                   |
+| `-o`                | `convert` only: output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
 
-Both subcommands take:
-
-| Flag                | Meaning                                                                                                                                   |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `--profile`         | `pdfa1b` (default), `legacy1b`, or `pdf`                                                                                                  |
-| `--password`        | password for an encrypted input. It is visible to other users in `ps`; set `GOPDFRAB_PASSWORD` instead to keep it out of the process list |
-| `--max-decoded-mb`  | cap a single stream's decoded output in MB (0 = default 256)                                                                              |
-| `--max-resident-mb` | cap a document's rebuildable caches in MB (0 = default 64)                                                                                |
-| `--json`            | emit machine-readable JSON                                                                                                                |
-| `--detail`          | list every page and object an issue was found on, instead of grouping by check and message                                                |
-
-`convert` also takes:
-
-| Flag               | Meaning                                                                 |
-| ------------------ | ----------------------------------------------------------------------- |
-| `--dpi`            | raster fallback resolution (0 = default 150)                            |
-| `--max-iterations` | verify/fix loop bound (0 = default 4)                                   |
-| `-o`               | output path (default: the input with a `.pdfa.pdf`/`.fixed.pdf` suffix) |
-
-## WebAssembly
-
-`wasm/` holds two `syscall/js` builds that run in the browser, with no server
-involved:
-
-```bash
-# verify only: about 6.2 MB
-GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab-verify.wasm ./wasm/verify
-# verify and convert: about 15.1 MB
-GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
-```
-
-The verify-only module is built on `gopdfrab/verify` and links none of the
-converter, so a page can load it up front and fetch the full module only when
-the user asks for a conversion. Both register their globals, each taking a
-`Uint8Array` and returning a Promise, then post `{type: "ready", module}` to
-the host, where `module` is `"verify"` or `"convert"`:
-
-- `gopdfrabVerify(bytes)` (both modules) resolves to `{valid, summary, profile, issueCount, doc, issues}`.
-- `gopdfrabConvert(bytes)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, where `output` is the converted PDF as a `Uint8Array`.
-
-Each issue carries `{clause, subclause, name, description, group, page, documentLevel, messages}`; `doc` reports what the file says about itself (`pageCount`, `version`, `claimedPart`, `claimedLevel`, `title`, `author`), each field best-effort. The doc comments in `wasm/main.go` and `wasm/internal/jsapi` are the full reference.
-
-On js/wasm there is no filesystem, so only the `*Bytes` entry points apply.
-
-## Getting Started
-
-### Add gopdfrab
+## Library
 
 ```bash
 go get github.com/voidrab/gopdfrab
 ```
 
-### Import gopdfrab
+### Verifying
 
 ```go
-import (
-  "github.com/voidrab/gopdfrab"
-)
-```
-
-### Verification only
-
-A program that verifies but never converts can import
-`github.com/voidrab/gopdfrab/verify` instead. It has the same verification API
-under the same names (`Verify`, `VerifyBytes`, `VerifyAll`, `Open`, `Document`,
-`Profile`, `Checks`, `SetLimits`, and the rest), over the very same types, so
-switching is an import swap. It never compiles or links the converter: no
-fixers, writer, rasterizer, substitute fonts or ICC profiles.
-
-```go
-import "github.com/voidrab/gopdfrab/verify"
-
-res, err := verify.VerifyBytes(data, verify.PDFA1B)
-```
-
-Go's linker already drops most converter code a verify-only caller of the root
-package leaves unused, so the saving there is moderate: about 19% of a small
-verifying binary (3.7 MB instead of 4.6 MB). It is largest next to a build that
-also converts: the verify-only WebAssembly module below is less than half the
-size of the full one.
-
-### Initialize a Document
-
-```go
-doc, err := gopdfrab.Open(path)
-if err != nil {
-  log.Fatal(err)
-}
-```
-
-`OpenBytes` does the same for a PDF already in memory.
-
-### Encrypted PDFs
-
-Encrypted documents are decrypted transparently on open when they use the empty
-user password. Supply a user or owner password
-explicitly with `OpenWithPassword`:
-
-```go
-doc, err := gopdfrab.OpenWithPassword(path, []byte("secret"))
-if errors.Is(err, gopdfrab.ErrPasswordRequired) {
-  log.Fatal("a correct password is required to open this file")
-}
-```
-
-`OpenBytesWithPassword` is the same for in-memory data.
-
-`Verify` and `Convert` decrypt the same way. A file that needs a
-password is reported with `ErrPasswordRequired` rather than
-producing a broken result.
-
-### PDF/A Validation
-
-```go
-v, err := doc.Verify(gopdfrab.PDFA1B)
-if err != nil {
-  log.Println(err)
-}
-
-if v.Valid {
-  fmt.Println("Document is PDF/A-1b compliant")
-} else {
-  fmt.Println("Document is not PDF/A-1b compliant")
-  fmt.Println("Issues:")
-  for i, v := range v.Issues {
-    fmt.Printf("#%v: %v\n", i+1, v)
-  }
-}
-```
-
-Finally, close doc.
-
-```go
-doc.Close()
-```
-
-### Verify a File
-
-`Verify` opens, verifies, and closes a file.
-
-```go
-result, err := gopdfrab.Verify(path, gopdfrab.PDFA1B)
+res, err := gopdfrab.Verify(path, gopdfrab.PDFA1B)      // open, verify, close
+res, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B) // in-memory PDF
 if err != nil {
     log.Fatal(err)
 }
-fmt.Println(result.Valid)
-```
-
-### Verifying In-Memory Data
-
-`VerifyBytes` is `Verify` for an in-memory PDF.
-
-```go
-result, err := gopdfrab.VerifyBytes(data, gopdfrab.PDFA1B)
-```
-
-### Verifying Multiple Files
-
-`VerifyAll` opens, verifies, and closes a batch of files concurrently.
-
-```go
-results, err := gopdfrab.VerifyAll(paths, gopdfrab.PDFA1B)
-if err != nil {
-    log.Fatal(err)
-}
-for _, r := range results {
-    if r.Err != nil {
-        log.Println(r.Path, r.Err)
-        continue
+if !res.Valid {
+    for i, issue := range res.Issues {
+        fmt.Printf("#%d: %v\n", i+1, issue)
     }
-    fmt.Println(r.Path, r.Result.Valid)
 }
 ```
 
-### Typed Errors
+`VerifyAll(paths, profile)` verifies a batch concurrently and returns one
+`FileResult` per path, each with `Path`, `Result` and `Err`.
 
-Open, verify and convert failures can be matched with `errors.Is` instead of
-inspecting message text:
-
-| Error                           | Meaning                                                                                   |
-| ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `gopdfrab.ErrNotPDF`            | the input is not a PDF (no `%PDF-` header)                                                |
-| `gopdfrab.ErrDamaged`           | a PDF whose cross-reference or trailer structure could not be parsed                      |
-| `gopdfrab.ErrEncrypted`         | an encryption scheme gopdfrab does not implement                                          |
-| `gopdfrab.ErrPasswordRequired`  | a correct password is required to open the file                                           |
-| `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced                   |
-| `gopdfrab.ErrInternal`          | a defect in gopdfrab itself, recovered from a panic; please report it with the input file |
-
-An individual object that fails to parse — a wrong cross-reference offset, a
-corrupt body — does not fail the whole document. The object is re-located by
-scanning for its real `N G obj` header, or resolved to null when no intact copy
-exists; either way the damage is reported as an issue and every other check
-still runs. A conversion that had to null an unrecoverable object keeps that
-loss in `Residual()` and never reports the result as valid.
-
-The same applies to whole-table damage: a missing or unusable `startxref`
-triggers a full-file object scan that rebuilds the cross-reference table and
-recovers the trailer from the document catalog, reported as a 6.1.4 issue rather
-than a hard error, so a badly damaged file still verifies and converts.
-
-### Inspecting Issues
-
-Each `PDFError` in `v.Issues` exposes the `Check` that flagged it, along with its page and underlying messages.
+To work with one file repeatedly, open it as a `Document`:
 
 ```go
-for _, issue := range v.Issues {
+doc, err := gopdfrab.Open(path) // or OpenBytes(data)
+if err != nil {
+    log.Fatal(err)
+}
+defer doc.Close()
+
+res, err := doc.Verify(gopdfrab.PDFA1B)
+ok, err := doc.IsPDFA()                      // Verify(PDFA1B).Valid
+ok, err := doc.IsPDF()                       // VerifyObjectModel().Valid
+part, level, err := doc.ClaimedConformance() // what the file claims, e.g. "1", "B"
+n, err := doc.PageCount()
+version, err := doc.Version()                // header version, e.g. "1.7"
+info, err := doc.Metadata()                  // Info dictionary entries
+xmp, err := doc.XMPMetadata()                // raw XMP packet, as UTF-8
+```
+
+A program that never converts can import `github.com/voidrab/gopdfrab/verify`
+instead. It has the same verification API under the same names, over the same
+types, so switching is an import swap, and it never links the converter. Go's
+linker already drops most unused converter code, so natively this saves about
+19% of a small verifying binary; in WebAssembly the verify-only module is less
+than half the size of the full one.
+
+### Inspecting issues
+
+Each `PDFError` exposes the `Check` that flagged it, its page and its messages,
+and `Result` groups them:
+
+```go
+for _, issue := range res.Issues {
     c := issue.Check()
     fmt.Println(c.Clause(), c.Subclause(), c.Name(), c.Description())
     fmt.Println(issue.Page(), issue.Messages())
 }
+
+fmt.Println(res.Summary()) // one line per Check
+res.Checks()               // distinct Checks violated, sorted by clause
+res.IssuesByCheck()        // map[Check][]PDFError
+res.IssuesOnPage(1)        // 0 = document-level
 ```
 
-`Result` has helpers for grouping and summarizing issues:
+`Result`, `PDFError` and `Check` marshal to a stable JSON shape:
 
-```go
-fmt.Println(v.Summary())          // human-readable report, one line per Check
-v.Checks()                        // distinct Checks violated, sorted by clause
-v.IssuesByCheck()                 // map[Check][]PDFError
-v.IssuesOnPage(1)                 // issues found on page 1 (0 = document-level)
+```json
+{"type":"A-1b","valid":false,"issueCount":2,"issues":[{"check":{"name":"...","clause":"6.1.3",...},"page":0,"documentLevel":true,"messages":["..."],"text":"..."}]}
 ```
 
-`Result`, `PDFError` and `Check` marshal to a stable JSON shape, for CLI, service, or CI integration:
+### Converting
+
+`Convert` produces a PDF/A conformant rewrite. It runs pre-emptive fixups, then
+a verify/fix loop, and rasterizes a page only when no in-place repair works.
 
 ```go
-b, _ := json.Marshal(v)
-// {"type":"A-1b","valid":false,"issueCount":2,"issues":[{"check":{"name":"...","clause":"6.1.3",...},"page":0,"documentLevel":true,"messages":["..."],"text":"..."}]}
-```
-
-### Document Helpers
-
-```go
-ok, err := doc.IsPDFA()                      // shorthand for Verify(PDFA1B).Valid
-
-ok, err := doc.IsPDF()                       // shorthand for VerifyObjectModel().Valid
-
-part, level, err := doc.ClaimedConformance() // e.g. "1", "B" — what the file claims, not whether it's valid
-
-n, err := doc.PageCount()                    // number of pages
-
-version, err := doc.Version()                // PDF version from the header, e.g. "1.7"
-
-info, err := doc.Metadata()                  // Info dictionary entries (Title, Author, ...)
-
-xmp, err := doc.XMPMetadata()                // raw XMP packet bytes, decoded to UTF-8
-```
-
-### Converting to PDF/A
-
-`Convert` produces a PDF/A conformant rewrite. It runs pre-emptive fixups, then a verify/fix loop, and rasterizes pages as a last resort when no in-place fixer can repair them.
-
-```go
-cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B)
+cr, err := gopdfrab.Convert(path, gopdfrab.PDFA1B) // or ConvertBytes, doc.Convert
 if err != nil {
     log.Fatal(err)
 }
-defer cr.Close() // releases the output (a large one spills to a temp file)
+defer cr.Close() // a large output spills to a temp file
 
-if err := cr.Save("out.pdf"); err != nil {
+if err := cr.Save("out.pdf"); err != nil { // atomic; WriteTo(w) streams, Output() returns bytes
     log.Fatal(err)
 }
-
-fmt.Println(cr.Iterations)      // how many verify/fixup passes it took
-fmt.Println(cr.Result.Valid)    // true if the output is fully PDF/A conformant
-```
-
-`cr.Save(path)` writes the output to a file and `cr.WriteTo(w)` streams it to any `io.Writer` (it implements `io.WriterTo`) — both without holding a second copy; `cr.Output()` returns the bytes when you need them in memory. All three error when there is no output. A large output spills to a temp file rather than staying resident, so call `cr.Close()` when done (`ConvertEach` closes each result for you).
-
-```go
-_, err := cr.WriteTo(w) // e.g. an http.ResponseWriter or a bytes.Buffer
-```
-
-### Options and cancellation
-
-The two-argument forms (`Convert(path, profile)`, `Verify(path, profile)`, and their `Bytes`/`All` variants) cover the common case. Each has a `…Context` counterpart that adds a `context.Context` for cancellation and an `Options` struct for tuning — `VerifyContext`, `VerifyBytesContext`, `VerifyAllContext`, `ConvertContext`, `ConvertBytesContext`, `ConvertAllContext`. The zero `Options` value is the default behavior.
-
-```go
-cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
-    Password:      []byte("secret"), // decrypt an encrypted input
-    RasterDPI:     300,              // raster last-resort resolution (default 150)
-    MaxIterations: 8,                // verify/fix loop bound (default 4)
-})
-```
-
-To set options without a deadline, pass `context.Background()`. `Options.Password` applies at the open step (so it works on `ConvertContext`/`VerifyContext` but not the `*Document` methods, whose file is already open — use `OpenWithPassword`). `RasterDPI` and `MaxIterations` are convert-only; `Verify` reads only `Password`.
-
-`ConvertContext` checks the context before each verify/fix iteration and each raster pass; `ConvertAllContext`/`VerifyAllContext` stop dispatching new files once it is cancelled and record `ctx.Err()` for the rest.
-
-### Resource limits
-
-By default a single stream may decode to at most 256 MB, a guard against decompression bombs. Raise it for legitimately large PDFs or lower it to harden against hostile input with `SetLimits`:
-
-```go
-gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: 512 << 20}) // 512 MB
-```
-
-The caps are process-wide rather than per-call — they are enforced deep in the decode path, reached from many callers that hold no document handle, so one value applies uniformly. Set them once at startup, before concurrent verify/convert. A zero or negative field resets that cap to its default; `CurrentLimits` and `DefaultLimits` report the effective and built-in values.
-
-### Converting an Open Document
-
-```go
-cr, err := doc.Convert(gopdfrab.PDFA1B)
-```
-
-### Converting In-Memory Data
-
-`ConvertBytes` is `Convert` for an in-memory PDF.
-
-```go
-cr, err := gopdfrab.ConvertBytes(data, gopdfrab.PDFA1B)
-```
-
-### Converting Multiple Files
-
-`ConvertAll` opens, converts, and closes a batch of files concurrently.
-
-```go
-results, err := gopdfrab.ConvertAll(paths, gopdfrab.PDFA1B)
-if err != nil {
-    log.Fatal(err)
-}
-for _, r := range results {
-    if r.Err != nil {
-        log.Println(r.Path, r.Err)
-        continue
-    }
-    fmt.Println(r.Path, r.Result.Result.Valid) // r.Result is a ConvertResult
+fmt.Println(cr.Iterations, cr.Result.Valid)
+for _, iss := range cr.Residual() { // issues nothing could repair
+    fmt.Println(iss.Check().Clause(), iss.Page(), iss.Messages())
 }
 ```
 
-For a batch too large to hold every output in memory at once, `ConvertEach` streams instead: it calls a callback on each result as it completes (serialized, in completion order), so you can write each output and let it be collected. `Options.Workers` bounds the concurrency of both forms (0 = `runtime.NumCPU`).
+`ConvertAll(paths, profile)` converts a batch concurrently. For a batch too
+large to hold every output at once, `ConvertEach` calls a callback on each
+result as it completes and closes it afterwards; returning an error stops the
+batch.
 
 ```go
 err := gopdfrab.ConvertEach(paths, gopdfrab.PDFA1B, gopdfrab.Options{Workers: 4},
@@ -426,26 +186,19 @@ err := gopdfrab.ConvertEach(paths, gopdfrab.PDFA1B, gopdfrab.Options{Workers: 4}
     })
 ```
 
-Returning a non-nil error from the callback stops the batch and is returned from `ConvertEach`. `ConvertEachContext` is the same with a `context.Context`.
+### What a conversion lost
 
-### Inspecting Residuals
+Conforming to PDF/A is not the same as looking like the input, so a result
+reports loss separately from `cr.Result.Valid`:
 
-Even though `Convert` always returns its best attempt, the result may still carry residual issues if no automatic remediation — including the raster last resort — fully resolved them.
-
-```go
-residual := cr.Residual()
-for _, iss := range residual {
-    check := iss.Check()
-    fmt.Println(check.Clause(), check.Name())
-    fmt.Println(iss.Page(), iss.Messages())
-}
-```
-
-### Fidelity
-
-Conforming to PDF/A is not the same as _looking_ like the input — a page blanked
-during conversion still verifies clean. `Options.CheckFidelity` renders the input
-and the output and reports a per-page comparison so you can catch that:
+- `cr.RasterizedPages` lists pages rebuilt as an image, and `cr.RasterDrops`
+  what the rasterizer could not draw on them.
+- `cr.LostObjects` lists content that could not be carried over at all: an
+  unresolvable object, an undecodable stream, an embedded file or annotation
+  the level forbids, a layer the document hides.
+- `Options.CheckFidelity` renders input and output with the same rasterizer
+  and fills `cr.Fidelity` with a per-page comparison; `Blanked()` flags a page
+  that lost its content.
 
 ```go
 cr, _ := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B,
@@ -457,230 +210,201 @@ for _, pf := range cr.Fidelity {
 }
 ```
 
-Both sides are drawn by the same rasterizer, so its limitations cancel and the
-comparison isolates what the conversion changed. `Blanked()` flags unambiguous
-content loss without tripping on benign changes like font substitution.
+### Options, cancellation and limits
 
-When conversion has to rasterize a page as a last resort, anything the rasterizer
-can't draw — shadings, inline images, Type 3 fonts — is reported per page in
-`cr.RasterDrops` rather than silently omitted, so that loss is loud even though
-the pixel comparison (which drops it symmetrically) cannot see it.
-
-Content the conversion could not carry over at all — an object the reader could
-not resolve, a stream nothing can decode, an embedded file or annotation the
-level forbids, the content of a layer the document hides — is listed in
-`cr.LostObjects`. That is a separate fact from conformance: the file that was
-written can meet PDF/A-1b and still be missing something the input had, and
-`cr.Result.Valid` answers only the first question.
-
-## Selective Check Profiles
-
-Verification can be narrowed to a specific set of rules using `Verify`.
-
-`PDFA1B`, `Legacy1B` and `PDF` are package variables holding the ready-made
-profiles. A profile is immutable — `AddCheck`, `RemoveCheck` and `Clear` each
-return a clone — but the variables are not: reassigning one changes the default
-for the whole process.
-
-Each ready-made profile has a name, the one the CLI's `--profile` flag takes:
-`pdfa1b`, `legacy1b` or `pdf`. `Profile.Name` reports it, `ProfileByName` looks
-a profile up by it, and `Profiles` lists all three. A profile derived from one
-of them has no name.
+Every entry point has a `…Context` counterpart taking a `context.Context` and
+an `Options` value (`VerifyContext`, `VerifyBytesContext`, `VerifyAllContext`,
+`ConvertContext`, `ConvertBytesContext`, `ConvertAllContext`,
+`ConvertEachContext`); the zero `Options` is the default.
 
 ```go
-p, ok := gopdfrab.ProfileByName("legacy1b")
+cr, err := gopdfrab.ConvertContext(ctx, path, gopdfrab.PDFA1B, gopdfrab.Options{
+    Password:      []byte("secret"), // decrypt an encrypted input
+    RasterDPI:     300,              // raster fallback resolution (default 150)
+    MaxIterations: 8,                // verify/fix loop bound (default 4)
+    Workers:       4,                // batch concurrency (default runtime.NumCPU)
+})
 ```
 
-### Start from the full profile and remove checks
+`Password` applies when the file is opened; for a `Document`, use
+`OpenWithPassword` or `OpenBytesWithPassword`. Files with an empty user
+password are decrypted without one. Cancellation is checked between fix
+iterations and raster passes, and batch forms stop dispatching new files.
+
+A single stream decodes to at most 256 MB by default, a guard against
+decompression bombs. The caps are process-wide, because they are enforced deep
+in the decode path; set them once at startup:
 
 ```go
-p := gopdfrab.PDFA1B.
-    RemoveCheck(gopdfrab.Checks.Structure.FileHeaderSignature).
-    RemoveCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
+gopdfrab.SetLimits(gopdfrab.Limits{MaxDecodedStreamBytes: 512 << 20})
+```
+
+A zero field resets that cap to its default; `CurrentLimits` and
+`DefaultLimits` report the effective and built-in values.
+
+### Errors and damaged files
+
+Failures can be matched with `errors.Is`:
+
+| Error                           | Meaning                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `gopdfrab.ErrNotPDF`            | the input is not a PDF (no `%PDF-` header)                                   |
+| `gopdfrab.ErrDamaged`           | the cross-reference or trailer structure could not be parsed                 |
+| `gopdfrab.ErrEncrypted`         | an encryption scheme gopdfrab does not implement                             |
+| `gopdfrab.ErrPasswordRequired`  | a correct password is required to open the file                              |
+| `gopdfrab.ErrUnresolvableGraph` | `Convert` could not resolve the object graph, so no output was produced      |
+| `gopdfrab.ErrInternal`          | a defect in gopdfrab, recovered from a panic; please report it with the file |
+
+Damage short of that does not fail the document. An object that fails to parse
+is re-located by scanning for its `N G obj` header, or resolved to null, and a
+missing or unusable `startxref` rebuilds the cross-reference table from a
+full-file scan. Either way the damage is reported as an issue and every other
+check still runs; a conversion that had to null an object never reports itself
+valid.
+
+## Profiles and checks
+
+`PDFA1B`, `Legacy1B` and `PDF` are the ready-made profiles, named `pdfa1b`,
+`legacy1b` and `pdf` as the CLI's `--profile` takes them (`ProfileByName`,
+`Profiles`, `Profile.Name`). Use `Legacy1B` if you need the verdicts of the
+older Isartor suite. A profile is immutable: `AddCheck`, `RemoveCheck` and
+`Clear` return a clone. The package variables are not, so reassigning one
+changes the default for the whole process.
+
+```go
+p := gopdfrab.PDFA1B.RemoveCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
+
+p := gopdfrab.PDFA1B.Clear().AddCheck(
+    gopdfrab.Checks.Transparency.ImageWithSoftMask,
+    gopdfrab.Checks.Metadata.PDFAIdentifierMissing,
+)
+
+p := gopdfrab.NewProfile(gopdfrab.A1B).AddCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
 
 res, err := doc.Verify(p)
 ```
 
-### Start from an empty profile and add checks
+| Registry field        | Spec area                                                    |
+| --------------------- | ------------------------------------------------------------ |
+| `Checks.Structure`    | 6.1.x file header, trailer, xref, object framing, limits     |
+| `Checks.Colour`       | 6.2.2 OutputIntent, 6.2.3.x device colours, 6.2.9–10         |
+| `Checks.Image`        | 6.2.4–6.2.7 image, form and PostScript XObjects              |
+| `Checks.Transparency` | 6.2.8 transfer functions, 6.4 soft masks, blend modes, alpha |
+| `Checks.Font`         | 6.3.x embedding, subsets, metrics, encoding                  |
+| `Checks.Annotation`   | 6.5.x annotation types and dictionaries                      |
+| `Checks.Action`       | 6.6.x action types and additional actions                    |
+| `Checks.Metadata`     | 6.7.x XMP metadata, extension schemas, PDF/A identifier      |
+| `Checks.Form`         | 6.9 interactive forms                                        |
+| `Checks.ObjectModel`  | ISO 32000 object-model conformance, independent of PDF/A     |
+
+An eleventh group, `Checks.LogicalStructure` (6.8.x), is PDF/A-1a only, so
+`AllChecks()` returns 159 checks over all eleven groups, 154 over the ten above.
+A clause names a check only within a conformance level, so lookups take one:
+`CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)`, `ChecksForClauseIn` and
+`check.ClauseIn(level)`. The older `CheckByClause` and `ChecksForClause` read
+PDF/A-1 clauses and are deprecated.
+
+### PDF object-model conformance
+
+`Checks.ObjectModel` holds six checks derived from the
+[Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model),
+the machine-readable ISO 32000 object model. They answer "is this even valid
+PDF", independent of PDF/A. The `PDF` profile enables only them, and
+`ObjectModelOnly()` builds an unshared copy of it.
 
 ```go
-p := gopdfrab.PDFA1B.Clear().
-    AddCheck(
-        gopdfrab.Checks.Transparency.ImageWithSoftMask,
-        gopdfrab.Checks.Metadata.PDFAIdentifierMissing,
-    )
-
-res, err := doc.Verify(p)
+res, err := gopdfrab.VerifyObjectModel(path) // or VerifyObjectModelBytes, doc.VerifyObjectModel
+cr, err := gopdfrab.ConvertObjectModel(path) // or ConvertObjectModelBytes, doc.ConvertObjectModel
 ```
 
-### Start from nothing
+`ConvertObjectModel` applies every repair that is safe and preserves meaning,
+and reports anything else as a residual.
 
-`NewProfile` returns an empty profile for a conformance level, for building a
-rule set up from scratch:
+## WebAssembly
 
-```go
-p := gopdfrab.NewProfile(gopdfrab.A1B).
-    AddCheck(gopdfrab.Checks.Font.SimpleNotEmbedded)
+`wasm/` holds two `syscall/js` builds that run in the browser:
 
-res, err := doc.Verify(p)
+```bash
+# verify only: about 6.2 MB
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab-verify.wasm ./wasm/verify
+# verify and convert: about 15.1 MB
+GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm
 ```
 
-### Available check groups
+A page can load the verify-only module up front and fetch the full one only to
+convert. Each registers its globals, which take a `Uint8Array` and return a
+Promise, then posts `{type: "ready", module}` with `module` set to `"verify"`
+or `"convert"`:
 
-| Registry field        | Spec area                                                                    |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `Checks.Structure`    | 6.1.x — file header, trailer, xref, object framing, limits                   |
-| `Checks.Colour`       | 6.2.2 OutputIntent, 6.2.3.x device colours, 6.2.9–10                         |
-| `Checks.Image`        | 6.2.4–6.2.7 image/form/PostScript XObjects                                   |
-| `Checks.Transparency` | 6.2.8 transfer functions, 6.4 soft masks/blend modes/alpha                   |
-| `Checks.Font`         | 6.3.x embedding, subsets, metrics, encoding                                  |
-| `Checks.Annotation`   | 6.5.x annotation types and dictionaries                                      |
-| `Checks.Action`       | 6.6.x action types and additional actions                                    |
-| `Checks.Metadata`     | 6.7.x XMP metadata, extension schemas, PDF/A identifier                      |
-| `Checks.Form`         | 6.9 interactive forms                                                        |
-| `Checks.ObjectModel`  | Generic ISO 32000 object-model conformance, independent of PDF/A — see below |
+- `gopdfrabVerify(bytes)` resolves to `{valid, summary, profile, issueCount, doc, issues}`.
+- `gopdfrabConvert(bytes)` (full module only) resolves to `{valid, iterations, output, doc, before, resolved, residual, rasterizedPages, rasterDrops, lostObjects}`, with `output` a `Uint8Array`.
 
-An eleventh group, `Checks.LogicalStructure` (6.8.x tagging, structure tree,
-role map, natural language), is registered but left out of the table: all five
-of its checks are PDF/A-1a only. `AllChecks()` returns 159 checks over all
-eleven groups, 154 over the ten above.
-
-Use `gopdfrab.AllChecks()` to enumerate all registered checks with their names, descriptions, and clause numbers. A clause names a check only within a conformance level, so the lookups take one: `gopdfrab.CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)` and `gopdfrab.ChecksForClauseIn(gopdfrab.A1B, "6.3.4")`, and `check.ClauseIn(level)` gives a check's clause under a level. The older `CheckByClause` and `ChecksForClause` read PDF/A-1 clauses and are deprecated.
-
-## PDF Object-Model Conformance
-
-`Checks.ObjectModel` holds six checks — `MissingRequiredKey`, `WrongValueType`, `DisallowedValue`, `IndirectRequired`, `KeyIntroducedAfterPDF14`, `ConstraintViolated` — derived from the [Arlington PDF Model](https://github.com/pdf-association/arlington-pdf-model), the machine-readable ISO 32000 object model. They answer "is this even valid PDF," independent of any PDF/A conformance level.
-
-```go
-res, err := gopdfrab.VerifyObjectModel(path)
-```
-
-`VerifyObjectModelBytes` is the in-memory equivalent, and `doc.VerifyObjectModel()` runs it on an already-open `Document`:
-
-```go
-res, err := gopdfrab.VerifyObjectModelBytes(data)
-res, err := doc.VerifyObjectModel()
-```
-
-These are shorthand for `Verify`/`VerifyBytes`/`doc.Verify` with `gopdfrab.PDF`, the profile enabling only the six checks above:
-
-```go
-res, err := doc.Verify(gopdfrab.PDF)
-```
-
-`ObjectModelOnly()` builds a fresh profile equal to `PDF`, for a caller who wants
-one that nothing else shares.
-
-`ConvertObjectModel` is the conversion counterpart: it produces a rewrite repaired against the object-model checks only, applying every fix that is safe and semantics-preserving and reporting anything else as a residual.
-
-```go
-cr, err := gopdfrab.ConvertObjectModel(path)
-cr, err := gopdfrab.ConvertObjectModelBytes(data)
-cr, err := doc.ConvertObjectModel()
-```
+The doc comments in `wasm/main.go` and `wasm/internal/jsapi` are the full
+reference.
 
 ## Performance
 
-gopdfrab's PDF/A-1b verification performance is (unfairly) measured against the Java-based [veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/) on the combined Isartor + veraPDF corpora (773 files); see `benchmarks/README.md` for methodology.
+PDF/A-1b verification measured against the Java-based
+[veraPDF](https://verapdf.org/) and [PDFBox Preflight](https://pdfbox.apache.org/)
+on the combined Isartor and veraPDF corpora (773 files); `benchmarks/README.md`
+has the methodology. Startup and cold single-file numbers are dominated by JVM
+startup.
 
-| Benchmark                       | gopdfrab vs veraPDF | gopdfrab vs PDFBox Preflight |
-| ------------------------------- | ------------------- | ---------------------------- |
-| Startup time                    | 149x faster         | 22x faster                   |
-| Single file (cold, median file) | 160x faster         | 50x faster                   |
-| Batch throughput                | 20x faster          | 15x faster                   |
-| Batch peak memory               | 11x smaller         | 15x smaller                  |
-| Deployment footprint            | 9x smaller          | 3x smaller                   |
+| Benchmark                       | vs veraPDF  | vs PDFBox Preflight |
+| ------------------------------- | ----------- | ------------------- |
+| Startup time                    | 149x faster | 22x faster          |
+| Single file (cold, median file) | 160x faster | 50x faster          |
+| Batch throughput                | 20x faster  | 15x faster          |
+| Batch peak memory               | 11x smaller | 15x smaller         |
+| Deployment footprint            | 9x smaller  | 3x smaller          |
 
-Absolute numbers from the same run: the full 773-file batch verifies in 0.29 s (2749 files/s) at 67 MB peak RSS, and a cold single-file verification of the median corpus file takes ~5 ms including process startup.
+The 773-file batch verifies in 0.29 s (2749 files/s) at 67 MB peak RSS, and a
+cold verification of the median file takes about 5 ms including process
+startup.
 
-Due to JVM startup overhead, startup time and cold single-file verification are significantly slower for veraPDF and Preflight.
+## Fuzzing
 
-## Isartor Compatibility
-
-The Isartor test suite is the old reference test suite for PDF/A-1b document compatibility before the veraPDF project was initiated.
-If you require PDF/A-1b compatibility based on Isartor for your application, use the `Legacy1B` profile.
-
-## Fuzzing & Stress Testing
-
-Because gopdfrab's whole job is to read untrusted, frequently-malformed PDFs, the
-`internal/pdfgen` package programmatically generates "crazy, broken" PDF documents
-— structurally-valid skeletons deliberately corrupted with truncation, bad
-cross-reference offsets, negative stream lengths, dangling and circular
-references, deep nesting, and more. Everything is generated in memory from a seed
-(no external document files), so any crash is reproducible from its seed alone via
-`pdfgen.Generate(seed)`.
-
-The generator also builds fresh random object graphs from a small PDF grammar
-(`pdfgen.GenerateGrammar`) to reach shapes that corrupting a fixed seed never
-produces.
-
-These inputs drive native Go fuzz targets at three levels:
-
-- **Whole pipeline** — `FuzzOpenBytes`/`FuzzLexer` (parser), `FuzzVerifyBytes`,
-  `FuzzConvertBytes`, `FuzzConvertRoundTrip`, and `FuzzGeneratedSeed` (which lets
-  the fuzzer explore the generator's own seed space under coverage guidance).
-- **Isolated subsystems** — the decoders and parsers that whole-file fuzzing only
-  reaches shallowly: `FuzzDecodeStream`, `FuzzInflateZlib`, `FuzzDecodeASCIIHex`,
-  `FuzzDecodeASCII85`, `FuzzDecodeLZW`, `FuzzDecodeCCITT`, `FuzzUndoPredictor`,
-  `FuzzTokenizeContent`, `FuzzParseFunction`, `FuzzResolveColor`, and the writer
-  targets (`FuzzWritePDF`, `FuzzWriteContentStream`, `FuzzBuildInlineImageBytes`).
-- **Semantic oracles** — beyond "does not panic": `FuzzVerifyDeterministic` and
-  `FuzzConvertDeterministic` (repeat runs must match byte-for-byte),
-  `FuzzConvertHonest` (a conversion reported valid must independently re-verify as
-  valid), and `FuzzConvertConverges`.
-
-Every target seeds its corpus in code, so the generated broken PDFs replay on
-every `go test` run; `TestGeneratedCorpusDoesNotPanic` additionally drives a
-deterministic batch through the public API on every build, and named
-`TestCrasher_*` reproducers guard each previously-fixed crash. Concurrency and
-resource bounds are covered by `TestGeneratedCorpusRace` /
-`TestConcurrentDecodeIsSafe` (run under `-race`) and `TestGeneratedCorpusTimeBounded`.
-
-To actively hunt for new crashes locally:
+gopdfrab reads untrusted, often malformed input, so `internal/pdfgen`
+generates broken PDFs in memory from a seed: valid skeletons corrupted with
+truncation, bad offsets, negative lengths, dangling and circular references and
+deep nesting, plus random object graphs from a small PDF grammar. They seed
+native Go fuzz targets for the whole pipeline, for each decoder, parser and
+writer, and for semantic oracles: repeated runs must match byte for byte, and a
+conversion reported valid must re-verify as valid. Every seed replays on each
+`go test` run, alongside race and time-bound tests and a reproducer for each
+fixed crash.
 
 ```sh
 go test -run '^$' -fuzz=FuzzOpenBytes        -fuzztime=60s ./internal/pdf/
-go test -run '^$' -fuzz=FuzzParseFunction    -fuzztime=60s ./internal/pdf/
 go test -run '^$' -fuzz=FuzzConvertRoundTrip -fuzztime=60s .
-go test -race -run 'TestGeneratedCorpusRace|TestConcurrentDecodeIsSafe' ./...
 ```
 
 ## Security
 
-gopdfrab parses untrusted, frequently-hostile input by design. To report a
-suspected vulnerability, follow [SECURITY.md](SECURITY.md) — please do not open a
-public issue for one.
-
-## Licensing
-
-This work is dual-licensed under GNU AGPL 3.0 and our commercial license.
-[Get in touch](mailto:contact@voidrab.com) for more information about our commercial licensing options.
-
-gopdfrab bundles third-party fonts and ICC profiles, and embeds them into
-converted files. [NOTICE](NOTICE) says where each one comes from and under what
-licence.
-
-Code contributions are covered by a one-time [Contributor Licence
-Agreement](CLA.md); see below.
+To report a suspected vulnerability, follow [SECURITY.md](SECURITY.md); please
+do not open a public issue for one.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) goes over how to run the test suites,
-where the test corpora come from, and walkthroughs.
-[ARCHITECTURE.md](ARCHITECTURE.md) is a map of the codebase.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the test suites, the test corpora and
+walkthroughs; [ARCHITECTURE.md](ARCHITECTURE.md) maps the codebase.
 
-The short version:
-
-- **A PDF that fails and should not, or passes and should not.** This is the
-  most useful thing you can send. Please attach the file to an
+- **A PDF that fails and should not, or passes and should not**, is the most
+  useful thing to send. Please attach it to an
   [issue](https://github.com/voidrab/gopdfrab/issues/new/choose).
-- **Code changes** — one concern per pull request, with a test.
-- **New checks** — mostly a data change in the check registry. See the
-  walkthrough in CONTRIBUTING.md.
+- **Code changes**: one concern per pull request, with a test.
+- **New checks**: mostly a data change in the check registry; see
+  CONTRIBUTING.md.
 
-Code and documentation are dual-licensed, AGPL 3.0 and a commercial licence,
-and that only works if one party can release the whole codebase under both, so
-pull requests need a one-time signature on the [Contributor Licence
-Agreement](CLA.md). You keep your copyright; you are granting permission, not
-handing anything over. A bot will ask you to confirm it in a comment the first
-time you open a pull request.
+Pull requests need a one-time signature on the [Contributor Licence
+Agreement](CLA.md), so that the whole codebase can be released under both
+licences. You keep your copyright. A bot asks you to confirm it the first time
+you open a pull request.
+
+## Licensing
+
+gopdfrab is dual-licensed under GNU AGPL 3.0 and a commercial licence.
+[Get in touch](mailto:contact@voidrab.com) about commercial licensing.
+
+gopdfrab bundles third-party fonts and ICC profiles and embeds them into
+converted files; [NOTICE](NOTICE) gives each one's source and licence.
