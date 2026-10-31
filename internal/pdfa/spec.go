@@ -84,6 +84,9 @@ type Limits struct {
 	MaxIndirectObjects  int
 	// MaxQNesting is the deepest q/Q nesting a content stream may reach.
 	MaxQNesting int
+	// MinPageBoundary and MaxPageBoundary bound the width and height of each
+	// page boundary (MediaBox, CropBox, BleedBox, TrimBox and ArtBox).
+	MinPageBoundary, MaxPageBoundary float64
 }
 
 // For returns the spec of a conformance level. ok is false for a level there
@@ -179,6 +182,8 @@ var a2b = Spec{
 		MaxDeviceNColorants: 32,
 		MaxIndirectObjects:  8388607,
 		MaxQNesting:         28,
+		MinPageBoundary:     3,
+		MaxPageBoundary:     14400,
 	},
 	// 6.2.9.
 	RenderingIntents: NewNames("AbsoluteColorimetric", "RelativeColorimetric", "Saturation", "Perceptual"),

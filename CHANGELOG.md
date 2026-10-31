@@ -28,6 +28,10 @@ Everything under `internal/` may change in any release without notice.
 
 - `Check.DescriptionIn` describes a check's rule as a given conformance level
   words it.
+- Four checks for rules that only PDF/A-2 sets: `Checks.Structure.NameNotUTF8`,
+  `PermissionsKeys`, `SignatureReferenceDigest` and `PageBoundarySize`. They
+  have no PDF/A-1 clause, so `Clause()` is empty and `ClauseIn` names their
+  PDF/A-2 clause, and no PDF/A-1 profile enables them.
 
 ### Fixed
 

@@ -169,6 +169,10 @@ var stableCheckIDs = map[string]int{
 	"IndirectRequired":                157,
 	"KeyIntroducedAfterPDF14":         158,
 	"ConstraintViolated":              159,
+	"NameNotUTF8":                     160,
+	"PermissionsKeys":                 161,
+	"SignatureReferenceDigest":        162,
+	"PageBoundarySize":                163,
 }
 
 func TestCheckIDsAreStable(t *testing.T) {
@@ -235,9 +239,9 @@ func TestClauseIn(t *testing.T) {
 	}
 }
 
-// TestEveryPDFACheckAppliesToA1B verifies that, apart from the 1a-only checks,
-// the whole PDF/A catalog is Part 1 Level B, under the clause it was registered
-// with.
+// TestEveryPDFACheckAppliesToA1B verifies that, apart from the 1a-only checks
+// and the rules of Part 2 only, the whole PDF/A catalog is Part 1 Level B,
+// under the clause it was registered with.
 func TestEveryPDFACheckAppliesToA1B(t *testing.T) {
 	oneAOnly := map[Check]bool{
 		Checks.Font.ToUnicodeMissing:                true,
@@ -249,6 +253,12 @@ func TestEveryPDFACheckAppliesToA1B(t *testing.T) {
 	}
 	for _, c := range AllChecks() {
 		clause, sub, ok := c.ClauseIn(A1B)
+		if c.Clause() == "" {
+			if ok {
+				t.Errorf("%s: a rule of Part 2 only applies to A1B", c.Name())
+			}
+			continue
+		}
 		if ok == oneAOnly[c] {
 			t.Errorf("%s: AppliesTo(A1B) = %v", c.Name(), ok)
 			continue
@@ -393,8 +403,8 @@ func TestFullProfilesEnableTheirPart(t *testing.T) {
 		p    *Profile
 		want func(Check) bool
 	}{
-		{Legacy1B, func(Check) bool { return true }},
-		{NewFullProfile(A1B), func(Check) bool { return true }},
+		{Legacy1B, func(c Check) bool { return c.Clause() != "" }},
+		{NewFullProfile(A1B), func(c Check) bool { return c.Clause() != "" }},
 		{PDFA2B, func(c Check) bool { return c.AppliesTo(A2B) }},
 		{NewFullProfile(ObjectModel), func(c Check) bool { return c.Clause() == ObjectModelClause }},
 		{NewFullProfile(Undefined), func(Check) bool { return false }},
@@ -408,4 +418,20 @@ func TestFullProfilesEnableTheirPart(t *testing.T) {
 	if !PDFA2B.SkipUnreachableXObjects || !PDFA2B.SkipUnusedSimpleFonts {
 		t.Errorf("PDFA2B lost veraPDF's leniencies: %+v", PDFA2B)
 	}
+}
+
+// TestNewPart2CheckRequiresAPart2Clause verifies that registering a rule of
+// Part 2 only that part2Clauses does not number panics, since such a check
+// would apply to no level.
+func TestNewPart2CheckRequiresAPart2Clause(t *testing.T) {
+	savedLen := len(allChecksCatalog)
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("newPart2Check did not panic on a check without a Part 2 clause")
+		}
+		if len(allChecksCatalog) != savedLen {
+			t.Errorf("catalog grew from %d to %d on a rejected registration", savedLen, len(allChecksCatalog))
+		}
+	}()
+	newPart2Check(9999, "Unnumbered", "has no Part 2 clause")
 }

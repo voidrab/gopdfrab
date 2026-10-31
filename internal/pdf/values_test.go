@@ -219,3 +219,26 @@ func TestEncodePDFTextString(t *testing.T) {
 		}
 	}
 }
+
+// TestEncodePDFName verifies that EncodePDFName escapes exactly the bytes a
+// name cannot hold as they are, and that DecodePDFName undoes it.
+func TestEncodePDFName(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"Cyan", "Cyan"},
+		{"Caf\xc3\xa9", "Caf#C3#A9"},
+		{"a b#c/d(e)", "a#20b#23c#2Fd#28e#29"},
+		{"\x00\x7f", "#00#7F"},
+		{"", ""},
+	} {
+		got := EncodePDFName([]byte(tc.in))
+		if got != tc.want {
+			t.Errorf("EncodePDFName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if back := string(DecodePDFName(got)); back != tc.in {
+			t.Errorf("DecodePDFName(%q) = %q, want %q", got, back, tc.in)
+		}
+	}
+}

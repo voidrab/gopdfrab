@@ -407,15 +407,11 @@ func TestFlattenPagesParallelDedupesAndReports(t *testing.T) {
 	}
 }
 
-// TestSortedChecksOrdering pins the fixer application order -- clause, then
-// subclause, then name -- over the whole catalog. The order has to be total:
-// it decides which fixer runs first, and any pair left to map order would make
-// the converted bytes differ between runs.
-//
-// The name comparison in sortedChecks currently never decides an order:
-// (clause, subclause) is unique across every registered check, so the
-// tiebreak only matters for a check added later that shares a pair. If that
-// stops holding, the assertion below exercises the tiebreak.
+// TestSortedChecksOrdering pins the fixer application order -- Part 1
+// clause, then subclause, then ID -- over the whole catalog. The order has to
+// be total: it decides which fixer runs first, and any pair left to map order
+// would make the converted bytes differ between runs. The ID decides only
+// among the checks with no Part 1 clause.
 func TestSortedChecksOrdering(t *testing.T) {
 	all := pdf.AllChecks()
 	counts := make(map[pdf.Check]int, len(all))
@@ -427,18 +423,7 @@ func TestSortedChecksOrdering(t *testing.T) {
 		t.Fatalf("sortedChecks returned %d checks, want %d", len(got), len(counts))
 	}
 
-	type key struct {
-		clause    string
-		subclause int
-	}
-	seen := make(map[key]string, len(got))
 	for i, cur := range got {
-		k := key{cur.Clause(), cur.Subclause()}
-		if prevName, dup := seen[k]; dup {
-			t.Logf("checks %q and %q share %s/%d: the name tiebreak is live",
-				prevName, cur.Name(), k.clause, k.subclause)
-		}
-		seen[k] = cur.Name()
 		if i == 0 {
 			continue
 		}
@@ -452,9 +437,10 @@ func TestSortedChecksOrdering(t *testing.T) {
 			if prev.Subclause() > cur.Subclause() {
 				t.Fatalf("subclause out of order at %d: %d then %d", i, prev.Subclause(), cur.Subclause())
 			}
-		case prev.Name() >= cur.Name():
-			t.Errorf("name out of order within %s/%d at %d: %q then %q",
-				cur.Clause(), cur.Subclause(), i, prev.Name(), cur.Name())
+		case cur.Clause() != "":
+			t.Errorf("%s and %s share the Part 1 rule %s/%d", prev.Name(), cur.Name(), cur.Clause(), cur.Subclause())
+		case prev.ID() >= cur.ID():
+			t.Errorf("ID out of order among the Part 2 rules at %d: %s then %s", i, prev.Name(), cur.Name())
 		}
 	}
 
@@ -733,23 +719,6 @@ func TestSerializeAndVerifySpillErrors(t *testing.T) {
 			}
 			assertEmptyDir(t, dir)
 		})
-	}
-}
-
-// TestSortedChecksOrderIsTotal verifies that over the whole catalogue,
-// sortedChecks orders checks strictly by (clause, subclause), so that no two
-// checks share that pair.
-func TestSortedChecksOrderIsTotal(t *testing.T) {
-	counts := map[pdf.Check]int{}
-	for _, c := range pdf.AllChecks() {
-		counts[c] = 1
-	}
-	got := sortedChecks(counts)
-	for i := 1; i < len(got); i++ {
-		p, c := got[i-1], got[i]
-		if p.Clause() > c.Clause() || (p.Clause() == c.Clause() && p.Subclause() >= c.Subclause()) {
-			t.Fatalf("%s/%d (%s) not strictly before %s/%d (%s)", p.Clause(), p.Subclause(), p.Name(), c.Clause(), c.Subclause(), c.Name())
-		}
 	}
 }
 

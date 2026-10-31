@@ -21,12 +21,6 @@ func TestCatalog_AllChecksUnique(t *testing.T) {
 		}
 		seenIDs[c.ID()] = true
 
-		pair := c.Clause() + "/" + strconv.Itoa(c.Subclause())
-		if seenPairs[pair] {
-			t.Errorf("duplicate (clause, subclause) pair %s for check %q", pair, c.Name())
-		}
-		seenPairs[pair] = true
-
 		if c.Name() == "" {
 			t.Errorf("check with ID %d has empty name", c.ID())
 		}
@@ -34,8 +28,17 @@ func TestCatalog_AllChecksUnique(t *testing.T) {
 			t.Errorf("check %q has empty description", c.Name())
 		}
 		if c.Clause() == "" {
-			t.Errorf("check %q has empty clause", c.Name())
+			// A rule of Part 2 only has no Part 1 clause, only a Part 2 one.
+			if clause, _, ok := c.ClauseIn(A2B); !ok || clause == "" {
+				t.Errorf("check %q has neither a Part 1 nor a Part 2 clause", c.Name())
+			}
+			continue
 		}
+		pair := c.Clause() + "/" + strconv.Itoa(c.Subclause())
+		if seenPairs[pair] {
+			t.Errorf("duplicate (clause, subclause) pair %s for check %q", pair, c.Name())
+		}
+		seenPairs[pair] = true
 	}
 }
 

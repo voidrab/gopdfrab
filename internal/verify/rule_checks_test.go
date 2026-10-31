@@ -194,7 +194,8 @@ func TestDocRulesDeclareTheirChecks(t *testing.T) {
 // enabled check, and returns the table itself when every rule is enabled.
 func TestEnabledRules(t *testing.T) {
 	checks := func(r dictRule) []pdf.Check { return r.checks }
-	if got := enabledRules(dictRules, pdf.PDFA1B, checks); &got[0] != &dictRules[0] || len(got) != len(dictRules) {
+	every := pdf.PDFA1B.AddCheck(pdf.AllChecks()...)
+	if got := enabledRules(dictRules, every, checks); &got[0] != &dictRules[0] || len(got) != len(dictRules) {
 		t.Error("with every rule enabled, enabledRules did not return the table itself")
 	}
 

@@ -41,10 +41,15 @@ var part2Clauses = map[string]clauseRef{
 	"StreamFileDecodeParams":  {"6.1.7.1", 3, ""},
 	// 6.1.7.2 Filters.
 	"StreamLZWFilter": {"6.1.7.2", 1, ""},
+	// 6.1.8 Name objects.
+	"NameNotUTF8": {"6.1.8", 1, ""},
 	// 6.1.9 Indirect objects.
 	"ObjectFraming": {"6.1.9", 1, ""},
 	// 6.1.10 Inline image dictionaries.
 	"InlineImageLZWFilter": {"6.1.10", 1, ""},
+	// 6.1.12 Permissions.
+	"PermissionsKeys":          {"6.1.12", 1, ""},
+	"SignatureReferenceDigest": {"6.1.12", 2, ""},
 	// 6.1.13 Implementation limits.
 	"IntegerOutOfRange":       {"6.1.13", 1, ""},
 	"RealOutOfRange":          {"6.1.13", 2, "Real values must have an absolute value not exceeding 3.403 x 10^38"},
@@ -54,4 +59,5 @@ var part2Clauses = map[string]clauseRef{
 	"GraphicsStateNesting":    {"6.1.13", 8, ""},
 	"DeviceNColorants":        {"6.1.13", 9, "DeviceN colour spaces must not exceed 32 colorants"},
 	"CMapCIDOutOfRange":       {"6.1.13", 10, ""},
+	"PageBoundarySize":        {"6.1.13", 11, ""},
 }

@@ -133,6 +133,24 @@ var dictRules = []dictRule{
 		},
 		fn: validateViewerPreferences,
 	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.NameNotUTF8,
+		},
+		fn: validateUnicodeNames,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.SignatureReferenceDigest,
+		},
+		fn: validateSignatureReferences,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.PageBoundarySize,
+		},
+		fn: validatePageBoundaries,
+	},
 }
 
 // preWalkDocRules run before the walk, and postWalkDocRules after it.
@@ -144,6 +162,12 @@ var (
 				pdf.Checks.Structure.InfoDictXMPMismatch,
 			},
 			fn: docInfoRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.PermissionsKeys,
+			},
+			fn: permissionsRule,
 		},
 	}
 	postWalkDocRules = []docRule{

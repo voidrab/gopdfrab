@@ -11,8 +11,22 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
+// part1Checks returns the catalog's checks that have a Part 1 clause, in
+// catalog order.
+func part1Checks() []pdf.Check {
+	var out []pdf.Check
+	for _, c := range pdf.AllChecks() {
+		if c.Clause() != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// TestProfile_Legacy1BIsFullProfile verifies that Legacy1B enables every check
+// with a Part 1 clause.
 func TestProfile_Legacy1BIsFullProfile(t *testing.T) {
-	all := pdf.AllChecks()
+	all := part1Checks()
 	if len(pdf.Legacy1B.Checks()) != len(all) {
 		t.Errorf("Legacy1B has %d checks, catalog has %d", len(pdf.Legacy1B.Checks()), len(all))
 	}
@@ -93,7 +107,7 @@ func TestProfile_RemoveCheck(t *testing.T) {
 }
 
 func TestProfile_ChecksOrder(t *testing.T) {
-	all := pdf.AllChecks()
+	all := part1Checks()
 	got := pdf.Legacy1B.Checks()
 	if len(got) != len(all) {
 		t.Fatalf("Checks() length mismatch: %d vs %d", len(got), len(all))
