@@ -190,6 +190,9 @@ func (d *Reader) readObjectAt(offset int64, objNum int, bootstrap bool) (_ PDFVa
 	}()
 
 	headerNum, headerErrs := l.validateObjectStart()
+	if len(headerErrs) == 0 && !d.precededByEOL(offset) {
+		headerErrs = append(headerErrs, errors.New("object number not preceded by an EOL marker"))
+	}
 	if bootstrap {
 		if headerNum < 0 {
 			return nil, objNum, fmt.Errorf("no object header at offset %d: %w", offset, errors.Join(headerErrs...))
@@ -297,4 +300,14 @@ func (d *Reader) readObjectAt(offset int64, objNum int, bootstrap bool) (_ PDFVa
 	default:
 		return nil, objNum, fmt.Errorf("unexpected token %v in object %d", t.Type, objNum)
 	}
+}
+
+// precededByEOL reports whether the byte before offset ends a line, as it must
+// before an object's number (6.1.8). The start of the file counts as one.
+func (d *Reader) precededByEOL(offset int64) bool {
+	if offset == 0 {
+		return true
+	}
+	w := d.windowAt(offset-1, 1)
+	return len(w) == 1 && (w[0] == '\n' || w[0] == '\r')
 }

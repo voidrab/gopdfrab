@@ -34,6 +34,9 @@ Everything under `internal/` may change in any release without notice.
 - Convert replaces a trailer ID that holds no file identifier bytes, such as
   `[<> <>]`, with a synthesized one, as it does a missing ID, instead of
   copying it to the output.
+- Verify reports a `stream` keyword followed by a lone carriage return, which
+  the rule on stream framing does not allow: the EOL must be CRLF or a single
+  LF. It also reports an indirect object whose number does not start a line.
 
 ## [1.3.0] - 2026-10-31
 

@@ -365,3 +365,31 @@ func TestUndefinedObjectIsNullNotDegraded(t *testing.T) {
 		t.Errorf("ResolveGraph: %v", err)
 	}
 }
+
+// TestObjectNumberPrecededByEOL verifies that an object whose number does not
+// start a line is a framing violation, while one at the start of a line or of
+// the file is not.
+func TestObjectNumberPrecededByEOL(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prefix string
+		want   bool // whether a framing diagnostic is recorded
+	}{
+		{"start of file", "", false},
+		{"after LF", "x\n", false},
+		{"after CR", "x\r", false},
+		{"after spaces", "x\n   ", true},
+		{"after a token", "endobj ", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte(tc.prefix + "1 0 obj\n<< >>\nendobj\n")
+			d := &Reader{src: memSource(data)}
+			if _, _, err := d.readObjectAt(int64(len(tc.prefix)), 1, false); err != nil {
+				t.Fatalf("readObjectAt: %v", err)
+			}
+			if got := len(framingDiagsFor(d, 1)) > 0; got != tc.want {
+				t.Errorf("framing diagnostic = %v, want %v (%v)", got, tc.want, d.Diagnostics())
+			}
+		})
+	}
+}
