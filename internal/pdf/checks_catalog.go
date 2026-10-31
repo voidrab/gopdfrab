@@ -73,8 +73,8 @@ func (c Check) Description() string { return c.description }
 // It returns the Part 1 description unless the level is a Part 2 level that
 // words the rule differently.
 func (c Check) DescriptionIn(level LevelType) string {
-	if partOf(level)&partsA2 != 0 && c.parts&partsA2 != 0 {
-		if d := part2Clauses[c.id].description; d != "" {
+	if partOf(level)&partsA2 != 0 {
+		if d := part2Clauses[c.name].description; d != "" {
 			return d
 		}
 	}
@@ -100,12 +100,10 @@ func (c Check) AppliesTo(level LevelType) bool {
 // ClauseIn returns the clause and subclause c enforces under the given level.
 // ok is false when c is not a rule of that level.
 func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool) {
-	p := partOf(level)
-	if c.parts&p == 0 {
+	if !c.AppliesTo(level) {
 		return "", 0, false
 	}
-	if p&partsA2 != 0 && c.clause != ObjectModelClause {
-		ref := part2Clauses[c.id]
+	if ref, ok := part2Clauses[c.name]; ok && partOf(level)&partsA2 != 0 {
 		return ref.clause, ref.subclause, true
 	}
 	return c.clause, c.subclause, true
@@ -443,7 +441,7 @@ func ChecksForClauseIn(level LevelType, clause string) []Check {
 // it; the object-model clause makes it a rule of every level.
 func newCheck(id int, name, description, clause string, subclause int) Check {
 	p := partsA1
-	if _, ok := part2Clauses[id]; ok {
+	if _, ok := part2Clauses[name]; ok {
 		p |= partsA2
 	}
 	if clause == ObjectModelClause {

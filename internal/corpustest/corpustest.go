@@ -148,7 +148,7 @@ func (c Corpus) Covers(clause string) bool {
 		return true
 	}
 	for _, covered := range c.Clauses {
-		if clause == covered || strings.HasPrefix(clause, covered+".") {
+		if strings.HasPrefix(clause+".", covered+".") {
 			return true
 		}
 	}

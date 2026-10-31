@@ -42,7 +42,7 @@ func VerifyContext(ctx context.Context, d *pdf.Reader, p *pdf.Profile) (_ pdf.Re
 		return pdf.Result{}, err
 	}
 
-	issues := verifyPdfA1bParts(ctx, d, p, spec).Issues()
+	issues := verifyPdfAParts(ctx, d, p, spec).Issues()
 	if err := ctx.Err(); err != nil {
 		return pdf.Result{}, err
 	}
@@ -83,7 +83,7 @@ func LevelSpec(p *pdf.Profile) (pdfa.Spec, error) {
 
 // Parts splits the A-1b issue list by what the checks read. PreStructural
 // and PostStructural are byte-level checks against the reader's file and
-// xref bytes, in exactly the positions verifyPdfA1b emits them (the header/
+// xref bytes, in exactly the positions verifyPdfAParts emits them (the header/
 // trailer/xref checks lead the list; object framing and the reader's parse
 // diagnostics trail it). Graph is everything in between: a function of the
 // resolved object graph and its streams only, so on a seeded reader it is a
@@ -94,7 +94,7 @@ type Parts struct {
 	PostStructural []pdf.PDFError
 }
 
-// Issues reassembles the parts in verifyPdfA1b's emission order.
+// Issues reassembles the parts in verifyPdfAParts's emission order.
 func (pt Parts) Issues() []pdf.PDFError {
 	out := make([]pdf.PDFError, 0, len(pt.PreStructural)+len(pt.Graph)+len(pt.PostStructural))
 	out = append(out, pt.PreStructural...)
@@ -119,7 +119,7 @@ func (pt Parts) filter(p *pdf.Profile) Parts {
 // the byte-level checks. A validated profile leaves nothing to fail, so it
 // returns no error; a panic is the caller's to recover.
 func VerifyParts(d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
-	return verifyPdfA1bParts(context.Background(), d, p, spec).filter(p)
+	return verifyPdfAParts(context.Background(), d, p, spec).filter(p)
 }
 
 // VerifyStructural runs only the byte-level structural checks against d --
@@ -247,7 +247,7 @@ func filterByProfile(issues []pdf.PDFError, p *pdf.Profile) []pdf.PDFError {
 	return out
 }
 
-// PDF/A-1b (ISO 19005-1:2005)
+// PDF/A (ISO 19005)
 
 // structuralPreIssues runs the byte-level checks that lead the issue list:
 // file header, linearized ID consistency where the level requires it,
@@ -270,9 +270,9 @@ func structuralPostIssues(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	return append(issues, spec.Issues(d.Diagnostics())...)
 }
 
-// verifyPdfA1bParts runs the A-1b checks. A cancelled run returns early with
+// verifyPdfAParts runs the checks of spec's level. A cancelled run returns early with
 // partial parts; the caller checks run.Err() and discards them.
-func verifyPdfA1bParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
+func verifyPdfAParts(run context.Context, d *pdf.Reader, p *pdf.Profile, spec pdfa.Spec) Parts {
 	// A profile enabling nothing but the object-model checks skips every
 	// PDF/A-specific family up front instead of filtering its findings away
 	// at the end, so VerifyObjectModel never decodes content streams, parses
@@ -504,21 +504,20 @@ func verifyFileTrailer(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	// trailer (no /Root), this is the first-page trailer that holds /ID, /Root, etc.
 	eff := d.EffectiveTrailer()
 
-	switch id := eff.Entries.Get("ID"); {
+	id := eff.Entries.Get("ID")
+	var resolvedID pdf.PDFValue
+	if spec.FileIDBytes {
+		resolvedID, _ = d.ResolveObject(id) // nil when it cannot be resolved
+	}
+	var idErr error
+	switch {
 	case id == nil:
-		errs = append(errs, pdf.NewError(
-			pdf.Checks.Structure.TrailerID,
-			[]error{fmt.Errorf("trailer does not contain the required ID keyword")},
-			0,
-			nil,
-		))
-	case spec.FileIDBytes && !hasFileIdentifier(d, id):
-		errs = append(errs, pdf.NewError(
-			pdf.Checks.Structure.TrailerID,
-			[]error{errors.New("trailer ID is not an array of non-empty file identifier strings")},
-			0,
-			nil,
-		))
+		idErr = errors.New("trailer does not contain the required ID keyword")
+	case spec.FileIDBytes && !pdf.HasFileIdentifier(resolvedID):
+		idErr = errors.New("trailer ID is not an array of non-empty file identifier strings")
+	}
+	if idErr != nil {
+		errs = append(errs, pdf.NewError(pdf.Checks.Structure.TrailerID, []error{idErr}, 0, nil))
 	}
 
 	if eff.Entries.Get("Encrypt") != nil {
@@ -554,14 +553,6 @@ func verifyFileTrailer(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	}
 
 	return nil
-}
-
-// hasFileIdentifier reports whether a trailer ID, resolved if indirect, holds
-// file identifier bytes. An ID that cannot be resolved holds none:
-// ResolveObject returns nil with its error.
-func hasFileIdentifier(d *pdf.Reader, id pdf.PDFValue) bool {
-	resolved, _ := d.ResolveObject(id)
-	return pdf.HasFileIdentifier(resolved)
 }
 
 // verifyCrossReferenceTable verifies requirements outlined in 6.1.4 for the
@@ -931,7 +922,7 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			}
 
 		case pdf.PDFRef:
-			// Unreachable while verifyPdfA1bParts resolves the graph first. The
+			// Unreachable while verifyPdfAParts resolves the graph first. The
 			// case is spelled out because falling through would leave an
 			// unresolved subtree unverified, without any report.
 			ctx.Report(

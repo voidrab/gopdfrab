@@ -73,7 +73,7 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 
 // TestConvertDegradesGracefullyOnUnresolvableGraph verifies that Convert
 // behaves like Verify, which reports a GraphResolutionFailure issue rather
-// than erroring (see verifyPdfA1b), when the object graph cannot be fully
+// than erroring (see verifyPdfAParts), when the object graph cannot be fully
 // resolved. The unparseable object degrades to null, the rewrite proceeds, and
 // the content it held is reported as lost, separately from the verdict on the
 // bytes, which are conformant. The input is a fixture whose object 2 body is

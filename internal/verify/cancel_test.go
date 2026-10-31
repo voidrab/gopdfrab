@@ -134,11 +134,11 @@ func TestVerifyPartsCancelledBeforePageChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if full := verifyPdfA1bParts(context.Background(), d, pdf.PDFA1B, a1b()); len(full.Graph) == 0 {
+	if full := verifyPdfAParts(context.Background(), d, pdf.PDFA1B, a1b()); len(full.Graph) == 0 {
 		t.Fatal("fixture must have graph-level issues for the check to be meaningful")
 	}
 	run := &cancelAfterCtx{after: 0}
-	pt := verifyPdfA1bParts(run, d, pdf.PDFA1B, a1b())
+	pt := verifyPdfAParts(run, d, pdf.PDFA1B, a1b())
 	if len(pt.Graph) != 0 {
 		t.Errorf("cancelled run produced %d graph issues, want none", len(pt.Graph))
 	}

@@ -8,22 +8,22 @@ type clauseRef struct {
 	description string
 }
 
-// part2Clauses numbers, by check ID, the checks that are rules of ISO 19005-2
+// part2Clauses numbers, by check name, the checks that are rules of ISO 19005-2
 // too. The subclause is the test number veraPDF gives the rule, so several
 // checks that together enforce one veraPDF rule share its number; a check with
 // no veraPDF counterpart has subclause 0. A check missing here is no rule of
 // the Part 2 levels.
-var part2Clauses = map[int]clauseRef{
+var part2Clauses = map[string]clauseRef{
 	// 6.1.2 File header.
-	1: {"6.1.2", 1, "The file header must be %PDF-1.n, n from 0 to 7, at the start of the file"},
-	2: {"6.1.2", 2, ""},
-	3: {"6.1.2", 2, ""},
-	4: {"6.1.2", 2, ""},
+	"FileHeaderSignature":     {"6.1.2", 1, "The file header must be %PDF-1.n, n from 0 to 7, at the start of the file"},
+	"FileHeaderComment":       {"6.1.2", 2, ""},
+	"FileHeaderCommentLength": {"6.1.2", 2, ""},
+	"FileHeaderCommentBytes":  {"6.1.2", 2, ""},
 	// 6.1.3 File trailer.
-	5: {"6.1.3", 1, "The trailer dictionary must contain an ID entry"},
-	6: {"6.1.3", 2, ""},
-	7: {"6.1.3", 3, ""},
+	"TrailerID":      {"6.1.3", 1, "The trailer dictionary must contain an ID entry"},
+	"TrailerEncrypt": {"6.1.3", 2, ""},
+	"TrailerEOF":     {"6.1.3", 3, ""},
 	// 6.1.4 Cross reference table.
-	8: {"6.1.4", 2, ""},
-	9: {"6.1.4", 2, ""},
+	"XRefKeyword":          {"6.1.4", 2, ""},
+	"XRefSubsectionHeader": {"6.1.4", 2, ""},
 }

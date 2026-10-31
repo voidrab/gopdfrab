@@ -307,10 +307,14 @@ func TestChecksForClauseIn(t *testing.T) {
 // DescriptionIn(A2B) report the entry, and that a check applies to PDF/A-2b
 // exactly when Part 2 numbers it or it is an object-model check.
 func TestPart2Clauses(t *testing.T) {
-	for id, ref := range part2Clauses {
-		c, ok := catalogByID[id]
+	byName := map[string]Check{}
+	for _, c := range AllChecks() {
+		byName[c.Name()] = c
+	}
+	for name, ref := range part2Clauses {
+		c, ok := byName[name]
 		if !ok {
-			t.Errorf("part2Clauses numbers ID %d, which no check has", id)
+			t.Errorf("part2Clauses numbers %s, which no check is named", name)
 			continue
 		}
 		if c.Clause() == ObjectModelClause {
@@ -334,7 +338,7 @@ func TestPart2Clauses(t *testing.T) {
 		}
 	}
 	for _, c := range AllChecks() {
-		_, numbered := part2Clauses[c.ID()]
+		_, numbered := part2Clauses[c.Name()]
 		if want := numbered || c.Clause() == ObjectModelClause; c.AppliesTo(A2B) != want {
 			t.Errorf("%s: AppliesTo(A2B) = %v, want %v", c.Name(), c.AppliesTo(A2B), want)
 		}
@@ -346,8 +350,12 @@ func TestPart2Clauses(t *testing.T) {
 // copied entry on an unrelated check is caught.
 func TestPart2SharingStaysWithinAPart1Clause(t *testing.T) {
 	owner := map[clauseRef]Check{}
-	for id, ref := range part2Clauses {
-		c := catalogByID[id]
+	byName := map[string]Check{}
+	for _, c := range AllChecks() {
+		byName[c.Name()] = c
+	}
+	for name, ref := range part2Clauses {
+		c := byName[name]
 		key := clauseRef{clause: ref.clause, subclause: ref.subclause}
 		if prev, ok := owner[key]; ok && prev.Clause() != c.Clause() {
 			t.Errorf("%s (Part 1 %s) and %s (Part 1 %s) share the Part 2 rule %s/%d",
