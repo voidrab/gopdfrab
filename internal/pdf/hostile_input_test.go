@@ -127,7 +127,6 @@ func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 func TestLexerConsecutiveCommentsUseConstantStack(t *testing.T) {
 	data := []byte(strings.Repeat("%c\n", 1_000_000) + "42")
 	l := NewLexerBytes(data, 0)
-	defer l.Release()
 	old := debug.SetMaxStack(8 << 20)
 	defer debug.SetMaxStack(old)
 	tok := l.NextToken()

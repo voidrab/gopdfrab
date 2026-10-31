@@ -402,7 +402,6 @@ func ReplayOps(ops []ScannedOp, fn func(op string, operands []PDFValue)) {
 // operands collected since the previous operator. It stops at the first thing
 // it cannot read, which Complete reports.
 func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
-	defer cs.lex.Release()
 	cs.complete = false
 	for {
 		tok := cs.lex.NextToken()

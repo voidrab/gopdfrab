@@ -3,7 +3,6 @@ package pdf
 import (
 	"errors"
 	"fmt"
-	"io"
 )
 
 func (d *Reader) ResolveObject(obj PDFValue) (PDFValue, error) {
@@ -153,20 +152,17 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 	return v, nil
 }
 
-func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
+func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error) {
 	if offset < 0 {
 		return nil, fmt.Errorf("object %d: negative offset %d", ref.ObjNum, offset)
 	}
-	var l *Lexer
-	if d.src.mem != nil {
-		l = NewLexerBytes(d.src.mem, offset)
-	} else {
-		if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
-			return nil, err
+	l := d.src.lexer(offset)
+	defer func() {
+		// A failed read, not the file's content, is why the parse failed.
+		if err != nil && l.err != nil {
+			err = fmt.Errorf("object %d: %w", ref.ObjNum, l.err)
 		}
-		l = NewLexerAt(d.file, offset)
-		defer l.Release()
-	}
+	}()
 
 	headerNum, headerErrs := l.validateObjectStart()
 	d.recordFraming(ref.ObjNum, headerErrs)

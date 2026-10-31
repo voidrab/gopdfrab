@@ -50,7 +50,6 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 	// Lex the trailer keyword and dictionary together so the keyword may sit on
 	// its own line or share one with the dict ("trailer << ... >>").
 	l := NewLexerBytes(c.Rest(8192), 0)
-	defer l.Release()
 
 	if tok := l.NextToken(); tok.Value != "trailer" {
 		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", tok.Value)

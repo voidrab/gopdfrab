@@ -13,7 +13,7 @@ func newXRefTestFileReader(data []byte) fileSource {
 
 // parseIndirectObjectAtBytes runs parseIndirectObjectAt over an in-memory file.
 func parseIndirectObjectAtBytes(data []byte, offset int64) (int, PDFDict, error) {
-	return parseIndirectObjectAt(newXRefTestFileReader(data), int64(len(data)), offset)
+	return parseIndirectObjectAt(&source{file: newXRefTestFileReader(data), size: int64(len(data))}, offset)
 }
 
 // TestParseIndirectObjectAtErrors covers every malformed-input error branch:

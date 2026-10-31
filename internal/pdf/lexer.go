@@ -1,12 +1,10 @@
 package pdf
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 	"strconv"
-	"sync"
 	"unsafe"
 )
 
@@ -40,16 +38,17 @@ func (t Token) RealValue() (float64, error) {
 	return strconv.ParseFloat(t.Value, 64)
 }
 
-// Lexer holds the state of the current chunk being parsed.
-// data is non-nil when lexing a []byte directly (fast path); reader is used
-// for the io.Reader fallback (trailer parsing, object streams).
+// Lexer holds the state of the current chunk being parsed. It lexes buf, the
+// bytes from file offset base on: a whole slice, or, lexing a file read on
+// demand, a window that moves along the file as the position does.
 type Lexer struct {
-	data   []byte
-	reader *bufio.Reader
-	pos    int64
+	buf  []byte
+	base int64
+	src  *source // the file the window is read from; nil for a slice
+	pos  int64
+	// err is why a read of the file failed, which ends the lexing early.
+	err    error
 	pushed []Token
-	// numBuf is readNumber's reader-path scratch, reused across tokens.
-	numBuf []byte
 	// arrScratch is parseArray's shared element stack (see parser.go).
 	arrScratch []PDFValue
 	// depth is the current array/dictionary nesting depth, bounded by
@@ -58,64 +57,64 @@ type Lexer struct {
 	depth int
 }
 
-// NewLexerBytes creates a fast lexer that indexes data starting at startPos.
+// NewLexerBytes creates a lexer over data, starting at startPos.
 func NewLexerBytes(data []byte, startPos int64) *Lexer {
-	if data == nil {
-		data = []byte{}
+	return &Lexer{buf: data, pos: startPos}
+}
+
+// lexerWindow is how much of a file read on demand a Lexer holds at a time.
+const lexerWindow = 4096
+
+// lexer returns a Lexer over the file from offset on, lexing it in place when
+// it is in memory.
+func (s *source) lexer(offset int64) *Lexer {
+	if s.mem != nil {
+		return &Lexer{buf: s.mem, pos: offset}
 	}
-	return &Lexer{data: data, pos: startPos}
+	return &Lexer{src: s, pos: offset}
+}
+
+// byteAt returns the byte at file offset pos, moving the window there when it
+// lies outside, or false when the input has no byte there.
+func (l *Lexer) byteAt(pos int64) (byte, bool) {
+	if i := pos - l.base; i >= 0 && i < int64(len(l.buf)) {
+		return l.buf[i], true
+	}
+	if !l.slide(pos, lexerWindow) {
+		return 0, false
+	}
+	return l.buf[0], true
+}
+
+// slide moves the window to hold up to n bytes from pos on, and reports
+// whether there are any. A slice has no bytes beyond itself.
+func (l *Lexer) slide(pos int64, n int) bool {
+	if l.src == nil {
+		return false
+	}
+	b, err := l.src.window(pos, n)
+	if err != nil {
+		l.err = err
+	}
+	if len(b) == 0 {
+		return false
+	}
+	l.buf, l.base = b, pos
+	return true
+}
+
+// span returns the bytes from start up to the read position, which the
+// window may have moved past.
+func (l *Lexer) span(start int64) []byte {
+	if start < l.base || l.pos-l.base > int64(len(l.buf)) {
+		l.slide(start, int(l.pos-start))
+	}
+	return l.buf[start-l.base : l.pos-l.base]
 }
 
 // peekByte returns the next byte without advancing the position.
 func (l *Lexer) peekByte() (byte, bool) {
-	if l.data != nil {
-		if l.pos >= int64(len(l.data)) {
-			return 0, false
-		}
-		return l.data[l.pos], true
-	}
-	b, err := l.reader.Peek(1)
-	if err != nil || len(b) == 0 {
-		return 0, false
-	}
-	return b[0], true
-}
-
-// bufioReaderPool reuses buffers across Lexer construction.
-var bufioReaderPool = sync.Pool{
-	New: func() any { return bufio.NewReaderSize(emptyLexerReader, 4096) },
-}
-
-// emptyLexerReader is a shared, never-mutated zero-length reader used to
-// detach a released bufio.Reader from its previous source before returning
-// it to the pool, so the pool doesn't pin large byte slices in memory.
-var emptyLexerReader = bytes.NewReader(nil)
-
-func acquireBufioReader(r io.Reader) *bufio.Reader {
-	br := bufioReaderPool.Get().(*bufio.Reader)
-	br.Reset(r)
-	return br
-}
-
-// NewLexer creates a lexer for a specific chunk of data.
-func NewLexer(r io.Reader) *Lexer {
-	return &Lexer{reader: acquireBufioReader(r)}
-}
-
-func NewLexerAt(r io.Reader, offset int64) *Lexer {
-	return &Lexer{reader: acquireBufioReader(r), pos: offset}
-}
-
-// Release returns l's underlying bufio.Reader to the pool for reuse by a
-// later Lexer. Callers that construct a short-lived Lexer (the common case)
-// should defer Release once the lexer is no longer needed.
-func (l *Lexer) Release() {
-	if l.reader == nil {
-		return
-	}
-	l.reader.Reset(emptyLexerReader)
-	bufioReaderPool.Put(l.reader)
-	l.reader = nil
+	return l.byteAt(l.pos)
 }
 
 // NextToken returns the next distinct token from the stream.
@@ -277,31 +276,19 @@ func (l *Lexer) validateObjectEnd() []error {
 // --- Helper Functions ---
 
 func (l *Lexer) readByte() (byte, error) {
-	if l.data != nil {
-		if l.pos >= int64(len(l.data)) {
-			return 0, io.EOF
+	b, ok := l.byteAt(l.pos)
+	if !ok {
+		if l.err != nil {
+			return 0, l.err
 		}
-		b := l.data[l.pos]
-		l.pos++
-		return b, nil
+		return 0, io.EOF
 	}
-	b, err := l.reader.ReadByte()
-	if err == nil {
-		l.pos++
-	}
-	return b, err
+	l.pos++
+	return b, nil
 }
 
-func (l *Lexer) unreadByte() error {
-	if l.data != nil {
-		l.pos--
-		return nil
-	}
-	err := l.reader.UnreadByte()
-	if err == nil {
-		l.pos--
-	}
-	return err
+func (l *Lexer) unreadByte() {
+	l.pos--
 }
 
 func (l *Lexer) skipWhitespace() {
@@ -336,32 +323,15 @@ func (l *Lexer) readName() Token {
 // readNumber handles integers and reals, parsing the value once into the
 // token's Int/Num payload; only malformed numbers keep their raw text.
 func (l *Lexer) readNumber() Token {
-	var raw []byte
-	if l.data != nil {
-		start := l.pos
-		for l.pos < int64(len(l.data)) {
-			b := l.data[l.pos]
-			if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
-				break
-			}
-			l.pos++
+	start := l.pos
+	for {
+		b, ok := l.byteAt(l.pos)
+		if !ok || !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
+			break
 		}
-		raw = l.data[start:l.pos]
-	} else {
-		l.numBuf = l.numBuf[:0]
-		for {
-			b, err := l.readByte()
-			if err != nil {
-				break
-			}
-			if !(b >= '0' && b <= '9') && b != '.' && b != '+' && b != '-' {
-				l.unreadByte()
-				break
-			}
-			l.numBuf = append(l.numBuf, b)
-		}
-		raw = l.numBuf
+		l.pos++
 	}
+	raw := l.span(start)
 
 	isReal := bytes.IndexByte(raw, '.') >= 0
 	// Transient no-copy view; strconv does not retain its argument.
@@ -529,7 +499,8 @@ func (l *Lexer) skipEOL() error {
 		return nil
 	}
 
-	return l.unreadByte()
+	l.unreadByte()
+	return nil
 }
 
 func (l *Lexer) requireSingleSpace() error {
@@ -564,7 +535,7 @@ func (l *Lexer) requireEOL() error {
 		return nil
 	}
 
-	l.unreadByte() // cannot fail straight after a successful readByte
+	l.unreadByte()
 	return fmt.Errorf("expected EOL, got 0x%02X", b)
 }
 

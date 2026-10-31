@@ -24,7 +24,6 @@ func TestConsumeStreamEOL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &Reader{}
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			if got := d.consumeStreamEOL(l); got != tc.want {
 				t.Errorf("consumeStreamEOL(%q) = %v, want %v", tc.data, got, tc.want)
 			}
@@ -166,8 +165,7 @@ func TestValidateStream(t *testing.T) {
 	t.Run("file-backed ReadAt error", func(t *testing.T) {
 		data := []byte("\nHi")
 		d := newTestFileReader(data)
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
+		l := d.src.lexer(0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error reading a stream body past EOF")
@@ -177,8 +175,7 @@ func TestValidateStream(t *testing.T) {
 	t.Run("file-backed Length includes EOL", func(t *testing.T) {
 		data := []byte("\ndataendstream")
 		d := newTestFileReader(data)
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
+		l := d.src.lexer(0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
@@ -227,8 +224,7 @@ func TestValidateStream(t *testing.T) {
 	t.Run("file-backed final seek error", func(t *testing.T) {
 		data := []byte("\ndataendstream")
 		d := &Reader{file: seekFailFileSource{bytesFileSource{bytes.NewReader(data)}}}
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
+		l := d.src.lexer(0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected the final seek-back error to propagate")

@@ -3,7 +3,6 @@ package pdf
 import (
 	"bytes"
 	"fmt"
-	"io"
 )
 
 // validateStream performs a partial validation of requirements 6.1.7 and
@@ -89,14 +88,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stray bytes between the stream body and the endstream keyword")
 	}
-	posAfter := kwPos + int64(len(endstreamKeyword))
-	if d.src.mem == nil {
-		if _, err := d.file.Seek(posAfter, io.SeekStart); err != nil {
-			return err
-		}
-		l.reader.Reset(d.file)
-	}
-	l.pos = posAfter
+	l.pos = kwPos + int64(len(endstreamKeyword))
 
 	return nil
 }

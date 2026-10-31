@@ -178,8 +178,7 @@ func TestParseXRefTable(t *testing.T) {
 // parseDictionary (which invokes parseObject for each value).
 func TestParseObjectValueTypes(t *testing.T) {
 	src := "/A null /B keywordX /C true /D 1.5 /E <48656C6C6F> >>"
-	l := NewLexer(bytes.NewReader([]byte(src)))
-	defer l.Release()
+	l := NewLexerBytes([]byte(src), 0)
 
 	dict, err := parseDictionary(l)
 	if err != nil {
@@ -205,8 +204,7 @@ func TestParseObjectValueTypes(t *testing.T) {
 
 // TestParseDictionaryUnexpectedEOF covers parseDictionary's EOF error branch.
 func TestParseDictionaryUnexpectedEOF(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("/A 1")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("/A 1"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error for a dictionary truncated before '>>'")
 	}
@@ -215,8 +213,7 @@ func TestParseDictionaryUnexpectedEOF(t *testing.T) {
 // TestParseDictionaryKeyTypeMismatch covers the "expected dictionary key"
 // error: a non-Name token where a key is expected.
 func TestParseDictionaryKeyTypeMismatch(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("1 >>")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("1 >>"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error for a non-name dictionary key")
 	}
@@ -226,8 +223,7 @@ func TestParseDictionaryKeyTypeMismatch(t *testing.T) {
 // branch: a malformed nested array value fails to parse and the failure
 // bubbles up (also exercising parseArray's own error-propagation branch).
 func TestParseDictionaryValueError(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("/A [1 2 >>")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("/A [1 2 >>"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error propagated from a malformed nested array value")
 	}

@@ -2,7 +2,6 @@ package pdf
 
 import (
 	"fmt"
-	"io"
 	"math"
 )
 
@@ -19,12 +18,14 @@ type xrefRange struct {
 // path (parseClassicReference) cannot run yet. Per ISO 32000-1 7.5.8.2, a
 // cross-reference stream's own /Length must be a direct integer, which this
 // function relies on to read the stream body without resolving anything.
-func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dict PDFDict, err error) {
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return 0, PDFDict{}, err
-	}
-	l := NewLexerAt(file, offset)
-	defer l.Release()
+func parseIndirectObjectAt(src *source, offset int64) (objNum int, dict PDFDict, err error) {
+	l := src.lexer(offset)
+	defer func() {
+		// A failed read, not the file's content, is why the parse failed.
+		if err != nil && l.err != nil {
+			err = fmt.Errorf("object at offset %d: %w", offset, l.err)
+		}
+	}()
 
 	objTok := l.NextToken()
 	if objTok.Type != TokenInteger {
@@ -72,11 +73,11 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 	}
 
 	// Bound before allocating: /Length is untrusted.
-	if int64(length) > size-l.pos {
+	if int64(length) > src.size-l.pos {
 		return 0, PDFDict{}, fmt.Errorf("object %d: stream body extends past end of file", objNum)
 	}
-	data := make([]byte, length)
-	if _, err := file.ReadAt(data, l.pos); err != nil {
+	data, err := src.window(l.pos, length)
+	if err != nil {
 		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
 	}
 	dict.SetStream(data)
@@ -99,7 +100,7 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 // conformant file never reaches this path; it exists purely so arbitrary
 // modern input PDFs (e.g. for conversion) using one can still be read.
 func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) {
-	_, dict, err := parseIndirectObjectAt(d.file, d.src.size, offset)
+	_, dict, err := parseIndirectObjectAt(&d.src, offset)
 	if err != nil {
 		return PDFDict{}, err
 	}

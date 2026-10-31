@@ -18,9 +18,7 @@ import (
 // disk (Open) or an in-memory buffer (OpenBytes), so a freshly-written PDF can
 // be re-verified without a temp-file round-trip.
 type fileSource interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }
 
@@ -459,9 +457,7 @@ func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 // behavior against a specific -- often deliberately malformed -- structure
 // without a real file round-trip; production code should use Open/OpenBytes.
 func NewRawReader(file interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }, trailer PDFDict, size int64, xrefOffset int64) *Reader {
 	return &Reader{file: file, src: source{file: file, size: size}, trailer: trailer, xrefOffset: xrefOffset, degradeUnresolvable: true}
@@ -656,19 +652,16 @@ func (d *Reader) initializeStructure() error {
 		var literalTrailer PDFDict
 		haveLiteral := false
 		if trailerIdx != -1 {
-			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+			l := NewLexerBytes(searchBlock[trailerIdx:], 0)
 			if tok := l.NextToken(); tok.Value == "trailer" {
 				if t, terr := parseDictionary(l); terr == nil {
 					literalTrailer, haveLiteral = t, true
 				} else if xrefErr == nil {
-					l.Release()
 					return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, terr)
 				}
 			} else if xrefErr == nil {
-				l.Release()
 				return fmt.Errorf("%w: expected 'trailer' keyword", ErrDamaged)
 			}
-			l.Release()
 		} else if xrefErr == nil {
 			return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
 		}
