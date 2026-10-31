@@ -358,7 +358,9 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 // outputIntentChecks are the Checks injectOutputIntent (fixups_colour.go) is
 // expected to resolve: the OutputIntent dictionary/profile structural family
 // (6.2.2) it fixes directly, plus the device-colour-usage family (6.2.3.3/
-// 6.2.3.4) it fixes as a side effect of making ctx.deviceColourAllowed true.
+// 6.2.3.4) it fixes as a side effect of making ctx.deviceColourAllowed true,
+// and a transparent page's missing blending colour space (ISO 19005-2
+// 6.2.10), which the intent makes unnecessary.
 // Deliberately excludes Checks.Colour.RenderingIntent (the /ri content
 // operator, unrelated) and UndefinedOperator.
 //
@@ -376,6 +378,7 @@ func outputIntentChecks() []pdf.Check {
 		pdf.Checks.Colour.OutputIntentMissingN, pdf.Checks.Colour.OutputIntentInvalidN,
 		pdf.Checks.Colour.OutputIntentICCVersion, pdf.Checks.Colour.DeviceColourSpaceUsage,
 		pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.SeparationAlternateColour,
+		pdf.Checks.Transparency.TransparencyWithoutBlendingSpace,
 	}
 }
 
@@ -531,10 +534,12 @@ func TestConvertIsDeterministic(t *testing.T) {
 // re-encoded as content and the output is conformant.
 //
 // The PDF/A-2b floor counts the fail fixtures of the clauses listed in
-// corpustest.VeraPDF2B.Clauses.
+// corpustest.VeraPDF2B.Clauses, less the two whose JPEG 2000 data has two
+// colour channels or a bit depth of 41: no repair short of decoding the data
+// can fix those.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
-	pdf.A2B: 128,
+	pdf.A2B: 189,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to

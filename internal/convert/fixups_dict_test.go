@@ -368,7 +368,7 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XObject", xobjects)
 
-	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	changed, err := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	if bpc, _ := gotMask.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc != 16 {
 		t.Errorf("image mask BitsPerComponent = %v, want it left to 6.2.4-6", bpc)
 	}
-	if changed, _ := (imageSampleDepthFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("second pass reported a change, want idempotent")
 	}
 }
@@ -449,7 +449,7 @@ func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("XObject", xobjects)
 
-	changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil)
+	changed, err := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil)
 	if err != nil || changed {
 		t.Errorf("Fix = %v, %v; want no change", changed, err)
 	}

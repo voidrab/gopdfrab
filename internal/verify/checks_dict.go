@@ -192,15 +192,20 @@ func validateXObjectDict(v pdf.PDFDict, ctx *ValidationContext) {
 		if intent, ok := v.Entries.Get("Intent").(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(intent.Value) {
 			ctx.Report(pdf.Checks.Image.ImageRenderingIntent, v, fmt.Sprintf("image uses invalid rendering intent /%s", intent.Value))
 		}
-		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1/2/4/8, or 1 for image masks.
+		// 6.2.4-4 / 6.2.4-5: BitsPerComponent must be 1, 2, 4 or 8 (or, where
+		// the level allows it, 16), and 1 for image masks.
 		if bpc, ok := v.Entries.Get("BitsPerComponent").(pdf.PDFInteger); ok {
 			isMask, _ := v.Entries.Get("ImageMask").(pdf.PDFBoolean)
 			if bool(isMask) {
 				if bpc != 1 {
 					ctx.Report(pdf.Checks.Image.ImageMaskBitsPerComponent, v, fmt.Sprintf("image mask BitsPerComponent is %d, must be 1", int(bpc)))
 				}
-			} else if bpc != 1 && bpc != 2 && bpc != 4 && bpc != 8 {
-				ctx.Report(pdf.Checks.Image.ImageBitsPerComponent, v, fmt.Sprintf("image BitsPerComponent is %d, must be 1, 2, 4, or 8", int(bpc)))
+			} else if !ctx.Spec.BitsPerComponentAllowed(int(bpc)) {
+				allowed := "1, 2, 4, or 8"
+				if ctx.Spec.SixteenBitImages {
+					allowed = "1, 2, 4, 8 or 16"
+				}
+				ctx.Report(pdf.Checks.Image.ImageBitsPerComponent, v, fmt.Sprintf("image BitsPerComponent is %d, must be %s", int(bpc), allowed))
 			}
 		}
 		// 6.4: soft-masked images introduce transparency.

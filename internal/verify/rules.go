@@ -67,6 +67,26 @@ var dictRules = []dictRule{
 	},
 	{
 		checks: []pdf.Check{
+			pdf.Checks.Transparency.TransparencyWithoutBlendingSpace,
+		},
+		fn: validatePageTransparency,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Transparency.DeviceBlendingColourSpace,
+		},
+		fn: validateBlendingColourSpace,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Image.JPXBitDepth, pdf.Checks.Image.JPXCIEJab,
+			pdf.Checks.Image.JPXColourChannels, pdf.Checks.Image.JPXColourMethod,
+			pdf.Checks.Image.JPXColourSpecs,
+		},
+		fn: validateJPXImage,
+	},
+	{
+		checks: []pdf.Check{
 			pdf.Checks.Image.FormOPI, pdf.Checks.Image.FormPSEntry, pdf.Checks.Image.FormPostScript,
 			pdf.Checks.Image.FormSubtype2PS, pdf.Checks.Image.ImageAlternates,
 			pdf.Checks.Image.ImageBitsPerComponent, pdf.Checks.Image.ImageInterpolate,
@@ -105,7 +125,7 @@ var dictRules = []dictRule{
 			pdf.Checks.Colour.ICCBasedCMYKOverprint, pdf.Checks.Colour.InheritedResources,
 			pdf.Checks.Colour.RenderingIntent,
 			pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Image.ImageInterpolate,
-			pdf.Checks.Image.ImageRenderingIntent,
+			pdf.Checks.Image.InlineImageRenderingIntent,
 			pdf.Checks.Structure.GraphicsStateNesting, pdf.Checks.Structure.HexStringInvalidChar,
 			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageFilterNotAllowed,
 			pdf.Checks.Structure.InlineImageLZWFilter,

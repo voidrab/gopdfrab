@@ -436,7 +436,7 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
 // checks_dict.go. It also repairs the inline-image case of ImageInterpolate
-// and, under Part 2, of ImageRenderingIntent, which checkInlineImageOther in
+// and InlineImageRenderingIntent, which checkInlineImageOther in
 // checks_content.go reports; fixInlineImage handles it because a Check can
 // have only one registered Fixer. The PostScript-related checks
 // (FormPostScript, FormPSEntry, FormSubtype2PS, PostScriptXObject) belong to
@@ -447,6 +447,7 @@ func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
 	case pdf.Checks.Image.ImageInterpolate, pdf.Checks.Image.ImageAlternates,
 		pdf.Checks.Image.ImageOPI, pdf.Checks.Image.ImageRenderingIntent,
+		pdf.Checks.Image.InlineImageRenderingIntent,
 		pdf.Checks.Image.ReferenceXObject, pdf.Checks.Image.FormOPI:
 		return true
 	}
@@ -495,8 +496,7 @@ func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 	return changed, nil
 }
 
-// fixInlineImage repairs an inline image's Interpolate and, since a Part 2
-// level reports it as ImageRenderingIntent, its rendering intent.
+// fixInlineImage repairs an inline image's Interpolate and rendering intent.
 func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
 	cop, keep := fixInlineImageInterpolate(op, operands, changed)
 	if op != "INLINEIMAGE" {
@@ -512,20 +512,21 @@ func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, c
 // --- 6.2.4 sample depth ---
 
 // imageSampleDepthFixer remediates ImageBitsPerComponent: PDF/A-1 allows 1, 2,
-// 4 or 8 bits per component, and 16-bit images turn up in real documents.
+// 4 or 8 bits per component, PDF/A-2 also 16, and other depths turn up in
+// real documents.
 // The samples are decoded and written back at 8 bits, which is the depth the
 // standard allows and the one a viewer shows anyway; the alternative -- leaving
 // it -- ends with the page rasterized around it.
 //
 // It also clears the object model's matching finding on the same key, since the
 // enumeration it fails is the same rule.
-type imageSampleDepthFixer struct{}
+type imageSampleDepthFixer struct{ spec *pdfa.Spec }
 
 func (imageSampleDepthFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Image.ImageBitsPerComponent
 }
 
-func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
@@ -534,11 +535,11 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 		if mask, _ := d.Entries.Get("ImageMask").(pdf.PDFBoolean); bool(mask) {
 			return false // an image mask is 6.2.4-6's business, always 1 bit
 		}
-		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc {
-		case 1, 2, 4, 8:
-			return false
-		case 0:
+		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); {
+		case bpc == 0:
 			return false // absent: nothing to repair
+		case f.spec.BitsPerComponentAllowed(int(bpc)):
+			return false
 		}
 		canvas, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {

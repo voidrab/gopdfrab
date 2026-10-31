@@ -342,7 +342,7 @@ func TestFixersDoNotStorePlaceholderSamples(t *testing.T) {
 		xobjects.Entries.Set("Im0", jbig2(map[string]pdf.PDFValue{"BitsPerComponent": pdf.PDFInteger(16)}))
 		trailer := pdf.NewPDFDict()
 		trailer.Entries.Set("XObject", xobjects)
-		if changed, err := (imageSampleDepthFixer{}).Fix(&trailer, nil); err != nil || changed {
+		if changed, err := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil || changed {
 			t.Errorf("Fix = %v, %v; want no change", changed, err)
 		}
 	})

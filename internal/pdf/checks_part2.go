@@ -102,5 +102,28 @@ var part2Clauses = map[string]clauseRef{
 	"HalftoneTransferFunction": {"6.2.5", 6, ""},
 	"ExtGStateRenderingIntent": {"6.2.5", 0, ""},
 	// 6.2.6 Rendering intents.
-	"ImageRenderingIntent": {"6.2.6", 1, ""},
+	"InlineImageRenderingIntent": {"6.2.6", 1, ""},
+	// 6.2.8 Image dictionaries.
+	"ImageRenderingIntent":      {"6.2.8", 0, ""},
+	"ImageAlternates":           {"6.2.8", 1, ""},
+	"ImageOPI":                  {"6.2.8", 2, ""},
+	"ImageInterpolate":          {"6.2.8", 3, ""},
+	"ImageBitsPerComponent":     {"6.2.8", 4, "An image XObject BitsPerComponent value must be 1, 2, 4, 8 or 16"},
+	"ImageMaskBitsPerComponent": {"6.2.8", 5, ""},
+	// 6.2.8.3 JPEG2000.
+	"JPXColourChannels": {"6.2.8.3", 1, ""},
+	"JPXColourSpecs":    {"6.2.8.3", 2, ""},
+	"JPXColourMethod":   {"6.2.8.3", 3, ""},
+	"JPXCIEJab":         {"6.2.8.3", 4, ""},
+	"JPXBitDepth":       {"6.2.8.3", 5, ""},
+	// 6.2.9 XObjects.
+	"FormOPI":           {"6.2.9", 1, ""},
+	"FormSubtype2PS":    {"6.2.9", 1, ""},
+	"FormPSEntry":       {"6.2.9", 1, ""},
+	"ReferenceXObject":  {"6.2.9", 2, "Reference XObjects (/Ref) are not permitted"},
+	"PostScriptXObject": {"6.2.9", 3, "PostScript XObjects (/Subtype /PS) are not permitted"},
+	// 6.2.10 Transparency.
+	"BlendMode":                        {"6.2.10", 1, "ExtGState blend mode (BM) must be one ISO 32000-1 defines"},
+	"TransparencyWithoutBlendingSpace": {"6.2.10", 2, ""},
+	"DeviceBlendingColourSpace":        {"6.2.10", 0, ""},
 }

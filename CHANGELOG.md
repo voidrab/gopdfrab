@@ -41,6 +41,11 @@ Everything under `internal/` may change in any release without notice.
   `SeparationInconsistent` and `DeviceColourBase`, and
   `Checks.Transparency.HalftoneExtGState`, `HalftoneType`, `HalftoneName` and
   `HalftoneTransferFunction`.
+- Eight more PDF/A-2-only checks, for inline image rendering intents,
+  JPEG 2000 data and transparency: `Checks.Image.InlineImageRenderingIntent`,
+  `JPXColourChannels`, `JPXColourSpecs`, `JPXColourMethod`, `JPXCIEJab` and
+  `JPXBitDepth`, and `Checks.Transparency.TransparencyWithoutBlendingSpace`
+  and `DeviceBlendingColourSpace`.
 
 ### Fixed
 

@@ -507,8 +507,8 @@ func TestInlineImageIntentFollowsTheLevel(t *testing.T) {
 	}
 	part2 := a2bContext()
 	checkInlineImageOther(nil, params, part2)
-	if !hasCheck(part2, pdf.Checks.Image.ImageRenderingIntent) {
-		t.Error("Part 2: ImageRenderingIntent not reported")
+	if !hasCheck(part2, pdf.Checks.Image.InlineImageRenderingIntent) {
+		t.Error("Part 2: InlineImageRenderingIntent not reported")
 	}
 }
 

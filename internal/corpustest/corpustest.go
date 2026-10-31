@@ -53,6 +53,10 @@ type Corpus struct {
 	// does not implement every clause. A fail file counts when the clause its
 	// name targets is one of them or lies under one. Pass files always count.
 	Clauses []string
+	// Reclassified maps the base name of a file whose name targets a clause
+	// that its content does not violate to the clause it does violate, as
+	// veraPDF reports it.
+	Reclassified map[string]string
 }
 
 // The committed corpora.
@@ -83,7 +87,13 @@ var (
 		Default: pdf.PDFA2B,
 		Flavour: "2b",
 		Naming:  VeraPDFNames,
-		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6"},
+		Clauses: []string{"6.1", "6.2.2", "6.2.3", "6.2.4", "6.2.5", "6.2.6", "6.2.8", "6.2.9", "6.2.10"},
+		Reclassified: map[string]string{
+			// The transparent glyph of its Type 3 font is never shown, so
+			// the page contains no transparency; the file fails only for
+			// its uncovered DeviceGray.
+			"veraPDF test suite 6-2-10-t04-fail-i.pdf": "6.2.4.3",
+		},
 	}
 )
 
@@ -202,6 +212,9 @@ func (c Corpus) Expect(name string) (clause string, wantFail bool) {
 	m := veraPDFNameRe.FindStringSubmatch(name)
 	if m == nil {
 		return "", false
+	}
+	if clause, ok := c.Reclassified[name]; ok {
+		return clause, m[2] == "fail"
 	}
 	return dashesToDots(m[1]), m[2] == "fail"
 }

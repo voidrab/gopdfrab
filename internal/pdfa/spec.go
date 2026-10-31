@@ -41,6 +41,9 @@ type Spec struct {
 	StreamFilters      Names
 	InlineImageFilters Names
 
+	// SixteenBitImages says whether an image may have 16 bits per component.
+	SixteenBitImages bool
+
 	// Transparency, OptionalContent, XRefStreams and EmbeddedFiles say
 	// whether the level permits each feature.
 	Transparency    bool
@@ -129,6 +132,18 @@ func (s Spec) BlendModeAllowed(bm pdf.PDFValue) bool {
 			}
 		}
 		return true
+	}
+	return false
+}
+
+// BitsPerComponentAllowed reports whether an image that is not a mask may
+// have bpc bits per component.
+func (s Spec) BitsPerComponentAllowed(bpc int) bool {
+	switch bpc {
+	case 1, 2, 4, 8:
+		return true
+	case 16:
+		return s.SixteenBitImages
 	}
 	return false
 }
@@ -222,10 +237,12 @@ var a2b = Spec{
 		"CCITTFaxDecode", "JBIG2Decode", "DCTDecode", "JPXDecode", "Crypt"),
 	InlineImageFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",
 		"CCITTFaxDecode", "DCTDecode", "AHx", "A85", "Fl", "RL", "CCF", "DCT"),
-	Transparency:    true,
-	OptionalContent: true,
-	XRefStreams:     true,
-	EmbeddedFiles:   true,
+	// 6.2.8.
+	SixteenBitImages: true,
+	Transparency:     true,
+	OptionalContent:  true,
+	XRefStreams:      true,
+	EmbeddedFiles:    true,
 	// 6.2.3: ICC.1:2010.
 	ICCMaxMajorVersion:  4,
 	OutputIntentSubtype: "GTS_PDFA1",
