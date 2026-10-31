@@ -13,6 +13,8 @@ const (
 	Undefined LevelType = "undefined"
 	// A1B is PDF/A-1b, ISO 19005-1 Level B.
 	A1B LevelType = "A-1b"
+	// A2B is PDF/A-2b, ISO 19005-2 Level B.
+	A2B LevelType = "A-2b"
 	// ObjectModel is a reporting-only level for the generic ISO 32000
 	// object-model checks (see ObjectModelOnly), independent of any PDF/A level.
 	ObjectModel LevelType = "ObjectModel"
@@ -47,6 +49,10 @@ var PDF *Profile
 // interpretation of the spec. Used by Verify(A1B).
 var PDFA1B *Profile
 
+// PDFA2B is the default PDF/A-2b profile, tuned like PDFA1B to veraPDF's
+// interpretation of the spec. Used by Verify(A2B).
+var PDFA2B *Profile
+
 // Legacy1B is the strict, fully spec-literal PDF/A-1b profile: every check
 // enabled, every Form XObject checked regardless of reachability. Matches the
 // Isartor suite's interpretation, which is stricter than veraPDF's in places.
@@ -78,7 +84,12 @@ func init() {
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
 
+	PDFA2B = NewFullProfile(A2B)
+	PDFA2B.SkipUnreachableXObjects = true
+	PDFA2B.SkipUnusedSimpleFonts = true
+
 	PDFA1B.name = "pdfa1b"
+	PDFA2B.name = "pdfa2b"
 	Legacy1B.name = "legacy1b"
 	PDF.name = "pdf"
 }
@@ -120,14 +131,15 @@ func ObjectModelOnly() *Profile {
 	)
 }
 
+// NewFullProfile returns a profile for the given conformance level enabling
+// every check of the ISO 19005 part the level belongs to.
 func NewFullProfile(level LevelType) *Profile {
-	all := AllChecks()
-	p := &Profile{
-		Level:   level,
-		enabled: make(map[int]bool, len(all)),
-	}
-	for _, c := range all {
-		p.enabled[c.ID()] = true
+	family := familyOf(level)
+	p := &Profile{Level: level, enabled: make(map[int]bool)}
+	for _, c := range AllChecks() {
+		if c.parts&family != 0 {
+			p.enabled[c.ID()] = true
+		}
 	}
 	return p
 }

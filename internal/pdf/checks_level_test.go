@@ -215,6 +215,8 @@ func TestClauseIn(t *testing.T) {
 		{"1a-only logical-structure check under A1B", Checks.LogicalStructure.TaggedMarkInfo, A1B, "", 0, false},
 		{"object-model check under ObjectModel", Checks.ObjectModel.WrongValueType, ObjectModel, ObjectModelClause, 2, true},
 		{"object-model check under A1B", Checks.ObjectModel.WrongValueType, A1B, ObjectModelClause, 2, true},
+		{"object-model check under A2B", Checks.ObjectModel.WrongValueType, A2B, ObjectModelClause, 2, true},
+		{"1b-only check under A2B", Checks.Transparency.ImageWithSoftMask, A2B, "", 0, false},
 		{"unregistered check", Check{}, A1B, "", 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -293,5 +295,64 @@ func TestChecksForClauseIn(t *testing.T) {
 	}
 	if got := ChecksForClauseIn(ObjectModel, ObjectModelClause); len(got) != 6 {
 		t.Errorf("ChecksForClauseIn(ObjectModel, objmodel) has %d checks, want 6", len(got))
+	}
+}
+
+// TestPart2ClausesNameOneCheckEach verifies that every Part 2 entry numbers a
+// registered PDF/A check, that no two checks share a Part 2 clause and
+// subclause, and that ClauseIn reports the entry under every Part 2 level.
+func TestPart2ClausesNameOneCheckEach(t *testing.T) {
+	seen := map[clauseRef]string{}
+	for id, ref := range part2Clauses {
+		c, ok := catalogByID[id]
+		if !ok {
+			t.Errorf("part2Clauses numbers ID %d, which no check has", id)
+			continue
+		}
+		if c.Clause() == ObjectModelClause {
+			t.Errorf("%s: an object-model check keeps its clause under every level", c.Name())
+		}
+		if ref.clause == "" || ref.subclause <= 0 {
+			t.Errorf("%s: Part 2 clause %q/%d", c.Name(), ref.clause, ref.subclause)
+		}
+		if dup, ok := seen[ref]; ok {
+			t.Errorf("%s and %s share the Part 2 clause %s/%d", dup, c.Name(), ref.clause, ref.subclause)
+		}
+		seen[ref] = c.Name()
+		if clause, sub, ok := c.ClauseIn(A2B); !ok || clause != ref.clause || sub != ref.subclause {
+			t.Errorf("%s: ClauseIn(A2B) = %s/%d, %v, want %s/%d", c.Name(), clause, sub, ok, ref.clause, ref.subclause)
+		}
+	}
+	for _, c := range AllChecks() {
+		_, numbered := part2Clauses[c.ID()]
+		if want := numbered || c.Clause() == ObjectModelClause; c.AppliesTo(A2B) != want {
+			t.Errorf("%s: AppliesTo(A2B) = %v, want %v", c.Name(), c.AppliesTo(A2B), want)
+		}
+	}
+}
+
+// TestFullProfilesEnableTheirPart verifies that a full profile enables the
+// checks of its level's ISO 19005 part and no others: the Part 1 profiles
+// keep the whole Part 1 catalogue, Level A requirements included, and the
+// PDF/A-2b profile enables only the checks Part 2 numbers.
+func TestFullProfilesEnableTheirPart(t *testing.T) {
+	for _, tc := range []struct {
+		p    *Profile
+		want func(Check) bool
+	}{
+		{Legacy1B, func(Check) bool { return true }},
+		{NewFullProfile(A1B), func(Check) bool { return true }},
+		{PDFA2B, func(c Check) bool { return c.AppliesTo(A2B) }},
+		{NewFullProfile(ObjectModel), func(c Check) bool { return c.Clause() == ObjectModelClause }},
+		{NewFullProfile(Undefined), func(Check) bool { return false }},
+	} {
+		for _, c := range AllChecks() {
+			if got := tc.p.Has(c); got != tc.want(c) {
+				t.Errorf("%s: Has(%s) = %v", tc.p, c.Name(), got)
+			}
+		}
+	}
+	if !PDFA2B.SkipUnreachableXObjects || !PDFA2B.SkipUnusedSimpleFonts {
+		t.Errorf("PDFA2B lost veraPDF's leniencies: %+v", PDFA2B)
 	}
 }

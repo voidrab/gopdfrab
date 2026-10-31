@@ -24,12 +24,15 @@ const (
 	partA1A parts = 1 << iota // PDF/A-1a, which no profile verifies
 	partA1B
 	partObjectModel
+	partA2B
 
 	// partsA1 is every Part 1 level: a Level B rule binds Level A too.
 	partsA1 = partA1A | partA1B
+	// partsA2 is every level that numbers its clauses as ISO 19005-2 does.
+	partsA2 = partA2B
 	// partsAll is every level, for the object-model checks: a file of any
 	// level must first be valid PDF.
-	partsAll = partsA1 | partObjectModel
+	partsAll = partsA1 | partsA2 | partObjectModel
 )
 
 // partOf returns the part a level stands for, or 0 for a level with none.
@@ -37,10 +40,26 @@ func partOf(level LevelType) parts {
 	switch level {
 	case A1B:
 		return partA1B
+	case A2B:
+		return partA2B
 	case ObjectModel:
 		return partObjectModel
 	}
 	return 0
+}
+
+// familyOf returns every level of the ISO 19005 part a level belongs to: a
+// Part 1 profile carries the Level A requirements too, which no Level B
+// verification reports.
+func familyOf(level LevelType) parts {
+	switch p := partOf(level); {
+	case p&partsA1 != 0:
+		return partsA1
+	case p&partsA2 != 0:
+		return partsA2
+	default:
+		return p
+	}
 }
 
 // Name returns the CamelCase identifier of this check (e.g. "ImageWithSoftMask").
@@ -68,8 +87,13 @@ func (c Check) AppliesTo(level LevelType) bool {
 // ClauseIn returns the clause and subclause c enforces under the given level.
 // ok is false when c is not a rule of that level.
 func (c Check) ClauseIn(level LevelType) (clause string, subclause int, ok bool) {
-	if !c.AppliesTo(level) {
+	p := partOf(level)
+	if c.parts&p == 0 {
 		return "", 0, false
+	}
+	if p&partsA2 != 0 && c.clause != ObjectModelClause {
+		ref := part2Clauses[c.id]
+		return ref.clause, ref.subclause, true
 	}
 	return c.clause, c.subclause, true
 }
@@ -399,9 +423,13 @@ func ChecksForClauseIn(level LevelType, clause string) []Check {
 }
 
 // newCheck registers a check under its stable id. A PDF/A clause makes it a
-// Part 1 rule, the object-model clause a rule of every level.
+// Part 1 rule, and a rule of the Part 2 levels too when part2Clauses numbers
+// it; the object-model clause makes it a rule of every level.
 func newCheck(id int, name, description, clause string, subclause int) Check {
 	p := partsA1
+	if _, ok := part2Clauses[id]; ok {
+		p |= partsA2
+	}
 	if clause == ObjectModelClause {
 		p = partsAll
 	}
