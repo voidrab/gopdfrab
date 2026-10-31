@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -14,11 +15,11 @@ import (
 func TestMeshPrimitiveCap(t *testing.T) {
 	mp := &meshPainter{
 		canvas:    image.NewRGBA(image.Rect(0, 0, 20, 20)),
-		toDevice:  IdentityMatrix,
+		toDevice:  content.IdentityMatrix,
 		alpha:     1,
 		primitive: meshMaxPrimitives,
 	}
-	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
+	mp.tri(meshVertex{p: content.Point{X: 0, Y: 0}}, meshVertex{p: content.Point{X: 20, Y: 0}}, meshVertex{p: content.Point{X: 0, Y: 20}})
 	if !mp.overflow {
 		t.Error("painting past the primitive cap did not set overflow")
 	}
@@ -49,9 +50,9 @@ func TestDecodeValue(t *testing.T) {
 // index arithmetic derived from the spec, so a transcription slip would
 // silently distort every multi-patch mesh.
 func TestSharedEdgeIndices(t *testing.T) {
-	pts := make([]Point, 12)
+	pts := make([]content.Point, 12)
 	for i := range pts {
-		pts[i] = Point{X: float64(i), Y: float64(i)}
+		pts[i] = content.Point{X: float64(i), Y: float64(i)}
 	}
 	var cols [4][3]float64
 	for i := range cols {
@@ -95,14 +96,14 @@ func TestMeshOverflowStopsPainting(t *testing.T) {
 	newPainter := func() *meshPainter {
 		return &meshPainter{
 			canvas:   image.NewRGBA(image.Rect(0, 0, 20, 20)),
-			toDevice: IdentityMatrix,
+			toDevice: content.IdentityMatrix,
 			alpha:    1,
 			overflow: true,
 		}
 	}
 
 	mp := newPainter()
-	mp.tri(meshVertex{p: Point{0, 0}}, meshVertex{p: Point{20, 0}}, meshVertex{p: Point{0, 20}})
+	mp.tri(meshVertex{p: content.Point{X: 0, Y: 0}}, meshVertex{p: content.Point{X: 20, Y: 0}}, meshVertex{p: content.Point{X: 0, Y: 20}})
 	if mp.primitive != 0 {
 		t.Errorf("tri painted %d pieces after overflow, want 0", mp.primitive)
 	}
@@ -118,9 +119,9 @@ func TestMeshOverflowStopsPainting(t *testing.T) {
 	mp = newPainter()
 	mp.overflow = false
 	mp.primitive = meshMaxPrimitives
-	pts := make([]Point, 12)
+	pts := make([]content.Point, 12)
 	for i := range pts {
-		pts[i] = Point{X: float64(i), Y: float64(i)}
+		pts[i] = content.Point{X: float64(i), Y: float64(i)}
 	}
 	mp.coonsPatch(pts, [4][3]float64{})
 	if !mp.overflow {

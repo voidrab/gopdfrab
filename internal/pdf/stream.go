@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -174,28 +175,32 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	}
 }
 
-// WindowAt returns up to n bytes starting at off, without copying when the
-// file is in memory. Callers must treat the returned slice as read-only.
-func (d *Reader) WindowAt(off int64, n int) []byte {
-	return d.windowAt(off, n)
-}
-
 // windowAt returns up to n bytes starting at off, from the in-memory buffer
 // when available or the underlying source otherwise.
 func (d *Reader) windowAt(off int64, n int) []byte {
+	b, _ := d.readWindow(off, n)
+	return b
+}
+
+// readWindow is windowAt that also returns the error a read from the
+// underlying source failed with. Reaching the end of the file is not one.
+func (d *Reader) readWindow(off int64, n int) ([]byte, error) {
 	if off < 0 {
-		return nil
+		return nil, nil
 	}
 	if d.data != nil {
 		if off >= int64(len(d.data)) {
-			return nil
+			return nil, nil
 		}
 		end := min(off+int64(n), int64(len(d.data)))
-		return d.data[off:end]
+		return d.data[off:end], nil
 	}
 	buf := make([]byte, n)
-	read, _ := d.file.ReadAt(buf, off)
-	return buf[:read]
+	read, err := d.file.ReadAt(buf, off)
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return buf[:read], err
 }
 
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an

@@ -4,13 +4,15 @@ import (
 	"image"
 	"math"
 	"sort"
+
+	"github.com/voidrab/gopdfrab/internal/content"
 )
 
 // FillPath rasterizes contours (each a closed polygon in device-space
 // pixel coordinates) onto canvas using a classic active-edge-table scanline
 // fill, with nonzero or even-odd winding per the f/f* operator, blending
 // rgb at alpha over the existing pixels.
-func FillPath(canvas *image.RGBA, contours [][]Point, rgb [3]float64, alpha float64, evenOdd bool) {
+func FillPath(canvas *image.RGBA, contours [][]content.Point, rgb [3]float64, alpha float64, evenOdd bool) {
 	if alpha <= 0 {
 		return
 	}
@@ -23,11 +25,11 @@ func FillPath(canvas *image.RGBA, contours [][]Point, rgb [3]float64, alpha floa
 // for each covered pixel's colour and alpha, so a shading pattern paints the
 // path's true shape rather than its bounding box. An alpha of 0 leaves the
 // pixel untouched.
-func FillPathShaded(canvas *image.RGBA, contours [][]Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+func FillPathShaded(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
 	fillPathFunc(canvas, contours, evenOdd, colorAt)
 }
 
-func fillPathFunc(canvas *image.RGBA, contours [][]Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
+func fillPathFunc(canvas *image.RGBA, contours [][]content.Point, evenOdd bool, colorAt func(x, y int) ([3]float64, float64)) {
 	if len(contours) == 0 {
 		return
 	}
@@ -84,7 +86,7 @@ type pathEdge struct {
 	dir    int // +1 if the original segment went upward in y, -1 otherwise
 }
 
-func buildEdges(contours [][]Point) []pathEdge {
+func buildEdges(contours [][]content.Point) []pathEdge {
 	var edges []pathEdge
 	for _, contour := range contours {
 		n := len(contour)
@@ -183,7 +185,7 @@ func blendPixel(canvas *image.RGBA, x, y int, rgb [3]float64, alpha float64) {
 // by each segment at lineWidth/2 half-width (device space), with bevelled
 // joins rather than mitered or rounded joins. This is an approximation: the
 // rasterizer only produces flattened pages.
-func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [3]float64, alpha float64) {
+func StrokePath(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, rgb [3]float64, alpha float64) {
 	if alpha <= 0 {
 		return
 	}
@@ -194,30 +196,30 @@ func StrokePath(canvas *image.RGBA, contours [][]Point, lineWidth float64, rgb [
 
 // StrokePathShaded strokes as StrokePath does, taking each pixel's colour
 // from colorAt so a shading pattern can stroke as well as fill.
-func StrokePathShaded(canvas *image.RGBA, contours [][]Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
+func StrokePathShaded(canvas *image.RGBA, contours [][]content.Point, lineWidth float64, colorAt func(x, y int) ([3]float64, float64)) {
 	half := max(lineWidth/2, 0.5)
 	for _, contour := range contours {
 		for i := 0; i+1 < len(contour); i++ {
 			quad := segmentQuad(contour[i], contour[i+1], half)
-			fillPathFunc(canvas, [][]Point{quad}, false, colorAt)
+			fillPathFunc(canvas, [][]content.Point{quad}, false, colorAt)
 		}
 	}
 }
 
 // segmentQuad returns the four corners of the rectangle covering segment
 // p0-p1 at the given half-width, perpendicular to the segment direction.
-func segmentQuad(p0, p1 Point, half float64) []Point {
+func segmentQuad(p0, p1 content.Point, half float64) []content.Point {
 	dx, dy := p1.X-p0.X, p1.Y-p0.Y
 	length := math.Hypot(dx, dy)
 	if length == 0 {
-		return []Point{
-			{p0.X - half, p0.Y - half}, {p0.X + half, p0.Y - half},
-			{p0.X + half, p0.Y + half}, {p0.X - half, p0.Y + half},
+		return []content.Point{
+			{X: p0.X - half, Y: p0.Y - half}, {X: p0.X + half, Y: p0.Y - half},
+			{X: p0.X + half, Y: p0.Y + half}, {X: p0.X - half, Y: p0.Y + half},
 		}
 	}
 	nx, ny := -dy/length*half, dx/length*half
-	return []Point{
-		{p0.X + nx, p0.Y + ny}, {p1.X + nx, p1.Y + ny},
-		{p1.X - nx, p1.Y - ny}, {p0.X - nx, p0.Y - ny},
+	return []content.Point{
+		{X: p0.X + nx, Y: p0.Y + ny}, {X: p1.X + nx, Y: p1.Y + ny},
+		{X: p1.X - nx, Y: p1.Y - ny}, {X: p0.X - nx, Y: p0.Y - ny},
 	}
 }

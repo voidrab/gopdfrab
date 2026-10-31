@@ -1775,16 +1775,6 @@ func TestComputeContentUsageFormInheritsFont(t *testing.T) {
 	}
 }
 
-// TestInheritedResourcesStopsOnACycle verifies that a /Parent chain that points
-// back at itself must not spin.
-func TestInheritedResourcesStopsOnACycle(t *testing.T) {
-	page := pdf.NewPDFDict()
-	page.Entries.Set("Parent", page)
-	if got := inheritedResources(page); got.Entries != nil {
-		t.Errorf("inheritedResources on a self-parented page = %v, want none", got)
-	}
-}
-
 func TestCheckLinearizedFileID(t *testing.T) {
 	mismatched := "/ID [<AABBCC>]\nsome bytes in between\n/ID [<DDEEFF>]\n"
 	filename := t.TempDir() + "/lin-mismatch.pdf"

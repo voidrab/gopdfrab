@@ -12,11 +12,12 @@ open file → parse → resolve object graph → run checks → issues
 
 Verification involves checking whether a document meets certain PDF/A criteria. Conversion involves extending the verification process to include a repair step, followed by a writer that produces the final output.
 
-The entire project is a single Go module with no dependencies other than `klauspost/compress`. Ten internal packages contain the implementation, while the root package provides a thin facade over them.
+The entire project is a single Go module with no dependencies other than `klauspost/compress`. The internal packages contain the implementation, while the root package provides a thin facade over them.
 
 | Package              | What it does                                                                     |
 | -------------------- | -------------------------------------------------------------------------------- |
 | `internal/pdf`       | Provides the parser, object model, filters, decryption, and check registry.      |
+| `internal/content`   | Holds what content-stream readers share: coordinate geometry, graphics state.    |
 | `internal/fontprog`  | Parses embedded font programs (TrueType, CFF, Type 1) and their encodings.       |
 | `internal/fontedit`  | Rewrites font programs for the converter: subsets, cmaps, width repairs.         |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
@@ -31,11 +32,11 @@ The entire project is a single Go module with no dependencies other than `klausp
 The packages form layers, and imports only point downwards:
 
 ```text
-convert                           → verify, raster, writer, fontedit, fontprog, fontsubst, arlington, pdfa, pdf
-verify                            → fontprog, arlington, pdfa, pdf
-raster                            → fontprog, fontsubst, pdf
-fontedit                          → fontprog
-fontprog, fontsubst, writer, pdfa → pdf
+convert                                    → verify, raster, writer, fontedit, content, fontprog, fontsubst, arlington, pdfa, pdf
+verify                                     → fontprog, arlington, pdfa, pdf
+raster                                     → content, fontprog, fontsubst, pdf
+fontedit                                   → fontprog
+content, fontprog, fontsubst, writer, pdfa → pdf
 ```
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.

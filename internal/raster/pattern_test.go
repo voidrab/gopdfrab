@@ -159,6 +159,19 @@ func TestPatternClearedByPlainColour(t *testing.T) {
 	}
 }
 
+// TestPatternKeptByOtherColourOperator verifies that setting the stroking
+// colour leaves the fill pattern in place.
+func TestPatternKeptByOtherColourOperator(t *testing.T) {
+	content := "/Pattern cs /P1 scn 0 1 0 RG 5 5 10 10 re f"
+	img, drops := renderPattern(t, content, axialPattern())
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 6, 10); got.R < 100 || got.G != 0 {
+		t.Errorf("fill after RG = %v, want the pattern's red end", got)
+	}
+}
+
 // TestPatternRestoredByGraphicsState verifies that q/Q saves and restores the
 // selected pattern along with the rest of the colour state.
 func TestPatternRestoredByGraphicsState(t *testing.T) {
@@ -175,36 +188,12 @@ func TestPatternRestoredByGraphicsState(t *testing.T) {
 	}
 }
 
-func TestIsPatternColorSpace(t *testing.T) {
-	pat := pdf.PDFName{Value: "Pattern"}
-	for _, tc := range []struct {
-		name string
-		cs   pdf.PDFValue
-		want bool
-	}{
-		{"bare name", pat, true},
-		{"other name", pdf.PDFName{Value: "DeviceRGB"}, false},
-		{"array with base", pdf.PDFArray{pat, pdf.PDFName{Value: "DeviceRGB"}}, true},
-		{"array of other space", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}, false},
-		{"empty array", pdf.PDFArray{}, false},
-		{"array not led by a name", pdf.PDFArray{pdf.PDFInteger(1)}, false},
-		{"unrelated value", pdf.PDFInteger(1), false},
-		{"nil", nil, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isPatternColorSpace(tc.cs); got != tc.want {
-				t.Errorf("isPatternColorSpace = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // shiftedAxial is axialPattern with the given /Matrix and, unless extend, no
 // extension past the gradient's ends (so pixels outside are unpainted).
 func shiftedAxial(matrix pdf.PDFValue, extend bool) pdf.PDFDict {
 	p := axialPattern()
 	if matrix != nil {
-		p.Entries.Set("Matrix", matrix)
+		p.Entries.Set("content.Matrix", matrix)
 	}
 	if !extend {
 		sh := p.Entries.Get("Shading").(pdf.PDFDict)

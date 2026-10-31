@@ -57,12 +57,8 @@ func italicAngleFor(italic bool) pdf.PDFInteger {
 // 1000-unit em like ttAdvanceWidth, for a FontDescriptor's Ascent/Descent.
 func ttScaledAscentDescent(tables map[string][]byte) (ascent, descent int) {
 	hhea := tables["hhea"]
-	head := tables["head"]
-	if len(hhea) < 8 || len(head) < 20 {
-		return 0, 0
-	}
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
-	if upm == 0 {
+	upm, ok := fontprog.UnitsPerEm(tables)
+	if len(hhea) < 8 || !ok {
 		return 0, 0
 	}
 	a := int(int16(binary.BigEndian.Uint16(hhea[4:6])))
@@ -74,12 +70,8 @@ func ttScaledAscentDescent(tables map[string][]byte) (ascent, descent int) {
 // falling back when the field isn't present (OS/2 version < 2).
 func ttScaledCapHeight(tables map[string][]byte, fallback int) int {
 	os2 := tables["OS/2"]
-	head := tables["head"]
-	if len(os2) < 90 || len(head) < 20 {
-		return fallback
-	}
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
-	if upm == 0 {
+	upm, ok := fontprog.UnitsPerEm(tables)
+	if len(os2) < 90 || !ok {
 		return fallback
 	}
 	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm

@@ -512,18 +512,13 @@ func TestType2NumberRoundTrip(t *testing.T) {
 		{1132, 3}, {-1132, 3}, {32767, 3}, {-32768, 3}, {0.5, 5}, {-79.25, 5},
 	} {
 		enc := encodeType2Number(tc.v)
-		v, n, ok := type2Number(enc)
+		v, n, ok := fontprog.Type2Number(enc)
 		if len(enc) != tc.size || !ok || n != tc.size || v != tc.v {
 			t.Errorf("%v: encoded %v (%d bytes), decoded (%v, %d, %v)", tc.v, enc, len(enc), v, n, ok)
 		}
 	}
 	if enc := encodeType2Number(40000); len(enc) != 5 || enc[0] != 255 {
 		t.Errorf("40000 = %v, want a 16.16 operand", enc)
-	}
-	for _, cs := range [][]byte{nil, {247}, {251}, {28, 0}, {255, 0, 0}, {14}} {
-		if _, _, ok := type2Number(cs); ok {
-			t.Errorf("%v decoded as a number", cs)
-		}
 	}
 }
 

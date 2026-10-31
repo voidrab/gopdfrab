@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -65,7 +66,7 @@ func rewriteDeviceNContentUsage(trailer *pdf.PDFDict) bool {
 		if d.Entries.Get("Type") != (pdf.PDFName{Value: "Page"}) {
 			return true
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		rewriteDeviceNPageContents(d, resources, visitedForm, &changed)
 		return false
 	}, nil)
@@ -95,15 +96,11 @@ func rewriteDeviceNPageContents(page, resources pdf.PDFDict, visitedForm map[uin
 	}
 }
 
-// rewriteDeviceNStream decodes dict's content stream into its full op
-// sequence, tracking the currently cs/CS-selected fill/stroke colour space
-// across it (an approximation of q/Q-scoped graphics state -- adequate here
-// since the Check this fixer clears cares only about the array's
-// reachability from the resource graph, not about exactly which q/Q scope
-// every scn/SCN call falls in). A cs/CS selecting an oversized DeviceN space
-// is dropped, and the scn/SCN call(s) that use it are replaced with a
-// literal rg/RG resolved via ResolveColor. Recurses into any Form XObject
-// that the stream draws, using that Form's own /Resources.
+// rewriteDeviceNStream rewrites dict's content stream, following the
+// graphics state through it. A cs or CS selecting an oversized DeviceN space
+// is dropped, and each scn or SCN that sets a colour in it is replaced with
+// the rg or RG of the same colour. Recurses into any Form XObject that the
+// stream draws, using that Form's own /Resources.
 func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]bool) (pdf.PDFDict, bool) {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
@@ -114,32 +111,31 @@ func rewriteDeviceNStream(dict, resources pdf.PDFDict, visitedForm map[uintptr]b
 	// here would alias the scanner's reused stack.
 	var cw writer.ContentStreamWriter
 	modified := false
-	var fillCS, strokeCS pdf.PDFValue
+	gs := content.NewTracker()
 	cs := pdf.NewContentScanner(data)
 	cs.Scan(func(op string, operands []pdf.PDFValue) {
+		gs.Step(op, operands, resources)
 		switch op {
 		case "cs":
-			fillCS = raster.ResolveOperandColorSpace(operands, resources)
-			if isOversizedDeviceN(fillCS) {
+			if isOversizedDeviceN(gs.Fill.Space) {
 				modified = true
 				return
 			}
 		case "CS":
-			strokeCS = raster.ResolveOperandColorSpace(operands, resources)
-			if isOversizedDeviceN(strokeCS) {
+			if isOversizedDeviceN(gs.Stroke.Space) {
 				modified = true
 				return
 			}
 		case "scn":
-			if isOversizedDeviceN(fillCS) {
-				r, g, b := pdf.ResolveColor(fillCS, pdf.NumericOperands(operands), resources)
+			if isOversizedDeviceN(gs.Fill.Space) {
+				r, g, b := pdf.ResolveColor(gs.Fill.Space, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("rg", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return
 			}
 		case "SCN":
-			if isOversizedDeviceN(strokeCS) {
-				r, g, b := pdf.ResolveColor(strokeCS, pdf.NumericOperands(operands), resources)
+			if isOversizedDeviceN(gs.Stroke.Space) {
+				r, g, b := pdf.ResolveColor(gs.Stroke.Space, pdf.NumericOperands(operands), resources)
 				_ = cw.WriteOp("RG", []pdf.PDFValue{pdf.PDFReal(r), pdf.PDFReal(g), pdf.PDFReal(b)})
 				modified = true
 				return

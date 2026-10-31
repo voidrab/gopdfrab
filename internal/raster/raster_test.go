@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -387,31 +386,6 @@ func TestRenderPageImageWithStencilMask(t *testing.T) {
 	}
 }
 
-func TestGlyphNameToWinAnsiCode(t *testing.T) {
-	if c, ok := glyphNameToWinAnsiCode("A"); !ok || c != 65 {
-		t.Errorf("glyphNameToWinAnsiCode(A) = %d, %v", c, ok)
-	}
-	if _, ok := glyphNameToWinAnsiCode("no_such_glyph"); ok {
-		t.Error("glyphNameToWinAnsiCode(unknown) should be false")
-	}
-}
-
-func TestSimpleCodeToGID(t *testing.T) {
-	gidMap := map[uint16]uint16{'A': 10, 66: 20}
-	var names [256]string
-	names[65] = "A"
-	if gid := simpleCodeToGID(gidMap, 65, names); gid != 10 {
-		t.Errorf("simpleCodeToGID via name = %d, want 10", gid)
-	}
-	if gid := simpleCodeToGID(gidMap, 66, [256]string{}); gid != 20 {
-		t.Errorf("simpleCodeToGID direct = %d, want 20", gid)
-	}
-	if gid := simpleCodeToGID(nil, 99, [256]string{}); gid != 99 {
-		t.Errorf("simpleCodeToGID nil map = %d, want passthrough 99", gid)
-	}
-	_ = fontprog.WinAnsiToUnicode // ensure the encoding table is linked
-}
-
 // TestRenderPageOperatorCoverage drives RenderPage with a content stream that
 // exercises the full operator dispatch: path construction, every fill/stroke
 // paint variant, clipping, colour (gray/rgb/cmyk/named), graphics-state save/
@@ -571,27 +545,6 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 	}
 }
 
-func TestResolveSimpleEncoding(t *testing.T) {
-	// WinAnsi base with a Differences override.
-	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"BaseEncoding": pdf.PDFName{Value: "WinAnsiEncoding"},
-		"Differences":  pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "Alpha"}, pdf.PDFName{Value: "Beta"}},
-	})}
-	names := resolveSimpleEncoding(enc)
-	if names[65] != "Alpha" || names[66] != "Beta" {
-		t.Errorf("Differences override = %q,%q; want Alpha,Beta", names[65], names[66])
-	}
-
-	// Named encoding.
-	if n := resolveSimpleEncoding(pdf.PDFName{Value: "WinAnsiEncoding"}); n[65] != "A" {
-		t.Errorf("WinAnsi code 65 = %q, want A", n[65])
-	}
-	// Default / unknown falls back to StandardEncoding.
-	if n := resolveSimpleEncoding(pdf.PDFInteger(0)); n[65] != "A" {
-		t.Errorf("default encoding code 65 = %q, want A", n[65])
-	}
-}
-
 // TestPageContentBytesArrayAndErrors covers the /Contents-is-an-array join
 // path and both DecodeStream error returns (single stream and within an
 // array), which the single-stream-only RenderPage tests never exercise.
@@ -632,34 +585,6 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 			t.Error("pageContentBytes: want error for undecodable stream in array, got nil")
 		}
 	})
-}
-
-// TestResolveOperandColorSpace covers the empty-operands, non-name-operand,
-// device-name, and named-resource-lookup branches.
-func TestResolveOperandColorSpace(t *testing.T) {
-	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"CS0": pdf.PDFName{Value: "DeviceGray"},
-		})},
-	})}
-
-	if got := ResolveOperandColorSpace(nil, resources); got != nil {
-		t.Errorf("empty operands = %v, want nil", got)
-	}
-
-	arrayOperand := pdf.PDFArray{pdf.PDFName{Value: "DeviceRGB"}}
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{arrayOperand}, resources); !pdf.EqualPDFValue(got, arrayOperand) {
-		t.Errorf("non-name operand = %v, want passthrough %v", got, arrayOperand)
-	}
-
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "DeviceRGB"}}, resources); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceRGB"}) {
-		t.Errorf("device name = %v, want /DeviceRGB passthrough", got)
-	}
-
-	got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "CS0"}}, resources)
-	if !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceGray"}) {
-		t.Errorf("named resource lookup = %v, want /DeviceGray", got)
-	}
 }
 
 // TestBuildSimpleFontInfoFontFile3AndFallback covers the FontFile3 (CFF)

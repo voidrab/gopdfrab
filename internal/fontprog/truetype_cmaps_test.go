@@ -125,3 +125,28 @@ func TestSimpleTrueTypeCmapsRawCode(t *testing.T) {
 		})
 	}
 }
+
+func TestSimpleTrueTypeCmapsLenient(t *testing.T) {
+	win := sub{3, 1, cmapFormat4Table(3, 1, map[uint16]uint16{'A': 10})[12:]}
+	sym := sub{3, 0, cmapFormat4Table(3, 0, map[uint16]uint16{0xF042: 7})[12:]}
+	mac := sub{1, 0, format0(map[byte]byte{0x43: 3})}
+	encoded := NewSimpleTrueTypeCmaps(pdf.PDFName{Value: "WinAnsiEncoding"}, cmapWith(win, sym, mac))
+	unencoded := NewSimpleTrueTypeCmaps(nil, cmapWith(sym))
+	for _, tc := range []struct {
+		name string
+		r    SimpleTrueTypeCmaps
+		cc   int
+		gid  int
+		ok   bool
+	}{
+		{"(3,1) by Unicode", encoded, 'A', 10, true},
+		{"(1,0) by Mac OS Roman code", encoded, 'C', 3, true},
+		{"raw code in (3,0) for an encoded font", encoded, 'B', 7, true},
+		{"symbolic font through (3,0)", unencoded, 'B', 7, true},
+		{"no cmap maps it", encoded, 'Z', 0, false},
+	} {
+		if gid, ok := tc.r.Lenient(tc.cc); gid != tc.gid || ok != tc.ok {
+			t.Errorf("%s: Lenient(%q) = %d, %v, want %d, %v", tc.name, tc.cc, gid, ok, tc.gid, tc.ok)
+		}
+	}
+}

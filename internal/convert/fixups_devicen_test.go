@@ -261,3 +261,28 @@ func TestDeviceNFixerLeavesUnrewritableThingsAlone(t *testing.T) {
 		t.Error("image with undecodable pixels was converted to a device space")
 	}
 }
+
+// TestDeviceNRewriteRestoresSpaceAtQ verifies that a colour set after Q is
+// read in the colour space Q restores, not in the oversized DeviceN space a
+// q block set.
+func TestDeviceNRewriteRestoresSpaceAtQ(t *testing.T) {
+	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"DN": oversizedDeviceN(), "RGB": pdf.PDFName{Value: "DeviceRGB"},
+		})},
+	})}
+	stream := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte(
+		"/RGB cs q /DN cs 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 scn Q 0.25 0.5 0.75 scn"))
+
+	out, changed := rewriteDeviceNStream(stream, resources, map[uintptr]bool{})
+	if !changed {
+		t.Fatal("the oversized DeviceN colour was not rewritten")
+	}
+	decoded, err := pdf.DecodeStream(out)
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	if got := string(decoded); !strings.Contains(got, "0.25 0.5 0.75 scn") {
+		t.Errorf("the colour set after Q was rewritten\ngot: %s", got)
+	}
+}

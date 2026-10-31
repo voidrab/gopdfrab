@@ -7,21 +7,6 @@ import (
 	"testing"
 )
 
-func TestReadLineBytes(t *testing.T) {
-	if _, _, ok := readLineBytes([]byte("x"), 5); ok {
-		t.Error("readLineBytes past the end reported ok")
-	}
-	if line, next, ok := readLineBytes([]byte("abc"), 0); !ok || string(line) != "abc" || next != 3 {
-		t.Errorf("readLineBytes(no terminator) = %q, %d, %v", line, next, ok)
-	}
-	if line, next, ok := readLineBytes([]byte("ab\ncd"), 0); !ok || string(line) != "ab" || next != 3 {
-		t.Errorf("readLineBytes(LF) = %q, %d, %v", line, next, ok)
-	}
-	if line, next, ok := readLineBytes([]byte("ab\r\ncd"), 0); !ok || string(line) != "ab" || next != 4 {
-		t.Errorf("readLineBytes(CRLF) = %q, %d, %v", line, next, ok)
-	}
-}
-
 func TestXrefEntryOffset(t *testing.T) {
 	cases := []struct {
 		field string
@@ -60,8 +45,7 @@ func TestParseXRefTableBytesMalformed(t *testing.T) {
 	if err := newDoc("xref\n0 2\n0000000000 65535 f \n").parseXRefTable(0); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("truncated entry: err = %v, want io.ErrUnexpectedEOF", err)
 	}
-	// A malformed subsection header ends the walk without error, matching
-	// the reader path.
+	// A malformed subsection header ends the walk without error.
 	if err := newDoc("xref\ngarbage header here\n").parseXRefTable(0); err != nil {
 		t.Errorf("malformed header: err = %v, want nil", err)
 	}
@@ -97,7 +81,7 @@ func TestParseXRefSectionAtBytes(t *testing.T) {
 		t.Errorf("wrong keyword: err = %v", err)
 	}
 	// Truncated entries end the subsection walk; the missing trailer then
-	// fails the lex, matching the reader path.
+	// fails the lex.
 	if _, err := newDoc("xref\n0 3\n0000000000 65535 f \n").ParseXRefSectionAt(0, false); err == nil || !strings.Contains(err.Error(), "expected 'trailer'") {
 		t.Errorf("truncated entries: err = %v", err)
 	}
@@ -138,8 +122,8 @@ func TestParseXRefSectionAtBytes(t *testing.T) {
 		t.Errorf("bad header then trailer: dict = %v, err = %v", dict.Entries, err)
 	}
 
-	// The trailer window is capped at 8192 bytes, like the reader path's
-	// LimitReader; trailing junk beyond it is never touched.
+	// The trailer window is capped at 8192 bytes; trailing junk beyond it is
+	// never touched.
 	d4 := newDoc("xref\n0 0\ntrailer\n<< /Size 1 >>\n" + strings.Repeat(" ", 9000))
 	if dict, err := d4.ParseXRefSectionAt(0, false); err != nil || dict.Entries.Get("Size") != PDFInteger(1) {
 		t.Errorf("oversized window: dict = %v, err = %v", dict.Entries, err)

@@ -81,12 +81,8 @@ func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	hmtx := tables["hmtx"]
 	hhea := tables["hhea"]
-	head := tables["head"]
-	if len(hmtx) == 0 || len(hhea) < 36 || len(head) < 20 {
-		return -1
-	}
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
-	if upm == 0 {
+	upm, ok := UnitsPerEm(tables)
+	if len(hmtx) == 0 || len(hhea) < 36 || !ok {
 		return -1
 	}
 	nHM := int(binary.BigEndian.Uint16(hhea[34:36]))

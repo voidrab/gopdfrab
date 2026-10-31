@@ -5,8 +5,8 @@ import (
 	"image"
 	"runtime"
 	"sort"
-	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -57,10 +57,6 @@ func (f transparencyFlattener) renderDPI() int {
 	}
 	return defaultRasterDPI
 }
-
-// defaultMediaBox is the PDF spec's fallback page size (US Letter) for a
-// page that inherits no /MediaBox anywhere up its Pages-tree ancestry.
-var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
 func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := f.flattenPageTargets(trailer)
@@ -222,7 +218,7 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
-	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
+	pdf.WalkPages(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
 		// Dropping a page's own group leaves what it draws as it was, so the
 		// groups and soft masks inside are flattened in the same pass, before
 		// the opacity repair makes them opaque.
@@ -233,51 +229,6 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 		collectAnnotationTargets(node, resources, visited, pageNum, &out)
 	})
 	return out
-}
-
-// walkPageTree calls visit for every page under pages, top-down from
-// Root/Pages/Kids, with the /Resources and /MediaBox it inherits and its
-// 1-based page number.
-//
-// It guards the walk exactly as pdf.Reader.BuildPageIndex does: an indirect
-// node is visited once and depth is capped. That keeps a cyclic /Kids (a
-// Pages node listing itself or an ancestor) from recursing until the stack
-// overflows -- a fatal error no recover can catch -- and keeps page numbers
-// aligned with the verifier's, so they match PDFError.Page().
-func walkPageTree(pages pdf.PDFDict, visit func(page, resources pdf.PDFDict, mediaBox [4]float64, pageNum int)) {
-	seen := map[int]bool{}
-	pageNum := 0
-	var walk func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int)
-	walk = func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int) {
-		if depth > pdf.MaxPageTreeDepth {
-			return
-		}
-		if ref, ok := node.Ref(); ok {
-			if seen[ref.ObjNum] {
-				return
-			}
-			seen[ref.ObjNum] = true
-		}
-		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
-			resources = r
-		}
-		if mb, err := pdf.FloatArray(node.Entries.Get("MediaBox")); err == nil && len(mb) == 4 {
-			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
-		}
-		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-			pageNum++
-			visit(node, resources, mediaBox, pageNum)
-			return
-		}
-		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
-			for _, kid := range kids {
-				if kd, ok := kid.(pdf.PDFDict); ok {
-					walk(kd, resources, mediaBox, depth+1)
-				}
-			}
-		}
-	}
-	walk(pages, pdf.PDFDict{}, defaultMediaBox, 0)
 }
 
 // pageTarget addresses a page dict in the graph together with the /Resources
@@ -303,7 +254,7 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 	}
 
 	var out []pageTarget
-	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, _ int) {
+	pdf.WalkPages(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, _ int) {
 		out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
 	})
 	return out
@@ -314,80 +265,19 @@ func orderedPages(trailer pdf.PDFDict) []pageTarget {
 // invocation wins: a form
 // drawn twice under two colours cannot be flattened to suit both, and the
 // first is what the rest of the flattening assumes.
-func paintAtDo(content []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
-	type paintState struct {
-		fill, stroke     [3]float64
-		fillCS, strokeCS pdf.PDFValue
-	}
-	// A drawing starts black in DeviceGray (ISO 32000-1 table 52).
-	cur := paintState{fillCS: pdf.PDFName{Value: "DeviceGray"}, strokeCS: pdf.PDFName{Value: "DeviceGray"}}
-	var stack []paintState
+func paintAtDo(data []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
+	gs := content.NewTracker()
 	at := map[string]raster.InheritedPaint{}
-
-	colour := func(space pdf.PDFValue, operands []pdf.PDFValue) ([3]float64, bool) {
-		comps := pdf.NumericOperands(operands)
-		if len(comps) == 0 {
-			return [3]float64{}, false
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if gs.Step(op, operands, resources) || op != "Do" || len(operands) == 0 {
+			return
 		}
-		r, g, b := pdf.ResolveColor(space, comps, resources)
-		return [3]float64{r, g, b}, true
-	}
-
-	pdf.NewContentScanner(content).Scan(func(op string, operands []pdf.PDFValue) {
-		switch op {
-		case "q":
-			stack = append(stack, cur)
-		case "Q":
-			if n := len(stack); n > 0 {
-				cur = stack[n-1]
-				stack = stack[:n-1]
-			}
-		case "g", "rg", "k", "sc", "scn":
-			space := cur.fillCS
-			if named, ok := deviceSpaces[op]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.fillCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.fill = rgb
-			}
-		case "G", "RG", "K", "SC", "SCN":
-			space := cur.strokeCS
-			if named, ok := deviceSpaces[strings.ToLower(op)]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.strokeCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.stroke = rgb
-			}
-		case "cs", "CS":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			space, ok := pdf.LookupNamedColorSpace(name.Value, resources)
-			if !ok {
-				space = name
-			}
-			if op == "cs" {
-				cur.fillCS = space
-			} else {
-				cur.strokeCS = space
-			}
-		case "Do":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			if _, seen := at[name.Value]; !seen {
-				at[name.Value] = raster.InheritedPaint{Set: true, Fill: cur.fill, Stroke: cur.stroke}
-			}
+		name, ok := operands[len(operands)-1].(pdf.PDFName)
+		if !ok {
+			return
+		}
+		if _, seen := at[name.Value]; !seen {
+			at[name.Value] = raster.InheritedPaint{Set: true, Fill: gs.Fill.RGB, Stroke: gs.Stroke.RGB}
 		}
 	})
 	return at

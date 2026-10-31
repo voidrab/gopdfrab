@@ -1,6 +1,8 @@
 package raster
 
 import (
+	"encoding/binary"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -111,30 +113,13 @@ func TestSimpleFontMissingWidth(t *testing.T) {
 	}
 }
 
-func TestResolveSimpleEncodingDictWithoutBase(t *testing.T) {
-	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Differences": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFName{Value: "Alpha"}},
-	})}
-	names := resolveSimpleEncoding(enc)
-	if names[1] != "Alpha" || names[65] != fontprog.StandardEncoding[65] {
-		t.Errorf("names[1]=%q names[65]=%q, want Alpha over StandardEncoding", names[1], names[65])
-	}
-}
-
-func TestSimpleCodeToGIDSymbolicCmap(t *testing.T) {
-	var names [256]string
-	// A (3,0) symbol cmap maps codes into the F000 private-use block.
-	if got := simpleCodeToGID(map[uint16]uint16{0xF041: 7}, 0x41, names); got != 7 {
-		t.Errorf("gid = %d, want 7 via the 0xF000 offset", got)
-	}
-}
-
-// type1Glyphs builds a Type 1 program with one glyph, "sq", a 100-unit square
-// whose lower-left corner is at (10, 10).
-func type1Glyphs() []byte {
+// type1Glyphs builds a Type 1 program, with no encoding of its own, holding
+// one glyph called name: a 100-unit square whose lower-left corner is at
+// (10, 10).
+func type1Glyphs(name string) []byte {
 	square := type1SquareCharstring()
 	priv := []byte("dup /Private 4 dict dup begin\n/lenIV 4 def\n2 index /CharStrings 4 dict dup begin\n")
-	priv = append(priv, []byte("/sq "+strconv.Itoa(len(square))+" RD ")...)
+	priv = append(priv, []byte("/"+name+" "+strconv.Itoa(len(square))+" RD ")...)
 	priv = append(priv, square...)
 	priv = append(priv, []byte(" ND\nend\n")...)
 	return type1Font(priv)
@@ -148,7 +133,7 @@ func TestEmbeddedType1SimpleFont(t *testing.T) {
 		})},
 		"FirstChar": pdf.PDFInteger(65), "Widths": numArray(500),
 		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"FontFile": pdf.NewStreamDict(nil, type1Glyphs()),
+			"FontFile": pdf.NewStreamDict(nil, type1Glyphs("sq")),
 		})},
 	})}
 	draw := func(codes string) int {
@@ -168,6 +153,143 @@ func TestEmbeddedType1SimpleFont(t *testing.T) {
 	}
 }
 
+// TestEmbeddedType1WithoutEncoding verifies that a Type 1 font with no
+// encoding in the font dictionary or the program names its codes through
+// StandardEncoding.
+func TestEmbeddedType1WithoutEncoding(t *testing.T) {
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"FontFile": pdf.NewStreamDict(nil, type1Glyphs("A")),
+		})},
+	})}
+	fi := buildSimpleFontInfo(font)
+	if _, ok := fi.glyphFor('A'); !ok {
+		t.Error("code 65, StandardEncoding's A, has no glyph")
+	}
+	if _, ok := fi.glyphFor('B'); ok {
+		t.Error("code 66 names a glyph the program lacks, yet produced one")
+	}
+}
+
+// TestEmbeddedTrueTypeSimpleFontCodes verifies that an embedded simple
+// TrueType font draws no glyph for a code outside 0..255 and draws a code no
+// cmap maps as the glyph ID it equals.
+func TestEmbeddedTrueTypeSimpleFontCodes(t *testing.T) {
+	fonts := embeddedSimpleFontResources(t).Entries.Get("Font").(pdf.PDFDict)
+	fi := buildSimpleFontInfo(fonts.Entries.Get("F1").(pdf.PDFDict))
+	for _, code := range []int{-1, 256} {
+		if _, ok := fi.glyphFor(code); ok {
+			t.Errorf("code %d produced a glyph", code)
+		}
+	}
+
+	data, err := pdf.DecodeStream(loadEmbeddableTTF(t))
+	if err != nil {
+		t.Fatalf("DecodeStream: %v", err)
+	}
+	tables, _ := fontprog.ParseSfnt(data)
+	// WinAnsiEncoding gives code 5 no name, and the embedded font has no
+	// symbolic cmap to look the raw code up in.
+	want, ok := glyphOutlineFromTrueType(tables, 5)
+	if !ok {
+		t.Fatal("LiberationSans has no glyph 5")
+	}
+	got, ok := fi.glyphFor(5)
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("code 5 drew %v, %v, want glyph 5 (%v)", got, ok, want)
+	}
+}
+
+// TestEmbeddedType1CSimpleFont verifies that a name-keyed Type 1C font finds
+// a code's glyph by the name its encoding gives it, and falls back to the
+// code as glyph ID when the charset lacks that name.
+func TestEmbeddedType1CSimpleFont(t *testing.T) {
+	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Encoding": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Differences": pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "B"}, pdf.PDFName{Value: "A"}},
+		})},
+		"FontDescriptor": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"FontFile3": pdf.NewStreamDict(nil, buildNameKeyedCFF()),
+		})},
+	})}
+	fi := buildSimpleFontInfo(font)
+	width := func(code int) float64 {
+		t.Helper()
+		g, ok := fi.glyphFor(code)
+		if !ok {
+			t.Fatalf("code %d has no glyph", code)
+		}
+		minX, _, maxX, _ := boundsOf(g.Contours)
+		return maxX - minX
+	}
+	// Glyph 1 is A, 100 units wide; glyph 2 is B, 50 units wide.
+	if w := width(65); w != 50 {
+		t.Errorf("code 65, encoded as B, is %v units wide, want B's 50", w)
+	}
+	if w := width(66); w != 100 {
+		t.Errorf("code 66, encoded as A, is %v units wide, want A's 100", w)
+	}
+	// StandardEncoding gives code 1 no name, so it is drawn as glyph 1.
+	if w := width(1); w != 100 {
+		t.Errorf("code 1 is %v units wide, want glyph 1's 100", w)
+	}
+	for _, code := range []int{-1, 256} {
+		if _, ok := fi.glyphFor(code); ok {
+			t.Errorf("code %d produced a glyph", code)
+		}
+	}
+}
+
+// buildNameKeyedCFF assembles a name-keyed CFF program with three glyphs:
+// .notdef, A (a 100-unit square at (10, 10)) and B (a 50-unit one).
+func buildNameKeyedCFF() []byte {
+	i32 := func(v int) []byte {
+		b := []byte{29, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(b[1:], uint32(v))
+		return b
+	}
+	square := func(side int) []byte {
+		n := b139
+		return []byte{n(10), n(10), 21, n(side), 6, n(side), 7, n(-side), 6, 14}
+	}
+	glyphs := [][]byte{{14}, square(100), square(50)}
+
+	header := []byte{1, 0, 4, 1}
+	nameIndex := []byte{0, 1, 1, 1, 2, 'F'}
+	const topDictLen = 5 + 1 + 5 + 1 + 5 + 5 + 1 // CharStrings, charset, Private
+	stringAndGsubrs := []byte{0, 0, 0, 0}
+	charsetOff := len(header) + len(nameIndex) + 5 + topDictLen + len(stringAndGsubrs)
+	charset := []byte{0, 0, 34, 0, 35} // format 0: SIDs of A and B
+	csOff := charsetOff + len(charset)
+	csIndex := []byte{0, byte(len(glyphs)), 1, 1} // count, offSize 1, offsets
+	for _, g := range glyphs {
+		csIndex = append(csIndex, csIndex[len(csIndex)-1]+byte(len(g)))
+	}
+	for _, g := range glyphs {
+		csIndex = append(csIndex, g...)
+	}
+	privOff := csOff + len(csIndex)
+	private := []byte{139, 20, 139, 21} // defaultWidthX 0, nominalWidthX 0
+
+	topDict := append(i32(csOff), 17)
+	topDict = append(topDict, i32(charsetOff)...)
+	topDict = append(topDict, 15)
+	topDict = append(topDict, i32(len(private))...)
+	topDict = append(topDict, i32(privOff)...)
+	topDict = append(topDict, 18)
+
+	var cff []byte
+	cff = append(cff, header...)
+	cff = append(cff, nameIndex...)
+	cff = append(cff, 0, 1, 1, 1, byte(topDictLen+1))
+	cff = append(cff, topDict...)
+	cff = append(cff, stringAndGsubrs...)
+	cff = append(cff, charset...)
+	cff = append(cff, csIndex...)
+	cff = append(cff, private...)
+	return cff
+}
+
 func TestBundledFaceFallbackGaps(t *testing.T) {
 	font := helvetica(map[string]pdf.PDFValue{
 		"Encoding": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -184,30 +306,6 @@ func TestBundledFaceFallbackGaps(t *testing.T) {
 	}
 	if _, ok := fi.glyphFor(65); ok {
 		t.Error("a private-use code point absent from every bundled face produced a glyph")
-	}
-}
-
-func TestResolveSimpleEncodingNamedBases(t *testing.T) {
-	// MacRomanEncoding has its own glyph names (PDF 32000-1 Annex D): code
-	// 0x27 is quotesingle, not StandardEncoding's quoteright, and the high
-	// half carries the accented letters.
-	mac := resolveSimpleEncoding(pdf.PDFName{Value: "MacRomanEncoding"})
-	for code, want := range map[int]string{0x27: "quotesingle", 0x60: "grave", 0x80: "Adieresis", 0xCA: "space", 0xD5: "quoteright", 0xDB: "currency", 0xAD: ""} {
-		if got := mac[code]; got != want {
-			t.Errorf("MacRomanEncoding[%#x] = %q, want %q", code, got, want)
-		}
-	}
-	base := resolveSimpleEncoding(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"BaseEncoding": pdf.PDFName{Value: "MacRomanEncoding"},
-	})})
-	if base != mac {
-		t.Error("a /BaseEncoding /MacRomanEncoding dictionary did not resolve to MacRomanEncoding")
-	}
-	// Any other name falls back to StandardEncoding.
-	for _, name := range []string{"StandardEncoding", "Whatever"} {
-		if resolveSimpleEncoding(pdf.PDFName{Value: name}) != fontprog.StandardEncoding {
-			t.Errorf("%s did not resolve to StandardEncoding", name)
-		}
 	}
 }
 

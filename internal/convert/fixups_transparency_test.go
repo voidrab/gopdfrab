@@ -1507,6 +1507,7 @@ func TestPaintAtDo(t *testing.T) {
 			"q 0 0 1 rg 1 0 0 RG /Inner Do Q\n"+ // saved and restored around
 			"/AfterRestore Do\n"+
 			"/Gray cs 0.5 sc /Named Do\n"+
+			"1 0 0 rg /Gray cs /Reset Do\n"+ // cs starts the colour at black
 			"1 g /Wrapper Do\n"), // a repeat does not overwrite the first
 		resources)
 
@@ -1518,6 +1519,7 @@ func TestPaintAtDo(t *testing.T) {
 		{"Inner", [3]float64{0, 0, 1}, [3]float64{1, 0, 0}},
 		{"AfterRestore", [3]float64{1, 1, 1}, [3]float64{0, 0, 0}},
 		{"Named", [3]float64{0.5, 0.5, 0.5}, [3]float64{0, 0, 0}},
+		{"Reset", [3]float64{0, 0, 0}, [3]float64{0, 0, 0}},
 	} {
 		got, ok := at[tc.name]
 		if !ok || !got.Set {
@@ -1788,39 +1790,6 @@ func TestBakeSoftMaskUndoesTheMatte(t *testing.T) {
 	}
 }
 
-// TestWalkPageTreeCapsDepth pins the depth guard: a page nested deeper than
-// pdf.MaxPageTreeDepth is not visited, while a shallow sibling still is and is
-// numbered 1, matching BuildPageIndex.
-func TestWalkPageTreeCapsDepth(t *testing.T) {
-	page := func() pdf.PDFDict {
-		p := pdf.NewPDFDict()
-		p.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-		return p
-	}
-	deep := page()
-	for range pdf.MaxPageTreeDepth + 1 {
-		n := pdf.NewPDFDict()
-		n.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-		n.Entries.Set("Kids", pdf.PDFArray{deep})
-		deep = n
-	}
-	shallow := page()
-	root := pdf.NewPDFDict()
-	root.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
-	root.Entries.Set("Kids", pdf.PDFArray{deep, shallow})
-
-	var visited []int
-	walkPageTree(root, func(p, _ pdf.PDFDict, _ [4]float64, n int) {
-		if pdf.ValuePointer(p) != pdf.ValuePointer(shallow) {
-			t.Errorf("visited a page below the depth cap (number %d)", n)
-		}
-		visited = append(visited, n)
-	})
-	if len(visited) != 1 || visited[0] != 1 {
-		t.Fatalf("visited page numbers %v, want [1]", visited)
-	}
-}
-
 // TestPaintAtDoColourSpaceOperands verifies that a cs operator selecting a
 // space by a name the resources do not define keeps the name itself (a device
 // space spelled out), that a CS operator sets the stroke space, and that a
@@ -1857,26 +1826,6 @@ func TestPagePaintAtDoUnreadableContents(t *testing.T) {
 	page.Entries.Set("Contents", contents)
 	if got := pagePaintAtDo(page, pdf.PDFDict{}); got != nil {
 		t.Errorf("pagePaintAtDo on undecodable contents = %v, want nil", got)
-	}
-}
-
-// TestWalkPageTreeVisitsAnIndirectNodeOnce verifies that a page listed twice
-// under one object number is visited, and numbered, once.
-func TestWalkPageTreeVisitsAnIndirectNodeOnce(t *testing.T) {
-	page := pdf.NewPDFDict()
-	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.SetRef(pdf.PDFRef{ObjNum: 7})
-	root := pdf.NewPDFDict()
-	root.Entries.Set("Kids", pdf.PDFArray{page, page})
-	visits := 0
-	walkPageTree(root, func(_, _ pdf.PDFDict, _ [4]float64, n int) {
-		visits++
-		if n != 1 {
-			t.Errorf("page numbered %d, want 1", n)
-		}
-	})
-	if visits != 1 {
-		t.Errorf("page visited %d times, want 1", visits)
 	}
 }
 

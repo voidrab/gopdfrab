@@ -116,7 +116,7 @@ func (p cffWidthPrivate) rewriteWidth(cs []byte, gsubrs [][]byte) ([]byte, bool)
 	if hasWidth {
 		// The width is the bottom of the stack, so it must be the
 		// charstring's own first token to be replaced in place.
-		v, n, ok := type2Number(cs)
+		v, n, ok := fontprog.Type2Number(cs)
 		if !ok || v != w {
 			return nil, false
 		}
@@ -407,27 +407,6 @@ func appendCFFDictEntry(d []byte, op int, operands ...int) []byte {
 		return append(d, 12, byte(op-1200))
 	}
 	return append(d, byte(op))
-}
-
-// type2Number decodes the number token cs starts with, returning its value
-// and length.
-func type2Number(cs []byte) (v float64, n int, ok bool) {
-	if len(cs) == 0 {
-		return 0, 0, false
-	}
-	switch b := int(cs[0]); {
-	case b >= 32 && b <= 246:
-		return float64(b - 139), 1, true
-	case b >= 247 && b <= 250 && len(cs) >= 2:
-		return float64((b-247)*256 + int(cs[1]) + 108), 2, true
-	case b >= 251 && b <= 254 && len(cs) >= 2:
-		return float64(-(b-251)*256 - int(cs[1]) - 108), 2, true
-	case b == 28 && len(cs) >= 3:
-		return float64(int16(binary.BigEndian.Uint16(cs[1:3]))), 3, true
-	case b == 255 && len(cs) >= 5:
-		return float64(int32(binary.BigEndian.Uint32(cs[1:5]))) / 65536, 5, true
-	}
-	return 0, 0, false
 }
 
 // encodeType2Number encodes v as a Type 2 charstring operand: the shortest

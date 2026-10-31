@@ -106,34 +106,6 @@ func TestPaintOperatorsWithoutPathDoNothing(t *testing.T) {
 	}
 }
 
-func TestResolveOperandColorSpaceUnknownNameIsKept(t *testing.T) {
-	unknown := pdf.PDFName{Value: "NoSuchSpace"}
-	got := ResolveOperandColorSpace([]pdf.PDFValue{unknown}, pdf.PDFDict{})
-	if !pdf.EqualPDFValue(got, unknown) {
-		t.Errorf("unresolvable name = %v, want it returned as written", got)
-	}
-}
-
-func TestPatternNameOperand(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		operands []pdf.PDFValue
-		want     string
-		ok       bool
-	}{
-		{"none", nil, "", false},
-		{"numbers only", []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFReal(0.5)}, "", false},
-		{"name last", []pdf.PDFValue{pdf.PDFReal(0.5), pdf.PDFName{Value: "P1"}}, "P1", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := patternNameOperand(tc.operands)
-			if got != tc.want || ok != tc.ok {
-				t.Errorf("patternNameOperand = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
-			}
-		})
-	}
-}
-
 func TestExtGStateOperator(t *testing.T) {
 	resources := resourcesWith("ExtGState", map[string]pdf.PDFValue{
 		"Half":  pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0.5)})},
@@ -190,8 +162,8 @@ func TestDoOperatorIgnoresUnusableOperands(t *testing.T) {
 }
 
 func TestFormXObjectBehaviour(t *testing.T) {
-	t.Run("inherits page resources and paint, applies /Matrix", func(t *testing.T) {
-		form := formXObject("0 0 5 5 re f", map[string]pdf.PDFValue{"Matrix": numArray(1, 0, 0, 1, 10, 0)})
+	t.Run("inherits page resources and paint, applies /content.Matrix", func(t *testing.T) {
+		form := formXObject("0 0 5 5 re f", map[string]pdf.PDFValue{"content.Matrix": numArray(1, 0, 0, 1, 10, 0)})
 		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
 		img := render20(t, "1 0 0 rg /Fm Do", resources)
 		// The form's 5x5 square at its origin lands at x 10..15 along the bottom.
@@ -203,11 +175,11 @@ func TestFormXObjectBehaviour(t *testing.T) {
 		}
 	})
 
-	t.Run("a /Matrix that is not six numbers is ignored", func(t *testing.T) {
-		form := formXObject("0 0 5 5 re f", map[string]pdf.PDFValue{"Matrix": numArray(1, 0, 0)})
+	t.Run("a /content.Matrix that is not six numbers is ignored", func(t *testing.T) {
+		form := formXObject("0 0 5 5 re f", map[string]pdf.PDFValue{"content.Matrix": numArray(1, 0, 0)})
 		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
 		if img := render20(t, "0 0 0 rg /Fm Do", resources); !isBlack(t, img, 2, 17) {
-			t.Error("form with a malformed /Matrix did not paint at the identity position")
+			t.Error("form with a malformed /content.Matrix did not paint at the identity position")
 		}
 	})
 
@@ -226,9 +198,9 @@ func TestFormXObjectBehaviour(t *testing.T) {
 		}
 	})
 
-	t.Run("/BBox is in form space, mapped through /Matrix", func(t *testing.T) {
+	t.Run("/BBox is in form space, mapped through /content.Matrix", func(t *testing.T) {
 		form := formXObject("0 0 20 20 re f", map[string]pdf.PDFValue{
-			"BBox": numArray(0, 0, 5, 5), "Matrix": numArray(1, 0, 0, 1, 10, 0),
+			"BBox": numArray(0, 0, 5, 5), "content.Matrix": numArray(1, 0, 0, 1, 10, 0),
 		})
 		resources := resourcesWith("XObject", map[string]pdf.PDFValue{"Fm": form})
 		img := render20(t, "0 0 0 rg /Fm Do", resources)

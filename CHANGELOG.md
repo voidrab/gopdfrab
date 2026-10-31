@@ -76,6 +76,28 @@ notice.
 - A font repair on an embedded program that several fonts share reached only
   one of them; the others kept the original bytes under the repaired
   `/Length1` and `/Filter`. Every font sharing the program now gets the repair.
+- The 6.3.6 width check and its repair skipped Type 1 glyphs that set their
+  width with `sbw`, and misread widths computed with `div`.
+- Raster fallback: a TrueType contour made only of off-curve points, as
+  round dots often are, was drawn with each curve bent toward the wrong
+  control point.
+- Raster fallback: simple fonts map codes to glyphs as verify does
+  (ISO 32000-1 9.6.6). A Type 1 font without /Encoding uses its built-in
+  encoding rather than StandardEncoding, a symbolic TrueType font resolves
+  through its (3,0) cmap, and a Type 1C font finds its glyphs by name
+  instead of taking the code as the glyph ID.
+- The DeviceN colorant repair kept the colour space a q block set after its
+  Q, and rewrote a later colour in the restored space as black.
+- Transparency flattening carried the previous colour into a form drawn
+  after a colour space operator, which starts the colour at black.
+- Raster fallback: a colour space operator started the colour at black in
+  every space; it starts at the space's initial colour, such as full tint
+  in a Separation space. A cm or colour operator short of operands is
+  skipped instead of setting a zero matrix or black.
+- Repairs that read a page's content used only the page's own /Resources,
+  not one inherited from the page tree. The resource pruning repair could
+  then delete resources such a page uses, and the colour, DeviceN and
+  resource-renaming repairs missed what it names.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages

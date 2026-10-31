@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
 // TestContentLimitsFixerClearsViolations runs contentLimitsFixer's targeted
@@ -437,7 +437,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	}
 	// Applying scale, then divided, composes as divided x scale.
 	m := matrixOf(t, divided).Mul(matrixOf(t, scale))
-	want := raster.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
+	want := content.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
 	if m != want {
 		t.Errorf("the two matrices compose to %+v, want %+v", m, want)
 	}
@@ -471,7 +471,7 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 }
 
 // matrixOf reads six operands back as a matrix.
-func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
+func matrixOf(t *testing.T, operands []pdf.PDFValue) content.Matrix {
 	t.Helper()
 	var f [6]float64
 	for i, v := range operands {
@@ -481,7 +481,7 @@ func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
 		}
 		f[i] = n
 	}
-	return raster.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
+	return content.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
 }
 
 // TestRescaleKeepsAnImageWhereItWasPlaced verifies that an image keeps its

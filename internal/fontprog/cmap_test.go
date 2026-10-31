@@ -1,6 +1,7 @@
 package fontprog
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -128,5 +129,25 @@ func TestCmapTokenizeEdges(t *testing.T) {
 	toks := CmapTokenize([]byte("ab <cd>"))
 	if len(toks) != 2 || toks[1].Start != 3 || toks[1].End != 7 {
 		t.Errorf("token ranges = %+v", toks)
+	}
+}
+
+func TestEachCMapCID(t *testing.T) {
+	data := []byte(`1 begincidrange <00> <0f> 100 <10> <1f> 200 endcidrange
+2 begincidchar <20> 300 <21> 400 endcidrange <22> 500 endcidchar
+<23> 600 % outside any block
+1 begincidrange <30> <31> 700 endcidchar <32> <33> 800 endcidrange`)
+	var got []string
+	EachCMapCID(data, func(tok CmapToken) {
+		got = append(got, tok.Text)
+		if string(data[tok.Start:tok.End]) != tok.Text {
+			t.Errorf("token %q spans %q", tok.Text, data[tok.Start:tok.End])
+		}
+	})
+	// An end keyword for the other kind of block resets the entry but does
+	// not leave the block.
+	want := []string{"100", "200", "300", "400", "500", "700", "800"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("CIDs = %v, want %v", got, want)
 	}
 }
