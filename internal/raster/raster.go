@@ -1057,7 +1057,7 @@ func buildSimpleFontInfo(font pdf.PDFDict) *fontInfo {
 				names := fontprog.EncodingGlyphNames(enc, fontprog.StandardEncoding)
 				gidByName := map[string]int{}
 				for gid, name := range fontprog.CFFGlyphNames(cff) {
-					if _, dup := gidByName[name]; !dup && name != "" {
+					if _, dup := gidByName[name]; !dup {
 						gidByName[name] = gid
 					}
 				}

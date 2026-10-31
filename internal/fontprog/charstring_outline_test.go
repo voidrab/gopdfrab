@@ -409,6 +409,15 @@ func TestType1DivShortStack(t *testing.T) {
 	}
 }
 
+func TestType1HsbwShortStack(t *testing.T) {
+	// Drawing goes on past an hsbw that lacks its sbx, from the origin.
+	got := interpretType1Charstring(cs(nums(100), []byte{t1Hsbw}, nums(10, 10), []byte{t1Rmoveto},
+		nums(7), []byte{6, t1Endchar})) // hlineto 7
+	if lastPoint(t, got) != (Point{17, 10}) {
+		t.Errorf("ends at %v, want {17 10}", lastPoint(t, got))
+	}
+}
+
 func TestInterpretType2CharstringHVCurve(t *testing.T) {
 	enc := func(v int) byte { return byte(v + 139) }
 	// 0 0 moveto, then a hvcurveto: dx1 dx2 dy2 dy3 (horizontal start) from (0,0).

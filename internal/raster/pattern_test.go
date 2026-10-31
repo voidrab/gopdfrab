@@ -159,6 +159,19 @@ func TestPatternClearedByPlainColour(t *testing.T) {
 	}
 }
 
+// TestPatternKeptByOtherColourOperator verifies that setting the stroking
+// colour leaves the fill pattern in place.
+func TestPatternKeptByOtherColourOperator(t *testing.T) {
+	content := "/Pattern cs /P1 scn 0 1 0 RG 5 5 10 10 re f"
+	img, drops := renderPattern(t, content, axialPattern())
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 6, 10); got.R < 100 || got.G != 0 {
+		t.Errorf("fill after RG = %v, want the pattern's red end", got)
+	}
+}
+
 // TestPatternRestoredByGraphicsState verifies that q/Q saves and restores the
 // selected pattern along with the rest of the colour state.
 func TestPatternRestoredByGraphicsState(t *testing.T) {
