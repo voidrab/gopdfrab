@@ -86,7 +86,7 @@ type cffFD struct {
 	lsubrs    [][]byte // local Subrs, placed right after the Private DICT
 	matrix    bool     // the Font DICT declares its own FontMatrix
 	noPrivate bool     // omit the Private operator
-	garbage   bool     // append an operand cffDictNumbers cannot decode
+	garbage   bool     // append an operand CFFDictNumbers cannot decode
 	extra     []byte   // further entries, after Private
 }
 
@@ -258,7 +258,7 @@ func (s cffSpec) assemble() []byte {
 
 // stdSID looks up a standard string's SID, for readable specs.
 func stdSID(name string) int {
-	for i, s := range cffStandardStrings {
+	for i, s := range CffStandardStrings {
 		if s == name {
 			return i
 		}

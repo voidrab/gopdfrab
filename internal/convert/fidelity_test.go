@@ -1,18 +1,15 @@
 package convert
 
 import (
-	"fmt"
-	"image"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
@@ -41,178 +38,12 @@ func openReader(t *testing.T, data []byte) *pdf.Reader {
 // filledPage draws a large black rectangle, so the page carries real ink.
 const filledPage = "0 0 0 rg\n20 20 160 160 re\nf\n"
 
-// TestFidelityIdentical: a document compared against itself scores near-perfect
-// similarity and is never flagged as blanked.
-func TestFidelityIdentical(t *testing.T) {
-	data := onePageDoc(filledPage)
-	report, err := CompareFidelity(openReader(t, data), openReader(t, data), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	if len(report) != 1 {
-		t.Fatalf("got %d page reports, want 1", len(report))
-	}
-	pf := report[0]
-	if pf.Similarity < 0.99 {
-		t.Errorf("identical similarity = %.3f, want >= 0.99", pf.Similarity)
-	}
-	if pf.Blanked() {
-		t.Errorf("identical page reported blanked: %+v", pf)
-	}
-	if pf.InputInk < inkThreshold {
-		t.Errorf("filled page InputInk = %.4f, want >= %.4f", pf.InputInk, inkThreshold)
-	}
-}
 
-// TestFidelityBlankedDetected: an inked input against a blank output is flagged
-// as blanked with low similarity -- the destructive failure the gate exists to
-// catch.
-func TestFidelityBlankedDetected(t *testing.T) {
-	input := onePageDoc(filledPage)
-	output := onePageDoc("q\nQ\n") // renders nothing
 
-	report, err := CompareFidelity(openReader(t, input), openReader(t, output), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	if len(report) != 1 {
-		t.Fatalf("got %d page reports, want 1", len(report))
-	}
-	pf := report[0]
-	if !pf.Blanked() {
-		t.Errorf("blanked page not detected: %+v", pf)
-	}
-	if pf.Similarity > 0.5 {
-		t.Errorf("blanked similarity = %.3f, want low", pf.Similarity)
-	}
-}
 
-// TestFidelityChangedNotBlanked: a page whose content moves/changes but still
-// carries comparable ink is NOT flagged as blanked, even though its pixel
-// similarity drops -- so legitimate changes (e.g. font substitution) don't trip
-// the destructive-loss gate.
-func TestFidelityChangedNotBlanked(t *testing.T) {
-	input := onePageDoc("0 0 0 rg\n20 20 70 70 re\nf\n")    // rectangle bottom-left
-	output := onePageDoc("0 0 0 rg\n110 110 70 70 re\nf\n") // same-size rectangle top-right
 
-	report, err := CompareFidelity(openReader(t, input), openReader(t, output), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	pf := report[0]
-	if pf.Blanked() {
-		t.Errorf("moved-but-present content wrongly flagged blanked: %+v", pf)
-	}
-	if pf.OutputInk < inkThreshold {
-		t.Errorf("output should still carry ink: %+v", pf)
-	}
-}
 
-// TestInkFractionExtremes pins the ink metric at its bounds.
-func TestInkFractionExtremes(t *testing.T) {
-	white, err := CompareFidelity(openReader(t, onePageDoc("q\nQ\n")), openReader(t, onePageDoc("q\nQ\n")), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	if len(white) != 1 || white[0].InputInk >= inkThreshold {
-		t.Errorf("blank page InputInk should be ~0, got %+v", white)
-	}
-	// Two blank pages are identical, so not blanked (no ink was lost).
-	if white[0].Blanked() {
-		t.Errorf("blank-to-blank should not be blanked: %+v", white[0])
-	}
-}
 
-// TestComparePageRendersMissingRenders: the comparison has to survive pages
-// the rasterizer could not draw. A page missing on the input side has no
-// baseline and is skipped entirely; one missing only on the output side is
-// total loss, not a skipped page, or a conversion that stopped rendering would
-// report clean.
-func TestComparePageRendersMissingRenders(t *testing.T) {
-	inked := image.NewRGBA(image.Rect(0, 0, 10, 10))
-	for i := range inked.Pix {
-		inked.Pix[i] = 0
-	}
-
-	report := comparePageRenders(
-		[]*image.RGBA{nil, inked, inked},
-		[]*image.RGBA{inked, nil, inked},
-	)
-	if len(report) != 2 {
-		t.Fatalf("got %d page reports, want 2 (page 1 has no baseline)", len(report))
-	}
-	if report[0].Page != 2 || report[0].OutputInk != 0 || report[0].Similarity != 0 {
-		t.Errorf("page 2 = %+v, want a fully lost page", report[0])
-	}
-	if !report[0].Blanked() {
-		t.Errorf("an unrenderable output page was not reported blanked: %+v", report[0])
-	}
-	if report[1].Page != 3 || report[1].Similarity < 0.99 {
-		t.Errorf("page 3 = %+v, want an intact comparison", report[1])
-	}
-
-	// The report covers only pages present on both sides.
-	if got := comparePageRenders([]*image.RGBA{inked, inked}, []*image.RGBA{inked}); len(got) != 1 {
-		t.Errorf("got %d page reports for a shortened output, want 1", len(got))
-	}
-}
-
-// TestFidelityMetricsOnEmptyRenders: the ink and grid metrics are fed straight
-// from the rasterizer, so they must absorb a nil or zero-sized image rather
-// than dividing by zero or indexing an empty pixel buffer.
-func TestFidelityMetricsOnEmptyRenders(t *testing.T) {
-	if got := inkFraction(nil); got != 0 {
-		t.Errorf("inkFraction(nil) = %v, want 0", got)
-	}
-	empty := image.NewRGBA(image.Rect(0, 0, 0, 0))
-	if got := inkFraction(empty); got != 0 {
-		t.Errorf("inkFraction(empty) = %v, want 0", got)
-	}
-	if got := grayGrid(empty); got != [fidelityGrid * fidelityGrid]float64{} {
-		t.Error("grayGrid(empty) returned non-zero samples")
-	}
-	if got := pageSimilarity(empty, empty); got != 1 {
-		t.Errorf("pageSimilarity of two empty renders = %v, want 1", got)
-	}
-}
-
-// TestCompareFidelityRenderErrors: a document whose graph cannot be resolved
-// cannot be rendered, and the failure must name which side failed instead of
-// being reported as a zero-similarity page.
-func TestCompareFidelityRenderErrors(t *testing.T) {
-	// A reference chain past the resolve depth cap, as in
-	// TestConvertUnresolvableGraphReturnsError.
-	const chain = 70000
-	b := pdfgen.NewBuilder("%PDF-1.4\n")
-	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R /Deep 4 0 R >>")
-	b.Obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>")
-	for i := 4; i < 4+chain; i++ {
-		b.Obj(i, fmt.Sprintf("[%d 0 R]", i+1))
-	}
-	b.Obj(4+chain, "42")
-	unresolvable := b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
-	good := onePageDoc(filledPage)
-
-	for _, tc := range []struct {
-		side          string
-		input, output []byte
-	}{
-		{"input", unresolvable, good},
-		{"output", good, unresolvable},
-	} {
-		t.Run(tc.side, func(t *testing.T) {
-			report, err := CompareFidelity(
-				openReader(t, tc.input), openReader(t, tc.output), fidelityDPI)
-			if err == nil {
-				t.Fatalf("CompareFidelity succeeded on an unresolvable %s: %+v", tc.side, report)
-			}
-			if !strings.Contains(err.Error(), "render "+tc.side) {
-				t.Errorf("err = %v, want it to name the %s side", err, tc.side)
-			}
-		})
-	}
-}
 
 // TestConvertFidelityNoBlankedPages is the fidelity gate over both corpora:
 // every "fail" fixture that converts to output must not have any page blanked
@@ -295,10 +126,11 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 		return false
 	}
 	defer output.Close()
-	report, err := CompareFidelity(input, output, fidelityDPI)
+	before, err := resolveTrailer(input)
 	if err != nil {
 		return false
 	}
+	report := fidelity.Compare(fidelity.Summarize(before, fidelity.DPI), summarizeTrailerPagesOf(output))
 	atomic.AddInt64(checked, 1)
 	found := false
 	for _, pf := range report {
@@ -311,17 +143,16 @@ func checkFidelity(t *testing.T, path string, checked *int64) bool {
 	return found
 }
 
-// clippedAtScale is the shape coordinate clamping blanked, taken from a
-// real presentation: the page is drawn at 1/500 scale, so a full-page clip
-// needs coordinates in the hundreds of thousands. Clamping those to 32767
-// shrinks the clip to a corner and takes the whole page with it.
+// clippedAtScale is a page drawn at 1/500 scale whose full-page clip needs
+// coordinates in the hundreds of thousands. Clamping those to 32767 shrinks the
+// clip to a corner and takes the whole page with it.
 const clippedAtScale = "q 0.002 0 0 0.002 0 0 cm\n" +
 	"0 0 m 100000.0 0 l 100000.0 100000.0 l 0 100000.0 l h W n\n" +
 	"0 0 0 rg\n10000 10000 80000 80000 re\nf\nQ\n"
 
-// TestConvertKeepsGeometryDrawnAtScale is item 34's regression: the conversion
-// must reach conformance -- no coordinate left over the limit -- without
-// emptying the page it was repairing.
+// TestConvertKeepsGeometryDrawnAtScale verifies that the conversion reaches
+// conformance, with no coordinate left over the limit, without emptying the
+// page it repairs.
 func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	cr, err := ConvertBytes(onePageDoc(clippedAtScale), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -342,9 +173,9 @@ func TestConvertKeepsGeometryDrawnAtScale(t *testing.T) {
 	}
 }
 
-// TestConvertReportsFidelity: with CheckFidelity set, a normal conversion
-// populates ConvertResult.Fidelity with a per-page report and reports no
-// blanked page; without it, Fidelity stays nil.
+// TestConvertReportsFidelity verifies that with CheckFidelity set, a normal
+// conversion populates ConvertResult.Fidelity with a per-page report and
+// reports no blanked page; without it, Fidelity stays nil.
 func TestConvertReportsFidelity(t *testing.T) {
 	data := onePageDoc(filledPage)
 
@@ -378,116 +209,15 @@ func TestConvertReportsFidelity(t *testing.T) {
 	}
 }
 
-// TestBlankedPages: the page list is the Blanked() reports in page order, and
-// stays nil when nothing was lost so len is enough to test it.
-func TestBlankedPages(t *testing.T) {
-	lost := PageFidelity{Page: 2, InputInk: 0.5, OutputInk: 0}
-	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
-	if got := blankedPages([]PageFidelity{kept, lost, {Page: 3, InputInk: 0.5, OutputInk: 0}}); !slices.Equal(got, []int{2, 3}) {
-		t.Errorf("blankedPages = %v, want [2 3]", got)
-	}
-	if got := blankedPages([]PageFidelity{kept}); got != nil {
-		t.Errorf("blankedPages with nothing lost = %v, want nil", got)
-	}
-	if got := blankedPages(nil); got != nil {
-		t.Errorf("blankedPages(nil) = %v, want nil", got)
-	}
-}
 
-// TestOverpainted: what counts is the page being covered, not the ink going
-// up. A conversion that makes text drawable which the input's own fonts could
-// not draw adds a great deal of ink and covers nothing, and it is the
-// commonest thing a conversion does -- counting that as damage would bury the
-// real thing.
-func TestOverpainted(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		covered     float64
-		overpainted bool
-	}{
-		{"page painted over", 0.9, true},
-		{"a band across the page", 0.06, true},
-		{"just under the bar", 0.049, false},
-		{"nothing covered", 0, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// The ink numbers say nothing either way: these are the figures a
-			// page of restored text carries, and it must not be flagged.
-			pf := PageFidelity{Page: 1, InputInk: 0.01, OutputInk: 0.07, Covered: tc.covered}
-			if got := pf.Overpainted(); got != tc.overpainted {
-				t.Errorf("Overpainted() = %v for %+v, want %v", got, pf, tc.overpainted)
-			}
-		})
-	}
-}
 
-// TestCoveredFraction: a cell counts as covered when it was paper and is now
-// solid. Text darkens a cell it falls in without covering it, which is exactly
-// what must not count.
-func TestCoveredFraction(t *testing.T) {
-	paper := onePageDoc("")
-	// A rectangle over the top half of the page, and a page of text-like marks
-	// spread across it: thin lines, one every few points.
-	covered := onePageDoc("0 0 0 rg\n0 100 200 100 re\nf\n")
-	var marks string
-	for y := 4; y < 200; y += 6 {
-		marks += fmt.Sprintf("0 0 0 rg\n10 %d 180 1 re\nf\n", y)
-	}
-	inked := onePageDoc(marks)
 
-	report, err := CompareFidelity(openReader(t, paper), openReader(t, covered), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	if got := report[0].Covered; got < 0.4 || got > 0.6 {
-		t.Errorf("half the page covered reported %.3f, want about 0.5", got)
-	}
-	if !report[0].Overpainted() {
-		t.Errorf("a rectangle over half the page was not reported: %+v", report[0])
-	}
 
-	report, err = CompareFidelity(openReader(t, paper), openReader(t, inked), fidelityDPI)
-	if err != nil {
-		t.Fatalf("CompareFidelity: %v", err)
-	}
-	pf := report[0]
-	if pf.OutputInk < inkThreshold {
-		t.Fatalf("the marks should carry ink: %+v", pf)
-	}
-	if pf.Overpainted() {
-		t.Errorf("marks spread over the page were reported as covering it: %+v", pf)
-	}
-}
 
-// TestCellMeansOnEmptyRender: the grid is fed straight from the rasterizer, so
-// it has to absorb a zero-sized image.
-func TestCellMeansOnEmptyRender(t *testing.T) {
-	if got := cellMeans(image.NewRGBA(image.Rect(0, 0, 0, 0))); got != [fidelityGrid * fidelityGrid]float64{} {
-		t.Error("cellMeans of an empty render returned non-zero cells")
-	}
-}
-
-// TestOverpaintedPages: the page list mirrors blankedPages -- page order, and
-// nil when nothing was drawn over.
-func TestOverpaintedPages(t *testing.T) {
-	over := PageFidelity{Page: 2, Covered: 0.8}
-	kept := PageFidelity{Page: 1, InputInk: 0.5, OutputInk: 0.5, Similarity: 1}
-	if got := overpaintedPages([]PageFidelity{kept, over, {Page: 3, Covered: 0.9}}); !slices.Equal(got, []int{2, 3}) {
-		t.Errorf("overpaintedPages = %v, want [2 3]", got)
-	}
-	if got := overpaintedPages([]PageFidelity{kept}); got != nil {
-		t.Errorf("overpaintedPages with nothing added = %v, want nil", got)
-	}
-	if got := overpaintedPages(nil); got != nil {
-		t.Errorf("overpaintedPages(nil) = %v, want nil", got)
-	}
-}
-
-// drawnAtZeroOpacity is the shape the zero-opacity repair was written for, taken
-// from two real presentations: a black rectangle the size of the page, drawn
-// at zero opacity over the content. It is invisible in the file as written,
-// and making it opaque -- which is how a conversion used to repair the
-// opacity -- puts it over everything underneath.
+// drawnAtZeroOpacity is a page of the kind the zero-opacity repair exists for:
+// a black rectangle the size of the page, drawn at zero opacity over the
+// content. It is invisible in the file as written, and making it opaque puts
+// it over everything underneath.
 const drawnAtZeroOpacity = "0 0 0 rg\n20 20 60 60 re\nf\n" +
 	"/GS0 gs\n0 0 0 rg\n0 0 200 200 re\nf\n"
 
@@ -503,10 +233,9 @@ func onePageDocWithZeroAlpha(content string) []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// groupFormDoc is the shape the group-flattening blanking came from, taken from
-// two real presentations: the whole page is one transparency group form, and
-// everything it draws -- here a black image -- is named in the form's own
-// resources rather than the page's.
+// groupFormDoc builds a page that is one transparency group form. The form
+// draws a black image, which is named in the form's own resources rather than
+// the page's.
 func groupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -514,8 +243,8 @@ func groupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte("/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing, which is
-	// the path this is about.
+	// The image draw prevents the group from being removed without
+	// rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> /Resources << /XObject << /Im0 6 0 R >> "+
 		"/ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
@@ -525,10 +254,11 @@ func groupFormDoc() []byte {
 	return b.FinishClassic("<< /Size 7 /Root 1 0 R >>")
 }
 
-// TestConvertKeepsWhatAGroupFormDraws is item 36's blanking regression: PDF/A-1
-// forbids the transparency group, so the form is rasterized -- and rasterizing
-// it against the page's resources instead of its own leaves the page blank
-// while the output is still conformant.
+// TestConvertKeepsWhatAGroupFormDraws verifies that the content of a
+// transparency group form survives conversion. PDF/A-1 forbids the transparency
+// group, so the form is rasterized, and rasterizing it against the page's
+// resources instead of its own leaves the page blank while the output is still
+// conformant.
 func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	cr, err := ConvertBytes(groupFormDoc(), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -549,9 +279,9 @@ func TestConvertKeepsWhatAGroupFormDraws(t *testing.T) {
 	}
 }
 
-// TestConvertDoesNotPaintOverInvisibleContent is item 35's regression: the
-// conversion must reach conformance -- no opacity left below 1 -- without
-// drawing what the file says cannot be seen.
+// TestConvertDoesNotPaintOverInvisibleContent verifies that the conversion
+// reaches conformance, with no opacity left below 1, without drawing what the
+// file says cannot be seen.
 func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	cr, err := ConvertBytes(onePageDocWithZeroAlpha(drawnAtZeroOpacity), pdf.PDFA1B, Options{CheckFidelity: true})
 	if err != nil {
@@ -578,9 +308,8 @@ func TestConvertDoesNotPaintOverInvisibleContent(t *testing.T) {
 	}
 }
 
-// coveringGroupFormDoc is oapen-26d73842 page 4's shape: the page draws its own
-// content, then a page-covering transparency group that paints one small mark
-// over it. Flattening that group to a flat image is what covered the page.
+// coveringGroupFormDoc returns a one-page document that draws its own content
+// and then a page-sized transparency group painting one small mark.
 func coveringGroupFormDoc() []byte {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -588,10 +317,11 @@ func coveringGroupFormDoc() []byte {
 	b.Obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "+
 		"/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>")
 	b.StreamObj(4, "<<", []byte(filledPage+"/Fm0 Do\n"))
-	// The gs keeps the group from being dropped without rasterizing.
+	// The translucent graphics state prevents the group from being removed
+	// without rasterization.
 	b.StreamObj(5, "<< /Type /XObject /Subtype /Form /BBox [0 0 200 200] "+
 		"/Group << /S /Transparency >> "+
-		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 1 >> >> >>",
+		"/Resources << /ExtGState << /GS0 << /Type /ExtGState /ca 0.99 >> >> >>",
 		[]byte("q /GS0 gs 1 0 0 rg 0 0 10 10 re f Q\n"))
 	return b.FinishClassic("<< /Size 6 /Root 1 0 R >>")
 }

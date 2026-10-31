@@ -12,20 +12,19 @@ import (
 // DecryptType1Block decrypts a Type1 font binary block using the given seed key.
 // It skips the first 4 bytes (random seed) and returns the plaintext.
 func DecryptType1Block(data []byte, seedKey uint16) []byte {
-	return decryptType1(data, seedKey, 4)
+	return DecryptType1(data, seedKey, 4)
 }
 
 // DecryptType1CharString decrypts one charstring, dropping the lenIV leading
-// random bytes the program declares (Type 1 spec 7.1). Everything before them
-// is padding; taking the default 4 from a program declaring 0 ate the hsbw
-// that carries the advance width, and the glyph then had no width at all.
+// random bytes the program declares (Type 1 spec 7.1). The count is the
+// program's own lenIV, including 0, so no bytes of the charstring are dropped.
 func DecryptType1CharString(data []byte, lenIV int) []byte {
-	return decryptType1(data, 4330, lenIV)
+	return DecryptType1(data, 4330, lenIV)
 }
 
-// decryptType1 runs the eexec cipher, discarding the first skip plaintext
+// DecryptType1 runs the eexec cipher, discarding the first skip plaintext
 // bytes.
-func decryptType1(data []byte, seedKey uint16, skip int) []byte {
+func DecryptType1(data []byte, seedKey uint16, skip int) []byte {
 	R := seedKey
 	out := make([]byte, 0, len(data))
 	for i, c := range data {
@@ -42,9 +41,9 @@ func decryptType1(data []byte, seedKey uint16, skip int) []byte {
 // prepended to every charstring.
 var type1LenIVRe = regexp.MustCompile(`/lenIV\s+(\d+)\s+def`)
 
-// type1LenIV reads /lenIV from a decrypted private section, defaulting to the
+// Type1LenIV reads /lenIV from a decrypted private section, defaulting to the
 // 4 the spec prescribes when the program declares none.
-func type1LenIV(plain []byte) int {
+func Type1LenIV(plain []byte) int {
 	m := type1LenIVRe.FindSubmatch(plain)
 	if m == nil {
 		return 4
@@ -56,113 +55,10 @@ func type1LenIV(plain []byte) int {
 	return n
 }
 
-// parseType1AdvanceWidth parses a decrypted Type1 CharString and returns the
-// advance width (wx) from the hsbw (op 13) or sbw (escape op 8) command.
-// subrs are the program's decrypted Subrs: a subroutinized program pushes the
-// hsbw operands and leaves the command itself in a subr, so a scan that stops
-// at callsubr finds no width at all.
-func parseType1AdvanceWidth(cs []byte, subrs [][]byte) (int, bool) {
-	var stack []int
-	w, found, _ := scanType1Width(cs, subrs, &stack, 0)
-	return w, found
-}
-
-// scanType1Width walks one charstring, sharing the operand stack with any
-// subrs it calls. stop reports that the scan is over (endchar, or bytes that
-// do not decode) rather than that this charstring merely returned.
-func scanType1Width(cs []byte, subrs [][]byte, stack *[]int, depth int) (w int, found, stop bool) {
-	push := func(v int) { *stack = append(*stack, v) }
-	i := 0
-	for i < len(cs) {
-		b := cs[i]
-		switch {
-		case b >= 32 && b <= 246:
-			push(int(b) - 139)
-			i++
-		case b >= 247 && b <= 250:
-			if i+1 >= len(cs) {
-				return 0, false, true
-			}
-			push((int(b)-247)*256 + int(cs[i+1]) + 108)
-			i += 2
-		case b >= 251 && b <= 254:
-			if i+1 >= len(cs) {
-				return 0, false, true
-			}
-			push(-((int(b)-251)*256 + int(cs[i+1]) + 108))
-			i += 2
-		case b == 28:
-			if i+2 >= len(cs) {
-				return 0, false, true
-			}
-			push(int(int16(uint16(cs[i+1])<<8 | uint16(cs[i+2]))))
-			i += 3
-		case b == 29 || b == 255: // 32-bit integer: 29 in Type 2, 255 in Type 1
-			if i+4 >= len(cs) {
-				return 0, false, true
-			}
-			push(int(int32(uint32(cs[i+1])<<24 | uint32(cs[i+2])<<16 | uint32(cs[i+3])<<8 | uint32(cs[i+4]))))
-			i += 5
-		case b == 10: // callsubr
-			n := len(*stack)
-			if n == 0 {
-				return 0, false, true
-			}
-			idx := (*stack)[n-1]
-			*stack = (*stack)[:n-1]
-			if depth >= type1SubrDepth || idx < 0 || idx >= len(subrs) {
-				return 0, false, true
-			}
-			w, found, stop = scanType1Width(subrs[idx], subrs, stack, depth+1)
-			if found || stop {
-				return w, found, stop
-			}
-			i++
-		case b == 11: // return
-			return 0, false, false
-		case b == 12: // 2-byte escape
-			i++
-			if i >= len(cs) {
-				return 0, false, true
-			}
-			if cs[i] == 8 && len(*stack) >= 4 { // sbw: sbx sby wx wy
-				return (*stack)[2], true, true
-			}
-			*stack = (*stack)[:0]
-			i++
-		case b == 13: // hsbw: sbx wx -> wx is advance width
-			if len(*stack) >= 2 {
-				return (*stack)[1], true, true
-			}
-			return 0, false, true
-		case b == 14: // endchar
-			return 0, false, true
-		default:
-			*stack = (*stack)[:0]
-			i++
-		}
-	}
-	return 0, false, true
-}
-
-// type1SubrDepth bounds callsubr nesting, so a program whose subrs call each
-// other in a cycle cannot spin.
-const type1SubrDepth = 10
-
 // Type1CharStringRe matches entries in a decrypted Type1 CharStrings dict.
 // The operator that introduces the charstring bytes is whatever the Private
-// dict named it: "RD" and "-|" are the two in use, and a program using "-|"
-// used to read as having no glyphs at all.
+// dict named it, so both "RD" and "-|" are matched.
 var Type1CharStringRe = regexp.MustCompile(`/(\S+) (\d+) (?:RD|-\|) `)
-
-// Type1CharStringsSection decrypts a Type1 program's eexec section and
-// returns the decrypted bytes starting at "/CharStrings", or nil if absent,
-// together with the /lenIV each charstring in it is padded with. binStart is
-// the byte offset of the first encrypted byte after "eexec".
-func Type1CharStringsSection(fontData []byte, binStart int) (section []byte, lenIV int) {
-	section, lenIV, _ = type1Sections(fontData, binStart)
-	return section, lenIV
-}
 
 // type1SubrRe matches one entry of a decrypted Type1 Subrs array.
 var type1SubrRe = regexp.MustCompile(`dup (\d+) (\d+) (?:RD|-\|) `)
@@ -181,14 +77,14 @@ func type1Sections(fontData []byte, binStart int) (section []byte, lenIV int, su
 	}
 	// Both live in the Private dict, ahead of /CharStrings.
 	private := plain[:csIdx]
-	lenIV = type1LenIV(private)
-	return plain[csIdx:], lenIV, type1SubrArray(private, lenIV)
+	lenIV = Type1LenIV(private)
+	return plain[csIdx:], lenIV, Type1SubrArray(private, lenIV)
 }
 
-// type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
+// Type1SubrArray decrypts a Private dict's Subrs, indexed by subr number.
 // Numbers are as the program writes them, so a sparse or out-of-order array
 // leaves the gaps nil rather than shifting the rest.
-func type1SubrArray(private []byte, lenIV int) [][]byte {
+func Type1SubrArray(private []byte, lenIV int) [][]byte {
 	start := bytes.Index(private, []byte("/Subrs"))
 	if start < 0 {
 		return nil
@@ -242,8 +138,8 @@ func ExtractType1Program(fontData []byte, binStart int) Type1Program {
 			continue
 		}
 		dec := DecryptType1CharString(cs[m[1]:m[1]+n], lenIV)
-		if w, ok := parseType1AdvanceWidth(dec, subrs); ok && scaleOK {
-			p.Widths[name] = scaleWidth(float64(w), scale)
+		if w, ok := type1AdvanceWidth(dec, subrs); ok && scaleOK {
+			p.Widths[name] = scaleWidth(w, scale)
 		}
 	}
 	return p
@@ -312,9 +208,9 @@ func Type1WidthScale(fontData []byte) (scale float64, ok bool) {
 // a dictionary takes its /BaseEncoding when modelled and the built-in
 // otherwise, with /Differences overlaid. ok is false when no base resolved.
 //
-// The dictionary arm is what this path used to lack: taking only a PDFName
-// meant an /Encoding dictionary read as absent, so /Differences were ignored
-// and /Widths were compared against the wrong glyph.
+// An /Encoding dictionary is handled as well as a name. Reading a dictionary as
+// absent would ignore its /Differences and compare /Widths against the wrong
+// glyphs.
 func Type1GlyphNameTable(fontData []byte, encoding pdf.PDFValue) (glyphNames [256]string, ok bool) {
 	builtin := func() ([256]string, bool) { return Type1EncodingTable(fontData, "") }
 
@@ -377,8 +273,7 @@ func Type1EncodingTable(fontData []byte, pdfEncoding string) (enc [256]string, o
 			encName = string(m[1])
 		} else if enc, ok := type1BuiltinEncodingArray(textPart); ok {
 			// A program with a custom encoding builds the array itself rather
-			// than naming a standard one. Subset TeX fonts nearly all do, which
-			// is most of what used to reach WidthSkipEncoding.
+			// than naming a standard one.
 			return enc, true
 		}
 	}

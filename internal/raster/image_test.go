@@ -11,14 +11,15 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
-// TestPlaceholderImageDegenerate covers the zero-dimension early return and
-// the doubling-copy fill.
-func TestPlaceholderImageDegenerate(t *testing.T) {
-	if img := placeholderImage(0, 3); img.Bounds().Dx() != 0 {
-		t.Errorf("placeholderImage(0,3) width = %d, want 0", img.Bounds().Dx())
+// TestPlaceholderImageIsOnePixel pins that the placeholder allocates
+// nothing for the size its image claims: one gray pixel, stretched over the
+// image's unit square like any other image.
+func TestPlaceholderImageIsOnePixel(t *testing.T) {
+	img := placeholderImage()
+	if img.Bounds().Dx() != 1 || img.Bounds().Dy() != 1 {
+		t.Fatalf("placeholder is %v, want 1x1", img.Bounds())
 	}
-	img := placeholderImage(3, 2)
-	r, g, b, _ := img.At(2, 1).RGBA()
+	r, g, b, _ := img.At(0, 0).RGBA()
 	if r != g || g != b || r == 0 {
 		t.Errorf("placeholderImage pixel = %d,%d,%d, want uniform gray", r, g, b)
 	}
@@ -31,15 +32,11 @@ func pixelAt(t *testing.T, img *image.RGBA, x, y int) (r, g, b uint8) {
 }
 
 func TestDecodeImageRGBA8BitGray(t *testing.T) {
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0xFF},
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0x00, 0xFF})
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -54,15 +51,11 @@ func TestDecodeImageRGBA8BitGray(t *testing.T) {
 
 func TestDecodeImageRGBA1BitMonochrome(t *testing.T) {
 	// 1-bit DeviceGray, width=8 packed into a single byte: 10110010.
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(8), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(1),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0b10110010},
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(8), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(1),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0b10110010})
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -79,15 +72,11 @@ func TestDecodeImageRGBA1BitMonochrome(t *testing.T) {
 
 func TestDecodeImageRGBA2And4Bit(t *testing.T) {
 	// 4-bit DeviceGray, 2 pixels packed into 1 byte: 0x F (15) and 0x0 (0).
-	dict4 := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(4),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0xF0},
-	}
+	dict4 := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(4),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0xF0})
 	img, err := DecodeImageRGBA(dict4, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -100,15 +89,11 @@ func TestDecodeImageRGBA2And4Bit(t *testing.T) {
 	}
 
 	// 2-bit DeviceGray, 4 pixels packed into 1 byte: 11 10 01 00 -> 255,170,85,0.
-	dict2 := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(2),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0b11100100},
-	}
+	dict2 := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(2),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0b11100100})
 	img2, err := DecodeImageRGBA(dict2, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -123,16 +108,12 @@ func TestDecodeImageRGBA2And4Bit(t *testing.T) {
 }
 
 func TestDecodeImageRGBADecodeArrayInversion(t *testing.T) {
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-			"Decode":           pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(0)},
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0xFF},
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+		"Decode":           pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(0)},
+	}), []byte{0x00, 0xFF})
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -157,16 +138,12 @@ func TestDecodeImageRGBAJPEGRoundTrip(t *testing.T) {
 		t.Fatalf("jpeg.Encode: %v", err)
 	}
 
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(4),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"},
-			"Filter":           pdf.PDFName{Value: "DCTDecode"},
-		}),
-		HasStream: true,
-		RawStream: buf.Bytes(),
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(4), "Height": pdf.PDFInteger(4),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"},
+		"Filter":           pdf.PDFName{Value: "DCTDecode"},
+	}), buf.Bytes())
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
 	if err != nil {
 		t.Fatalf("DecodeImageRGBA: %v", err)
@@ -178,22 +155,18 @@ func TestDecodeImageRGBAJPEGRoundTrip(t *testing.T) {
 }
 
 func TestDecodeImageRGBAUnsupportedCodecPlaceholder(t *testing.T) {
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(3), "Height": pdf.PDFInteger(3),
-			"BitsPerComponent": pdf.PDFInteger(1),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-			"Filter":           pdf.PDFName{Value: "CCITTFaxDecode"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00},
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(3), "Height": pdf.PDFInteger(3),
+		"BitsPerComponent": pdf.PDFInteger(1),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+		"Filter":           pdf.PDFName{Value: "CCITTFaxDecode"},
+	}), []byte{0x00})
 	img, err := DecodeImageRGBA(dict, pdf.PDFDict{})
 	var ph *PlaceholderError
 	if !errors.As(err, &ph) || ph.Codec != "CCITT" {
 		t.Fatalf("DecodeImageRGBA err = %v, want a PlaceholderError for CCITT", err)
 	}
-	r, g, b := pixelAt(t, img, 1, 1)
+	r, g, b := pixelAt(t, img, 0, 0)
 	if r != 127 || g != 127 || b != 127 {
 		t.Errorf("unsupported codec placeholder pixel = (%d,%d,%d), want mid-gray (127,127,127)", r, g, b)
 	}
@@ -277,9 +250,9 @@ func renderImageXObject(t *testing.T, img pdf.PDFDict) {
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
@@ -287,7 +260,7 @@ func renderImageXObject(t *testing.T, img pdf.PDFDict) {
 func imageDict(entries map[string]pdf.PDFValue, raw []byte) pdf.PDFDict {
 	d := pdf.DictOf(entries)
 	d.Set("Subtype", pdf.PDFName{Value: "Image"})
-	return pdf.PDFDict{Entries: d, HasStream: true, RawStream: raw}
+	return pdf.NewStreamDict(d, raw)
 }
 
 // TestRenderImageFormats drives DecodeImageRGBA across colour spaces, bit

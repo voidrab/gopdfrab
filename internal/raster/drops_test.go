@@ -11,14 +11,14 @@ func hasDrop(drops []string, want string) bool {
 	return slices.Contains(drops, want)
 }
 
-// TestRasterReportsShading: an sh operator naming a shading that isn't in the
-// resources reports a drop rather than silently painting nothing. (A shading
-// the rasterizer can draw is covered in shading_test.go.)
+// TestRasterReportsShading verifies that an sh operator naming a shading that
+// isn't in the resources reports a drop rather than silently painting nothing.
+// (A shading the rasterizer can draw is covered in shading_test.go.)
 func TestRasterReportsShading(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q /Sh1 sh Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q /Sh1 sh Q")),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -27,13 +27,14 @@ func TestRasterReportsShading(t *testing.T) {
 	}
 }
 
-// TestRasterDrawsInlineImage: a BI/ID/EI inline image is drawn, not dropped.
+// TestRasterDrawsInlineImage verifies that a BI/ID/EI inline image is drawn,
+// not dropped.
 func TestRasterDrawsInlineImage(t *testing.T) {
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 1 /BPC 8 /CS /G ID \x00\xff EI Q"
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
-	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -48,12 +49,13 @@ func TestRasterDrawsInlineImage(t *testing.T) {
 	}
 }
 
-// TestRasterCleanPageReportsNothing: an ordinary vector page drops nothing.
+// TestRasterCleanPageReportsNothing verifies that an ordinary vector page
+// drops nothing.
 func TestRasterCleanPageReportsNothing(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -65,7 +67,7 @@ func TestRasterCleanPageReportsNothing(t *testing.T) {
 // placeholderImagePage paints a 20x20 Image XObject /Im0 over the whole page.
 func placeholderImagePage(im pdf.PDFDict) (pdf.PDFDict, pdf.PDFDict) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im0 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im0 Do Q")),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im0": im})},
@@ -73,9 +75,10 @@ func placeholderImagePage(im pdf.PDFDict) (pdf.PDFDict, pdf.PDFDict) {
 	return page, resources
 }
 
-// TestRasterReportsPlaceholderImage: an image whose codec has no decoder is
-// still painted as the gray placeholder, and the page reports it dropped
-// under the codec's name instead of passing the gray off as the picture.
+// TestRasterReportsPlaceholderImage verifies that an image whose codec has no
+// decoder is still painted as the gray placeholder, and that the page reports
+// it dropped under the codec's name instead of passing the gray off as the
+// picture.
 func TestRasterReportsPlaceholderImage(t *testing.T) {
 	for filter, want := range map[string]string{"JPXDecode": "JPEG 2000 image", "JBIG2Decode": "JBIG2 image"} {
 		t.Run(filter, func(t *testing.T) {
@@ -85,7 +88,7 @@ func TestRasterReportsPlaceholderImage(t *testing.T) {
 				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
 				"Filter": pdf.PDFName{Value: filter},
 			}, []byte{0}))
-			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -99,8 +102,8 @@ func TestRasterReportsPlaceholderImage(t *testing.T) {
 	}
 }
 
-// TestRasterPlaceholderMaskIsLeftOff: a soft or stencil mask that only
-// decodes to the placeholder is reported and not applied, so the image it
+// TestRasterPlaceholderMaskIsLeftOff verifies that a soft or stencil mask that
+// only decodes to the placeholder is reported and not applied, so the image it
 // belongs to shows at full strength rather than faded by a flat gray.
 func TestRasterPlaceholderMaskIsLeftOff(t *testing.T) {
 	jbig2 := imageDict(map[string]pdf.PDFValue{
@@ -116,7 +119,7 @@ func TestRasterPlaceholderMaskIsLeftOff(t *testing.T) {
 				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
 				key: jbig2,
 			}, []byte{0}))
-			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -130,14 +133,15 @@ func TestRasterPlaceholderMaskIsLeftOff(t *testing.T) {
 	}
 }
 
-// TestRasterReportsPlaceholderInlineImage: an inline CCITT image that fails
-// to decode is reported under its codec, the same as an XObject would be.
+// TestRasterReportsPlaceholderInlineImage verifies that an inline CCITT image
+// that fails to decode is reported under its codec, the same as an XObject
+// would be.
 func TestRasterReportsPlaceholderInlineImage(t *testing.T) {
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 2 /BPC 1 /CS /G /F /CCF ID \x00 EI Q"
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

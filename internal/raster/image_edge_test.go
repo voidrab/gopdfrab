@@ -21,9 +21,9 @@ func TestDecodeImageRGBARejectsInvalidDimensions(t *testing.T) {
 	}
 }
 
-// TestDecodeImageRGBAUndecodableCodecsPlaceholder: a codec with no decoder
-// comes back as the placeholder and a PlaceholderError naming the codec, so
-// the gray is paintable but never mistaken for the picture.
+// TestDecodeImageRGBAUndecodableCodecsPlaceholder verifies that a codec with
+// no decoder comes back as the placeholder and a PlaceholderError naming the
+// codec, so the gray is paintable but never mistaken for the picture.
 func TestDecodeImageRGBAUndecodableCodecsPlaceholder(t *testing.T) {
 	for filter, codec := range map[string]string{"JBIG2Decode": "JBIG2", "JPXDecode": "JPEG 2000"} {
 		t.Run(filter, func(t *testing.T) {
@@ -40,7 +40,7 @@ func TestDecodeImageRGBAUndecodableCodecsPlaceholder(t *testing.T) {
 			if !strings.Contains(err.Error(), codec) {
 				t.Errorf("error %q does not name the codec %s", err, codec)
 			}
-			if r, g, b := pixelAt(t, img, 1, 1); r != 127 || g != 127 || b != 127 {
+			if r, g, b := pixelAt(t, img, 0, 0); r != 127 || g != 127 || b != 127 {
 				t.Errorf("pixel = (%d,%d,%d), want the mid-gray placeholder", r, g, b)
 			}
 		})

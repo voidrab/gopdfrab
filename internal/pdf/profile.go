@@ -25,9 +25,10 @@ type Profile struct {
 	// Level is the conformance level this profile verifies against.
 	Level   LevelType
 	enabled map[int]bool // set of enabled check IDs
+	name    string       // set on the ready-made profiles only
 
 	// SkipUnreachableXObjects, when true, suppresses checks on Form XObjects
-	// never invoked via Do from a reachable content stream. ISO 19005-1
+	// never drawn from a reachable content stream. ISO 19005-1
 	// (6.2.3.3, 6.2.10) applies to every Form XObject, so Legacy1B keeps this
 	// false; PDFA1B sets it true to match veraPDF's lenient interpretation.
 	SkipUnreachableXObjects bool
@@ -68,7 +69,7 @@ func init() {
 	// FileTrailer's hybrid-reference XRefStm, Catalog's Extensions) and are
 	// ignorable by a PDF 1.4 reader, but Arlington has no data distinguishing
 	// those from keys that actually change required interpretation -- veraPDF
-	// does not flag them, so this stays Legacy1B-only (spec-literal) for now.
+	// does not flag them, so this stays Legacy1B-only (spec-literal).
 	PDFA1B = NewFullProfile(A1B)
 	PDFA1B.SkipUnreachableXObjects = true
 	PDFA1B.SkipUnusedSimpleFonts = true
@@ -76,6 +77,26 @@ func init() {
 		Checks.Image.FormPostScript,
 		Checks.ObjectModel.KeyIntroducedAfterPDF14,
 	)
+
+	PDFA1B.name = "pdfa1b"
+	Legacy1B.name = "legacy1b"
+	PDF.name = "pdf"
+}
+
+// Profiles returns the ready-made profiles: PDFA1B, Legacy1B and PDF.
+func Profiles() []*Profile {
+	return []*Profile{PDFA1B, Legacy1B, PDF}
+}
+
+// ProfileByName returns the ready-made profile with the given name, as
+// Profile.Name reports it. ok is false for any other name.
+func ProfileByName(name string) (p *Profile, ok bool) {
+	for _, p := range Profiles() {
+		if p.name == name {
+			return p, true
+		}
+	}
+	return nil, false
 }
 
 // NewProfile returns an empty profile for the given conformance level.
@@ -86,8 +107,8 @@ func NewProfile(level LevelType) *Profile {
 // ObjectModelOnly returns a profile enabling only the generic ISO 32000
 // object-model checks (MissingRequiredKey, WrongValueType, DisallowedValue,
 // IndirectRequired, KeyIntroducedAfterPDF14, ConstraintViolated), with every
-// PDF/A-specific check disabled -- useful for asking "is this even valid PDF"
-// independent of any PDF/A conformance level.
+// PDF/A-specific check disabled. It is useful for checking ISO 32000 conformance
+// independently of any PDF/A conformance level.
 func ObjectModelOnly() *Profile {
 	return NewProfile(ObjectModel).AddCheck(
 		Checks.ObjectModel.MissingRequiredKey,
@@ -183,8 +204,11 @@ func (p *Profile) OnlyObjectModelChecks() bool {
 	return true
 }
 
-// Allows reports whether the check registered for the given clause and
-// subclause is enabled. A clause not in the catalog is allowed.
+// Allows reports whether the check registered for the given PDF/A-1 clause
+// and subclause is enabled. A clause not in the catalog is allowed.
+//
+// Deprecated: a clause identifies a check only within a conformance level;
+// use Has with the check itself.
 func (p *Profile) Allows(clause string, subclause int) bool {
 	c, inCatalog := CheckByClause(clause, subclause)
 	if !inCatalog {
@@ -192,6 +216,11 @@ func (p *Profile) Allows(clause string, subclause int) bool {
 	}
 	return p.enabled[c.ID()]
 }
+
+// Name returns the name of a ready-made profile: "pdfa1b", "legacy1b" or
+// "pdf". It is empty for any other profile, including one derived from a
+// ready-made profile by Clone, Clear, AddCheck or RemoveCheck.
+func (p *Profile) Name() string { return p.name }
 
 // String returns a human-readable summary of the profile.
 func (p *Profile) String() string {

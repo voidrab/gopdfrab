@@ -31,9 +31,9 @@ func TestDecodeASCII85TrailingWhitespace(t *testing.T) {
 
 func TestStreamKeyOfArrayDecodeParms(t *testing.T) {
 	parms := PDFArray{PDFInteger(1)}
-	d := PDFDict{HasStream: true, RawStream: []byte("x"), Entries: DictOf(map[string]PDFValue{
+	d := NewStreamDict(DictOf(map[string]PDFValue{
 		"DecodeParms": parms,
-	})}
+	}), []byte("x"))
 	k, ok := StreamKeyOf(d)
 	if !ok || k.parms != ArrayPointer(parms) {
 		t.Errorf("StreamKeyOf = %+v, %v; want parms keyed on the array", k, ok)

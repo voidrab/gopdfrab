@@ -40,8 +40,7 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
 	})
 	xobj := pdf.NewPDFDict()
-	xobj.HasStream = true
-	xobj.RawStream = rgbContent
+	xobj.SetStream(rgbContent)
 	xobj.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	// Appearance stream: Does the XObject
@@ -54,8 +53,7 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 	apRes.Entries.Set("XObject", xobjects)
 
 	apStream := pdf.NewPDFDict()
-	apStream.HasStream = true
-	apStream.RawStream = doContent
+	apStream.SetStream(doContent)
 	apStream.Entries.Set("Resources", apRes)
 
 	ap := pdf.NewPDFDict()
@@ -72,7 +70,8 @@ func buildNestedAPPage() (page, resources pdf.PDFDict) {
 }
 
 // TestScanContentColourDetectsNestedXObjectRGB confirms scanContentColour
-// follows Do operators into nested Form XObjects when scanning for colours.
+// follows XObject invocations (Do) into nested Form XObjects when scanning for
+// colours.
 func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 	page, _ := buildNestedAPPage()
 
@@ -99,8 +98,8 @@ func TestScanContentColourDetectsNestedXObjectRGB(t *testing.T) {
 }
 
 // TestPageDeviceColourModelsFindsNestedAppearanceRGB checks that a widget
-// annotation whose appearance stream Does a nested Form XObject with DeviceRGB
-// is correctly identified — the bug that caused 208 veraPDF 6.2.3.3 failures.
+// annotation whose appearance stream invokes a nested Form XObject with
+// DeviceRGB is identified as using the RGB colour model.
 func TestPageDeviceColourModelsFindsNestedAppearanceRGB(t *testing.T) {
 	page, resources := buildNestedAPPage()
 	used := pageDeviceColourModels(page, resources, nil)
@@ -147,8 +146,7 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	apStream := pdf.NewPDFDict()
-	apStream.HasStream = true
-	apStream.RawStream = apContent
+	apStream.SetStream(apContent)
 	apStream.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	ap := pdf.NewPDFDict()
@@ -181,7 +179,7 @@ func TestDeviceColourFixerInjectsAPDefaultRGBWhenPageAlreadyHasIt(t *testing.T) 
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	fixer := deviceColourFixer{}
+	fixer := deviceColourFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -211,14 +209,12 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	owned := pdf.NewPDFDict()
-	owned.HasStream = true
-	owned.RawStream = formContent
+	owned.SetStream(formContent)
 	owned.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 	owned.Entries.Set("Resources", pdf.NewPDFDict())
 
 	borrowed := pdf.NewPDFDict()
-	borrowed.HasStream = true
-	borrowed.RawStream = formContent
+	borrowed.SetStream(formContent)
 	borrowed.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
 
 	pageContent, err := writer.WriteContentStream([]writer.ContentOp{
@@ -229,14 +225,13 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = pageContent
+	contents.SetStream(pageContent)
 
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Fown", owned)
 	xobjects.Entries.Set("Fborrowed", borrowed)
-	// The page already carries DefaultCMYK, which is what used to stop the
-	// injection reaching anything below it.
+	// The page already carries DefaultCMYK, so the form that borrows the page's
+	// resources needs no injection.
 	pageCS := pdf.NewPDFDict()
 	pageCS.Entries.Set("DefaultCMYK", iccBasedColourSpace(4, cmykICCProfile))
 	pageRes := pdf.NewPDFDict()
@@ -260,7 +255,7 @@ func TestDeviceColourFixerInjectsIntoNestedFormResources(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -286,13 +281,11 @@ func buildStatefulAPPage() (page pdf.PDFDict, onStream pdf.PDFDict) {
 		{Op: "rg", Operands: []pdf.PDFValue{pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0)}},
 	})
 	onStream = pdf.NewPDFDict()
-	onStream.HasStream = true
-	onStream.RawStream = onContent
+	onStream.SetStream(onContent)
 
 	offContent, _ := writer.WriteContentStream(nil)
 	offStream := pdf.NewPDFDict()
-	offStream.HasStream = true
-	offStream.RawStream = offContent
+	offStream.SetStream(offContent)
 
 	n := pdf.NewPDFDict()
 	n.Entries.Set("On", onStream)
@@ -345,14 +338,12 @@ func TestFixAPColourInjectsIntoEachState(t *testing.T) {
 func TestPageDeviceColourModelsFindsShadingPatternAndArrayContents(t *testing.T) {
 	contentA, _ := writer.WriteContentStream(nil)
 	dictA := pdf.NewPDFDict()
-	dictA.HasStream = true
-	dictA.RawStream = contentA
+	dictA.SetStream(contentA)
 	contentB, _ := writer.WriteContentStream([]writer.ContentOp{
 		{Op: "k", Operands: []pdf.PDFValue{pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1)}},
 	})
 	dictB := pdf.NewPDFDict()
-	dictB.HasStream = true
-	dictB.RawStream = contentB
+	dictB.SetStream(contentB)
 
 	shading := pdf.NewPDFDict()
 	shading.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
@@ -399,8 +390,7 @@ func TestPageDeviceColourModelsFindsContentAndDictUsage(t *testing.T) {
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	contentsDict := pdf.NewPDFDict()
-	contentsDict.HasStream = true
-	contentsDict.RawStream = content
+	contentsDict.SetStream(content)
 	page.Entries.Set("Contents", contentsDict)
 
 	image := pdf.NewPDFDict()
@@ -437,8 +427,7 @@ func TestScanContentColourDetectsInlineImageColourSpace(t *testing.T) {
 
 	t.Run("name form", func(t *testing.T) {
 		dict := pdf.NewPDFDict()
-		dict.HasStream = true
-		dict.RawStream = []byte("BI /CS /DeviceRGB ID X EI")
+		dict.SetStream([]byte("BI /CS /DeviceRGB ID X EI"))
 		used := map[string]bool{}
 		scanContentColour(dict, pdf.NewPDFDict(), claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
 		if !used["rgb"] {
@@ -448,8 +437,7 @@ func TestScanContentColourDetectsInlineImageColourSpace(t *testing.T) {
 
 	t.Run("array form", func(t *testing.T) {
 		dict := pdf.NewPDFDict()
-		dict.HasStream = true
-		dict.RawStream = []byte("BI /CS [/DeviceCMYK] ID X EI")
+		dict.SetStream([]byte("BI /CS [/DeviceCMYK] ID X EI"))
 		used := map[string]bool{}
 		scanContentColour(dict, pdf.NewPDFDict(), claim, nil, func(m string, _ pdf.PDFDict) { used[m] = true })
 		if !used["cmyk"] {
@@ -470,8 +458,7 @@ func TestScanContentColourDetectsPatternCMYK(t *testing.T) {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	pattern := pdf.NewPDFDict()
-	pattern.HasStream = true
-	pattern.RawStream = patternContent
+	pattern.SetStream(patternContent)
 
 	patterns := pdf.NewPDFDict()
 	patterns.Entries.Set("P0", pattern)
@@ -485,8 +472,7 @@ func TestScanContentColourDetectsPatternCMYK(t *testing.T) {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = content
+	dict.SetStream(content)
 
 	visited := map[uintptr]bool{}
 	claim := func(ptr uintptr) bool {
@@ -516,16 +502,14 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	contentsDict := pdf.NewPDFDict()
-	contentsDict.HasStream = true
-	contentsDict.RawStream = content
+	contentsDict.SetStream(content)
 
 	apContent, err := writer.WriteContentStream(kOp)
 	if err != nil {
 		t.Fatalf("WriteContentStream: %v", err)
 	}
 	apStream := pdf.NewPDFDict()
-	apStream.HasStream = true
-	apStream.RawStream = apContent
+	apStream.SetStream(apContent)
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", apStream)
@@ -544,7 +528,7 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 	trailer.Entries.Set("Root", catalog)
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	fixer := deviceColourFixer{}
+	fixer := deviceColourFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -565,8 +549,7 @@ func TestDeviceColourFixerInjectsCMYKWithoutOutputIntent(t *testing.T) {
 
 func streamDict(raw string) pdf.PDFDict {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(raw)
+	d.SetStream([]byte(raw))
 	return d
 }
 
@@ -594,7 +577,7 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
 	states := pdf.NewPDFDict()
-	states.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
+	states.SetRef(pdf.PDFRef{ObjNum: 5})
 	states.Entries.Set("On", streamDict("q Q"))
 	noAP := pdf.NewPDFDict()
 	nonDictN := pdf.NewPDFDict()
@@ -621,7 +604,7 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	trailer.Entries.Set("Root", pdf.NewPDFDict())
 	trailer.Entries.Set("Pages", pdf.PDFArray{page, grayPage})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want true, nil", changed, err)
 	}
@@ -635,8 +618,8 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 	if _, ok := grayPage.Entries.Get("Resources").(pdf.PDFDict).Entries.Lookup("ColorSpace"); ok {
 		t.Error("gray-only page was given a ColorSpace")
 	}
-	if string(broken.RawStream) != "not flate" {
-		t.Errorf("undecodable stream modified: %q", broken.RawStream)
+	if string(broken.Stream()) != "not flate" {
+		t.Errorf("undecodable stream modified: %q", broken.Stream())
 	}
 	onRes, _ := states.Entries.Get("On").(pdf.PDFDict).Entries.Get("Resources").(pdf.PDFDict)
 	if !verify.DefaultColorSpaceDefined("rgb", onRes) {
@@ -645,10 +628,11 @@ func TestDeviceColourFixerSkipsMalformedStructure(t *testing.T) {
 }
 
 // TestDeviceColourFixerInjectsIntoTilingPatternResources covers a tiling
-// pattern the page paints with scn: like a form XObject it is checked in its
-// own /Resources, so the page's DefaultCMYK does not excuse the CMYK in its
-// cell and the pattern needs the entry too. Missing it left the violation to
-// the raster fallback, which cannot draw tiling patterns and dropped the fill.
+// pattern the page paints with the scn operator. Like a form XObject, the
+// pattern is checked in its own /Resources, so the page's DefaultCMYK does not
+// excuse the CMYK in its cell, and the pattern needs the entry too. Without the
+// entry the violation falls to the raster fallback, which cannot draw tiling
+// patterns and drops the fill.
 func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	pattern := streamDict("0 0 0 1 k\n0 0 10 10 re f")
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
@@ -669,7 +653,7 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Pages", pdf.PDFArray{page})
 
-	changed, err := deviceColourFixer{}.Fix(&trailer, nil)
+	changed, err := deviceColourFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}

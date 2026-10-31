@@ -18,9 +18,8 @@ import (
 )
 
 // WritePDF serializes r's resolved object graph to w as a fresh PDF with a
-// classic cross-reference table. See WriteDocument. (Named WritePDF rather
-// than WriteTo since the latter is a reserved io.WriterTo method signature
-// with a different return type.)
+// classic cross-reference table. See WriteDocument. The name avoids WriteTo,
+// which is reserved for the io.WriterTo method with a different signature.
 func WritePDF(r *pdf.Reader, w io.Writer) error {
 	graph, err := r.ResolveGraph()
 	if err != nil {
@@ -108,10 +107,10 @@ func WriteDocumentIndexed(w io.Writer, trailer pdf.PDFDict, hint int) (objs []pd
 		return nil, err
 	}
 
-	// Rewrite each dict's _ref to its assigned output object number so the
+	// Rewrite each dict's reference to its assigned output object number so the
 	// in-memory graph's numbering matches the serialized output.
 	for i, obj := range wr.order {
-		obj.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: i + 1})
+		obj.SetRef(pdf.PDFRef{ObjNum: i + 1})
 		wr.order[i] = obj
 	}
 
@@ -157,7 +156,7 @@ func WriteDocument(w io.Writer, trailer pdf.PDFDict, hint int) error {
 }
 
 // NumberObjects assigns output object numbers to every indirect object
-// reachable from trailer, updates their _ref entries, and returns a number-keyed
+// reachable from trailer, updates their references, and returns a number-keyed
 // map suitable for pdf.Reader.SeedResolvedGraph. Used to seed in-heap verifies
 // during conversion without serializing bytes.
 // hint is the expected indirect-object count, used only to size the discovery
@@ -169,7 +168,7 @@ func NumberObjects(trailer pdf.PDFDict, hint int) map[int]pdf.PDFValue {
 
 	objs := make(map[int]pdf.PDFValue, len(wr.order))
 	for i, obj := range wr.order {
-		obj.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: i + 1})
+		obj.SetRef(pdf.PDFRef{ObjNum: i + 1})
 		objs[i+1] = obj
 	}
 	return objs
@@ -188,8 +187,7 @@ func SetStreamFlateFast(d *pdf.PDFDict, decoded []byte) {
 }
 
 func setFlateStream(d *pdf.PDFDict, compressed []byte) {
-	d.RawStream = compressed
-	d.HasStream = true
+	d.SetStream(compressed)
 	d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	d.Entries.Del("DecodeParms")
 	d.Entries.Del("DP")
@@ -214,9 +212,9 @@ func SetStreamFlateRows(d *pdf.PDFDict, numRows int, row func(i int) []byte) {
 
 // objectIdentity is the dedup key WriteDocument uses to recognise that two
 // pdf.PDFValue occurrences refer to the same logical indirect object: either the
-// object number it was read from disk under (pdf.RefKey), or, for a dict with no
-// pdf.RefKey (synthesized fresh by a fixup, never read from disk), its Entries
-// map's pointer identity.
+// object number it was read from disk under (PDFDict.Ref), or, for a dict with
+// no reference (synthesized fresh by a fixup, never read from disk), the
+// pointer of its Entries body.
 type objectIdentity struct {
 	hasRef bool
 	objNum int
@@ -226,14 +224,14 @@ type objectIdentity struct {
 // isIndirectDict reports whether v must be written as its own indirect
 // object rather than inlined where referenced.
 func isIndirectDict(v pdf.PDFDict) bool {
-	if _, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+	if _, ok := v.Ref(); ok {
 		return true
 	}
-	return v.HasStream
+	return v.IsStream()
 }
 
 func identityOf(v pdf.PDFDict) objectIdentity {
-	if ref, ok := v.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
+	if ref, ok := v.Ref(); ok {
 		return objectIdentity{hasRef: true, objNum: ref.ObjNum}
 	}
 	return objectIdentity{ptr: pdf.ValuePointer(v.Entries)}
@@ -263,12 +261,10 @@ type pdfWriter struct {
 }
 
 // newPDFWriter builds a writer whose index maps are sized for a graph of
-// about hint indirect objects. Sizing matters more than it looks: growing
-// these maps from empty over tens of thousands of objects leaves the discarded
-// bucket arrays on the heap until the next GC, and on a 40,000-object document
-// that scratch is larger than the index it produces. A hint that is somewhat
-// too large costs a few spare buckets; a hint of zero just means "start small"
-// and behaves as before.
+// about hint indirect objects. Growing these maps from empty over tens of
+// thousands of objects leaves the discarded bucket arrays on the heap until
+// the next GC, so the maps are sized up front. A hint that is somewhat too
+// large costs a few spare buckets; a hint of zero means start small.
 func newPDFWriter(hint int) *pdfWriter {
 	if hint < 0 {
 		hint = 0
@@ -281,8 +277,7 @@ func newPDFWriter(hint int) *pdfWriter {
 	}
 }
 
-// sortedEntryKeys appends entries' keys (skipping the synthetic
-// RefKey bookkeeping key) to wr.keyScratch in sorted order and
+// sortedEntryKeys appends entries' keys to wr.keyScratch in sorted order and
 // returns the appended segment. The caller must truncate wr.keyScratch back
 // to its prior length when done with the segment. The segment stays readable
 // even if deeper recursion grows the scratch onto a new backing array, since
@@ -290,9 +285,6 @@ func newPDFWriter(hint int) *pdfWriter {
 func (wr *pdfWriter) sortedEntryKeys(entries pdf.Dict) []string {
 	base := len(wr.keyScratch)
 	for k := range entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
 		wr.keyScratch = append(wr.keyScratch, k)
 	}
 	keys := wr.keyScratch[base:]
@@ -360,7 +352,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 		return err
 	}
 
-	if !val.HasStream {
+	if !val.IsStream() {
 		if err := wr.writeDictEntries(cw, val.Entries); err != nil {
 			return err
 		}
@@ -368,7 +360,7 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 		return err
 	}
 
-	raw := val.RawStream
+	raw := val.Stream()
 	entries := val.Entries
 
 	// /Length is always recomputed from the bytes actually being written,
@@ -387,9 +379,8 @@ func (wr *pdfWriter) writeIndirectObject(cw *countingWriter, num int, val pdf.PD
 	return err
 }
 
-// writeDictEntries writes "<< /Key value /Key2 value2 >>", skipping the
-// synthetic RefKey bookkeeping key and visiting real keys in sorted
-// order for deterministic, diffable output.
+// writeDictEntries writes "<< /Key value /Key2 value2 >>", visiting keys in
+// sorted order for deterministic, diffable output.
 func (wr *pdfWriter) writeDictEntries(cw *countingWriter, entries pdf.Dict) error {
 	return wr.writeDict(cw, entries, nil)
 }
@@ -498,11 +489,12 @@ func (wr *pdfWriter) writeValue(cw *countingWriter, v pdf.PDFValue) error {
 	}
 }
 
-// writeScalar serializes a pdf.PDFName/pdf.PDFString/pdf.PDFHexString/pdf.PDFInteger/
-// pdf.PDFReal/pdf.PDFBoolean -- the value kinds with no indirect-object semantics,
-// shared between writeValue (the full-document writer) and writeOperand
-// (the content-stream writer, content_writer.go). ok is false for any other
-// type, letting each caller apply its own array/dict/nil handling.
+// writeScalar serializes a pdf.PDFName, pdf.PDFString, pdf.PDFHexString,
+// pdf.PDFInteger, pdf.PDFReal or pdf.PDFBoolean. These kinds have no
+// indirect-object semantics, so writeValue (the full-document writer) and
+// writeOperand (the content-stream writer, content_writer.go) share it. ok is
+// false for any other type, letting each caller apply its own array/dict/nil
+// handling.
 func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 	switch val := v.(type) {
 	case pdf.PDFName:
@@ -551,7 +543,7 @@ func writeScalar(w io.Writer, v pdf.PDFValue) (ok bool, err error) {
 // writeNameBody writes a name's characters after the '/'. A Value from the
 // lexer is already a valid raw token (any #XX escapes kept as written) and
 // passes through unchanged. A name built in code may hold bytes that would end
-// the token -- whitespace or a delimiter -- and those are written as #XX so
+// the token (whitespace or a delimiter), and those are written as #XX so
 // the name cannot spill into the token stream. '#' itself is left alone, since
 // Value keeps the source's escapes raw.
 func writeNameBody(w io.Writer, name string) error {
@@ -583,7 +575,7 @@ func nameNeedsEscape(c byte) bool {
 
 // writeOperand serializes a content-stream operand: any value writeScalar
 // handles, plus arrays and inline dictionaries (e.g. a BI inline-image
-// parameter dict, or a BDC property list) -- operands are never indirect
+// parameter dict, or a BDC property list). Operands are never indirect
 // references, so unlike writeValue this never consults isIndirectDict.
 func writeOperand(w io.Writer, v pdf.PDFValue) error {
 	if ok, err := writeScalar(w, v); ok {
@@ -610,9 +602,6 @@ func writeOperand(w io.Writer, v pdf.PDFValue) error {
 	case pdf.PDFDict:
 		keys := make([]string, 0, val.Entries.Len())
 		for k := range val.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)

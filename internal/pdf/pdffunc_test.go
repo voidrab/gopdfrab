@@ -92,18 +92,14 @@ func TestSampledFunctionInterpolation(t *testing.T) {
 	zw.Write([]byte{0, 255})
 	zw.Close()
 
-	d := PDFDict{
-		Entries: DictOf(map[string]PDFValue{
-			"FunctionType":  PDFInteger(0),
-			"Domain":        PDFArray{PDFReal(0), PDFReal(1)},
-			"Range":         PDFArray{PDFReal(0), PDFReal(1)},
-			"Size":          PDFArray{PDFInteger(2)},
-			"BitsPerSample": PDFInteger(8),
-			"Filter":        PDFName{Value: "FlateDecode"},
-		}),
-		HasStream: true,
-		RawStream: buf.Bytes(),
-	}
+	d := NewStreamDict(DictOf(map[string]PDFValue{
+		"FunctionType":  PDFInteger(0),
+		"Domain":        PDFArray{PDFReal(0), PDFReal(1)},
+		"Range":         PDFArray{PDFReal(0), PDFReal(1)},
+		"Size":          PDFArray{PDFInteger(2)},
+		"BitsPerSample": PDFInteger(8),
+		"Filter":        PDFName{Value: "FlateDecode"},
+	}), buf.Bytes())
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -121,15 +117,11 @@ func TestSampledFunctionInterpolation(t *testing.T) {
 }
 
 func TestPostScriptFunctionArithmetic(t *testing.T) {
-	d := PDFDict{
-		Entries: DictOf(map[string]PDFValue{
-			"FunctionType": PDFInteger(4),
-			"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
-			"Range":        PDFArray{PDFReal(0), PDFReal(1)},
-		}),
-		HasStream: true,
-		RawStream: []byte("{ add 2 div }"),
-	}
+	d := NewStreamDict(DictOf(map[string]PDFValue{
+		"FunctionType": PDFInteger(4),
+		"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
+		"Range":        PDFArray{PDFReal(0), PDFReal(1)},
+	}), []byte("{ add 2 div }"))
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -141,15 +133,11 @@ func TestPostScriptFunctionArithmetic(t *testing.T) {
 }
 
 func TestPostScriptFunctionIfElse(t *testing.T) {
-	d := PDFDict{
-		Entries: DictOf(map[string]PDFValue{
-			"FunctionType": PDFInteger(4),
-			"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
-			"Range":        PDFArray{PDFReal(0), PDFReal(1)},
-		}),
-		HasStream: true,
-		RawStream: []byte("{ dup 0.5 gt { pop 1 } { pop 0 } ifelse }"),
-	}
+	d := NewStreamDict(DictOf(map[string]PDFValue{
+		"FunctionType": PDFInteger(4),
+		"Domain":       PDFArray{PDFReal(0), PDFReal(1)},
+		"Range":        PDFArray{PDFReal(0), PDFReal(1)},
+	}), []byte("{ dup 0.5 gt { pop 1 } { pop 0 } ifelse }"))
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)
@@ -163,15 +151,11 @@ func TestPostScriptFunctionIfElse(t *testing.T) {
 }
 
 func TestPostScriptFunctionStackOps(t *testing.T) {
-	d := PDFDict{
-		Entries: DictOf(map[string]PDFValue{
-			"FunctionType": PDFInteger(4),
-			"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
-			"Range":        PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
-		}),
-		HasStream: true,
-		RawStream: []byte("{ exch }"),
-	}
+	d := NewStreamDict(DictOf(map[string]PDFValue{
+		"FunctionType": PDFInteger(4),
+		"Domain":       PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
+		"Range":        PDFArray{PDFReal(0), PDFReal(1), PDFReal(0), PDFReal(1)},
+	}), []byte("{ exch }"))
 	fn, err := ParseFunction(d)
 	if err != nil {
 		t.Fatalf("ParseFunction: %v", err)

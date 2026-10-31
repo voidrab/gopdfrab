@@ -3,13 +3,14 @@ package raster
 import (
 	"math"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
 // Shadings (ISO 32000-1 8.7.4.5) are painted by sampling: every device pixel
 // in the target area is mapped back into shading space and asked for its
-// colour. That mirrors compositeImage's inverse-CTM loop and keeps the whole
-// family -- function-based, axial and radial -- behind one colorAt method.
+// colour. That mirrors compositeImage's inverse-CTM loop and keeps the
+// function-based, axial and radial types behind one colorAt method.
 // Mesh types (4-7) are geometry rather than a field and are handled
 // separately in shading_mesh.go.
 
@@ -31,8 +32,8 @@ type shading struct {
 	extend [2]bool
 	lut    [][3]float64 // types 2/3: colour sampled across domain
 
-	dom4    [4]float64 // type 1: x and y domain
-	inverse Matrix     // type 1: inverse of /Matrix
+	dom4    [4]float64     // type 1: x and y domain
+	inverse content.Matrix // type 1: inverse of /Matrix
 
 	// types 4-7: the vertex/patch stream's packing.
 	bitsPerCoord int
@@ -141,9 +142,9 @@ func (sh *shading) initFunctionBased(dict pdf.PDFDict) bool {
 	if d, err := pdf.FloatArray(dict.Entries.Get("Domain")); err == nil && len(d) == 4 {
 		sh.dom4 = [4]float64{d[0], d[1], d[2], d[3]}
 	}
-	m := IdentityMatrix
+	m := content.IdentityMatrix
 	if a, err := pdf.FloatArray(dict.Entries.Get("Matrix")); err == nil && len(a) == 6 {
-		m = Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
+		m = content.Matrix{A: a[0], B: a[1], C: a[2], D: a[3], E: a[4], F: a[5]}
 	}
 	inv, ok := m.Invert()
 	if !ok {
@@ -216,7 +217,7 @@ func (sh *shading) colorAt(x, y float64) ([3]float64, bool) {
 }
 
 func (sh *shading) functionBasedAt(x, y float64) ([3]float64, bool) {
-	p := sh.inverse.Apply(Point{x, y})
+	p := sh.inverse.Apply(content.Point{X: x, Y: y})
 	if p.X < sh.dom4[0] || p.X > sh.dom4[1] || p.Y < sh.dom4[2] || p.Y > sh.dom4[3] {
 		return [3]float64{}, false
 	}
@@ -336,20 +337,20 @@ func (sh *shading) initMesh(dict pdf.PDFDict) bool {
 		return false
 	}
 	sh.meshDecode = decode
-	return dict.HasStream
+	return dict.IsStream()
 }
 
 // readCoords reads one vertex's x,y through the /Decode ranges.
-func (sh *shading) readCoords(m *meshReader) (Point, bool) {
+func (sh *shading) readCoords(m *meshReader) (content.Point, bool) {
 	rx, ok := m.read(sh.bitsPerCoord)
 	if !ok {
-		return Point{}, false
+		return content.Point{}, false
 	}
 	ry, ok := m.read(sh.bitsPerCoord)
 	if !ok {
-		return Point{}, false
+		return content.Point{}, false
 	}
-	return Point{
+	return content.Point{
 		X: decodeValue(rx, sh.bitsPerCoord, sh.meshDecode[0], sh.meshDecode[1]),
 		Y: decodeValue(ry, sh.bitsPerCoord, sh.meshDecode[2], sh.meshDecode[3]),
 	}, true
@@ -471,7 +472,7 @@ func (sh *shading) paintPatchMesh(m *meshReader, mp *meshPainter) {
 	if sh.kind == 7 {
 		pointsPerPatch = 16
 	}
-	var prevPts []Point
+	var prevPts []content.Point
 	var prevCols [4][3]float64
 
 	for !m.exhausted() && !mp.overflow {
@@ -481,7 +482,7 @@ func (sh *shading) paintPatchMesh(m *meshReader, mp *meshPainter) {
 		}
 		newPatch := flag == 0 || prevPts == nil
 
-		pts := make([]Point, 12)
+		pts := make([]content.Point, 12)
 		var cols [4][3]float64
 		first := 0
 		if !newPatch {

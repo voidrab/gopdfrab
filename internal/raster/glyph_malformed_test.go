@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"strconv"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/content"
 )
 
 // glyfTables wraps raw glyph records in a minimal short-loca sfnt table set
@@ -59,109 +61,6 @@ func TestGlyphOutlineFromTrueTypeRejectsBadTables(t *testing.T) {
 	}
 }
 
-func TestTTGlyfContoursCompositeNestingLimit(t *testing.T) {
-	// chain(n) is n composites, each wrapping the next, around one point glyph.
-	chain := func(n int) map[string][]byte {
-		var recs [][]byte
-		for i := 1; i <= n; i++ {
-			recs = append(recs, append(glyfRecord(-1, 0x0002, uint16(i)), 0, 0))
-		}
-		return glyfTables(1000, append(recs, append(glyfRecord(1, 0, 0), 0x31, 0x00))...)
-	}
-	if c, ok := ttGlyfContours(chain(8), 0, 0); !ok || len(c) != 1 {
-		t.Errorf("8 levels of nesting: ok=%v contours=%d, want ok with 1", ok, len(c))
-	}
-	if _, ok := ttGlyfContours(chain(9), 0, 0); ok {
-		t.Error("9 levels of nesting were accepted")
-	}
-	// A glyph that includes itself never terminates on its own.
-	self := glyfTables(1000, append(glyfRecord(-1, 0x0002, 0), 0, 0))
-	if _, ok := ttGlyfContours(self, 0, 0); ok {
-		t.Error("a self-referencing composite was accepted")
-	}
-}
-
-func TestTTSimpleGlyphContoursTruncation(t *testing.T) {
-	// flagsOnly: one contour, endPts=[0], insLen=0, then body.
-	rec := func(body ...byte) []byte { return append(glyfRecord(1, 0, 0), body...) }
-
-	for _, tc := range []struct {
-		name string
-		rec  []byte
-		ok   bool
-	}{
-		{"shorter than header", make([]byte, 5), false},
-		{"no contours", glyfRecord(0), true},
-		{"endpoints cut off", glyfRecord(2, 0), false},
-		{"instruction length missing", glyfRecord(1, 0), false},
-		{"flags missing", rec(), false},
-		{"repeat count missing", rec(0x08), false},
-		{"x short vector missing", rec(0x02), false},
-		{"x word delta cut off", rec(0x00, 0x01), false},
-		{"y short vector missing", rec(0x10 | 0x04), false},
-		{"y word delta cut off", rec(0x10, 0x01), false},
-		{"complete", rec(0x31), true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, ok := ttSimpleGlyphContours(tc.rec); ok != tc.ok {
-				t.Errorf("ok = %v, want %v", ok, tc.ok)
-			}
-		})
-	}
-}
-
-func TestQuadContourToLines(t *testing.T) {
-	if got := quadContourToLines(nil, nil); got != nil {
-		t.Errorf("empty contour = %v, want nil", got)
-	}
-	// Off-curve only: the start is synthesized from the first/last midpoint
-	// and the contour closes back to it.
-	pts := []Point{{0, 0}, {100, 0}, {100, 100}, {0, 100}}
-	got := quadContourToLines(pts, []bool{false, false, false, false})
-	if len(got) < 4 {
-		t.Fatalf("all-off-curve contour flattened to %d points", len(got))
-	}
-	if last := got[len(got)-1]; last != (Point{0, 50}) {
-		t.Errorf("contour ends at %v, want the synthesized start {0 50}", last)
-	}
-	// On-curve start followed by a trailing off-curve control: the final
-	// quadratic closes back to the start point.
-	got = quadContourToLines([]Point{{0, 0}, {50, 100}}, []bool{true, false})
-	if last := got[len(got)-1]; last != (Point{0, 0}) {
-		t.Errorf("contour ends at %v, want the start {0 0}", last)
-	}
-}
-
-func TestTTCompositeContoursTruncation(t *testing.T) {
-	point := append(glyfRecord(1, 0, 0), 0x31, 0x00) // gid 0: one on-curve point
-	broken := glyfRecord(1)                          // gid 1: truncated simple glyph
-	tables := glyfTables(1000, point, broken)
-	comp := func(gid uint16, flags uint16, tail ...byte) []byte {
-		return append(glyfRecord(-1, flags, gid), tail...)
-	}
-	const (
-		words = 0x0001
-		xy    = 0x0002
-	)
-	for _, tc := range []struct {
-		name string
-		rec  []byte
-	}{
-		{"word args cut off", comp(0, words|xy, 0, 1)},
-		{"byte args cut off", comp(0, xy, 1)},
-		{"scale cut off", comp(0, xy|0x0008, 0, 0, 0x40)},
-		{"x/y scale cut off", comp(0, xy|0x0040, 0, 0, 0x40, 0, 0x20)},
-		{"2x2 cut off", comp(0, xy|0x0080, 0, 0, 0x40, 0, 0, 0)},
-		{"component undecodable", comp(1, xy, 0, 0)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, ok := ttCompositeContours(tables, tc.rec, 0); ok {
-				t.Error("malformed composite was accepted")
-			}
-		})
-	}
-}
-
 func TestGlyphOutlineFromCFFRejectsBadInput(t *testing.T) {
 	cff := buildMinimalCIDCFF()
 	if _, ok := glyphOutlineFromCFF(cff, 1); !ok {
@@ -180,77 +79,6 @@ func TestGlyphOutlineFromCFFRejectsBadInput(t *testing.T) {
 				t.Error("glyphOutlineFromCFF accepted bad input")
 			}
 		})
-	}
-}
-
-func TestType2CharstringMovesAndOddCurveArgs(t *testing.T) {
-	p := func(bs ...byte) []byte { return bs }
-	n := b139
-	// hmoveto, vmoveto, a stem operator, an unassigned operator (2) and an
-	// endchar with a stray operand all fall through without drawing.
-	got := interpretType2Charstring(p(
-		n(10), 22, n(20), 4, // hmoveto 10; vmoveto 20 -> (10, 20)
-		n(5), n(5), 1, // hstem
-		n(3), 6, // hlineto 3
-		2,        // unassigned operator
-		n(1), 14, // endchar
-	))
-	if len(got) != 1 || len(got[0]) != 2 || got[0][0] != (Point{10, 20}) || got[0][1] != (Point{13, 20}) {
-		t.Fatalf("contours = %v, want one line {10 20}-{13 20}", got)
-	}
-
-	// Odd argument counts: the leading dx1/dy1 of vv/hh curves, and the final
-	// extra delta of vh/hv curves.
-	for _, tc := range []struct {
-		name string
-		prog []byte
-		end  Point
-	}{
-		{"vvcurveto dx1", p(n(0), n(0), 21, n(7), n(1), n(2), n(3), n(4), 26), Point{9, 8}},
-		{"hhcurveto dy1", p(n(0), n(0), 21, n(7), n(1), n(2), n(3), n(4), 27), Point{7, 10}},
-		{"hvcurveto tail", p(n(0), n(0), 21, n(1), n(2), n(3), n(4), n(5), 31), Point{8, 7}},
-		{"vhcurveto tail", p(n(0), n(0), 21, n(1), n(2), n(3), n(4), n(5), 30), Point{6, 9}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := interpretType2Charstring(tc.prog)
-			if len(c) != 1 {
-				t.Fatalf("contours = %v, want one curve", c)
-			}
-			if end := c[0][len(c[0])-1]; end != tc.end {
-				t.Errorf("curve ends at %v, want %v", end, tc.end)
-			}
-		})
-	}
-}
-
-func TestType1CharstringEdgeOperators(t *testing.T) {
-	n := b139
-	cs := []byte{
-		n(0), n(100), 13, // hsbw
-		n(5), n(5), 1, // hstem
-		n(5), n(5), 3, // vstem
-		n(10), n(10), 21, // rmoveto
-		n(1), n(0), 12, 12, // div by zero drops both operands
-		n(4), n(2), 12, 12, // 4 2 div -> 2 (hlineto length)
-		6,     // hlineto
-		12, 6, // seac: composition unsupported, skipped
-		n(1), 12, 99, // unknown escape
-		2,                             // unassigned operator
-		n(5), n(5), n(5), n(5), 12, 7, // sbw
-		n(5), 7, // vlineto
-		14,
-	}
-	got := interpretType1Charstring(cs)
-	if len(got) != 1 || len(got[0]) != 3 {
-		t.Fatalf("contours = %v, want one contour of 3 points", got)
-	}
-	if got[0][1] != (Point{12, 10}) {
-		t.Errorf("hlineto landed at %v, want {12 10} (div result used as length)", got[0][1])
-	}
-
-	// A lone escape byte at the end of the program ends interpretation.
-	if got := interpretType1Charstring([]byte{n(0), n(0), 21, n(5), 6, 12}); len(got) != 1 {
-		t.Errorf("contours = %v, want the one drawn before the truncated escape", got)
 	}
 }
 
@@ -293,7 +121,7 @@ func TestGlyphOutlineFromType1(t *testing.T) {
 	if !ok || len(path.Contours) != 1 || len(path.Contours[0]) != 4 {
 		t.Fatalf("sq = %v ok=%v, want one 4-point contour", path.Contours, ok)
 	}
-	if path.Contours[0][0] != (Point{10, 10}) {
+	if path.Contours[0][0] != (content.Point{X: 10, Y: 10}) {
 		t.Errorf("sq starts at %v, want {10 10}", path.Contours[0][0])
 	}
 

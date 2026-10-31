@@ -61,8 +61,8 @@ func TestInlineImageDictKeyExpansion(t *testing.T) {
 			if !ok {
 				return
 			}
-			if !got.HasStream || len(got.RawStream) != 3 {
-				t.Errorf("stream not attached: HasStream=%v len=%d", got.HasStream, len(got.RawStream))
+			if !got.IsStream() || len(got.Stream()) != 3 {
+				t.Errorf("stream not attached: IsStream()=%v len=%d", got.IsStream(), len(got.Stream()))
 			}
 			for k, want := range tc.want {
 				if got.Entries.Get(k) != want {
@@ -76,12 +76,12 @@ func TestInlineImageDictKeyExpansion(t *testing.T) {
 // inlineImagePage wraps content in a page dict for the inline-image render tests.
 func inlineImagePage(content string) pdf.PDFDict {
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 }
 
-// TestRenderInlineImageRGB: an inline RGB image paints its samples, with row 0
-// at the top of the page and column 0 at the left.
+// TestRenderInlineImageRGB verifies that an inline RGB image paints its
+// samples, with row 0 at the top of the page and column 0 at the left.
 func TestRenderInlineImageRGB(t *testing.T) {
 	samples := []byte{
 		255, 0, 0, 0, 255, 0, // top row: red, green
@@ -89,7 +89,7 @@ func TestRenderInlineImageRGB(t *testing.T) {
 	}
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 2 /CS /RGB /BPC 8 ID " + string(samples) + " EI Q"
 
-	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -114,13 +114,13 @@ func TestRenderInlineImageRGB(t *testing.T) {
 	}
 }
 
-// TestRenderInlineImageStencilMask: an /IM true image carries coverage, not
-// colour, so its painted samples take the current fill colour.
+// TestRenderInlineImageStencilMask verifies that an /IM true image carries
+// coverage, not colour, so its painted samples take the current fill colour.
 func TestRenderInlineImageStencilMask(t *testing.T) {
 	// One 1-bit sample, value 0: opaque under the default /Decode [0 1].
 	content := "q 0 1 0 rg 20 0 0 20 0 0 cm BI /IM true /W 1 /H 1 /BPC 1 ID \x00 EI Q"
 
-	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -132,8 +132,8 @@ func TestRenderInlineImageStencilMask(t *testing.T) {
 	}
 }
 
-// TestRenderInlineImageUndecodableDrops: an inline image the decode chain
-// cannot handle stays loud rather than silently painting nothing.
+// TestRenderInlineImageUndecodableDrops verifies that an inline image the
+// decode chain cannot handle is reported rather than silently painting nothing.
 func TestRenderInlineImageUndecodableDrops(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -144,7 +144,7 @@ func TestRenderInlineImageUndecodableDrops(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, drops, err := RenderPage(inlineImagePage(tc.content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+			_, drops, err := RenderPage(inlineImagePage(tc.content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -155,16 +155,17 @@ func TestRenderInlineImageUndecodableDrops(t *testing.T) {
 	}
 }
 
-// TestRenderStrayInlineImageOperatorDrops: the scanner only ever produces
+// TestRenderStrayInlineImageOperatorDrops verifies that an INLINEIMAGE operator
+// with nothing attached is reported, not drawn. The scanner only produces
 // INLINEIMAGE with its raw image attached, but a content stream can spell the
-// operator itself with nothing behind it. That is reported, not drawn.
+// operator itself with nothing behind it.
 func TestRenderStrayInlineImageOperatorDrops(t *testing.T) {
 	for name, content := range map[string]string{
 		"no operands":     "INLINEIMAGE",
 		"plain operands":  "1 2 INLINEIMAGE",
 		"inside a q pair": "q 5 INLINEIMAGE Q",
 	} {
-		_, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+		_, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 		if err != nil {
 			t.Fatalf("%s: RenderPage: %v", name, err)
 		}

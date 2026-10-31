@@ -46,7 +46,7 @@ func TestDocument_OpenAndRead(t *testing.T) {
 	}
 	defer doc.Close()
 
-	if doc.size == 0 {
+	if doc.src.size == 0 {
 		t.Error("Reader size reported as 0")
 	}
 
@@ -213,11 +213,11 @@ func writeMinimalPDF(t *testing.T, objs []string, trailerBody string) string {
 	return path
 }
 
-// hasXRefRecoveryDiagnostic reports whether doc recorded the 6.1.4 diagnostic
-// that a brute-force object scan rebuilt the cross-reference table.
+// hasXRefRecoveryDiagnostic reports whether doc recorded that a brute-force
+// object scan rebuilt the cross-reference table.
 func hasXRefRecoveryDiagnostic(doc *Reader) bool {
-	for _, e := range doc.StructErrors() {
-		if e.Check() == Checks.Structure.XRefKeyword {
+	for _, e := range doc.Diagnostics() {
+		if e.Kind == DiagXRefRebuilt {
 			return true
 		}
 	}
@@ -380,13 +380,13 @@ func TestBruteForceXRefRecovery(t *testing.T) {
 func TestDecodeStreamCachedConcurrent(t *testing.T) {
 	d := &Reader{}
 
-	// No RawStream bytes: not cacheable, falls back to plain DecodeStream,
+	// No Stream() bytes: not cacheable, falls back to plain DecodeStream,
 	// which errors because the dict isn't a stream at all.
 	if _, err := d.DecodeStreamCachedConcurrent(PDFDict{}); err == nil {
 		t.Error("expected error decoding a non-stream dict")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("cached")}
+	streamDict := NewStreamDict(nil, []byte("cached"))
 	got1, err := d.DecodeStreamCachedConcurrent(streamDict)
 	if err != nil || string(got1) != "cached" {
 		t.Fatalf("first decode = %q, %v", got1, err)
@@ -400,10 +400,7 @@ func TestDecodeStreamCachedConcurrent(t *testing.T) {
 		t.Fatalf("second (cache-hit) decode = %q, %v", got2, err)
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := d.DecodeStreamCachedConcurrent(badDict); err == nil {
 		t.Error("expected error for an unsupported filter")
 	}
@@ -446,11 +443,11 @@ func TestRecordFramingDedup(t *testing.T) {
 	}
 }
 
-// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-check dedup.
+// TestRecordStreamFramingDedup covers recordStreamFraming's once-per-object-per-kind dedup.
 func TestRecordStreamFramingDedup(t *testing.T) {
 	d := &Reader{}
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg")
-	d.recordStreamFraming(1, Checks.Structure.StreamKeywordEOL, "msg again")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg")
+	d.recordStreamFraming(1, DiagStreamKeywordEOL, "msg again")
 	if len(d.parseDiagnostics) != 1 {
 		t.Errorf("expected dedup, got %d diagnostics", len(d.parseDiagnostics))
 	}
@@ -461,8 +458,8 @@ func TestRecordStreamFramingDedup(t *testing.T) {
 func TestNewRawReaderAndSeedResolvedGraph(t *testing.T) {
 	trailer := PDFDict{Entries: DictOf(map[string]PDFValue{"Root": PDFRef{ObjNum: 1}})}
 	d := NewRawReader(nil, trailer, 100, 50)
-	if d.size != 100 || d.xrefOffset != 50 {
-		t.Errorf("NewRawReader: size=%d xrefOffset=%d, want 100, 50", d.size, d.xrefOffset)
+	if d.src.size != 100 || d.xrefOffset != 50 {
+		t.Errorf("NewRawReader: size=%d xrefOffset=%d, want 100, 50", d.src.size, d.xrefOffset)
 	}
 	if !EqualPDFValue(d.trailer.Entries.Get("Root"), trailer.Entries.Get("Root")) {
 		t.Error("NewRawReader did not set trailer")
@@ -501,10 +498,7 @@ func TestGetMetadataBranches(t *testing.T) {
 func TestRawXMPDecodeError(t *testing.T) {
 	d := &Reader{trailer: PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{
-			"Metadata": PDFDict{
-				HasStream: true, RawStream: []byte("x"),
-				Entries: DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-			},
+			"Metadata": NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x")),
 		})},
 	})}}
 	if _, _, err := d.RawXMP(); err == nil {
@@ -560,7 +554,7 @@ func TestResolveGraphByPathEmptyPath(t *testing.T) {
 func TestResolveGraphError(t *testing.T) {
 	d := &Reader{
 		xrefTable: map[int]int64{404: 0},
-		data:      []byte("404 0 obj\n[1 2"),
+		src:       memSource([]byte("404 0 obj\n[1 2")),
 		trailer:   PDFDict{Entries: DictOf(map[string]PDFValue{"Bad": PDFRef{ObjNum: 404}})},
 	}
 	if _, err := d.ResolveGraph(); err == nil {
@@ -650,7 +644,7 @@ func TestClaimedConformanceAndRawXMP(t *testing.T) {
 // the exhausted-loop error when no such object exists.
 func TestRecoverTrailerFromXRefStream(t *testing.T) {
 	r := &Reader{
-		data:      []byte{}, // any offset lookup fails to parse -> resolve error, continue
+		src:       memSource([]byte{}), // any offset lookup fails to parse -> resolve error, continue
 		xrefTable: map[int]int64{1: 0, 2: 0, 3: 0},
 		objCache: map[int]PDFValue{
 			2: PDFInteger(7), // resolves fine but isn't a dict -> continue
@@ -687,7 +681,7 @@ func TestFollowXRefPrevChainMergesOlderRevision(t *testing.T) {
 	data := []byte(older + fmt.Sprintf(newer, olderOffset))
 
 	r := &Reader{
-		data:       data,
+		src:        memSource(data),
 		file:       bytesFileSource{bytes.NewReader(data)},
 		xrefTable:  map[int]int64{1: 222},
 		xrefOffset: int64(newerOffset),
@@ -710,7 +704,7 @@ func TestFollowXRefPrevChainMergesOlderRevision(t *testing.T) {
 func TestFollowXRefPrevChainCyclicPrevStops(t *testing.T) {
 	data := []byte("xref\n0 2\n0000000000 65535 f \n0000000010 00000 n \ntrailer\n<< /Size 2 >>\n")
 	r := &Reader{
-		data:       data,
+		src:        memSource(data),
 		file:       bytesFileSource{bytes.NewReader(data)},
 		xrefTable:  map[int]int64{1: 10},
 		xrefOffset: 0,
@@ -739,7 +733,7 @@ func TestFindAndLoadFirstPageTrailer(t *testing.T) {
 	laterRoot := "xref\n0 2\n0000000000 65535 f \n0000000030 00000 n \ntrailer\n<< /Size 2 /Root 2 0 R >>\n"
 	data := []byte(noRoot + firstRoot + laterRoot)
 
-	r := &Reader{data: data, file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	r := &Reader{src: memSource(data), file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
 	r.findAndLoadFirstPageTrailer()
 
 	if !EqualPDFValue(r.firstPageTrailer.Entries.Get("Root"), PDFRef{ObjNum: 1}) {
@@ -751,36 +745,36 @@ func TestFindAndLoadFirstPageTrailer(t *testing.T) {
 // return and the continue-on-parse-error branch (an "xref" line that isn't a
 // parseable section).
 func TestFindAndLoadFirstPageTrailerBranches(t *testing.T) {
-	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	bad.findAndLoadFirstPageTrailer()
 	if bad.firstPageTrailer.Entries != nil {
 		t.Error("expected no firstPageTrailer when fullBytes fails")
 	}
 
 	data := []byte("garbage\nxref\nnot a valid section\n")
-	r := &Reader{data: data, file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
+	r := &Reader{src: memSource(data), file: bytesFileSource{bytes.NewReader(data)}, xrefTable: map[int]int64{}}
 	r.findAndLoadFirstPageTrailer()
 	if r.firstPageTrailer.Entries != nil {
 		t.Error("expected no firstPageTrailer for an unparseable xref section")
 	}
 }
 
-// TestFullBytes covers both branches: the in-memory d.data shortcut and the
+// TestFullBytes covers both branches: the in-memory src.mem shortcut and the
 // file-backed read, including its error path.
 func TestFullBytes(t *testing.T) {
-	r := &Reader{data: []byte("in-memory")}
+	r := &Reader{src: memSource([]byte("in-memory"))}
 	got, err := r.fullBytes()
 	if err != nil || string(got) != "in-memory" {
 		t.Errorf("fullBytes(in-memory) = %q, %v", got, err)
 	}
 
-	fileBacked := &Reader{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, size: 7}
+	fileBacked := &Reader{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("on-disk"))}, size: 7}}
 	got, err = fileBacked.fullBytes()
 	if err != nil || string(got) != "on-disk" {
 		t.Errorf("fullBytes(file-backed) = %q, %v", got, err)
 	}
 
-	short := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	short := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	if _, err := short.fullBytes(); err == nil {
 		t.Error("expected error reading past the end of a short file source")
 	}
@@ -790,7 +784,7 @@ func TestFullBytes(t *testing.T) {
 // loop, the duplicate-skip continue branch, and the fullBytes-error branch.
 func TestRecoverXRefByBruteForceScanBranches(t *testing.T) {
 	data := []byte("1 0 obj\n<<>>\nendobj\n5 0 obj\n<<>>\nendobj\n")
-	d := &Reader{data: data, xrefTable: map[int]int64{5: 999}}
+	d := &Reader{src: memSource(data), xrefTable: map[int]int64{5: 999}}
 	if err := d.recoverXRefByBruteForceScan(true); err != nil {
 		t.Fatalf("recoverXRefByBruteForceScan(fillIn): %v", err)
 	}
@@ -801,7 +795,7 @@ func TestRecoverXRefByBruteForceScanBranches(t *testing.T) {
 		t.Error("expected object 1 to be added by the scan")
 	}
 
-	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}
+	bad := &Reader{file: bytesFileSource{bytes.NewReader([]byte("x"))}, src: source{file: bytesFileSource{bytes.NewReader([]byte("x"))}, size: 100}}
 	if err := bad.recoverXRefByBruteForceScan(false); err == nil {
 		t.Error("expected fullBytes error to propagate")
 	}
@@ -838,8 +832,8 @@ func TestBuildPageIndex(t *testing.T) {
 		t.Error("expected error for nil Pages")
 	}
 
-	page1 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 10}})}
-	page2 := PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}, RefKey: PDFRef{ObjNum: 20}})}
+	page1 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 10})
+	page2 := withRef(PDFDict{Entries: DictOf(map[string]PDFValue{"Type": PDFName{Value: "Page"}})}, PDFRef{ObjNum: 20})
 	kids := PDFDict{Entries: DictOf(map[string]PDFValue{"Kids": PDFArray{page1, page2}})}
 	graph := PDFDict{Entries: DictOf(map[string]PDFValue{
 		"Root": PDFDict{Entries: DictOf(map[string]PDFValue{"Pages": kids})},
@@ -861,7 +855,7 @@ func TestDecodeStreamCached(t *testing.T) {
 		t.Error("expected error decoding a non-stream dict")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("sync-cached")}
+	streamDict := NewStreamDict(nil, []byte("sync-cached"))
 	got1, err := d.DecodeStreamCached(streamDict)
 	if err != nil || string(got1) != "sync-cached" {
 		t.Fatalf("first decode = %q, %v", got1, err)
@@ -874,10 +868,7 @@ func TestDecodeStreamCached(t *testing.T) {
 		t.Fatalf("second (cache-hit) decode = %q, %v", got2, err)
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := d.DecodeStreamCached(badDict); err == nil {
 		t.Error("expected error decoding an unsupported filter")
 	}
@@ -899,7 +890,7 @@ func scanOps(d *Reader, dict PDFDict) ([]ScannedOp, error) {
 // with-key decode-error branch, and its cache-hit path.
 func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 	d := &Reader{}
-	ops, err := scanOps(d, PDFDict{HasStream: true, RawStream: nil})
+	ops, err := scanOps(d, NewStreamDict(nil, nil))
 	if err != nil {
 		t.Fatalf("ScanStreamFunc (no key): %v", err)
 	}
@@ -911,15 +902,12 @@ func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 		t.Error("expected error scanning a non-stream dict (no-key decode error)")
 	}
 
-	badDict := PDFDict{
-		Entries:   DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}),
-		HasStream: true, RawStream: []byte("x"),
-	}
+	badDict := NewStreamDict(DictOf(map[string]PDFValue{"Filter": PDFName{Value: "JPXDecode"}}), []byte("x"))
 	if _, err := scanOps(d, badDict); err == nil {
 		t.Error("expected error scanning an unsupported filter (with-key decode error)")
 	}
 
-	streamDict := PDFDict{HasStream: true, RawStream: []byte("1 2 Tj")}
+	streamDict := NewStreamDict(nil, []byte("1 2 Tj"))
 	ops1, err := scanOps(d, streamDict)
 	if err != nil || len(ops1) != 1 || ops1[0].Op != "Tj" {
 		t.Fatalf("ScanStreamFunc (first) = %+v, %v", ops1, err)
@@ -937,7 +925,7 @@ func TestScanStreamFuncNoKeyAndHit(t *testing.T) {
 // out-of-range), dict-key (found, missing), and scalar-fallthrough branches,
 // plus the initial ResolveObject error and the final ResolveObject call.
 func TestResolvePath(t *testing.T) {
-	d := &Reader{xrefTable: map[int]int64{404: 0}, data: []byte("404 0 obj\n[1 2")}
+	d := &Reader{xrefTable: map[int]int64{404: 0}, src: memSource([]byte("404 0 obj\n[1 2"))}
 
 	if _, err := d.resolvePath(PDFRef{ObjNum: 404}, nil); err == nil {
 		t.Error("expected error resolving a ref to a malformed object")
@@ -1002,7 +990,7 @@ func TestResolveInPlace(t *testing.T) {
 	}
 
 	d.xrefTable = map[int]int64{404: 0}
-	d.data = []byte("404 0 obj\n[1 2")
+	d.src = memSource([]byte("404 0 obj\n[1 2"))
 
 	badDict := PDFDict{Entries: DictOf(map[string]PDFValue{"K": PDFRef{ObjNum: 404}})}
 	d.resolvedPtrs = nil
@@ -1041,7 +1029,7 @@ func TestFootprintCountsCaches(t *testing.T) {
 	}
 
 	content := []byte("BT /F1 12 Tf (hi) Tj ET")
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: content}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), content)
 
 	data, err := d.DecodeStreamCached(dict)
 	if err != nil {
@@ -1099,11 +1087,11 @@ func TestScannedOpsBytesGrowsWithContent(t *testing.T) {
 	}
 }
 
-// TestFootprintAdoptedWithCaches: AdoptStreamCaches shares the maps, so the
-// adopting Reader must report what it now holds rather than zero.
+// TestFootprintAdoptedWithCaches verifies that AdoptStreamCaches shares the
+// maps, so the adopting Reader reports what they hold rather than zero.
 func TestFootprintAdoptedWithCaches(t *testing.T) {
 	src := &Reader{}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: []byte("0 0 m 1 1 l S")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("0 0 m 1 1 l S"))
 	if _, err := src.DecodeStreamCached(dict); err != nil {
 		t.Fatalf("DecodeStreamCached: %v", err)
 	}
@@ -1143,15 +1131,14 @@ func TestMaxResidentBytesConfig(t *testing.T) {
 	}
 }
 
-// TestResidentBudgetStopsCaching: under a budget nothing fits, the caches stay
-// empty and every call still returns the same bytes and operators. The caches
-// are memoization, so the budget may cost time but never an answer.
+// TestResidentBudgetStopsCaching verifies that under a budget nothing fits, the
+// caches stay empty and every call still returns the same bytes and operators.
+// The caches are memoization, so the budget may cost time but never an answer.
 func TestResidentBudgetStopsCaching(t *testing.T) {
 	old := residentCap.Load()
 	defer residentCap.Store(old)
 
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,
-		RawStream: []byte("BT /F1 12 Tf (hello) Tj ET 0 0 m 1 1 l S")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("BT /F1 12 Tf (hello) Tj ET 0 0 m 1 1 l S"))
 
 	SetMaxResidentBytes(-1)
 	warm := &Reader{}
@@ -1195,9 +1182,9 @@ func TestResidentBudgetStopsCaching(t *testing.T) {
 	}
 }
 
-// TestScanStreamFuncAbandonsListOverBudget: a budget that fits the decoded
-// bytes but not the token list must leave the scan streaming -- reporting every
-// operator, caching none of them. This is what keeps peak memory, and not just
+// TestScanStreamFuncAbandonsListOverBudget verifies that a budget which fits
+// the decoded bytes but not the token list leaves the scan streaming, reporting
+// every operator and caching none of them. This keeps peak memory, not just
 // retention, inside the budget.
 func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	old := residentCap.Load()
@@ -1207,7 +1194,7 @@ func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	for i := range 400 {
 		content = append(content, fmt.Sprintf("%d %d m %d %d l S\n", i, i, i+1, i+1)...)
 	}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true, RawStream: content}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), content)
 
 	SetMaxResidentBytes(-1)
 	warm := &Reader{}
@@ -1238,9 +1225,9 @@ func TestScanStreamFuncAbandonsListOverBudget(t *testing.T) {
 	}
 }
 
-// TestScannedOpBytesMatchesIncremental: the running total scanAndMaybeCache
-// keeps must equal what scannedOpsBytes reports for the finished list, since
-// one decides whether to cache and the other decides what the budget records.
+// TestScannedOpBytesMatchesIncremental verifies that the running total kept by
+// scanAndMaybeCache equals what scannedOpsBytes reports for the finished list,
+// since one decides whether to cache and the other what the budget records.
 func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	ops := TokenizeContent([]byte(
 		"BT /F1 12 Tf [(a) -3 <42>] TJ ET /P << /K 1 >> BDC 1.5 0 0 1.5 0 0 cm true sh " +
@@ -1263,12 +1250,11 @@ func TestScannedOpBytesMatchesIncremental(t *testing.T) {
 	}
 }
 
-// TestReleaseCachesKeepsAnswers: releasing drops the memoized state and the
-// next call rebuilds it to the same result.
+// TestReleaseCachesKeepsAnswers verifies that releasing drops the memoized
+// state and that the next call rebuilds it to the same result.
 func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d := &Reader{}
-	dict := PDFDict{Entries: DictOf(map[string]PDFValue{}), HasStream: true,
-		RawStream: []byte("q 1 0 0 1 0 0 cm BT ET Q")}
+	dict := NewStreamDict(DictOf(map[string]PDFValue{}), []byte("q 1 0 0 1 0 0 cm BT ET Q"))
 
 	before, err := d.DecodeStreamCached(dict)
 	if err != nil {
@@ -1281,7 +1267,7 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	d.objStmCache = map[int][]objStmEntry{1: {{objNum: 2}}}
 	d.headerScan = map[int][]int64{1: {0}}
 	d.framingChecked = map[int]bool{1: true}
-	d.streamChecked = map[streamCheckKey]bool{{1, Checks.Structure.EndstreamEOL}: true}
+	d.streamChecked = map[streamCheckKey]bool{{1, DiagEndstreamEOL}: true}
 	d.objCache = map[int]PDFValue{7: PDFInteger(7)}
 
 	d.ReleaseCaches()
@@ -1312,4 +1298,11 @@ func TestReleaseCachesKeepsAnswers(t *testing.T) {
 	}
 
 	d.ReleaseCaches() // idempotent
+}
+
+// withRef marks d as the indirect object ref and returns it, so a literal can
+// be built in one expression.
+func withRef(d PDFDict, ref PDFRef) PDFDict {
+	d.SetRef(ref)
+	return d
 }

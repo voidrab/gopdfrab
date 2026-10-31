@@ -2,9 +2,8 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // This file fixes violations specific to an inline image's own parameters
@@ -21,10 +20,6 @@ import (
 // LZW) a /DP-/DecodeParms predictor this package doesn't replicate for
 // inline images -- leaving the violation as a residual rather than risking
 // a corrupted image.
-
-func init() {
-	registerFixer(inlineImageLZWFixer{})
-}
 
 // removeInlineImageKeys drops every (key, value) pair whose key matches one
 // of keys from an inline image's params.
@@ -47,7 +42,7 @@ func removeInlineImageKeys(params []pdf.PDFValue, keys ...string) []pdf.PDFValue
 // to /RelativeColorimetric, mirroring checkInlineImageOther's Intent case
 // (checks_content.go) in reverse. ok is false if operands isn't an
 // INLINEIMAGE op's operands or nothing needed fixing.
-func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValue, ok bool) {
+func fixInlineImageRenderingIntent(operands []pdf.PDFValue, spec *pdfa.Spec) (fixed []pdf.PDFValue, ok bool) {
 	params, raw, ok := pdf.InlineImageRawOperand(operands)
 	if !ok {
 		return operands, false
@@ -59,7 +54,7 @@ func fixInlineImageRenderingIntent(operands []pdf.PDFValue) (fixed []pdf.PDFValu
 		if !ok || key.Value != "Intent" {
 			continue
 		}
-		if name, ok := fixedParams[i+1].(pdf.PDFName); ok && !verify.AllowedIntents[name.Value] {
+		if name, ok := fixedParams[i+1].(pdf.PDFName); ok && !spec.RenderingIntents.Has(name.Value) {
 			fixedParams[i+1] = pdf.PDFName{Value: "RelativeColorimetric"}
 			changed = true
 		}
@@ -185,8 +180,7 @@ func fixInlineImageLZW(op string, operands []pdf.PDFValue, changed *bool) (write
 		}
 	}
 	head := pdf.NewPDFDict()
-	head.HasStream = true
-	head.RawStream = raw.Data
+	head.SetStream(raw.Data)
 	headFilter := make(pdf.PDFArray, 0, lastLZW+1)
 	headParms := make(pdf.PDFArray, 0, lastLZW+1)
 	for i := 0; i <= lastLZW; i++ {

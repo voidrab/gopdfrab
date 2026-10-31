@@ -27,7 +27,7 @@ func buildDeepGraph(depth int) pdf.PDFDict {
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
+	page.SetRef(pdf.PDFRef{ObjNum: 3})
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
@@ -63,8 +63,9 @@ func resultHasCheck(res pdf.Result, c pdf.Check) bool {
 	return false
 }
 
-// TestWalkDepthLimit: the walk stops at maxWalkDepth. Below the buried array's
-// depth it isn't reached (ArrayTooLarge absent); above it, it is.
+// TestWalkDepthLimit verifies that the walk stops at maxWalkDepth. Below the
+// buried array's depth it isn't reached (ArrayTooLarge absent); above it, it
+// is.
 func TestWalkDepthLimit(t *testing.T) {
 	const depth = 120
 	graph := buildDeepGraph(depth)

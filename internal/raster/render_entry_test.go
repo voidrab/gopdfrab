@@ -8,10 +8,7 @@ import (
 
 // undecodableStream is a content stream whose filter cannot decode its data.
 func undecodableStream() pdf.PDFDict {
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-		HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF})
 }
 
 func formWithBBox(content string, bbox ...int64) pdf.PDFDict {
@@ -19,25 +16,22 @@ func formWithBBox(content string, bbox ...int64) pdf.PDFDict {
 	for _, v := range bbox {
 		box = append(box, pdf.PDFInteger(v))
 	}
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"BBox": box}),
-		HasStream: true, RawStream: []byte(content),
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"BBox": box}), []byte(content))
 }
 
 func TestRenderPageUndecodableContentFails(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Contents": undecodableStream()})}
-	if _, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72); err == nil {
+	if _, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil); err == nil {
 		t.Error("RenderPage succeeded on undecodable content")
 	}
 }
 
 func TestRenderFormContentRejectsBadForms(t *testing.T) {
-	noBBox := pdf.PDFDict{HasStream: true, RawStream: []byte("")}
+	noBBox := pdf.NewStreamDict(nil, []byte(""))
 	shortBBox := formWithBBox("", 0, 0, 20)
 	badStream := formWithBBox("", 0, 0, 20, 20)
 	badStream.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
-	badStream.RawStream = []byte{0xFF, 0xFF, 0xFF}
+	badStream.SetStream([]byte{0xFF, 0xFF, 0xFF})
 
 	for name, form := range map[string]pdf.PDFDict{
 		"missing BBox":      noBBox,
@@ -78,7 +72,7 @@ func TestPageContentBytesSkipsNonStreamArrayItems(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.PDFArray{
 			pdf.PDFInteger(7),
-			pdf.PDFDict{HasStream: true, RawStream: []byte("q Q")},
+			pdf.NewStreamDict(nil, []byte("q Q")),
 		},
 	})}
 	got, err := PageContentBytes(page)

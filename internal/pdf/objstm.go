@@ -37,7 +37,7 @@ func (d *Reader) resolveCompressedObject(ref PDFRef, entry compressedXrefEntry) 
 
 // findObjStmEntry returns the entry for objNum: the one at index when its
 // declared number agrees, else the first declaring objNum. A wrong xref index
-// must not hand back -- and stamp _ref on -- some other object.
+// must not return, or stamp its reference onto, a different object.
 func findObjStmEntry(entries []objStmEntry, index, objNum int) (objStmEntry, bool) {
 	if index >= 0 && index < len(entries) && entries[index].objNum == objNum {
 		return entries[index], true
@@ -65,7 +65,7 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		return nil, fmt.Errorf("object stream %d: %w", streamObjNum, err)
 	}
 	dict, ok := v.(PDFDict)
-	if !ok || !dict.HasStream {
+	if !ok || !dict.IsStream() {
 		return nil, fmt.Errorf("object %d is not an object stream", streamObjNum)
 	}
 
@@ -92,12 +92,10 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		numTok := headerLex.NextToken()
 		offTok := headerLex.NextToken()
 		if numTok.Type != TokenInteger || offTok.Type != TokenInteger {
-			headerLex.Release()
 			return nil, fmt.Errorf("object stream %d: malformed header at entry %d", streamObjNum, i)
 		}
 		pairs = append(pairs, pair{numTok.IntValue(), offTok.IntValue()})
 	}
-	headerLex.Release()
 
 	entries := make([]objStmEntry, 0, len(pairs))
 	for i, p := range pairs {
@@ -117,7 +115,6 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		objLex := NewLexerBytes(data[start:end], 0)
 		tok := objLex.NextToken()
 		val, err := parseObject(objLex, tok)
-		objLex.Release()
 		if err != nil {
 			entries = append(entries, objStmEntry{objNum: p.objNum,
 				err: fmt.Errorf("object stream %d: object %d: %w", streamObjNum, p.objNum, err)})
@@ -125,12 +122,11 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		}
 
 		// Compressed objects may not themselves be streams (ISO 32000-1
-		// 7.5.7), so there is no RawStream to capture here. Stamp the
-		// synthetic _ref entry that the rest of the package relies on, the
-		// same as resolver.go's parseClassicReference does for
-		// classically-stored objects.
+		// 7.5.7), so there are no stream bytes to capture. Record the
+		// object's reference, which the rest of the package relies on, as
+		// parseClassicReference in resolver.go does for classic objects.
 		if dictVal, ok := val.(PDFDict); ok {
-			dictVal.Entries.Set(RefKey, PDFRef{ObjNum: p.objNum})
+			dictVal.SetRef(PDFRef{ObjNum: p.objNum})
 			val = dictVal
 		}
 

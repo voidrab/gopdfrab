@@ -59,11 +59,10 @@ func TTGlyphInRange(tables map[string][]byte) func(gid int) bool {
 // font defines at all -- an in-range glyph ID with a loca entry.
 //
 // An empty loca entry means "no contours", which is how TrueType encodes a
-// space; the glyph is defined, it just draws nothing. This used to additionally
-// require a zero advance width before accepting an empty outline, which is not
-// a rule TrueType has: a space in a monospaced subset is empty *and* 600/1000
-// wide, so every such font was reported as missing a glyph it plainly defines.
-// A genuinely absent glyph is out of range instead, which is still caught.
+// space; the glyph is defined, it just draws nothing. The advance width is not
+// consulted: an empty outline is present whatever its width, since a space in a
+// monospaced subset is empty and has a nonzero advance. A glyph absent from the
+// font is one outside the glyph range.
 func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 	hasData := TTLocaHasGlyph(tables)
 	inRange := TTGlyphInRange(tables)
@@ -82,12 +81,8 @@ func TTGlyphPresent(tables map[string][]byte) func(gid int) bool {
 func TTAdvanceWidth(tables map[string][]byte, gid int) float64 {
 	hmtx := tables["hmtx"]
 	hhea := tables["hhea"]
-	head := tables["head"]
-	if len(hmtx) == 0 || len(hhea) < 36 || len(head) < 20 {
-		return -1
-	}
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
-	if upm == 0 {
+	upm, ok := UnitsPerEm(tables)
+	if len(hmtx) == 0 || len(hhea) < 36 || !ok {
 		return -1
 	}
 	nHM := int(binary.BigEndian.Uint16(hhea[34:36]))
@@ -256,4 +251,44 @@ func ParseSfnt(data []byte) (map[string][]byte, bool) {
 		tables[string(rec[:4])] = data[off:end]
 	}
 	return tables, true
+}
+
+// ScaledAscentDescent reads hhea's ascender/descender, scaled to PDF's
+// 1000-unit em for a FontDescriptor's Ascent/Descent.
+func ScaledAscentDescent(tables map[string][]byte) (ascent, descent int) {
+	hhea := tables["hhea"]
+	upm, ok := UnitsPerEm(tables)
+	if len(hhea) < 8 || !ok {
+		return 0, 0
+	}
+	a := int(int16(binary.BigEndian.Uint16(hhea[4:6])))
+	d := int(int16(binary.BigEndian.Uint16(hhea[6:8])))
+	return a * 1000 / upm, d * 1000 / upm
+}
+
+// ScaledCapHeight reads OS/2's sCapHeight scaled to PDF's 1000-unit em. It
+// returns fallback when the table is too short to hold the field or the units
+// per em are unknown.
+func ScaledCapHeight(tables map[string][]byte, fallback int) int {
+	os2 := tables["OS/2"]
+	upm, ok := UnitsPerEm(tables)
+	if len(os2) < 90 || !ok {
+		return fallback
+	}
+	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm
+}
+
+// CmapSubtableCount returns the number of subtables in the cmap table of the
+// sfnt font program data, and false when data does not parse or has no
+// usable cmap table.
+func CmapSubtableCount(data []byte) (int, bool) {
+	tables, ok := ParseSfnt(data)
+	if !ok {
+		return 0, false
+	}
+	cmap := tables["cmap"]
+	if len(cmap) < 4 {
+		return 0, false
+	}
+	return int(binary.BigEndian.Uint16(cmap[2:4])), true
 }

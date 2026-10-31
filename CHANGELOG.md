@@ -7,22 +7,94 @@ onward.
 
 ## Versioning and stability
 
-**From 1.0, the stability guarantee covers the root package only** —
-`github.com/voidrab/gopdfrab`. Everything under `internal/` is implementation
-detail, is not importable by external code, and may change in any release without
-notice.
+**From 1.0, the stability guarantee covers the public packages only:**
+`github.com/voidrab/gopdfrab` and, from 1.3.0, `github.com/voidrab/gopdfrab/verify`.
+Everything under `internal/` may change in any release without notice.
 
-- A **breaking change** is any change to the root package that requires a
+- A **breaking change** is any change to a public package that requires a
   consumer to edit their code to keep compiling, or that alters documented
   behavior of a public symbol. These happen only in a major version after 1.0.
 - **Additions** (new functions, types, options) are minor releases.
-- **Fixes** that do not change the public surface are patch releases. Note that a
-  verifier or converter producing a *more correct* result for a given input is
-  treated as a fix, not a breaking change, even if a caller was relying on the
-  previous verdict.
-- **Deprecation:** a symbol slated for removal is marked with a `// Deprecated:`
-  comment naming its replacement, kept for at least one subsequent minor release,
-  and removed no earlier than the next major version.
+- **Fixes** that do not change the public surface are patch releases. A more
+  correct verdict for a given input is a fix, even if a caller relied on the old
+  one.
+- **Deprecation:** a symbol slated for removal is marked `// Deprecated:` with
+  its replacement, kept for at least one minor release, and removed no earlier
+  than the next major version.
+
+## [1.3.0] - 2026-10-31
+
+### Added
+
+- `github.com/voidrab/gopdfrab/verify`: the verification API alone, under the
+  same names and over the same types, for programs that never convert. It does
+  not compile or link the converter.
+- WebAssembly: a verify-only module, `./wasm/verify` (about 6.2 MB against the
+  full module's 15.1 MB), so a page can fetch the full module only to convert.
+  Both modules announce themselves with `{type: "ready", module}`.
+- `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
+  `Check.AppliesTo` look checks up by clause within a conformance level.
+- `Profile.Name`, `ProfileByName` and `Profiles` name the ready-made profiles
+  (`pdfa1b`, `legacy1b`, `pdf`) and look them up by name.
+
+### Changed
+
+- Every binary is about 1 MB smaller (1.6 MB in WebAssembly): the Arlington
+  object model ships as 17.5 KB of embedded data decoded on first use instead
+  of generated Go code that also cost startup time.
+- Conversion makes about a third fewer allocations and runs about 15% faster
+  on object-heavy files, with a 12% lower peak heap. Verification allocates
+  6–14% less and skips a check family entirely when the profile enables none
+  of its checks.
+- Document-level issues from the Info dictionary, optional content, output
+  intent, interactive form and XMP checks name the object they were found in.
+- An `ObjectModel` profile that enables a PDF/A check is rejected with an error
+  naming the check, instead of being verified by PDF/A-1b's rules.
+
+### Deprecated
+
+- `CheckByClause`, `ChecksForClause` and `Profile.Allows`, which read PDF/A-1
+  clauses only. Use the level-qualified lookups and `Profile.Has`.
+
+### Fixed
+
+- Convert removed embedded files and forbidden annotations without listing them
+  in `LostObjects`, and removing `/OCProperties` made layers the document hides
+  visible. Hidden layers are now removed and listed, and the fidelity gate
+  renders the input with them hidden.
+- Convert could write a corrupt stream into output it reported conformant: a
+  stream shared by several objects was rewritten through only one of them, and
+  a repair to a font program several fonts share reached only one font.
+- `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
+  (XMP identifier, OutputIntent, font repairs) without any PDF/A check.
+- Fewer needless rasterizations: a transparency group with only opaque
+  graphics states, or one drawing nested forms, now stays vector; an issue
+  after a link annotation no longer points at the link's destination page; and
+  hitting `MaxIterations` no longer rasterizes pages the last pass repaired.
+- Transparency flattening: fills under 50% opacity vanished and lighter ones
+  turned grey, overlapping fills washed out, forms on a page with its own group
+  came out opaque, a form drawn after a colour space operator kept the previous
+  colour, and nested forms raced between workers.
+- Repairs that read a page's content ignored `/Resources` inherited from the
+  page tree, so resource pruning could delete resources in use. The DeviceN
+  repair kept a colour space past the `Q` that restored it.
+- Raster fallback: simple fonts map codes to glyphs as verify does (ISO 32000-1
+  9.6.6); CFF and Type 1 glyphs using subroutines, flex or `seac` no longer
+  lose segments; TrueType contours of only off-curve points curve correctly;
+  transparency groups are composited once; sub-pixel strokes are drawn; a
+  colour space operator starts at the space's initial colour; operators short
+  of operands are skipped; and an image claiming more data than it has is an
+  `oversized image` drop instead of a multi-gigabyte allocation.
+- The 6.3.6 width check and repair handle Type 1 glyphs that set their width
+  with `sbw` or compute it with `div`.
+- A violation repeated throughout a content stream is reported once per check
+  with a count, instead of once per operator, which could run verify out of
+  memory.
+- The 6.2.2 output intent findings printed profile streams byte by byte; they
+  name them by reference and show the offending `/S` value.
+- A cross-reference stream with a wrong `/Length` is read up to `endstream`
+  instead of forcing a rebuild of the object table.
+- Verify reported Info/XMP Title and Subject mismatches in a random order.
 
 ## [1.2.0] - 2026-10-11
 

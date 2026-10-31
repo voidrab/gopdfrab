@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -34,14 +35,16 @@ type inkMechanism struct {
 // them. Each is measured from a fresh reading of the file, so nothing carries
 // over from the one before.
 var oneAtATime = []inkMechanism{
-	{"preemptive", applyPreemptiveFixups},
+	{"preemptive", func(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+		return standardRepairs.applyPreemptive(trailer, doc, a1b())
+	}},
 	{"opacity", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
 		repairOpacity(trailer)
 		return nil
 	}},
 	{"extgstate-dicts", func(trailer *pdf.PDFDict, _ *pdf.Reader) error {
-		_, err := runDictVisitor(trailer, func(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
-			return extGStateDictVisitor(changed), true
+		_, err := runDictVisitor(trailer, nil, func(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+			return extGStateDictVisitor(changed, a1bSpec, reportedChecks(everyCheck(extGStateFixer{}))), true
 		})
 		return err
 	}},
@@ -137,7 +140,7 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 				continue
 			}
 			blanked, overpainted := 0, 0
-			for _, page := range comparePageSummaries(before, after) {
+			for _, page := range fidelity.Compare(before, after) {
 				switch {
 				case page.Blanked():
 					blanked++
@@ -172,7 +175,7 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 // inkPerPage reads the file, runs one repair over it if given one, and returns
 // how each page looks afterwards -- the survey's own measurements, so the two
 // can be compared with the survey's own thresholds.
-func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageSummary, error) {
+func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]fidelity.Summary, error) {
 	doc, err := pdf.Open(path)
 	if err != nil {
 		return nil, err
@@ -191,14 +194,14 @@ func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageS
 			return nil, err
 		}
 	}
-	return summarizeTrailerPages(trailer, fidelityDPI), nil
+	return fidelity.Summarize(trailer, fidelity.DPI), nil
 }
 
 // TestFidelityAttributionSelfCheck runs the harness where no corpus is needed,
-// over the shape item 35 was written about: a page whose content is a black
-// rectangle drawn at zero opacity. Making that opacity opaque is a repair that
-// draws over the page, and naming which repair did it is the whole point of
-// the harness -- so the answer is known in advance and can be asserted.
+// over a page whose content is a black rectangle drawn at zero opacity. Making
+// that opacity opaque is a repair that draws over the page, and naming which
+// repair did it is what the harness is for, so the answer is known in advance
+// and can be asserted.
 func TestFidelityAttributionSelfCheck(t *testing.T) {
 	dir := t.TempDir()
 	drawn := filepath.Join(dir, "zero-opacity.pdf")

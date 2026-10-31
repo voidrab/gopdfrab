@@ -8,13 +8,13 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/verify"
 )
 
 func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	profileName := fs.String("profile", "pdfa1b", "conformance profile: pdfa1b, legacy1b, or pdf")
+	profileName := fs.String("profile", "pdfa1b", "conformance profile: "+profileNames())
 	password := fs.String("password", "", passwordFlagHelp)
 	maxDecodedMB := fs.Int("max-decoded-mb", 0, "cap a single stream's decoded output in MB (0 = default 256)")
 	maxResidentMB := fs.Int("max-resident-mb", 0, "cap a document's rebuildable caches in MB (0 = default 64)")
@@ -29,9 +29,9 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	}
 	applyLimits(*maxDecodedMB, *maxResidentMB)
 
-	profile := profileByName(*profileName)
-	if profile == nil {
-		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want pdfa1b, legacy1b, or pdf)\n", *profileName)
+	profile, ok := verify.ProfileByName(*profileName)
+	if !ok {
+		fmt.Fprintf(stderr, "gopdfrab: unknown profile %q (want %s)\n", *profileName, profileNames())
 		return exitError
 	}
 	if fs.NArg() == 0 {
@@ -49,10 +49,10 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return exitError
 	}
 
-	opts := gopdfrab.Options{Password: passwordBytes(*password)}
+	opts := verify.Options{Password: passwordBytes(*password)}
 	// VerifyAllContext records every failure, cancellation included, in its
 	// file's result; its error return exists for API uniformity and is nil.
-	results, _ := gopdfrab.VerifyAllContext(ctx, paths, profile, opts)
+	results, _ := verify.VerifyAllContext(ctx, paths, profile, opts)
 
 	if *jsonOut {
 		return printVerifyJSON(results, stdout, stderr)
@@ -62,12 +62,12 @@ func runVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int
 
 // verifyFileJSON is the per-file wire shape for `verify --json`.
 type verifyFileJSON struct {
-	Path   string           `json:"path"`
-	Error  string           `json:"error,omitempty"`
-	Result *gopdfrab.Result `json:"result,omitempty"`
+	Path   string         `json:"path"`
+	Error  string         `json:"error,omitempty"`
+	Result *verify.Result `json:"result,omitempty"`
 }
 
-func printVerifyJSON(results []gopdfrab.FileResult[gopdfrab.Result], stdout, stderr io.Writer) int {
+func printVerifyJSON(results []verify.FileResult[verify.Result], stdout, stderr io.Writer) int {
 	out := make([]verifyFileJSON, 0, len(results))
 	code := exitValid
 	for _, r := range results {
@@ -96,9 +96,8 @@ func printVerifyJSON(results []gopdfrab.FileResult[gopdfrab.Result], stdout, std
 
 // printVerifyText prints the profile once, then a line per file with the
 // file's issues beneath it, grouped or per location as detail says, then a
-// summary. The layout is described at
-// the top of report.go.
-func printVerifyText(results []gopdfrab.FileResult[gopdfrab.Result], profileName string, detail bool, stdout io.Writer) int {
+// summary. The layout is described at the top of report.go.
+func printVerifyText(results []verify.FileResult[verify.Result], profileName string, detail bool, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "profile: %s\n\n", profileName)
 	pass, fail, errCount := 0, 0, 0
 	code := exitValid

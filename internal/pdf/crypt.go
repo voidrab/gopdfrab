@@ -141,8 +141,7 @@ func newStdSecurityHandler(enc PDFDict, id0 []byte, encObjNum int, password []by
 // belongs to the crypt filter: its /Length, which the spec gives in bytes but
 // writers also give in bits (so a value of at most 16 is read as bytes). The
 // Encrypt dict's own /Length, in bits, is the fallback. With neither, the
-// key is 128 bits -- the only size AESV2 has, and what V4 writers produce --
-// not the 40-bit default of V1-3, which failed authentication outright.
+// key is 128 bits, the only size AESV2 has and the size V4 writers produce.
 func v4KeyLen(enc PDFDict) int {
 	cf, _ := enc.Entries.Get("CF").(PDFDict)
 	stmf, _ := dictName(enc, "StmF")
@@ -495,27 +494,28 @@ func (d *Reader) shouldDecrypt(ref PDFRef) bool {
 	return d.crypt != nil && ref.ObjNum != d.crypt.encryptObjNum
 }
 
-// decryptStream replaces m.RawStream with its decrypted bytes. Cross-reference
-// streams are never encrypted and are left untouched, and neither is the
-// metadata stream of a document that declares /EncryptMetadata false.
+// decryptStream replaces m's stream bytes with their decryption.
+// Cross-reference streams are never encrypted and are left untouched, and
+// neither is the metadata stream of a document that declares
+// /EncryptMetadata false.
 func (d *Reader) decryptStream(m *PDFDict, ref PDFRef) error {
-	if !m.HasStream || len(m.RawStream) == 0 || isXRefStream(*m) {
+	if !m.IsStream() || len(m.Stream()) == 0 || isXRefStream(*m) {
 		return nil
 	}
 	if isCleartextMetadata(*m, d.crypt) {
 		return nil
 	}
-	dec, err := d.crypt.decrypt(m.RawStream, ref.ObjNum, ref.GenNum, false)
+	dec, err := d.crypt.decrypt(m.Stream(), ref.ObjNum, ref.GenNum, false)
 	if err != nil {
 		return err
 	}
-	m.RawStream = dec
+	m.SetStream(dec)
 	return nil
 }
 
 // decryptStrings decrypts every string in v for object ref, in place, recursing
-// through dicts (skipping the synthetic _ref) and arrays. Indirect references
-// are left alone -- they decrypt when their own object resolves.
+// through dicts and arrays. Indirect references are left alone, because they
+// are decrypted when their own object resolves.
 func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 	switch t := v.(type) {
 	case PDFString, PDFHexString:
@@ -528,9 +528,6 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 		}
 	case PDFDict:
 		for k, val := range t.Entries.All() {
-			if k == RefKey {
-				continue
-			}
 			t.Entries.Set(k, d.decryptStrings(val, ref))
 		}
 	}
@@ -539,12 +536,12 @@ func (d *Reader) decryptStrings(v PDFValue, ref PDFRef) PDFValue {
 
 // decryptStr decrypts one string of object ref. A string that does not
 // decrypt (AES ciphertext that is not block-aligned) is kept as stored --
-// one bad string should not cost the whole object -- but recorded, so the
-// garbage it now holds does not reach the XMP/Info checks unremarked.
+// one bad string should not cost the whole object -- but recorded, so that
+// the value does not reach the XMP and Info checks unremarked.
 func (d *Reader) decryptStr(b []byte, ref PDFRef) []byte {
 	out, err := d.crypt.decrypt(b, ref.ObjNum, ref.GenNum, true)
 	if err != nil {
-		d.recordObjectOnce(ref.ObjNum, Checks.Structure.GraphResolutionFailure,
+		d.recordObjectOnce(ref.ObjNum, DiagStringUndecryptable,
 			fmt.Sprintf("object %d: a string could not be decrypted (%v); kept as stored", ref.ObjNum, err))
 		return b
 	}
@@ -559,8 +556,8 @@ func isXRefStream(m PDFDict) bool {
 // isCleartextMetadata reports whether m is a metadata stream the document
 // declared unencrypted. /EncryptMetadata false (ISO 32000-1 7.6.3.3) leaves the
 // metadata stream in the clear so an indexer can read it without the password;
-// decrypting it anyway yields garbage, and for AES it does not even decode --
-// the plaintext is not block-aligned, which surfaced as an unresolvable object.
+// decrypting it anyway yields garbage, and under AES it does not decode at all,
+// because the plaintext is not block-aligned.
 //
 // The flag only exists from R4 on; before that a /EncryptMetadata entry has no
 // meaning and everything is encrypted.

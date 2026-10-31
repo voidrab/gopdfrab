@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/raster"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -26,24 +27,9 @@ import (
 // editing every reference to the object, not just the object itself).
 // Annotation subtype/colour fixers live in fixups_annot.go.
 
-func init() {
-	registerFixer(actionFixer{})
-	registerFixer(extGStateFixer{})
-	registerFixer(annotationFlagsFixer{})
-	registerFixer(formFixer{})
-	registerFixer(imageMetadataFixer{})
-	registerFixer(imageSampleDepthFixer{})
-	registerFixer(postScriptXObjectFixer{})
-	registerFixer(optionalContentFixer{})
-	registerFixer(viewerPrefFixer{})
-}
-
 // walkDicts calls fn for every pdf.PDFDict reachable from v, recursing into dict
-// entries and array elements, with cycle protection. fn may mutate the
-// dict's Entries map in place (delete/set keys); since walkDicts passes each
-// pdf.PDFDict by value, only edits to its Entries map (a reference type) take
-// effect on the shared graph -- replacing fn's own copy's HasStream/RawStream
-// fields would not propagate.
+// entries and array elements, with cycle protection. fn may edit the dict in
+// place; every slot holding it sees the edit.
 func walkDicts(v pdf.PDFValue, visited map[uintptr]bool, fn func(pdf.PDFDict)) {
 	walkGraph(v, visited, func(d pdf.PDFDict) bool { fn(d); return true }, nil)
 }
@@ -58,9 +44,8 @@ const maxGraphWalkDepth = 1 << 17
 //
 // visit, when non-nil, runs on each dict before its children; returning false
 // skips them. edit, when non-nil, runs on each child value of a dict or array:
-// a replacement it returns is written back into that slot -- the way a fixer
-// changes a stream's RawStream, which no in-place edit of Entries can -- and
-// the walk descends into the replacement.
+// a replacement it returns is written back into that slot, and the walk
+// descends into the replacement.
 func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict) bool, edit func(pdf.PDFValue) (pdf.PDFValue, bool)) {
 	var walk func(v pdf.PDFValue, depth int)
 	descend := func(child pdf.PDFValue, set func(pdf.PDFValue), depth int) {
@@ -87,9 +72,6 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 				return
 			}
 			for k, child := range val.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
 				descend(child, func(u pdf.PDFValue) { val.Entries.Set(k, u) }, depth)
 			}
 
@@ -107,17 +89,16 @@ func walkGraph(v pdf.PDFValue, visited map[uintptr]bool, visit func(pdf.PDFDict)
 	walk(v, 0)
 }
 
-// clearDict deletes every entry from d except the synthetic pdf.RefKey (so it
-// remains a validly-targetable indirect object, just inert), used to
-// neutralize a forbidden action dictionary in place.
+// clearDict deletes every entry from d and keeps its reference, so references
+// to d stay valid. It neutralizes a forbidden action dictionary in place.
 func clearDict(d pdf.PDFDict) {
-	d.Entries.DeleteFunc(func(k string, _ pdf.PDFValue) bool { return k != pdf.RefKey })
+	d.Entries.DeleteFunc(func(string, pdf.PDFValue) bool { return true })
 }
 
 // clearJSNameTree recursively clears JS action dicts within a /Names/JavaScript
 // name tree. walkDicts won't reach the subtree once the parent key is deleted.
-func clearJSNameTree(d pdf.PDFDict, changed *bool) {
-	if s, ok := d.Entries.Get("S").(pdf.PDFName); ok && verify.ForbiddenActions[s.Value] {
+func clearJSNameTree(d pdf.PDFDict, changed *bool, spec *pdfa.Spec) {
+	if s, ok := d.Entries.Get("S").(pdf.PDFName); ok && spec.ForbiddenActions.Has(s.Value) {
 		clearDict(d)
 		*changed = true
 		return
@@ -125,11 +106,11 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool) {
 	for _, v := range d.Entries.All() {
 		switch val := v.(type) {
 		case pdf.PDFDict:
-			clearJSNameTree(val, changed)
+			clearJSNameTree(val, changed, spec)
 		case pdf.PDFArray:
 			for _, item := range val {
 				if sub, ok := item.(pdf.PDFDict); ok {
-					clearJSNameTree(sub, changed)
+					clearJSNameTree(sub, changed, spec)
 				}
 			}
 		}
@@ -139,15 +120,15 @@ func clearJSNameTree(d pdf.PDFDict, changed *bool) {
 // deadAction reports whether v is an action dictionary that can no longer be
 // used -- a forbidden type, or one already emptied by this pass. /S is
 // required in an action dictionary (ISO 32000-1 Table 193), so an /A pointing
-// at a dict without one reads as an action of unknown type, which is what
-// clearing the action in place used to leave behind.
-func deadAction(v pdf.PDFValue) bool {
+// at a dict without one reads as an action of unknown type. Clearing an action
+// in place produces exactly that state.
+func deadAction(v pdf.PDFValue, spec *pdfa.Spec) bool {
 	d, ok := v.(pdf.PDFDict)
 	if !ok {
 		return false
 	}
 	s, ok := d.Entries.Get("S").(pdf.PDFName)
-	return !ok || verify.ForbiddenActions[s.Value]
+	return !ok || spec.ForbiddenActions.Has(s.Value)
 }
 
 // --- 6.6 Actions ---
@@ -155,7 +136,7 @@ func deadAction(v pdf.PDFValue) bool {
 // actionFixer remediates Checks.Action.ForbiddenActionType,
 // DisallowedNamedAction and AdditionalActions, mirroring
 // validateActions/validateAdditionalActions in checks_dict.go.
-type actionFixer struct{}
+type actionFixer struct{ spec *pdfa.Spec }
 
 func (actionFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -165,11 +146,11 @@ func (actionFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f actionFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f actionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f actionFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if _, ok := d.Entries.Lookup("AA"); ok {
 			d.Entries.Del("AA")
@@ -179,7 +160,7 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		// Remove catalog /Names/JavaScript name tree entry (6.6.1). Clear leaf
 		// action dicts first -- walkDicts won't reach them after the key is gone.
 		if jsTree, ok := d.Entries.Get("JavaScript").(pdf.PDFDict); ok {
-			clearJSNameTree(jsTree, changed)
+			clearJSNameTree(jsTree, changed, f.spec)
 			d.Entries.Del("JavaScript")
 			*changed = true
 		}
@@ -187,7 +168,7 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		// Take a dead action off whatever points at it. Emptying the action
 		// dictionary is not enough on its own: the owner still names it.
 		if key := verify.ActionOwnerKey(d); key != "" {
-			if v, ok := d.Entries.Lookup(key); ok && deadAction(v) {
+			if v, ok := d.Entries.Lookup(key); ok && deadAction(v, f.spec) {
 				d.Entries.Del(key)
 				*changed = true
 			}
@@ -197,14 +178,14 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 		if !ok || !verify.ActionTypes[s.Value] {
 			return
 		}
-		if verify.ForbiddenActions[s.Value] {
+		if f.spec.ForbiddenActions.Has(s.Value) {
 			clearDict(d)
 			*changed = true
 			return
 		}
 		if s.Value == "Named" {
 			n, ok := d.Entries.Get("N").(pdf.PDFName)
-			if !ok || !verify.AllowedNamedActions[n.Value] {
+			if !ok || !f.spec.NamedActions.Has(n.Value) {
 				clearDict(d)
 				*changed = true
 			}
@@ -215,16 +196,17 @@ func (actionFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bo
 // --- 6.2.8 / 6.4 Extended graphics state ---
 
 // extGStateFixer remediates the ExtGState-dictionary-level Transparency
-// checks, mirroring validateExtGState in checks_dict.go. It deliberately
-// does not touch Checks.Transparency.TransparencyGroup or ImageWithSoftMask
-// (a different detection function, and a "harder" fix per the converter
-// plan: removing the key is easy but changes rendered appearance).
+// checks, mirroring validateExtGState in checks_dict.go, and repairs only the
+// keys whose checks were reported. It deliberately does not touch
+// Checks.Transparency.TransparencyGroup or ImageWithSoftMask (a different
+// detection function, and a harder fix: removing the key is easy but changes
+// rendered appearance).
 //
 // An opacity of zero is a special case, and the one place this fixer touches
 // content: what is drawn at zero opacity is taken out of the content stream
 // first (fixups_alpha.go), because putting the opacity back to 1 would
 // otherwise paint it over the page.
-type extGStateFixer struct{}
+type extGStateFixer struct{ spec *pdfa.Spec }
 
 func (extGStateFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -240,22 +222,26 @@ func (extGStateFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f extGStateFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f extGStateFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (extGStateFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (f extGStateFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
+	reported := reportedChecks(issues)
 	// Ahead of the dictionary pass below, which is what makes the opacities
 	// opaque: once they are, nothing says which drawing was invisible.
-	if repairOpacity(trailer) {
+	tr := pdf.Checks.Transparency
+	if (reported[tr.StrokingAlpha] || reported[tr.NonStrokingAlpha]) && repairOpacity(trailer) {
 		*changed = true
 	}
-	return extGStateDictVisitor(changed), true
+	return extGStateDictVisitor(changed, f.spec, reported), true
 }
 
 // extGStateDictVisitor is the dictionary half on its own, without the content
-// rewriting that has to come before it.
-func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
+// rewriting that has to come before it. Each key is repaired only when its
+// own check was reported.
+func extGStateDictVisitor(changed *bool, spec *pdfa.Spec, reported map[pdf.Check]bool) func(pdf.PDFDict) {
+	tr := pdf.Checks.Transparency
 	return func(d pdf.PDFDict) {
 		if t, ok := d.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 			return
@@ -264,37 +250,40 @@ func extGStateDictVisitor(changed *bool) func(pdf.PDFDict) {
 			return
 		}
 
-		if _, ok := d.Entries.Lookup("TR"); ok {
+		if _, ok := d.Entries.Lookup("TR"); ok && reported[tr.TransferFunction] {
 			d.Entries.Del("TR")
 			*changed = true
 		}
-		if tr2, ok := d.Entries.Lookup("TR2"); ok {
+		if tr2, ok := d.Entries.Lookup("TR2"); ok && reported[tr.DefaultTransferFunction] {
 			if name, isName := tr2.(pdf.PDFName); !isName || name.Value != "Default" {
 				d.Entries.Set("TR2", pdf.PDFName{Value: "Default"})
 				*changed = true
 			}
 		}
-		if ri, ok := d.Entries.Get("RI").(pdf.PDFName); ok && !verify.AllowedIntents[ri.Value] {
+		if ri, ok := d.Entries.Get("RI").(pdf.PDFName); ok && reported[tr.ExtGStateRenderingIntent] && !spec.RenderingIntents.Has(ri.Value) {
 			d.Entries.Del("RI")
 			*changed = true
 		}
-		if sm, ok := d.Entries.Lookup("SMask"); ok {
+		if sm, ok := d.Entries.Lookup("SMask"); ok && reported[tr.SoftMaskExtGState] && !spec.Transparency {
 			if name, isName := sm.(pdf.PDFName); !isName || name.Value != "None" {
 				d.Entries.Set("SMask", pdf.PDFName{Value: "None"})
 				*changed = true
 			}
 		}
-		if bm, ok := d.Entries.Lookup("BM"); ok && !verify.IsAllowedBlendMode(bm) {
+		if bm, ok := d.Entries.Lookup("BM"); ok && reported[tr.BlendMode] && !spec.BlendModeAllowed(bm) {
 			d.Entries.Set("BM", pdf.PDFName{Value: "Normal"})
 			*changed = true
 		}
-		if ca, ok := d.Entries.Lookup("CA"); ok {
+		if spec.Transparency {
+			return
+		}
+		if ca, ok := d.Entries.Lookup("CA"); ok && reported[tr.StrokingAlpha] {
 			if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 				d.Entries.Set("CA", pdf.PDFReal(1.0))
 				*changed = true
 			}
 		}
-		if ca, ok := d.Entries.Lookup("ca"); ok {
+		if ca, ok := d.Entries.Lookup("ca"); ok && reported[tr.NonStrokingAlpha] {
 			if f, num := pdf.PDFNumberToFloat(ca); num && math.Abs(f-1.0) > 1e-5 {
 				d.Entries.Set("ca", pdf.PDFReal(1.0))
 				*changed = true
@@ -322,11 +311,11 @@ func (annotationFlagsFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f annotationFlagsFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (annotationFlagsFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	return func(d pdf.PDFDict) {
 		if !verify.IsAnnotationDict(d) {
 			return
@@ -368,11 +357,11 @@ func (formFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (f formFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return runDictVisitor(trailer, f.prepare)
+func (f formFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+	return runDictVisitor(trailer, issues, f.prepare)
 }
 
-func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict), bool) {
+func (formFixer) prepare(trailer *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (func(pdf.PDFDict), bool) {
 	if root, ok := trailer.Entries.Get("Root").(pdf.PDFDict); ok {
 		if form, ok := root.Entries.Get("AcroForm").(pdf.PDFDict); ok {
 			if na, ok := form.Entries.Get("NeedAppearances").(pdf.PDFBoolean); ok && bool(na) {
@@ -414,7 +403,7 @@ func (formFixer) prepare(trailer *pdf.PDFDict, changed *bool) (func(pdf.PDFDict)
 // so the inline case is folded in here rather than given its own. The
 // PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
 // PostScriptXObject) belong to postScriptXObjectFixer below.
-type imageMetadataFixer struct{}
+type imageMetadataFixer struct{ spec *pdfa.Spec }
 
 func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -426,7 +415,7 @@ func (imageMetadataFixer) Applies(c pdf.Check) bool {
 	return false
 }
 
-func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
+func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		subtype, ok := d.Entries.Get("Subtype").(pdf.PDFName)
@@ -447,7 +436,7 @@ func (imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool
 				d.Entries.Del("OPI")
 				changed = true
 			}
-			if intent, ok := d.Entries.Get("Intent").(pdf.PDFName); ok && !verify.AllowedIntents[intent.Value] {
+			if intent, ok := d.Entries.Get("Intent").(pdf.PDFName); ok && !f.spec.RenderingIntents.Has(intent.Value) {
 				d.Entries.Del("Intent")
 				changed = true
 			}
@@ -486,22 +475,22 @@ func (imageSampleDepthFixer) Applies(c pdf.Check) bool {
 
 func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) {
-			return d, false
+			return false
 		}
 		if mask, _ := d.Entries.Get("ImageMask").(pdf.PDFBoolean); bool(mask) {
-			return d, false // an image mask is 6.2.4-6's business, always 1 bit
+			return false // an image mask is 6.2.4-6's business, always 1 bit
 		}
 		switch bpc, _ := d.Entries.Get("BitsPerComponent").(pdf.PDFInteger); bpc {
 		case 1, 2, 4, 8:
-			return d, false
+			return false
 		case 0:
-			return d, false // absent: nothing to repair
+			return false // absent: nothing to repair
 		}
 		canvas, err := raster.DecodeImageRGBA(d, pdf.PDFDict{})
 		if err != nil {
-			return d, false
+			return false
 		}
 		fixed := d
 		setStreamRGBFlate(&fixed, canvas)
@@ -514,7 +503,7 @@ func (imageSampleDepthFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 		fixed.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
 		fixed.Entries.Del("Decode")
 		changed = true
-		return fixed, true
+		return true
 	})
 	return changed, nil
 }
@@ -538,7 +527,7 @@ func (postScriptXObjectFixer) Applies(c pdf.Check) bool {
 
 func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		switch d.Entries.Get("Subtype") {
 		case pdf.PDFName{Value: "Form"}:
 			hit := false
@@ -553,7 +542,7 @@ func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 			if hit {
 				changed = true
 			}
-			return d, hit
+			return hit
 		case pdf.PDFName{Value: "PS"}:
 			// PS passthrough renders nothing in a PDF viewer, so replace the
 			// object with an empty Form XObject rather than trying to preserve
@@ -569,54 +558,26 @@ func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 			d.Entries.Del("DecodeParms")
 			d.Entries.Del("DP")
 			d.Entries.Del("Level1")
-			d.HasStream = true
-			d.RawStream = []byte("\n")
+			d.SetStream([]byte("\n"))
 			changed = true
-			return d, true
+			return true
 		}
-		return d, false
+		return false
 	})
 	return changed, nil
 }
 
-// --- 6.1.13 Optional content ---
-
-// optionalContentFixer remediates Checks.Structure.OptionalContent by
-// deleting the catalog's /OCProperties entry, mirroring
-// (*Document).verifyOptionalContent in verifier.go. Marked-content BDC/EMC
-// wrappers in content streams that reference the removed OCGs are left in
-// place: rewriting content-stream bytes is out of scope for a
-// dictionary-level fix, and they have no PDF/A-meaningful effect once
-// OCProperties is gone.
-type optionalContentFixer struct{}
-
-func (optionalContentFixer) Applies(c pdf.Check) bool {
-	return c == pdf.Checks.Structure.OptionalContent
-}
-
-func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
-	if !ok {
-		return false, nil
-	}
-	if _, ok := root.Entries.Lookup("OCProperties"); !ok {
-		return false, nil
-	}
-	root.Entries.Del("OCProperties")
-	return true, nil
-}
-
 // --- 6.1.2 ViewerPreferences (post-1.4 keys) ---
 
-// viewerPrefFixer removes ViewerPreferences keys introduced after PDF 1.4
-// (PrintScaling, PickTrayByPDFSize, PrintPageRange, NumCopies).
-type viewerPrefFixer struct{}
+// viewerPrefFixer removes the ViewerPreferences keys the level's PDF version
+// does not define.
+type viewerPrefFixer struct{ spec *pdfa.Spec }
 
 func (viewerPrefFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.PostPDF14ViewerPref
 }
 
-func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
 	if !ok {
 		return false, nil
@@ -626,7 +587,7 @@ func (viewerPrefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error)
 		return false, nil
 	}
 	changed := false
-	for _, k := range verify.Post14ViewerPrefKeys {
+	for _, k := range f.spec.ForbiddenViewerPrefKeys.All() {
 		if vp.Entries.Get(k) != nil {
 			vp.Entries.Del(k)
 			changed = true

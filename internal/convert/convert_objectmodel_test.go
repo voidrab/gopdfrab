@@ -18,27 +18,26 @@ func buildOnePageDoc(t *testing.T, mutate func(trailer, catalog, page pdf.PDFDic
 	t.Helper()
 
 	contents := pdf.NewPDFDict()
-	contents.HasStream = true
-	contents.RawStream = []byte(onePageContent)
-	contents.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 4})
+	contents.SetStream([]byte(onePageContent))
+	contents.SetRef(pdf.PDFRef{ObjNum: 4})
 
 	pages := pdf.NewPDFDict()
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Count", pdf.PDFInteger(1))
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 
 	page := pdf.NewPDFDict()
 	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
 	page.Entries.Set("Parent", pages)
 	page.Entries.Set("MediaBox", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(612), pdf.PDFInteger(792)})
 	page.Entries.Set("Contents", contents)
-	page.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 3})
+	page.SetRef(pdf.PDFRef{ObjNum: 3})
 	pages.Entries.Set("Kids", pdf.PDFArray{page})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", catalog)
@@ -87,18 +86,18 @@ func TestHasFixableIssueRasterGate(t *testing.T) {
 	}
 }
 
-// TestConvertObjectModelDeletesDisallowedTrapped: a document-level
+// TestConvertObjectModelDeletesDisallowedTrapped verifies that a document-level
 // DisallowedValue on an optional key (/Trapped /Maybe) is repaired by
-// deletion, and the page content stays byte-identical -- proving the fix came
-// from the fixer, never from the raster backstop (which can neither reach nor
-// repair trailer-level dict structure; TestHasFixableIssueRasterGate pins the
-// gate itself).
+// deletion, and that the page content stays byte-identical. The fixer makes
+// the repair, not the raster backstop, which can neither reach nor repair
+// trailer-level dict structure; TestHasFixableIssueRasterGate pins the gate
+// itself.
 func TestConvertObjectModelDeletesDisallowedTrapped(t *testing.T) {
 	data := buildOnePageDoc(t, func(trailer, _, _ pdf.PDFDict) {
 		info := pdf.NewPDFDict()
 		info.Entries.Set("Trapped", pdf.PDFName{Value: "Maybe"})
 		// enum allows True/False/Unknown
-		info.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 5})
+		info.SetRef(pdf.PDFRef{ObjNum: 5})
 		trailer.Entries.Set("Info", info)
 	})
 
@@ -146,17 +145,20 @@ func hasIssueForCheck(issues []pdf.PDFError, c pdf.Check) bool {
 	return false
 }
 
-// TestConvertObjectModelExpandsFilterArrayAbbrev: a content stream whose
-// /Filter array names the inline-image abbreviation /AHx fails the element
-// enum check. The repair expands it to /ASCIIHexDecode in place -- deleting
-// it, or replacing it with some other enum value, would leave the hex bytes
-// read as operators -- so the page content survives byte-identical.
+// TestConvertObjectModelExpandsFilterArrayAbbrev verifies that a content stream
+// whose /Filter array names the inline-image abbreviation /AHx fails the
+// element enum check and is repaired by expanding it to /ASCIIHexDecode in
+// place. Deleting it, or replacing it with some other enum value, would leave
+// the hex bytes read as operators, so the page content must survive
+// byte-identical.
 func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 	data := buildOnePageDoc(t, func(_, _, page pdf.PDFDict) {
 		contents := page.Entries.Get("Contents").(pdf.PDFDict)
-		contents.RawStream = []byte(hex.EncodeToString([]byte(onePageContent)) + ">")
+		contents.SetStream([]byte(hex.EncodeToString([]byte(onePageContent)) + ">"))
 		contents.Entries.Set("Filter", pdf.PDFArray{pdf.PDFName{Value: "AHx"}})
-		page.Entries.Set("Contents", contents) // RawStream lives on the copy
+		// The stream lives in contents' shared body, so this Set does not
+		// change what the page holds.
+		page.Entries.Set("Contents", contents)
 	})
 
 	res, err := verify.VerifyBytes(data, pdf.PDF, nil)
@@ -185,4 +187,34 @@ func TestConvertObjectModelExpandsFilterArrayAbbrev(t *testing.T) {
 		t.Fatalf("ResolveGraph(output): %v", err)
 	}
 	assertContentStream(t, assertOnePageGraph(t, graph), onePageContent)
+}
+
+// TestConvertObjectModelAddsNoPDFAIdentity verifies that an object-model
+// conversion repairs the object model and nothing else. It does not run the
+// PDF/A pre-emptive steps, which would stamp the output as PDF/A-1b through a
+// fresh pdfaid XMP packet and an injected GTS_PDFA1 OutputIntent, a claim that
+// no PDF/A check verifies.
+func TestConvertObjectModelAddsNoPDFAIdentity(t *testing.T) {
+	cr, err := ConvertBytes(buildOnePageDoc(t, nil), pdf.PDF, Options{})
+	if err != nil {
+		t.Fatalf("ConvertBytes: %v", err)
+	}
+	if !cr.Result.Valid {
+		t.Fatalf("Valid=false, residual %v", issueClauses(cr.Residual()))
+	}
+	out, err := pdf.OpenBytes(mustOutput(t, cr))
+	if err != nil {
+		t.Fatalf("OpenBytes(output): %v", err)
+	}
+	defer out.Close()
+	root, err := out.ResolveGraphByPath([]string{"Root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := root.(pdf.PDFDict)
+	for _, key := range []string{"Metadata", "OutputIntents"} {
+		if catalog.Entries.Get(key) != nil {
+			t.Errorf("the output catalogue gained /%s", key)
+		}
+	}
 }

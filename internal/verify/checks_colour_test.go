@@ -58,14 +58,14 @@ func TestDefaultColorSpaceDefined(t *testing.T) {
 
 func TestCheckDeviceColour(t *testing.T) {
 	// A model not covered by any OutputIntent and no Default* override -> reported.
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "DeviceRGB"}, ctx, "image")
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("expected DeviceColourSpaceUsage for an uncovered device colour space")
 	}
 
 	// Covered by an OutputIntent -> no report.
-	ctx2 := &ValidationContext{rgbCovered: true}
+	ctx2 := &ValidationContext{Spec: a1bSpec, rgbCovered: true}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "DeviceRGB"}, ctx2, "image")
 	if hasCheck(ctx2, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("unexpected report when the colour model is covered")
@@ -76,14 +76,14 @@ func TestCheckDeviceColour(t *testing.T) {
 	csDict := pdf.NewPDFDict()
 	csDict.Entries.Set("DefaultRGB", pdf.NewPDFDict())
 	res.Entries.Set("ColorSpace", csDict)
-	ctx3 := &ValidationContext{resourceScope: res}
+	ctx3 := &ValidationContext{Spec: a1bSpec, resourceScope: res}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "DeviceRGB"}, ctx3, "image")
 	if hasCheck(ctx3, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("unexpected report when a Default* colour space overrides it")
 	}
 
 	// Non-device colour space -> no-op.
-	ctx4 := &ValidationContext{}
+	ctx4 := &ValidationContext{Spec: a1bSpec}
 	checkDeviceColour(pdf.PDFDict{}, pdf.PDFName{Value: "ICCBased"}, ctx4, "image")
 	if len(ctx4.errs) != 0 {
 		t.Error("unexpected report for a non-device colour space")
@@ -94,7 +94,7 @@ func TestValidateColourSpaceUsage(t *testing.T) {
 	img := pdf.NewPDFDict()
 	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
 	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceCMYK"})
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceUsage(img, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("expected DeviceColourSpaceUsage for an image with an uncovered device colour space")
@@ -103,14 +103,14 @@ func TestValidateColourSpaceUsage(t *testing.T) {
 	shading := pdf.NewPDFDict()
 	shading.Entries.Set("ShadingType", pdf.PDFInteger(2))
 	shading.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceUsage(shading, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Colour.DeviceColourSpaceUsage) {
 		t.Error("expected DeviceColourSpaceUsage for a shading with an uncovered device colour space")
 	}
 
 	// Neither an image nor a shading dict -> no-op.
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceUsage(pdf.NewPDFDict(), ctx3)
 	if len(ctx3.errs) != 0 {
 		t.Error("unexpected report for an unrelated dictionary")
@@ -119,7 +119,7 @@ func TestValidateColourSpaceUsage(t *testing.T) {
 
 func TestValidateColourSpaceArray(t *testing.T) {
 	// Too few elements -> no-op.
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(pdf.PDFArray{pdf.PDFName{Value: "Separation"}}, ctx)
 	if len(ctx.errs) != 0 {
 		t.Error("unexpected report for a too-short array")
@@ -131,7 +131,7 @@ func TestValidateColourSpaceArray(t *testing.T) {
 		names[i] = pdf.PDFName{Value: "Spot"}
 	}
 	deviceN := pdf.PDFArray{pdf.PDFName{Value: "DeviceN"}, names, pdf.PDFName{Value: "DeviceGray"}, pdf.PDFDict{}}
-	ctx2 := &ValidationContext{}
+	ctx2 := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(deviceN, ctx2)
 	if !hasCheck(ctx2, pdf.Checks.Structure.DeviceNColorants) {
 		t.Error("expected DeviceNColorants for more than 8 colorants")
@@ -139,21 +139,21 @@ func TestValidateColourSpaceArray(t *testing.T) {
 
 	// Separation with an uncovered alternate device space.
 	sep := pdf.PDFArray{pdf.PDFName{Value: "Separation"}, pdf.PDFName{Value: "Spot"}, pdf.PDFName{Value: "DeviceCMYK"}, pdf.PDFDict{}}
-	ctx3 := &ValidationContext{}
+	ctx3 := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(sep, ctx3)
 	if !hasCheck(ctx3, pdf.Checks.Colour.SeparationAlternateColour) {
 		t.Error("expected SeparationAlternateColour for an uncovered alternate space")
 	}
 
 	// Covered alternate space -> no report.
-	ctx4 := &ValidationContext{cmykCovered: true}
+	ctx4 := &ValidationContext{Spec: a1bSpec, cmykCovered: true}
 	validateColourSpaceArray(sep, ctx4)
 	if hasCheck(ctx4, pdf.Checks.Colour.SeparationAlternateColour) {
 		t.Error("unexpected report when the alternate space is covered")
 	}
 
 	// Not a Separation/DeviceN array -> no-op.
-	ctx5 := &ValidationContext{}
+	ctx5 := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, pdf.PDFDict{}, pdf.PDFInteger(3)}, ctx5)
 	if len(ctx5.errs) != 0 {
 		t.Error("unexpected report for a non-Separation/DeviceN array")
@@ -170,7 +170,7 @@ func TestComputeColourCoverage(t *testing.T) {
 	}
 	defer doc.Close()
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	computeColourCoverage(doc, ctx)
 	if !ctx.hasOutputIntent {
 		t.Error("expected hasOutputIntent = true for a file with a GTS_PDFA1 OutputIntent")
@@ -189,7 +189,7 @@ func TestComputeColourCoverageEdgeCases(t *testing.T) {
 		t.Fatalf("pdf.Open: %v", err)
 	}
 	defer doc.Close()
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	computeColourCoverage(doc, ctx)
 	if ctx.hasOutputIntent {
 		t.Error("a non-GTS_PDFA1 OutputIntent should not set hasOutputIntent")
@@ -234,7 +234,7 @@ func TestComputeColourCoverageNoOutputIntent(t *testing.T) {
 	}
 	defer doc.Close()
 
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	computeColourCoverage(doc, ctx)
 	if ctx.hasOutputIntent {
 		t.Error("expected hasOutputIntent = false with no OutputIntents entry")
@@ -257,8 +257,7 @@ func iccBasedSpaceWithHeader(version byte, deviceClass, colorSpace string, n int
 	copy(profile[16:20], colorSpace)
 
 	stream := pdf.NewPDFDict()
-	stream.HasStream = true
-	stream.RawStream = profile
+	stream.SetStream(profile)
 	if n >= 0 {
 		stream.Entries.Set("N", pdf.PDFInteger(n))
 	}
@@ -288,7 +287,7 @@ func TestValidateICCBasedColourSpace(t *testing.T) {
 		{"colour space PDF/A does not permit", "5CLR", 5, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := &ValidationContext{}
+			ctx := &ValidationContext{Spec: a1bSpec}
 			validateColourSpaceArray(iccBasedSpace(tc.colorSpace, tc.n), ctx)
 			got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch)
 			if got != tc.want {
@@ -326,7 +325,7 @@ func TestValidateICCBasedProfile(t *testing.T) {
 		{"six-colorant space", 2, "mntr", "6CLR", 3, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := &ValidationContext{}
+			ctx := &ValidationContext{Spec: a1bSpec}
 			arr := iccBasedSpaceWithHeader(tc.version, tc.deviceClass, tc.colorSpace, tc.n)
 			validateColourSpaceArray(arr, ctx)
 			if got := hasCheck(ctx, pdf.Checks.Colour.ICCBasedProfileInvalid); got != tc.want {
@@ -341,14 +340,13 @@ func TestValidateICCBasedProfile(t *testing.T) {
 // a stream defect (6.1.7), and a non-integer /N is an object-model finding.
 func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 	short := pdf.NewPDFDict()
-	short.HasStream = true
-	short.RawStream = make([]byte, 10)
+	short.SetStream(make([]byte, 10))
 	short.Entries.Set("N", pdf.PDFInteger(3))
 
 	undecodable := pdf.NewPDFDict()
-	undecodable.HasStream = true
+	undecodable.SetStream(nil)
 	undecodable.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	undecodable.RawStream = []byte("not a zlib stream")
+	undecodable.SetStream([]byte("not a zlib stream"))
 
 	notAStream := pdf.NewPDFDict()
 
@@ -362,7 +360,7 @@ func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 		{"no profile at all", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := &ValidationContext{}
+			ctx := &ValidationContext{Spec: a1bSpec}
 			validateColourSpaceArray(tc.arr, ctx)
 			if hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch) {
 				t.Error("unexpected ICCBasedComponentsMismatch")
@@ -374,10 +372,9 @@ func TestValidateICCBasedColourSpaceSkipsUnreadable(t *testing.T) {
 	}
 
 	nonInteger := pdf.NewPDFDict()
-	nonInteger.HasStream = true
-	nonInteger.RawStream = buildValidICCProfile()
+	nonInteger.SetStream(buildValidICCProfile())
 	nonInteger.Entries.Set("N", pdf.PDFReal(3))
-	ctx := &ValidationContext{}
+	ctx := &ValidationContext{Spec: a1bSpec}
 	validateColourSpaceArray(pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}, nonInteger}, ctx)
 	if !hasCheck(ctx, pdf.Checks.Colour.ICCBasedComponentsMismatch) {
 		t.Error("expected ICCBasedComponentsMismatch for a non-integer /N")
@@ -424,7 +421,7 @@ func TestComputeColourCoverageSkipsMalformedIntents(t *testing.T) {
 		{"profile N is not 1, 3 or 4", "[4 0 R]", "<< /S /GTS_PDFA1 /DestOutputProfile << /N 2 >> >>", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := &ValidationContext{}
+			ctx := &ValidationContext{Spec: a1bSpec}
 			computeColourCoverage(build(tc.intents, tc.extra), ctx)
 			if ctx.hasOutputIntent != tc.wantIntent {
 				t.Errorf("hasOutputIntent = %v, want %v", ctx.hasOutputIntent, tc.wantIntent)
@@ -458,7 +455,7 @@ func TestComputeColourCoverageByProfileN(t *testing.T) {
 				t.Fatalf("OpenBytes: %v", err)
 			}
 			defer doc.Close()
-			ctx := &ValidationContext{}
+			ctx := &ValidationContext{Spec: a1bSpec}
 			computeColourCoverage(doc, ctx)
 			if ctx.grayCovered != tc.gray || ctx.rgbCovered != tc.rgb || ctx.cmykCovered != tc.cmyk {
 				t.Errorf("gray=%v rgb=%v cmyk=%v, want gray=%v rgb=%v cmyk=%v",

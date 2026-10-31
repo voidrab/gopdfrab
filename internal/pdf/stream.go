@@ -3,7 +3,6 @@ package pdf
 import (
 	"bytes"
 	"fmt"
-	"io"
 )
 
 // validateStream performs a partial validation of requirements 6.1.7 and
@@ -11,7 +10,7 @@ import (
 func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	// 6.1.7: the 'stream' keyword shall be followed by CRLF or a single LF.
 	if d.consumeStreamEOL(l) {
-		d.recordStreamFraming(objNum, Checks.Structure.StreamKeywordEOL,
+		d.recordStreamFraming(objNum, DiagStreamKeywordEOL,
 			"'stream' keyword not followed by a single EOL marker")
 	}
 
@@ -43,7 +42,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	end := streamStart + int64(length)
 	kwPos, stray := int64(-1), false
 	// end < streamStart is int64 overflow from a pathologically large Length.
-	if end >= streamStart && end <= d.sourceSize() {
+	if end >= streamStart && end <= d.src.size {
 		w := d.windowAt(end, 64+len(endstreamKeyword))
 		if k := bytes.Index(w, endstreamKeyword); k >= 0 {
 			kwPos = end + int64(k)
@@ -66,20 +65,16 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		length = int(end - streamStart)
 	}
 
-	if d.data != nil {
-		// Fast path: alias the backing slice directly (mmap or caller buffer).
-		dict.RawStream = d.data[streamStart:end:end]
-	} else {
-		data := make([]byte, length)
-		if _, err := d.file.ReadAt(data, streamStart); err != nil {
-			return err
-		}
-		dict.RawStream = data
+	// A body in memory aliases the file rather than being copied.
+	body, err := d.src.window(streamStart, length)
+	if err != nil {
+		return err
 	}
+	dict.SetStream(body)
 
 	// 6.1.7: Length must not include the EOL before endstream.
 	if !recovered && kwPos == end {
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthIncludesEOL,
+		d.recordStreamFraming(objNum, DiagStreamLengthIncludesEOL,
 			"stream Length value includes the EOL marker before endstream")
 	}
 
@@ -87,20 +82,13 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 
 	switch {
 	case recovered:
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthMismatch,
+		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stream Length does not match the body; extent recovered from the endstream keyword")
 	case stray:
-		d.recordStreamFraming(objNum, Checks.Structure.StreamLengthMismatch,
+		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stray bytes between the stream body and the endstream keyword")
 	}
-	posAfter := kwPos + int64(len(endstreamKeyword))
-	if d.data == nil {
-		if _, err := d.file.Seek(posAfter, io.SeekStart); err != nil {
-			return err
-		}
-		l.reader.Reset(d.file)
-	}
-	l.pos = posAfter
+	l.pos = kwPos + int64(len(endstreamKeyword))
 
 	return nil
 }
@@ -108,27 +96,18 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 var endstreamKeyword = []byte("endstream")
 
 // indexFrom returns the offset of the first occurrence of pat at or after off.
-// The seek path reads in bounded chunks, never the whole remainder.
+// For a file read on demand, the search goes in bounded chunks, never over the
+// whole remainder at once.
 func (d *Reader) indexFrom(off int64, pat []byte) (int64, bool) {
-	if d.data != nil {
-		if off > int64(len(d.data)) {
-			return 0, false
+	found := int64(-1)
+	d.src.chunks(off, 64<<10, len(pat)-1, func(base int64, buf []byte, _ bool) bool {
+		if k := bytes.Index(buf, pat); k >= 0 {
+			found = base + int64(k)
+			return false
 		}
-		k := bytes.Index(d.data[off:], pat)
-		return off + int64(k), k >= 0
-	}
-	const chunk = 64 << 10
-	buf := make([]byte, chunk+len(pat)-1)
-	for pos := off; pos < d.size; pos += chunk {
-		n, _ := d.file.ReadAt(buf, pos)
-		if n == 0 {
-			break
-		}
-		if k := bytes.Index(buf[:n], pat); k >= 0 {
-			return pos + int64(k), true
-		}
-	}
-	return 0, false
+		return true
+	})
+	return found, found >= 0
 }
 
 // trimTrailingEOL returns kwPos moved back over the single EOL marker (CRLF,
@@ -144,16 +123,8 @@ func (d *Reader) trimTrailingEOL(start, kwPos int64) int64 {
 	return kwPos
 }
 
-// sourceSize is the byte length of the underlying file.
-func (d *Reader) sourceSize() int64 {
-	if d.data != nil {
-		return int64(len(d.data))
-	}
-	return d.size
-}
-
 // consumeStreamEOL advances the lexer past the EOL following the 'stream'
-// keyword, returning true if non-EOL bytes preceded the line break (6.1.7).
+// keyword. It reports whether non-EOL bytes preceded the line break (6.1.7).
 func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	bad := false
 	for {
@@ -174,28 +145,11 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	}
 }
 
-// WindowAt returns up to n bytes starting at off, without copying when the
-// file is in memory. Callers must treat the returned slice as read-only.
-func (d *Reader) WindowAt(off int64, n int) []byte {
-	return d.windowAt(off, n)
-}
-
-// windowAt returns up to n bytes starting at off, from the in-memory buffer
-// when available or the underlying source otherwise.
+// windowAt returns up to n bytes starting at off, or fewer when the file ends
+// or cannot be read.
 func (d *Reader) windowAt(off int64, n int) []byte {
-	if off < 0 {
-		return nil
-	}
-	if d.data != nil {
-		if off >= int64(len(d.data)) {
-			return nil
-		}
-		end := min(off+int64(n), int64(len(d.data)))
-		return d.data[off:end]
-	}
-	buf := make([]byte, n)
-	read, _ := d.file.ReadAt(buf, off)
-	return buf[:read]
+	b, _ := d.src.window(off, n)
+	return b
 }
 
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an
@@ -216,7 +170,7 @@ func (d *Reader) checkEndstreamFraming(objNum int, streamStart int64, length int
 	}
 	i := off + rel
 	if ws+i == 0 || (window[i-1] != '\n' && window[i-1] != '\r') {
-		d.recordStreamFraming(objNum, Checks.Structure.EndstreamEOL,
+		d.recordStreamFraming(objNum, DiagEndstreamEOL,
 			"endstream keyword not preceded by an EOL marker")
 	}
 }

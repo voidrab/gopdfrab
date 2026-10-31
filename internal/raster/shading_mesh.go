@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -11,9 +12,9 @@ import (
 // rather than a colour field: the stream holds triangle vertices or Bezier
 // patches, each carrying its own colour. They are drawn by subdividing every
 // primitive into small flat-filled pieces through the existing scanline
-// filler, rather than by adding a Gouraud rasterizer -- a documented
-// approximation appropriate to a conversion fallback, where the alternative
-// is dropping the content entirely.
+// filler, rather than by adding a Gouraud rasterizer. This approximation is
+// appropriate to a conversion fallback, where the alternative is dropping the
+// content entirely.
 
 const (
 	// meshMaxPrimitives bounds how many flat pieces one mesh may paint, so a
@@ -67,7 +68,7 @@ func decodeValue(raw uint64, bits int, lo, hi float64) float64 {
 
 // meshVertex is one mesh point with its colour already resolved to RGB.
 type meshVertex struct {
-	p   Point
+	p   content.Point
 	rgb [3]float64
 }
 
@@ -75,7 +76,7 @@ type meshVertex struct {
 // the primitive cap and painting each through FillPath.
 type meshPainter struct {
 	canvas    *image.RGBA
-	toDevice  Matrix
+	toDevice  content.Matrix
 	alpha     float64
 	primitive int
 	overflow  bool
@@ -116,11 +117,11 @@ func (mp *meshPainter) flat(a, b, c meshVertex, u, v, d float64, flipped bool) {
 		corners = [3][2]float64{{u + d, v}, {u + d, v + d}, {u, v + d}}
 	}
 
-	pts := make([]Point, 3)
+	pts := make([]content.Point, 3)
 	var rgb [3]float64
 	for i, uv := range corners {
 		wa, wb, wc := 1-uv[0]-uv[1], uv[0], uv[1]
-		p := Point{
+		p := content.Point{
 			X: wa*a.p.X + wb*b.p.X + wc*c.p.X,
 			Y: wa*a.p.Y + wb*b.p.Y + wc*c.p.Y,
 		}
@@ -129,7 +130,7 @@ func (mp *meshPainter) flat(a, b, c meshVertex, u, v, d float64, flipped bool) {
 			rgb[k] += (wa*a.rgb[k] + wb*b.rgb[k] + wc*c.rgb[k]) / 3
 		}
 	}
-	FillPath(mp.canvas, [][]Point{pts}, rgb, mp.alpha, false)
+	FillPath(mp.canvas, [][]content.Point{pts}, rgb, mp.alpha, false)
 }
 
 // quad paints one grid cell of a patch as two triangles.
@@ -140,7 +141,7 @@ func (mp *meshPainter) quad(p00, p10, p11, p01 meshVertex) {
 
 // subdivisionFor picks how many pieces per edge a device-space triangle needs
 // for its colour gradient to read as smooth, bounded by meshMaxSubdiv.
-func subdivisionFor(a, b, c Point) int {
+func subdivisionFor(a, b, c content.Point) int {
 	longest := math.Max(math.Hypot(b.X-a.X, b.Y-a.Y),
 		math.Max(math.Hypot(c.X-b.X, c.Y-b.Y), math.Hypot(a.X-c.X, a.Y-c.Y)))
 	return pdf.ClampInt(int(math.Ceil(longest/meshTargetEdgePx)), 1, meshMaxSubdiv)
@@ -148,32 +149,32 @@ func subdivisionFor(a, b, c Point) int {
 
 // sharedEdge returns the boundary points and two colours a flag-1/2/3 patch
 // inherits from its predecessor.
-func sharedEdge(flag int, pts []Point, cols [4][3]float64) ([]Point, [3]float64, [3]float64) {
+func sharedEdge(flag int, pts []content.Point, cols [4][3]float64) ([]content.Point, [3]float64, [3]float64) {
 	switch flag {
 	case 1:
-		return []Point{pts[3], pts[4], pts[5], pts[6]}, cols[1], cols[2]
+		return []content.Point{pts[3], pts[4], pts[5], pts[6]}, cols[1], cols[2]
 	case 2:
-		return []Point{pts[6], pts[7], pts[8], pts[9]}, cols[2], cols[3]
+		return []content.Point{pts[6], pts[7], pts[8], pts[9]}, cols[2], cols[3]
 	default: // 3
-		return []Point{pts[9], pts[10], pts[11], pts[0]}, cols[3], cols[0]
+		return []content.Point{pts[9], pts[10], pts[11], pts[0]}, cols[3], cols[0]
 	}
 }
 
 // coonsPatch evaluates the Coons surface over a grid and paints each cell,
 // with the corner colours interpolated bilinearly.
-func (mp *meshPainter) coonsPatch(pts []Point, cols [4][3]float64) {
+func (mp *meshPainter) coonsPatch(pts []content.Point, cols [4][3]float64) {
 	// The 12 boundary points run counterclockwise from corner 1 (pts[0]);
 	// corners are pts[0], pts[3], pts[6], pts[9] with colours cols[0..3].
-	cu0 := [4]Point{pts[0], pts[11], pts[10], pts[9]} // v=0, u: 0 -> 1
-	cu1 := [4]Point{pts[3], pts[4], pts[5], pts[6]}   // v=1, u: 0 -> 1
-	c0v := [4]Point{pts[0], pts[1], pts[2], pts[3]}   // u=0, v: 0 -> 1
-	c1v := [4]Point{pts[9], pts[8], pts[7], pts[6]}   // u=1, v: 0 -> 1
+	cu0 := [4]content.Point{pts[0], pts[11], pts[10], pts[9]} // v=0, u: 0 -> 1
+	cu1 := [4]content.Point{pts[3], pts[4], pts[5], pts[6]}   // v=1, u: 0 -> 1
+	c0v := [4]content.Point{pts[0], pts[1], pts[2], pts[3]}   // u=0, v: 0 -> 1
+	c1v := [4]content.Point{pts[9], pts[8], pts[7], pts[6]}   // u=1, v: 0 -> 1
 
 	at := func(u, v float64) meshVertex {
 		e0, e1 := bezierAt(cu0, u), bezierAt(cu1, u)
 		f0, f1 := bezierAt(c0v, v), bezierAt(c1v, v)
 		// Coons surface: the two ruled surfaces less the bilinear corner patch.
-		p := Point{
+		p := content.Point{
 			X: (1-v)*e0.X + v*e1.X + (1-u)*f0.X + u*f1.X -
 				((1-u)*(1-v)*pts[0].X + (1-u)*v*pts[3].X + u*v*pts[6].X + u*(1-v)*pts[9].X),
 			Y: (1-v)*e0.Y + v*e1.Y + (1-u)*f0.Y + u*f1.Y -
@@ -200,11 +201,11 @@ func (mp *meshPainter) coonsPatch(pts []Point, cols [4][3]float64) {
 }
 
 // bezierAt evaluates a cubic Bezier at t.
-func bezierAt(c [4]Point, t float64) Point {
+func bezierAt(c [4]content.Point, t float64) content.Point {
 	mt := 1 - t
 	a, b := mt*mt*mt, 3*mt*mt*t
 	d, e := 3*mt*t*t, t*t*t
-	return Point{
+	return content.Point{
 		X: a*c[0].X + b*c[1].X + d*c[2].X + e*c[3].X,
 		Y: a*c[0].Y + b*c[1].Y + d*c[2].Y + e*c[3].Y,
 	}

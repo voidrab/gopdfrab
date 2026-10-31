@@ -1,8 +1,10 @@
-package fontprog
+package fontedit
 
 import (
 	"encoding/binary"
 	"math"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // NormalizeCFFWidthDefaults rewrites a CFF program whose Private DICT -- or,
@@ -30,11 +32,11 @@ import (
 // inside a subroutine, anything it cannot parse, or a result whose widths do
 // not come out the same.
 func NormalizeCFFWidthDefaults(cff []byte) (out []byte, changed bool) {
-	td, ok := ParseCFFTopDict(cff)
+	td, ok := fontprog.ParseCFFTopDict(cff)
 	if !ok || td.CSOffset < 0 {
 		return cff, false
 	}
-	charStrings, _ := ParseCFFIndex(cff, td.CSOffset)
+	charStrings, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
 	if len(charStrings) == 0 {
 		return cff, false
 	}
@@ -55,7 +57,7 @@ func NormalizeCFFWidthDefaults(cff []byte) (out []byte, changed bool) {
 		return cff, false
 	}
 
-	gsubrs := cffGlobalSubrs(cff)
+	gsubrs := fontprog.CFFGlobalSubrs(cff)
 	rewritten := make([][]byte, len(charStrings))
 	for gid, cs := range charStrings {
 		if rewritten[gid], ok = privates[fdIndex[gid]].rewriteWidth(cs, gsubrs); !ok {
@@ -85,7 +87,7 @@ type cffWidthPrivate struct {
 }
 
 func readCFFWidthPrivate(cff []byte, offset, size int) (cffWidthPrivate, bool) {
-	d, n, lsubrs, ok := cffPrivateInfo(cff, offset, size)
+	d, n, lsubrs, ok := fontprog.CFFPrivateInfo(cff, offset, size)
 	return cffWidthPrivate{offset, size, d, n, lsubrs}, ok
 }
 
@@ -105,7 +107,7 @@ func allWhole(privates []cffWidthPrivate) bool {
 // rewriteWidth re-encodes charstring cs so it decodes to the same width
 // against p's rounded defaults; cs itself when it already does.
 func (p cffWidthPrivate) rewriteWidth(cs []byte, gsubrs [][]byte) ([]byte, bool) {
-	w, hasWidth, ok := type2CharstringWidth(cs, gsubrs, p.lsubrs)
+	w, hasWidth, ok := fontprog.Type2CharstringWidth(cs, gsubrs, p.lsubrs)
 	if !ok {
 		return nil, false
 	}
@@ -114,7 +116,7 @@ func (p cffWidthPrivate) rewriteWidth(cs []byte, gsubrs [][]byte) ([]byte, bool)
 	if hasWidth {
 		// The width is the bottom of the stack, so it must be the
 		// charstring's own first token to be replaced in place.
-		v, n, ok := type2Number(cs)
+		v, n, ok := fontprog.Type2Number(cs)
 		if !ok || v != w {
 			return nil, false
 		}
@@ -144,7 +146,7 @@ func (p cffWidthPrivate) rebuild(cff []byte) (privateBlock, bool) {
 	for _, e := range entries {
 		if e.op == 19 && len(e.operands) == 1 {
 			start := p.offset + int(e.operands[0])
-			_, end := ParseCFFIndex(cff, start)
+			_, end := fontprog.ParseCFFIndex(cff, start)
 			if end <= start {
 				return b, false
 			}
@@ -175,16 +177,16 @@ func (p cffWidthPrivate) rebuild(cff []byte) (privateBlock, bool) {
 // cidWidthPrivates reads a CID-keyed program's FDArray: the Private DICT of
 // each Font DICT, which one each glyph uses, and the Font DICTs' entries.
 // It declines a Font DICT with its own FontMatrix, whose widths
-// CFFCIDAdvanceWidths does not read and so could not be checked.
-func cidWidthPrivates(cff []byte, td CFFTopDict, numGlyphs int) (privates []cffWidthPrivate, fdIndex []int, fds [][]cffDictEntry, ok bool) {
+// fontprog.CFFCIDAdvanceWidths does not read and so could not be checked.
+func cidWidthPrivates(cff []byte, td fontprog.CFFTopDict, numGlyphs int) (privates []cffWidthPrivate, fdIndex []int, fds [][]cffDictEntry, ok bool) {
 	if td.FDArrayOffset < 0 || td.PrivateOffset >= 0 {
 		return nil, nil, nil, false
 	}
-	dicts, _ := ParseCFFIndex(cff, td.FDArrayOffset)
+	dicts, _ := fontprog.ParseCFFIndex(cff, td.FDArrayOffset)
 	if len(dicts) == 0 {
 		return nil, nil, nil, false
 	}
-	fdIndex = parseCFFFDSelect(cff, td.FDSelect, numGlyphs)
+	fdIndex = fontprog.ParseCFFFDSelect(cff, td.FDSelect, numGlyphs)
 	if fdIndex == nil {
 		if len(dicts) != 1 {
 			return nil, nil, nil, false
@@ -216,7 +218,7 @@ func cidWidthPrivates(cff []byte, td CFFTopDict, numGlyphs int) (privates []cffW
 func fontDictPrivate(fd []byte) (offset, size int, ok bool) {
 	offset, size = -1, -1
 	matrix := false
-	parsed := cffDictNumbers(fd, func(operator int, operands []float64) {
+	parsed := fontprog.CFFDictNumbers(fd, func(operator int, operands []float64) {
 		switch {
 		case operator == 18 && len(operands) == 2:
 			size, offset = int(operands[0]), int(operands[1])
@@ -231,10 +233,10 @@ func fontDictPrivate(fd []byte) (offset, size int, ok bool) {
 // block being replaced, then the new CharStrings INDEX, the new FDArray when
 // fds is not nil, and each Private DICT block, with the Top DICT -- and each
 // Font DICT -- pointed at them.
-func relayoutCFF(cff []byte, td CFFTopDict, charStrings [][]byte, fds [][]cffDictEntry, privates []privateBlock) ([]byte, bool) {
+func relayoutCFF(cff []byte, td fontprog.CFFTopDict, charStrings [][]byte, fds [][]cffDictEntry, privates []privateBlock) ([]byte, bool) {
 	hdrSize := int(cff[2])
-	_, nameEnd := ParseCFFIndex(cff, hdrSize)
-	tops, topEnd := ParseCFFIndex(cff, nameEnd)
+	_, nameEnd := fontprog.ParseCFFIndex(cff, hdrSize)
+	tops, topEnd := fontprog.ParseCFFIndex(cff, nameEnd)
 	if len(tops) != 1 {
 		return nil, false
 	}
@@ -336,18 +338,18 @@ func relayoutCFF(cff []byte, td CFFTopDict, charStrings [][]byte, fds [][]cffDic
 // sameCFFWidths reports whether b decodes to the same glyphs with the same
 // advance widths as a, and to whole width defaults in every Private DICT.
 func sameCFFWidths(a, b []byte) bool {
-	td, ok := ParseCFFTopDict(b)
+	td, ok := fontprog.ParseCFFTopDict(b)
 	if !ok {
 		return false
 	}
 	if !td.IsCIDKeyed {
 		p, ok := readCFFWidthPrivate(b, td.PrivateOffset, td.PrivateSize)
-		return ok && p.whole() && sameWidths(CFFAdvanceWidths(a), CFFAdvanceWidths(b))
+		return ok && p.whole() && sameWidths(fontprog.CFFAdvanceWidths(a), fontprog.CFFAdvanceWidths(b))
 	}
 	if td.FDArrayOffset < 0 {
 		return false
 	}
-	fds, _ := ParseCFFIndex(b, td.FDArrayOffset)
+	fds, _ := fontprog.ParseCFFIndex(b, td.FDArrayOffset)
 	for _, d := range fds {
 		off, size, ok := fontDictPrivate(d)
 		if !ok {
@@ -357,7 +359,7 @@ func sameCFFWidths(a, b []byte) bool {
 			return false
 		}
 	}
-	return len(fds) > 0 && sameWidths(CFFCIDAdvanceWidths(a), CFFCIDAdvanceWidths(b))
+	return len(fds) > 0 && sameWidths(fontprog.CFFCIDAdvanceWidths(a), fontprog.CFFCIDAdvanceWidths(b))
 }
 
 // sameWidths reports whether before and after give the same glyphs the same
@@ -386,7 +388,7 @@ type cffDictEntry struct {
 func cffDictEntries(dict []byte) []cffDictEntry {
 	var entries []cffDictEntry
 	start := 0
-	cffDictNumbersAt(dict, func(op int, operands []float64, end int) {
+	fontprog.CFFDictNumbersAt(dict, func(op int, operands []float64, end int) {
 		entries = append(entries, cffDictEntry{op: op, operands: append([]float64(nil), operands...), raw: dict[start:end]})
 		start = end
 	})
@@ -395,7 +397,7 @@ func cffDictEntries(dict []byte) []cffDictEntry {
 
 // appendCFFDictEntry appends an operator with whole-number operands, each as
 // a 5-byte integer. An op of 1200 and up is the two-byte escape 12, op-1200,
-// as cffDictNumbers numbers them.
+// as fontprog.CFFDictNumbers numbers them.
 func appendCFFDictEntry(d []byte, op int, operands ...int) []byte {
 	for _, v := range operands {
 		d = append(d, 29, 0, 0, 0, 0)
@@ -405,27 +407,6 @@ func appendCFFDictEntry(d []byte, op int, operands ...int) []byte {
 		return append(d, 12, byte(op-1200))
 	}
 	return append(d, byte(op))
-}
-
-// type2Number decodes the number token cs starts with, returning its value
-// and length.
-func type2Number(cs []byte) (v float64, n int, ok bool) {
-	if len(cs) == 0 {
-		return 0, 0, false
-	}
-	switch b := int(cs[0]); {
-	case b >= 32 && b <= 246:
-		return float64(b - 139), 1, true
-	case b >= 247 && b <= 250 && len(cs) >= 2:
-		return float64((b-247)*256 + int(cs[1]) + 108), 2, true
-	case b >= 251 && b <= 254 && len(cs) >= 2:
-		return float64(-(b-251)*256 - int(cs[1]) - 108), 2, true
-	case b == 28 && len(cs) >= 3:
-		return float64(int16(binary.BigEndian.Uint16(cs[1:3]))), 3, true
-	case b == 255 && len(cs) >= 5:
-		return float64(int32(binary.BigEndian.Uint32(cs[1:5]))) / 65536, 5, true
-	}
-	return 0, 0, false
 }
 
 // encodeType2Number encodes v as a Type 2 charstring operand: the shortest

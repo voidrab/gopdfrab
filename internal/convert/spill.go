@@ -44,8 +44,7 @@ var errNoOutput = errors.New("convert: no output")
 // memory until the total exceeds spillThreshold, then creates a temp file,
 // flushes what it has, and streams the remainder to disk -- so write-time heap
 // is bounded by the threshold regardless of output size. finish seals it into an
-// outputBacking. A temp-file failure degrades silently to in-memory, so the
-// writer is never worse than the previous always-in-memory behaviour.
+// outputBacking. A temp-file failure degrades silently to in-memory output.
 type spillWriter struct {
 	buf         bytes.Buffer
 	file        tempFile

@@ -43,7 +43,7 @@ func markerAndTitle(t *testing.T, r *Reader) (bool, string) {
 		if err != nil {
 			continue
 		}
-		if d, ok := v.(PDFDict); ok && d.HasStream {
+		if d, ok := v.(PDFDict); ok && d.IsStream() {
 			if dec, err := DecodeStream(d); err == nil && bytes.Contains(dec, []byte(cryptMarker)) {
 				found = true
 			}
@@ -165,13 +165,13 @@ func TestDecryptIsartorFixture(t *testing.T) {
 	if r.crypt == nil {
 		t.Fatal("isartor fixture not recognised as encrypted")
 	}
-	// Every stream must decode cleanly now that RC4 is undone.
+	// Every stream must decode cleanly once RC4 is undone.
 	for objNum := 1; objNum <= 20; objNum++ {
 		v, err := r.ResolveReference(PDFRef{ObjNum: objNum})
 		if err != nil {
 			continue
 		}
-		if d, ok := v.(PDFDict); ok && d.HasStream && !isXRefStream(d) {
+		if d, ok := v.(PDFDict); ok && d.IsStream() && !isXRefStream(d) {
 			if _, err := DecodeStream(d); err != nil {
 				t.Errorf("obj %d: decode after decrypt: %v", objNum, err)
 			}
@@ -298,8 +298,8 @@ func TestR5PlusWithPreV5VersionRejected(t *testing.T) {
 }
 
 // The R5/R6 file key is /UE (or /OE) decrypted, so its length is whatever the
-// file says. A /UE longer than 256 bytes made a key RC4 rejects, and the
-// discarded error left a nil cipher that panicked on the first decrypt.
+// file says. Only a 32-byte value is accepted as a key; any other length must
+// be reported as an error.
 func TestR5WrappedKeyMustBe32Bytes(t *testing.T) {
 	salt := []byte("saltsalt")
 	u := concat(hashR5(nil, salt, nil), salt, make([]byte, 8))
@@ -387,9 +387,8 @@ func TestUnsupportedSecurityHandler(t *testing.T) {
 // and under AES it does not even decode, because the plaintext is not
 // block-aligned.
 //
-// The two older cleartext-metadata fixtures set the flag but carry no metadata
-// stream at all, so they pinned the parsed flag and not the behaviour it
-// governs. This fixture has one.
+// The two other cleartext-metadata fixtures set the flag but carry no metadata
+// stream, so they check only the parsed flag. This fixture has one.
 func TestCleartextMetadataStreamIsNotDecrypted(t *testing.T) {
 	r, err := OpenBytes(readFixture(t, "enc_aesv3_cm_meta.pdf"))
 	if err != nil {
@@ -403,7 +402,7 @@ func TestCleartextMetadataStreamIsNotDecrypted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RawXMP: %v", err)
 	}
-	if !meta.HasStream {
+	if !meta.IsStream() {
 		t.Fatal("catalog /Metadata is not a stream")
 	}
 	if !bytes.Contains(data, []byte("<x:xmpmeta")) || !bytes.Contains(data, []byte("pdfaid")) {
@@ -475,8 +474,8 @@ func TestDecryptR6PasswordTruncatedAt127(t *testing.T) {
 	}
 }
 
-// TestStringBytesForms: /O, /U and /OE may be written as literal or hex
-// strings. Both must yield the same raw bytes, since the key derivation hashes
+// TestStringBytesForms verifies that /O, /U and /OE yield the same raw bytes
+// whether written as literal or hex strings, since the key derivation hashes
 // them directly.
 func TestStringBytesForms(t *testing.T) {
 	want := []byte{0xDE, 0xAD, 0x00, 0xBE}
@@ -515,8 +514,8 @@ func TestStringBytesForms(t *testing.T) {
 	}
 }
 
-// TestDecryptUnknownMethod: a crypt method outside the supported set is an
-// error, not a silent pass-through of ciphertext as if it were plaintext.
+// TestDecryptUnknownMethod verifies that a crypt method outside the supported
+// set is an error, not a silent pass-through of ciphertext as plaintext.
 func TestDecryptUnknownMethod(t *testing.T) {
 	h := &stdSecurityHandler{stmMethod: cryptMethod(99), strMethod: cryptMethod(99), keyLen: 16}
 	if _, err := h.decrypt([]byte("data"), 1, 0, false); !errors.Is(err, ErrEncrypted) {
@@ -527,9 +526,9 @@ func TestDecryptUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestEncryptEntryNotADictionary: /Encrypt pointing at something other than a
-// dictionary must be reported as an encryption error rather than opening the
-// document as if it were plaintext.
+// TestEncryptEntryNotADictionary verifies that an /Encrypt entry pointing at
+// something other than a dictionary is reported as an encryption error, rather
+// than the document opening as plaintext.
 func TestEncryptEntryNotADictionary(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")

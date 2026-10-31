@@ -1,10 +1,11 @@
 // Package arlington exposes the Arlington PDF Model
-// (https://github.com/pdf-association/arlington-pdf-model) as a compiled-in Go table,
-// generated from the vendored PDF 1.4 TSV set under testdata/tsv/1.4.
+// (https://github.com/pdf-association/arlington-pdf-model) as a lookup table
+// embedded in the package. The table is generated from the vendored PDF 1.4
+// TSV set under testdata/tsv/1.4.
 //
-// Arlington describes what ISO 32000 permits for every dictionary/array/stream type in the
-// spec; it does not encode PDF/A's narrower restrictions, and this package has no opinion on
-// those — it is a lookup table only.
+// Arlington describes what ISO 32000 permits for every dictionary, array and
+// stream type. It does not encode PDF/A's narrower restrictions, and this
+// package does not check them.
 package arlington
 
 //go:generate go run gen.go
@@ -89,9 +90,10 @@ const (
 	// IndirectRequired means the value must be an indirect reference.
 	IndirectRequired
 	// IndirectForbidden means the value must be a direct object. Never generated: every
-	// fn:MustBeDirect row in the model has a scalar or array value type, and the resolver
-	// only marks indirection on dicts/streams (_ref), so the constraint is unenforceable.
-	// Kept so the disposition is representable if the resolver ever learns scalar marking.
+	// fn:MustBeDirect row in the model has a scalar or array value type, and
+	// the resolver only marks indirection on dicts/streams (PDFDict.Ref), so
+	// the constraint is unenforceable. Kept so the disposition is representable
+	// if the resolver ever learns scalar marking.
 	IndirectForbidden
 )
 
@@ -252,7 +254,7 @@ type ObjectType struct {
 	Post14Keys []string
 
 	// keyByName indexes Keys by row name (first row wins on duplicates,
-	// matching a front-to-back scan), built once over Types at init so the
+	// matching a front-to-back scan), built when the model is decoded so the
 	// per-dict-entry lookups in schema validation are O(1) instead of a
 	// linear scan over the type's rows. Nil on hand-built values (tests),
 	// which fall back to the scan.
@@ -291,17 +293,16 @@ func (ot ObjectType) KeyDefByName(key string) *KeyDef {
 	return ot.Wildcard
 }
 
-func init() {
-	for name, ot := range Types {
-		m := make(map[string]int, len(ot.Keys))
-		for i := range ot.Keys {
-			if _, dup := m[ot.Keys[i].Name]; !dup {
-				m[ot.Keys[i].Name] = i
-			}
+// indexKeys maps each row name to its index in keys; the first row wins on
+// duplicates, matching a front-to-back scan.
+func indexKeys(keys []KeyDef) map[string]int {
+	m := make(map[string]int, len(keys))
+	for i := range keys {
+		if _, dup := m[keys[i].Name]; !dup {
+			m[keys[i].Name] = i
 		}
-		ot.keyByName = m
-		Types[name] = ot
 	}
+	return m
 }
 
 // standard14Fonts is the set of base font names every conforming reader must provide
@@ -319,7 +320,7 @@ func IsStandard14(name string) bool { return standard14Fonts[name] }
 
 // Type looks up a vendored PDF 1.4 Arlington type by name (e.g. "Catalog", "ExtGState").
 func Type(name string) (ObjectType, bool) {
-	t, ok := Types[name]
+	t, ok := Types()[name]
 	return t, ok
 }
 
@@ -328,10 +329,11 @@ func Type(name string) (ObjectType, bool) {
 // The generated table only contains pairs exactly one type in the model is consistent with,
 // so re-anchoring on the result never guesses.
 func SelfIdentified(typeVal, subtypeVal string) string {
+	load()
 	if subtypeVal != "" {
-		if n, ok := selfIdentified[[2]string{typeVal, subtypeVal}]; ok {
+		if n, ok := selfIdentifiedMap[[2]string{typeVal, subtypeVal}]; ok {
 			return n
 		}
 	}
-	return selfIdentified[[2]string{typeVal, ""}]
+	return selfIdentifiedMap[[2]string{typeVal, ""}]
 }

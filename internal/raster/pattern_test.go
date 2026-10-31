@@ -26,20 +26,20 @@ func axialPattern() pdf.PDFDict {
 func renderPattern(t *testing.T, content string, pattern pdf.PDFValue) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
 	})}
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 	return img, drops
 }
 
-// TestFillWithShadingPattern: a path filled through a Pattern colour space
-// takes the shading's colours, and only inside the path.
+// TestFillWithShadingPattern verifies that a path filled through a Pattern
+// colour space takes the shading's colours, and only inside the path.
 func TestFillWithShadingPattern(t *testing.T) {
 	img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", axialPattern())
 	if len(drops) != 0 {
@@ -49,7 +49,8 @@ func TestFillWithShadingPattern(t *testing.T) {
 	if left.R <= right.R || left.B >= right.B {
 		t.Errorf("no gradient across the fill: left %v, right %v", left, right)
 	}
-	// The fill must not paint the flat black a Pattern space used to leave.
+	// The fill must not paint the flat black that a Pattern colour space leaves
+	// behind.
 	if left.R < 100 {
 		t.Errorf("fill at (6,10) = %v, want the shading's red end", left)
 	}
@@ -57,8 +58,9 @@ func TestFillWithShadingPattern(t *testing.T) {
 	assertUnpainted(t, img, 17, 17, "outside the filled path")
 }
 
-// TestStrokeWithShadingPattern: SCN selects a stroke pattern, which paints
-// along the stroked path rather than falling back to a flat colour.
+// TestStrokeWithShadingPattern verifies that the stroke colour operator (SCN)
+// selects a stroke pattern, which paints along the stroked path rather than
+// falling back to a flat colour.
 func TestStrokeWithShadingPattern(t *testing.T) {
 	img, drops := renderPattern(t, "/Pattern CS /P1 SCN 4 w 0 10 m 20 10 l S", axialPattern())
 	if len(drops) != 0 {
@@ -71,8 +73,8 @@ func TestStrokeWithShadingPattern(t *testing.T) {
 	assertUnpainted(t, img, 10, 2, "away from the stroked line")
 }
 
-// TestFillWithMeshShadingPattern: a mesh pattern has no colour field to
-// sample, so it paints the mesh over the path's bounds instead.
+// TestFillWithMeshShadingPattern verifies that a mesh pattern has no colour
+// field to sample, so it paints the mesh over the path's bounds instead.
 func TestFillWithMeshShadingPattern(t *testing.T) {
 	var data []byte
 	data = append(data, vertex(0, 255, 0, 0, 255)...)
@@ -93,21 +95,18 @@ func TestFillWithMeshShadingPattern(t *testing.T) {
 	}
 }
 
-// TestTilingPatternReportsDrop: a tiling pattern is not rendered, and must be
-// reported rather than painting the flat black a Pattern cs leaves behind.
+// TestTilingPatternReportsDrop verifies that a tiling pattern is not rendered,
+// and must be reported rather than painting the flat black that a Pattern
+// colour space leaves behind.
 func TestTilingPatternReportsDrop(t *testing.T) {
-	pattern := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"PatternType": pdf.PDFInteger(1),
-			"PaintType":   pdf.PDFInteger(1),
-			"TilingType":  pdf.PDFInteger(1),
-			"BBox":        numArray(0, 0, 4, 4),
-			"XStep":       pdf.PDFInteger(4),
-			"YStep":       pdf.PDFInteger(4),
-		}),
-		HasStream: true,
-		RawStream: []byte("1 0 0 rg 0 0 4 4 re f"),
-	}
+	pattern := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"PatternType": pdf.PDFInteger(1),
+		"PaintType":   pdf.PDFInteger(1),
+		"TilingType":  pdf.PDFInteger(1),
+		"BBox":        numArray(0, 0, 4, 4),
+		"XStep":       pdf.PDFInteger(4),
+		"YStep":       pdf.PDFInteger(4),
+	}), []byte("1 0 0 rg 0 0 4 4 re f"))
 
 	img, drops := renderPattern(t, "/Pattern cs /P1 scn 5 5 10 10 re f", pattern)
 	if !hasDrop(drops, dropTilingPattern) {
@@ -116,8 +115,9 @@ func TestTilingPatternReportsDrop(t *testing.T) {
 	assertUnpainted(t, img, 10, 10, "tiling pattern fill")
 }
 
-// TestUnusablePatternReportsDrop: a pattern name that resolves to nothing, or
-// to a shading the rasterizer cannot use, paints nothing and says so.
+// TestUnusablePatternReportsDrop verifies that a pattern name that resolves to
+// nothing, or to a shading the rasterizer cannot use, paints nothing and says
+// so.
 func TestUnusablePatternReportsDrop(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -146,8 +146,8 @@ func TestUnusablePatternReportsDrop(t *testing.T) {
 	}
 }
 
-// TestPatternClearedByPlainColour: selecting an ordinary colour after a
-// pattern must drop the pattern, not keep shading later fills.
+// TestPatternClearedByPlainColour verifies that selecting an ordinary colour
+// after a pattern must drop the pattern, not keep shading later fills.
 func TestPatternClearedByPlainColour(t *testing.T) {
 	content := "/Pattern cs /P1 scn 0 1 0 rg 5 5 10 10 re f"
 	img, drops := renderPattern(t, content, axialPattern())
@@ -159,8 +159,21 @@ func TestPatternClearedByPlainColour(t *testing.T) {
 	}
 }
 
-// TestPatternRestoredByGraphicsState: q/Q saves and restores the selected
-// pattern along with the rest of the colour state.
+// TestPatternKeptByOtherColourOperator verifies that setting the stroking
+// colour leaves the fill pattern in place.
+func TestPatternKeptByOtherColourOperator(t *testing.T) {
+	content := "/Pattern cs /P1 scn 0 1 0 RG 5 5 10 10 re f"
+	img, drops := renderPattern(t, content, axialPattern())
+	if len(drops) != 0 {
+		t.Errorf("drops = %v, want none", drops)
+	}
+	if got := nrgbaAt(t, img, 6, 10); got.R < 100 || got.G != 0 {
+		t.Errorf("fill after RG = %v, want the pattern's red end", got)
+	}
+}
+
+// TestPatternRestoredByGraphicsState verifies that q/Q saves and restores the
+// selected pattern along with the rest of the colour state.
 func TestPatternRestoredByGraphicsState(t *testing.T) {
 	content := "/Pattern cs /P1 scn q 0 1 0 rg 0 0 4 4 re f Q 5 5 10 10 re f"
 	img, drops := renderPattern(t, content, axialPattern())
@@ -172,30 +185,6 @@ func TestPatternRestoredByGraphicsState(t *testing.T) {
 	}
 	if got := nrgbaAt(t, img, 6, 10); got.R < 100 {
 		t.Errorf("fill after Q = %v, want the restored pattern's red end", got)
-	}
-}
-
-func TestIsPatternColorSpace(t *testing.T) {
-	pat := pdf.PDFName{Value: "Pattern"}
-	for _, tc := range []struct {
-		name string
-		cs   pdf.PDFValue
-		want bool
-	}{
-		{"bare name", pat, true},
-		{"other name", pdf.PDFName{Value: "DeviceRGB"}, false},
-		{"array with base", pdf.PDFArray{pat, pdf.PDFName{Value: "DeviceRGB"}}, true},
-		{"array of other space", pdf.PDFArray{pdf.PDFName{Value: "ICCBased"}}, false},
-		{"empty array", pdf.PDFArray{}, false},
-		{"array not led by a name", pdf.PDFArray{pdf.PDFInteger(1)}, false},
-		{"unrelated value", pdf.PDFInteger(1), false},
-		{"nil", nil, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isPatternColorSpace(tc.cs); got != tc.want {
-				t.Errorf("isPatternColorSpace = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }
 
@@ -214,8 +203,9 @@ func shiftedAxial(matrix pdf.PDFValue, extend bool) pdf.PDFDict {
 	return p
 }
 
-// TestShadingPatternMatrix: a pattern's /Matrix places its gradient relative
-// to the page, so shifting it 10 units right slides the red end with it.
+// TestShadingPatternMatrix verifies that a pattern's /Matrix places its
+// gradient relative to the page, so shifting it 10 units right slides the red
+// end with it.
 func TestShadingPatternMatrix(t *testing.T) {
 	const content = "/Pattern cs /P1 scn 0 0 20 20 re f"
 	plain, _ := renderPattern(t, content, axialPattern())
@@ -228,8 +218,8 @@ func TestShadingPatternMatrix(t *testing.T) {
 	}
 }
 
-// TestShadingPatternPaintsOnlyWhereTheShadingDoes: without Extend a gradient
-// leaves the pixels beyond its ends alone.
+// TestShadingPatternPaintsOnlyWhereTheShadingDoes verifies that without Extend
+// a gradient leaves the pixels beyond its ends alone.
 func TestShadingPatternPaintsOnlyWhereTheShadingDoes(t *testing.T) {
 	img, _ := renderPattern(t, "/Pattern cs /P1 scn 0 0 20 20 re f", shiftedAxial(nil, false))
 	if got := nrgbaAt(t, img, 10, 10); got.R == 255 && got.G == 255 && got.B == 255 {
@@ -239,8 +229,9 @@ func TestShadingPatternPaintsOnlyWhereTheShadingDoes(t *testing.T) {
 	assertUnpainted(t, img, 17, 10, "after the gradient ends")
 }
 
-// TestShadingPatternWithSingularMatrixPaintsNothing: a /Matrix that cannot be
-// inverted gives no way to look up a pixel's colour, for fills and strokes.
+// TestShadingPatternWithSingularMatrixPaintsNothing verifies that a /Matrix
+// that cannot be inverted gives no way to look up a pixel's colour, for fills
+// and strokes.
 func TestShadingPatternWithSingularMatrixPaintsNothing(t *testing.T) {
 	pattern := shiftedAxial(numArray(0, 0, 0, 0, 0, 0), true)
 	for name, content := range map[string]string{

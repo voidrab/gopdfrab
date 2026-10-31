@@ -6,9 +6,9 @@ import (
 
 // Inline images (BI ... ID <data> EI) carry the same parameters as an Image
 // XObject, but with abbreviated keys and no surrounding stream object. Folding
-// them into a synthetic stream dict lets the whole XObject image path --
-// DecodeImageRGBA, its filters, predictors, /Decode array and colour-space
-// resolution -- serve them unchanged.
+// them into a synthetic stream dict lets the whole XObject image path
+// (DecodeImageRGBA, its filters, predictors, /Decode array and colour-space
+// resolution) serve them unchanged.
 
 // inlineImageKeys maps an inline image's abbreviated parameter keys to their
 // Image XObject spellings (ISO 32000-1 Table 93). Filter and colour-space
@@ -45,7 +45,6 @@ func inlineImageDict(params []pdf.PDFValue, raw pdf.InlineImageRaw) (pdf.PDFDict
 	if pdf.DictInt(dict, "Width", 0) <= 0 || pdf.DictInt(dict, "Height", 0) <= 0 {
 		return pdf.PDFDict{}, false
 	}
-	dict.HasStream = true
-	dict.RawStream = raw.Data
+	dict.SetStream(raw.Data)
 	return dict, true
 }

@@ -21,20 +21,11 @@ type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-func TestProfileByName(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want *gopdfrab.Profile
-	}{
-		{"pdfa1b", gopdfrab.PDFA1B},
-		{"legacy1b", gopdfrab.Legacy1B},
-		{"pdf", gopdfrab.PDF},
-		{"bogus", nil},
-		{"", nil},
-	} {
-		if got := profileByName(tc.name); got != tc.want {
-			t.Errorf("profileByName(%q) = %v, want %v", tc.name, got, tc.want)
-		}
+// TestProfileNames verifies that profileNames lists the ready-made profile
+// names in the comma-separated form used by the flag help.
+func TestProfileNames(t *testing.T) {
+	if got, want := profileNames(), "pdfa1b, legacy1b, or pdf"; got != want {
+		t.Errorf("profileNames() = %q, want %q", got, want)
 	}
 }
 
@@ -195,7 +186,7 @@ func TestConvertFlagErrors(t *testing.T) {
 	if code, _, _ := runCLI("convert"); code != exitError {
 		t.Errorf("convert with no input: exit=%d, want %d", code, exitError)
 	}
-	// A second output used to be silently ignored in favour of -o.
+	// Giving -o and a positional output together is rejected.
 	if code, _, stderr := runCLI("convert", "-o", "a.pdf", "x.pdf", "b.pdf"); code != exitError || !strings.Contains(stderr, "output path once") {
 		t.Errorf("convert with -o and a positional output: exit=%d stderr=%q", code, stderr)
 	}
@@ -284,10 +275,10 @@ func TestConvertPrintersReportResidualIssues(t *testing.T) {
 	}
 }
 
-// TestConvertPrintersReportLostContent: a conformant conversion that lost an
-// object still has to say so. The loss is not a residual issue -- the file
-// that was written is valid -- so it is printed on its own line and carried in
-// its own JSON field.
+// TestConvertPrintersReportLostContent verifies that a conformant conversion
+// which lost an object still reports the loss. The loss is not a residual
+// issue, since the file that was written is valid, so it is printed on its own
+// line and carried in its own JSON field.
 func TestConvertPrintersReportLostContent(t *testing.T) {
 	lost := nonConformantResult(t).Residual()[:1]
 	cr := gopdfrab.ConvertResult{
@@ -329,10 +320,10 @@ func TestConvertJSONEncodeError(t *testing.T) {
 	}
 }
 
-// TestConvertPrintersReportRasterization: a conformant conversion that
-// rebuilt pages as images, and could not draw everything on them, says so in
-// both outputs. Without it a page whose picture became a gray box reads as a
-// clean conversion.
+// TestConvertPrintersReportRasterization verifies that a conformant conversion
+// which rebuilt pages as images, and could not draw everything on them, says so
+// in both outputs. Without that a page whose picture became a gray box reads as
+// a clean conversion.
 func TestConvertPrintersReportRasterization(t *testing.T) {
 	cr := gopdfrab.ConvertResult{
 		Result:          gopdfrab.Result{Valid: true},

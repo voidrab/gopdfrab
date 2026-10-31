@@ -9,9 +9,9 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
 
-// TestHybridReferenceFile: in a hybrid-reference file the classic table lists
-// an object as free and the trailer's /XRefStm cross-reference stream gives its
-// real offset (ISO 32000-1 7.5.8.4). The object must resolve.
+// TestHybridReferenceFile verifies that an object the classic table lists as
+// free resolves through the trailer's /XRefStm cross-reference stream, which
+// gives its real offset (ISO 32000-1 7.5.8.4).
 func TestHybridReferenceFile(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.5\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -50,12 +50,12 @@ func (w bufWriter) Write(p []byte) (int, error) { w.b.Write(p); return len(p), n
 
 var _ = errors.New
 
-// TestResolvePathStopsAtUnparseableObject: a path whose subtree holds a
-// reference to an object that cannot be parsed reports the error instead of a
+// TestResolvePathStopsAtUnparseableObject verifies that a path whose subtree
+// holds a reference to an unparseable object reports the error instead of a
 // value.
 func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 	doc := "1 0 obj\n<< /A 2 0 R >>\nendobj\n2 0 obj\n<< /B\nendobj\n"
-	d := &Reader{data: []byte(doc), size: int64(len(doc)), xrefTable: map[int]int64{
+	d := &Reader{src: memSource([]byte(doc)), xrefTable: map[int]int64{
 		1: 0, 2: int64(len("1 0 obj\n<< /A 2 0 R >>\nendobj\n")),
 	}}
 	root := PDFDict{Entries: DictOf(map[string]PDFValue{"A": PDFRef{ObjNum: 2}})}
@@ -64,10 +64,11 @@ func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 	}
 }
 
-// TestObjectHeaderExistsWithoutAnyHeader: when the file holds no "N G obj"
-// header at all, absence proves nothing and the answer is "not scanned".
+// TestObjectHeaderExistsWithoutAnyHeader verifies that, when the file holds no
+// "N G obj" header at all, the answer is "not scanned", since absence proves
+// nothing.
 func TestObjectHeaderExistsWithoutAnyHeader(t *testing.T) {
-	d := &Reader{data: []byte("no objects in here"), size: 18}
+	d := &Reader{src: memSource([]byte("no objects in here"))}
 	if exists, scanned := d.objectHeaderExists(1); exists || scanned {
 		t.Errorf("objectHeaderExists = %v, %v; want false, false", exists, scanned)
 	}
@@ -99,14 +100,15 @@ func TestAdoptStreamCachesSharesDecodeErrors(t *testing.T) {
 }
 
 func TestNegativeXRefOffsetIsAnError(t *testing.T) {
-	d := &Reader{data: []byte("x"), size: 1, xrefTable: map[int]int64{3: -1}}
+	d := &Reader{src: memSource([]byte("x")), xrefTable: map[int]int64{3: -1}}
 	if _, err := d.ResolveReference(PDFRef{ObjNum: 3}); err == nil || !strings.Contains(err.Error(), "negative offset") {
 		t.Errorf("err = %v, want a negative-offset error", err)
 	}
 }
 
-// TestEncryptedBareObjectsAreDecrypted: strings in an object whose body is a
-// bare string or an array are decrypted too, not only those inside dictionaries.
+// TestEncryptedBareObjectsAreDecrypted verifies that strings in an object whose
+// body is a bare string or an array are decrypted too, not only those inside
+// dictionaries.
 func TestEncryptedBareObjectsAreDecrypted(t *testing.T) {
 	h := &stdSecurityHandler{r: 3, v: 2, keyLen: 5, fileKey: []byte{1, 2, 3, 4, 5},
 		stmMethod: cryptRC4, strMethod: cryptRC4, encryptObjNum: 99}
@@ -116,7 +118,7 @@ func TestEncryptedBareObjectsAreDecrypted(t *testing.T) {
 		return fmt.Sprintf("<%x>", out)
 	}
 	doc := fmt.Sprintf("5 0 obj\n%s\nendobj\n6 0 obj\n[%s]\nendobj\n", seal(5, "secret"), seal(6, "hidden"))
-	d := &Reader{data: []byte(doc), size: int64(len(doc)), crypt: h, xrefTable: map[int]int64{
+	d := &Reader{src: memSource([]byte(doc)), crypt: h, xrefTable: map[int]int64{
 		5: 0, 6: int64(strings.Index(doc, "6 0 obj")),
 	}}
 	if v, err := d.ResolveReference(PDFRef{ObjNum: 5}); err != nil || v != (PDFString{Value: "secret"}) {

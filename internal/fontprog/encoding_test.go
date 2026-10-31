@@ -42,7 +42,7 @@ func TestSimpleFontCodeToUnicodeWinAnsi(t *testing.T) {
 }
 
 // TestSimpleFontCodeToUnicodeDifferences verifies that /Differences entries
-// override the base encoding, which is the path the verifier missed before.
+// override the base encoding.
 func TestSimpleFontCodeToUnicodeDifferences(t *testing.T) {
 	// Encoding: WinAnsiEncoding with code 32 remapped to "fi" (U+FB01)
 	diffs := pdf.PDFArray{
@@ -312,8 +312,7 @@ func TestOriginalCodeToUnicodeNonSymbolicDefaults(t *testing.T) {
 func TestOriginalCodeToUnicodeToUnicodeFallback(t *testing.T) {
 	d := simpleFontDict("MySymbols", 4)
 	toUni := pdf.NewPDFDict()
-	toUni.HasStream = true
-	toUni.RawStream = []byte("beginbfchar\n<34> <2714>\nendbfchar")
+	toUni.SetStream([]byte("beginbfchar\n<34> <2714>\nendbfchar"))
 	d.Entries.Set("ToUnicode", toUni)
 
 	table := mustTable(d)
@@ -377,5 +376,58 @@ func TestMacOSRomanCode(t *testing.T) {
 	}
 	if _, ok := MacOSRomanCode(0x0141); ok { // Lslash
 		t.Error("U+0141 has no Mac OS Roman code")
+	}
+}
+
+func TestEncodingGlyphNames(t *testing.T) {
+	builtin := [256]string{65: "builtinA", 1: "builtinOne"}
+	dict := func(kv map[string]pdf.PDFValue) pdf.PDFDict { return pdf.PDFDict{Entries: pdf.DictOf(kv)} }
+	diffs := pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFName{Value: "Alpha"}, pdf.PDFName{Value: "Beta"}}
+
+	got := EncodingGlyphNames(dict(map[string]pdf.PDFValue{
+		"BaseEncoding": pdf.PDFName{Value: "WinAnsiEncoding"}, "Differences": diffs,
+	}), builtin)
+	if got[1] != "Alpha" || got[2] != "Beta" || got[65] != "A" {
+		t.Errorf("WinAnsi base with Differences: [1]=%q [2]=%q [65]=%q", got[1], got[2], got[65])
+	}
+	// No base: Differences over the built-in encoding.
+	got = EncodingGlyphNames(dict(map[string]pdf.PDFValue{"Differences": diffs}), builtin)
+	if got[1] != "Alpha" || got[65] != "builtinA" {
+		t.Errorf("no base: [1]=%q [65]=%q, want Alpha over the built-in", got[1], got[65])
+	}
+	// MacRomanEncoding has its own glyph names (ISO 32000-1 Annex D).
+	mac := EncodingGlyphNames(pdf.PDFName{Value: "MacRomanEncoding"}, builtin)
+	for code, want := range map[int]string{0x27: "quotesingle", 0x80: "Adieresis", 0xDB: "currency", 0xAD: ""} {
+		if mac[code] != want {
+			t.Errorf("MacRomanEncoding[%#x] = %q, want %q", code, mac[code], want)
+		}
+	}
+	if EncodingGlyphNames(pdf.PDFName{Value: "StandardEncoding"}, builtin) != StandardEncoding {
+		t.Error("StandardEncoding did not resolve to itself")
+	}
+	// An absent entry, an unmodelled name and a non-encoding value give the
+	// built-in encoding.
+	for _, enc := range []pdf.PDFValue{nil, pdf.PDFName{Value: "MacExpertEncoding"}, pdf.PDFInteger(0)} {
+		if EncodingGlyphNames(enc, builtin) != builtin {
+			t.Errorf("EncodingGlyphNames(%v) is not the built-in encoding", enc)
+		}
+	}
+}
+
+func TestEachDifference(t *testing.T) {
+	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Differences": pdf.PDFArray{
+		pdf.PDFInteger(300), pdf.PDFName{Value: "high"}, pdf.PDFReal(1), pdf.PDFInteger(-1), pdf.PDFName{Value: "neg"}, pdf.PDFName{Value: "zero"},
+	}})}
+	got := map[int]string{}
+	if !EachDifference(enc, func(code int, name string) { got[code] = name }) {
+		t.Fatal("EachDifference missed the array")
+	}
+	// Codes outside the byte range are passed on; a non-integer, non-name
+	// element is skipped.
+	if len(got) != 3 || got[300] != "high" || got[-1] != "neg" || got[0] != "zero" {
+		t.Errorf("assignments = %v", got)
+	}
+	if EachDifference(pdf.PDFDict{Entries: pdf.DictOf(nil)}, func(int, string) { t.Error("called") }) {
+		t.Error("a dictionary without /Differences was reported as having one")
 	}
 }

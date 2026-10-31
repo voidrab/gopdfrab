@@ -9,7 +9,7 @@ import (
 // targetedFixer is an optional capability for a Fixer that can remediate just
 // the objects its issues point at instead of walking the whole graph.
 // handled=false means the batch could not be targeted (e.g. a ref-less issue)
-// and the caller falls back to the ordinary Fix.
+// and the caller falls back to Fix, if the Fixer is also a graphFixer.
 type targetedFixer interface {
 	Fixer
 	fixTargeted(p *fixPass, issues []pdf.PDFError) (changed, handled bool, err error)
@@ -23,22 +23,13 @@ type fixPass struct {
 	trailer *pdf.PDFDict
 	objs    map[int]pdf.PDFValue
 
-	// parents maps a dict's Entries identity to every graph slot holding it,
-	// lazily built on first replaceObject call and shared for the iteration.
-	parents map[uintptr][]parentSlot
-
 	// contentStreams holds the Entries identities of content-bearing streams,
 	// lazily built on first isContentStream call.
 	contentStreams map[uintptr]bool
 }
 
-// parentSlot writes a replacement dict value into one graph location that
-// held it; stream-field edits don't propagate through the shared Entries map,
-// so every referencing slot must be rewritten (see walkStreamDicts).
-type parentSlot func(pdf.PDFDict)
-
 // dictForRef resolves ref against the iteration index. ok is false unless the
-// numbered object exists, is a dict, and still carries the matching _ref.
+// numbered object exists, is a dict, and still carries the matching reference.
 func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if p == nil || p.objs == nil {
 		return pdf.PDFDict{}, false
@@ -47,7 +38,7 @@ func (p *fixPass) dictForRef(ref pdf.PDFRef) (pdf.PDFDict, bool) {
 	if !ok {
 		return pdf.PDFDict{}, false
 	}
-	r, ok := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	r, ok := d.Ref()
 	if !ok || r.ObjNum != ref.ObjNum {
 		return pdf.PDFDict{}, false
 	}
@@ -107,26 +98,6 @@ func (p *fixPass) dictsForIssues(issues []pdf.PDFError) ([]pdf.PDFDict, bool) {
 	return out, true
 }
 
-// replaceObject writes updated into every graph slot currently holding a dict
-// with old's Entries identity, and into the iteration index, so stream-field
-// changes take effect. Dicts synthesized after the index was built have no
-// recorded slots; callers only replace dicts resolved via dictsForIssues.
-func (p *fixPass) replaceObject(old, updated pdf.PDFDict) {
-	if p.parents == nil {
-		p.parents = map[uintptr][]parentSlot{}
-		collectParentSlots(*p.trailer, map[uintptr]bool{}, p.parents)
-	}
-	ptr := pdf.ValuePointer(old.Entries)
-	for _, set := range p.parents[ptr] {
-		set(updated)
-	}
-	if ref, ok := old.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
-		if _, exists := p.objs[ref.ObjNum]; exists {
-			p.objs[ref.ObjNum] = updated
-		}
-	}
-}
-
 // isContentStream reports whether d is one of the content-bearing streams
 // walkContentStreams would rewrite; running the content rewriter over any
 // other stream's bytes would corrupt it (e.g. an image flagged for an
@@ -140,37 +111,12 @@ func (p *fixPass) isContentStream(d pdf.PDFDict) bool {
 }
 
 // collectContentStreamPtrs records the Entries identity of every content-
-// bearing stream, mirroring walkContentStreams' positional dispatch (page
-// Contents, tiling patterns, form XObjects, Type3 CharProcs) without
-// decoding anything.
+// bearing stream (see pdf.ContentRoots) without decoding anything.
 func collectContentStreamPtrs(trailer pdf.PDFDict, out map[uintptr]bool) {
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		switch {
-		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
-			switch contents := d.Entries.Get("Contents").(type) {
-			case pdf.PDFDict:
-				if contents.HasStream {
-					out[pdf.ValuePointer(contents.Entries)] = true
-				}
-			case pdf.PDFArray:
-				for _, item := range contents {
-					if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
-						out[pdf.ValuePointer(cd.Entries)] = true
-					}
-				}
-			}
-		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.HasStream,
-			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.HasStream:
-			out[pdf.ValuePointer(d.Entries)] = true
-		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
-			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
-				for _, v := range procs.Entries.All() {
-					if pd, ok := v.(pdf.PDFDict); ok && pd.HasStream {
-						out[pdf.ValuePointer(pd.Entries)] = true
-					}
-				}
-			}
-		}
+		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
+			out[pdf.ValuePointer(r.Stream.Entries)] = true
+		})
 	})
 }
 
@@ -202,9 +148,6 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 		}
 	}
 	for k, val := range d.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
 		switch v := val.(type) {
 		case pdf.PDFDict:
 		case pdf.PDFArray:
@@ -217,43 +160,4 @@ func fixOwnedScalars(d pdf.PDFDict, fix func(pdf.PDFValue) (pdf.PDFValue, bool))
 		}
 	}
 	return changed
-}
-
-// collectParentSlots records, for every dict reachable from v, a setter per
-// graph slot holding it, mirroring walkStreamDicts' traversal.
-func collectParentSlots(v pdf.PDFValue, visited map[uintptr]bool, out map[uintptr][]parentSlot) {
-	switch val := v.(type) {
-	case pdf.PDFDict:
-		ptr := pdf.ValuePointer(val.Entries)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for k, child := range val.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
-			if cd, ok := child.(pdf.PDFDict); ok {
-				entries, key := val.Entries, k
-				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],
-					func(nd pdf.PDFDict) { entries.Set(key, nd) })
-			}
-			collectParentSlots(child, visited, out)
-		}
-
-	case pdf.PDFArray:
-		ptr := pdf.ArrayPointer(val)
-		if visited[ptr] {
-			return
-		}
-		visited[ptr] = true
-		for i, child := range val {
-			if cd, ok := child.(pdf.PDFDict); ok {
-				arr, idx := val, i
-				out[pdf.ValuePointer(cd.Entries)] = append(out[pdf.ValuePointer(cd.Entries)],
-					func(nd pdf.PDFDict) { arr[idx] = nd })
-			}
-			collectParentSlots(child, visited, out)
-		}
-	}
 }

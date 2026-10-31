@@ -5,8 +5,8 @@ import (
 	"image"
 	"runtime"
 	"sort"
-	"strings"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -18,22 +18,23 @@ import (
 // content for a transparency group, or a single Image XObject's samples for
 // a soft mask -- never the whole page.
 // transparencyFlattener carries the raster resolution (dpi) its flattening
-// renders at; buildLocalFixers stamps the per-run value from Options.RasterDPI.
-// A zero dpi (the registry prototype) falls back to defaultRasterDPI.
-// drops, when non-nil, collects the features flattening could not render, so
-// they reach ConvertResult.RasterDrops like the page-level fallback's do. The
-// registry prototype leaves it nil.
+// renders at, the run's Options.RasterDPI. A zero dpi falls back to
+// defaultRasterDPI. drops, when non-nil, collects the features flattening
+// could not render, so they reach ConvertResult.RasterDrops like the
+// page-level fallback's do.
 type transparencyFlattener struct {
 	dpi   int
 	drops *[]RasterDrop
 	// ctx stops dispatching further renders once the run is cancelled; nil
-	// (the registry prototype) never cancels.
+	// never cancels.
 	ctx context.Context
 }
 
-func init() {
-	registerFixer(transparencyFlattener{})
-}
+// leadsItsClause reports that the flattener runs before the other 6.4 fixers.
+// The flattener must render a group with its original opacities; once the
+// opacity repair has replaced translucent fills with opaque colours,
+// overlapping fills no longer accumulate.
+func (transparencyFlattener) leadsItsClause() bool { return true }
 
 func (transparencyFlattener) Applies(c pdf.Check) bool {
 	switch c {
@@ -56,10 +57,6 @@ func (f transparencyFlattener) renderDPI() int {
 	}
 	return defaultRasterDPI
 }
-
-// defaultMediaBox is the PDF spec's fallback page size (US Letter) for a
-// page that inherits no /MediaBox anywhere up its Pages-tree ancestry.
-var defaultMediaBox = [4]float64{0, 0, 612, 792}
 
 func (f transparencyFlattener) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	changed := f.flattenPageTargets(trailer)
@@ -87,21 +84,27 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		return false
 	}
 
+	// Workers edit a clone of each target's entries, never the target itself:
+	// other workers' renders may read it (a form drawn inside another, an
+	// image inside a form), and an edit mid-render is a data race. The edits
+	// are published serially once every render is done.
 	pdf.ParallelFor(f.runCtx(), len(unique), runtime.NumCPU(), func(i int) {
 		t := unique[i]
+		work := t.dict
+		work.Entries = t.dict.Entries.Clone()
 		switch t.kind {
 		case "image":
-			fixed, ok := bakeSoftMaskOut(t.dict, t.resources)
+			fixed, ok := bakeSoftMaskOut(work, t.resources)
 			results[i] = result{fixed: fixed, ok: ok}
 		case "form":
 			// A provably transparency-free group composites the same
 			// without /Group; deleting it (serially, below) skips the
 			// whole rasterization.
-			if canDropGroupSafely(t.dict) {
+			if canDropGroupSafely(t.dict, t.resources) {
 				results[i] = result{fixed: t.dict, ok: true, dropGroup: true}
 				return
 			}
-			fixed, drops, ok := flattenFormToImage(t.dict, t.resources, f.renderDPI(), t.inherited)
+			fixed, drops, ok := flattenFormToImage(work, t.resources, f.renderDPI(), t.inherited)
 			results[i] = result{fixed: fixed, ok: ok, drops: drops}
 		case "page":
 			// Only note it: Del shifts the page dict's entries, and other
@@ -122,55 +125,50 @@ func (f transparencyFlattener) flattenPageTargets(trailer *pdf.PDFDict) bool {
 		}
 	}
 
-	byDict := make(map[uintptr]result, len(unique))
-	for i, t := range unique {
-		byDict[pdf.ValuePointer(t.dict.Entries)] = results[i]
-	}
+	// Publishing to the shared body reaches every alias of the target.
 	changed := false
-	for _, t := range targets {
-		r := byDict[pdf.ValuePointer(t.dict.Entries)]
+	for i, t := range unique {
+		r := results[i]
 		if !r.ok {
 			continue
 		}
 		changed = true
 		if r.dropGroup {
-			r.fixed.Entries.Del("Group")
+			t.dict.Entries.Del("Group")
 			continue
 		}
-		if t.kind != "page" {
-			t.xobjects.Entries.Set(t.name, r.fixed)
-		}
+		t.dict.Entries.Assign(r.fixed.Entries)
 	}
 	return changed
 }
 
 // bakeStraySoftMasks composites out the soft mask of every image the page walk
 // above cannot see. 6.4 is reported against any image dictionary in the graph,
-// and an image reaches the graph by more routes than a resource dictionary --
-// a Photoshop /PieceInfo keeps one, and no amount of rasterizing the pages it
-// is not on will remove it. Images the walk already fixed no longer have a
-// soft mask, so this pass skips them on its own.
+// and an image can be reached by more routes than a resource dictionary: a
+// /PieceInfo entry keeps one, and no amount of rasterizing the pages it is not
+// on will remove it. Images the walk already fixed no longer have a soft mask,
+// so this pass skips them on its own.
 func bakeStraySoftMasks(trailer *pdf.PDFDict) bool {
 	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "Image"}) || !hasSoftMask(d) {
-			return d, false
+			return false
 		}
 		// No resource dictionary: an image reached outside any content stream
 		// has no named colour spaces in scope, and one that needs them stays
 		// as it is rather than being decoded against the wrong names.
-		fixed, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
+		_, ok := bakeSoftMaskOut(d, pdf.PDFDict{})
 		if !ok {
-			return d, false
+			return false
 		}
 		changed = true
-		return fixed, true
+		return true
 	})
 	return changed
 }
 
 // uniqueByDict drops targets addressing the same underlying object so each is
-// computed only once; the caller writes the shared result back to every alias.
+// computed only once.
 func uniqueByDict(targets []flaggedTarget) []flaggedTarget {
 	seen := map[uintptr]bool{}
 	var out []flaggedTarget
@@ -198,8 +196,6 @@ type flaggedTarget struct {
 	inherited raster.InheritedPaint
 	dict      pdf.PDFDict
 	resources pdf.PDFDict
-	xobjects  pdf.PDFDict
-	name      string
 	mediaBox  [4]float64
 	page      int // 1-based, for the drop report
 }
@@ -222,10 +218,12 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 
 	var out []flaggedTarget
 	visited := map[uintptr]bool{}
-	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
+	pdf.WalkPages(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, pageNum int) {
+		// Dropping a page's own group leaves what it draws as it was, so the
+		// groups and soft masks inside are flattened in the same pass, before
+		// the opacity repair makes them opaque.
 		if hasTransparencyGroup(node) {
 			out = append(out, flaggedTarget{kind: "page", dict: node, resources: resources, mediaBox: mediaBox, page: pageNum})
-			return
 		}
 		collectXObjectTargets(resources, visited, pageNum, pagePaintAtDo(node, resources), &out)
 		collectAnnotationTargets(node, resources, visited, pageNum, &out)
@@ -233,166 +231,33 @@ func collectTransparencyTargets(trailer pdf.PDFDict) []flaggedTarget {
 	return out
 }
 
-// walkPageTree calls visit for every page under pages, top-down from
-// Root/Pages/Kids, with the /Resources and /MediaBox it inherits and its
-// 1-based page number.
-//
-// It guards the walk exactly as pdf.Reader.BuildPageIndex does: an indirect
-// node is visited once and depth is capped. That keeps a cyclic /Kids (a
-// Pages node listing itself or an ancestor) from recursing until the stack
-// overflows -- a fatal error no recover can catch -- and keeps page numbers
-// aligned with the verifier's, so they match PDFError.Page().
-func walkPageTree(pages pdf.PDFDict, visit func(page, resources pdf.PDFDict, mediaBox [4]float64, pageNum int)) {
-	seen := map[int]bool{}
-	pageNum := 0
-	var walk func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int)
-	walk = func(node, resources pdf.PDFDict, mediaBox [4]float64, depth int) {
-		if depth > pdf.MaxPageTreeDepth {
-			return
-		}
-		if ref, ok := node.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
-			if seen[ref.ObjNum] {
-				return
-			}
-			seen[ref.ObjNum] = true
-		}
-		if r, ok := node.Entries.Get("Resources").(pdf.PDFDict); ok {
-			resources = r
-		}
-		if mb, err := pdf.FloatArray(node.Entries.Get("MediaBox")); err == nil && len(mb) == 4 {
-			mediaBox = [4]float64{mb[0], mb[1], mb[2], mb[3]}
-		}
-		if (node.Entries.Get("Type") == pdf.PDFName{Value: "Page"}) {
-			pageNum++
-			visit(node, resources, mediaBox, pageNum)
-			return
-		}
-		if kids, ok := node.Entries.Get("Kids").(pdf.PDFArray); ok {
-			for _, kid := range kids {
-				if kd, ok := kid.(pdf.PDFDict); ok {
-					walk(kd, resources, mediaBox, depth+1)
-				}
-			}
-		}
-	}
-	walk(pages, pdf.PDFDict{}, defaultMediaBox, 0)
-}
-
-// pageTarget addresses a page dict in the graph together with the /Resources
-// and /MediaBox in effect for it (resolved up the Pages tree), in page order.
-type pageTarget struct {
-	dict      pdf.PDFDict
-	resources pdf.PDFDict
-	mediaBox  [4]float64
-}
-
-// orderedPages returns every page in the document in page order, with its
-// inherited resources and resolved media box, using the same top-down
-// Root/Pages/Kids walk the verifier numbers pages by -- so the slice index
-// matches a PDFError's 1-based Page().
-func orderedPages(trailer pdf.PDFDict) []pageTarget {
-	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
-	if !ok {
-		return nil
-	}
-	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
-	if !ok {
-		return nil
-	}
-
-	var out []pageTarget
-	walkPageTree(pages, func(node, resources pdf.PDFDict, mediaBox [4]float64, _ int) {
-		out = append(out, pageTarget{dict: node, resources: resources, mediaBox: mediaBox})
-	})
-	return out
-}
-
-// paintAtDo reads a content stream for the colour in force at each Do, which
-// is the colour the form it names inherits. First invocation wins: a form
+// paintAtDo reads a content stream for the colour in force at each XObject
+// invocation (Do), which is the colour the form it names inherits. First
+// invocation wins: a form
 // drawn twice under two colours cannot be flattened to suit both, and the
 // first is what the rest of the flattening assumes.
-func paintAtDo(content []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
-	type paintState struct {
-		fill, stroke     [3]float64
-		fillCS, strokeCS pdf.PDFValue
-	}
-	// A drawing starts black in DeviceGray (ISO 32000-1 table 52).
-	cur := paintState{fillCS: pdf.PDFName{Value: "DeviceGray"}, strokeCS: pdf.PDFName{Value: "DeviceGray"}}
-	var stack []paintState
+func paintAtDo(data []byte, resources pdf.PDFDict) map[string]raster.InheritedPaint {
+	gs := content.NewTracker()
 	at := map[string]raster.InheritedPaint{}
-
-	colour := func(space pdf.PDFValue, operands []pdf.PDFValue) ([3]float64, bool) {
-		comps := pdf.NumericOperands(operands)
-		if len(comps) == 0 {
-			return [3]float64{}, false
+	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if gs.Step(op, operands, resources) || op != "Do" || len(operands) == 0 {
+			return
 		}
-		r, g, b := pdf.ResolveColor(space, comps, resources)
-		return [3]float64{r, g, b}, true
-	}
-
-	pdf.NewContentScanner(content).Scan(func(op string, operands []pdf.PDFValue) {
-		switch op {
-		case "q":
-			stack = append(stack, cur)
-		case "Q":
-			if n := len(stack); n > 0 {
-				cur = stack[n-1]
-				stack = stack[:n-1]
-			}
-		case "g", "rg", "k", "sc", "scn":
-			space := cur.fillCS
-			if named, ok := deviceSpaces[op]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.fillCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.fill = rgb
-			}
-		case "G", "RG", "K", "SC", "SCN":
-			space := cur.strokeCS
-			if named, ok := deviceSpaces[strings.ToLower(op)]; ok {
-				space = pdf.PDFName{Value: named}
-				cur.strokeCS = space
-			}
-			if rgb, ok := colour(space, operands); ok {
-				cur.stroke = rgb
-			}
-		case "cs", "CS":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			space, ok := pdf.LookupNamedColorSpace(name.Value, resources)
-			if !ok {
-				space = name
-			}
-			if op == "cs" {
-				cur.fillCS = space
-			} else {
-				cur.strokeCS = space
-			}
-		case "Do":
-			if len(operands) == 0 {
-				return
-			}
-			name, ok := operands[len(operands)-1].(pdf.PDFName)
-			if !ok {
-				return
-			}
-			if _, seen := at[name.Value]; !seen {
-				at[name.Value] = raster.InheritedPaint{Set: true, Fill: cur.fill, Stroke: cur.stroke}
-			}
+		name, ok := operands[len(operands)-1].(pdf.PDFName)
+		if !ok {
+			return
+		}
+		if _, seen := at[name.Value]; !seen {
+			at[name.Value] = raster.InheritedPaint{Set: true, Fill: gs.Fill.RGB, Stroke: gs.Stroke.RGB}
 		}
 	})
 	return at
 }
 
 // pagePaintAtDo and formPaintAtDo read a page's or a form's content for the
-// colour each Do it makes inherits. A stream nothing can read hands out
-// nothing, and every form under it is rendered from the default state.
+// colour each XObject invocation (Do) it makes inherits. A stream nothing can
+// read hands out nothing, and every form under it is rendered from the default
+// state.
 func pagePaintAtDo(page pdf.PDFDict, resources pdf.PDFDict) map[string]raster.InheritedPaint {
 	content, err := raster.PageContentBytes(page)
 	if err != nil {
@@ -444,13 +309,13 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 			formRes := resourcesOf(xobj, resources)
 			if hasTransparencyGroup(xobj) {
 				*out = append(*out, flaggedTarget{kind: "form", dict: xobj, resources: formRes,
-					xobjects: xobjects, name: name, page: page, inherited: inherited[name]})
+					page: page, inherited: inherited[name]})
 				continue
 			}
 			collectXObjectTargets(formRes, visited, page, formPaintAtDo(xobj, formRes), out)
 		case "Image":
 			if hasSoftMask(xobj) {
-				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, xobjects: xobjects, name: name, page: page})
+				*out = append(*out, flaggedTarget{kind: "image", dict: xobj, resources: resources, page: page})
 			}
 		}
 	}
@@ -461,11 +326,11 @@ func collectXObjectTargets(resources pdf.PDFDict, visited map[uintptr]bool, page
 // appearance sub-dictionaries keyed by state).
 //
 // An appearance stream is not in the page's /Resources, so the walk above
-// cannot see it -- but the verifier's graph walk reports violations there all
-// the same. Acrobat writes a signature's appearance as a Form XObject whose
-// nested Form carries /Group /S /Transparency, which is exactly this shape, so
-// without this every digitally signed document reported a 6.4 violation that
-// convert could not reach and the verify/fix loop could never converge.
+// cannot see it, but the verifier's graph walk reports violations there all
+// the same. A digital signature's appearance can be a Form XObject whose nested
+// Form carries /Group /S /Transparency. Without this walk, every signed
+// document reports a 6.4 violation that convert cannot reach, and the
+// verify/fix loop cannot converge.
 func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	annots, ok := page.Entries.Get("Annots").(pdf.PDFArray)
 	if !ok {
@@ -486,13 +351,13 @@ func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]b
 				continue
 			}
 			if isFormXObject(entry) {
-				collectAppearanceForm(entry, ap, state, resources, visited, pageNum, out)
+				collectAppearanceForm(entry, resources, visited, pageNum, out)
 				continue
 			}
 			// /AP /N << /Off ... /On ... >>: one appearance per state name.
 			for _, name := range sortedKeys(entry.Entries) {
 				if form, ok := entry.Entries.Get(name).(pdf.PDFDict); ok && isFormXObject(form) {
-					collectAppearanceForm(form, entry, name, resources, visited, pageNum, out)
+					collectAppearanceForm(form, resources, visited, pageNum, out)
 				}
 			}
 		}
@@ -500,13 +365,11 @@ func collectAnnotationTargets(page, resources pdf.PDFDict, visited map[uintptr]b
 }
 
 // collectAppearanceForm flags one appearance Form XObject, or descends into its
-// resources when it is itself clean. container+name address the slot the fixed
-// dict is written back into, exactly as an /XObject resource entry does.
-func collectAppearanceForm(form, container pdf.PDFDict, name string, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
+// resources when it is itself clean.
+func collectAppearanceForm(form, resources pdf.PDFDict, visited map[uintptr]bool, pageNum int, out *[]flaggedTarget) {
 	formRes := resourcesOf(form, resources)
 	if hasTransparencyGroup(form) {
-		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes,
-			xobjects: container, name: name, page: pageNum})
+		*out = append(*out, flaggedTarget{kind: "form", dict: form, resources: formRes, page: pageNum})
 		return
 	}
 	collectXObjectTargets(formRes, visited, pageNum, formPaintAtDo(form, formRes), out)
@@ -515,7 +378,7 @@ func collectAppearanceForm(form, container pdf.PDFDict, name string, resources p
 // isFormXObject distinguishes an appearance stream from the sub-dictionary of
 // appearance states that can stand in the same slot.
 func isFormXObject(d pdf.PDFDict) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
@@ -551,18 +414,11 @@ func hasSoftMask(img pdf.PDFDict) bool {
 	return !isName || name.Value != "None"
 }
 
-// bakeSoftMaskOut takes a soft mask off an image, keeping what it said.
-//
-// A soft mask is an opacity per pixel, which PDF/A-1 does not allow. Two
-// values are allowed, though: a stencil /Mask is PDF 1.3, and what it says is
-// the same thing at one bit -- paint this pixel, or let the page show through.
-// So the mask is thresholded rather than composited away, and the base image's
-// own encoding is left alone.
-//
-// Compositing it over white instead is what this used to do, and it is only
-// right where the page behind is white. zenodo-21227479 draws a full-page
-// photograph over a dark background: composited over white, every one of those
-// pages came out blank, and the output was still conformant.
+// bakeSoftMaskOut removes an image's soft mask, which PDF/A-1 prohibits, and
+// preserves its effect as far as PDF/A-1 allows. The mask is thresholded into
+// a 1-bit stencil /Mask and the image samples are left unchanged. A stencil
+// keeps the page behind the image visible, which compositing over white would
+// not.
 //
 // Leaves img untouched (ok=false) if either decode fails.
 func bakeSoftMaskOut(img pdf.PDFDict, resources pdf.PDFDict) (pdf.PDFDict, bool) {
@@ -604,23 +460,22 @@ func maskIsFaint(smask *image.RGBA) bool {
 	return true
 }
 
-// hasClearPixels reports whether a soft mask leaves any pixel showing nothing
-// at all, which is a shape rather than a level.
-func hasClearPixels(smask *image.RGBA) bool {
-	for i := maskChannel; i < len(smask.Pix); i += 4 {
-		if int(smask.Pix[i]) < clearCutoff {
+// hasClearPixels reports whether any pixel of coverage has a value in channel
+// below clearCutoff, that is, is fully transparent.
+func hasClearPixels(coverage *image.RGBA, channel int) bool {
+	for i := channel; i < len(coverage.Pix); i += 4 {
+		if int(coverage.Pix[i]) < clearCutoff {
 			return true
 		}
 	}
 	return false
 }
 
-// fadeSoftMaskIntoImage blends a faint soft mask into the image's own samples,
-// which is what item 35 does with a partial opacity: what a picture looks like
-// at 20% over the page is a pale picture, and that can be stored as samples
-// where it cannot be stored as a stencil. The page is taken as white, the same
-// assumption the opacity repair makes and for the same reason -- a pale
-// picture is much less wrong than none at all.
+// fadeSoftMaskIntoImage blends a faint soft mask into the image's own samples.
+// What a picture looks like at 20% over the page is a pale picture, and that
+// can be stored as samples where it cannot be stored as a stencil. The page is
+// taken as white, as the opacity repair also assumes, because a pale picture is
+// much less wrong than none at all.
 //
 // A mask carrying /Matte holds the image premultiplied against that colour, so
 // the stored samples are undone by it before they are blended.
@@ -656,7 +511,7 @@ func fadeSoftMaskIntoImage(img, smaskDict pdf.PDFDict, smask *image.RGBA, resour
 	// would paint over whatever the image was laid on. That part still needs a
 	// stencil.
 	img.Entries.Del("Mask")
-	if hasClearPixels(smask) {
+	if hasClearPixels(smask, maskChannel) {
 		img.Entries.Set("Mask", stencilFromCoverage(smask, maskChannel, clearCutoff))
 	}
 
@@ -727,15 +582,17 @@ func stencilFromCoverage(smask *image.RGBA, channel, cutoff int) pdf.PDFDict {
 	return stencil
 }
 
-// coverageIsOpaque reports whether a rendered canvas painted everywhere, so it
-// needs no stencil and comes out exactly as it did before there was one.
-func coverageIsOpaque(canvas *image.RGBA) bool {
-	for i := alphaChannel; i < len(canvas.Pix); i += 4 {
-		if canvas.Pix[i] != 255 {
-			return false
-		}
+// blendOverPaper composites every pixel of canvas over white and makes it
+// opaque. Because image.RGBA samples are premultiplied, the blend adds
+// 255 minus alpha to each colour channel.
+func blendOverPaper(canvas *image.RGBA) {
+	for i := 0; i < len(canvas.Pix); i += 4 {
+		paper := 255 - canvas.Pix[i+alphaChannel]
+		canvas.Pix[i] += paper
+		canvas.Pix[i+1] += paper
+		canvas.Pix[i+2] += paper
+		canvas.Pix[i+alphaChannel] = 255
 	}
-	return true
 }
 
 // smaskFullyOpaque reports whether every alpha sample (the red channel the
@@ -753,17 +610,64 @@ func smaskFullyOpaque(smask *image.RGBA) bool {
 }
 
 // canDropGroupSafely reports whether a form's content provably uses no
-// transparency, so deleting /Group composites identically: no gs, no Do, no
-// inline images, and no pattern fill/stroke anywhere in the stream.
-func canDropGroupSafely(form pdf.PDFDict) bool {
+// transparency, so deleting /Group composites identically. Every graphics
+// state the content switches to must be one of resources' opaque ones, the
+// content may draw no inline image and no pattern, and every XObject it
+// draws must be an image without a soft mask or a form that passes the same
+// test, read with its own resources or, without them, with the ones it is
+// drawn with.
+//
+// A group whose graphics states all set both opacities to 1 is kept as vector
+// content rather than rasterized, and so is a group whose nested forms are
+// opaque in the same way, as when each label is drawn through its own form.
+func canDropGroupSafely(form pdf.PDFDict, resources pdf.PDFDict) bool {
+	return opaqueContent(form, resources, map[pdf.Dict]bool{})
+}
+
+// maxOpaqueFormDepth bounds how deeply opaqueContent follows nested forms; a
+// form nested deeper is treated as unsafe.
+const maxOpaqueFormDepth = 12
+
+// opaqueContent reports whether the content of form, read with resources,
+// passes the test of canDropGroupSafely. The forms in open enclose form, and
+// a form that is already open is treated as unsafe.
+func opaqueContent(form pdf.PDFDict, resources pdf.PDFDict, open map[pdf.Dict]bool) bool {
+	if open[form.Entries] || len(open) > maxOpaqueFormDepth {
+		return false
+	}
 	data, err := pdf.DecodeStream(form)
 	if err != nil {
 		return false
 	}
+	open[form.Entries] = true
+	defer delete(open, form.Entries)
+
+	states, _ := resources.Entries.Get("ExtGState").(pdf.PDFDict)
+	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
 	safe := true
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
+		if !safe {
+			return
+		}
 		switch op {
-		case "gs", "Do", "INLINEIMAGE":
+		case "gs":
+			if len(operands) == 0 {
+				safe = false
+				return
+			}
+			name, _ := operands[len(operands)-1].(pdf.PDFName)
+			state, ok := states.Entries.Get(name.Value).(pdf.PDFDict)
+			if !ok || !opaqueGState(state) {
+				safe = false
+			}
+		case "Do":
+			var name pdf.PDFName
+			if len(operands) > 0 {
+				name, _ = operands[len(operands)-1].(pdf.PDFName)
+			}
+			xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
+			safe = ok && opaqueXObject(xobj, resources, open)
+		case "INLINEIMAGE":
 			safe = false
 		case "scn", "SCN":
 			if len(operands) > 0 {
@@ -776,12 +680,54 @@ func canDropGroupSafely(form pdf.PDFDict) bool {
 	return safe
 }
 
+// opaqueXObject reports whether drawing xobj, from content read with
+// resources, uses no transparency.
+func opaqueXObject(xobj pdf.PDFDict, resources pdf.PDFDict, open map[pdf.Dict]bool) bool {
+	if !xobj.IsStream() {
+		return false
+	}
+	switch xobj.Entries.Get("Subtype") {
+	case pdf.PDFName{Value: "Image"}:
+		_, smask := xobj.Entries.Lookup("SMask")
+		inData, _ := xobj.Entries.Get("SMaskInData").(pdf.PDFInteger)
+		return !smask && inData == 0
+	case pdf.PDFName{Value: "Form"}:
+		return opaqueContent(xobj, resourcesOf(xobj, resources), open)
+	}
+	return false
+}
+
+// opaqueGState reports whether a graphics state dictionary leaves what is
+// drawn opaque: stroke and fill opacity (/CA, /ca) 1 if set, no soft mask,
+// and the Normal or Compatible blend mode. Its other entries, such as line
+// width or dash pattern, do not affect transparency.
+func opaqueGState(state pdf.PDFDict) bool {
+	for _, key := range state.Entries.Keys() {
+		v := state.Entries.Get(key)
+		switch key {
+		case "CA", "ca":
+			if alpha, ok := pdf.PDFNumberToFloat(v); !ok || alpha != 1 {
+				return false
+			}
+		case "SMask":
+			if name, ok := v.(pdf.PDFName); !ok || name.Value != "None" {
+				return false
+			}
+		case "BM":
+			if name, ok := v.(pdf.PDFName); !ok || (name.Value != "Normal" && name.Value != "Compatible") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // flattenFormToImage rasterizes a Form XObject's own /BBox + content in
 // isolation (raster.RenderFormContent) and rewrites the Form in place to
 // paint a single fresh Image XObject filling that same BBox, dropping
-// /Group. The Form's own identity, /Matrix and every existing /Do reference
-// to it are untouched, so it keeps composing into the page exactly as
-// before -- it now just paints a flat image instead of a transparency group.
+// /Group. The Form's own identity, /Matrix and every XObject invocation (Do) of
+// it are kept, so it still composes into the page in the same way; it paints a
+// flat image in place of a transparency group.
 // A render failure leaves the Form untouched (ok=false).
 func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherited raster.InheritedPaint) (pdf.PDFDict, []string, bool) {
 	canvas, bbox, drops, err := raster.RenderFormContent(form, resources, dpi, inherited)
@@ -796,13 +742,15 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
 	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
 	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
-	// The render kept what the form did not paint. A flat image is opaque
-	// everywhere, so without this the unpainted part covers the page the form
-	// is drawn on -- which is how a page-covering group blanked oapen-26d73842
-	// page 4. A stencil says the same thing PDF/A-1 allows it to be said in.
-	if !coverageIsOpaque(canvas) {
-		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, shapeCutoff))
+	// An image is opaque everywhere, so pixels the form left unpainted would
+	// cover the page beneath it. PDF/A-1 permits a 1-bit stencil mask, which
+	// masks out the fully transparent pixels. Partially transparent pixels
+	// cannot be expressed by a stencil; they are blended over white, as
+	// fadeSoftMaskIntoImage does.
+	if hasClearPixels(canvas, alphaChannel) {
+		img.Entries.Set("Mask", stencilFromCoverage(canvas, alphaChannel, clearCutoff))
 	}
+	blendOverPaper(canvas)
 	setStreamRGBFlate(&img, canvas)
 
 	xobjects := pdf.NewPDFDict()
@@ -828,94 +776,4 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 	form.Entries.Set("Resources", formResources)
 	writer.SetStreamFlate(&form, data)
 	return form, drops, true
-}
-
-// flattenPageToImage rasterizes page (RenderPage) and rebuilds it in place
-// as a single flat Image XObject painted by a fresh, minimal content
-// stream, replacing /Resources and /Contents and dropping /Group and
-// /Rotate (a flattened raster has no remaining rotation to apply). Used only
-// when /Group sits directly on the Page dict itself, with no narrower Form
-// XObject to target instead. A render failure (e.g. an unresolvable graph or
-// an unsupported image codec) leaves page untouched, reporting no change
-// rather than erroring the whole Convert.
-func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) ([]string, bool) {
-	canvas, drops, err := raster.RenderPage(page, resources, mediaBox, dpi)
-	if err != nil {
-		return nil, false
-	}
-
-	img := pdf.NewPDFDict()
-	img.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
-	img.Entries.Set("Subtype", pdf.PDFName{Value: "Image"})
-	img.Entries.Set("Width", pdf.PDFInteger(canvas.Bounds().Dx()))
-	img.Entries.Set("Height", pdf.PDFInteger(canvas.Bounds().Dy()))
-	img.Entries.Set("BitsPerComponent", pdf.PDFInteger(8))
-	img.Entries.Set("ColorSpace", pdf.PDFName{Value: "DeviceRGB"})
-	setStreamRGBFlate(&img, canvas)
-
-	xobjects := pdf.NewPDFDict()
-	xobjects.Entries.Set("Im0", img)
-	csDict := pdf.NewPDFDict()
-	csDict.Entries.Set("DefaultRGB", iccBasedColourSpace(3, srgbICCProfile))
-	pageResources := pdf.NewPDFDict()
-	pageResources.Entries.Set("XObject", xobjects)
-	pageResources.Entries.Set("ColorSpace", csDict)
-
-	w, h := mediaBox[2]-mediaBox[0], mediaBox[3]-mediaBox[1]
-	ops := []writer.ContentOp{
-		{Op: "q"},
-		{Op: "cm", Operands: []pdf.PDFValue{
-			pdf.PDFReal(w), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFReal(h),
-			pdf.PDFReal(mediaBox[0]), pdf.PDFReal(mediaBox[1]),
-		}},
-		{Op: "Do", Operands: []pdf.PDFValue{pdf.PDFName{Value: "Im0"}}},
-		{Op: "Q"},
-	}
-	// Cannot fail: ops holds only operators with integer, real and name
-	// operands, which the content writer always serialises.
-	data, _ := writer.WriteContentStream(ops)
-	contents := pdf.NewPDFDict()
-	writer.SetStreamFlate(&contents, data)
-
-	page.Entries.Del("Group")
-	page.Entries.Del("Rotate")
-	page.Entries.Set("Resources", pageResources)
-	page.Entries.Set("Contents", contents)
-	return drops, true
-}
-
-// setStreamRGBFlate stores canvas as a FlateDecode DeviceRGB stream, packing
-// each row's RGB triples on the fly so no whole-raster RGB buffer is allocated
-// (one reused row buffer per call instead). The same tight 8-bit row-major
-// packing packRGBSamples produces.
-func setStreamRGBFlate(d *pdf.PDFDict, canvas *image.RGBA) {
-	bounds := canvas.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-	rowRGB := make([]byte, w*3)
-	writer.SetStreamFlateRows(d, h, func(i int) []byte {
-		off := canvas.PixOffset(bounds.Min.X, bounds.Min.Y+i)
-		src := canvas.Pix[off : off+w*4 : off+w*4]
-		for x, j := 0, 0; x < len(src); x, j = x+4, j+3 {
-			rowRGB[j], rowRGB[j+1], rowRGB[j+2] = src[x], src[x+1], src[x+2]
-		}
-		return rowRGB
-	})
-}
-
-// packRGBSamples packs canvas's pixels as tightly-packed 8-bit RGB triples
-// (row-major, no padding needed since DeviceRGB/8bpc rows are always a
-// whole number of bytes), the sample format Image XObject expects.
-func packRGBSamples(canvas *image.RGBA) []byte {
-	bounds := canvas.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-	out := make([]byte, w*h*3)
-	o := 0
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		row := canvas.Pix[canvas.PixOffset(bounds.Min.X, y):]
-		for i := 0; i < w*4; i += 4 {
-			out[o], out[o+1], out[o+2] = row[i], row[i+1], row[i+2]
-			o += 3
-		}
-	}
-	return out
 }

@@ -94,6 +94,10 @@ jobs:
         go build ./...
         go vet ./...
 
+    - name: Test benchmarks (allocation ceilings)
+      working-directory: benchmarks
+      run: go test ./micro/...
+
     - name: Lint benchmarks
       uses: golangci/golangci-lint-action@v8
       with:
@@ -109,7 +113,18 @@ jobs:
       with:
         go-version: '1.26.4'
     - name: Build wasm
-      run: GOOS=js GOARCH=wasm go build -o /dev/null ./wasm/
+      run: |
+        GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab.wasm ./wasm/
+        GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o gopdfrab-verify.wasm ./wasm/verify/
+        ls -l gopdfrab.wasm gopdfrab-verify.wasm
+    # The verify-only module exists to leave the converter out; fail if any
+    # conversion package creeps into its build.
+    - name: Verify-only module links no conversion code
+      run: |
+        if GOOS=js GOARCH=wasm go list -deps ./wasm/verify/ | grep -E 'internal/(convert|fontedit|fontsubst|raster|writer)$'; then
+          echo "wasm/verify depends on conversion code" >&2
+          exit 1
+        fi
 
   differential:
     runs-on: ubuntu-latest

@@ -131,10 +131,9 @@ func TestHeapRetainedBy(t *testing.T) {
 }
 
 // TestConvertMemoryReport converts the large sample and records how much heap
-// the returned result retains versus the output size. It measures first, before
-// deciding how far to take the work: today the whole output rides in
-// ConvertResult.Output, so the retained heap tracks the output size. The strict
-// spill guard lives in the lazy-output tests.
+// the returned result retains versus the output size. An output under
+// spillThreshold stays in memory, so for this sample the retained heap tracks
+// the output size. The strict spill guard lives in the lazy-output tests.
 func TestConvertMemoryReport(t *testing.T) {
 	data, err := os.ReadFile(largeSamplePath)
 	if err != nil {
@@ -266,12 +265,12 @@ func BenchmarkConvertMemory(b *testing.B) {
 	b.ReportMetric(float64(peak)/(1<<20), "peak_heap_MB")
 }
 
-// TestConvertUnderTightBudgetMatchesDefault: the resident budget governs
-// memoization only, so converting with caching effectively off -- which also
-// puts every content scan on the streaming path (pdf.Reader.ScanStreamFunc) --
-// must produce byte-identical output and the same verdict as converting with
-// the default budget. This is the correctness gate for the budget being a speed
-// dial rather than a behaviour switch.
+// TestConvertUnderTightBudgetMatchesDefault verifies that the resident budget
+// governs memoization only, so converting with caching effectively off -- which
+// also puts every content scan on the streaming path
+// (pdf.Reader.ScanStreamFunc) -- produces byte-identical output and the same
+// verdict as converting with the default budget. This is the correctness gate
+// for the budget being a speed dial rather than a behaviour switch.
 func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 	fixtures := sampleFixturePaths(failFixturesByExpectedClause(t), 20)
 	if len(fixtures) == 0 {
@@ -318,8 +317,8 @@ func TestConvertUnderTightBudgetMatchesDefault(t *testing.T) {
 
 // sampleFixturePaths picks n fixtures spread evenly across the sorted corpus.
 // Ranging over the map instead would sample differently on every run, so a
-// fixture that breaks the property under test would fail one run in thirty --
-// which is how a nondeterministic resource prune stayed hidden.
+// fixture that breaks the property under test could pass most runs and fail
+// the rest.
 func sampleFixturePaths(fixtures map[string]string, n int) []string {
 	paths := make([]string, 0, len(fixtures))
 	for path := range fixtures {
@@ -336,8 +335,8 @@ func sampleFixturePaths(fixtures map[string]string, n int) []string {
 	return out
 }
 
-// TestConvertReleasesCaches: a Document kept open past Convert must not still
-// be holding the run's decoded and tokenized streams.
+// TestConvertReleasesCaches verifies that a Document kept open past Convert
+// does not still hold the run's decoded and tokenized streams.
 func TestConvertReleasesCaches(t *testing.T) {
 	data, err := os.ReadFile(largeSamplePath)
 	if err != nil {

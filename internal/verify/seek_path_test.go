@@ -15,9 +15,9 @@ import (
 // TestSeekPathVerifyMatchesBytes drives the whole verify pipeline over the
 // committed corpora through the ReadAt/seek read path (pdf.OpenBytesSeek, the
 // path Windows takes with no mmap) and asserts, file by file, the same open
-// outcome and the same verify result as the byte-slice path. It is the cycle-
-// safe, end-to-end proof that the seek path resolves and is interpreted exactly
-// like the mmap/bytes path -- any mis-parse there would move an issue here.
+// outcome and the same verify result as the byte-slice path. The seek path must
+// resolve and interpret every file exactly like the mmap/bytes path, so a
+// mis-parse on it shows as a difference in issues.
 func TestSeekPathVerifyMatchesBytes(t *testing.T) {
 	var files []string
 	for _, dir := range []string{isartorDir, veraPDFDir} {

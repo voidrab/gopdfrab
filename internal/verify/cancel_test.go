@@ -69,7 +69,7 @@ func TestVerifyContextCancelledMidWalk(t *testing.T) {
 // context only every 256 nodes, and once cancelled stays cancelled.
 func TestValidationContextStoppedPolls(t *testing.T) {
 	run := &cancelAfterCtx{after: 0}
-	vc := &ValidationContext{run: run}
+	vc := &ValidationContext{Spec: a1bSpec, run: run}
 	for i := 1; i < 256; i++ {
 		if vc.stopped() {
 			t.Fatalf("stopped at call %d, before the first poll", i)
@@ -84,7 +84,7 @@ func TestValidationContextStoppedPolls(t *testing.T) {
 	if !vc.stopped() || run.calls.Load() != 1 {
 		t.Error("a stopped context must stay stopped without polling again")
 	}
-	if (&ValidationContext{}).stopped() {
+	if (&ValidationContext{Spec: a1bSpec}).stopped() {
 		t.Error("a nil run context must never stop")
 	}
 }
@@ -134,11 +134,11 @@ func TestVerifyPartsCancelledBeforePageChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if full := verifyPdfA1bParts(context.Background(), d, pdf.PDFA1B); len(full.Graph) == 0 {
+	if full := verifyPdfA1bParts(context.Background(), d, pdf.PDFA1B, a1b()); len(full.Graph) == 0 {
 		t.Fatal("fixture must have graph-level issues for the check to be meaningful")
 	}
 	run := &cancelAfterCtx{after: 0}
-	pt := verifyPdfA1bParts(run, d, pdf.PDFA1B)
+	pt := verifyPdfA1bParts(run, d, pdf.PDFA1B, a1b())
 	if len(pt.Graph) != 0 {
 		t.Errorf("cancelled run produced %d graph issues, want none", len(pt.Graph))
 	}

@@ -2,6 +2,7 @@ package convert
 
 import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
@@ -15,10 +16,6 @@ import (
 // defaultColorSpaceDefined (checks_colour.go) treats either as sufficient
 // to excuse that model, by design, without inspecting its value.
 
-func init() {
-	registerFixer(deviceColourFixer{})
-}
-
 // decodeFunc supplies a stream's decoded bytes; a nil value falls back to the
 // uncached pdf.DecodeStream. Convert wires the Reader's concurrent cache here
 // so every colour scan in a run shares one decoded-stream cache.
@@ -29,8 +26,9 @@ type decodeFunc func(pdf.PDFDict) ([]byte, error)
 type colourEmitter func(model string, resources pdf.PDFDict)
 
 // scanContentColour tokenizes one content stream and reports every device
-// colour model its operators use, recursing into Do form XObjects and scn
-// tiling patterns. claim dedups shared streams; decode supplies the bytes.
+// colour model its operators use, recursing into the form XObjects it draws
+// and into tiling patterns. claim dedups shared streams; decode supplies the
+// bytes.
 func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, decode decodeFunc, emit colourEmitter) {
 	if !claim(pdf.ValuePointer(dict.Entries)) {
 		return
@@ -79,7 +77,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 				return
 			}
 			xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
-			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.HasStream {
+			if xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict); ok && xobj.IsStream() {
 				scanContentColour(xobj, resourcesOf(xobj, resources), claim, decode, emit)
 			}
 		case "scn", "SCN":
@@ -91,7 +89,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 				return
 			}
 			patterns, _ := resources.Entries.Get("Pattern").(pdf.PDFDict)
-			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.HasStream {
+			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.IsStream() {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
 		}
@@ -108,6 +106,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 // cache) so repeated content scans across fixer iterations hit warm bytes.
 type deviceColourFixer struct {
 	decode decodeFunc
+	spec   *pdfa.Spec
 }
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
@@ -119,7 +118,7 @@ func (deviceColourFixer) Applies(c pdf.Check) bool {
 }
 
 func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	_, rgbCovered, cmykCovered := outputIntentCoverage(*trailer)
+	_, rgbCovered, cmykCovered := outputIntentCoverage(*trailer, f.spec.OutputIntentSubtype)
 
 	changed := false
 	// Built lazily and reused across every page that needs it, so the
@@ -130,14 +129,15 @@ func (f deviceColourFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 		if (d.Entries.Get("Type") != pdf.PDFName{Value: "Page"}) {
 			return
 		}
-		resources, _ := d.Entries.Get("Resources").(pdf.PDFDict)
+		resources := pdf.PageResources(d)
 		used := pageDeviceColourModels(d, resources, f.decode)
 
 		needRGB := used["rgb"] && !rgbCovered && !verify.DefaultColorSpaceDefined("rgb", resources)
 		needCMYK := used["cmyk"] && !cmykCovered && !verify.DefaultColorSpaceDefined("cmyk", resources)
-		// Anything with its own resource dict -- an appearance stream, a form
-		// XObject -- is checked in that scope, so the page's Default* never
-		// reaches it. Those need the entry regardless of what the page carries.
+		// Anything with its own resource dict -- an appearance stream,
+		// a form XObject -- is checked in that scope, so the page's
+		// Default* never reaches it. Those need the entry regardless of
+		// what the page carries.
 		nestedRGB := used["rgb"] && !rgbCovered
 		nestedCMYK := used["cmyk"] && !cmykCovered
 		if !needRGB && !needCMYK && !nestedRGB && !nestedCMYK {
@@ -210,21 +210,18 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 		needRGB: needRGB, needCMYK: needCMYK,
 		rgb: sharedRGB, cmyk: sharedCMYK,
 		decode: decode, visited: map[uintptr]bool{},
-		// An appearance stream stands on its own resources, so it can be given
-		// a resource dict it did not have.
+		// An appearance stream stands on its own resources, so it can
+		// be given a resource dict it did not have.
 		create: true,
 	}
 	changed := false
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			changed = in.run(v, resourcesOf(v, pdf.PDFDict{})) || changed
 		} else {
-			for k, sv := range v.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+			for _, sv := range v.Entries.All() {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					changed = in.run(sd, resourcesOf(sd, pdf.PDFDict{})) || changed
 				}
 			}
@@ -238,12 +235,12 @@ func fixAPColour(n pdf.PDFValue, needRGB, needCMYK bool, sharedRGB, sharedCMYK p
 func forEachContentStream(page pdf.PDFDict, fn func(pdf.PDFDict)) {
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if contents.HasStream {
+		if contents.IsStream() {
 			fn(contents)
 		}
 	case pdf.PDFArray:
 		for _, item := range contents {
-			if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+			if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
 				fn(cd)
 			}
 		}
@@ -292,8 +289,9 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 		return changed
 	}
 	pdf.NewContentScanner(data).Scan(func(op string, operands []pdf.PDFValue) {
-		// The same streams scanContentColour descends into: Do form XObjects
-		// and scn tiling patterns, each checked in its own resources.
+		// The same streams scanContentColour descends into: form
+		// XObjects the stream draws and tiling patterns, each checked
+		// in its own resources.
 		var category string
 		switch op {
 		case "Do":
@@ -311,7 +309,7 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			return
 		}
 		named, _ := scope.Entries.Get(category).(pdf.PDFDict)
-		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.HasStream {
+		if sub, ok := named.Entries.Get(name.Value).(pdf.PDFDict); ok && sub.IsStream() {
 			if in.run(sub, resourcesOf(sub, scope)) {
 				changed = true
 			}
@@ -373,12 +371,12 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if contents.HasStream {
+		if contents.IsStream() {
 			scanContentColour(contents, resources, claim, decode, emit)
 		}
 	case pdf.PDFArray:
 		for _, item := range contents {
-			if cd, ok := item.(pdf.PDFDict); ok && cd.HasStream {
+			if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
 				scanContentColour(cd, resources, claim, decode, emit)
 			}
 		}
@@ -429,7 +427,7 @@ func pageDeviceColourModels(page pdf.PDFDict, resources pdf.PDFDict, decode deco
 	}
 	scanResourceColour(resources)
 
-	// Appearance streams (reached via /AP/N, not via Do from page content)
+	// Appearance streams (reached via /AP/N, not drawn from page content)
 	// are rendered as part of the page and must also be colour-clean.
 	if annots, ok := page.Entries.Get("Annots").(pdf.PDFArray); ok {
 		for _, item := range annots {
@@ -455,16 +453,13 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 	if !ok {
 		return
 	}
-	if v.HasStream {
+	if v.IsStream() {
 		apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 		scanContentColour(v, apRes, claim, decode, emit)
 		return
 	}
-	for k, sv := range v.Entries.All() {
-		if k == pdf.RefKey {
-			continue
-		}
-		if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+	for _, sv := range v.Entries.All() {
+		if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 			apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}

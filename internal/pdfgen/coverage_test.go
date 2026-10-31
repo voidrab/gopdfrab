@@ -26,7 +26,7 @@ func TestCorruptorsCoverBothPaths(t *testing.T) {
 	// A CRLF-framed stream, exercising corruptStreamPayload's \r handling.
 	streamCRLF := []byte("1 0 obj\n<< /Length 5 >>\nstream\r\nabcde\r\nendstream\nendobj")
 	// A startxref offset too long to fit an int, exercising startxrefOffBy's
-	// integer-overflow (ParseInt error) fallback.
+	// integer-overflow (Atoi error) fallback.
 	startxrefOverflow := []byte("startxref\n999999999999999999999999999999\n%%EOF")
 
 	for _, c := range pdfgen.Corruptors() {

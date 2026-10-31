@@ -8,6 +8,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 type ValidationContext struct {
@@ -79,6 +80,10 @@ type ValidationContext struct {
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
 	schemaOnly bool
 
+	// dictRules are the dict rules the profile enables, run on each dict of
+	// the walk. Nil, in a context built outside a verify, runs them all.
+	dictRules []dictRule
+
 	// resourceScope is the resource dictionary in force where the walk
 	// currently is: the nearest /Resources at or above it. Default* colour
 	// spaces (6.2.3.3) are looked up there, so content in a form XObject with
@@ -91,6 +96,15 @@ type ValidationContext struct {
 	// once per verify pass rather than once per read. Lives here rather than
 	// on the Reader because throwaway contexts have no reader at all.
 	undecodable map[pdf.StreamKey]bool
+
+	// Spec is the conformance level's rules the checks apply. A check that
+	// reads it on a context without one panics: a nil Spec has no rules to
+	// fall back on, and guessing PDF/A-1b's would hide a missing one.
+	Spec *pdfa.Spec
+
+	// stream collects the reports of the content stream being checked, or is
+	// nil outside one. See collapsingStreamReports.
+	stream *streamReports
 
 	// reader backs decodeStreamCached with the Reader's run-scoped decode
 	// cache, so unchanged content streams stay decoded at most once across
@@ -114,7 +128,8 @@ func (c *ValidationContext) stopped() bool {
 }
 
 // NewContext returns a ValidationContext whose stream decodes and scans go
-// through d's run-scoped caches; a nil d yields uncached decoding.
+// through d's run-scoped caches; a nil d yields uncached decoding. It has no
+// Spec: set one before running a check that applies a level's rules.
 func NewContext(d *pdf.Reader) *ValidationContext {
 	return &ValidationContext{reader: d}
 }
@@ -258,7 +273,53 @@ func (ctx *ValidationContext) report(err pdf.PDFError) {
 
 // Report records a single violation of c against obj.
 func (ctx *ValidationContext) Report(c pdf.Check, obj pdf.PDFValue, msg string) {
+	if ctx.stream != nil {
+		ctx.stream.add(c, obj, msg)
+		return
+	}
 	ctx.report(ctx.newError(c, obj, []error{errors.New(msg)}))
+}
+
+// streamReports holds the reports of one content stream: for each check, its
+// first occurrence and the number of further occurrences.
+type streamReports struct {
+	order []pdf.Check
+	first map[pdf.Check]streamReport
+}
+
+type streamReport struct {
+	obj  pdf.PDFValue
+	msg  string
+	more int
+}
+
+func (s *streamReports) add(c pdf.Check, obj pdf.PDFValue, msg string) {
+	if r, seen := s.first[c]; seen {
+		r.more++
+		s.first[c] = r
+		return
+	}
+	s.order = append(s.order, c)
+	s.first[c] = streamReport{obj: obj, msg: msg}
+}
+
+// collapsingStreamReports runs check, which checks one content stream, and
+// reports each violated check once: at its first occurrence, with a message
+// giving the number of further occurrences. This bounds the number of issues
+// per stream, which would otherwise grow with the number of operators.
+func (ctx *ValidationContext) collapsingStreamReports(check func()) {
+	s := &streamReports{first: map[pdf.Check]streamReport{}}
+	ctx.stream = s
+	check()
+	ctx.stream = nil
+	for _, c := range s.order {
+		r := s.first[c]
+		msg := r.msg
+		if r.more > 0 {
+			msg = fmt.Sprintf("%s (and %d more in this content stream)", msg, r.more)
+		}
+		ctx.Report(c, r.obj, msg)
+	}
 }
 
 // ReportObjModel records a violation of c against obj carrying the Arlington
@@ -278,14 +339,37 @@ func (ctx *ValidationContext) ReportObjModelElem(c pdf.Check, obj pdf.PDFValue, 
 	ctx.report(err.WithObjModelDetail(pdf.ObjModelDetail{TypeName: typeName, Key: strconv.Itoa(idx), Entry: entry}))
 }
 
-// newError builds a PDFError against obj, resolving the owner ref and current page.
-func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
-	var ref *pdf.PDFRef
+// refOf returns the reference of obj, or nil unless obj is a dict that has
+// one.
+func refOf(obj pdf.PDFValue) *pdf.PDFRef {
 	if dict, ok := obj.(pdf.PDFDict); ok {
-		if r, ok := dict.Entries.Get(pdf.RefKey).(pdf.PDFRef); ok {
-			ref = &r
+		if r, ok := dict.Ref(); ok {
+			return &r
 		}
 	}
+	return nil
+}
+
+// withRef returns errs reported against obj, for findings built before the
+// object was known.
+func withRef(errs []pdf.PDFError, obj pdf.PDFValue) []pdf.PDFError {
+	ref := refOf(obj)
+	if ref == nil {
+		return errs
+	}
+	for i, e := range errs {
+		var msgs []error
+		for _, m := range e.Messages() {
+			msgs = append(msgs, errors.New(m))
+		}
+		errs[i] = pdf.NewError(e.Check(), msgs, e.Page(), ref)
+	}
+	return errs
+}
+
+// newError builds a PDFError against obj, resolving the owner ref and current page.
+func (ctx *ValidationContext) newError(c pdf.Check, obj pdf.PDFValue, errs []error) pdf.PDFError {
+	ref := refOf(obj)
 
 	var page int
 	if ctx != nil {

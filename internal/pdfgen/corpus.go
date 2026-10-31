@@ -32,11 +32,11 @@ func Seeds() [][]byte {
 	}
 }
 
-// PlainThreeIssue builds the offset-recovery repro shape: a structurally valid
-// PDF whose PDF/A-1b verification yields three unrelated document-level
-// findings (no trailer /ID, an RGB fill without a matching OutputIntent, no
-// catalog Metadata). The content stream is object 4, so offset-recovery
-// oracles can break its xref entry and assert the other findings survive.
+// PlainThreeIssue builds a structurally valid PDF whose PDF/A-1b verification
+// yields three unrelated document-level findings: no trailer /ID, an RGB fill
+// without a matching OutputIntent, and no catalog Metadata. The content stream
+// is object 4, so offset-recovery oracles can break its xref entry and assert
+// that the other findings survive.
 func PlainThreeIssue() []byte {
 	b := NewBuilder("%PDF-1.4\n" + binaryMarker)
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -46,9 +46,8 @@ func PlainThreeIssue() []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-// minimalClassic is the smallest structurally valid one-page PDF using a
-// classic cross-reference table (cf. the former test-only createValidPDF /
-// writeMinimalPDF helpers).
+// minimalClassic returns the smallest structurally valid one-page PDF that uses
+// a classic cross-reference table.
 func minimalClassic() []byte {
 	b := NewBuilder("%PDF-1.7\n" + binaryMarker)
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -154,7 +153,7 @@ func incrementalUpdate() []byte {
 
 // xrefStreamOnly builds a one-page PDF whose cross-reference section is a PDF
 // 1.5+ cross-reference stream (self-referential object 5) with no literal
-// "trailer" keyword, ported from the former buildXRefStreamOnlyPDF test helper.
+// "trailer" keyword.
 func xrefStreamOnly() []byte {
 	b := NewBuilder("%PDF-1.5\n" + binaryMarker)
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -182,7 +181,7 @@ func xrefStreamOnly() []byte {
 
 // xrefStreamWithObjStm packs the Catalog, Pages and Page dicts into a
 // compressed object stream (object 6), referenced by a cross-reference stream
-// (object 7), ported from the former buildXRefStreamWithObjStmPDF test helper.
+// (object 7).
 func xrefStreamWithObjStm() []byte {
 	b := NewBuilder("%PDF-1.5\n" + binaryMarker)
 

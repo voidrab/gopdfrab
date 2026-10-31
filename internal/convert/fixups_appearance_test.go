@@ -8,10 +8,10 @@ import (
 
 // TestAppearanceFixerAppliesExclusively checks the Fixer/Applies contract
 // (mirroring fixups_font_test.go's pattern): the fixer must claim exactly
-// its five target checks and nothing else, since registerFixer panics on a
+// its five target checks and nothing else, since fixersFor panics on a
 // Check claimed by more than one Fixer.
 func TestAppearanceFixerAppliesExclusively(t *testing.T) {
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	want := map[pdf.Check]bool{
 		pdf.Checks.Form.WidgetMissingAppearance:      true,
 		pdf.Checks.Annotation.MissingAppearance:      true,
@@ -62,7 +62,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 	trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", pdf.NewPDFDict())
 	trailer.Entries.Set("Widget", widget) // keep it reachable for walkDicts
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -76,7 +76,7 @@ func TestAppearanceFixerSynthesizesTextFieldAppearance(t *testing.T) {
 		t.Fatalf("AP = %#v, want a pdf.PDFDict", widget.Entries.Get("AP"))
 	}
 	n, ok := ap.Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Fatalf("AP/N = %#v, want a stream pdf.PDFDict", ap.Entries.Get("N"))
 	}
 	if ap.Entries.Len() != 1 {
@@ -130,7 +130,7 @@ func TestAppearanceFixerSynthesizesButtonStateSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -142,11 +142,11 @@ func TestAppearanceFixerSynthesizesButtonStateSubdictionary(t *testing.T) {
 
 	ap := widget.Entries.Get("AP").(pdf.PDFDict)
 	n := ap.Entries.Get("N").(pdf.PDFDict)
-	if n.HasStream {
+	if n.IsStream() {
 		t.Fatalf("Btn AP/N is a direct stream, want a subdictionary")
 	}
 	state, ok := n.Entries.Get(as.Value).(pdf.PDFDict)
-	if !ok || !state.HasStream {
+	if !ok || !state.IsStream() {
 		t.Fatalf("AP/N[%q] = %#v, want a stream matching /AS", as.Value, n.Entries.Get(as.Value))
 	}
 }
@@ -158,8 +158,7 @@ func TestAppearanceFixerWrapsExistingBtnStreamIntoSubdictionary(t *testing.T) {
 	original := pdf.NewPDFDict()
 	original.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	original.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	original.HasStream = true
-	original.RawStream = []byte("q Q")
+	original.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", original)
@@ -174,7 +173,7 @@ func TestAppearanceFixerWrapsExistingBtnStreamIntoSubdictionary(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -201,8 +200,7 @@ func TestAppearanceFixerStripsExtraEntriesPreservingValidN(t *testing.T) {
 	validN := pdf.NewPDFDict()
 	validN.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	validN.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	validN.HasStream = true
-	validN.RawStream = []byte("q Q")
+	validN.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", validN)
@@ -216,7 +214,7 @@ func TestAppearanceFixerStripsExtraEntriesPreservingValidN(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -246,14 +244,14 @@ func TestAppearanceFixerBuildsEmptyAppearanceForPlainAnnotation(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	if _, err := fixer.Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 
 	ap := annot.Entries.Get("AP").(pdf.PDFDict)
 	n := ap.Entries.Get("N").(pdf.PDFDict)
-	if !n.HasStream {
+	if !n.IsStream() {
 		t.Fatalf("AP/N is not a stream")
 	}
 	if bbox, ok := n.Entries.Get("BBox").(pdf.PDFArray); !ok || len(bbox) != 4 {
@@ -273,7 +271,7 @@ func TestAppearanceFixerSkipsPopupAndLinkWithoutAP(t *testing.T) {
 		trailer := minimalTrailer()
 		trailer.Entries.Set("Annot", annot)
 
-		fixer := appearanceFixer{}
+		fixer := appearanceFixer{spec: a1bSpec}
 		changed, err := fixer.Fix(&trailer, nil)
 		if err != nil {
 			t.Fatalf("Fix: %v", err)
@@ -297,8 +295,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 	original := pdf.NewPDFDict()
 	original.Entries.Set("Type", pdf.PDFName{Value: "XObject"})
 	original.Entries.Set("Subtype", pdf.PDFName{Value: "Form"})
-	original.HasStream = true
-	original.RawStream = []byte("q Q")
+	original.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", original)
@@ -313,7 +310,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Widget", widget)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -324,7 +321,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 
 	newAP := widget.Entries.Get("AP").(pdf.PDFDict)
 	newN := newAP.Entries.Get("N").(pdf.PDFDict)
-	if newN.HasStream {
+	if newN.IsStream() {
 		t.Fatalf("AP/N is still a direct stream after fix, want subdictionary")
 	}
 	if _, ok := newN.Entries.Lookup("Yes"); !ok {
@@ -337,8 +334,7 @@ func TestAppearanceFixerInheritedBtnWrapsStream(t *testing.T) {
 // byte-for-byte unchanged.
 func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 	validN := pdf.NewPDFDict()
-	validN.HasStream = true
-	validN.RawStream = []byte("q Q")
+	validN.SetStream([]byte("q Q"))
 
 	ap := pdf.NewPDFDict()
 	ap.Entries.Set("N", validN)
@@ -351,7 +347,7 @@ func TestAppearanceFixerLeavesValidAppearanceUntouched(t *testing.T) {
 	trailer := minimalTrailer()
 	trailer.Entries.Set("Annot", annot)
 
-	fixer := appearanceFixer{}
+	fixer := appearanceFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -492,7 +488,7 @@ func fixAppearance(t *testing.T, annot pdf.PDFDict, formDA string) bool {
 		trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Set("AcroForm", af)
 	}
 	trailer.Entries.Set("Annot", annot)
-	changed, err := appearanceFixer{}.Fix(&trailer, nil)
+	changed, err := appearanceFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -509,8 +505,9 @@ func textOpsOf(t *testing.T, annot pdf.PDFDict) map[string][]pdf.PDFValue {
 	return ops
 }
 
-// TestAppearanceFixerIgnoresDisallowedSubtype: an annotation whose subtype is
-// not an allowed PDF/A type is left alone (a different fixer removes it).
+// TestAppearanceFixerIgnoresDisallowedSubtype verifies that an annotation whose
+// subtype is not an allowed PDF/A type is left alone, since a different fixer
+// removes it.
 func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -523,8 +520,8 @@ func TestAppearanceFixerIgnoresDisallowedSubtype(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerReplacesNonDictN: /AP/N that is not a dictionary at all
-// is replaced by a synthesized appearance stream.
+// TestAppearanceFixerReplacesNonDictN verifies that /AP/N, when it is not a
+// dictionary at all, is replaced by a synthesized appearance stream.
 func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 	annot := pdf.NewPDFDict()
 	annot.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
@@ -536,13 +533,14 @@ func TestAppearanceFixerReplacesNonDictN(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Errorf("AP/N = %#v, want a synthesized stream", annot.Entries.Get("AP"))
 	}
 }
 
-// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras: a Btn whose /N is
-// already a state subdictionary keeps it when only an extra /AP entry is bad.
+// TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras verifies that a Btn
+// whose /N is already a state subdictionary keeps it when only an extra /AP
+// entry is bad.
 func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	annot := widgetWith("Btn", nil)
 	states := pdf.NewPDFDict()
@@ -560,8 +558,9 @@ func TestAppearanceFixerKeepsBtnStateSubdictAndStripsExtras(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerParentCycleIsNotBtn: a /Parent chain that loops without
-// ever naming /FT terminates (the depth guard) and is treated as non-Btn.
+// TestAppearanceFixerParentCycleIsNotBtn verifies that a /Parent chain that
+// loops without ever naming /FT terminates at the depth guard and is treated as
+// non-Btn.
 func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
 	annot := widgetWith("", nil)
 	annot.Entries.Set("Parent", annot)
@@ -569,7 +568,7 @@ func TestAppearanceFixerParentCycleIsNotBtn(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n, ok := annot.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !ok || !n.HasStream {
+	if !ok || !n.IsStream() {
 		t.Errorf("AP/N = %#v, want a plain stream (non-Btn)", annot.Entries.Get("AP"))
 	}
 }
@@ -595,7 +594,8 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 		t.Errorf("form DA not applied: Tf=%v rg=%v", ops["Tf"], ops["rg"])
 	}
 
-	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default colour.
+	// No Rect: height 0 -> size h*0.6 = 0 -> 10pt fallback, black default
+	// colour.
 	b := widgetWith("Tx", nil)
 	fixAppearance(t, b, "")
 	ops = textOpsOf(t, b)
@@ -612,9 +612,9 @@ func TestAppearanceFixerTextDefaultsFromFormDAAndGeometry(t *testing.T) {
 	}
 }
 
-// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance: a /DA whose
-// colour operator carries an operand the content writer cannot serialise (an
-// indirect reference inside an array) yields a structurally valid, empty
+// TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance verifies that a /DA
+// whose colour operator carries an operand the content writer cannot serialise
+// (an indirect reference inside an array) yields a structurally valid, empty
 // appearance rather than an error.
 func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
 	a := widgetWith("Tx", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(50), pdf.PDFInteger(20)})
@@ -623,7 +623,7 @@ func TestAppearanceFixerUnwritableDAFallsBackToEmptyAppearance(t *testing.T) {
 		t.Fatal("changed = false, want true")
 	}
 	n := a.Entries.Get("AP").(pdf.PDFDict).Entries.Get("N").(pdf.PDFDict)
-	if !n.HasStream || len(contentBytesOf(t, n)) != 0 {
+	if !n.IsStream() || len(contentBytesOf(t, n)) != 0 {
 		t.Errorf("want an empty appearance stream, got %q", contentBytesOf(t, n))
 	}
 }

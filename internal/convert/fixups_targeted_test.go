@@ -92,7 +92,7 @@ func appearanceTargetWidget() pdf.PDFDict {
 	w.Entries.Set("Type", pdf.PDFName{Value: "Annot"})
 	w.Entries.Set("Subtype", pdf.PDFName{Value: "Widget"})
 	w.Entries.Set("Rect", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(20)})
-	w.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 90})
+	w.SetRef(pdf.PDFRef{ObjNum: 90})
 	return w
 }
 
@@ -102,17 +102,17 @@ func appearanceTargetWidget() pdf.PDFDict {
 func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	flagged, other := appearanceTargetWidget(), appearanceTargetWidget()
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 91})
+	root.SetRef(pdf.PDFRef{ObjNum: 91})
 	root.Entries.Set("Annots", pdf.PDFArray{flagged, other})
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	ref, _ := flagged.Ref()
 	issue := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, &ref)
 
-	changed, handled, err := appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := appearanceFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -129,14 +129,14 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 	// A ref-less issue in the batch must force the full-walk fallback, which
 	// then fixes the remaining widget too.
 	noRef := pdf.NewError(pdf.Checks.Annotation.MissingAppearance, nil, 1, nil)
-	_, handled, err = appearanceFixer{}.fixTargeted(pass, []pdf.PDFError{noRef})
+	_, handled, err = appearanceFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{noRef})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
 	if handled {
 		t.Fatal("handled = true with a ref-less issue, want fallback")
 	}
-	if _, err := (appearanceFixer{}).Fix(&trailer, nil); err != nil {
+	if _, err := (appearanceFixer{spec: a1bSpec}).Fix(&trailer, nil); err != nil {
 		t.Fatalf("Fix fallback: %v", err)
 	}
 	if _, ok := other.Entries.Get("AP").(pdf.PDFDict); !ok {
@@ -148,14 +148,9 @@ func TestAppearanceFixerTargetsOnlyFlaggedAnnots(t *testing.T) {
 // limit, undeflated so DecodeStream returns it as-is.
 func cmapStreamDict(objNum int) pdf.PDFDict {
 	content := "1 begincidrange\n<0000> <00ff> 70000\nendcidrange\n"
-	return pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Type":     pdf.PDFName{Value: "CMap"},
-			pdf.RefKey: pdf.PDFRef{ObjNum: objNum},
-		}),
-		HasStream: true,
-		RawStream: []byte(content),
-	}
+	return withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "CMap"},
+	}), []byte(content)), pdf.PDFRef{ObjNum: objNum})
 }
 
 // TestCmapCIDClampFixerTargetsIssueRefs shares the flagged CMap between two
@@ -165,7 +160,7 @@ func cmapStreamDict(objNum int) pdf.PDFDict {
 func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 	flagged, other := cmapStreamDict(20), cmapStreamDict(21)
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	root.SetRef(pdf.PDFRef{ObjNum: 1})
 	root.Entries.Set("Enc", flagged)
 	root.Entries.Set("List", pdf.PDFArray{flagged, other})
 	trailer := pdf.NewPDFDict()
@@ -173,10 +168,10 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	ref, _ := flagged.Ref()
 	issue := pdf.NewError(pdf.Checks.Structure.CMapCIDOutOfRange, nil, 0, &ref)
 
-	changed, handled, err := cmapCIDClampFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := cmapCIDClampFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -196,8 +191,8 @@ func TestCmapCIDClampFixerTargetsIssueRefs(t *testing.T) {
 			t.Errorf("%s not clamped: %q", slot, data)
 		}
 	}
-	if got := root.Entries.Get("List").(pdf.PDFArray)[1].(pdf.PDFDict); !bytes.Contains(got.RawStream, []byte("70000")) {
-		t.Errorf("unflagged CMap was touched by the targeted fix: %q", got.RawStream)
+	if got := root.Entries.Get("List").(pdf.PDFArray)[1].(pdf.PDFDict); !bytes.Contains(got.Stream(), []byte("70000")) {
+		t.Errorf("unflagged CMap was touched by the targeted fix: %q", got.Stream())
 	}
 }
 
@@ -206,7 +201,7 @@ func TestContentLimitsFixerTargetsIssueRefs(t *testing.T) {
 	pass, issues, done := targetedFixture(t, path, pdf.Checks.Colour.UndefinedOperator)
 	defer done()
 
-	runTargetedAndCheckIdempotent(t, contentLimitsFixer{}, pass, issues)
+	runTargetedAndCheckIdempotent(t, contentLimitsFixer{spec: a1bSpec}, pass, issues)
 	assertCheckClearedByWrite(t, *pass.trailer, pdf.Checks.Colour.UndefinedOperator)
 }
 
@@ -216,24 +211,27 @@ func TestContentLimitsFixerTargetsIssueRefs(t *testing.T) {
 // arrays, but not child dicts, which are their own targets).
 func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 	plain := pdf.NewPDFDict()
-	plain.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 30})
+	plain.SetRef(pdf.PDFRef{ObjNum: 30})
 	plain.Entries.Set("Big", pdf.PDFInteger(3_000_000_000))
 	plain.Entries.Set("List", pdf.PDFArray{pdf.PDFReal(40000)})
 	child := pdf.NewPDFDict()
 	child.Entries.Set("Big", pdf.PDFInteger(3_000_000_000))
 	plain.Entries.Set("Child", child)
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 31})
+	root.SetRef(pdf.PDFRef{ObjNum: 31})
 	root.Entries.Set("Thing", plain)
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := plain.Entries.Get(pdf.RefKey).(pdf.PDFRef)
-	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
+	ref, _ := plain.Ref()
+	issues := []pdf.PDFError{
+		pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref),
+		pdf.NewError(pdf.Checks.Structure.RealOutOfRange, nil, 0, &ref),
+	}
 
-	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, issues)
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -257,35 +255,30 @@ func TestContentLimitsFixerTargetsOwnedScalars(t *testing.T) {
 // set gets the content rewrite.
 func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) {
 	raw := []byte{0x00, 0x01, 0xfe, 0xff, ' ', 'q', ' ', 0x03}
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":  pdf.PDFName{Value: "Image"},
-			"Bad":      pdf.PDFInteger(3_000_000_000),
-			pdf.RefKey: pdf.PDFRef{ObjNum: 50},
-		}),
-		HasStream: true,
-		RawStream: raw,
-	}
+	img := withRef(pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Bad":     pdf.PDFInteger(3_000_000_000),
+	}), raw), pdf.PDFRef{ObjNum: 50})
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 51})
+	root.SetRef(pdf.PDFRef{ObjNum: 51})
 	root.Entries.Set("Img", img)
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := img.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	ref, _ := img.Ref()
 	issue := pdf.NewError(pdf.Checks.Structure.IntegerOutOfRange, nil, 0, &ref)
 
-	changed, handled, err := contentLimitsFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := contentLimitsFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
 	if !handled || !changed {
 		t.Fatalf("handled=%v changed=%v, want true/true", handled, changed)
 	}
-	if got := root.Entries.Get("Img").(pdf.PDFDict); !bytes.Equal(got.RawStream, raw) {
-		t.Errorf("image stream bytes were rewritten: %v", got.RawStream)
+	if got := root.Entries.Get("Img").(pdf.PDFDict); !bytes.Equal(got.Stream(), raw) {
+		t.Errorf("image stream bytes were rewritten: %v", got.Stream())
 	}
 	if got := img.Entries.Get("Bad"); got != pdf.PDFInteger(2147483647) {
 		t.Errorf("entry scalar = %v, want clamped", got)
@@ -297,21 +290,21 @@ func TestContentLimitsFixerTargetedNeverRewritesNonContentStreams(t *testing.T) 
 func TestNameTooLongFixerTargetsValueFlavour(t *testing.T) {
 	long := strings.Repeat("N", maxNameLength+5)
 	d := pdf.NewPDFDict()
-	d.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 60})
+	d.SetRef(pdf.PDFRef{ObjNum: 60})
 	d.Entries.Set("Name", pdf.PDFName{Value: long})
 	d.Entries.Set("Arr", pdf.PDFArray{pdf.PDFName{Value: long}})
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 61})
+	root.SetRef(pdf.PDFRef{ObjNum: 61})
 	root.Entries.Set("D", d)
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := d.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	ref, _ := d.Ref()
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}
@@ -331,13 +324,13 @@ func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
 	longKey := strings.Repeat("A", maxNameLength+10)
 	makeDict := func(objNum int) pdf.PDFDict {
 		d := pdf.NewPDFDict()
-		d.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: objNum})
+		d.SetRef(pdf.PDFRef{ObjNum: objNum})
 		d.Entries.Set(longKey, pdf.PDFInteger(1))
 		return d
 	}
 	flagged, other := makeDict(40), makeDict(41)
 	root := pdf.NewPDFDict()
-	root.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 42})
+	root.SetRef(pdf.PDFRef{ObjNum: 42})
 	root.Entries.Set("A", flagged)
 	root.Entries.Set("B", other)
 	trailer := pdf.NewPDFDict()
@@ -345,10 +338,10 @@ func TestNameTooLongFixerTargetsKeyFlavourRefs(t *testing.T) {
 
 	objs := writer.NumberObjects(trailer, 0)
 	pass := &fixPass{trailer: &trailer, objs: objs}
-	ref := flagged.Entries.Get(pdf.RefKey).(pdf.PDFRef)
+	ref, _ := flagged.Ref()
 	issue := pdf.NewError(pdf.Checks.Structure.NameTooLong, nil, 0, &ref)
 
-	changed, handled, err := nameTooLongFixer{}.fixTargeted(pass, []pdf.PDFError{issue})
+	changed, handled, err := nameTooLongFixer{spec: a1bSpec}.fixTargeted(pass, []pdf.PDFError{issue})
 	if err != nil {
 		t.Fatalf("fixTargeted: %v", err)
 	}

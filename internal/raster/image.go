@@ -14,10 +14,9 @@ import (
 //
 // FlateDecode/LZWDecode/ASCII-filtered raw samples (with PNG/TIFF predictor
 // undo), DCTDecode (via the standard library's image/jpeg) and CCITTFaxDecode
-// (Group 3/4, ccitt.go) are supported. JBIG2Decode/JPXDecode have no decoder
-// in this codebase -- those JBIG2/JPEG2000 codecs are large standalone
-// efforts out of scope here -- so an image using one of them, or a CCITT
-// image that fails to decode, comes back as a flat mid-gray placeholder
+// (Group 3/4, ccitt.go) are supported. JBIG2Decode and JPXDecode have no
+// decoder in this codebase, so an image using one of them, or a CCITT image
+// that fails to decode, comes back as a flat mid-gray placeholder
 // together with a *PlaceholderError. The renderer paints the placeholder
 // rather than failing the page and reports the image as dropped; a caller
 // that would store the samples treats it like any other decode failure, so
@@ -28,7 +27,6 @@ func DecodeImageRGBA(dict pdf.PDFDict, resources pdf.PDFDict) (*image.RGBA, erro
 	if width <= 0 || height <= 0 {
 		return nil, errInvalidImageDims
 	}
-
 	s, err := pdf.DecodeStreamFull(dict, pdf.ImageDecodeOptions(dict))
 	if err != nil {
 		return nil, err
@@ -41,11 +39,11 @@ func DecodeImageRGBA(dict pdf.PDFDict, resources pdf.PDFDict) (*image.RGBA, erro
 			if img, err := decodeCCITTImage(dict, resources, s, width, height); err == nil {
 				return img, nil
 			}
-			return placeholderImage(width, height), &PlaceholderError{Codec: "CCITT"}
+			return placeholderImage(), &PlaceholderError{Codec: "CCITT"}
 		case pdf.FilterJBIG2:
-			return placeholderImage(width, height), &PlaceholderError{Codec: "JBIG2"}
+			return placeholderImage(), &PlaceholderError{Codec: "JBIG2"}
 		default: // JPX
-			return placeholderImage(width, height), &PlaceholderError{Codec: "JPEG 2000"}
+			return placeholderImage(), &PlaceholderError{Codec: "JPEG 2000"}
 		}
 	}
 	return unpackSamplesToRGBA(dict, resources, s.Data, width, height)
@@ -56,6 +54,24 @@ type imageDecodeError string
 func (e imageDecodeError) Error() string { return string(e) }
 
 const errInvalidImageDims = imageDecodeError("raster_image: invalid /Width or /Height")
+
+// maxImagePixels is the size past which an image's samples must back the
+// size it claims before a buffer that size is allocated. Below it, short
+// samples are tolerated and read as zero; past it, a claim the samples do
+// not cover, such as a few bytes claiming 60000x60000, gets the placeholder,
+// reported as a drop like an undecodable codec. Images that big and fully
+// backed are real (scientific figures reach 250M pixels) and decode as
+// before: what they can allocate is bounded by the decoded-stream limit.
+const maxImagePixels = 1 << 26
+
+// maxJPEGPixels bounds the size a JPEG header may declare. image/jpeg
+// allocates for it whatever the entropy data holds, and that data cannot be
+// checked against it without decoding, so the bound is a flat one, above any
+// real image seen.
+const maxJPEGPixels = 1 << 28
+
+// errOversized is the placeholder error for an image past maxImagePixels.
+var errOversized = &PlaceholderError{Codec: "oversized"}
 
 // PlaceholderError reports that DecodeImageRGBA could not decode an image's
 // codec and returned the gray placeholder in its place. Codec names it the
@@ -82,6 +98,10 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 	if isMask {
 		ncomp = 1
 		bpc = 1
+	}
+
+	if !samplesBackSize(len(data), width, height, ncomp, bpc) {
+		return placeholderImage(), errOversized
 	}
 
 	decode := imageDecodeArray(dict, cs, ncomp, bpc)
@@ -128,6 +148,20 @@ func unpackSamplesToRGBA(dict pdf.PDFDict, resources pdf.PDFDict, data []byte, w
 		}
 	}
 	return img, nil
+}
+
+// samplesBackSize reports whether n bytes of samples may be unpacked into a
+// width x height buffer: always below maxImagePixels, and past it only when
+// they hold every row. width is checked against n first, so the row size
+// cannot overflow.
+func samplesBackSize(n, width, height, ncomp, bpc int) bool {
+	if width <= maxImagePixels/height {
+		return true
+	}
+	if width > n*8 {
+		return false
+	}
+	return (width*ncomp*bpc+7)/8 <= n/height
 }
 
 // isIdentityDecode reports whether decode is the natural [0,1] range for every
@@ -369,32 +403,35 @@ func decodeCCITTImage(dict pdf.PDFDict, resources pdf.PDFDict, s pdf.DecodedStre
 // JPEG decoder. data is the codec's input, so any ASCII filters wrapping it
 // have already been undone by the decode chain.
 func decodeJPEGImage(data []byte) (*image.RGBA, error) {
+	// image/jpeg allocates for the header's dimensions, whatever /Width and
+	// /Height said.
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width > 0 && cfg.Height > maxJPEGPixels/cfg.Width {
+		return placeholderImage(), errOversized
+	}
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	bounds := img.Bounds()
 	out := image.NewRGBA(bounds)
-	// draw.Src is defined as dst.Set(src.At(...)) per pixel, so this is the
-	// former nested Set/At loop minus the per-pixel color.Color boxing (the
-	// stdlib has typed fast paths for the JPEG decoder's YCbCr/Gray images).
+	// draw.Src is defined as dst.Set(src.At(...)) per pixel. A single
+	// draw.Draw call avoids the per-pixel color.Color boxing of a nested
+	// Set/At loop, and the standard library has typed fast paths for the
+	// JPEG decoder's YCbCr and Gray images.
 	draw.Draw(out, bounds, img, bounds.Min, draw.Src)
 	return out, nil
 }
 
-// placeholderImage paints a flat mid-gray rectangle, the fallback used for
-// image codecs this package cannot decode.
-func placeholderImage(width, height int) *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	if width <= 0 || height <= 0 {
-		return img
-	}
-	// Every pixel is the same gray: set the first, then fill the rest with
-	// doubling copies instead of a per-pixel Set.
+// placeholderImage is a single mid-gray pixel, the fallback used for image
+// codecs this package cannot decode. The image's unit square is stretched
+// over its CTM like any other, so one pixel paints the same flat gray as a
+// full-size buffer would, without allocating for dimensions no data backs.
+func placeholderImage() *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.Set(0, 0, colorRGBA64{0.5, 0.5, 0.5, 1})
-	pix := img.Pix
-	for filled := 4; filled < len(pix); filled *= 2 {
-		copy(pix[filled:], pix[:filled])
-	}
 	return img
 }

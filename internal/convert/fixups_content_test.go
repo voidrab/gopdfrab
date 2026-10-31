@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
 // TestContentLimitsFixerClearsViolations runs contentLimitsFixer's targeted
@@ -60,7 +60,7 @@ func TestContentLimitsFixerClearsViolations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			trailer, closeDoc := fixtureTrailer(t, tt.path)
 			defer closeDoc()
-			runFixerAndCheckIdempotent(t, contentLimitsFixer{}, &trailer)
+			runFixerAndCheckIdempotent(t, contentLimitsFixer{spec: a1bSpec}, &trailer)
 			assertCheckClearedByWrite(t, trailer, tt.check)
 		})
 	}
@@ -86,18 +86,18 @@ func TestFixHexStringValue(t *testing.T) {
 // wrote, or "" if it left the stream alone.
 func rescaled(t *testing.T, src string) string {
 	t.Helper()
-	out, ok := rescalePathsAndRewrite([]byte(src), rewriteOperatorsAndLimits)
+	out, ok := rescalePathsAndRewrite([]byte(src), allContentLimits.rewriteOperatorsAndLimits, realLimit)
 	if !ok {
 		return ""
 	}
 	return string(out)
 }
 
-// TestRescalePathFoldsMagnitudeIntoCTM is the shape that prompted this repair,
-// taken from a real presentation: a full-page clip drawn at 1/508 scale, whose
-// corner is at 365760 units. Clamping that to 32767 kept the file conformant
-// and threw away 98% of every page. Folding 16 into the CTM instead leaves
-// every number inside the limit and the clip exactly where it was.
+// TestRescalePathFoldsMagnitudeIntoCTM verifies that a path with coordinates
+// beyond the limit is rescaled rather than clamped. A full-page clip drawn at
+// 1/508 scale has its corner at 365760 units; clamping that to 32767 keeps the
+// file conformant but throws away 98% of every page. Folding 16 into the CTM
+// leaves every number inside the limit and the clip exactly where it was.
 func TestRescalePathFoldsMagnitudeIntoCTM(t *testing.T) {
 	got := rescaled(t, "q 0.001968504 0 0 0.001968504 0 0 cm\n"+
 		"0 0 m 365760.0 0 l 365760.0 205740.0 l 0 205740.0 l 0 0 l h W n\n")
@@ -127,23 +127,23 @@ func TestRescaleFactorIsAPowerOfTwo(t *testing.T) {
 		{maxScale*realLimit + 1, 0}, // past what a matrix can carry
 	}
 	for _, tt := range tests {
-		if got := scaleFor(tt.largest); got != tt.want {
+		if got := scaleFor(tt.largest, realLimit); got != tt.want {
 			t.Errorf("scaleFor(%g) = %g, want %g", tt.largest, got, tt.want)
 		}
 	}
 }
 
-// TestRescaleLeavesInRangePathsAlone: a path that breaks no limit must come
-// out byte for byte the same, so the pass costs nothing on the vast majority
-// of documents.
+// TestRescaleLeavesInRangePathsAlone verifies that a path that breaks no limit
+// comes out byte for byte the same, so the pass costs nothing on the vast
+// majority of documents.
 func TestRescaleLeavesInRangePathsAlone(t *testing.T) {
 	if got := rescaled(t, "0 0 m 100 0 l 100 100 l h f\n"); got != "" {
 		t.Errorf("an in-range path was rewritten:\n%s", got)
 	}
 }
 
-// TestRescaleTooLargeForAMatrix: a coordinate no allowed matrix can carry is
-// left for the clamp, which is still better than a wrong answer.
+// TestRescaleTooLargeForAMatrix verifies that a coordinate no allowed matrix
+// can carry is left for the clamp, which is still better than a wrong answer.
 func TestRescaleTooLargeForAMatrix(t *testing.T) {
 	got := rescaled(t, "0 0 m 999999999.0 0 l f\n")
 	if strings.Contains(got, "cm") {
@@ -154,9 +154,9 @@ func TestRescaleTooLargeForAMatrix(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeKeepsLineWidth: line width is a length in user space, so a
-// stroke drawn under a scaled CTM would come out that many times thicker. The
-// width goes down with the path and is put back after it.
+// TestRescaleStrokeKeepsLineWidth verifies that the line width is scaled with
+// the path and restored after it. Line width is a length in user space, so a
+// stroke drawn under a scaled CTM would come out that many times thicker.
 func TestRescaleStrokeKeepsLineWidth(t *testing.T) {
 	got := rescaled(t, "3 w 0 0 m 65536.0 0 l S\n")
 	want := "3 w\n" +
@@ -170,10 +170,10 @@ func TestRescaleStrokeKeepsLineWidth(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeKeepsDash: dash lengths are user-space too, and scale with
-// the path exactly as the line width does. With no w in the stream the width
-// restored is 1, the value a stream starts with -- restoring 0 would turn every
-// unset stroke into a hairline.
+// TestRescaleStrokeKeepsDash verifies that dash lengths scale with the path
+// exactly as the line width does. Dash lengths are user-space too. With no w
+// in the stream the width restored is 1, the value a stream starts with;
+// restoring 0 would turn every unset stroke into a hairline.
 func TestRescaleStrokeKeepsDash(t *testing.T) {
 	got := rescaled(t, "[8 4] 0 d 0 0 m 65536.0 0 l S\n")
 	want := "[8 4] 0 d\n" +
@@ -187,9 +187,10 @@ func TestRescaleStrokeKeepsDash(t *testing.T) {
 	}
 }
 
-// TestRescaleStrokeAfterExtGState: an ExtGState can set the line width and the
-// dash to values the stream never names, so there is nothing to put back. The
-// path is left to the clamp rather than redrawn at a guessed thickness.
+// TestRescaleStrokeAfterExtGState verifies that a stroke is not rescaled when
+// an ExtGState may have set the line width and dash, since the stream never
+// names values to put back. The path is left to the clamp rather than redrawn
+// at a guessed thickness.
 func TestRescaleStrokeAfterExtGState(t *testing.T) {
 	got := rescaled(t, "/GS1 gs 0 0 m 65536.0 0 l S\n")
 	if strings.Contains(got, "cm") {
@@ -202,8 +203,9 @@ func TestRescaleStrokeAfterExtGState(t *testing.T) {
 	}
 }
 
-// TestRescaleTracksLineWidthThroughSave: q and Q save and restore the line
-// width, so a width set inside a q is not the one put back outside it.
+// TestRescaleTracksLineWidthThroughSave verifies that q and Q save and restore
+// the line width, so a width set inside a q is not the one put back outside
+// it.
 func TestRescaleTracksLineWidthThroughSave(t *testing.T) {
 	got := rescaled(t, "3 w q 8 w Q 0 0 m 65536.0 0 l S\n")
 	if !strings.Contains(got, "0.75 w") || !strings.HasSuffix(got, "3 w\n") {
@@ -217,8 +219,8 @@ func TestRescaleTracksLineWidthThroughSave(t *testing.T) {
 	}
 }
 
-// TestRescaleUnterminatedPath: a stream that ends mid-path, or puts an
-// operator where one cannot go, still has to come out as valid content. The
+// TestRescaleUnterminatedPath verifies that a stream that ends mid-path, or
+// puts an operator where one cannot go, still comes out as valid content. The
 // path is written back as it was scanned and the clamp handles it.
 func TestRescaleUnterminatedPath(t *testing.T) {
 	for _, src := range []string{
@@ -235,9 +237,9 @@ func TestRescaleUnterminatedPath(t *testing.T) {
 	}
 }
 
-// TestRescaleLongPathSpills: a path too long to hold is written out as it is
-// scanned, so a pathological stream cannot grow the heap without limit. It
-// gives up the rescale to do it.
+// TestRescaleLongPathSpills verifies that a path too long to hold is written
+// out as it is scanned, so a pathological stream cannot grow the heap without
+// limit. The rescale is given up to do so.
 func TestRescaleLongPathSpills(t *testing.T) {
 	var src strings.Builder
 	src.WriteString("0 0 m\n")
@@ -254,9 +256,9 @@ func TestRescaleLongPathSpills(t *testing.T) {
 	}
 }
 
-// TestRescaleIgnoresNonNumericOperands: a malformed stream can put anything
-// where a number belongs. Nothing that is not a number is scaled, and an
-// operator that sets state with the wrong operand leaves that state alone.
+// TestRescaleIgnoresNonNumericOperands verifies that nothing which is not a
+// number is scaled, and that an operator given such an operand leaves its
+// state alone. A malformed stream can put anything where a number belongs.
 func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
 	// A w whose operand is a name leaves the width at its default of 1.
 	got := rescaled(t, "/bogus w 0 0 m 65536.0 0 l S\n")
@@ -270,15 +272,14 @@ func TestRescaleIgnoresNonNumericOperands(t *testing.T) {
 	}
 }
 
-// TestRescaleContentStreamDictUndecodable: a stream nothing can decode is left
-// exactly as it is, rather than replaced with an empty one.
+// TestRescaleContentStreamDictUndecodable verifies that a stream nothing can
+// decode is left exactly as it is, rather than replaced with an empty one.
 func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte("not flate data")
+	dict.SetStream([]byte("not flate data"))
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 
-	if _, changed := rescaleContentStreamDict(dict, rewriteOperatorsAndLimits); changed {
+	if _, changed := rescaleContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits, realLimit); changed {
 		t.Error("an undecodable stream was reported as rewritten")
 	}
 }
@@ -288,7 +289,7 @@ func TestRescaleContentStreamDictUndecodable(t *testing.T) {
 // branches: rewriteOperatorsAndLimits drops it, so a cleared stream proves
 // that branch was actually reached and rewritten.
 func undefinedOpStream() pdf.PDFDict {
-	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: []byte("q 1 0 0 RG XX 1 2 Q\n")}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("q 1 0 0 RG XX 1 2 Q\n"))
 }
 
 // assertOperatorDropped decodes dict's content stream and fails the test if
@@ -312,9 +313,9 @@ func assertOperatorDropped(t *testing.T, label string, dict pdf.PDFDict) {
 
 // TestWalkContentStreamsDispatch exercises every content-bearing stream
 // shape walkContentStreams dispatches to: an array-form Page /Contents, a
-// tiling Pattern, a Form XObject, and a Type3 glyph's CharProcs stream --
-// contentLimitsFixer's corpus-fixture tests only ever hit the single-dict
-// Page /Contents case, leaving the rest unexercised.
+// tiling Pattern, a Form XObject, and a Type3 glyph's CharProcs stream. The
+// fixture-based tests of contentLimitsFixer reach only the single-dict Page
+// /Contents case.
 func TestWalkContentStreamsDispatch(t *testing.T) {
 	pattern := undefinedOpStream()
 	pattern.Entries.Set("PatternType", pdf.PDFInteger(1))
@@ -346,7 +347,7 @@ func TestWalkContentStreamsDispatch(t *testing.T) {
 		})},
 	})}
 
-	if !walkContentStreams(&trailer, rewriteOperatorsAndLimits) {
+	if !walkContentStreams(&trailer, allContentLimits.rewriteOperatorsAndLimits) {
 		t.Fatalf("walkContentStreams reported no change across an array-Contents page, a Pattern, a Form, and a Type3 glyph")
 	}
 
@@ -370,10 +371,9 @@ func TestWalkContentStreamsDispatch(t *testing.T) {
 func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 	src := []byte("q 1 0 0 RG 0 0 100 100 re S XX 1 2 Q\n")
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = src
+	dict.SetStream(src)
 
-	fixed, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits)
+	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
 	if !changed {
 		t.Fatalf("rewriteContentStreamDict reported no change for a stream with an undefined operator")
 	}
@@ -402,42 +402,42 @@ func TestRewriteContentStreamDictDropsUndefinedOperator(t *testing.T) {
 	}
 }
 
-// TestRewriteKeepsAStreamItCouldNotReadWhole: a rewriter emits as it reads, so
-// a stream it stops part way through has only been part written. Writing that
-// back would throw away the rest of the drawing, so the original bytes stay.
+// TestRewriteKeepsAStreamItCouldNotReadWhole verifies that a stream the
+// rewriter stops part way through keeps its original bytes. The rewriter emits
+// as it reads, so such a stream has only been part written, and writing it
+// back would throw away the rest of the drawing.
 func TestRewriteKeepsAStreamItCouldNotReadWhole(t *testing.T) {
 	// An undefined operator to rewrite, then a brace, which is not a
 	// content-stream token at all and stops the read.
 	src := []byte("q XX 1 2\n{ }\n0 0 100 100 re f Q\n")
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = src
+	dict.SetStream(src)
 
-	if _, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits); changed {
+	if _, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits); changed {
 		t.Error("a half-read stream was rewritten, want the original kept")
 	}
-	if _, changed := repairContentStream(dict); changed {
+	if _, changed := allContentLimits.repairContentStream(dict); changed {
 		t.Error("a half-read stream was rescaled, want the original kept")
 	}
-	if !bytes.Equal(dict.RawStream, src) {
-		t.Errorf("stream = %q, want it untouched", dict.RawStream)
+	if !bytes.Equal(dict.Stream(), src) {
+		t.Errorf("stream = %q, want it untouched", dict.Stream())
 	}
 }
 
-// TestRescaleOversizedMatrix: a cm matrix that does not fit is written as two
-// that do, and the pair has to compose to exactly the matrix that was there --
-// this is what places an image, so getting it wrong moves the picture.
+// TestRescaleOversizedMatrix verifies that a matrix that does not fit is
+// written as two that do, and that the pair composes to exactly the original
+// matrix. The matrix places an image, so getting it wrong moves the picture.
 func TestRescaleOversizedMatrix(t *testing.T) {
 	scale, divided, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(274320),
 		pdf.PDFReal(100000), pdf.PDFReal(-200000),
-	})
+	}, realLimit)
 	if !ok {
 		t.Fatal("splitOversizedMatrix declined a matrix it can write as two")
 	}
-	// cm scale, then cm divided, composes as divided x scale.
+	// Applying scale, then divided, composes as divided x scale.
 	m := matrixOf(t, divided).Mul(matrixOf(t, scale))
-	want := raster.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
+	want := content.Matrix{A: 487680, D: 274320, E: 100000, F: -200000}
 	if m != want {
 		t.Errorf("the two matrices compose to %+v, want %+v", m, want)
 	}
@@ -451,27 +451,27 @@ func TestRescaleOversizedMatrix(t *testing.T) {
 	// left to the clamp, as are operands that are not numbers.
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix that fits was split")
 	}
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(1e12), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1), pdf.PDFReal(0), pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix past what two can carry was split")
 	}
-	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}); ok {
+	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{pdf.PDFName{Value: "x"}}, realLimit); ok {
 		t.Error("a matrix of the wrong length was split")
 	}
 	if _, _, ok := splitOversizedMatrix([]pdf.PDFValue{
 		pdf.PDFReal(487680), pdf.PDFReal(0), pdf.PDFReal(0), pdf.PDFReal(1),
 		pdf.PDFName{Value: "x"}, pdf.PDFReal(0),
-	}); ok {
+	}, realLimit); ok {
 		t.Error("a matrix with an operand that is not a number was split")
 	}
 }
 
 // matrixOf reads six operands back as a matrix.
-func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
+func matrixOf(t *testing.T, operands []pdf.PDFValue) content.Matrix {
 	t.Helper()
 	var f [6]float64
 	for i, v := range operands {
@@ -481,21 +481,21 @@ func matrixOf(t *testing.T, operands []pdf.PDFValue) raster.Matrix {
 		}
 		f[i] = n
 	}
-	return raster.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
+	return content.Matrix{A: f[0], B: f[1], C: f[2], D: f[3], E: f[4], F: f[5]}
 }
 
-// TestRescaleKeepsAnImageWhereItWasPlaced is the regression the corpus found:
-// a presentation drawn at 1/508 scale places its images with a cm whose
-// operands run to six figures. Clamping those put every picture in a 64.5pt
-// square in the corner, which is most of what the page had on it.
+// TestRescaleKeepsAnImageWhereItWasPlaced verifies that an image keeps its
+// place when the cm operator that places it has operands running to six
+// figures. A presentation drawn at 1/508 scale places its images this way;
+// clamping those operands would put every picture in a 64.5pt square in the
+// corner, which is most of the page's content.
 func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	const placed = "q 0.001968504 0 0 0.001968504 0 0 cm\n" +
 		"q 487680 0 0 274320 0 0 cm\n0 0 0 rg\n0 0 1 1 re\nf\nQ\nQ\n"
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte(placed)
+	dict.SetStream([]byte(placed))
 
-	fixed, changed := repairContentStream(dict)
+	fixed, changed := allContentLimits.repairContentStream(dict)
 	if !changed {
 		t.Fatal("an out-of-range cm was left alone")
 	}
@@ -516,22 +516,21 @@ func TestRescaleKeepsAnImageWhereItWasPlaced(t *testing.T) {
 	}
 }
 
-// TestRewriteContentStreamDictUndecodable: rewriteContentStreamDict leaves a
-// stream it cannot decode exactly as it is.
+// TestRewriteContentStreamDictUndecodable verifies that
+// rewriteContentStreamDict leaves a stream it cannot decode exactly as it is.
 func TestRewriteContentStreamDictUndecodable(t *testing.T) {
 	dict := pdf.NewPDFDict()
-	dict.HasStream = true
-	dict.RawStream = []byte("not flate data")
+	dict.SetStream([]byte("not flate data"))
 	dict.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	fixed, changed := rewriteContentStreamDict(dict, rewriteOperatorsAndLimits)
-	if changed || string(fixed.RawStream) != "not flate data" {
-		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.RawStream)
+	fixed, changed := rewriteContentStreamDict(dict, allContentLimits.rewriteOperatorsAndLimits)
+	if changed || string(fixed.Stream()) != "not flate data" {
+		t.Errorf("undecodable stream rewritten: changed=%v raw=%q", changed, fixed.Stream())
 	}
 }
 
-// TestWalkContentStreamsSkipsNonStreamEntries: array Page /Contents items and
-// Type3 CharProcs values that are not streams are skipped, while their
-// stream siblings are still rewritten.
+// TestWalkContentStreamsSkipsNonStreamEntries verifies that array Page
+// /Contents items and Type3 CharProcs values that are not streams are skipped,
+// while their stream siblings are still rewritten.
 func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
 	good := undefinedOpStream()
 	glyph := undefinedOpStream()
@@ -548,7 +547,7 @@ func TestWalkContentStreamsSkipsNonStreamEntries(t *testing.T) {
 	})}
 	trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": page})}
 
-	if !walkContentStreams(&trailer, rewriteOperatorsAndLimits) {
+	if !walkContentStreams(&trailer, allContentLimits.rewriteOperatorsAndLimits) {
 		t.Fatal("no change reported")
 	}
 	contents := page.Entries.Get("Contents").(pdf.PDFArray)

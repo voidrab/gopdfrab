@@ -70,20 +70,6 @@ func TestCatalog_KnownChecks(t *testing.T) {
 	}
 }
 
-func TestCheckByName(t *testing.T) {
-	all := AllChecks()
-	if len(all) == 0 {
-		t.Fatal("no checks registered")
-	}
-	name := all[0].Name()
-	if c, ok := CheckByName(name); !ok || c.Name() != name {
-		t.Errorf("CheckByName(%q) = %v, %v", name, c, ok)
-	}
-	if _, ok := CheckByName("no such check name"); ok {
-		t.Error("CheckByName(unknown) should be false")
-	}
-}
-
 func TestChecksForClause(t *testing.T) {
 	got := ChecksForClause("6.1.8")
 	if len(got) == 0 {
@@ -99,13 +85,12 @@ func TestChecksForClause(t *testing.T) {
 	}
 }
 
-// TestNewCheckRejectsDuplicateRegistration: two checks claiming the same
-// clause/subclause pair is a programming error caught at init, by panic.
+// TestNewCheckRejectsDuplicateRegistration verifies that registering a second
+// check for the same clause and subclause panics.
 func TestNewCheckRejectsDuplicateRegistration(t *testing.T) {
 	existing := AllChecks()[0]
-	savedCounter, savedLen := checkIDCounter, len(allChecksCatalog)
+	savedLen := len(allChecksCatalog)
 	defer func() {
-		checkIDCounter = savedCounter
 		if r := recover(); r == nil {
 			t.Error("newCheck did not panic on a duplicate clause/subclause")
 		}
@@ -113,5 +98,5 @@ func TestNewCheckRejectsDuplicateRegistration(t *testing.T) {
 			t.Errorf("catalog grew from %d to %d on a rejected registration", savedLen, len(allChecksCatalog))
 		}
 	}()
-	newCheck("Duplicate", "duplicates "+existing.Name(), existing.Clause(), existing.Subclause())
+	newCheck(1<<20, "Duplicate", "duplicates "+existing.Name(), existing.Clause(), existing.Subclause())
 }

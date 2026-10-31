@@ -70,14 +70,14 @@ func TestConvertFixesStructuralDefectWithNoFixers(t *testing.T) {
 	}
 }
 
-// TestConvertDegradesGracefullyOnUnresolvableGraph checks that Convert
-// behaves like Verify (which reports a GraphResolutionFailure issue rather
-// than erroring, see verifyPdfA1b) when the object graph cannot be fully
-// resolved: the unparseable object degrades to null, the rewrite proceeds, and
-// the content it held is reported as lost -- separately from the verdict on
-// the bytes, which really are conformant. The input is a fixture whose object 2 body is mangled into
-// an unparseable dictionary with no intact copy elsewhere in the file, so
-// offset recovery cannot repair it.
+// TestConvertDegradesGracefullyOnUnresolvableGraph verifies that Convert
+// behaves like Verify, which reports a GraphResolutionFailure issue rather
+// than erroring (see verifyPdfA1b), when the object graph cannot be fully
+// resolved. The unparseable object degrades to null, the rewrite proceeds, and
+// the content it held is reported as lost, separately from the verdict on the
+// bytes, which are conformant. The input is a fixture whose object 2 body is
+// mangled into an unparseable dictionary, with no intact copy elsewhere in the
+// file, so offset recovery cannot repair it.
 func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	path := "../../tests/veraPDF/PDF_A-1b/6.1 File structure/6.1.4 Cross reference table/veraPDF test suite 6-1-4-t02-fail-b.pdf"
 	if _, err := os.Stat(path); err != nil {
@@ -107,6 +107,40 @@ func TestConvertDegradesGracefullyOnUnresolvableGraph(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("LostObjects = %v, want a GraphResolutionFailure record for the degraded object", cr.LostObjects)
+	}
+}
+
+// TestConvertReportsRemovedAttachments verifies that the embedded files and
+// file attachments removed by a conversion are recorded in LostObjects.
+func TestConvertReportsRemovedAttachments(t *testing.T) {
+	for _, tc := range []struct {
+		path  string
+		check pdf.Check
+		msg   string
+	}{
+		{"../../tests/Isartor/PDFA-1b/6.1 File structure/6.1.11 Embedded Files/isartor-6-1-11-t02-fail-a.pdf",
+			pdf.Checks.Structure.EmbeddedFiles, `embedded file "img/pageA4.pdf" removed`},
+		{"../../tests/Isartor/PDFA-1b/6.5 Annotations/6.5.2 Annotation types/isartor-6-5-2-t02-fail-a.pdf",
+			pdf.Checks.Annotation.DisallowedSubtype,
+			`FileAttachment annotation removed with its embedded file "nearly_empty_text_file.txt"`},
+	} {
+		t.Run(filepath.Base(tc.path), func(t *testing.T) {
+			data, err := os.ReadFile(tc.path)
+			if err != nil {
+				t.Skipf("fixture not present: %v", err)
+			}
+			cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+			if err != nil {
+				t.Fatalf("ConvertBytes: %v", err)
+			}
+			if !cr.Result.Valid {
+				t.Fatalf("output not conformant: %v", cr.Result.Issues)
+			}
+			if len(cr.LostObjects) != 1 || cr.LostObjects[0].Check() != tc.check ||
+				!slices.Equal(cr.LostObjects[0].Messages(), []string{tc.msg}) {
+				t.Errorf("LostObjects = %v, want one %q record under %v", cr.LostObjects, tc.msg, tc.check)
+			}
+		})
 	}
 }
 
@@ -156,9 +190,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
-	if len(fixerRegistry) == 0 {
-		t.Skip("no fixers registered yet")
-	}
+	fixers := standardRepairs.fixersFor(&fixerRun{})
 
 	var tested, cleared int
 	for path := range fixtures {
@@ -176,7 +208,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 
 		var targetChecks []pdf.Check
 		for _, iss := range origRes.Issues {
-			if _, ok := fixerRegistry[iss.Check()]; ok {
+			if _, ok := fixers[iss.Check()]; ok {
 				targetChecks = append(targetChecks, iss.Check())
 			}
 		}
@@ -409,14 +441,15 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			// A single ICC profile can only declare one colour model, so a
-			// document whose content genuinely mixes more than one device
-			// colour model (confirmed here independently of the fixup,
-			// straight from the source content) has no possible single
-			// OutputIntent that covers all of it -- a fundamental
-			// limitation of injectOutputIntent's one-profile strategy, not
-			// a bug. detectColourModelUsage is also exactly the signal
-			// injectOutputIntent itself uses to pick which model to cover.
+			// A single ICC profile can only declare one colour
+			// model. A document whose content mixes more than one
+			// device colour model, as detected from the source
+			// content independently of the fixup, has no single
+			// OutputIntent that covers all of it. That is a
+			// limitation of injectOutputIntent's one-profile
+			// strategy, not a bug. detectColourModelUsage is the
+			// same signal injectOutputIntent uses to pick the model
+			// to cover.
 			mixedModel := false
 			if doc, err := pdf.Open(path); err == nil {
 				if graph, err := doc.ResolveGraph(); err == nil {
@@ -453,8 +486,8 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 	t.Logf("OutputIntent injection sweep: %d/%d targeted fixture(s) had every applicable Check cleared", cleared, tested)
 }
 
-// TestConvertNeverBreaksConformantInput runs Convert over every "pass" fixture in the
-// veraPDF corpus and asserts the output is still fully conformant.
+// TestConvertNeverBreaksConformantInput runs Convert over every "pass" fixture
+// in the veraPDF corpus and asserts the output is still fully conformant.
 func TestConvertNeverBreaksConformantInput(t *testing.T) {
 	paths := passFixtures(t)
 	if len(paths) == 0 {
@@ -475,11 +508,11 @@ func TestConvertNeverBreaksConformantInput(t *testing.T) {
 	}
 }
 
-// TestConvertIsDeterministic converts the corpus fixture that historically
-// flaked (isartor-6-9-t01-fail-a, residual 6.3.2/InvalidProgram in ~1 of 3
-// full-suite runs) several times in one process and asserts every run agrees:
-// same validity and the same residual multiset. Guards the two determinism
-// fixes: per-Run appearance font scoping and sorted fixer application.
+// TestConvertIsDeterministic converts isartor-6-9-t01-fail-a several times in
+// one process and verifies that every run agrees: same validity and the same
+// residual multiset. The fixture leaves a 6.3.2 InvalidProgram residual, so the
+// residual multiset is what the test compares. The conversions exercise the
+// per-Run appearance font scoping and the sorted fixer application.
 func TestConvertIsDeterministic(t *testing.T) {
 	path := "../../tests/Isartor/PDFA-1b/6.9 Interactive Forms/isartor-6-9-t01-fail-a.pdf"
 	if _, err := os.Stat(path); err != nil {
@@ -508,22 +541,21 @@ func TestConvertIsDeterministic(t *testing.T) {
 	}
 }
 
-// minConvertedFully is a regression floor on how many of both corpora's
-// "fail" fixtures Convert turns fully conformant. A drop means something
-// regressed.
+// minConvertedFully is a regression floor on how many of both corpora's "fail"
+// fixtures Convert turns fully conformant. A drop means something regressed.
 //
-// 510: every "fail" fixture converts fully. The former hold-out,
-// isartor-6-1-3-t02-fail-a.pdf (the only encrypted fixture in either corpus),
-// now decrypts through the Standard security handler (empty user password),
-// so its RC4 streams re-encode as real content and the output is conformant.
+// The floor is 510, which is every "fail" fixture. isartor-6-1-3-t02-fail-a.pdf,
+// the only encrypted fixture in either corpus, is decrypted with the Standard
+// security handler (empty user password), so its RC4 streams are re-encoded as
+// content and the output is conformant.
 const minConvertedFully = 510
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to
 // end in the raster fallback, each with why no fixer can repair it in place.
 // The fallback clears whatever residual is on the pages it rebuilds, so a
 // conformant verdict alone cannot tell a working fixer from one that silently
-// declined; TestConvertCorpusEndToEnd fails on any fixture that rasterizes
-// without being listed here, and on any listed one that no longer does.
+// declined. TestConvertCorpusEndToEnd fails on any fixture that rasterizes
+// without being listed here, and on any listed one that does not rasterize.
 var expectedRasterized = map[string]string{
 	// No bundled face covers CJK, and none of these fonts has the Identity
 	// encoding plus ToUnicode map CID substitution needs.
@@ -756,7 +788,7 @@ func TestConvertEachCancelled(t *testing.T) {
 func TestFlattenAllPages(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 0 0 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 0 0 10 10 re f")),
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
 	})}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -814,9 +846,8 @@ func TestSameMultiset(t *testing.T) {
 
 const cryptDir = "../pdf/testdata/crypt"
 
-// TestConvertDecryptsEmptyPasswordFile confirms an empty-password encrypted
-// document is decrypted and converted to conformant output -- the case that
-// raised the corpus floor to 510.
+// TestConvertDecryptsEmptyPasswordFile verifies that an empty-password
+// encrypted document is decrypted and converted to conformant output.
 func TestConvertDecryptsEmptyPasswordFile(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(cryptDir, "enc_aesv3.pdf"))
 	if err != nil {
@@ -851,8 +882,9 @@ func TestConvertRefusesPasswordProtectedFile(t *testing.T) {
 	}
 }
 
-// TestAddRasterizedPages: pages merge sorted and deduped, since the page-level
-// fallback and the whole-document one can both rebuild the same page.
+// TestAddRasterizedPages verifies that pages merge sorted and deduped, since
+// the page-level fallback and the whole-document one can both rebuild the same
+// page.
 func TestAddRasterizedPages(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -877,9 +909,10 @@ func TestAddRasterizedPages(t *testing.T) {
 	}
 }
 
-// TestConvertReportsRasterizedPages: a conversion needing no raster fallback
-// reports none, so the signal distinguishes "was rasterized" from "lost
-// content the rasterizer could not draw" -- which RasterDrops alone cannot.
+// TestConvertReportsRasterizedPages verifies that a conversion needing no
+// raster fallback reports no rasterized pages. The signal tells a rasterized
+// page apart from a page that lost content the rasterizer could not draw, which
+// RasterDrops alone cannot do.
 func TestConvertReportsRasterizedPages(t *testing.T) {
 	cr, err := ConvertBytes(onePageDoc(filledPage), pdf.PDFA1B, Options{})
 	if err != nil {
@@ -897,14 +930,14 @@ func TestConvertReportsRasterizedPages(t *testing.T) {
 	}
 }
 
-// TestRasterFallbackRecordsRasterizedPages: flattening records every page it
-// rebuilt, whether or not anything was dropped doing it.
+// TestRasterFallbackRecordsRasterizedPages verifies that flattening records
+// every page it rebuilt, whether or not anything was dropped doing it.
 func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 	page := func() pdf.PDFDict {
 		return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Type":     pdf.PDFName{Value: "Page"},
 			"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 2 2 5 5 re f")},
+			"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg 2 2 5 5 re f")),
 		})}
 	}
 	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
@@ -921,8 +954,8 @@ func TestRasterFallbackRecordsRasterizedPages(t *testing.T) {
 	if !slices.Equal(rasterized, []int{1, 2}) {
 		t.Errorf("rasterized = %v, want [1 2]", rasterized)
 	}
-	// Nothing on these pages is undrawable, so the loss report stays empty --
-	// which is exactly why RasterDrops cannot stand in for this signal.
+	// Nothing on these pages is undrawable, so the loss report stays empty.
+	// RasterDrops cannot stand in for this signal.
 	if len(drops) != 0 {
 		t.Errorf("drops = %v, want none", drops)
 	}

@@ -11,16 +11,16 @@ import (
 // stack-clearing operator. Only that prefix is interpreted; on any parse
 // uncertainty the glyph (or the whole font) is skipped rather than reported.
 
-// cffDictNumbers parses a CFF DICT's operands/operators, invoking op for each
+// CFFDictNumbers parses a CFF DICT's operands/operators, invoking op for each
 // operator with the operands collected before it (escape operators are passed
 // as 1200+n). Returns false on malformed data.
-func cffDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
-	return cffDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
+func CFFDictNumbers(dict []byte, op func(operator int, operands []float64)) bool {
+	return CFFDictNumbersAt(dict, func(operator int, operands []float64, _ int) { op(operator, operands) })
 }
 
-// cffDictNumbersAt is cffDictNumbers that also passes, with each operator,
+// CFFDictNumbersAt is CFFDictNumbers that also passes, with each operator,
 // the offset just past it -- where the next entry starts.
-func cffDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
+func CFFDictNumbersAt(dict []byte, op func(operator int, operands []float64, end int)) bool {
 	var stack []float64
 	for i := 0; i < len(dict); {
 		b := int(dict[i])
@@ -143,13 +143,13 @@ func parseSimpleFloat(s string) float64 {
 	return v
 }
 
-// cffPrivateInfo reads a Private DICT's width defaults and local Subrs INDEX.
-func cffPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX float64, localSubrs [][]byte, ok bool) {
+// CFFPrivateInfo reads a Private DICT's width defaults and local Subrs INDEX.
+func CFFPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX float64, localSubrs [][]byte, ok bool) {
 	if offset < 0 || size <= 0 || offset+size > len(cff) {
 		return 0, 0, nil, false
 	}
 	subrsOffset := -1
-	parsed := cffDictNumbers(cff[offset:offset+size], func(operator int, operands []float64) {
+	parsed := CFFDictNumbers(cff[offset:offset+size], func(operator int, operands []float64) {
 		if len(operands) == 0 {
 			return
 		}
@@ -171,9 +171,9 @@ func cffPrivateInfo(cff []byte, offset, size int) (defaultWidthX, nominalWidthX 
 	return defaultWidthX, nominalWidthX, localSubrs, true
 }
 
-// cffGlobalSubrs returns the Global Subr INDEX entries, which follow the
+// CFFGlobalSubrs returns the Global Subr INDEX entries, which follow the
 // String INDEX in every CFF program.
-func cffGlobalSubrs(cff []byte) [][]byte {
+func CFFGlobalSubrs(cff []byte) [][]byte {
 	if len(cff) < 4 {
 		return nil
 	}
@@ -196,121 +196,10 @@ func cffSubrBias(count int) int {
 	}
 }
 
-// type2CharstringWidth interprets a Type2 charstring only up to its first
-// stack-clearing operator and reports the width operand, if present, as
-// (width, true, true). ok is false when the prefix cannot be followed safely.
-func type2CharstringWidth(cs []byte, gsubrs, lsubrs [][]byte) (width float64, hasWidth, ok bool) {
-	var stack []float64
-	gBias, lBias := cffSubrBias(len(gsubrs)), cffSubrBias(len(lsubrs))
-
-	// run walks the charstring, following subr calls, and returns the first
-	// stack-clearing operator (-2 when the string ends or returns first).
-	var run func(cs []byte, depth int) (term int, ok bool)
-	run = func(cs []byte, depth int) (int, bool) {
-		if depth > 10 {
-			return -1, false
-		}
-		for i := 0; i < len(cs); {
-			b := int(cs[i])
-			switch {
-			case b >= 32 && b <= 246:
-				stack = append(stack, float64(b-139))
-				i++
-			case b >= 247 && b <= 250:
-				if i+1 >= len(cs) {
-					return -1, false
-				}
-				stack = append(stack, float64((b-247)*256+int(cs[i+1])+108))
-				i += 2
-			case b >= 251 && b <= 254:
-				if i+1 >= len(cs) {
-					return -1, false
-				}
-				stack = append(stack, float64(-(b-251)*256-int(cs[i+1])-108))
-				i += 2
-			case b == 28:
-				if i+2 >= len(cs) {
-					return -1, false
-				}
-				stack = append(stack, float64(int16(binary.BigEndian.Uint16(cs[i+1:i+3]))))
-				i += 3
-			case b == 255: // 16.16 fixed
-				if i+4 >= len(cs) {
-					return -1, false
-				}
-				stack = append(stack, float64(int32(binary.BigEndian.Uint32(cs[i+1:i+5])))/65536)
-				i += 5
-			case b == 1 || b == 3 || b == 18 || b == 23 || b == 19 || b == 20 ||
-				b == 21 || b == 4 || b == 22 || b == 14:
-				return b, true
-			case b == 10 || b == 29: // callsubr / callgsubr
-				if len(stack) == 0 {
-					return -1, false
-				}
-				idx := int(stack[len(stack)-1])
-				stack = stack[:len(stack)-1]
-				subrs, bias := lsubrs, lBias
-				if b == 29 {
-					subrs, bias = gsubrs, gBias
-				}
-				idx += bias
-				if idx < 0 || idx >= len(subrs) {
-					return -1, false
-				}
-				term, ok := run(subrs[idx], depth+1)
-				if !ok || term != -2 {
-					return term, ok
-				}
-				i++
-			case b == 11: // return from subr
-				return -2, true
-			default:
-				// Any other operator before the first stack-clearing one is
-				// out of the width prefix's grammar; give up.
-				return -1, false
-			}
-		}
-		return -2, true
-	}
-
-	term, runOK := run(cs, 0)
-	if !runOK || term < 0 {
-		return 0, false, false
-	}
-
-	// The width operand is stack[0] when the count exceeds the terminator's
-	// arity: stem/hintmask operators take an even count, moveto forms 1-2,
-	// endchar 0 (or the deprecated 4-argument seac form). run only returns the
-	// terminators listed here, and each "extra" test below implies a non-empty
-	// stack.
-	widthFor := func(extra bool) (float64, bool, bool) {
-		if !extra {
-			return 0, false, true
-		}
-		return stack[0], true, true
-	}
-	switch term {
-	case 1, 3, 18, 23, 19, 20:
-		return widthFor(len(stack)%2 == 1)
-	case 21:
-		return widthFor(len(stack) > 2)
-	case 14:
-		if len(stack) == 1 || len(stack) == 5 {
-			return stack[0], true, true
-		}
-		if len(stack) == 0 || len(stack) == 4 {
-			return 0, false, true
-		}
-		return 0, false, false
-	default: // 4, 22: vmoveto, hmoveto
-		return widthFor(len(stack) > 1)
-	}
-}
-
 // cffCharstringWidth extracts one glyph's advance width given the width
 // defaults and subrs in effect for it, or -1 when it cannot be followed.
 func cffCharstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
-	w, hasWidth, ok := type2CharstringWidth(cs, gsubrs, lsubrs)
+	w, hasWidth, ok := Type2CharstringWidth(cs, gsubrs, lsubrs)
 	if !ok {
 		return -1
 	}
@@ -421,11 +310,11 @@ func CFFAdvanceWidthsStats(cff []byte) (map[string]float64, WidthStats) {
 	if len(names) != len(charStrings) {
 		return nil, WidthStats{Skip: WidthSkipGlyphNames}
 	}
-	defaultWidthX, nominalWidthX, lsubrs, ok := cffPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
+	defaultWidthX, nominalWidthX, lsubrs, ok := CFFPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
 	if !ok {
 		return nil, WidthStats{Skip: WidthSkipPrivate}
 	}
-	gsubrs := cffGlobalSubrs(cff)
+	gsubrs := CFFGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings) - 1}
 	widths := make(map[string]float64, len(names))
@@ -472,7 +361,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	if cids == nil {
 		return nil, WidthStats{Skip: WidthSkipCharset}
 	}
-	fdIndex := parseCFFFDSelect(cff, td.FDSelect, len(charStrings))
+	fdIndex := ParseCFFFDSelect(cff, td.FDSelect, len(charStrings))
 	fds, _ := ParseCFFIndex(cff, td.FDArrayOffset)
 	if len(fds) == 0 {
 		return nil, WidthStats{Skip: WidthSkipFDArray}
@@ -484,31 +373,13 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 		fdIndex = make([]int, len(charStrings))
 	}
 
-	type fdInfo struct {
-		defaultWidthX, nominalWidthX float64
-		lsubrs                       [][]byte
-		ok                           bool
+	// A Font DICT with its own FontMatrix scales its glyphs' widths by a
+	// matrix this path does not apply, so its glyphs are skipped.
+	infos := cffFontDictPrivates(cff, fds)
+	for i := range infos {
+		infos[i].ok = infos[i].ok && !infos[i].hasMatrix
 	}
-	infos := make([]fdInfo, len(fds))
-	for i, fd := range fds {
-		var privOff, privSize int
-		privOff, privSize = -1, -1
-		hasMatrix := false
-		if !cffDictNumbers(fd, func(operator int, operands []float64) {
-			switch {
-			case operator == 18 && len(operands) > 1:
-				privSize = int(operands[0])
-				privOff = int(operands[1])
-			case operator == 1207:
-				hasMatrix = true
-			}
-		}) || hasMatrix {
-			continue
-		}
-		d, n, ls, ok := cffPrivateInfo(cff, privOff, privSize)
-		infos[i] = fdInfo{d, n, ls, ok}
-	}
-	gsubrs := cffGlobalSubrs(cff)
+	gsubrs := CFFGlobalSubrs(cff)
 
 	stats := WidthStats{GlyphsTotal: len(charStrings)}
 	widths := make(map[int]float64, len(charStrings))
@@ -519,7 +390,7 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 			continue
 		}
 		info := infos[fd]
-		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.lsubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
+		if w := cffCharstringWidth(charStrings[gid], gsubrs, info.localSubrs, info.defaultWidthX, info.nominalWidthX); w >= 0 {
 			widths[cids[gid]] = scaleWidth(w, scale)
 		} else {
 			stats.GlyphsSkipped++
@@ -528,9 +399,9 @@ func CFFCIDAdvanceWidthsStats(cff []byte) (map[int]float64, WidthStats) {
 	return widths, stats
 }
 
-// parseCFFFDSelect maps each glyph ID to its Font DICT index (formats 0 and
+// ParseCFFFDSelect maps each glyph ID to its Font DICT index (formats 0 and
 // 3); nil on absence or parse failure.
-func parseCFFFDSelect(cff []byte, offset, numGlyphs int) []int {
+func ParseCFFFDSelect(cff []byte, offset, numGlyphs int) []int {
 	if offset < 0 || offset >= len(cff) || numGlyphs <= 0 {
 		return nil
 	}
@@ -658,9 +529,9 @@ func ParseCFFTopDict(cff []byte) (td CFFTopDict, ok bool) {
 	}
 	topDict := cff[tdDataStart : tdDataStart+tdDataLen]
 
-	// Read the operators we need. cffDictNumbers decodes nibble reals, which
+	// Read the operators we need. CFFDictNumbers decodes nibble reals, which
 	// is how FontMatrix is always written.
-	return td, cffDictNumbers(topDict, func(operator int, operands []float64) {
+	return td, CFFDictNumbers(topDict, func(operator int, operands []float64) {
 		first := func() (int, bool) {
 			if len(operands) == 0 {
 				return 0, false
@@ -781,10 +652,10 @@ func ParseCFFCharStringLengths(cff []byte, CSOffset int) []int {
 	return lens
 }
 
-// cffStandardStrings is the CFF specification's fixed table of predefined
-// SIDs (Appendix A); SIDs >= len(cffStandardStrings) index into a font's own
+// CffStandardStrings is the CFF specification's fixed table of predefined
+// SIDs (Appendix A); SIDs >= len(CffStandardStrings) index into a font's own
 // String INDEX instead.
-var cffStandardStrings = [...]string{
+var CffStandardStrings = [...]string{
 	".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent", "ampersand",
 	"quoteright", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
 	"slash", "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
@@ -896,10 +767,10 @@ func cffStringIndexEntries(cff []byte) [][]byte {
 // cffSIDName resolves a CFF string ID to its glyph name, via the standard
 // strings table or the font's own String INDEX. Returns "" if unresolvable.
 func cffSIDName(sid int, customStrings [][]byte) string {
-	if sid >= 0 && sid < len(cffStandardStrings) {
-		return cffStandardStrings[sid]
+	if sid >= 0 && sid < len(CffStandardStrings) {
+		return CffStandardStrings[sid]
 	}
-	if idx := sid - len(cffStandardStrings); idx >= 0 && idx < len(customStrings) {
+	if idx := sid - len(CffStandardStrings); idx >= 0 && idx < len(customStrings) {
 		return string(customStrings[idx])
 	}
 	return ""

@@ -34,10 +34,9 @@ func issueClauses(issues []pdf.PDFError) []string {
 // pdfBuilder assembles a minimal hand-crafted PDF byte-for-byte, tracking the
 // byte offset of each indirect object as it is written, so a cross-reference
 // stream's /W-encoded offsets can be computed exactly like a real writer
-// would. Used to construct synthetic fixtures exercising the xref-stream and
-// object-stream (ObjStm) read paths added in xrefstream.go/objstm.go, which
-// the real-world Isartor/veraPDF corpora (PDF/A-1-only, hence classic xref
-// only) never exercise.
+// would. It builds synthetic fixtures for the cross-reference stream and
+// object stream (ObjStm) read paths, which PDF/A-1 files never exercise
+// because they use classic xref tables only.
 type pdfBuilder struct {
 	buf     bytes.Buffer
 	offsets map[int]int64
@@ -110,8 +109,8 @@ func writeTempPDF(t *testing.T, name string, data []byte) string {
 // buildXRefStreamOnlyPDF builds a one-page PDF whose objects 1-4 are all
 // classically stored, but whose cross-reference table is a PDF 1.5+
 // cross-reference stream (object 5, self-referential) instead of a classic
-// "xref" table, with no literal "trailer" keyword anywhere in the file --
-// the shape that previously only worked via brute-force recovery.
+// "xref" table, with no literal "trailer" keyword anywhere in the file. The
+// cross-reference stream read path must handle this shape on its own.
 func buildXRefStreamOnlyPDF(t *testing.T) []byte {
 	t.Helper()
 	b := newPDFBuilder("%PDF-1.5\n%\xc2\xb5\xc2\xb6\n")
@@ -250,6 +249,31 @@ func TestXRefStreamOnly(t *testing.T) {
 	}
 }
 
+// TestXRefStreamWrongLength pins that a cross-reference stream whose /Length
+// runs past the end of the file is read up to its endstream keyword, so the
+// object table comes from the stream rather than from scanning the file.
+func TestXRefStreamWrongLength(t *testing.T) {
+	data := buildXRefStreamOnlyPDF(t)
+	at := bytes.LastIndex(data, []byte("/Length "))
+	end := at + bytes.IndexByte(data[at:], ' ') + 1
+	end += bytes.IndexByte(data[end:], ' ')
+	data = append(data[:at:at], append([]byte("/Length 99999"), data[end:]...)...)
+
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+	for _, e := range doc.Diagnostics() {
+		if e.Kind == pdf.DiagXRefRebuilt {
+			t.Fatalf("object table rebuilt by scanning: %v", e.Errs)
+		}
+	}
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
+	}
+}
+
 // TestXRefStreamWithObjStm verifies a PDF using both a cross-reference stream
 // and a compressed object stream (ObjStm) is fully readable: the Catalog,
 // Pages and Page dictionaries packed inside the ObjStm must resolve exactly
@@ -277,7 +301,7 @@ func TestXRefStreamWithObjStm(t *testing.T) {
 	// The graph-resolved Page dict (from inside the ObjStm) must carry the
 	// synthetic _ref stamp like any classically-stored object, since
 	// buildPageIndex and every checker key off it.
-	if ref, ok := page.Entries.Get(pdf.RefKey).(pdf.PDFRef); !ok || ref.ObjNum != 3 {
+	if ref, ok := page.Ref(); !ok || ref.ObjNum != 3 {
 		t.Errorf("Page dict _ref = %v, ok=%v; want {ObjNum:3 ...}", ref, ok)
 	}
 
@@ -324,7 +348,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 func assertContentStream(t *testing.T, doc *pdf.Reader, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !contents.HasStream {
+	if !ok || !contents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	data, err := pdf.DecodeStream(contents)

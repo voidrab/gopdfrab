@@ -22,7 +22,7 @@ func TestViewerPrefFixerRemovesPost14Keys(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	fixer := viewerPrefFixer{}
+	fixer := viewerPrefFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -51,7 +51,7 @@ func TestViewerPrefFixerNoOp(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	changed, err := viewerPrefFixer{}.Fix(&trailer, nil)
+	changed, err := viewerPrefFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestActionFixerRemovesJavaScriptNameTree(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", root)
 
-	fixer := actionFixer{}
+	fixer := actionFixer{spec: a1bSpec}
 	changed, err := fixer.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -116,7 +116,7 @@ func TestExtGStateFixer(t *testing.T) {
 		"ca":    pdf.PDFReal(0.5),
 	})}
 	trailer := trailerWith("GS", gs)
-	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, everyCheck(extGStateFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -140,10 +140,11 @@ func TestExtGStateFixer(t *testing.T) {
 	}
 }
 
-// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque: the fixer's own
-// repair for a zero opacity is to set it to 1, which on its own would paint
-// invisible content over the page. It has to take the drawing out first, in
-// the same pass, while the opacity still says it is invisible.
+// TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque verifies that the
+// fixer removes the drawing made at a zero opacity in the same pass that sets
+// the opacity to 1. Setting the opacity alone would paint invisible content
+// over the page, so the drawing must be removed while the opacity still marks
+// it invisible.
 func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	gs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "ExtGState"},
@@ -154,7 +155,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	})}
 	trailer, page := onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
 
-	changed, err := extGStateFixer{}.Fix(&trailer, nil)
+	changed, err := extGStateFixer{spec: a1bSpec}.Fix(&trailer, everyCheck(extGStateFixer{}))
 	if err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
@@ -167,7 +168,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 	}
 
 	// A partial opacity is a different case: it is made opaque and the drawing
-	// stays, since it was visible all along.
+	// stays, since it is visible at that opacity.
 	half := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "ExtGState"},
 		"ca":   pdf.PDFReal(0.5),
@@ -176,7 +177,7 @@ func TestExtGStateFixerTakesTheDrawingOutBeforeMakingItOpaque(t *testing.T) {
 		"ExtGState": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"GS0": half})},
 	})}
 	trailer, page = onePageAlphaTrailer(contentStream("/GS0 gs\n0 0 10 10 re\nf\n"), resources)
-	if changed, err := (extGStateFixer{}).Fix(&trailer, nil); err != nil || !changed {
+	if changed, err := (extGStateFixer{spec: a1bSpec}).Fix(&trailer, everyCheck(extGStateFixer{})); err != nil || !changed {
 		t.Fatalf("extGStateFixer.Fix = %v, %v; want changed", changed, err)
 	}
 	if half.Entries.Get("ca") != pdf.PDFReal(1.0) {
@@ -265,16 +266,16 @@ func TestPostScriptXObjectFixer(t *testing.T) {
 	}
 }
 
-// TestPostScriptXObjectFixerNeutersPSSubtype: a Subtype /PS XObject becomes an
-// empty Form XObject (viewers never render PS passthrough, so nothing visual
-// is lost) with the stream filter metadata cleared.
+// TestPostScriptXObjectFixerNeutersPSSubtype verifies that a Subtype /PS
+// XObject becomes an empty Form XObject, with the stream filter metadata
+// cleared. Viewers never render PS passthrough, so nothing visual is lost.
 func TestPostScriptXObjectFixerNeutersPSSubtype(t *testing.T) {
-	xobj := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	xobj := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":    pdf.PDFName{Value: "XObject"},
 		"Subtype": pdf.PDFName{Value: "PS"},
 		"Filter":  pdf.PDFName{Value: "FlateDecode"},
 		"Level1":  pdf.PDFRef{ObjNum: 9},
-	}), HasStream: true, RawStream: []byte("compressed ps")}
+	}), []byte("compressed ps"))
 	trailer := trailerWith("XObj", xobj)
 	changed, err := postScriptXObjectFixer{}.Fix(&trailer, nil)
 	if err != nil || !changed {
@@ -329,14 +330,14 @@ func TestOptionalContentFixerNoOp(t *testing.T) {
 // which covers ViewerPreferences present but clean).
 func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
 	noRoot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})}
-	if changed, err := (viewerPrefFixer{}).Fix(&noRoot, nil); err != nil || changed {
+	if changed, err := (viewerPrefFixer{spec: a1bSpec}).Fix(&noRoot, nil); err != nil || changed {
 		t.Errorf("Fix(no Root) = %v, %v, want (false, nil)", changed, err)
 	}
 
 	noVP := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Root": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}})},
 	})}
-	if changed, err := (viewerPrefFixer{}).Fix(&noVP, nil); err != nil || changed {
+	if changed, err := (viewerPrefFixer{spec: a1bSpec}).Fix(&noVP, nil); err != nil || changed {
 		t.Errorf("Fix(no ViewerPreferences) = %v, %v, want (false, nil)", changed, err)
 	}
 }
@@ -347,28 +348,20 @@ func TestViewerPrefFixerNoOpMissingEntries(t *testing.T) {
 // them; an image mask, whose depth is a different rule's business, is left.
 func TestImageSampleDepthFixerRewritesSixteenBit(t *testing.T) {
 	// A 2x1 16-bit grayscale image: two big-endian samples per pixel.
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":          pdf.PDFName{Value: "Image"},
-			"Width":            pdf.PDFInteger(2),
-			"Height":           pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(16),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
-	}
-	mask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":          pdf.PDFName{Value: "Image"},
-			"Width":            pdf.PDFInteger(2),
-			"Height":           pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(16),
-			"ImageMask":        pdf.PDFBoolean(true),
-		}),
-		HasStream: true,
-		RawStream: []byte{0x00, 0x00, 0xff, 0xff},
-	}
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":          pdf.PDFName{Value: "Image"},
+		"Width":            pdf.PDFInteger(2),
+		"Height":           pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(16),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0x00, 0x00, 0xff, 0xff})
+	mask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":          pdf.PDFName{Value: "Image"},
+		"Width":            pdf.PDFInteger(2),
+		"Height":           pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(16),
+		"ImageMask":        pdf.PDFBoolean(true),
+	}), []byte{0x00, 0x00, 0xff, 0xff})
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("Im0", img)
 	xobjects.Entries.Set("Im1", mask)
@@ -408,7 +401,7 @@ func TestClearJSNameTreeReachesNestedDicts(t *testing.T) {
 	root.Entries.Set("Sub", node)
 
 	changed := false
-	clearJSNameTree(root, &changed)
+	clearJSNameTree(root, &changed, a1bSpec)
 	if !changed || action.Entries.Get("JS") != nil {
 		t.Errorf("changed=%v, JS=%v; want the nested action cleared", changed, action.Entries.Get("JS"))
 	}
@@ -430,29 +423,23 @@ func TestDeadAction(t *testing.T) {
 		"no /S (emptied)":  {pdf.NewPDFDict(), true},
 		"/S not a name":    {func() pdf.PDFDict { d := pdf.NewPDFDict(); d.Entries.Set("S", pdf.PDFInteger(1)); return d }(), true},
 	} {
-		if got := deadAction(tc.v); got != tc.want {
+		if got := deadAction(tc.v, a1bSpec); got != tc.want {
 			t.Errorf("%s: deadAction = %v, want %v", name, got, tc.want)
 		}
 	}
 }
 
-// TestImageSampleDepthFixerLeavesWhatItCannotRewrite: an image with no depth to
-// repair, and a 16-bit one that cannot be decoded, are both left exactly as
-// they were.
+// TestImageSampleDepthFixerLeavesWhatItCannotRewrite verifies that an image
+// with no depth to repair, and a 16-bit one that cannot be decoded, are both
+// left exactly as they were.
 func TestImageSampleDepthFixerLeavesWhatItCannotRewrite(t *testing.T) {
-	noDepth := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
-		}),
-		HasStream: true, RawStream: []byte{0},
-	}
-	undecodable := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(0), "Height": pdf.PDFInteger(2),
-			"BitsPerComponent": pdf.PDFInteger(16), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true, RawStream: []byte{0, 0, 0, 0}, // a zero /Width is invalid
-	}
+	noDepth := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(1), "Height": pdf.PDFInteger(1),
+	}), []byte{0})
+	undecodable := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"}, "Width": pdf.PDFInteger(0), "Height": pdf.PDFInteger(2),
+		"BitsPerComponent": pdf.PDFInteger(16), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{0, 0, 0, 0})
 	if _, err := raster.DecodeImageRGBA(undecodable, pdf.PDFDict{}); err == nil {
 		t.Fatal("fixture decodes; it must not for this test to exercise the failure path")
 	}

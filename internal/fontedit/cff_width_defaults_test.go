@@ -1,4 +1,4 @@
-package fontprog
+package fontedit
 
 import (
 	"bytes"
@@ -6,6 +6,8 @@ import (
 	"math"
 	"reflect"
 	"testing"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // fixed16 encodes v as a Type 2 16.16 fixed operand.
@@ -39,23 +41,23 @@ func fractionalDefaultsSpec() cffSpec {
 // truncatingWidths reads every glyph's width the way a reader that truncates
 // fractional width defaults does.
 func truncatingWidths(cff []byte) []float64 {
-	td, _ := ParseCFFTopDict(cff)
-	d, n, lsubrs, _ := cffPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
-	cs, _ := ParseCFFIndex(cff, td.CSOffset)
+	td, _ := fontprog.ParseCFFTopDict(cff)
+	d, n, lsubrs, _ := fontprog.CFFPrivateInfo(cff, td.PrivateOffset, td.PrivateSize)
+	cs, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
 	out := make([]float64, len(cs))
 	for i, c := range cs {
-		out[i] = cffCharstringWidth(c, cffGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
+		out[i] = charstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
 	}
 	return out
 }
 
-// TestNormalizeCFFWidthDefaults: the rewritten program has whole width
-// defaults, every glyph keeps its width, and a reader that truncates the
-// defaults now reads the same widths as one that does not. The old
+// TestNormalizeCFFWidthDefaults verifies that the rewritten program has whole
+// width defaults, that every glyph keeps its width, and that a reader which
+// truncates the defaults reads the same widths as one that does not. The old
 // CharStrings and Private DICT were the program's tail, so they are dropped.
 func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	src := fractionalDefaultsSpec().assemble()
-	if got := truncatingWidths(src); got[2] == CFFAdvanceWidths(src)["b"] {
+	if got := truncatingWidths(src); got[2] == fontprog.CFFAdvanceWidths(src)["b"] {
 		t.Fatal("setup: a truncating reader already agrees; the fixture proves nothing")
 	}
 
@@ -63,21 +65,21 @@ func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	if !changed {
 		t.Fatal("NormalizeCFFWidthDefaults reported no change")
 	}
-	td, _ := ParseCFFTopDict(out)
-	d, n, _, _ := cffPrivateInfo(out, td.PrivateOffset, td.PrivateSize)
+	td, _ := fontprog.ParseCFFTopDict(out)
+	d, n, _, _ := fontprog.CFFPrivateInfo(out, td.PrivateOffset, td.PrivateSize)
 	if d != 500 && d != 501 || n != 635 {
 		t.Errorf("defaults = (%v, %v), want whole numbers (501, 635)", d, n)
 	}
-	want := CFFAdvanceWidths(src)
-	got := CFFAdvanceWidths(out)
+	want := fontprog.CFFAdvanceWidths(src)
+	got := fontprog.CFFAdvanceWidths(out)
 	for name, w := range want {
 		if math.Abs(got[name]-w) > 1e-3 {
 			t.Errorf("width of %s = %v, want %v", name, got[name], w)
 		}
 	}
-	names := CFFGlyphNames(out)
+	names := fontprog.CFFGlyphNames(out)
 	for i, w := range truncatingWidths(out) {
-		// CFFAdvanceWidths leaves out .notdef.
+		// fontprog.CFFAdvanceWidths leaves out .notdef.
 		if wantW, ok := want[names[i]]; ok && math.Abs(w-wantW) > 1e-3 {
 			t.Errorf("a truncating reader reads %s as %v, want %v", names[i], w, wantW)
 		}
@@ -91,11 +93,11 @@ func TestNormalizeCFFWidthDefaults(t *testing.T) {
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsKeepsWhatFollows: a charset placed after the
-// CharStrings is still referenced, so the program is kept whole and the
-// charset's offset moves with everything behind the Top DICT. The font also
-// carries DICT entries the rewrite has no business with, which come through
-// as they were, and a whole defaultWidthX that glyphs without a width keep.
+// TestNormalizeCFFWidthDefaultsKeepsWhatFollows verifies that a charset placed
+// after the CharStrings is still referenced, so the program is kept whole and
+// the charset's offset moves with everything behind the Top DICT. The font also
+// carries DICT entries the rewrite has no business with, which come through as
+// they were, and a whole defaultWidthX that glyphs without a width keep.
 func TestNormalizeCFFWidthDefaultsKeepsWhatFollows(t *testing.T) {
 	spec := fractionalDefaultsSpec()
 	spec.matrix = []string{"0.001", "0", "0", "0.001", "0", "0"}
@@ -110,7 +112,7 @@ func TestNormalizeCFFWidthDefaultsKeepsWhatFollows(t *testing.T) {
 	if len(out) < len(src) {
 		t.Errorf("output is %d bytes for a %d-byte input; part of the program was dropped", len(out), len(src))
 	}
-	if a, b := CFFGlyphNames(src), CFFGlyphNames(out); len(a) == 0 || !equalStrings(a, b) {
+	if a, b := fontprog.CFFGlyphNames(src), fontprog.CFFGlyphNames(out); len(a) == 0 || !equalStrings(a, b) {
 		t.Errorf("glyph names = %v, want %v", b, a)
 	}
 }
@@ -132,16 +134,16 @@ func equalStrings(a, b []string) bool {
 // integer.
 func relocateCharset(t *testing.T, cff []byte) []byte {
 	t.Helper()
-	td, _ := ParseCFFTopDict(cff)
-	_, nameEnd := ParseCFFIndex(cff, int(cff[2]))
-	tops, _ := ParseCFFIndex(cff, nameEnd)
+	td, _ := fontprog.ParseCFFTopDict(cff)
+	_, nameEnd := fontprog.ParseCFFIndex(cff, int(cff[2]))
+	tops, _ := fontprog.ParseCFFIndex(cff, nameEnd)
 	at := bytes.Index(cff, tops[0])
 	for _, e := range cffDictEntries(tops[0]) {
 		if e.op == 15 {
 			at += bytes.Index(tops[0], e.raw)
 		}
 	}
-	n := len(CFFGlyphNames(cff))
+	n := len(fontprog.CFFGlyphNames(cff))
 	charset := cff[td.CharsetOffset : td.CharsetOffset+1+2*(n-1)]
 	out := append(append([]byte{}, cff...), charset...)
 	binary.BigEndian.PutUint32(out[at+1:], uint32(len(cff)))
@@ -175,19 +177,19 @@ func fractionalCIDSpec() cffSpec {
 // truncatingCIDWidths reads every CID's width the way a reader that
 // truncates fractional width defaults does.
 func truncatingCIDWidths(cff []byte) map[int]float64 {
-	td, _ := ParseCFFTopDict(cff)
-	cs, _ := ParseCFFIndex(cff, td.CSOffset)
-	fds, _ := ParseCFFIndex(cff, td.FDArrayOffset)
-	fdIndex := parseCFFFDSelect(cff, td.FDSelect, len(cs))
+	td, _ := fontprog.ParseCFFTopDict(cff)
+	cs, _ := fontprog.ParseCFFIndex(cff, td.CSOffset)
+	fds, _ := fontprog.ParseCFFIndex(cff, td.FDArrayOffset)
+	fdIndex := fontprog.ParseCFFFDSelect(cff, td.FDSelect, len(cs))
 	if fdIndex == nil {
 		fdIndex = make([]int, len(cs))
 	}
-	cids := ParseCFFCharsetCIDs(cff, td.CharsetOffset, len(cs))
+	cids := fontprog.ParseCFFCharsetCIDs(cff, td.CharsetOffset, len(cs))
 	out := map[int]float64{}
 	for gid, c := range cs {
 		off, size, _ := fontDictPrivate(fds[fdIndex[gid]])
-		d, n, lsubrs, _ := cffPrivateInfo(cff, off, size)
-		out[cids[gid]] = cffCharstringWidth(c, cffGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
+		d, n, lsubrs, _ := fontprog.CFFPrivateInfo(cff, off, size)
+		out[cids[gid]] = charstringWidth(c, fontprog.CFFGlobalSubrs(cff), lsubrs, math.Trunc(d), math.Trunc(n))
 	}
 	return out
 }
@@ -198,8 +200,8 @@ func truncatingCIDWidths(cff []byte) map[int]float64 {
 // DICT.
 func checkCIDNormalized(t *testing.T, src, out []byte) [][2]float64 {
 	t.Helper()
-	want := CFFCIDAdvanceWidths(src)
-	got := CFFCIDAdvanceWidths(out)
+	want := fontprog.CFFCIDAdvanceWidths(src)
+	got := fontprog.CFFCIDAdvanceWidths(out)
 	if len(want) == 0 || len(got) != len(want) {
 		t.Fatalf("widths = %v, want %v", got, want)
 	}
@@ -212,25 +214,25 @@ func checkCIDNormalized(t *testing.T, src, out []byte) [][2]float64 {
 			t.Errorf("a truncating reader reads CID %d as %v, want %v", cid, truncated[cid], w)
 		}
 	}
-	td, _ := ParseCFFTopDict(out)
-	fds, _ := ParseCFFIndex(out, td.FDArrayOffset)
+	td, _ := fontprog.ParseCFFTopDict(out)
+	fds, _ := fontprog.ParseCFFIndex(out, td.FDArrayOffset)
 	var defaults [][2]float64
 	for _, fd := range fds {
 		off, size, _ := fontDictPrivate(fd)
-		d, n, _, _ := cffPrivateInfo(out, off, size)
+		d, n, _, _ := fontprog.CFFPrivateInfo(out, off, size)
 		defaults = append(defaults, [2]float64{d, n})
 	}
 	return defaults
 }
 
-// TestNormalizeCFFWidthDefaultsCIDKeyed: each Font DICT's Private DICT gets
-// whole width defaults and each glyph is re-encoded against its own Font
-// DICT's. Glyphs of a Font DICT whose defaults were whole already are left
-// byte for byte. FDSelect lies past the CharStrings, so the program is kept
-// whole and FDSelect moves with it.
+// TestNormalizeCFFWidthDefaultsCIDKeyed verifies that each Font DICT's Private
+// DICT gets whole width defaults and that each glyph is re-encoded against its
+// own Font DICT's. Glyphs of a Font DICT whose defaults were whole already are
+// left byte for byte. FDSelect lies past the CharStrings, so the program is
+// kept whole and FDSelect moves with it.
 func TestNormalizeCFFWidthDefaultsCIDKeyed(t *testing.T) {
 	src := fractionalCIDSpec().assemble()
-	if truncatingCIDWidths(src)[2] == CFFCIDAdvanceWidths(src)[2] {
+	if truncatingCIDWidths(src)[2] == fontprog.CFFCIDAdvanceWidths(src)[2] {
 		t.Fatal("setup: a truncating reader already agrees; the fixture proves nothing")
 	}
 
@@ -243,9 +245,9 @@ func TestNormalizeCFFWidthDefaultsCIDKeyed(t *testing.T) {
 		t.Errorf("Font DICT width defaults = %v, want %v", defaults, want)
 	}
 
-	td, _ := ParseCFFTopDict(out)
-	before, _ := ParseCFFIndex(src, mustTopDict(t, src).CSOffset)
-	after, _ := ParseCFFIndex(out, td.CSOffset)
+	td, _ := fontprog.ParseCFFTopDict(out)
+	before, _ := fontprog.ParseCFFIndex(src, mustTopDict(t, src).CSOffset)
+	after, _ := fontprog.ParseCFFIndex(out, td.CSOffset)
 	for gid := 4; gid < len(before); gid++ {
 		if !bytes.Equal(before[gid], after[gid]) {
 			t.Errorf("glyph %d of the whole Font DICT was rewritten: % x, was % x", gid, after[gid], before[gid])
@@ -259,9 +261,9 @@ func TestNormalizeCFFWidthDefaultsCIDKeyed(t *testing.T) {
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsKeepsEntries: a custom Encoding before the
-// CharStrings moves with the Top DICT, and a Font DICT's entries other than
-// Private come through as they were.
+// TestNormalizeCFFWidthDefaultsKeepsEntries verifies that a custom Encoding
+// before the CharStrings moves with the Top DICT, and that a Font DICT's
+// entries other than Private come through as they were.
 func TestNormalizeCFFWidthDefaultsKeepsEntries(t *testing.T) {
 	encoding := []byte{0, 2, 'a', 'b'} // format 0: codes for gids 1 and 2
 	spec := fractionalDefaultsSpec()
@@ -271,8 +273,8 @@ func TestNormalizeCFFWidthDefaultsKeepsEntries(t *testing.T) {
 	if !changed {
 		t.Fatal("name-keyed: NormalizeCFFWidthDefaults reported no change")
 	}
-	_, nameEnd := ParseCFFIndex(out, int(out[2]))
-	tops, _ := ParseCFFIndex(out, nameEnd)
+	_, nameEnd := fontprog.ParseCFFIndex(out, int(out[2]))
+	tops, _ := fontprog.ParseCFFIndex(out, nameEnd)
 	found := false
 	for _, e := range cffDictEntries(tops[0]) {
 		if e.op == 16 {
@@ -294,15 +296,15 @@ func TestNormalizeCFFWidthDefaultsKeepsEntries(t *testing.T) {
 		t.Fatal("CID-keyed: NormalizeCFFWidthDefaults reported no change")
 	}
 	checkCIDNormalized(t, src, out)
-	fds, _ := ParseCFFIndex(out, mustTopDict(t, out).FDArrayOffset)
+	fds, _ := fontprog.ParseCFFIndex(out, mustTopDict(t, out).FDArrayOffset)
 	if !bytes.HasSuffix(fds[0], fontName) {
 		t.Errorf("Font DICT = % x, want it to keep its FontName entry", fds[0])
 	}
 }
 
-// TestNormalizeCFFWidthDefaultsCIDDropsTail: with one Font DICT and no
-// FDSelect, nothing the rewrite keeps lies past the old CharStrings, so the
-// old CharStrings, FDArray and Private DICT are dropped.
+// TestNormalizeCFFWidthDefaultsCIDDropsTail verifies that, with one Font DICT
+// and no FDSelect, nothing the rewrite keeps lies past the old CharStrings, so
+// the old CharStrings, FDArray and Private DICT are dropped.
 func TestNormalizeCFFWidthDefaultsCIDDropsTail(t *testing.T) {
 	spec := fractionalCIDSpec()
 	spec.cids, spec.charstrings = spec.cids[:3], spec.charstrings[:4]
@@ -322,9 +324,9 @@ func TestNormalizeCFFWidthDefaultsCIDDropsTail(t *testing.T) {
 	}
 }
 
-func mustTopDict(t *testing.T, cff []byte) CFFTopDict {
+func mustTopDict(t *testing.T, cff []byte) fontprog.CFFTopDict {
 	t.Helper()
-	td, ok := ParseCFFTopDict(cff)
+	td, ok := fontprog.ParseCFFTopDict(cff)
 	if !ok {
 		t.Fatal("Top DICT does not parse")
 	}
@@ -372,7 +374,7 @@ func TestNormalizeCFFWidthDefaultsDeclines(t *testing.T) {
 	noCS.noCS = true
 
 	badPrivate := fractionalDefaultsSpec().assemble()
-	td, _ := ParseCFFTopDict(badPrivate)
+	td, _ := fontprog.ParseCFFTopDict(badPrivate)
 	badPrivate = badPrivate[:td.PrivateOffset+2]
 
 	empty := fractionalDefaultsSpec()
@@ -430,8 +432,8 @@ func TestNormalizeCFFWidthDefaultsDeclines(t *testing.T) {
 func twoTopDicts(t *testing.T, cff []byte) []byte {
 	t.Helper()
 	hdr := int(cff[2])
-	names, nameEnd := ParseCFFIndex(cff, hdr)
-	tops, topEnd := ParseCFFIndex(cff, nameEnd)
+	names, nameEnd := fontprog.ParseCFFIndex(cff, hdr)
+	tops, topEnd := fontprog.ParseCFFIndex(cff, nameEnd)
 	out := append([]byte{}, cff[:hdr]...)
 	out = append(out, encodeCFFIndex([][]byte{names[0][:len(names[0])-1]})...)
 	out = append(out, encodeCFFIndex([][]byte{tops[0], {}})...)
@@ -439,7 +441,7 @@ func twoTopDicts(t *testing.T, cff []byte) []byte {
 	if len(out) != len(cff) {
 		t.Fatalf("rebuilt program is %d bytes, want %d", len(out), len(cff))
 	}
-	if _, ok := ParseCFFTopDict(out); !ok {
+	if _, ok := fontprog.ParseCFFTopDict(out); !ok {
 		t.Fatal("rebuilt program does not parse")
 	}
 	return out
@@ -499,8 +501,8 @@ func TestSameCFFWidths(t *testing.T) {
 	}
 }
 
-// TestType2NumberRoundTrip: every operand form encodes to the shortest
-// encoding and decodes back to its value.
+// TestType2NumberRoundTrip verifies that every operand form encodes to the
+// shortest encoding and decodes back to its value.
 func TestType2NumberRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
 		v    float64
@@ -510,7 +512,7 @@ func TestType2NumberRoundTrip(t *testing.T) {
 		{1132, 3}, {-1132, 3}, {32767, 3}, {-32768, 3}, {0.5, 5}, {-79.25, 5},
 	} {
 		enc := encodeType2Number(tc.v)
-		v, n, ok := type2Number(enc)
+		v, n, ok := fontprog.Type2Number(enc)
 		if len(enc) != tc.size || !ok || n != tc.size || v != tc.v {
 			t.Errorf("%v: encoded %v (%d bytes), decoded (%v, %d, %v)", tc.v, enc, len(enc), v, n, ok)
 		}
@@ -518,23 +520,32 @@ func TestType2NumberRoundTrip(t *testing.T) {
 	if enc := encodeType2Number(40000); len(enc) != 5 || enc[0] != 255 {
 		t.Errorf("40000 = %v, want a 16.16 operand", enc)
 	}
-	for _, cs := range [][]byte{nil, {247}, {251}, {28, 0}, {255, 0, 0}, {14}} {
-		if _, _, ok := type2Number(cs); ok {
-			t.Errorf("%v decoded as a number", cs)
-		}
-	}
 }
 
-// TestEncodeCFFIndexOffsetSize: the offset size grows with the data.
+// TestEncodeCFFIndexOffsetSize verifies that the offset size grows with the
+// data.
 func TestEncodeCFFIndexOffsetSize(t *testing.T) {
 	for _, tc := range []struct{ size, offSize int }{{10, 1}, {300, 2}, {70000, 3}} {
 		idx := encodeCFFIndex([][]byte{make([]byte, tc.size)})
 		if int(idx[2]) != tc.offSize {
 			t.Errorf("%d bytes: offset size %d, want %d", tc.size, idx[2], tc.offSize)
 		}
-		entries, _ := ParseCFFIndex(idx, 0)
+		entries, _ := fontprog.ParseCFFIndex(idx, 0)
 		if len(entries) != 1 || len(entries[0]) != tc.size {
 			t.Errorf("%d bytes: decoded %d entries", tc.size, len(entries))
 		}
 	}
+}
+
+// charstringWidth is one glyph's advance width given the width defaults in
+// effect for it, or -1 when its charstring cannot be followed.
+func charstringWidth(cs []byte, gsubrs, lsubrs [][]byte, defaultWidthX, nominalWidthX float64) float64 {
+	w, hasWidth, ok := fontprog.Type2CharstringWidth(cs, gsubrs, lsubrs)
+	switch {
+	case !ok:
+		return -1
+	case hasWidth:
+		return nominalWidthX + w
+	}
+	return defaultWidthX
 }

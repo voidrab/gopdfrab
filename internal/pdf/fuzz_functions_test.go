@@ -36,16 +36,14 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 	unit := pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1)}
 
 	ps := pdf.NewPDFDict()
-	ps.HasStream = true
-	ps.RawStream = data
+	ps.SetStream(data)
 	ps.Entries.Set("FunctionType", pdf.PDFInteger(4))
 	ps.Entries.Set("Domain", unit)
 	ps.Entries.Set("Range", unit)
 	ps.Entries.Set("Length", pdf.PDFInteger(len(data)))
 
 	sampled := pdf.NewPDFDict()
-	sampled.HasStream = true
-	sampled.RawStream = data
+	sampled.SetStream(data)
 	sampled.Entries.Set("FunctionType", pdf.PDFInteger(0))
 	sampled.Entries.Set("Domain", pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(1)})
 	sampled.Entries.Set("Range", unit)
@@ -63,8 +61,7 @@ func candidateFunctions(data []byte) []pdf.PDFValue {
 
 // FuzzResolveColor drives the colour-space resolver with fuzz-built colour
 // spaces and a resources dictionary that may contain a self-referential named
-// colour space -- the shape that previously recursed forever. Invariant: no
-// panic and no infinite recursion.
+// colour space. Invariant: no panic and no infinite recursion.
 func FuzzResolveColor(f *testing.F) {
 	f.Add([]byte("Indexed"), byte(0)) // self-cycle via named lookup
 	f.Add([]byte("CS0"), byte(1))     // Indexed base recursion

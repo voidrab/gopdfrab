@@ -197,8 +197,7 @@ func TestOriginalSimpleFontCodeToUnicode(t *testing.T) {
 
 	// A /ToUnicode CMap fills only the codes still unresolved.
 	toUni := pdf.NewPDFDict()
-	toUni.HasStream = true
-	toUni.RawStream = []byte("1 beginbfchar\n<41> <0058>\n<01> <0059>\nendbfchar\n1 beginbfrange\n<0100> <0101> <005A>\nendbfrange\n")
+	toUni.SetStream([]byte("1 beginbfchar\n<41> <0058>\n<01> <0059>\nendbfchar\n1 beginbfrange\n<0100> <0101> <005A>\nendbfrange\n"))
 	d := fontDict(pdf.PDFName{Value: "WinAnsiEncoding"}, "", 0)
 	d.Entries.Set("ToUnicode", toUni)
 	table, _ = OriginalSimpleFontCodeToUnicode(d)

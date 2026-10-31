@@ -56,7 +56,7 @@ func TestFontDictFixerAddsIdentityCIDToGIDMap(t *testing.T) {
 // TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing checks the Fixer/Applies
 // contract (mirroring the registration pattern in fixups_dict.go): the
 // fixer must claim exactly Checks.Font.CIDToGIDMapMissing and nothing else,
-// since registerFixer panics on a Check claimed by more than one Fixer.
+// since fixersFor panics on a Check claimed by more than one Fixer.
 func TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing(t *testing.T) {
 	fixer := fontDictFixer{}
 	for _, c := range pdf.AllChecks() {
@@ -102,7 +102,7 @@ func TestType0FontFixerCIDSystemInfo(t *testing.T) {
 // condition that makes the fixer leave the CMap alone is reported unchanged.
 func TestType0FontFixerWMode(t *testing.T) {
 	cmapStream := func(entries map[string]pdf.PDFValue, body string) pdf.PDFDict {
-		d := pdf.PDFDict{Entries: pdf.DictOf(entries), HasStream: true, RawStream: []byte(body)}
+		d := pdf.NewStreamDict(pdf.DictOf(entries), []byte(body))
 		return d
 	}
 	tests := []struct {
@@ -176,7 +176,7 @@ func baseFontOf(t *testing.T, trailer pdf.PDFDict) pdf.PDFValue {
 
 // descriptorWithProgram builds a font descriptor embedding program under key.
 func descriptorWithProgram(key string, program []byte) pdf.PDFDict {
-	ff := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: program}
+	ff := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), program)
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{key: ff})}
 }
 
@@ -227,9 +227,9 @@ func TestBaseFontFixerReadsEmbeddedProgram(t *testing.T) {
 // what the font is called, so a fixed placeholder goes in and the repair still
 // converges.
 func TestBaseFontFixerFallsBack(t *testing.T) {
-	undecodable := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+	undecodable := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
 		"Filter": pdf.PDFName{Value: "FlateDecode"},
-	}), HasStream: true, RawStream: []byte("not a zlib stream")}
+	}), []byte("not a zlib stream"))
 
 	for _, tc := range []struct {
 		name string

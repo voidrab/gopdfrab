@@ -7,27 +7,22 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// PDF/A-1 forbids transparency, and the repair for an opacity below 1 is to
-// set it to 1. That is right for 0.9 and wrong for 0: what a file draws at zero
-// opacity is not there, and making it opaque paints it over whatever it was
-// drawn on top of -- black rectangles across a title, a black square where a
-// photograph was.
+// PDF/A-1 forbids transparency, so an opacity below 1 is repaired by setting
+// it to 1. That is harmless for an opacity of 0.9, but for 0 it makes invisible
+// content visible: content drawn at zero opacity is not seen, and once opaque
+// it paints over whatever lies beneath.
 //
-// So before the opacity is put back to 1, this file takes the drawing away.
-// While a zero opacity is in force a fill stops filling, a stroke stops
-// stroking, an image or shading is dropped, and text is switched to the
-// render mode that marks nothing, keeping its characters for anyone reading
-// the file rather than looking at it. Clipping is untouched throughout: it is
-// set before the operator that paints, and the operator that paints nothing
-// still sets it.
+// Before the opacity is set to 1, the drawing made at zero opacity is removed.
+// While a zero opacity is in force, fills and strokes are switched to paint
+// nothing, images and shadings are dropped, and text is switched to a render
+// mode that draws nothing but keeps its characters for text extraction.
+// Clipping is left alone: it is set before the painting operator, and the
+// operator that paints nothing still sets it.
 //
-// An opacity between the two is the same problem one step down: 0.4 becomes 1
-// as well, and a shaded band over a chart turns into a solid block. What the
-// file draws at 0.4 over white paper is its colour blended four parts in ten,
-// so that is the colour the drawing is given, and the opacity can go to 1
-// without changing what is seen. The white paper is an assumption -- the same
-// one a soft mask is composited against -- and where the backdrop is not white
-// the colour is a little wrong, which is much less wrong than opaque.
+// A partial opacity is handled by blending the colour over white paper, as it
+// appears at that opacity, and then setting the opacity to 1. The white paper
+// is an assumption, the same one a soft mask is composited against. Where the
+// backdrop is not white, the colour is slightly off.
 //
 // Each content stream is read on its own, starting fully opaque, and only what
 // the stream itself declares invisible is taken out. A stream shared between
@@ -50,9 +45,15 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 		return false
 	}
 
+	return removeInvisible(trailer, newAlphaState)
+}
+
+// removeInvisible rewrites every stream that draws, each starting from the
+// state start returns, and reports whether any changed.
+func removeInvisible(trailer *pdf.PDFDict, start func() *alphaState) bool {
 	changed := false
 	for _, p := range orderedPages(*trailer) {
-		rewritePageAlpha(p.dict, p.resources, &changed)
+		rewritePageAlpha(p.dict, p.resources, start(), &changed)
 	}
 
 	// Every other stream that draws: form XObjects (including the appearance
@@ -61,34 +62,34 @@ func repairOpacity(trailer *pdf.PDFDict) bool {
 	// are not reachable here, since a content stream is none of these things.
 	// walkContentStreamDicts covers the same four shapes for the rewrites that
 	// do not need to know which resource a name selects.
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		switch {
-		case d.HasStream && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
-			d.HasStream && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
-			fixed, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), newAlphaState())
+		case d.IsStream() && (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}),
+			d.IsStream() && d.Entries.Get("PatternType") == pdf.PDFInteger(1):
+			_, ok := rewriteAlphaStream(d, resourcesOf(d, pdf.PDFDict{}), start())
 			if ok {
 				changed = true
 			}
-			return fixed, ok
+			return ok
 
 		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
 			procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict)
 			if !ok {
-				return d, false
+				return false
 			}
 			resources := resourcesOf(d, pdf.PDFDict{})
 			for _, name := range sortedKeys(procs.Entries) {
 				proc, ok := procs.Entries.Get(name).(pdf.PDFDict)
-				if !ok || !proc.HasStream {
+				if !ok || !proc.IsStream() {
 					continue
 				}
-				if fixed, ok := rewriteAlphaStream(proc, resources, newAlphaState()); ok {
+				if fixed, ok := rewriteAlphaStream(proc, resources, start()); ok {
 					procs.Entries.Set(name, fixed)
 					changed = true
 				}
 			}
 		}
-		return d, false
+		return false
 	})
 	return changed
 }
@@ -115,14 +116,14 @@ func isTransparent(v pdf.PDFValue) bool {
 	return num && f < 1-invisibleAlpha
 }
 
-// rewritePageAlpha rewrites a page's content. A page's content can be written
-// as several streams, which are one stream split up: an opacity set in one
-// part is still in force in the next, so the state carries across them.
-func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
-	state := newAlphaState()
+// rewritePageAlpha rewrites a page's content, starting from state. A page's
+// content can be written as several streams, which are one stream split up: an
+// opacity set in one part is still in force in the next, so the state carries
+// across them.
+func rewritePageAlpha(page, resources pdf.PDFDict, state *alphaState, changed *bool) {
 	switch contents := page.Entries.Get("Contents").(type) {
 	case pdf.PDFDict:
-		if !contents.HasStream {
+		if !contents.IsStream() {
 			return
 		}
 		if fixed, ok := rewriteAlphaStream(contents, resources, state); ok {
@@ -133,7 +134,7 @@ func rewritePageAlpha(page, resources pdf.PDFDict, changed *bool) {
 	case pdf.PDFArray:
 		for i, item := range contents {
 			part, ok := item.(pdf.PDFDict)
-			if !ok || !part.HasStream {
+			if !ok || !part.IsStream() {
 				continue
 			}
 			if fixed, ok := rewriteAlphaStream(part, resources, state); ok {
@@ -172,6 +173,10 @@ type alphaState struct {
 	strokeAlpha  float64
 	textMode     int
 	fill, stroke colourState
+	// layers is set only for the hidden-layer pass. It is a pointer so that
+	// q and Q, which save and restore the rest of the state, leave it alone:
+	// marked content nests independently of the graphics state.
+	layers *layerTracker
 }
 
 // newAlphaState is where a content stream starts: fully opaque.
@@ -179,8 +184,13 @@ func newAlphaState() *alphaState {
 	return &alphaState{fillAlpha: 1, strokeAlpha: 1}
 }
 
-func (s alphaState) fillHidden() bool   { return s.fillAlpha <= invisibleAlpha }
-func (s alphaState) strokeHidden() bool { return s.strokeAlpha <= invisibleAlpha }
+func (s alphaState) fillHidden() bool {
+	return s.fillAlpha <= invisibleAlpha || s.layers.hidden()
+}
+
+func (s alphaState) strokeHidden() bool {
+	return s.strokeAlpha <= invisibleAlpha || s.layers.hidden()
+}
 
 // faded reports an opacity that hides nothing but is not opaque either.
 func faded(alpha float64) bool { return alpha > invisibleAlpha && alpha < 1-invisibleAlpha }
@@ -206,18 +216,21 @@ type alphaRewriter struct {
 
 func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 	r.track(op, operands)
+	r.state.layers.step(op, operands, r.resources)
 
 	switch {
 	case paintOps[op]:
 		visible := r.visiblePaint(op)
 		if visible != op {
 			r.changed = true
+			r.state.layers.noteRemoved()
 		}
 		r.emitPainted(visible, nil, paintFills(visible), paintStrokes(visible))
 
 	case op == "sh", op == "Do", op == "INLINEIMAGE":
 		if r.marksNothing(op, operands) {
 			r.changed = true
+			r.state.layers.noteRemoved()
 			return
 		}
 		r.emit(op, operands)
@@ -229,12 +242,14 @@ func (r *alphaRewriter) op(op string, operands []pdf.PDFValue) {
 			r.emitPainted(op, operands, fills, strokes)
 			return
 		}
-		// Around the operator rather than once for the stream: the text keeps
-		// its own render mode everywhere else, and the stream may set it again.
+		// Around the operator rather than once for the stream: the text
+		// keeps its own render mode everywhere else, and the stream may
+		// set it again.
 		r.emitTextMode(mode)
 		r.emit(op, operands)
 		r.emitTextMode(r.state.textMode)
 		r.changed = true
+		r.state.layers.noteRemoved()
 
 	default:
 		r.emit(op, operands)
@@ -254,7 +269,11 @@ func (r *alphaRewriter) track(op string, operands []pdf.PDFValue) {
 			r.stack = r.stack[:n-1]
 		}
 	case "gs":
-		r.applyExtGState(operands)
+		// The hidden-layer pass leaves opacity to its own repair, which
+		// would otherwise blend a faded colour a second time.
+		if r.state.layers == nil {
+			r.applyExtGState(operands)
+		}
 	case "Tr":
 		if len(operands) == 1 {
 			if mode, ok := numericValue(operands[0]); ok {
@@ -398,8 +417,8 @@ func whiteComponent(space pdf.PDFValue) (float64, bool) {
 	return 0, false
 }
 
-// paintFills and paintStrokes report which halves of the page a painting
-// operator marks.
+// paintFills reports whether the painting operator op marks the fill half of
+// the page. paintStrokes reports whether it marks the stroke half.
 func paintFills(op string) bool {
 	switch op {
 	case "f", "F", "f*", "B", "B*", "b", "b*":
@@ -505,6 +524,9 @@ func (r *alphaRewriter) marksNothing(op string, operands []pdf.PDFValue) bool {
 		return r.state.fillHidden()
 	}
 	if xobj, ok := r.namedResource("XObject", operands); ok {
+		if r.state.layers.hidesXObject(xobj) {
+			return true
+		}
 		if (xobj.Entries.Get("Subtype") == pdf.PDFName{Value: "Image"}) {
 			return r.state.fillHidden()
 		}

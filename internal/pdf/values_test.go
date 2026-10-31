@@ -167,10 +167,11 @@ func TestDecodePDFName(t *testing.T) {
 	}
 }
 
-// TestArrayPointerMatchesValuePointer: ArrayPointer exists only to avoid boxing
-// a slice into an interface, so it must agree with ValuePointer exactly --
-// same array same answer, different arrays different answers, and a subslice
-// sharing the backing array reads as the same identity.
+// TestArrayPointerMatchesValuePointer verifies that ArrayPointer, which exists
+// only to avoid boxing a slice into an interface, agrees with ValuePointer
+// exactly: the same array gives the same answer, different arrays give
+// different answers, and a subslice sharing the backing array has the same
+// identity.
 func TestArrayPointerMatchesValuePointer(t *testing.T) {
 	a := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}
 	b := PDFArray{PDFInteger(1), PDFInteger(2), PDFInteger(3)}

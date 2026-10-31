@@ -30,7 +30,7 @@ func renderFirstPage(t *testing.T, data []byte) *image.RGBA {
 	if len(pages) == 0 {
 		t.Fatal("document has no pages")
 	}
-	img, _, err := raster.RenderPage(pages[0].dict, pages[0].resources, pages[0].mediaBox, 72)
+	img, _, err := raster.RenderPage(pages[0].dict, pages[0].resources, pages[0].mediaBox, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestConvertUnnestsDeepGraphicsState(t *testing.T) {
 // again inside the form. Every stream ends within the limit.
 func TestQNestingFixerSplitsRepeatedly(t *testing.T) {
 	trailer, page, resources := pageWithContent(nestedQ(70, "0 0 10 10 re f\n"))
-	changed, err := qNestingFixer{}.Fix(&trailer, nil)
+	changed, err := qNestingFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("Fix = (%v, %v), want (true, nil)", changed, err)
 	}
@@ -166,13 +166,14 @@ func TestQNestingFixerSplitsRepeatedly(t *testing.T) {
 	}
 
 	// A second pass finds nothing left to do.
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("second Fix changed the graph; the repair is not idempotent")
 	}
 }
 
-// TestQNestingFixerRepairsSharedStreamOnce: a content stream two pages share
-// is rewritten once, and both pages end up drawing the rewritten stream.
+// TestQNestingFixerRepairsSharedStreamOnce verifies that a content stream two
+// pages share is rewritten once, and that both pages end up drawing the
+// rewritten stream.
 func TestQNestingFixerRepairsSharedStreamOnce(t *testing.T) {
 	shared := streamDict(nestedQ(30, ""))
 	resources := pdf.NewPDFDict()
@@ -185,12 +186,12 @@ func TestQNestingFixerRepairsSharedStreamOnce(t *testing.T) {
 		pages = append(pages, p)
 	}
 	trailer := pagesTrailer(pages...)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	a, _ := pages[0].Entries.Get("Contents").(pdf.PDFDict)
 	b, _ := pages[1].Entries.Get("Contents").(pdf.PDFDict)
-	if !bytes.Equal(a.RawStream, b.RawStream) {
+	if !bytes.Equal(a.Stream(), b.Stream()) {
 		t.Error("the pages sharing a stream ended up with different content")
 	}
 	if xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict); xobjects.Entries.Len() != 1 {
@@ -239,7 +240,7 @@ func TestQNestingFixerRepairsFormsAndPatterns(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Holder", holder)
 
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	for _, name := range []string{"form", "pattern"} {
@@ -273,20 +274,20 @@ func TestQNestingFixerLeavesUnsafeBlocks(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			trailer, page, _ := pageWithContent(content)
-			before := page.Entries.Get("Contents").(pdf.PDFDict).RawStream
-			if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+			before := page.Entries.Get("Contents").(pdf.PDFDict).Stream()
+			if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 				t.Error("Fix changed the page")
 			}
-			if after := page.Entries.Get("Contents").(pdf.PDFDict).RawStream; !bytes.Equal(before, after) {
+			if after := page.Entries.Get("Contents").(pdf.PDFDict).Stream(); !bytes.Equal(before, after) {
 				t.Error("the page's content was rewritten")
 			}
 		})
 	}
 }
 
-// TestQNestingFixerContentsArray: a page's /Contents array is one drawing
-// cut into pieces. A block still open where a piece ends may be closed by the
-// next piece, so it moves only in the last one.
+// TestQNestingFixerContentsArray verifies that a page's /Contents array is
+// treated as one drawing cut into pieces. A block still open where a piece
+// ends may be closed by the next piece, so it moves only in the last one.
 func TestQNestingFixerContentsArray(t *testing.T) {
 	open := strings.Repeat("q\n", 30)
 	first, last := streamDict(open), streamDict(open)
@@ -297,7 +298,7 @@ func TestQNestingFixerContentsArray(t *testing.T) {
 	page.Entries.Set("Contents", pdf.PDFArray{first, pdf.PDFInteger(7), last})
 	trailer := pagesTrailer(page)
 
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	contents := page.Entries.Get("Contents").(pdf.PDFArray)
@@ -329,19 +330,19 @@ func TestQNestingFixerSkipsWhatItCannotRead(t *testing.T) {
 		pages = append(pages, p)
 	}
 	trailer := pagesTrailer(append(pages, noResources)...)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); changed {
 		t.Error("Fix changed a graph it has nothing it can repair in")
 	}
 }
 
-// TestQNestingNameAvoidsCollision: the form's name skips one the resource
-// dict already uses.
+// TestQNestingNameAvoidsCollision verifies that the form's name skips one the
+// resource dict already uses.
 func TestQNestingNameAvoidsCollision(t *testing.T) {
 	trailer, _, resources := pageWithContent(nestedQ(30, ""))
 	xobjects := pdf.NewPDFDict()
 	xobjects.Entries.Set("QNest0", pdf.PDFInteger(1))
 	resources.Entries.Set("XObject", xobjects)
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	if xobjects.Entries.Get("QNest0") != pdf.PDFInteger(1) {
@@ -352,10 +353,10 @@ func TestQNestingNameAvoidsCollision(t *testing.T) {
 	}
 }
 
-// TestUnnestOpsDeclinesUnwritableContent: an operator the content writer
-// cannot serialize -- an inline image without its raw bytes, which a scanned
-// stream always has -- stops the rewrite instead of truncating the stream,
-// both in the page and in a form being built.
+// TestUnnestOpsDeclinesUnwritableContent verifies that an operator the content
+// writer cannot serialize -- an inline image without its raw bytes, which a
+// scanned stream always has -- stops the rewrite instead of truncating the
+// stream, both in the page and in a form being built.
 func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 	bad := writer.ContentOp{Op: "INLINEIMAGE"}
 	q, Q := writer.ContentOp{Op: "q"}, writer.ContentOp{Op: "Q"}
@@ -371,25 +372,18 @@ func TestUnnestOpsDeclinesUnwritableContent(t *testing.T) {
 		"in the form": slices.Concat(repeat(q, 30), []writer.ContentOp{bad}, repeat(Q, 30)),
 		"in the page": slices.Concat([]writer.ContentOp{bad}, repeat(q, 30), repeat(Q, 30)),
 	} {
-		if _, ok := unnestOps(streamDict(""), ops, pdf.NewPDFDict(), visible, true); ok {
+		if _, ok := unnestOps(streamDict(""), ops, pdf.NewPDFDict(), visible, true, maxQNesting); ok {
 			t.Errorf("%s: unwritable content was rewritten", name)
 		}
 	}
 }
 
-// TestCmMatrixRejectsMalformedOperands: a cm with the wrong operand count or
-// a non-number leaves the CTM as it was.
-func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
-	if _, ok := cmMatrix([]pdf.PDFValue{pdf.PDFInteger(1)}); ok {
-		t.Error("a one-operand cm was read as a matrix")
-	}
-	six := []pdf.PDFValue{pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFName{Value: "x"}}
-	if _, ok := cmMatrix(six); ok {
-		t.Error("a cm with a name operand was read as a matrix")
-	}
-	// The repair steps over both, and over a Q with nothing to restore.
+// TestQNestingStepsOverMalformedOperators verifies that the repair steps over
+// a cm with the wrong operand count or a non-number operand, and over a Q
+// with nothing to restore.
+func TestQNestingStepsOverMalformedOperators(t *testing.T) {
 	trailer, page, _ := pageWithContent("Q\n1 cm\n1 0 0 1 0 /x cm\n" + nestedQ(30, ""))
-	if changed, _ := (qNestingFixer{}).Fix(&trailer, nil); !changed {
+	if changed, _ := (qNestingFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Fatal("Fix reported no change")
 	}
 	if d := maxQDepth(t, page.Entries.Get("Contents").(pdf.PDFDict)); d > maxQNesting {
@@ -397,8 +391,8 @@ func TestCmMatrixRejectsMalformedOperands(t *testing.T) {
 	}
 }
 
-// TestRectOfNormalisesCorners: a rectangle given upper-right first reads as
-// the same area; anything but four numbers is refused.
+// TestRectOfNormalisesCorners verifies that a rectangle given upper-right first
+// reads as the same area; anything but four numbers is refused.
 func TestRectOfNormalisesCorners(t *testing.T) {
 	got, ok := rectOf(pdf.PDFArray{pdf.PDFInteger(10), pdf.PDFInteger(20), pdf.PDFInteger(0), pdf.PDFInteger(5)})
 	if !ok || got != (rect{0, 5, 10, 20}) {

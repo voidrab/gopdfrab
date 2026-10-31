@@ -24,11 +24,11 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	}
 
 	for _, kd := range ot.Keys {
-		if kd.Name == "Length" && v.HasStream {
-			// The writer always recomputes Length from RawStream at
+		if kd.Name == "Length" && v.IsStream() {
+			// The writer always recomputes Length from the stream bytes at
 			// serialization time (internal/writer/writer.go), overwriting
-			// whatever is here, so its in-memory presence/value is never a
-			// meaningful conformance signal.
+			// whatever is here. Its in-memory presence or value is therefore
+			// never a meaningful conformance signal.
 			continue
 		}
 
@@ -119,7 +119,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	if wc := ot.Wildcard; wc != nil {
 		keysBase := len(ctx.keyScratch)
 		for _, k := range ctx.sortedKeys(v.Entries) {
-			if k == pdf.RefKey || hasNamedKey(ot, k) || (k == "Length" && v.HasStream) {
+			if hasNamedKey(ot, k) || (k == "Length" && v.IsStream()) {
 				continue
 			}
 			val := v.Entries.Get(k)
@@ -156,7 +156,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 	// Post14Keys, so it is never flagged either.
 	if ot.Wildcard == nil {
 		for k := range v.Entries.All() {
-			if k != pdf.RefKey && stringInList(k, ot.Post14Keys) {
+			if stringInList(k, ot.Post14Keys) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
 					v, typeName, k,
@@ -308,9 +308,10 @@ func EvalCondArray(c *arlington.Cond, v pdf.PDFArray) (val, ok bool) {
 	return evalCondArray(c, v)
 }
 
-// MatchesValueType exposes the schema type check to object-model fixers, so a
-// value already conforming to its row -- e.g. one repaired earlier in the same
-// pass -- is never coerced or deleted on a stale finding.
+// MatchesValueType reports whether val conforms to one of allowed, for
+// object-model fixers. A value already conforming to its row, for example one
+// repaired earlier in the same pass, is never coerced or deleted on a stale
+// finding.
 func MatchesValueType(val pdf.PDFValue, allowed []arlington.ValueType) bool {
 	return matchesValueType(val, allowed)
 }
@@ -553,16 +554,17 @@ func numericValue(val pdf.PDFValue) (float64, bool) {
 	return 0, false
 }
 
-// isIndirect reports whether val was reached through an indirect reference. Only dicts and
-// streams carry the resolver's pdf.RefKey marker (internal/pdf/resolver.go); arrays required to be
-// indirect (3 rows in the model) have no such marker and are always treated as satisfied,
+// isIndirect reports whether val was reached through an indirect reference.
+// Only dicts and streams carry the reference the resolver records
+// (internal/pdf/resolver.go). Arrays required to be indirect (3 rows in the
+// model) have no such marker, so they are always treated as satisfied,
 // erring toward false negatives.
 func isIndirect(val pdf.PDFValue) bool {
 	d, ok := val.(pdf.PDFDict)
 	if !ok {
 		return true
 	}
-	_, ok = d.Entries.Lookup(pdf.RefKey)
+	_, ok = d.Ref()
 	return ok
 }
 
@@ -631,7 +633,7 @@ func valueTypeAllowed(val pdf.PDFValue, vt arlington.ValueType) bool {
 	case pdf.PDFArray:
 		return vt == arlington.Array || vt == arlington.Rectangle || vt == arlington.Matrix
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			return vt == arlington.Stream
 		}
 		return vt == arlington.Dictionary || vt == arlington.NameTree || vt == arlington.NumberTree
@@ -736,11 +738,11 @@ func linkGroupMatchesKind(val pdf.PDFValue, valueTypes []arlington.ValueType) bo
 				return true
 			}
 		case arlington.Dictionary, arlington.NameTree, arlington.NumberTree:
-			if d, ok := val.(pdf.PDFDict); ok && !d.HasStream {
+			if d, ok := val.(pdf.PDFDict); ok && !d.IsStream() {
 				return true
 			}
 		case arlington.Stream:
-			if d, ok := val.(pdf.PDFDict); ok && d.HasStream {
+			if d, ok := val.(pdf.PDFDict); ok && d.IsStream() {
 				return true
 			}
 		case arlington.Name:

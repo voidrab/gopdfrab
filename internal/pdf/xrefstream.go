@@ -2,7 +2,6 @@ package pdf
 
 import (
 	"fmt"
-	"io"
 	"math"
 )
 
@@ -10,78 +9,6 @@ import (
 // /Index array, describing a contiguous run of object numbers it covers.
 type xrefRange struct {
 	start, count int
-}
-
-// parseIndirectObjectAt performs a minimal, framing-check-free parse of the
-// indirect object at offset: "N G obj <object> [stream ... ] endobj". It is
-// used for bootstrap parsing (cross-reference streams, and the object stream
-// container itself) before d.xrefTable exists, where the normal 6.1.8-checked
-// path (parseClassicReference) cannot run yet. Per ISO 32000-1 7.5.8.2, a
-// cross-reference stream's own /Length must be a direct integer, which this
-// function relies on to read the stream body without resolving anything.
-func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dict PDFDict, err error) {
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return 0, PDFDict{}, err
-	}
-	l := NewLexerAt(file, offset)
-	defer l.Release()
-
-	objTok := l.NextToken()
-	if objTok.Type != TokenInteger {
-		return 0, PDFDict{}, fmt.Errorf("expected object number at offset %d, got %q", offset, objTok.Value)
-	}
-	objNum = objTok.IntValue()
-
-	genTok := l.NextToken()
-	if genTok.Type != TokenInteger {
-		return 0, PDFDict{}, fmt.Errorf("expected generation number at offset %d", offset)
-	}
-
-	kwTok := l.NextToken()
-	if kwTok.Type != TokenObjectStart {
-		return 0, PDFDict{}, fmt.Errorf("expected 'obj' keyword at offset %d, got %q", offset, kwTok.Value)
-	}
-
-	dictTok := l.NextToken()
-	if dictTok.Type != TokenDictStart {
-		return 0, PDFDict{}, fmt.Errorf("expected dictionary at offset %d", offset)
-	}
-	dict, err = parseDictionary(l)
-	if err != nil {
-		return 0, PDFDict{}, err
-	}
-
-	next := l.NextToken()
-	if next.Type != TokenStreamStart {
-		l.UnreadToken(next)
-		return objNum, dict, nil
-	}
-	dict.HasStream = true
-
-	lengthVal, ok := dict.Entries.Get("Length").(PDFInteger)
-	if !ok {
-		return 0, PDFDict{}, fmt.Errorf("object %d: stream /Length must be a direct integer for bootstrap parsing", objNum)
-	}
-	length := int(lengthVal)
-	if length < 0 {
-		return 0, PDFDict{}, fmt.Errorf("object %d: negative stream /Length", objNum)
-	}
-
-	if err := l.skipEOL(); err != nil {
-		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
-	}
-
-	// Bound before allocating: /Length is untrusted.
-	if int64(length) > size-l.pos {
-		return 0, PDFDict{}, fmt.Errorf("object %d: stream body extends past end of file", objNum)
-	}
-	data := make([]byte, length)
-	if _, err := file.ReadAt(data, l.pos); err != nil {
-		return 0, PDFDict{}, fmt.Errorf("object %d: %w", objNum, err)
-	}
-	dict.RawStream = data
-
-	return objNum, dict, nil
 }
 
 // tryParseXRefStream attempts to parse the object at offset as a
@@ -99,11 +26,12 @@ func parseIndirectObjectAt(file fileSource, size, offset int64) (objNum int, dic
 // conformant file never reaches this path; it exists purely so arbitrary
 // modern input PDFs (e.g. for conversion) using one can still be read.
 func (d *Reader) tryParseXRefStream(offset int64, fillIn bool) (PDFDict, error) {
-	_, dict, err := parseIndirectObjectAt(d.file, d.sourceSize(), offset)
+	v, err := d.parseBootstrapAt(offset)
 	if err != nil {
 		return PDFDict{}, err
 	}
-	if !dict.HasStream {
+	dict, ok := v.(PDFDict)
+	if !ok || !dict.IsStream() {
 		return PDFDict{}, fmt.Errorf("object at offset %d has no stream body", offset)
 	}
 	if !EqualPDFValue(dict.Entries.Get("Type"), PDFName{Value: "XRef"}) {

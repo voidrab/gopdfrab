@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
 
 // xmpReCache memoizes the per-property regexes built at call time from
@@ -859,10 +860,10 @@ func xmpErr(c pdf.Check, msg string) pdf.PDFError {
 }
 
 // verifyXMPMetadata validates the document's XMP metadata (6.7).
-func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
+func verifyXMPMetadata(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	data, meta, err := d.RawXMP()
 	if errors.Is(err, pdf.ErrNoXMPMetadata) || errors.Is(err, pdf.ErrXMPMetadataNotStream) {
-		return []pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}
+		return withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.MetadataMissing, err.Error())}, catalog(d))
 	}
 
 	var errs []pdf.PDFError
@@ -873,12 +874,12 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	}
 
 	if err != nil {
-		return append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream"))
+		return withRef(append(errs, xmpErr(pdf.Checks.Metadata.XMPStreamUnreadable, "unable to read XMP metadata stream")), meta)
 	}
 	xmp := string(data)
 
 	errs = append(errs, checkXMPHeader(xmp)...)
-	errs = append(errs, checkPDFAIdentifier(xmp)...)
+	errs = append(errs, checkPDFAIdentifier(xmp, spec)...)
 	if !xmpWellFormed(data) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.XMPNotWellFormed, "XMP metadata is not well-formed XML"))
 	}
@@ -887,7 +888,7 @@ func verifyXMPMetadata(d *pdf.Reader) []pdf.PDFError {
 	errs = append(errs, checkInfoXMPSync(d, xmp)...)
 	errs = append(errs, checkExtensionSchemas(xmp)...)
 
-	return errs
+	return withRef(errs, meta)
 }
 
 // checkNonCatalogXMPStreams flags /Type /Metadata streams outside Root/Metadata
@@ -903,7 +904,7 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 		return nil
 	}
 	var catalogMetaPtr uintptr
-	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.HasStream {
+	if meta, ok := root.Entries.Get("Metadata").(pdf.PDFDict); ok && meta.IsStream() {
 		catalogMetaPtr = pdf.ValuePointer(meta.Entries)
 	}
 
@@ -918,15 +919,15 @@ func checkNonCatalogXMPStreams(graph pdf.PDFValue, ctx *ValidationContext) []pdf
 				return
 			}
 			visited[ptr] = true
-			if val.HasStream && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
+			if val.IsStream() && val.Entries.Get("Type") == (pdf.PDFName{Value: "Metadata"}) &&
 				ptr != catalogMetaPtr {
 				// A stream that will not decode is a structural defect, not a
 				// missing xpacket wrapper; the chokepoint reports it as
 				// StreamUndecodable rather than conflating the two.
 				data, err := ctx.decodeStreamCached(val)
 				if err == nil && !xpacketRe.Match(data) {
-					errs = append(errs, xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
-						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions"))
+					errs = append(errs, withRef([]pdf.PDFError{xmpErr(pdf.Checks.Metadata.ObjectXMPNoXPacket,
+						"non-catalog XMP metadata stream is not wrapped in xpacket processing instructions")}, val)...)
 				}
 			}
 			for _, child := range val.Entries.All() {
@@ -963,8 +964,9 @@ func checkXMPHeader(xmp string) []pdf.PDFError {
 	return errs
 }
 
-// checkPDFAIdentifier validates the PDF/A version identifier (6.7.11).
-func checkPDFAIdentifier(xmp string) []pdf.PDFError {
+// checkPDFAIdentifier validates the PDF/A version identifier (6.7.11) against
+// the level's part and the conformance values a file of that part may name.
+func checkPDFAIdentifier(xmp string, spec pdfa.Spec) []pdf.PDFError {
 	var errs []pdf.PDFError
 
 	ns, hasNS := pdf.FirstRegexpGroup(pdfaNSRe, xmp)
@@ -978,14 +980,14 @@ func checkPDFAIdentifier(xmp string) []pdf.PDFError {
 	part, hasPart := pdf.FirstRegexpGroup(pdf.PDFAPartRe, xmp)
 	if !hasPart {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A part identifier"))
-	} else if part != "1" {
+	} else if part != spec.XMPPart {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAPartNumber, fmt.Sprintf("invalid PDF/A part number %q", part)))
 	}
 
 	conf, hasConf := pdf.FirstRegexpGroup(pdf.PDFAConfRe, xmp)
 	if !hasConf {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAIdentifierMissing, "missing PDF/A conformance level"))
-	} else if conf != "A" && conf != "B" {
+	} else if !spec.XMPConformances.Has(conf) {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.PDFAConformanceLevel, fmt.Sprintf("invalid PDF/A conformance level %q", conf)))
 	}
 
@@ -1065,20 +1067,20 @@ var dcCreatorRe = regexp.MustCompile(`(?s)<dc:creator[^>]*>(.*?)</dc:creator>`)
 func checkXMPPropertyTypes(xmp string) []pdf.PDFError {
 	var errs []pdf.PDFError
 
-	// t02-fail-a: The rdf namespace is declared but the root element uses a
-	// wrong/undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
+	// The rdf namespace is declared but the root element uses a wrong or
+	// undeclared prefix (e.g. <RDF:RDF> instead of <rdf:RDF>).
 	if strings.Contains(xmp, `xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"`) &&
 		!strings.Contains(xmp, "<rdf:RDF") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataMissing, "rdf namespace declared but rdf:RDF root element is missing or uses wrong prefix"))
 	}
 
-	// t02-fail-b: xmp:Title is not a valid property in the xmp: namespace.
+	// xmp:Title is not a valid property in the xmp: namespace.
 	if strings.Contains(xmp, "<xmp:Title") {
 		errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataFiltered, "xmp:Title is not a defined property in the xmp namespace; use dc:title instead"))
 	}
 
-	// t02-fail-c: dc:description must be of value type LangAlt (rdf:Alt with
-	// xml:lang attributes), not plain text.
+	// dc:description must be of value type LangAlt (rdf:Alt with xml:lang
+	// attributes), not plain text.
 	if m := dcDescRe.FindStringSubmatch(xmp); m != nil {
 		if !strings.Contains(m[1], "<rdf:Alt") {
 			errs = append(errs, xmpErr(pdf.Checks.Metadata.MetadataPropertyType, "dc:description must be of type LangAlt, not plain text"))
@@ -1120,10 +1122,12 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 
 	// A null-valued or literal "null" Info entry is equivalent to absence, so
 	// skip it rather than treating it as a value that must sync with the XMP.
-	for key, prop := range map[string]string{
-		"Title":   "dc:title",
-		"Subject": "dc:description",
+	// A slice, not a map, so the issue order is the same on every run.
+	for _, kp := range [...]struct{ key, prop string }{
+		{"Title", "dc:title"},
+		{"Subject", "dc:description"},
 	} {
+		key, prop := kp.key, kp.prop
 		val := strings.TrimSpace(info[key])
 		if val == "" || val == "null" {
 			continue
@@ -1144,16 +1148,9 @@ func checkInfoXMPSync(d *pdf.Reader, xmp string) []pdf.PDFError {
 			if len(items) > 1 {
 				msg = "document info Author not synchronized with XMP dc:creator (multiple entries)"
 			} else if len(items) == 1 && decodeXMLEntities(items[0][1]) != author {
-				// Compared as written on both sides, entities decoded.
-				//
-				// Two things were wrong here. It compared decoded text against
-				// raw XML markup, so any author name containing an "&" was
-				// reported out of sync -- ordinary in an arXiv author list.
-				// And it trimmed the XMP side only, so a value with leading
-				// whitespace was reported as differing from itself. Trimming
-				// *both* sides is not the fix: veraPDF treats a whitespace-only
-				// difference as a genuine mismatch (its 6-1-5-t01-fail-b
-				// fixture is exactly that), so neither side is trimmed.
+				// The XMP item's entities are decoded before the comparison, and
+				// neither side is trimmed: veraPDF reports a whitespace-only
+				// difference as a mismatch.
 				msg = "document info Author not synchronized with XMP dc:creator"
 			}
 			if msg != "" {

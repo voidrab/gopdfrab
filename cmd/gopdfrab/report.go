@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/voidrab/gopdfrab"
+	"github.com/voidrab/gopdfrab/verify"
 )
 
 // The text output is line-oriented so other programs can parse it:
@@ -32,7 +32,7 @@ import (
 
 // issueGroup is every report of one check with one message.
 type issueGroup struct {
-	first gopdfrab.PDFError
+	first verify.PDFError
 	count int
 	pages []int // distinct pages, ascending; 0 is document-level
 	objs  int   // distinct objects
@@ -41,7 +41,7 @@ type issueGroup struct {
 // foldedIssue is one distinct issue at one location and how many times it was
 // reported there.
 type foldedIssue struct {
-	issue gopdfrab.PDFError
+	issue verify.PDFError
 	count int
 }
 
@@ -57,11 +57,11 @@ type groupKey struct {
 type issueKey struct {
 	groupKey
 	page   int
-	ref    gopdfrab.PDFRef
+	ref    verify.PDFRef
 	hasRef bool
 }
 
-func groupKeyOf(e gopdfrab.PDFError) groupKey {
+func groupKeyOf(e verify.PDFError) groupKey {
 	c := e.Check()
 	return groupKey{
 		clause:    c.Clause(),
@@ -72,18 +72,18 @@ func groupKeyOf(e gopdfrab.PDFError) groupKey {
 	}
 }
 
-func keyOf(e gopdfrab.PDFError) issueKey {
+func keyOf(e verify.PDFError) issueKey {
 	ref, hasRef := e.ObjectRef()
 	return issueKey{groupKey: groupKeyOf(e), page: e.Page(), ref: ref, hasRef: hasRef}
 }
 
 // groupIssues collapses every report of the same check and message into one
 // group, sorted by clause and message.
-func groupIssues(issues []gopdfrab.PDFError) []issueGroup {
+func groupIssues(issues []verify.PDFError) []issueGroup {
 	type acc struct {
 		group issueGroup
 		pages map[int]struct{}
-		objs  map[gopdfrab.PDFRef]struct{}
+		objs  map[verify.PDFRef]struct{}
 	}
 	var accs []*acc
 	index := make(map[groupKey]*acc)
@@ -94,7 +94,7 @@ func groupIssues(issues []gopdfrab.PDFError) []issueGroup {
 			a = &acc{
 				group: issueGroup{first: e},
 				pages: make(map[int]struct{}),
-				objs:  make(map[gopdfrab.PDFRef]struct{}),
+				objs:  make(map[verify.PDFRef]struct{}),
 			}
 			index[k] = a
 			accs = append(accs, a)
@@ -124,7 +124,7 @@ func groupIssues(issues []gopdfrab.PDFError) []issueGroup {
 
 // foldIssues collapses exact repeats of an issue into one entry with a count,
 // sorted by clause, message, page and object.
-func foldIssues(issues []gopdfrab.PDFError) []foldedIssue {
+func foldIssues(issues []verify.PDFError) []foldedIssue {
 	var out []foldedIssue
 	index := make(map[issueKey]int, len(issues))
 	for _, e := range issues {
@@ -189,7 +189,7 @@ func compareClause(a, b string) int {
 }
 
 // clauseField renders a check's clause and subclause, "-" for none.
-func clauseField(c gopdfrab.Check) string {
+func clauseField(c verify.Check) string {
 	clause := c.Clause()
 	if clause == "" {
 		clause = "-"
@@ -201,7 +201,7 @@ func clauseField(c gopdfrab.Check) string {
 }
 
 // messageField renders an issue's messages as one Go-quoted string.
-func messageField(e gopdfrab.PDFError) string {
+func messageField(e verify.PDFError) string {
 	return strconv.Quote(strings.Join(e.Messages(), "; "))
 }
 
@@ -293,7 +293,7 @@ func writeColumns(w io.Writer, rows [][]string) {
 // writeIssueList prints a header line, then the issues grouped, or one line
 // per location when detail is set. header is given the number of issue lines
 // that follow.
-func writeIssueList(w io.Writer, issues []gopdfrab.PDFError, detail bool, header func(distinct int) string) {
+func writeIssueList(w io.Writer, issues []verify.PDFError, detail bool, header func(distinct int) string) {
 	if detail {
 		folded := foldIssues(issues)
 		fmt.Fprintln(w, header(len(folded)))

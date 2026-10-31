@@ -2,7 +2,6 @@ package fontprog
 
 import (
 	"encoding/binary"
-	"reflect"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -39,8 +38,8 @@ func cmapWith(subs ...sub) map[string][]byte {
 }
 
 func TestSimpleTrueTypeCmapsWindows(t *testing.T) {
-	win := buildCmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})
-	tables, _ := ParseSfnt(PackSfnt(map[string][]byte{"cmap": win}))
+	win := cmapFormat4Table(3, 1, map[uint16]uint16{'A': 1})
+	tables, _ := ParseSfnt(packSfnt(map[string][]byte{"cmap": win}))
 	r := NewSimpleTrueTypeCmaps(pdf.PDFName{Value: "WinAnsiEncoding"}, tables)
 
 	if gid, tried, found := r.Windows('A'); gid != 1 || !tried || !found {
@@ -93,7 +92,7 @@ func TestSimpleTrueTypeCmapsFallback(t *testing.T) {
 	}
 
 	// The 0xF000 PUA alias is tried in a (3,0) format-4 subtable.
-	pua := sub{3, 0, buildCmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 4})[12:]}
+	pua := sub{3, 0, cmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 4})[12:]}
 	if gid, found := NewSimpleTrueTypeCmaps(nil, cmapWith(pua)).Fallback(0x41); gid != 4 || !found {
 		t.Errorf("PUA alias: %d, %v; want 4, true", gid, found)
 	}
@@ -127,72 +126,27 @@ func TestSimpleTrueTypeCmapsRawCode(t *testing.T) {
 	}
 }
 
-func TestAddWindowsUnicodeCmap(t *testing.T) {
-	mac := sub{1, 0, format0(map[byte]byte{0xB0: 1})}
-	ms := sub{3, 0, format0(map[byte]byte{0xB0: 1})}
-	font := PackSfnt(map[string][]byte{"cmap": cmapWith(mac, ms)["cmap"], "maxp": {0, 0, 0x50, 0, 0, 3}})
-
-	out, changed := AddWindowsUnicodeCmap(font, map[uint16]uint16{0x00B0: 1})
-	if !changed {
-		t.Fatal("expected a (3,1) subtable to be added")
-	}
-	tables, ok := ParseSfnt(out)
-	if !ok {
-		t.Fatal("output does not parse")
-	}
-	if got := ParseCmapFormat4(TTWindowsBMPCmap(tables)); got[0x00B0] != 1 {
-		t.Errorf("(3,1) = %v, want U+00B0 -> 1", got)
-	}
-	// The existing subtables survive, and the records stay sorted.
-	if got := ParseCmapSubtable(TTCmapSubtable(tables, 1, 0)); got[0xB0] != 1 {
-		t.Errorf("(1,0) lost: %v", got)
-	}
-	if got := ParseCmapSubtable(TTCmapSubtable(tables, 3, 0)); got[0xB0] != 1 {
-		t.Errorf("(3,0) lost: %v", got)
-	}
-	cmap := tables["cmap"]
-	var ids []uint32
-	for i := range int(binary.BigEndian.Uint16(cmap[2:])) {
-		ids = append(ids, binary.BigEndian.Uint32(cmap[4+8*i:]))
-	}
-	want := []uint32{0x00010000, 0x00030000, 0x00030001} // (1,0), (3,0), (3,1)
-	if !reflect.DeepEqual(ids, want) {
-		t.Errorf("records = %x, want %x", ids, want)
-	}
-
-	// Already mapped: nothing to do.
-	if _, changed := AddWindowsUnicodeCmap(out, map[uint16]uint16{0x00B0: 1}); changed {
-		t.Error("re-adding an existing mapping reported a change")
-	}
-	// An existing (3,1) mapping wins over a new one for the same Unicode
-	// value, and its record is replaced rather than duplicated.
-	out2, changed := AddWindowsUnicodeCmap(out, map[uint16]uint16{0x00B0: 2, 'A': 2})
-	tables, _ = ParseSfnt(out2)
-	got := ParseCmapFormat4(TTWindowsBMPCmap(tables))
-	if !changed || got[0x00B0] != 1 || got['A'] != 2 {
-		t.Errorf("merge: changed=%v (3,1)=%v; want U+00B0 -> 1 kept, 'A' -> 2 added", changed, got)
-	}
-	if n := binary.BigEndian.Uint16(tables["cmap"][2:]); n != 3 {
-		t.Errorf("%d cmap records after merge, want 3", n)
-	}
-
-	// A record pointing outside the table is dropped.
-	bad := cmapWith(mac, ms)["cmap"]
-	binary.BigEndian.PutUint32(bad[8:], 9999) // the (1,0) record
-	out3, changed := AddWindowsUnicodeCmap(PackSfnt(map[string][]byte{"cmap": bad}), map[uint16]uint16{0x00B0: 1})
-	tables, _ = ParseSfnt(out3)
-	if !changed || TTCmapSubtable(tables, 1, 0) != nil || ParseCmapSubtable(TTCmapSubtable(tables, 3, 0))[0xB0] != 1 {
-		t.Error("out-of-range (1,0) record not dropped, or (3,0) lost")
-	}
-	if n := binary.BigEndian.Uint16(tables["cmap"][2:]); n != 2 {
-		t.Errorf("%d records, want 2", n)
-	}
-
-	// Not a font, or no cmap table: unchanged.
-	if _, changed := AddWindowsUnicodeCmap([]byte("junk"), map[uint16]uint16{1: 1}); changed {
-		t.Error("junk input changed")
-	}
-	if _, changed := AddWindowsUnicodeCmap(PackSfnt(map[string][]byte{"maxp": {0, 0, 0x50, 0, 0, 3}}), map[uint16]uint16{1: 1}); changed {
-		t.Error("font without cmap changed")
+func TestSimpleTrueTypeCmapsLenient(t *testing.T) {
+	win := sub{3, 1, cmapFormat4Table(3, 1, map[uint16]uint16{'A': 10})[12:]}
+	sym := sub{3, 0, cmapFormat4Table(3, 0, map[uint16]uint16{0xF042: 7})[12:]}
+	mac := sub{1, 0, format0(map[byte]byte{0x43: 3})}
+	encoded := NewSimpleTrueTypeCmaps(pdf.PDFName{Value: "WinAnsiEncoding"}, cmapWith(win, sym, mac))
+	unencoded := NewSimpleTrueTypeCmaps(nil, cmapWith(sym))
+	for _, tc := range []struct {
+		name string
+		r    SimpleTrueTypeCmaps
+		cc   int
+		gid  int
+		ok   bool
+	}{
+		{"(3,1) by Unicode", encoded, 'A', 10, true},
+		{"(1,0) by Mac OS Roman code", encoded, 'C', 3, true},
+		{"raw code in (3,0) for an encoded font", encoded, 'B', 7, true},
+		{"symbolic font through (3,0)", unencoded, 'B', 7, true},
+		{"no cmap maps it", encoded, 'Z', 0, false},
+	} {
+		if gid, ok := tc.r.Lenient(tc.cc); gid != tc.gid || ok != tc.ok {
+			t.Errorf("%s: Lenient(%q) = %d, %v, want %d, %v", tc.name, tc.cc, gid, ok, tc.gid, tc.ok)
+		}
 	}
 }

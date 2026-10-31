@@ -21,30 +21,33 @@ func buildFourObjectDoc() []byte {
 	return b.FinishClassic("<< /Size 5 /Root 1 0 R >>")
 }
 
-func graphResolutionDiags(d *Reader) []PDFError {
-	var out []PDFError
-	for _, e := range d.StructErrors() {
-		if e.Check() == Checks.Structure.GraphResolutionFailure {
+// graphResolutionDiags returns the diagnostics about objects that did not
+// resolve as stored: degraded, recovered, or holding undecryptable strings.
+func graphResolutionDiags(d *Reader) []Diagnostic {
+	var out []Diagnostic
+	for _, e := range d.Diagnostics() {
+		switch e.Kind {
+		case DiagObjectDegraded, DiagObjectRecovered, DiagStringUndecryptable:
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-func framingDiagsFor(d *Reader, objNum int) []PDFError {
-	var out []PDFError
-	for _, e := range d.StructErrors() {
-		if ref, ok := e.ObjectRef(); ok && e.Check() == Checks.Structure.ObjectFraming && ref.ObjNum == objNum {
+func framingDiagsFor(d *Reader, objNum int) []Diagnostic {
+	var out []Diagnostic
+	for _, e := range d.Diagnostics() {
+		if e.Ref != nil && e.Kind == DiagObjectFraming && e.Ref.ObjNum == objNum {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// TestResolveRecoversWrongOffsetHeader: object 4's xref entry points at object
-// 3's well-formed header. Resolution must detect the header mismatch, recover
-// object 4 at its real header, update the xref table, and record exactly one
-// recovery diagnostic even across repeated resolves.
+// TestResolveRecoversWrongOffsetHeader verifies that when object 4's xref entry
+// points at object 3's well-formed header, resolution detects the mismatch,
+// recovers object 4 at its real header, updates the xref table, and records
+// exactly one recovery diagnostic even across repeated resolves.
 func TestResolveRecoversWrongOffsetHeader(t *testing.T) {
 	data := buildFourObjectDoc()
 	off3 := int64(bytes.Index(data, []byte("3 0 obj")))
@@ -77,8 +80,8 @@ func TestResolveRecoversWrongOffsetHeader(t *testing.T) {
 		t.Errorf("xrefTable[4] = %d, want recovered offset %d", got, realOff)
 	}
 	diags := graphResolutionDiags(d)
-	if len(diags) != 1 || !strings.Contains(diags[0].Messages()[0], "recovered") {
-		t.Errorf("GraphResolutionFailure diagnostics = %v, want exactly one recovery record", diags)
+	if len(diags) != 1 || diags[0].Kind != DiagObjectRecovered || !strings.Contains(diags[0].Errs[0].Error(), "recovered") {
+		t.Errorf("graph-resolution diagnostics = %v, want exactly one recovery record", diags)
 	}
 	if d.HasDegradedObjects() {
 		t.Error("HasDegradedObjects = true, want false for a recovered object")
@@ -88,9 +91,9 @@ func TestResolveRecoversWrongOffsetHeader(t *testing.T) {
 	}
 }
 
-// TestResolveRecoversGarbageOffset: object 4's xref entry points into the
-// middle of another object where parsing fails outright. The failed attempt
-// must leave no framing noise and the object must be recovered by scan.
+// TestResolveRecoversGarbageOffset verifies that when object 4's xref entry
+// points into the middle of another object, where parsing fails outright, the
+// failed attempt leaves no framing noise and the object is recovered by scan.
 func TestResolveRecoversGarbageOffset(t *testing.T) {
 	data := buildFourObjectDoc()
 	junk := int64(bytes.Index(data, []byte(">>\nendobj")))
@@ -120,10 +123,10 @@ func TestResolveRecoversGarbageOffset(t *testing.T) {
 	}
 }
 
-// TestResolveDegradesUnrecoverableObject: object 4's body is unparseable at
-// its only header, so recovery finds no alternative and the object resolves to
-// null with a degradation diagnostic, cached across resolves. The rest of the
-// graph still resolves.
+// TestResolveDegradesUnrecoverableObject verifies that object 4, whose body is
+// unparseable at its only header, resolves to null with a degradation
+// diagnostic, cached across resolves, and that the rest of the graph still
+// resolves.
 func TestResolveDegradesUnrecoverableObject(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -152,23 +155,24 @@ func TestResolveDegradesUnrecoverableObject(t *testing.T) {
 		t.Error("HasDegradedObjects = false, want true")
 	}
 	degraded := d.DegradedObjects()
-	if len(degraded) != 1 || !strings.Contains(degraded[0].Messages()[0], "treated as null") {
-		t.Errorf("DegradedObjects() = %v, want exactly one null-degradation record", degraded)
+	if len(degraded) != 1 || degraded[0].Kind != DiagObjectDegraded ||
+		!strings.Contains(degraded[0].Errs[0].Error(), "treated as null") {
+		t.Fatalf("DegradedObjects() = %v, want exactly one null-degradation record", degraded)
 	}
-	if ref, ok := degraded[0].ObjectRef(); !ok || ref.ObjNum != 4 {
+	if ref := degraded[0].Ref; ref == nil || ref.ObjNum != 4 {
 		t.Errorf("degraded diagnostic ref = %v, want object 4", degraded[0])
 	}
 	if diags := graphResolutionDiags(d); len(diags) != 1 {
-		t.Errorf("StructErrors GraphResolutionFailure count = %d, want 1", len(diags))
+		t.Errorf("graph-resolution diagnostic count = %d, want 1", len(diags))
 	}
 	if _, err := d.ResolveGraph(); err != nil {
 		t.Errorf("ResolveGraph after degradation: %v", err)
 	}
 }
 
-// TestResolveDegradesBrokenCompressedObject: a type-2 xref entry whose
-// container is not an object stream degrades the member to null instead of
-// failing resolution.
+// TestResolveDegradesBrokenCompressedObject verifies that a type-2 xref entry
+// whose container is not an object stream degrades the member to null instead
+// of failing resolution.
 func TestResolveDegradesBrokenCompressedObject(t *testing.T) {
 	d, err := OpenBytes(buildFourObjectDoc())
 	if err != nil {
@@ -189,10 +193,11 @@ func TestResolveDegradesBrokenCompressedObject(t *testing.T) {
 	}
 }
 
-// TestDiscardKeepsNestedObjectDiagnostics: object 4's parse fails after it
-// nested-resolved object 5 (its indirect /Length): the stream has no endstream
-// keyword anywhere, so not even the keyword-scan fallback can bound it. The rollback must drop only object 4's own framing records; object
-// 5's survive alongside object 4's degradation.
+// TestDiscardKeepsNestedObjectDiagnostics verifies that object 4's parse fails
+// after it nested-resolved object 5 (its indirect /Length): the stream has no
+// endstream keyword anywhere, so not even the keyword-scan fallback can bound
+// it. The rollback must drop only object 4's own framing records; object 5's
+// survive alongside object 4's degradation.
 func TestDiscardKeepsNestedObjectDiagnostics(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -224,9 +229,9 @@ func TestDiscardKeepsNestedObjectDiagnostics(t *testing.T) {
 	}
 }
 
-// TestResolveDegradesUndecryptableStream: an encrypted stream whose ciphertext
-// is not block-aligned fails decryption; the object degrades to null instead
-// of failing the graph.
+// TestResolveDegradesUndecryptableStream verifies that an encrypted stream
+// whose ciphertext is not block-aligned degrades its object to null instead of
+// failing the graph.
 func TestResolveDegradesUndecryptableStream(t *testing.T) {
 	data, err := os.ReadFile("testdata/crypt/enc_aesv2.pdf")
 	if err != nil {
@@ -258,10 +263,10 @@ func TestResolveDegradesUndecryptableStream(t *testing.T) {
 	}
 }
 
-// TestRecoverTrailerFromCatalog: a document whose whole tail (trailer keyword
-// and startxref) is gone is reopened by scanning for objects and synthesizing
-// a trailer from the /Type /Catalog object, with the recovery reported as a
-// 6.1.4 diagnostic.
+// TestRecoverTrailerFromCatalog verifies that a document whose whole tail
+// (trailer keyword and startxref) is gone is reopened by scanning for objects
+// and synthesizing a trailer from the /Type /Catalog object, with the recovery
+// reported as a 6.1.4 diagnostic.
 func TestRecoverTrailerFromCatalog(t *testing.T) {
 	base := buildFourObjectDoc()
 	trimmed := base[:bytes.Index(base, []byte("trailer"))]
@@ -281,8 +286,8 @@ func TestRecoverTrailerFromCatalog(t *testing.T) {
 		t.Fatalf("resolve object 4 = %v, %v; want (hello)", v, err)
 	}
 	var got6014 bool
-	for _, e := range d.StructErrors() {
-		if e.Check() == Checks.Structure.XRefKeyword {
+	for _, e := range d.Diagnostics() {
+		if e.Kind == DiagXRefRebuilt {
 			got6014 = true
 		}
 	}
@@ -291,9 +296,9 @@ func TestRecoverTrailerFromCatalog(t *testing.T) {
 	}
 }
 
-// TestRecoverTrailerPicksLatestCatalog: with two /Type /Catalog objects
-// (an incremental-update shape), trailer recovery must deterministically
-// choose the one appearing later in the file.
+// TestRecoverTrailerPicksLatestCatalog verifies that, with two /Type /Catalog
+// objects (an incremental-update shape), trailer recovery deterministically
+// chooses the one appearing later in the file.
 func TestRecoverTrailerPicksLatestCatalog(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
@@ -316,11 +321,10 @@ func TestRecoverTrailerPicksLatestCatalog(t *testing.T) {
 	}
 }
 
-// TestUndefinedObjectIsNullNotDegraded: the xref lists an object the file never
-// defines, and its offset lands on another object's header. A reference to an
-// undefined object *is* the null object (ISO 32000-1 7.3.10), so it resolves to
-// null silently -- nothing was lost, and reporting degradation would wrongly
-// mark a conversion as having lost content.
+// TestUndefinedObjectIsNullNotDegraded verifies that an object the xref lists
+// but the file never defines resolves to null without degradation. Its xref
+// offset lands on another object's header. A reference to an undefined object
+// is the null object (ISO 32000-1 7.3.10), and nothing was lost.
 func TestUndefinedObjectIsNullNotDegraded(t *testing.T) {
 	b := pdfgen.NewBuilder("%PDF-1.4\n")
 	b.Obj(1, "<< /Type /Catalog /Pages 2 0 R >>")

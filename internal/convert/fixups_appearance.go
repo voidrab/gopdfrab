@@ -8,30 +8,26 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
-
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-// This file registers a Fixer for the appearance-stream checks classified
-// as family B (resource synthesis) in the converter plan: a missing /AP on
-// an annotation or form-field widget (6.9, 6.5.3), and a malformed /AP
-// (extra entries, missing N, or N of the wrong shape, 6.5.3). It rebuilds
+// This file holds the Fixer for the appearance-stream checks classified as
+// family B (resource synthesis): a missing /AP on an annotation or form-field
+// widget (6.9, 6.5.3), and a malformed /AP (extra entries, missing N, or N of
+// the wrong shape, 6.5.3). It rebuilds
 // /AP from scratch as "<< /N <value> >>", synthesizing a minimal Form
 // XObject -- with rendered text for text/choice field values, using the
 // run-scoped appearance font (fixups_appearance_font.go) -- wherever no
 // already-valid N value can be kept as-is.
 
-func init() {
-	registerFixer(appearanceFixer{})
-}
-
 // appearanceFixer remediates WidgetMissingAppearance, MissingAppearance,
 // AppearanceMissingN, AppearanceExtraEntries and AppearanceNNotStream,
 // mirroring the /AP block of validateAnnotation (checks_dict.go). fontSrc is
-// the run-scoped appearance font, substituted by buildLocalFixers.
+// the run-scoped appearance font, set from the fixerRun.
 type appearanceFixer struct {
 	fontSrc *appearanceFontSource
+	spec    *pdfa.Spec
 }
 
 func (appearanceFixer) Applies(c pdf.Check) bool {
@@ -48,7 +44,7 @@ func (f appearanceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, erro
 	fontSrc := f.appearanceFont()
 	changed := false
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		if fixAnnotAppearanceDict(trailer, d, fontSrc) {
+		if fixAnnotAppearanceDict(trailer, d, fontSrc, f.spec) {
 			changed = true
 		}
 	})
@@ -65,7 +61,7 @@ func (f appearanceFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (changed
 	}
 	fontSrc := f.appearanceFont()
 	for _, d := range targets {
-		if fixAnnotAppearanceDict(p.trailer, d, fontSrc) {
+		if fixAnnotAppearanceDict(p.trailer, d, fontSrc, f.spec) {
 			changed = true
 		}
 	}
@@ -82,12 +78,12 @@ func (f appearanceFixer) appearanceFont() *appearanceFontSource {
 // fixAnnotAppearanceDict rebuilds d's /AP if d is an annotation violating one
 // of this Fixer's checks; it re-checks the predicate so a stale or
 // already-fixed target is a no-op.
-func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource) bool {
+func fixAnnotAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appearanceFontSource, spec *pdfa.Spec) bool {
 	if (d.Entries.Get("Type") != pdf.PDFName{Value: "Annot"}) {
 		return false
 	}
 	subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
-	if !verify.AllowedAnnotationTypes[subtype.Value] {
+	if !spec.AnnotationSubtypes.Has(subtype.Value) {
 		return false
 	}
 	if !annotationNeedsAppearanceFix(d) {
@@ -113,7 +109,7 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 		return true
 	}
 	for k := range ap.Entries.All() {
-		if k != "N" && k != pdf.RefKey {
+		if k != "N" {
 			return true
 		}
 	}
@@ -123,9 +119,9 @@ func annotationNeedsAppearanceFix(d pdf.PDFDict) bool {
 		return true
 	}
 	if isBtnField(d) {
-		return nd.HasStream
+		return nd.IsStream()
 	}
-	return !nd.HasStream
+	return !nd.IsStream()
 }
 
 // isBtnField reports whether d is a Btn form field, resolving FT through
@@ -157,11 +153,11 @@ func rebuiltAppearanceDict(trailer *pdf.PDFDict, d pdf.PDFDict, fontSrc *appeara
 		if n, ok := ap.Entries.Lookup("N"); ok {
 			if nd, ok := n.(pdf.PDFDict); ok {
 				switch {
-				case isBtn && !nd.HasStream:
+				case isBtn && !nd.IsStream():
 					newN = nd
-				case !isBtn && nd.HasStream:
+				case !isBtn && nd.IsStream():
 					newN = nd
-				case isBtn && nd.HasStream:
+				case isBtn && nd.IsStream():
 					newN = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{buttonState(d): nd})}
 				}
 			}

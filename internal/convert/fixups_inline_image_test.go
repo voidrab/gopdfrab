@@ -177,7 +177,7 @@ func TestInlineImagePredictorUnsupported(t *testing.T) {
 func TestFixInlineImageRenderingIntentFlipsDisallowedIntent(t *testing.T) {
 	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /Intent /Bogus ID \x00 EI\n")
 
-	fixed, ok := fixInlineImageRenderingIntent(operands)
+	fixed, ok := fixInlineImageRenderingIntent(operands, a1bSpec)
 	if !ok {
 		t.Fatalf("fixInlineImageRenderingIntent ok = false, want true (/Intent /Bogus is disallowed)")
 	}
@@ -205,7 +205,7 @@ func TestFixInlineImageRenderingIntentFlipsDisallowedIntent(t *testing.T) {
 // intent is left untouched.
 func TestFixInlineImageRenderingIntentNoOpWhenAllowed(t *testing.T) {
 	operands := buildTestInlineImageOp(t, "BI /W 1 /H 1 /BPC 8 /CS /G /Intent /Saturation ID \x00 EI\n")
-	if _, ok := fixInlineImageRenderingIntent(operands); ok {
+	if _, ok := fixInlineImageRenderingIntent(operands, a1bSpec); ok {
 		t.Error("fixInlineImageRenderingIntent ok = true, want false (/Saturation is already allowed)")
 	}
 }
@@ -254,11 +254,11 @@ func TestInlineImageFixersLeaveUnrecognisedShapesAlone(t *testing.T) {
 	unwritable := pdf.PDFArray{pdf.PDFRef{ObjNum: 1}}
 	noRaw := []pdf.PDFValue{pdf.PDFInteger(1)}
 
-	if _, ok := fixInlineImageRenderingIntent(noRaw); ok {
+	if _, ok := fixInlineImageRenderingIntent(noRaw, a1bSpec); ok {
 		t.Error("RenderingIntent: ok = true for operands without raw image data")
 	}
 	if _, ok := fixInlineImageRenderingIntent(inlineImageOperands([]byte{0},
-		name("Intent"), name("Bogus"), name("X"), unwritable)); ok {
+		name("Intent"), name("Bogus"), name("X"), unwritable), a1bSpec); ok {
 		t.Error("RenderingIntent: ok = true although the rebuilt image cannot be written")
 	}
 
@@ -318,7 +318,7 @@ func inlineImageDecoded(t *testing.T, operands []pdf.PDFValue) (filters []string
 	if !ok {
 		t.Fatalf("rewritten op carries no pdf.InlineImageRaw operand")
 	}
-	d := pdf.PDFDict{Entries: pdf.DictOf(nil), HasStream: true, RawStream: raw.Data}
+	d := pdf.NewStreamDict(pdf.DictOf(nil), raw.Data)
 	for i := 0; i+1 < len(params); i += 2 {
 		if key, ok := params[i].(pdf.PDFName); ok {
 			switch key.Value {

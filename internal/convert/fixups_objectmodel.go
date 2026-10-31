@@ -10,20 +10,11 @@ import (
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
-func init() {
-	registerFixer(indirectRequiredFixer{})
-	registerFixer(disallowedValueFixer{})
-	registerFixer(constraintFixer{})
-	registerFixer(missingRequiredKeyFixer{})
-	registerFixer(wrongValueTypeFixer{})
-	registerFixer(post14KeyFixer{})
-}
-
 // indirectRequiredKeys holds every key name some Arlington row requires to be an indirect
 // reference (unpredicated rows only), computed once from the compiled-in model.
 var indirectRequiredKeys = func() map[string]bool {
 	keys := map[string]bool{}
-	for _, ot := range arlington.Types {
+	for _, ot := range arlington.Types() {
 		for _, kd := range ot.Keys {
 			if kd.IndirectReference == arlington.IndirectRequired && !kd.Predicated.Indirect {
 				keys[kd.Name] = true
@@ -37,7 +28,7 @@ var indirectRequiredKeys = func() map[string]bool {
 // to be indirect (unpredicated wildcard rows only), e.g. Kids -> ArrayOfPageTreeNodeKids.
 var arrayElemIndirectKeys = func() map[string]bool {
 	keys := map[string]bool{}
-	for _, ot := range arlington.Types {
+	for _, ot := range arlington.Types() {
 		for _, kd := range ot.Keys {
 			for _, g := range kd.LinkGroups {
 				for _, cand := range g.Candidates {
@@ -72,18 +63,18 @@ func (indirectRequiredFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, 
 	changed := false
 	promote := func(v pdf.PDFValue) {
 		child, ok := v.(pdf.PDFDict)
-		if !ok || child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if !ok || child.Entries == nil {
 			return
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		changed = true
 	}
 	walkDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
 		for k, v := range d.Entries.All() {
-			if k == pdf.RefKey {
-				continue
-			}
 			if indirectRequiredKeys[k] {
 				promote(v)
 			}
@@ -101,10 +92,13 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 	changed, _ := f.Fix(p.trailer, nil)
 	next := nextAvailableObjNum(*p.trailer)
 	promote := func(child pdf.PDFDict) bool {
-		if child.Entries == nil || child.Entries.Get(pdf.RefKey) != nil {
+		if child.Entries == nil {
 			return false
 		}
-		child.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: next})
+		if _, indirect := child.Ref(); indirect {
+			return false
+		}
+		child.SetRef(pdf.PDFRef{ObjNum: next})
 		next++
 		return true
 	}
@@ -147,23 +141,19 @@ func (f indirectRequiredFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (b
 // post14KeyFixer remediates the object model's KeyIntroducedAfterPDF14 check by deleting
 // the reported key: the 1.4 model cannot require a key it does not know, so removal is
 // always conformant, and 1.4 readers must ignore unknown keys anyway. Only runs when the
-// profile enables the check (Legacy1B / ObjectModelOnly).
+// profile enables the check (Legacy1B / ObjectModelOnly). Like
+// missingRequiredKeyFixer, it is targeted only.
 type post14KeyFixer struct{}
 
 func (post14KeyFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14
 }
 
-// Fix is targeted-only, like missingRequiredKeyFixer.
-func (post14KeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
-}
-
 func (post14KeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
 	changed := false
 	for _, iss := range issues {
 		detail, ok := iss.ObjModelDetail()
-		if !ok || detail.Key == pdf.RefKey || isArrayIndexKey(detail.Key) {
+		if !ok || isArrayIndexKey(detail.Key) {
 			continue
 		}
 		ref, ok := iss.ObjectRef()
@@ -448,17 +438,13 @@ func pruneFontFiles(d pdf.PDFDict, typeName string) bool {
 // missingRequiredKeyFixer remediates the object model's MissingRequiredKey check for keys
 // with exactly one legal value: a single-entry enum (e.g. /Type on most types) or a pinned
 // value whose condition definitely holds on the dict. Anything else has no synthesizable
-// value and stays a residual.
+// value and stays a residual. It is targeted only: without the walk's type
+// propagation a whole-graph pass cannot know which schema each dict was
+// validated under.
 type missingRequiredKeyFixer struct{}
 
 func (missingRequiredKeyFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.MissingRequiredKey
-}
-
-// Fix is targeted-only: without the walk's type propagation a full-graph pass
-// cannot know which schema each dict was validated under.
-func (missingRequiredKeyFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
 }
 
 func (missingRequiredKeyFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
@@ -504,7 +490,7 @@ func repairTrailerInfo(trailer *pdf.PDFDict) bool {
 	if !present || v == nil {
 		return false
 	}
-	if d, ok := v.(pdf.PDFDict); ok && !d.HasStream {
+	if d, ok := v.(pdf.PDFDict); ok && !d.IsStream() {
 		return false
 	}
 	trailer.Entries.Set("Info", pdf.NewPDFDict())
@@ -525,7 +511,7 @@ func namesType(issues []pdf.PDFError, typeName string) bool {
 // repairOutlineTree gives every outline item the two keys the model requires
 // and the tree itself can supply: /Parent, which is the node the item hangs
 // under, and /Title, which nothing can supply -- so it becomes empty rather
-// than invented. Both come up in bookmark trees PowerPoint exports leave
+// than invented. Both come up in bookmark trees that some exporters leave
 // behind, where stub items carry a /Parent and nothing else.
 //
 // Empty titles rather than unlinking the stubs: they sit in the /Prev and
@@ -676,15 +662,11 @@ func scalarFromEnum(s string, types []arlington.ValueType) (pdf.PDFValue, bool) 
 // otherwise an unconditionally-optional key is deleted (absence is always conformant),
 // and a required key stays a residual. Array elements are coerced in place but never
 // deleted or nulled (index shift / null-element semantics are never neutral).
+// Like missingRequiredKeyFixer, it is targeted only.
 type wrongValueTypeFixer struct{}
 
 func (wrongValueTypeFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.ObjectModel.WrongValueType
-}
-
-// Fix is targeted-only, like missingRequiredKeyFixer.
-func (wrongValueTypeFixer) Fix(_ *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
-	return false, nil
 }
 
 func (wrongValueTypeFixer) fixTargeted(p *fixPass, issues []pdf.PDFError) (bool, bool, error) {
@@ -889,7 +871,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 	if key == "Descent" && negateDescent(d) {
 		return true // a descriptor without /Type, missed by the whole-graph pass
 	}
-	if key == "Filter" && d.HasStream {
+	if key == "Filter" && d.IsStream() {
 		if nv, ok := expandFilterAbbrevs(d.Entries.Get(key)); ok {
 			d.Entries.Set(key, nv)
 			return true
@@ -946,7 +928,7 @@ func repairDisallowedValue(d pdf.PDFDict, key string, kd *arlington.KeyDef) bool
 // bytes are read as they stand -- as content-stream operators, say -- so the
 // schema fixers leave such a violation as a residual instead.
 func streamDataKey(d pdf.PDFDict, key string) bool {
-	if !d.HasStream {
+	if !d.IsStream() {
 		return false
 	}
 	switch key {

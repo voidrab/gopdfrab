@@ -37,11 +37,9 @@ func MaxDecodedStreamBytes() int64 { return effectiveDecodedCap() }
 // correctness limit: past it a Reader stops memoizing and starts recomputing,
 // which costs time and changes nothing about the result.
 //
-// 64 MB leaves the largest committed corpus file (~4 MB of caches) sixteen times
-// the room it needs, so the default binds only on documents whose content is
-// genuinely huge -- exactly the ones a default should bound. It was 256 MB while
-// the budget under-counted what it was measuring; a 100 MB vector document spent
-// all of that on decoded page content and peaked near a gigabyte.
+// 64 MB leaves the largest document in the test corpus (about 4 MB of caches)
+// sixteen times the room it needs, so the default binds only on documents
+// whose content is genuinely large.
 const DefaultMaxResidentBytes int64 = 64 << 20
 
 // residentCap holds the configured budget; 0 means DefaultMaxResidentBytes.

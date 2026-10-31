@@ -7,13 +7,12 @@ import (
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// PDF/A-1 caps a real at 32767, and the only repair for a violation used to be
-// to clamp the number. That is right for a dictionary value and wrong for a
-// coordinate: what the limit constrains is the number, but what the file means
-// is a position, and truncating one moves the other. A page drawn at 1/500
-// scale routinely puts a full-page rectangle at 365760 units, so clamping it
-// shrinks that rectangle to a corner -- and when the rectangle is a clip, the
-// whole page goes with it.
+// PDF/A-1 caps a real at 32767. Clamping the number is the repair for a
+// dictionary value but the wrong one for a coordinate: the limit constrains the
+// number, while the file means a position, and truncating one moves the other.
+// A page drawn at 1/500 scale routinely puts a full-page rectangle at 365760
+// units; clamping it shrinks the rectangle to a corner, and when the rectangle
+// is a clip, the whole page goes with it.
 //
 // This file repairs the position instead. The magnitude that does not fit in
 // the operand is folded into the CTM, so the drawing keeps its size and place
@@ -22,12 +21,10 @@ import (
 // after this.
 
 const (
-	// realLimit is the largest real PDF/A-1 allows (6.1.12).
-	realLimit = 32767
 	// maxScale bounds the factor folded into the CTM, since the factor is
-	// itself a real that has to stay inside the limit. Together with realLimit
-	// it puts the largest repairable coordinate around 5.4e8; beyond that the
-	// clamp takes over.
+	// itself a real that has to stay inside the limit. Together with PDF/A-1's
+	// real limit it puts the largest repairable coordinate around 5.4e8;
+	// beyond that the clamp takes over.
 	maxScale = 16384
 	// defaultLineWidth is the width a stream starts with, before any w operator
 	// (ISO 32000-1 table 52). Restoring 0 instead would turn every unset stroke
@@ -62,12 +59,14 @@ var (
 // in front of it: an out-of-range path is moved into the CTM, and everything
 // rewrite still finds out of range afterwards is clamped as before. The two
 // run in one pass so a stream is decoded, scanned and re-encoded once.
-func rescaleContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.PDFDict, bool) {
+//
+// realLimit is the largest real the level allows; zero sets no limit.
+func rescaleContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter, realLimit float64) (pdf.PDFDict, bool) {
 	data, err := pdf.DecodeStream(dict)
 	if err != nil {
 		return dict, false
 	}
-	rewritten, ok := rescalePathsAndRewrite(data, rewrite)
+	rewritten, ok := rescalePathsAndRewrite(data, rewrite, realLimit)
 	if !ok {
 		return dict, false
 	}
@@ -78,9 +77,12 @@ func rescaleContentStreamDict(dict pdf.PDFDict, rewrite contentOpRewriter) (pdf.
 // rescalePathsAndRewrite returns data with every rescalable path folded into
 // the CTM and every operator passed through rewrite, or ok=false if neither
 // changed anything.
-func rescalePathsAndRewrite(data []byte, rewrite contentOpRewriter) ([]byte, bool) {
+func rescalePathsAndRewrite(data []byte, rewrite contentOpRewriter, realLimit float64) ([]byte, bool) {
+	if realLimit == 0 {
+		realLimit = math.Inf(1)
+	}
 	var cw writer.ContentStreamWriter
-	r := &pathRescaler{w: &cw, rewrite: rewrite, state: graphicsState{lineWidth: defaultLineWidth}}
+	r := &pathRescaler{w: &cw, rewrite: rewrite, limit: realLimit, state: graphicsState{lineWidth: defaultLineWidth}}
 	cs := pdf.NewContentScanner(data)
 	cs.Scan(r.op)
 	r.emitBuffered() // a path the stream ended without painting
@@ -112,8 +114,10 @@ type pathRescaler struct {
 	// rewrite is applied to every operator on its way out, so the clamp still
 	// sees whatever the rescale left out of range.
 	rewrite contentOpRewriter
-	state   graphicsState
-	stack   []graphicsState
+	// limit is the largest real the level allows.
+	limit float64
+	state graphicsState
+	stack []graphicsState
 
 	path    []writer.ContentOp // the path being collected
 	largest float64            // its largest out-of-range coordinate
@@ -133,7 +137,7 @@ func (r *pathRescaler) op(op string, operands []pdf.PDFValue) {
 		r.emitBuffered()
 		r.track(op, operands)
 		if op == "cm" {
-			if scale, divided, ok := splitOversizedMatrix(operands); ok {
+			if scale, divided, ok := splitOversizedMatrix(operands, r.limit); ok {
 				r.emit("cm", scale)
 				r.emit("cm", divided)
 				r.changed = true
@@ -150,7 +154,7 @@ func (r *pathRescaler) op(op string, operands []pdf.PDFValue) {
 // same matrix divided by that scale composes to exactly what was written, and
 // both halves are in range. It is what places an image, so clamping it instead
 // shrinks the picture to a corner of where it belongs.
-func splitOversizedMatrix(operands []pdf.PDFValue) (scale, divided []pdf.PDFValue, ok bool) {
+func splitOversizedMatrix(operands []pdf.PDFValue, realLimit float64) (scale, divided []pdf.PDFValue, ok bool) {
 	if len(operands) != 6 {
 		return nil, nil, false
 	}
@@ -169,7 +173,7 @@ func splitOversizedMatrix(operands []pdf.PDFValue) (scale, divided []pdf.PDFValu
 	if largest == 0 {
 		return nil, nil, false
 	}
-	s := scaleFor(largest)
+	s := scaleFor(largest, realLimit)
 	if s == 0 {
 		return nil, nil, false // too far out of range to write as two; the clamp takes it
 	}
@@ -194,7 +198,7 @@ func (r *pathRescaler) collect(op string, operands []pdf.PDFValue) {
 	r.path = append(r.path, writer.ContentOp{Op: op, Operands: copyOperands(operands)})
 	for _, v := range operands {
 		if f, ok := v.(pdf.PDFReal); ok {
-			if abs := math.Abs(float64(f)); abs > realLimit && abs > r.largest {
+			if abs := math.Abs(float64(f)); abs > r.limit && abs > r.largest {
 				r.largest = abs
 			}
 		}
@@ -209,7 +213,7 @@ func (r *pathRescaler) paint(op string) {
 	stroking := strokingPaintOps[op]
 	scale := 0.0
 	if !r.spilled && r.largest > 0 {
-		scale = scaleFor(r.largest)
+		scale = scaleFor(r.largest, r.limit)
 	}
 	// Nothing out of range, too far out of range to fold into a matrix, or a
 	// stroke whose width and dash an ExtGState may have set out of view: leave
@@ -313,7 +317,7 @@ func (r *pathRescaler) reset() {
 // limit, or 0 if no allowed factor is enough. Factors are powers of two, so
 // dividing a coordinate by one only shifts its exponent: nothing is rounded
 // away, and the matrix that undoes the scale undoes it exactly.
-func scaleFor(largest float64) float64 {
+func scaleFor(largest, realLimit float64) float64 {
 	for scale := 1.0; scale <= maxScale; scale *= 2 {
 		if largest/scale <= realLimit {
 			return scale
@@ -322,7 +326,8 @@ func scaleFor(largest float64) float64 {
 	return 0
 }
 
-// scaleMatrix is the operand list of a cm that scales both axes by scale.
+// scaleMatrix is the operand list of a cm operator that scales both axes by
+// scale.
 func scaleMatrix(scale float64) []pdf.PDFValue {
 	s := pdf.PDFReal(scale)
 	return []pdf.PDFValue{s, pdf.PDFReal(0), pdf.PDFReal(0), s, pdf.PDFReal(0), pdf.PDFReal(0)}

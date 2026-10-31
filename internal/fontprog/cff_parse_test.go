@@ -20,7 +20,7 @@ func TestType2CharstringWidthOperandEncodings(t *testing.T) {
 		{"16.16 fixed (255)", []byte{255, 0x00, 0x02, 0x80, 0x00, 14}, 2.5},
 	}
 	for _, c := range cases {
-		w, hasWidth, ok := type2CharstringWidth(c.cs, nil, nil)
+		w, hasWidth, ok := Type2CharstringWidth(c.cs, nil, nil)
 		if !ok || !hasWidth || w != c.want {
 			t.Errorf("%s: got %v, %v, %v, want %v, true, true", c.name, w, hasWidth, ok, c.want)
 		}
@@ -33,7 +33,7 @@ func TestType2CharstringWidthOperandEncodings(t *testing.T) {
 		"28 truncated":  {28, 0},
 		"255 truncated": {255, 0, 0, 0},
 	} {
-		if _, _, ok := type2CharstringWidth(cs, nil, nil); ok {
+		if _, _, ok := Type2CharstringWidth(cs, nil, nil); ok {
 			t.Errorf("%s: should not be followable", name)
 		}
 	}
@@ -55,7 +55,7 @@ func TestType2CharstringWidthShapes(t *testing.T) {
 		{"vmoveto with one arg has no width", []byte{139, 4}, false, true},
 	}
 	for _, c := range cases {
-		_, hasWidth, ok := type2CharstringWidth(c.cs, nil, nil)
+		_, hasWidth, ok := Type2CharstringWidth(c.cs, nil, nil)
 		if hasWidth != c.hasWidth || ok != c.ok {
 			t.Errorf("%s: hasWidth=%v ok=%v, want %v %v", c.name, hasWidth, ok, c.hasWidth, c.ok)
 		}
@@ -64,7 +64,7 @@ func TestType2CharstringWidthShapes(t *testing.T) {
 
 func TestCffPrivateInfoOperatorWithoutOperands(t *testing.T) {
 	// A bare defaultWidthX operator is ignored rather than read as zero.
-	d, n, _, ok := cffPrivateInfo([]byte{20, 144, 21}, 0, 3)
+	d, n, _, ok := CFFPrivateInfo([]byte{20, 144, 21}, 0, 3)
 	if !ok || d != 0 || n != 5 {
 		t.Errorf("cffPrivateInfo = %v, %v, %v, want 0, 5, true", d, n, ok)
 	}
@@ -72,7 +72,7 @@ func TestCffPrivateInfoOperatorWithoutOperands(t *testing.T) {
 
 func TestCffDictNumbersNegativeTwoByte(t *testing.T) {
 	var got []float64
-	ok := cffDictNumbers([]byte{251, 0, 20}, func(_ int, operands []float64) { got = operands })
+	ok := CFFDictNumbers([]byte{251, 0, 20}, func(_ int, operands []float64) { got = operands })
 	if !ok || !reflect.DeepEqual(got, []float64{-108}) {
 		t.Errorf("cffDictNumbers(251 0) = %v, %v, want [-108] true", got, ok)
 	}
@@ -106,11 +106,11 @@ func TestParseCFFFDSelectMalformed(t *testing.T) {
 		{"format 3 range overruns the sentinel", []byte{3, 0, 1, 0, 0, 0, 0, 2}, 0, 1},
 	}
 	for _, c := range cases {
-		if got := parseCFFFDSelect(c.data, c.off, c.n); got != nil {
+		if got := ParseCFFFDSelect(c.data, c.off, c.n); got != nil {
 			t.Errorf("%s: got %v, want nil", c.name, got)
 		}
 	}
-	if got := parseCFFFDSelect(good3, 0, 2); !reflect.DeepEqual(got, []int{0, 0}) {
+	if got := ParseCFFFDSelect(good3, 0, 2); !reflect.DeepEqual(got, []int{0, 0}) {
 		t.Errorf("well-formed format 3 = %v, want [0 0]", got)
 	}
 }

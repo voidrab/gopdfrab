@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -103,7 +102,7 @@ func buildMinimalCIDCFF() []byte {
 func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDFDict {
 	charProcs := pdf.NewPDFDict()
 	if procName != "" {
-		charProcs.Entries.Set(procName, pdf.PDFDict{HasStream: true, RawStream: []byte(proc)})
+		charProcs.Entries.Set(procName, pdf.NewStreamDict(nil, []byte(proc)))
 	}
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":       pdf.PDFName{Value: "Font"},
@@ -124,20 +123,20 @@ func type3Font(proc string, matrixScale, width float64, procName string) pdf.PDF
 func renderType3(t *testing.T, content string, font pdf.PDFDict) (*image.RGBA, []string) {
 	t.Helper()
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 	return img, drops
 }
 
-// TestRenderType3Glyph: a Type 3 glyph's CharProc is executed, painting in the
-// fill colour in force when the text was shown.
+// TestRenderType3Glyph verifies that a Type 3 glyph's CharProc is executed,
+// painting in the fill colour in force when the text was shown.
 func TestRenderType3Glyph(t *testing.T) {
 	font := type3Font("0 0 750 750 re f", 0.001, 750, "square")
 	img, drops := renderType3(t, "0 0 1 rg BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
@@ -152,8 +151,8 @@ func TestRenderType3Glyph(t *testing.T) {
 	assertUnpainted(t, img, 19, 19, "outside the glyph")
 }
 
-// TestRenderType3Advance: /Widths is in glyph space, so the second glyph is
-// placed by the width scaled through the font matrix.
+// TestRenderType3Advance verifies that /Widths is in glyph space, so the
+// second glyph is placed by the width scaled through the font matrix.
 func TestRenderType3Advance(t *testing.T) {
 	// An 8pt-wide box advancing 10pt leaves a 2pt gap between the two glyphs.
 	font := type3Font("0 0 400 750 re f", 0.001, 500, "square")
@@ -170,8 +169,8 @@ func TestRenderType3Advance(t *testing.T) {
 	}
 }
 
-// TestRenderType3MissingCharProcDrops: a code with no glyph procedure is
-// reported rather than silently leaving a hole in the text.
+// TestRenderType3MissingCharProcDrops verifies that a code with no glyph
+// procedure is reported rather than silently leaving a hole in the text.
 func TestRenderType3MissingCharProcDrops(t *testing.T) {
 	tests := []struct {
 		name string
@@ -207,8 +206,8 @@ func redShadingResources() pdf.PDFDict {
 	})}
 }
 
-// TestRenderType3GlyphUsesFontResources: a CharProc draws through the font's
-// own /Resources.
+// TestRenderType3GlyphUsesFontResources verifies that a CharProc draws
+// through the font's own /Resources.
 func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
 	font.Entries.Set("Resources", redShadingResources())
@@ -222,19 +221,18 @@ func TestRenderType3GlyphUsesFontResources(t *testing.T) {
 	}
 }
 
-// TestRenderType3GlyphFallsBackToPageResources: a font declaring no
-// /Resources resolves its CharProc's names against the page's (ISO 32000-1
+// TestRenderType3GlyphFallsBackToPageResources verifies that a font declaring
+// no /Resources resolves its CharProc's names against the page's (ISO 32000-1
 // 9.6.5), rather than finding nothing.
 func TestRenderType3GlyphFallsBackToPageResources(t *testing.T) {
 	font := type3Font("/Sh1 sh", 0.001, 750, "square")
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 2 2 Td (A) Tj ET")},
+		"Contents": pdf.NewStreamDict(nil, []byte("BT /F1 20 Tf 2 2 Td (A) Tj ET")),
 	})}
 	resources := redShadingResources()
 	resources.Entries.Set("Font", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})})
 
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -253,9 +251,9 @@ func nrgbaAt(t *testing.T, img *image.RGBA, x, y int) color.NRGBA {
 
 func TestRenderPageRectangleFill(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -271,16 +269,14 @@ func TestRenderPageRectangleFill(t *testing.T) {
 	}
 }
 
-// TestRenderStartsInDeviceGray: a drawing starts in DeviceGray, so "1 sc"
-// fills white without naming a colour space first. Starting with no colour
-// space at all left the fill black -- which is how a chart drawn inside a
-// transparency group came out of the flattener as a black rectangle, with
-// more ink on the page than the file had ever drawn.
+// TestRenderStartsInDeviceGray verifies that a drawing starts in DeviceGray,
+// as specified in ISO 32000-1 table 52, so "1 sc" fills white without naming a
+// colour space first.
 func TestRenderStartsInDeviceGray(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 sc 5 5 10 10 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 sc 5 5 10 10 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -290,9 +286,9 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 
 	// The stroking half of the same state.
 	page = pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("1 SC 4 w 0 10 m 20 10 l S")},
+		"Contents": pdf.NewStreamDict(nil, []byte("1 SC 4 w 0 10 m 20 10 l S")),
 	})}
-	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err = RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -302,23 +298,19 @@ func TestRenderStartsInDeviceGray(t *testing.T) {
 }
 
 func TestRenderPageImageXObject(t *testing.T) {
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
-		}),
-		HasStream: true,
-		RawStream: []byte{0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255},
-	}
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"},
+	}), []byte{0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -329,31 +321,23 @@ func TestRenderPageImageXObject(t *testing.T) {
 }
 
 func TestRenderPageImageWithSoftMask(t *testing.T) {
-	smask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceGray"},
-		}),
-		HasStream: true,
-		RawStream: []byte{128, 128, 128, 128},
-	}
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace": pdf.PDFName{Value: "DeviceRGB"}, "SMask": smask,
-		}),
-		HasStream: true,
-		RawStream: []byte{255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0},
-	}
+	smask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Width": pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceGray"},
+	}), []byte{128, 128, 128, 128})
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(2), "BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace": pdf.PDFName{Value: "DeviceRGB"}, "SMask": smask,
+	}), []byte{255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -366,40 +350,31 @@ func TestRenderPageImageWithSoftMask(t *testing.T) {
 	}
 }
 
-// TestRenderPageImageWithStencilMask: a stencil /Mask says where the page
-// shows through, which is what a soft mask is turned into on the way to
-// PDF/A-1. The renderer is the yardstick a conversion is measured against, so
-// it has to read one back.
+// TestRenderPageImageWithStencilMask verifies that the renderer honours a
+// stencil /Mask, the form a soft mask takes after conversion to PDF/A-1, so
+// that converted output can be rendered for comparison with its input.
 func TestRenderPageImageWithStencilMask(t *testing.T) {
 	// One bit per pixel, one byte per row: paint the left pixel, mask out the
 	// right one.
-	mask := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(1), "ImageMask": pdf.PDFBoolean(true),
-		}),
-		HasStream: true,
-		RawStream: []byte{0x40},
-	}
-	img := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype": pdf.PDFName{Value: "Image"},
-			"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
-			"BitsPerComponent": pdf.PDFInteger(8),
-			"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"}, "Mask": mask,
-		}),
-		HasStream: true,
-		RawStream: []byte{0, 0, 0, 0, 0, 0}, // both pixels black
-	}
+	mask := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(1), "ImageMask": pdf.PDFBoolean(true),
+	}), []byte{0x40})
+	img := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Image"},
+		"Width":   pdf.PDFInteger(2), "Height": pdf.PDFInteger(1),
+		"BitsPerComponent": pdf.PDFInteger(8),
+		"ColorSpace":       pdf.PDFName{Value: "DeviceRGB"}, "Mask": mask,
+	}), []byte{0, 0, 0, 0, 0, 0})
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"XObject": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Im1": img})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")},
+		"Contents": pdf.NewStreamDict(nil, []byte("q 20 0 0 20 0 0 cm /Im1 Do Q")),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -411,45 +386,16 @@ func TestRenderPageImageWithStencilMask(t *testing.T) {
 	}
 }
 
-func TestGlyphNameToWinAnsiCode(t *testing.T) {
-	if c, ok := glyphNameToWinAnsiCode("A"); !ok || c != 65 {
-		t.Errorf("glyphNameToWinAnsiCode(A) = %d, %v", c, ok)
-	}
-	if _, ok := glyphNameToWinAnsiCode("no_such_glyph"); ok {
-		t.Error("glyphNameToWinAnsiCode(unknown) should be false")
-	}
-}
-
-func TestSimpleCodeToGID(t *testing.T) {
-	gidMap := map[uint16]uint16{'A': 10, 66: 20}
-	var names [256]string
-	names[65] = "A"
-	if gid := simpleCodeToGID(gidMap, 65, names); gid != 10 {
-		t.Errorf("simpleCodeToGID via name = %d, want 10", gid)
-	}
-	if gid := simpleCodeToGID(gidMap, 66, [256]string{}); gid != 20 {
-		t.Errorf("simpleCodeToGID direct = %d, want 20", gid)
-	}
-	if gid := simpleCodeToGID(nil, 99, [256]string{}); gid != 99 {
-		t.Errorf("simpleCodeToGID nil map = %d, want passthrough 99", gid)
-	}
-	_ = fontprog.WinAnsiToUnicode // ensure the encoding table is linked
-}
-
 // TestRenderPageOperatorCoverage drives RenderPage with a content stream that
 // exercises the full operator dispatch: path construction, every fill/stroke
 // paint variant, clipping, colour (gray/rgb/cmyk/named), graphics-state save/
 // restore, an ExtGState, a Form XObject, and the text-positioning operators.
 func TestRenderPageOperatorCoverage(t *testing.T) {
-	form := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Subtype":   pdf.PDFName{Value: "Form"},
-			"BBox":      pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
-			"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
-		}),
-		HasStream: true,
-		RawStream: []byte("0 1 0 rg 0 0 5 5 re f"),
-	}
+	form := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Subtype":   pdf.PDFName{Value: "Form"},
+		"BBox":      pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(10), pdf.PDFInteger(10)},
+		"Resources": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{})},
+	}), []byte("0 1 0 rg 0 0 5 5 re f"))
 	font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "Type1"},
 		"BaseFont": pdf.PDFName{Value: "Helvetica"},
@@ -497,10 +443,10 @@ T*
 ET
 `
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte(content)},
+		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
 
-	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72)
+	canvas, _, err := RenderPage(page, resources, [4]float64{0, 0, 50, 50}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -515,10 +461,7 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 	if err != nil {
 		t.Skipf("font asset not available: %v", err)
 	}
-	return pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}),
-		HasStream: true, RawStream: ttf,
-	}
+	return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Length1": pdf.PDFInteger(len(ttf))}), ttf)
 }
 
 // TestRenderPageEmbeddedSimpleText renders text with an embedded simple
@@ -526,16 +469,15 @@ func loadEmbeddableTTF(t *testing.T) pdf.PDFDict {
 func TestRenderPageEmbeddedSimpleText(t *testing.T) {
 	resources := embeddedSimpleFontResources(t)
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 0 0 0 rg 5 20 Td (ABC) Tj [(D) -100 (E)] TJ ET")),
 	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 120, 40}, 72, nil); err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
 }
 
-// TestRenderTextHonoursClip: glyphs paint only inside the clip in force, like
-// paths do.
+// TestRenderTextHonoursClip verifies that glyphs paint only inside the clip in
+// force, like paths do.
 func TestRenderTextHonoursClip(t *testing.T) {
 	resources := embeddedSimpleFontResources(t)
 	const text = "BT /F1 20 Tf 0 0 0 rg 5 15 Td (ABC) Tj ET"
@@ -596,32 +538,10 @@ func TestRenderPageEmbeddedCIDText(t *testing.T) {
 		"Font": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"F1": font})},
 	})}
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true,
-			RawStream: []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")},
+		"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), []byte("BT /F1 20 Tf 5 20 Td <00410042> Tj ET")),
 	})}
-	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72); err != nil {
+	if _, _, err := RenderPage(page, resources, [4]float64{0, 0, 80, 40}, 72, nil); err != nil {
 		t.Fatalf("RenderPage: %v", err)
-	}
-}
-
-func TestResolveSimpleEncoding(t *testing.T) {
-	// WinAnsi base with a Differences override.
-	enc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"BaseEncoding": pdf.PDFName{Value: "WinAnsiEncoding"},
-		"Differences":  pdf.PDFArray{pdf.PDFInteger(65), pdf.PDFName{Value: "Alpha"}, pdf.PDFName{Value: "Beta"}},
-	})}
-	names := resolveSimpleEncoding(enc)
-	if names[65] != "Alpha" || names[66] != "Beta" {
-		t.Errorf("Differences override = %q,%q; want Alpha,Beta", names[65], names[66])
-	}
-
-	// Named encoding.
-	if n := resolveSimpleEncoding(pdf.PDFName{Value: "WinAnsiEncoding"}); n[65] != "A" {
-		t.Errorf("WinAnsi code 65 = %q, want A", n[65])
-	}
-	// Default / unknown falls back to StandardEncoding.
-	if n := resolveSimpleEncoding(pdf.PDFInteger(0)); n[65] != "A" {
-		t.Errorf("default encoding code 65 = %q, want A", n[65])
 	}
 }
 
@@ -632,8 +552,8 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 	t.Run("array of streams joined", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Contents": pdf.PDFArray{
-				pdf.PDFDict{HasStream: true, RawStream: []byte("1 0 0 rg")},
-				pdf.PDFDict{HasStream: true, RawStream: []byte("5 5 10 10 re f")},
+				pdf.NewStreamDict(nil, []byte("1 0 0 rg")),
+				pdf.NewStreamDict(nil, []byte("5 5 10 10 re f")),
 			},
 		})}
 		got, err := PageContentBytes(page)
@@ -648,10 +568,7 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 
 	t.Run("single stream decode error", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Contents": pdf.PDFDict{
-				Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-				HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-			},
+			"Contents": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
 		})}
 		if _, err := PageContentBytes(page); err == nil {
 			t.Error("pageContentBytes: want error for undecodable stream, got nil")
@@ -661,44 +578,13 @@ func TestPageContentBytesArrayAndErrors(t *testing.T) {
 	t.Run("stream within array decode error", func(t *testing.T) {
 		page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 			"Contents": pdf.PDFArray{
-				pdf.PDFDict{
-					Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}),
-					HasStream: true, RawStream: []byte{0xFF, 0xFF, 0xFF},
-				},
+				pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}}), []byte{0xFF, 0xFF, 0xFF}),
 			},
 		})}
 		if _, err := PageContentBytes(page); err == nil {
 			t.Error("pageContentBytes: want error for undecodable stream in array, got nil")
 		}
 	})
-}
-
-// TestResolveOperandColorSpace covers the empty-operands, non-name-operand,
-// device-name, and named-resource-lookup branches.
-func TestResolveOperandColorSpace(t *testing.T) {
-	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"ColorSpace": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"CS0": pdf.PDFName{Value: "DeviceGray"},
-		})},
-	})}
-
-	if got := ResolveOperandColorSpace(nil, resources); got != nil {
-		t.Errorf("empty operands = %v, want nil", got)
-	}
-
-	arrayOperand := pdf.PDFArray{pdf.PDFName{Value: "DeviceRGB"}}
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{arrayOperand}, resources); !pdf.EqualPDFValue(got, arrayOperand) {
-		t.Errorf("non-name operand = %v, want passthrough %v", got, arrayOperand)
-	}
-
-	if got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "DeviceRGB"}}, resources); !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceRGB"}) {
-		t.Errorf("device name = %v, want /DeviceRGB passthrough", got)
-	}
-
-	got := ResolveOperandColorSpace([]pdf.PDFValue{pdf.PDFName{Value: "CS0"}}, resources)
-	if !pdf.EqualPDFValue(got, pdf.PDFName{Value: "DeviceGray"}) {
-		t.Errorf("named resource lookup = %v, want /DeviceGray", got)
-	}
 }
 
 // TestBuildSimpleFontInfoFontFile3AndFallback covers the FontFile3 (CFF)
@@ -709,7 +595,7 @@ func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
 	t.Run("FontFile3 CFF", func(t *testing.T) {
 		cff := buildMinimalCIDCFF()
 		desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"FontFile3": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{}), HasStream: true, RawStream: cff},
+			"FontFile3": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), cff),
 		})}
 		font := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"FontDescriptor": desc})}
 		fi := buildSimpleFontInfo(font)
@@ -739,11 +625,10 @@ func TestBuildSimpleFontInfoFontFile3AndFallback(t *testing.T) {
 	})
 }
 
-// TestRasterPixelBudget: a poster is written in points like anything else, and
-// one 8424 of them across at 150 dpi is 217 megapixels -- most of a gigabyte to
-// hold, and past what any reader will decode once it has been written back
-// into the file. The resolution drops instead, so the picture is coarser
-// rather than absent.
+// TestRasterPixelBudget verifies that dpiWithin lowers the resolution for a
+// page that would exceed maxRasterPixels at the requested one, such as an
+// 8424 by 5955 point poster at 150 dpi, and leaves ordinary pages and
+// degenerate bounds at the requested resolution.
 func TestRasterPixelBudget(t *testing.T) {
 	if got := dpiWithin([4]float64{0, 0, 612, 792}, 150); got != 150 {
 		t.Errorf("an ordinary page dropped to %d dpi, want the 150 it asked for", got)
@@ -764,9 +649,9 @@ func TestRasterPixelBudget(t *testing.T) {
 	}
 
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("0 0 0 rg 0 0 8424 5955 re f")},
+		"Contents": pdf.NewStreamDict(nil, []byte("0 0 0 rg 0 0 8424 5955 re f")),
 	})}
-	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150)
+	canvas, _, err := RenderPage(page, pdf.PDFDict{}, poster, 150, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -775,20 +660,14 @@ func TestRasterPixelBudget(t *testing.T) {
 	}
 }
 
-// TestRenderFormRendersOnNothing covers a second flattening blanking cause:
-// a form is drawn onto what the page already has, so rendering it on paper
-// makes everything it did not paint opaque white. oapen-26d73842 page 4 ends
-// with a page-covering group, and flattened against paper it covered the page.
-// What the form did not paint has to come back as unpainted.
+// TestRenderFormRendersOnNothing verifies that a form is rendered onto a
+// transparent canvas, so that the pixels it does not paint remain transparent
+// rather than white.
 func TestRenderFormRendersOnNothing(t *testing.T) {
 	formWith := func(content string) pdf.PDFDict {
-		return pdf.PDFDict{
-			Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"BBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
-			}),
-			HasStream: true,
-			RawStream: []byte(content),
-		}
+		return pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+			"BBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(20), pdf.PDFInteger(20)},
+		}), []byte(content))
 	}
 
 	empty, _, _, err := RenderFormContent(formWith(""), pdf.PDFDict{}, 72, InheritedPaint{})
@@ -812,9 +691,9 @@ func TestRenderFormRendersOnNothing(t *testing.T) {
 
 	// A page still renders on paper: only a form composites onto something.
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		"Contents": pdf.PDFDict{HasStream: true, RawStream: []byte("")},
+		"Contents": pdf.NewStreamDict(nil, []byte("")),
 	})}
-	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	blank, _, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -842,9 +721,9 @@ func TestBuildType3FontInfoWidthsDefaultFirstChar(t *testing.T) {
 	}
 }
 
-// TestRenderType3GlyphThatShowsItselfStops: a CharProc that shows its own font
-// would recurse forever; the shared nesting guard ends it, leaving the outer
-// glyph painted.
+// TestRenderType3GlyphThatShowsItselfStops verifies that a CharProc that shows
+// its own font does not recurse forever: the shared nesting guard ends it,
+// leaving the outer glyph painted.
 func TestRenderType3GlyphThatShowsItselfStops(t *testing.T) {
 	font := type3Font("0 0 750 750 re f BT /F1 1000 Tf (A) Tj ET", 0.001, 750, "square")
 	img, _ := renderType3(t, "0 0 1 rg BT /F1 20 Tf 2 2 Td (A) Tj ET", font)
@@ -853,8 +732,8 @@ func TestRenderType3GlyphThatShowsItselfStops(t *testing.T) {
 	}
 }
 
-// TestRenderType3UndecodableCharProcDrops: a glyph procedure whose stream
-// cannot be decoded is reported like a missing one.
+// TestRenderType3UndecodableCharProcDrops verifies that a glyph procedure
+// whose stream cannot be decoded is reported like a missing one.
 func TestRenderType3UndecodableCharProcDrops(t *testing.T) {
 	font := type3Font("", 0.001, 750, "square")
 	proc := undecodableStream()

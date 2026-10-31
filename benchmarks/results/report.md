@@ -214,10 +214,12 @@ Per-file timings from the same batch run (metrics 3-5), bucketed by file size, t
 
 | Tool | Artifact | Size | Notes |
 |---|---|---|---|
-| gopdfrab | cli_plain | 14.8 MB | cmd/gopdfrab |
-| gopdfrab | cli_stripped | 12.3 MB | cmd/gopdfrab |
-| gopdfrab | bench_plain | 6.9 MB | benchmark runner |
-| gopdfrab | bench_stripped | 5.0 MB | benchmark runner |
+| gopdfrab | cli_plain | 14.9 MB | cmd/gopdfrab (verify + convert); go build |
+| gopdfrab | cli_stripped | 11.9 MB | cmd/gopdfrab (verify + convert); -ldflags '-s -w' |
+| gopdfrab | verify_plain | 6.5 MB | verify-only program on gopdfrab/verify; go build |
+| gopdfrab | verify_stripped | 4.3 MB | verify-only program on gopdfrab/verify; -ldflags '-s -w' |
+| gopdfrab | wasm_verify | 5.9 MB | browser module; verify only; -ldflags '-s -w' |
+| gopdfrab | wasm_full | 14.4 MB | browser module; verify + convert; -ldflags '-s -w' |
 | veraPDF | install_dir | 33.0 MB | full greenfield install (GUI+CLI+docs); requires a separate JRE |
 | veraPDF | cli_jar | 15.3 MB | CLI jar only; excl. GUI/docs |
 | pdfbox-preflight | jar | 11.7 MB | shaded preflight-app jar incl. deps; requires a separate JRE |

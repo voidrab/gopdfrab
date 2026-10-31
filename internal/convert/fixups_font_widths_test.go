@@ -18,8 +18,7 @@ func dictOf(entries map[string]pdf.PDFValue) pdf.PDFDict {
 // streamOf is a decoded (unfiltered) stream dict carrying raw.
 func streamOf(raw []byte) pdf.PDFDict {
 	d := dictOf(map[string]pdf.PDFValue{})
-	d.HasStream = true
-	d.RawStream = raw
+	d.SetStream(raw)
 	return d
 }
 
@@ -439,9 +438,9 @@ func TestFixType3Widths(t *testing.T) {
 	}
 }
 
-// TestTargetedFontFixersFallBackWithoutRefs: targeted fixers hand back "not
-// handled" when there is no pass or no issue to locate, leaving the caller to
-// fall back to the full walk.
+// TestTargetedFontFixersFallBackWithoutRefs verifies that targeted fixers hand
+// back "not handled" when there is no pass or no issue to locate, leaving the
+// caller to fall back to the full walk.
 func TestTargetedFontFixersFallBackWithoutRefs(t *testing.T) {
 	for name, f := range map[string]targetedFixer{
 		"metrics":     fontMetricFixer{},

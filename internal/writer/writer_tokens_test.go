@@ -32,8 +32,8 @@ func TestWriteRealNeverEmitsNaNOrInf(t *testing.T) {
 }
 
 // TestWriteNameEscapesTokenBreakers pins name escaping: bytes that would end
-// the token are written as #XX, while a lexer-sourced name -- which can hold
-// none of them, but may hold raw #XX escapes -- passes through unchanged.
+// the token are written as #XX, while a lexer-sourced name, which can hold none
+// of them but may hold raw #XX escapes, passes through unchanged.
 func TestWriteNameEscapesTokenBreakers(t *testing.T) {
 	cases := map[string]string{
 		"Times Roman":  "/Times#20Roman",
@@ -63,7 +63,6 @@ func TestWrittenNamesReparse(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := pdf.NewLexerBytes(buf.Bytes(), 0)
-	defer l.Release()
 	var names []string
 	for tok := l.NextToken(); tok.Type != pdf.TokenEOF; tok = l.NextToken() {
 		if tok.Type == pdf.TokenName {
@@ -76,7 +75,7 @@ func TestWrittenNamesReparse(t *testing.T) {
 }
 
 // TestStreamLengthOverride pins that a stream's /Length is written from the
-// bytes actually emitted -- replacing a wrong value, or added when absent --
+// bytes actually emitted, replacing a wrong value or adding one when absent,
 // without modifying the source dict.
 func TestStreamLengthOverride(t *testing.T) {
 	for name, entries := range map[string]pdf.Dict{
@@ -85,7 +84,7 @@ func TestStreamLengthOverride(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			before, _ := entries.Lookup("Length")
-			obj := pdf.PDFDict{Entries: entries, HasStream: true, RawStream: []byte("hello")}
+			obj := pdf.NewStreamDict(entries, []byte("hello"))
 			var buf bytes.Buffer
 			if err := newPDFWriter(0).writeIndirectObject(&countingWriter{w: &buf}, 1, obj); err != nil {
 				t.Fatal(err)

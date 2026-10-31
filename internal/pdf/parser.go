@@ -1,8 +1,8 @@
 package pdf
 
 import (
-	"bufio"
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -10,63 +10,10 @@ import (
 	"strings"
 )
 
-// readLineBytes returns the line starting at pos and the position just past its
-// terminator, which may be CR, LF or CRLF.
-func readLineBytes(data []byte, pos int) (line []byte, next int, ok bool) {
-	if pos >= len(data) {
-		return nil, pos, false
-	}
-	// CR, LF and CRLF are all end-of-line markers (ISO 32000-1 7.2.3). Splitting
-	// on LF alone swallowed every following line of a CR-terminated file, which
-	// made the whole cross-reference table of such a document unparseable and
-	// sent it down the brute-force recovery path.
-	for i := pos; i < len(data); i++ {
-		c := data[i]
-		if c != '\r' && c != '\n' {
-			continue
-		}
-		line, next = data[pos:i], i+1
-		if c == '\r' && next < len(data) && data[next] == '\n' {
-			next++ // CRLF is one terminator, not two
-		}
-		return line, next, true
-	}
-	return data[pos:], len(data), true
-}
-
-// readLineTolerant reads one line from r, accepting CR, LF or CRLF as the
-// terminator. bufio.Reader.ReadLine strips the CR of a CRLF but treats a lone
-// CR as ordinary data, so the seek path needs this to agree with
-// readLineBytes -- the two are asserted equivalent by the OpenBytesSeek parity
-// tests.
-func readLineTolerant(r *bufio.Reader) ([]byte, error) {
-	var line []byte
-	for {
-		c, err := r.ReadByte()
-		if err != nil {
-			if len(line) > 0 && errors.Is(err, io.EOF) {
-				return line, nil
-			}
-			return line, err
-		}
-		switch c {
-		case '\n':
-			return line, nil
-		case '\r':
-			if next, err := r.ReadByte(); err == nil && next != '\n' {
-				_ = r.UnreadByte()
-			}
-			return line, nil
-		}
-		line = append(line, c)
-	}
-}
-
 // xrefEntryOffset parses the 10-byte offset field of a classic xref entry
-// without allocating. trimPadding mirrors ParseXRefSectionAt's historical
-// TrimSpace tolerance for space-padded fields; without it all ten bytes must
-// be digits (parseXRefTable's strictness). A malformed field yields 0,
-// matching the ignored strconv errors this replaces.
+// without allocating. When trimPadding is true, spaces around the digits are
+// ignored; otherwise every byte of the field must be a digit, as in
+// readXRefSection's strict mode. A malformed field yields 0.
 func xrefEntryOffset(field []byte, trimPadding bool) int64 {
 	if trimPadding {
 		field = bytes.TrimSpace(field)
@@ -84,181 +31,25 @@ func xrefEntryOffset(field []byte, trimPadding bool) int64 {
 	return v
 }
 
-// parseXRefTable reads the 'xref' table starting at the given offset.
+// parseXRefTable reads the classic cross-reference section at offset as
+// the document's table, strictly: see readXRefSection.
 func (d *Reader) parseXRefTable(offset int64) error {
 	d.xrefTable = make(map[int]int64)
-
-	if d.data != nil {
-		return d.parseXRefTableBytes(offset)
-	}
-
-	_, err := d.file.Seek(offset, io.SeekStart)
-	if err != nil {
-		return err
-	}
-
-	reader := bufio.NewReader(d.file)
-
-	line, err := readLineTolerant(reader)
-	if err != nil {
-		return err
-	}
-	if string(line) != "xref" {
-		return errors.New("expected 'xref' keyword")
-	}
-
-	for {
-		peekBytes, err := reader.Peek(1)
-		if err != nil {
-			return err
-		}
-		if peekBytes[0] == 't' { // stop when reaching 't' for trailer
-			break
-		}
-
-		line, err := readLineTolerant(reader)
-		if err != nil {
-			return err
-		}
-		parts := strings.Fields(string(line))
-		if len(parts) != 2 {
-			break
-		}
-
-		startObjID, _ := strconv.Atoi(parts[0])
-		numObjs, _ := strconv.Atoi(parts[1])
-
-		for i := range numObjs {
-			entryLine := make([]byte, 20)
-			if _, err := io.ReadFull(reader, entryLine); err != nil {
-				return err
-			}
-
-			if entryLine[17] == 'n' { // 'n' = used entry
-				offsetStr := string(entryLine[:10])
-				offsetVal, _ := strconv.ParseInt(offsetStr, 10, 64)
-				d.xrefTable[startObjID+i] = offsetVal + d.pdfStart
-			}
-		}
-	}
-
-	return nil
-}
-
-// parseXRefTableBytes is parseXRefTable's fast path over the in-memory file
-// bytes (mmap or OpenBytes): no Seek, no bufio.Reader, and no per-entry or
-// per-field allocation. Same tolerances and stop conditions as the reader
-// path.
-func (d *Reader) parseXRefTableBytes(offset int64) error {
-	data := d.data
-	if offset < 0 || offset >= int64(len(data)) {
-		return io.EOF
-	}
-	// offset is in range, so readLineBytes cannot fail here.
-	line, pos, _ := readLineBytes(data, int(offset))
-	if string(line) != "xref" {
-		return errors.New("expected 'xref' keyword")
-	}
-
-	for {
-		if pos >= len(data) {
-			return io.EOF
-		}
-		if data[pos] == 't' { // stop when reaching 't' for trailer
-			break
-		}
-
-		// pos is in range (checked above), so readLineBytes cannot fail.
-		line, next, _ := readLineBytes(data, pos)
-		pos = next
-		parts := strings.Fields(string(line))
-		if len(parts) != 2 {
-			break
-		}
-
-		startObjID, _ := strconv.Atoi(parts[0])
-		numObjs, _ := strconv.Atoi(parts[1])
-
-		for i := range numObjs {
-			if pos+20 > len(data) {
-				return io.ErrUnexpectedEOF
-			}
-			entry := data[pos : pos+20]
-			pos += 20
-
-			if entry[17] == 'n' { // 'n' = used entry
-				d.xrefTable[startObjID+i] = xrefEntryOffset(entry[:10], false) + d.pdfStart
-			}
-		}
-	}
-
-	return nil
+	_, err := d.readXRefSection(offset, true, false)
+	return err
 }
 
 // ParseXRefSectionAt parses the xref table and trailer dict at offset.
-// If fillIn is true, only entries not already in d.xrefTable are added, preserving newer revisions.
+// If fillIn is true, only entries not already in d.xrefTable are added,
+// preserving newer revisions.
 func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) {
-	if d.data != nil {
-		return d.parseXRefSectionAtBytes(offset, fillIn)
-	}
-
-	if _, err := d.file.Seek(offset, io.SeekStart); err != nil {
-		return PDFDict{}, err
-	}
-
-	reader := bufio.NewReader(d.file)
-
-	line, err := readLineTolerant(reader)
+	c, err := d.readXRefSection(offset, false, fillIn)
 	if err != nil {
 		return PDFDict{}, err
 	}
-	if strings.TrimRight(string(line), "\r\n") != "xref" {
-		return PDFDict{}, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
-	}
-
-	for {
-		peekBytes, err := reader.Peek(1)
-		if err != nil || len(peekBytes) == 0 {
-			break
-		}
-		if peekBytes[0] == 't' { // trailer keyword
-			break
-		}
-
-		subHeader, err := readLineTolerant(reader)
-		if err != nil {
-			break
-		}
-		parts := strings.Fields(string(subHeader))
-		if len(parts) != 2 {
-			break
-		}
-
-		startObjID, _ := strconv.Atoi(parts[0])
-		numObjs, _ := strconv.Atoi(parts[1])
-
-		for i := range numObjs {
-			entryLine := make([]byte, 20)
-			if _, err := io.ReadFull(reader, entryLine); err != nil {
-				break
-			}
-			if entryLine[17] == 'n' {
-				offsetStr := strings.TrimSpace(string(entryLine[:10]))
-				objOffset, _ := strconv.ParseInt(offsetStr, 10, 64)
-				objNum := startObjID + i
-				if !fillIn || d.xrefTable[objNum] == 0 {
-					d.xrefTable[objNum] = objOffset + d.pdfStart
-				}
-			}
-		}
-	}
-
 	// Lex the trailer keyword and dictionary together so the keyword may sit on
 	// its own line or share one with the dict ("trailer << ... >>").
-	limited := io.LimitReader(reader, 8192)
-	buf, _ := io.ReadAll(limited)
-	l := NewLexer(bytes.NewReader(buf))
-	defer l.Release()
+	l := NewLexerBytes(c.Rest(8192), 0)
 
 	if tok := l.NextToken(); tok.Value != "trailer" {
 		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", tok.Value)
@@ -266,30 +57,39 @@ func (d *Reader) ParseXRefSectionAt(offset int64, fillIn bool) (PDFDict, error) 
 	return parseDictionary(l)
 }
 
-// parseXRefSectionAtBytes is ParseXRefSectionAt's fast path over the
-// in-memory file bytes: no Seek, no bufio.Reader, no per-entry allocation,
-// and the trailer dict is lexed straight from the backing slice instead of
-// being copied out through io.ReadAll. Same tolerances and stop conditions
-// as the reader path, including its 8192-byte trailer window.
-func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, error) {
-	data := d.data
-	if offset < 0 || offset >= int64(len(data)) {
-		return PDFDict{}, io.EOF
+// readXRefSection reads the subsections of the classic cross-reference
+// section at offset into d.xrefTable, and returns a cursor just past them.
+// When strict, a section the file ends inside is an error, and an entry's
+// offset must be ten digits. Otherwise reading stops at the first damage
+// without error, and an offset padded with spaces is read. When fillIn, an
+// object the table already holds keeps its entry, as a newer revision's.
+func (d *Reader) readXRefSection(offset int64, strict, fillIn bool) (*SectionCursor, error) {
+	c := d.SectionAt(offset)
+	line, ok := c.ReadLine()
+	if !ok {
+		return nil, cmp.Or(c.Err(), io.EOF)
 	}
-	// offset is in range, so readLineBytes cannot fail here.
-	line, pos, _ := readLineBytes(data, int(offset))
-	if strings.TrimRight(string(line), "\r\n") != "xref" {
-		return PDFDict{}, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
+	if string(line) != "xref" {
+		if strict {
+			return nil, errors.New("expected 'xref' keyword")
+		}
+		return nil, fmt.Errorf("expected 'xref' at offset %d, got %q", offset, string(line))
 	}
 
 	for {
-		if pos >= len(data) || data[pos] == 't' { // trailer keyword
+		next, ok := c.Peek()
+		if !ok {
+			if strict {
+				return nil, cmp.Or(c.Err(), io.EOF)
+			}
+			break
+		}
+		if next == 't' { // trailer keyword
 			break
 		}
 
-		// pos is in range (checked above), so readLineBytes cannot fail.
-		subHeader, next, _ := readLineBytes(data, pos)
-		pos = next
+		// Peek found a byte, so there is a line to read.
+		subHeader, _ := c.ReadLine()
 		parts := strings.Fields(string(subHeader))
 		if len(parts) != 2 {
 			break
@@ -299,33 +99,22 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 		numObjs, _ := strconv.Atoi(parts[1])
 
 		for i := range numObjs {
-			if pos+20 > len(data) {
+			entry, ok := c.Next(20)
+			if !ok {
+				if strict {
+					return nil, cmp.Or(c.Err(), io.ErrUnexpectedEOF)
+				}
 				break
 			}
-			entry := data[pos : pos+20]
-			pos += 20
-			if entry[17] == 'n' {
+			if entry[17] == 'n' { // 'n' = used entry
 				objNum := startObjID + i
 				if !fillIn || d.xrefTable[objNum] == 0 {
-					d.xrefTable[objNum] = xrefEntryOffset(entry[:10], true) + d.pdfStart
+					d.xrefTable[objNum] = xrefEntryOffset(entry[:10], !strict) + d.pdfStart
 				}
 			}
 		}
 	}
-
-	// Lex the trailer keyword and dictionary together so the keyword may sit on
-	// its own line or share one with the dict ("trailer << ... >>").
-	window := data[pos:]
-	if len(window) > 8192 {
-		window = window[:8192]
-	}
-	l := NewLexerBytes(window, 0)
-	defer l.Release()
-
-	if tok := l.NextToken(); tok.Value != "trailer" {
-		return PDFDict{}, fmt.Errorf("expected 'trailer', got %q", tok.Value)
-	}
-	return parseDictionary(l)
+	return c, nil
 }
 
 // parseScalarToken converts a token that stands for a complete value on its own
@@ -334,9 +123,9 @@ func (d *Reader) parseXRefSectionAtBytes(offset int64, fillIn bool) (PDFDict, er
 // handles itself.
 //
 // Both dispatchers share this: parseObject below and resolver.go's
-// parseClassicAt, which reads an indirect object's body. They were separate
-// copies once and silently diverged on scalars and null, so the scalar cases
-// live here and the callers keep only what genuinely differs.
+// parseClassicAt, which reads an indirect object's body. Keeping the scalar
+// cases here ensures that both agree on scalars and null; the callers handle
+// only what differs between them.
 func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 	switch tok.Type {
 	case TokenKeyword:

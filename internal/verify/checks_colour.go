@@ -24,7 +24,7 @@ func computeColourCoverage(d *pdf.Reader, ctx *ValidationContext) {
 		if !ok {
 			continue
 		}
-		if (intent.Entries.Get("S") != pdf.PDFName{Value: "GTS_PDFA1"}) {
+		if (intent.Entries.Get("S") != pdf.PDFName{Value: ctx.Spec.OutputIntentSubtype}) {
 			continue
 		}
 		ctx.hasOutputIntent = true
@@ -153,9 +153,11 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	// [/Separation name alternateSpace tintTransform]
 	// [/DeviceN names alternateSpace tintTransform]
 	if head.Value == "DeviceN" {
-		// 6.1.12: DeviceN colour space shall not have more than 8 colorants.
-		if names, ok := arr[1].(pdf.PDFArray); ok && len(names) > 8 {
-			ctx.Report(pdf.Checks.Structure.DeviceNColorants, arr, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is 8", len(names)))
+		// 6.1.12: a DeviceN colour space has no more colorants than the
+		// level's limit.
+		limit := ctx.Spec.Limits.MaxDeviceNColorants
+		if names, ok := arr[1].(pdf.PDFArray); ok && overLimit(len(names), limit) {
+			ctx.Report(pdf.Checks.Structure.DeviceNColorants, arr, fmt.Sprintf("DeviceN colour space has %d colorants, maximum is %d", len(names), limit))
 		}
 	}
 	alt := arr[2]
@@ -174,14 +176,14 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 // the decode chokepoint as 6.1.7, not as anything about its contents.
 func validateICCBasedColourSpace(arr pdf.PDFArray, ctx *ValidationContext) {
 	stream, ok := arr[1].(pdf.PDFDict)
-	if !ok || !stream.HasStream {
+	if !ok || !stream.IsStream() {
 		return
 	}
 	data, err := ctx.decodeStreamCached(stream)
 	if err != nil || len(data) < 128 {
 		return
 	}
-	if msg := ICCInputProfileDefect(data); msg != "" {
+	if msg := ICCInputProfileDefect(data, *ctx.Spec); msg != "" {
 		ctx.Report(pdf.Checks.Colour.ICCBasedProfileInvalid, arr, msg)
 	}
 	if msg := ICCComponentsMismatch(stream, data); msg != "" {

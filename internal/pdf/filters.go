@@ -140,8 +140,8 @@ type DecodeOptions struct {
 	BitsPerComponent int
 
 	// LenientPredictor treats an unrecognised /Predictor value as PNG rather
-	// than an error -- the rasterizer's historical behaviour, kept so a weird
-	// image renders as pixels instead of failing the page.
+	// than an error, so that an image with a bad predictor renders as pixels
+	// instead of failing the page.
 	LenientPredictor bool
 }
 

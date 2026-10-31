@@ -51,9 +51,8 @@ func TestDecodeLZWRoundTrips(t *testing.T) {
 	}
 }
 
-// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter mirrors
-// TestFontDictFixerAppliesOnlyToCIDToGIDMapMissing: a Fixer must claim
-// exactly its one Check, since registerFixer panics on overlap.
+// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter verifies that the fixer
+// claims exactly its one Check, since fixersFor panics on overlap.
 func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 	fixer := lzwStreamFixer{}
 	for _, c := range pdf.AllChecks() {
@@ -68,20 +67,20 @@ func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 // content stream is LZW-encoded, with optional DecodeParms (for predictor
 // coverage), for exercising lzwStreamFixer.
 func lzwStreamTrailer(encoded []byte, decodeParms pdf.PDFDict) pdf.PDFDict {
-	entries := pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 4}, "Filter": pdf.PDFName{Value: "LZWDecode"}})
+	entries := pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}})
 	if decodeParms.Entries != nil {
 		entries.Set("DecodeParms", decodeParms)
 	}
-	streamDict := pdf.PDFDict{Entries: entries, HasStream: true, RawStream: encoded}
+	streamDict := pdf.NewStreamDict(entries, encoded)
+	streamDict.SetRef(pdf.PDFRef{ObjNum: 4})
 
-	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-		pdf.RefKey: pdf.PDFRef{ObjNum: 3},
+	page := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Type":     pdf.PDFName{Value: "Page"},
 		"MediaBox": pdf.PDFArray{pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(100), pdf.PDFInteger(100)},
 		"Contents": streamDict,
-	})}
-	pages := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 2}, "Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})}
-	catalog := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{pdf.RefKey: pdf.PDFRef{ObjNum: 1}, "Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})}
+	})}, pdf.PDFRef{ObjNum: 3})
+	pages := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Pages"}, "Kids": pdf.PDFArray{page}, "Count": pdf.PDFInteger(1)})}, pdf.PDFRef{ObjNum: 2})
+	catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Catalog"}, "Pages": pages})}, pdf.PDFRef{ObjNum: 1})
 	return pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog})}
 }
 
@@ -108,7 +107,7 @@ func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
 		t.Fatalf("DecodeStream: %v", err)
 	}
 	if string(decoded) != string(plaintext) {
-		t.Errorf("decoded RawStream = %q, want %q", decoded, plaintext)
+		t.Errorf("decoded Stream() = %q, want %q", decoded, plaintext)
 	}
 
 	// Idempotent: a second pass over the already-fixed graph is a no-op.
@@ -169,12 +168,9 @@ func TestLZWStreamDecodeChainedFilters(t *testing.T) {
 	lzwed := encodeLZW(t, plaintext)
 	encoded := encodeASCII85(lzwed)
 
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"}},
-		}),
-		HasStream: true, RawStream: encoded,
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCII85Decode"}, pdf.PDFName{Value: "LZWDecode"}},
+	}), encoded)
 	got, err := pdf.DecodeStream(dict)
 	if err != nil {
 		t.Fatalf("pdf.DecodeStream: %v", err)
@@ -206,15 +202,12 @@ func TestLZWStreamDecodeASCIIHexAndPNGPredictor(t *testing.T) {
 	}
 	hexed := encodeASCIIHex(buf.Bytes())
 
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
-			"DecodeParms": pdf.PDFArray{nil, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
-				"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
-			})}},
-		}),
-		HasStream: true, RawStream: hexed,
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Filter": pdf.PDFArray{pdf.PDFName{Value: "ASCIIHexDecode"}, pdf.PDFName{Value: "FlateDecode"}},
+		"DecodeParms": pdf.PDFArray{nil, pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+			"Predictor": pdf.PDFInteger(15), "Columns": pdf.PDFInteger(4), "Colors": pdf.PDFInteger(1),
+		})}},
+	}), hexed)
 	got, err := pdf.DecodeStream(dict)
 	if err != nil {
 		t.Fatalf("pdf.DecodeStream: %v", err)
@@ -239,12 +232,9 @@ func TestLZWStreamDecodeFlateThenLZW(t *testing.T) {
 		t.Fatalf("zlib Close: %v", err)
 	}
 
-	dict := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "LZWDecode"}},
-		}),
-		HasStream: true, RawStream: buf.Bytes(),
-	}
+	dict := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Filter": pdf.PDFArray{pdf.PDFName{Value: "FlateDecode"}, pdf.PDFName{Value: "LZWDecode"}},
+	}), buf.Bytes())
 	got, err := pdf.DecodeStream(dict)
 	if err != nil {
 		t.Fatalf("pdf.DecodeStream: %v", err)
@@ -258,21 +248,15 @@ func TestLZWStreamDecodeFlateThenLZW(t *testing.T) {
 // branches: a filter name outside the decoder chain's switch, and a
 // predictor value that is neither 1 (none), 2 (TIFF), nor >= 10 (PNG).
 func TestLZWStreamDecodeUnsupportedFilterOrPredictor(t *testing.T) {
-	unsupportedFilter := pdf.PDFDict{
-		Entries:   pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}}),
-		HasStream: true, RawStream: []byte("whatever"),
-	}
+	unsupportedFilter := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "CCITTFaxDecode"}}), []byte("whatever"))
 	if _, err := pdf.DecodeStream(unsupportedFilter); err == nil {
 		t.Error("pdf.DecodeStream with an unsupported filter = nil error, want an error")
 	}
 
-	unsupportedPredictor := pdf.PDFDict{
-		Entries: pdf.DictOf(map[string]pdf.PDFValue{
-			"Filter":      pdf.PDFName{Value: "LZWDecode"},
-			"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})},
-		}),
-		HasStream: true, RawStream: encodeLZW(t, []byte("abc")),
-	}
+	unsupportedPredictor := pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{
+		"Filter":      pdf.PDFName{Value: "LZWDecode"},
+		"DecodeParms": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Predictor": pdf.PDFInteger(3)})},
+	}), encodeLZW(t, []byte("abc")))
 	if _, err := pdf.DecodeStream(unsupportedPredictor); err == nil {
 		t.Error("pdf.DecodeStream with an unsupported predictor = nil error, want an error")
 	}
@@ -318,7 +302,7 @@ func TestLZWStreamFixerRoundTripsThroughWriter(t *testing.T) {
 // makes it readable.
 func TestUndecodableStreamFixerDropsFilterOnEmptyBody(t *testing.T) {
 	empty := pdf.NewPDFDict()
-	empty.HasStream = true
+	empty.SetStream(nil)
 	empty.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 	empty.Entries.Set("DecodeParms", pdf.NewPDFDict())
 
@@ -347,10 +331,9 @@ func TestUndecodableStreamFixerDropsFilterOnEmptyBody(t *testing.T) {
 // advance, and the loss is reported rather than swallowed.
 func TestUndecodableStreamFixerRebuildsType3Glyph(t *testing.T) {
 	proc := pdf.NewPDFDict()
-	proc.HasStream = true
-	proc.RawStream = []byte("this was never deflate")
+	proc.SetStream([]byte("this was never deflate"))
 	proc.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	proc.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 21})
+	proc.SetRef(pdf.PDFRef{ObjNum: 21})
 
 	procs := pdf.NewPDFDict()
 	procs.Entries.Set("g108", proc)
@@ -398,14 +381,12 @@ func TestUndecodableStreamFixerRebuildsType3Glyph(t *testing.T) {
 func TestUndecodableStreamFixerType3Guards(t *testing.T) {
 	undecodable := func() pdf.PDFDict {
 		d := pdf.NewPDFDict()
-		d.HasStream = true
-		d.RawStream = []byte("this was never deflate")
+		d.SetStream([]byte("this was never deflate"))
 		d.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
 		return d
 	}
 	fine := pdf.NewPDFDict()
-	fine.HasStream = true
-	fine.RawStream = []byte("0 0 d0")
+	fine.SetStream([]byte("0 0 d0"))
 
 	type3 := func() pdf.PDFDict {
 		f := pdf.NewPDFDict()
@@ -443,7 +424,7 @@ func TestUndecodableStreamFixerType3Guards(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("Fix = %v, %v; want changed", changed, err)
 	}
-	if got := string(procsA.Entries.Get("b").(pdf.PDFDict).RawStream); got != "0 0 d0" {
+	if got := string(procsA.Entries.Get("b").(pdf.PDFDict).Stream()); got != "0 0 d0" {
 		t.Errorf("decodable glyph was rewritten: %q", got)
 	}
 	for _, tc := range []struct {
@@ -459,8 +440,7 @@ func TestUndecodableStreamFixerType3Guards(t *testing.T) {
 
 func TestLZWStreamFixerLeavesUndecodableStream(t *testing.T) {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte{0xff, 0xff, 0xff, 0xff}
+	d.SetStream([]byte{0xff, 0xff, 0xff, 0xff})
 	d.Entries.Set("Filter", pdf.PDFName{Value: "LZWDecode"})
 	if _, err := pdf.DecodeStream(d); err == nil {
 		t.Fatal("fixture decodes; it must not")

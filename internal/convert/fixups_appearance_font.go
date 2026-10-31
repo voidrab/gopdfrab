@@ -105,7 +105,7 @@ func buildAppearanceFont() pdf.PDFDict {
 // always come from the bundled, well-formed Liberation Sans face.
 func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 	head := tables["head"]
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
+	upm, _ := fontprog.UnitsPerEm(tables)
 	scale := func(off int) pdf.PDFInteger {
 		v := int(int16(binary.BigEndian.Uint16(head[off:])))
 		return pdf.PDFInteger(v * 1000 / upm)
@@ -118,8 +118,7 @@ func ttScaledBBox(tables map[string][]byte) pdf.PDFArray {
 // well-formed Liberation Sans face, whose head and OS/2 are complete.
 func liberationSansCapHeight(tables map[string][]byte) int {
 	os2 := tables["OS/2"]
-	head := tables["head"]
-	upm := int(binary.BigEndian.Uint16(head[18:20]))
+	upm, _ := fontprog.UnitsPerEm(tables)
 	capHeight := int(int16(binary.BigEndian.Uint16(os2[88:90])))
 	return capHeight * 1000 / upm
 }

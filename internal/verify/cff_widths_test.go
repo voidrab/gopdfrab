@@ -23,8 +23,8 @@ func TestCFFAdvanceWidths(t *testing.T) {
 	}
 }
 
-// TestCFFAdvanceWidthsFontMatrix covers the case the skip used to drop: a
-// 1/2048 em program, whose charstring widths are 2.048x what /Widths says.
+// TestCFFAdvanceWidthsFontMatrix covers a 1/2048 em program, whose charstring
+// widths are 2.048 times what /Widths says.
 func TestCFFAdvanceWidthsFontMatrix(t *testing.T) {
 	// FontMatrix [0.00048828125 0 0 0.00048828125 0 0], the commonest
 	// non-default matrix in the real-world corpus, and defaultWidthX 500.
@@ -263,10 +263,10 @@ func TestWidthSkipGlyphCounts(t *testing.T) {
 // of font program, which is worth a deliberate look before re-pinning.
 // Measured 2026-08-22 over the 773 committed corpus files: of the 30 embedded
 // programs that reach a width path, 1 is given up on, a Type1 program whose
-// eexec section yields no charstring widths. Two more used to join it, from
-// declaring /lenIV 0: the charstring decrypt dropped the default 4 bytes
-// anyway and ate the hsbw carrying the width. The 5 bare-CFF programs that used
-// to be dropped for declaring a FontMatrix are now scaled by it and checked.
+// eexec section yields no charstring widths. The charstring decrypt honours
+// /lenIV, so a program declaring /lenIV 0 keeps the hsbw that carries its
+// width. Bare-CFF programs that declare a FontMatrix are scaled by it and
+// checked.
 // No corpus file hits the Type1 encoding bail, so that asymmetry with the
 // Type1C path costs nothing measurable here.
 var widthSkipBudget = map[string]int{
@@ -277,9 +277,9 @@ var widthSkipBudget = map[string]int{
 }
 
 // TestWidthSkipCorpusBudget tallies every width-path skip across both
-// conformance corpora. The bails are individually reasonable, but they were
-// invisible -- the same class of gap as a swallowed decode error, one layer
-// up -- so this measures them instead of leaving them to be guessed at.
+// conformance corpora. The bails are individually reasonable, but without a
+// tally their cost is invisible, so this measures them instead of leaving them
+// to be guessed at.
 func TestWidthSkipCorpusBudget(t *testing.T) {
 	got := map[string]int{}
 	files := 0

@@ -13,7 +13,7 @@ import (
 )
 
 // TestParallelForRunsEveryIndex pins the pool's basic contract, including the
-// degenerate sizes the hand-rolled pools it replaced special-cased.
+// degenerate sizes of n and workers.
 func TestParallelForRunsEveryIndex(t *testing.T) {
 	for _, tc := range []struct{ n, workers int }{{0, 4}, {5, 0}, {1, 8}, {100, 3}} {
 		var seen [100]atomic.Int32
@@ -30,8 +30,8 @@ func TestParallelForRunsEveryIndex(t *testing.T) {
 	}
 }
 
-// TestParallelForWorkerPanicIsRecoverable pins that a panicking worker no
-// longer kills the process: the panic reaches the caller's goroutine, where
+// TestParallelForWorkerPanicIsRecoverable pins that a panicking worker does
+// not kill the process: the panic reaches the caller's goroutine, where
 // RecoverAsError turns it into an ErrInternal error carrying the worker's
 // stack, and the remaining indices still run.
 func TestParallelForWorkerPanicIsRecoverable(t *testing.T) {

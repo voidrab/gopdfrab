@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"image"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +10,27 @@ import (
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
+)
+
+// a1b returns a fresh copy of PDF/A-1b's spec, for a test to bind a fixer to
+// or to change one rule of.
+func a1b() pdfa.Spec {
+	s, _ := pdfa.For(pdf.A1B)
+	return s
+}
+
+// a1bSpec is PDF/A-1b's spec for tests that only read it.
+var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
+
+// PDF/A-1b's limits, under the names the tests use for them.
+var (
+	maxPDFArrayElements = a1bSpec.Limits.MaxArrayElements
+	maxDictEntries      = a1bSpec.Limits.MaxDictEntries
+	maxNameLength       = a1bSpec.Limits.MaxNameBytes
+	maxCMapCID          = a1bSpec.Limits.MaxCID
+	maxQNesting         = a1bSpec.Limits.MaxQNesting
+	realLimit           = a1bSpec.Limits.MaxReal
 )
 
 // isartorDir and veraDir locate the reference test corpora relative to this
@@ -18,9 +40,10 @@ const (
 	veraDir    = "../../tests/veraPDF/PDF_A-1b"
 )
 
-// veraPDF filenames: optional "veraPDF test suite " prefix, then clause
-// segments separated by dashes, then -tNN-(pass|fail)-<letter>.pdf, e.g.
-// "veraPDF test suite 6-1-2-t01-fail-a.pdf" → clause 6.1.2, fail.
+// veraPDFNameRe matches veraPDF test filenames: an optional "veraPDF test
+// suite " prefix, then clause segments separated by dashes, then
+// -tNN-(pass|fail)-<letter>.pdf, e.g. "veraPDF test suite 6-1-2-t01-fail-a.pdf"
+// → clause 6.1.2, fail.
 var veraPDFNameRe = regexp.MustCompile(`^(?:veraPDF test suite )?((?:\d+-)+)t\d+-(pass|fail)-`)
 
 // veraClauseAndKind returns the expected clause and whether the file is a
@@ -153,7 +176,7 @@ func assertOnePageGraph(t *testing.T, graph pdf.PDFValue) pdf.PDFDict {
 func assertContentStream(t *testing.T, page pdf.PDFDict, want string) {
 	t.Helper()
 	contents, ok := page.Entries.Get("Contents").(pdf.PDFDict)
-	if !ok || !contents.HasStream {
+	if !ok || !contents.IsStream() {
 		t.Fatalf("Page/Contents did not resolve to a stream dict")
 	}
 	data, err := pdf.DecodeStream(contents)
@@ -163,4 +186,29 @@ func assertContentStream(t *testing.T, page pdf.PDFDict, want string) {
 	if string(data) != want {
 		t.Errorf("content stream = %q, want %q", data, want)
 	}
+}
+
+// inkThreshold is the share of non-white pixels under which a render counts
+// as blank, the fidelity gate's own bar.
+const inkThreshold = 0.004
+
+// inkFraction returns the share of img's pixels that are clearly not white,
+// measured the way the fidelity gate measures a page.
+func inkFraction(img *image.RGBA) float64 {
+	if img == nil {
+		return 0
+	}
+	b := img.Bounds()
+	total := b.Dx() * b.Dy()
+	if total == 0 {
+		return 0
+	}
+	ink := 0
+	pix := img.Pix
+	for i := 0; i+3 < len(pix); i += 4 {
+		if pix[i] < 245 || pix[i+1] < 245 || pix[i+2] < 245 {
+			ink++
+		}
+	}
+	return float64(ink) / float64(total)
 }

@@ -12,16 +12,20 @@ open file → parse → resolve object graph → run checks → issues
 
 Verification involves checking whether a document meets certain PDF/A criteria. Conversion involves extending the verification process to include a repair step, followed by a writer that produces the final output.
 
-The entire project is a single Go module with no dependencies other than `klauspost/compress`. Nine internal packages contain the implementation, while the root package provides a thin facade over them.
+The entire project is a single Go module with no dependencies other than `klauspost/compress`. The internal packages contain the implementation, while the root package provides a thin facade over them.
 
 | Package              | What it does                                                                     |
 | -------------------- | -------------------------------------------------------------------------------- |
 | `internal/pdf`       | Provides the parser, object model, filters, decryption, and check registry.      |
+| `internal/content`   | Holds what content-stream readers share: coordinate geometry, graphics state.    |
 | `internal/fontprog`  | Parses embedded font programs (TrueType, CFF, Type 1) and their encodings.       |
+| `internal/fontedit`  | Rewrites font programs for the converter: subsets, cmaps, width repairs.         |
 | `internal/fontsubst` | Bundles the Liberation and Noto fonts substituted for missing ones.              |
+| `internal/pdfa`      | Holds each conformance level's rules: limits, allowed sets, switches, identity.  |
 | `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
 | `internal/convert`   | Contains the fixers and the fix loop.                                            |
+| `internal/fidelity`  | Compares input and output renders page by page, for the fidelity gate.           |
 | `internal/writer`    | Serializes the object graph back into PDF bytes.                                 |
 | `internal/arlington` | Contains the Arlington PDF Model tables used by the object-model checks.         |
 | `internal/pdfgen`    | Generates PDFs for tests and fuzzing.                                            |
@@ -29,15 +33,21 @@ The entire project is a single Go module with no dependencies other than `klausp
 The packages form layers, and imports only point downwards:
 
 ```text
-convert                     → verify, raster, writer, fontprog, fontsubst, arlington, pdf
-verify                      → fontprog, arlington, pdf
-raster                      → fontprog, fontsubst, pdf
-fontprog, fontsubst, writer → pdf
+convert                                    → verify, fidelity, raster, writer, fontedit, content, fontprog, fontsubst, arlington, pdfa, pdf
+verify                                     → fontprog, arlington, pdfa, pdf
+fidelity                                   → raster, content, pdf
+raster                                     → content, fontprog, fontsubst, pdf
+fontedit                                   → fontprog
+content, fontprog, fontsubst, writer, pdfa → pdf
 ```
 
-`verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
+`verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
 
-`gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages. `cmd/gopdfrab` provides the CLI, while `wasm/main.go` provides the browser build.
+`gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages.
+
+`verify/` is the second public package: the verification half of that API, under the same names and over the same type aliases, for programs that never convert. It imports only `internal/pdf` and `internal/verify`, so it never reaches the converter. `TestVerifyPackageIsLight` (`layering_test.go`) fails if any chain of imports from it reaches `convert`, `fidelity`, `fontedit`, `fontsubst`, `raster` or `writer`, and `TestVerifyAPIParity` (`verify_api_test.go`) fails if its API drifts from the root package's verification half. `Limits` is defined there and aliased at the root, so there is one type.
+
+`cmd/gopdfrab` provides the CLI. `wasm/main.go` is the full browser build and `wasm/verify/main.go` the verify-only one, built on `gopdfrab/verify`; both share the JavaScript bridge in `wasm/internal/jsapi`.
 
 ## internal/pdf — the parser and object model
 
@@ -59,12 +69,21 @@ Every rule enforced by gopdfrab is registered in this registry as a `Check` cont
 
 - a `name`, such as `"OptionalContent"`;
 - a `description`, which is shown to the user when the corresponding check fails;
-- a `clause` and `subclause`, identifying the relevant PDF/A-1 clause and the sub-rule within it; and
-- an `id`, assigned during registration and used as a compact key.
+- a `clause` and `subclause`, identifying the relevant PDF/A-1 clause and the sub-rule within it;
+- its `parts`, the conformance levels it is a rule of, so `ClauseIn(level)` can say which clause it enforces under a level, or that it is none of that level's; and
+- an `id`, written out at registration and pinned by a test, so adding a check never renumbers the others.
 
 There are 159 checks, organized into 11 groups: `Structure`, `Colour`, `Image`, `Transparency`, `Font`, `LogicalStructure`, `Annotation`, `Action`, `Metadata`, `Form`, and `ObjectModel`. `pdf.Checks` is the registry value, so a check can be referenced as `pdf.Checks.Structure.OptionalContent`.
 
 A `Profile` as found in `profile.go` contains a conformance level and a set of enabled check IDs, allowing a caller to verify a document against all checks, some checks, or only the object model.
+
+## internal/pdfa — what each level permits
+
+`pdfa.For(level)` returns a level's `Spec`: its architectural limits, the rendering intents, actions, annotation subtypes, blend modes and font file subtypes it allows or forbids, whether it permits transparency, optional content, cross-reference streams and embedded files, the newest ICC version it takes, the OutputIntent subtype and XMP identity a conforming file declares, and the PDF version whose object model applies. A level with no spec is one nothing can be verified against.
+
+verify and convert both read the spec, so a check and the fixer that repairs it cannot disagree on a level's rules. verify reaches it through `ValidationContext.Spec`; a convert run binds it into every fixer that reads one (the `levelBound` capability) and passes it to the pre-emptive fixups, which skip PDF/A-only repairs for a plain-PDF level. `For` returns a copy, and the `Names` sets inside are read-only, so no caller can change a level's rules for another.
+
+The reader states what it saw in a file's structure as neutral `pdf.Diagnostic` values (a malformed object frame, a cross-reference stream, an object degraded to null) and reports no checks itself. `Spec.Issue` decides which check a diagnostic raises under the level, if any, so a level that permits cross-reference streams raises nothing for one.
 
 ## internal/verify — the checks
 
@@ -76,7 +95,7 @@ A `Profile` as found in `profile.go` contains a conformance level and a set of e
 
 This separation supports conversion: after a fix pass, the graph portion can be replayed without rereading the file.
 
-`ValidationContext` (`context.go`) is the context to which checks report their findings. `ctx.Report(check, object, message)` records an issue. The context also contains the results of a content-usage scan, including which XObjects are reachable and which glyphs are actually drawn. This allows checks to ignore content that the document never displays.
+`ValidationContext` (`context.go`) is the context to which checks report their findings. `ctx.Report(check, object, message)` records an issue, and `ctx.Spec` holds the rules of the level being verified. The context also contains the results of a content-usage scan, including which XObjects are reachable and which glyphs are actually drawn. This allows checks to ignore content that the document never displays.
 
 The check files generally follow these groups. To find where a particular check is reported, search for its name—for example, `pdf.Checks.Colour.DeviceColourSpaceUsage`. The overall structure is as follows:
 
@@ -96,7 +115,7 @@ The font checks in `checks_font_program.go` do not parse font programs themselve
 
 ## internal/fontprog and internal/fontsubst — fonts
 
-`internal/fontprog` reads the font programs embedded in a PDF. `sfnt.go` reads TrueType tables and cmaps, `cff.go` reads CFF programs (including advance widths for the 6.3.6 width check), `type1.go` decrypts and reads Type 1 programs, `cmap.go` tokenizes CMaps, `encoding.go` holds the glyph-name and encoding tables, and `subset.go` rewrites TrueType programs into subsets. The verifier uses it to check subsets and widths, and the converter uses it to repair, subset, and replace fonts. Every parser is defensive: malformed input yields `ok=false` or a zero value, never a panic.
+`internal/fontprog` reads the font programs embedded in a PDF. `sfnt.go` reads TrueType tables and cmaps, `cff.go` reads CFF programs (including advance widths for the 6.3.6 width check), `type1.go` decrypts and reads Type 1 programs, `cmap.go` tokenizes CMaps, `encoding.go` holds the glyph-name and encoding tables, and `subset.go` reads glyph records. The verifier uses it to check subsets and widths. The converter's rewrites live in `internal/fontedit`: `subset.go` subsets TrueType programs and promotes empty glyphs, `truetype_cmaps.go` adds a Windows Unicode cmap, `type1_inline.go` inlines Type 1 width subroutines, and `cff_width_defaults.go` rounds fractional CFF width defaults. `sfnt.go` there writes the sfnt container (`PackSfnt`) and format-4 cmaps; `fontprog` writes nothing. Every parser is defensive: malformed input yields `ok=false` or a zero value, never a panic.
 
 `internal/fontsubst` embeds the fonts gopdfrab substitutes for fonts a document needs but does not embed: the Liberation Sans, Serif, and Mono families, plus two Noto symbol faces. `Pick` chooses a face from a font descriptor's flags and name. The converter embeds the chosen face, and the rasterizer draws with it. Licences for the bundled files are listed in `NOTICE`.
 
@@ -118,9 +137,11 @@ Two optional capabilities improve performance. A `batchDictFixer` performs edits
 
 The fixers themselves are defined in `fixups_*.go` files, named according to what they repair—for example, `fixups_colour.go`, `fixups_font.go`, `fixups_xmp.go`, and `fixups_annot.go`. Each fixer must be idempotent because the loop may invoke it more than once.
 
-When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place. Rasterization is lossy, so a conversion reports how much of the output was produced that way.
+When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place (`raster_fallback.go`). Rasterization is lossy, so a conversion reports how much of the output was produced that way.
 
-`fidelity.go` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
+`internal/fidelity` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
+
+`convert.go` holds the entry points and the `run` struct that carries one conversion through the loop, the raster backstop and the final serialize-and-verify. `result.go` holds `ConvertResult` and its output methods, and `batch.go` the batch engine behind `ConvertAll` and `ConvertEach`.
 
 `spill.go` keeps large output in a temporary file rather than the heap.
 
@@ -136,9 +157,9 @@ What it cannot draw it does not guess at. Every render returns a list of the ope
 
 ## internal/arlington
 
-`model_gen.go` contains the generated Arlington PDF Model. For every object type defined by ISO 32000, it specifies which keys are required, which types those keys may contain, and the PDF version in which they were introduced.
+`model.bin` contains the generated Arlington PDF Model. For every object type defined by ISO 32000, it specifies which keys are required, which types those keys may contain, and the PDF version in which they were introduced.
 
-This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. Do not edit `model_gen.go` by hand as it is generated by `gen.go`.
+This model drives the `ObjectModel` check group, which asks whether the document is structurally valid PDF at all. `gen.go` builds it from the vendored TSVs and writes it with `EncodeModel` (`model.go`); `go generate ./internal/arlington/...` regenerates it, and `TestGeneratorIdempotent` fails when the checked-in file is stale. The package embeds the file and decodes it on the first lookup (`Types`, `Type`, `SelfIdentified`). It used to be a Go map literal, which compiled into a single initialisation function of about 680 KB that every binary carried and ran at startup; as data it is 17.5 KB.
 
 ## Tests
 

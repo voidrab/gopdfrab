@@ -18,9 +18,7 @@ import (
 // disk (Open) or an in-memory buffer (OpenBytes), so a freshly-written PDF can
 // be re-verified without a temp-file round-trip.
 type fileSource interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }
 
@@ -37,7 +35,7 @@ type fileSource interface {
 // concurrent needs its own Reader.
 type Reader struct {
 	file       fileSource
-	size       int64
+	src        source // the file's bytes; see source
 	header     []byte
 	trailer    PDFDict
 	xrefTable  map[int]int64
@@ -50,10 +48,10 @@ type Reader struct {
 	// /Info, /ID) when the main trailer lacks /Root. See EffectiveTrailer().
 	firstPageTrailer PDFDict
 
-	// parseDiagnostics collects document-structure violations (e.g. 6.1.8
+	// parseDiagnostics collects structural observations (e.g. malformed
 	// object framing) found lazily during resolution; framingChecked dedupes
-	// per object. See PDFError.
-	parseDiagnostics []PDFError
+	// per object. See Diagnostic.
+	parseDiagnostics []Diagnostic
 	framingChecked   map[int]bool
 	streamChecked    map[streamCheckKey]bool
 
@@ -63,11 +61,7 @@ type Reader struct {
 	// self-referential resolution cycles. See ResolveReference.
 	resolvingInProgress map[int]bool
 
-	// data is the full file content as a byte slice (mmap on unix, heap on
-	// other platforms, or the caller-supplied slice for OpenBytes).
-	// nil only for NewRawReader, which drives test-only paths.
-	data   []byte
-	unmap  func() error // non-nil when data is mmap'd; called by Close
+	unmap  func() error // non-nil when src.mem is mapped; called by Close
 	closed bool         // Close has run; later calls are no-ops
 
 	// compressedXref maps an object number to its location inside a
@@ -97,7 +91,7 @@ type Reader struct {
 	// carry the content loss into its final result.
 	degradedObjs  map[int]bool
 	recoveredObjs map[int]bool
-	degradedDiags []PDFError
+	degradedDiags []Diagnostic
 
 	// headerScan memoizes one whole-file "N G obj" scan for offset recovery,
 	// mapping object number to header offsets in file order.
@@ -229,7 +223,7 @@ func (d *Reader) rememberDecodeErr(key StreamKey, err error) {
 }
 
 // AdoptStreamCaches shares src's decoded-stream and token caches with d.
-// Sound because StreamKey identifies RawStream bytes by pointer identity and
+// Sound because StreamKey identifies stream bytes by pointer identity and
 // both Readers are seeded with the same in-memory graph.
 func (d *Reader) AdoptStreamCaches(src *Reader) {
 	if src == nil {
@@ -310,8 +304,8 @@ func (d *Reader) ScanStreamFunc(dict PDFDict, fn func(op string, operands []PDFV
 // scanAndMaybeCache streams data through fn while building the list to memoize,
 // abandoning that list as soon as it outgrows what is left of the budget.
 //
-// Building the whole list first and consulting the budget afterwards -- which is
-// what this used to do -- bounds only what is retained. A tokenized content
+// Building the whole list first and consulting the budget afterwards bounds
+// only what is retained. A tokenized content
 // stream runs several times the decoded bytes it came from, so on a
 // content-heavy document that peak is the document's memory, and the budget
 // missed it entirely.
@@ -344,42 +338,40 @@ func (d *Reader) scanAndMaybeCache(key StreamKey, data []byte, fn func(op string
 	d.scanBytes += n
 }
 
-// StructErrors returns the structural parse diagnostics recorded so far.
-func (d *Reader) StructErrors() []PDFError {
+// Diagnostics returns the structural diagnostics recorded so far.
+func (d *Reader) Diagnostics() []Diagnostic {
 	return d.parseDiagnostics
 }
 
-// streamCheckKey dedupes stream-framing diagnostics per object and check.
+// streamCheckKey dedupes stream-framing diagnostics per object and kind.
 type streamCheckKey struct {
 	objNum int
-	check  Check
+	kind   DiagKind
 }
 
-// recordStreamFraming records a 6.1.7 stream-framing violation, deduplicated
-// per object number and check.
-func (d *Reader) recordStreamFraming(objNum int, check Check, msg string) {
-	d.recordObjectOnce(objNum, check, msg)
+// recordStreamFraming records a stream-framing diagnostic, deduplicated per
+// object number and kind.
+func (d *Reader) recordStreamFraming(objNum int, kind DiagKind, msg string) {
+	d.recordObjectOnce(objNum, kind, msg)
 }
 
 // recordObjectOnce records a diagnostic about object objNum, at most once per
-// object and check.
-func (d *Reader) recordObjectOnce(objNum int, check Check, msg string) {
+// object and kind.
+func (d *Reader) recordObjectOnce(objNum int, kind DiagKind, msg string) {
 	if d.streamChecked == nil {
 		d.streamChecked = map[streamCheckKey]bool{}
 	}
-	key := streamCheckKey{objNum, check}
+	key := streamCheckKey{objNum, kind}
 	if d.streamChecked[key] {
 		return
 	}
 	d.streamChecked[key] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(check, []error{errors.New(msg)}, objNum))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(kind, []error{errors.New(msg)}, objNum))
 }
 
-// objectDiagnostic is a document-level diagnostic about indirect object
-// objNum. The object goes in the reference, never the page: an object number
-// is not a page number, and Page drives which pages convert rasterizes.
-func objectDiagnostic(check Check, errs []error, objNum int) PDFError {
-	return NewError(check, errs, 0, &PDFRef{ObjNum: objNum})
+// objectDiagnostic is a diagnostic about indirect object objNum.
+func objectDiagnostic(kind DiagKind, errs []error, objNum int) Diagnostic {
+	return Diagnostic{Kind: kind, Ref: &PDFRef{ObjNum: objNum}, Errs: errs}
 }
 
 // recordFraming records 6.1.8 object-framing violations for an object, at most
@@ -395,7 +387,7 @@ func (d *Reader) recordFraming(objNum int, errs []error) {
 		return
 	}
 	d.framingChecked[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(Checks.Structure.ObjectFraming, errs, objNum))
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(DiagObjectFraming, errs, objNum))
 }
 
 // recordDegraded records that objNum could not be parsed or recovered and was
@@ -410,9 +402,8 @@ func (d *Reader) recordDegraded(objNum int, cause error) {
 		d.degradedObjs = map[int]bool{}
 	}
 	d.degradedObjs[objNum] = true
-	e := NewError(Checks.Structure.GraphResolutionFailure,
-		[]error{fmt.Errorf("object %d unresolvable, treated as null: %v", objNum, cause)},
-		0, &PDFRef{ObjNum: objNum})
+	e := objectDiagnostic(DiagObjectDegraded,
+		[]error{fmt.Errorf("object %d unresolvable, treated as null: %v", objNum, cause)}, objNum)
 	d.degradedDiags = append(d.degradedDiags, e)
 	d.parseDiagnostics = append(d.parseDiagnostics, e)
 }
@@ -427,15 +418,14 @@ func (d *Reader) recordRecovered(objNum int, badOffset, newOffset int64, cause e
 		d.recoveredObjs = map[int]bool{}
 	}
 	d.recoveredObjs[objNum] = true
-	d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.GraphResolutionFailure,
+	d.parseDiagnostics = append(d.parseDiagnostics, objectDiagnostic(DiagObjectRecovered,
 		[]error{fmt.Errorf("object %d: invalid xref offset %d (%v), recovered at offset %d",
-			objNum, badOffset, cause, newOffset)},
-		0, &PDFRef{ObjNum: objNum}))
+			objNum, badOffset, cause, newOffset)}, objNum))
 }
 
 // DegradedObjects returns the diagnostics for objects resolved to null because
 // they could not be parsed or recovered.
-func (d *Reader) DegradedObjects() []PDFError { return d.degradedDiags }
+func (d *Reader) DegradedObjects() []Diagnostic { return d.degradedDiags }
 
 // HasDegradedObjects reports whether any object degraded to null during
 // resolution, making state derived from the graph (e.g. content usage)
@@ -448,15 +438,14 @@ func (d *Reader) HasDegradedObjects() bool { return len(d.degradedObjs) > 0 }
 func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 	kept := d.parseDiagnostics[:mark]
 	for _, e := range d.parseDiagnostics[mark:] {
-		ref, ok := e.ObjectRef()
-		if !ok || ref.ObjNum != objNum || e.check == Checks.Structure.GraphResolutionFailure {
+		if e.Ref == nil || e.Ref.ObjNum != objNum || !e.Kind.framing() {
 			kept = append(kept, e)
 			continue
 		}
-		if e.check == Checks.Structure.ObjectFraming {
+		if e.Kind == DiagObjectFraming {
 			delete(d.framingChecked, objNum)
 		} else {
-			delete(d.streamChecked, streamCheckKey{objNum, e.check})
+			delete(d.streamChecked, streamCheckKey{objNum, e.Kind})
 		}
 	}
 	d.parseDiagnostics = kept
@@ -468,12 +457,10 @@ func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 // behavior against a specific -- often deliberately malformed -- structure
 // without a real file round-trip; production code should use Open/OpenBytes.
 func NewRawReader(file interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }, trailer PDFDict, size int64, xrefOffset int64) *Reader {
-	return &Reader{file: file, trailer: trailer, size: size, xrefOffset: xrefOffset, degradeUnresolvable: true}
+	return &Reader{file: file, src: source{file: file, size: size}, trailer: trailer, xrefOffset: xrefOffset, degradeUnresolvable: true}
 }
 
 // Open initializes the PDF document at path, decrypting with the empty
@@ -523,11 +510,10 @@ func OpenBytesWithPassword(data, password []byte) (*Reader, error) {
 	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil, password)
 }
 
-// OpenBytesSeek parses in-memory data like OpenBytes but withholds the byte
-// slice from the Reader, so parsing drives the file-source ReadAt/Seek path
-// (NewLexerAt, an incremental read) instead of indexing the slice directly. That
-// is the exact read path Open takes on a platform without file mapping (Windows,
-// where mmapFile returns nil), which the byte-slice path otherwise never
+// OpenBytesSeek parses in-memory data like OpenBytes but leaves src.mem nil,
+// so the data is read on demand through ReadAt instead of being indexed in
+// memory. That is the read path Open takes on a platform without file mapping
+// (Windows, where mmapFile returns nil), which the byte-slice path never
 // exercises. It exists so that path can be tested on any OS; on unix, Open uses
 // mmap and there is no reason to prefer it.
 func OpenBytesSeek(data []byte) (*Reader, error) {
@@ -546,9 +532,8 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 
 	doc := &Reader{
 		file:     src,
-		size:     size,
+		src:      source{mem: data, file: src, size: size},
 		header:   header,
-		data:     data,
 		unmap:    unmap,
 		password: password,
 	}
@@ -570,9 +555,7 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 func (d *Reader) initializeStructure() error {
 	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
 	// xref offsets in such files are relative to the PDF content start.
-	scanSize := min(d.size, 1024)
-	scanBuf := make([]byte, scanSize)
-	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
+	if scanBuf, err := d.src.window(0, 1024); err == nil {
 		idx := bytes.Index(scanBuf, []byte("%PDF-"))
 		if idx < 0 {
 			// No header anywhere in the leading bytes: not a PDF, not merely
@@ -584,11 +567,10 @@ func (d *Reader) initializeStructure() error {
 		}
 	}
 
-	tailSize := min(d.size, int64(1500))
-
-	tailOffset := d.size - tailSize
-	tail := make([]byte, tailSize)
-	if _, err := d.file.ReadAt(tail, tailOffset); err != nil {
+	tailSize := min(d.src.size, int64(1500))
+	tailOffset := d.src.size - tailSize
+	tail, err := d.src.window(tailOffset, int(tailSize))
+	if err != nil {
 		return err
 	}
 
@@ -638,17 +620,16 @@ func (d *Reader) initializeStructure() error {
 				trailer, xsErr = d.tryParseXRefStream(xrefOffset, false)
 			}
 			if xsErr == nil {
-				// It's actually a cross-reference stream, which PDF/A-1b
-				// prohibits (6.1.4-3); its dictionary doubles as the trailer.
+				// It's actually a cross-reference stream; its dictionary
+				// doubles as the trailer.
 				xrefStreamTrailer, usedXRefStream = trailer, true
-				d.parseDiagnostics = append(d.parseDiagnostics,
-					NewError(Checks.Structure.XRefStream,
-						[]error{errors.New("cross-reference streams are not permitted")}, 1, nil))
+				d.parseDiagnostics = append(d.parseDiagnostics, Diagnostic{Kind: DiagUsedXRefStream,
+					Errs: []error{errors.New("cross-reference streams are not permitted")}})
 			}
 		}
 		if !usedXRefStream {
-			d.parseDiagnostics = append(d.parseDiagnostics, NewError(Checks.Structure.XRefKeyword,
-				[]error{fmt.Errorf("cross-reference table could not be parsed, rebuilt by scanning for objects: %v", xrefErr)}, 1, nil))
+			d.parseDiagnostics = append(d.parseDiagnostics, Diagnostic{Kind: DiagXRefRebuilt,
+				Errs: []error{fmt.Errorf("cross-reference table could not be parsed, rebuilt by scanning for objects: %v", xrefErr)}})
 			if err := d.recoverXRefByBruteForceScan(false); err != nil {
 				return fmt.Errorf("%w: could not recover object table: %v", ErrDamaged, xrefErr)
 			}
@@ -670,19 +651,16 @@ func (d *Reader) initializeStructure() error {
 		var literalTrailer PDFDict
 		haveLiteral := false
 		if trailerIdx != -1 {
-			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+			l := NewLexerBytes(searchBlock[trailerIdx:], 0)
 			if tok := l.NextToken(); tok.Value == "trailer" {
 				if t, terr := parseDictionary(l); terr == nil {
 					literalTrailer, haveLiteral = t, true
 				} else if xrefErr == nil {
-					l.Release()
 					return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, terr)
 				}
 			} else if xrefErr == nil {
-				l.Release()
 				return fmt.Errorf("%w: expected 'trailer' keyword", ErrDamaged)
 			}
-			l.Release()
 		} else if xrefErr == nil {
 			return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
 		}
@@ -879,15 +857,10 @@ func (d *Reader) FullBytes() ([]byte, error) {
 	return d.fullBytes()
 }
 
-// fullBytes returns the full file as a byte slice, reusing d.data when
-// available to avoid a redundant heap allocation.
+// fullBytes returns the full file as a byte slice, the file in memory itself
+// when there is one.
 func (d *Reader) fullBytes() ([]byte, error) {
-	if d.data != nil {
-		return d.data, nil
-	}
-	raw := make([]byte, d.size)
-	_, err := d.file.ReadAt(raw, 0)
-	return raw, err
+	return d.src.window(0, int(d.src.size))
 }
 
 // EffectiveTrailer returns d.trailer, or d.firstPageTrailer for linearized
@@ -940,7 +913,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 		if !ok {
 			return nil
 		}
-		if ref, ok := dict.Entries.Get(RefKey).(PDFRef); ok {
+		if ref, ok := dict.Ref(); ok {
 			if seen[ref.ObjNum] {
 				return nil
 			}
@@ -949,7 +922,7 @@ func (d *Reader) BuildPageIndex(graph PDFValue) (map[int]int, error) {
 
 		if (dict.Entries.Get("Type") == PDFName{Value: "Page"}) {
 			pageNum++
-			if ref, ok := dict.Entries.Get(RefKey).(PDFRef); ok {
+			if ref, ok := dict.Ref(); ok {
 				index[ref.ObjNum] = pageNum
 			}
 			return nil
@@ -982,7 +955,7 @@ func (d *Reader) Close() error {
 			return err
 		}
 		d.unmap = nil
-		d.data = nil
+		d.src.mem = nil
 	}
 	return d.file.Close()
 }
@@ -995,7 +968,7 @@ func (d *Reader) ReadAt(p []byte, off int64) (int, error) {
 
 // Size returns the total size of the underlying file source in bytes.
 func (d *Reader) Size() int64 {
-	return d.size
+	return d.src.size
 }
 
 // PDFStart returns the byte offset of the "%PDF-" header, non-zero when the
@@ -1224,9 +1197,6 @@ func (d *Reader) resolveInPlaceDepth(obj PDFValue, depth int) (PDFValue, error) 
 		}
 		d.resolvedPtrs[ptr] = true // mark before recursing, so cycles terminate
 		for k, val := range v.Entries.All() {
-			if k == RefKey {
-				continue
-			}
 			r, err := d.resolveInPlaceDepth(val, depth+1)
 			if err != nil {
 				// Unmark: this dict did not actually finish resolving (some

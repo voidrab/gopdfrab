@@ -9,10 +9,19 @@ import (
 
 // TestStripEmbeddedMetadataRemovesNonCatalog confirms that stripEmbeddedMetadata
 // deletes /Metadata from image/XObject dicts while keeping the catalog's.
+// stripEmbeddedMetadata runs the pre-emptive metadata strip on its own: it
+// removes /Metadata from every non-catalog object.
+func stripEmbeddedMetadata(trailer *pdf.PDFDict, doc *pdf.Reader) error {
+	if visit := stripEmbeddedMetadataVisitor(trailer, doc, a1b()); visit != nil {
+		walkDicts(*trailer, map[uintptr]bool{}, visit)
+	}
+	return nil
+}
+
 func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 	// Catalog metadata (must be kept).
 	catalogMeta := pdf.NewPDFDict()
-	catalogMeta.HasStream = true
+	catalogMeta.SetStream(nil)
 	catalogMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	root := pdf.NewPDFDict()
@@ -21,7 +30,7 @@ func TestStripEmbeddedMetadataRemovesNonCatalog(t *testing.T) {
 
 	// Image XObject with its own embedded metadata (must be stripped).
 	imageMeta := pdf.NewPDFDict()
-	imageMeta.HasStream = true
+	imageMeta.SetStream(nil)
 	imageMeta.Entries.Set("Type", pdf.PDFName{Value: "Metadata"})
 
 	image := pdf.NewPDFDict()
@@ -77,7 +86,7 @@ func TestBuildXMPPacketKeepsParens(t *testing.T) {
 	info := pdf.NewPDFDict()
 	info.Entries.Set("Title", pdf.PDFString{Value: "Doc (v2)"})
 
-	xmp := buildXMPPacket(info)
+	xmp := buildXMPPacket(info, a1b())
 	if !strings.Contains(xmp, "(v2)") {
 		t.Errorf("buildXMPPacket XMP does not contain (v2): %s", xmp)
 	}
@@ -94,9 +103,10 @@ func TestNormalizePDFDate(t *testing.T) {
 		{"D:20080513090000+02'00'", "D:20080513090000+02'00'", true}, // already prefixed
 		{"2008-05-13T09:00:00+02:00", "D:20080513090000+02'00'", true},
 		{"2008-05-13T09:00:00Z", "D:20080513090000Z", true},
-		{"2008", "D:2008", true},               // year only
-		{"not a date at all", "", false},       // no match
-		{"  D:20080513  ", "D:20080513", true}, // whitespace trimmed around a D: value
+		{"2008-05-13T09:00:00", "D:20080513090000", true}, // no time zone
+		{"2008", "D:2008", true},                          // year only
+		{"not a date at all", "", false},                  // no match
+		{"  D:20080513  ", "D:20080513", true},            // whitespace trimmed around a D: value
 	}
 	for _, c := range cases {
 		got, ok := normalizePDFDate(c.in)
@@ -247,11 +257,9 @@ func TestNormalizeInfoDictMalformedText(t *testing.T) {
 	}
 }
 
-// TestNormalizeInfoDictAuthorTrimIsTextual pins the order the Author trim has
-// to happen in. Trimming the raw bytes of a UTF-16BE string takes the low half
-// off a trailing space and leaves an odd byte count -- which is the very thing
-// the canonicalisation removes. arxiv-1911.06742 caught it: a non-ASCII author
-// with a trailing space came out one byte short and veraPDF rejected it.
+// TestNormalizeInfoDictAuthorTrimIsTextual verifies that the Author value is
+// trimmed as text, not as bytes. Trimming the bytes of a UTF-16BE string
+// removes only the low byte of a trailing space and leaves an odd byte count.
 func TestNormalizeInfoDictAuthorTrimIsTextual(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	info := pdf.NewPDFDict()
@@ -304,7 +312,7 @@ func TestNormalizeInfoDictCustomKeys(t *testing.T) {
 func TestRegenerateXMPRequiresCatalogDict(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFInteger(1))
-	if err := regenerateXMP(&trailer, nil); err == nil || !strings.Contains(err.Error(), "Root is not a dictionary") {
+	if err := regenerateXMP(&trailer, nil, a1b()); err == nil || !strings.Contains(err.Error(), "Root is not a dictionary") {
 		t.Errorf("regenerateXMP err = %v, want a Root-is-not-a-dictionary error", err)
 	}
 }

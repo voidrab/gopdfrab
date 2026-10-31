@@ -5,8 +5,9 @@ import (
 	"math"
 	"slices"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/raster"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -14,55 +15,50 @@ import (
 // in place. The limit is counted per content stream, and invoking a form
 // XObject saves and restores the graphics state exactly as q ... Q does. So a
 // q ... Q block that would reach past the limit is moved, contents and all,
-// into a form XObject the stream draws with Do, where its nesting starts again
+// into a form XObject the stream draws, where its nesting starts again
 // from zero. A block that is itself still too deep is split again inside the
 // form.
 //
 // The form differs from the block in two ways, and both are made harmless:
-//   - Do clips to the form's /BBox. The BBox is the area the stream can show
-//     at all -- the page's MediaBox, or the BBox of the form or pattern being
-//     repaired -- mapped back through the CTM the stream has built up by the
-//     block, so nothing visible is cut away.
+//   - Drawing the form clips to its /BBox. The BBox is the area the stream
+//     can show at all -- the page's MediaBox, or the BBox of the form or
+//     pattern being repaired -- mapped back through the CTM the stream has
+//     built up by the block, so nothing visible is cut away.
 //   - The form reads names from its own /Resources. It is given the very dict
 //     the stream reads them from, so every name means what it meant. A stream
 //     whose resource scope is not known for certain (a form with no
 //     /Resources of its own, a Type 3 glyph) is left to the raster fallback.
 //
 // A block that cannot become a form is also left to the fallback: one opening
-// inside a text object (Do is not allowed there), one cutting across a marked-
-// content or BX/EX section, and one still open where the stream ends while
-// later page content could close it.
+// inside a text object (an XObject may not be drawn there), one cutting
+// across a marked-content or BX/EX section, and one still open where the
+// stream ends while later page content could close it.
 
-// maxQNesting is the 6.1.12 limit checks_content.go enforces.
-const maxQNesting = 28
-
-func init() {
-	registerFixer(qNestingFixer{})
-}
-
-// qNestingFixer remediates Checks.Structure.GraphicsStateNesting.
-type qNestingFixer struct{}
+// qNestingFixer remediates Checks.Structure.GraphicsStateNesting, to the
+// level's q/Q nesting limit.
+type qNestingFixer struct{ spec *pdfa.Spec }
 
 func (qNestingFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Structure.GraphicsStateNesting
 }
 
-func (qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+func (f qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
+	limit := f.spec.Limits.MaxQNesting
 	changed := false
-	// One rewrite per stream, so a stream two pages share is replaced in both
-	// by the same new dict.
-	done := map[uintptr]pdf.PDFDict{}
-	rewrite := func(d, resources pdf.PDFDict, visible rect, last bool) (pdf.PDFDict, bool) {
+	// A stream that two pages share is unnested only once. A stream that could
+	// not be unnested for one page is tried again for the next.
+	done := map[uintptr]bool{}
+	rewrite := func(d, resources pdf.PDFDict, visible rect, last bool) bool {
 		ptr := pdf.ValuePointer(d.Entries)
-		if fixed, ok := done[ptr]; ok {
-			return fixed, true
+		if done[ptr] {
+			return false
 		}
-		fixed, ok := unnestStream(d, resources, visible, last)
+		_, ok := unnestStream(d, resources, visible, last, limit)
 		if ok {
-			done[ptr] = fixed
+			done[ptr] = true
 			changed = true
 		}
-		return fixed, ok
+		return ok
 	}
 
 	for _, page := range orderedPages(*trailer) {
@@ -72,35 +68,31 @@ func (qNestingFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 		visible := rect{page.mediaBox[0], page.mediaBox[1], page.mediaBox[2], page.mediaBox[3]}
 		switch contents := page.dict.Entries.Get("Contents").(type) {
 		case pdf.PDFDict:
-			if fixed, ok := rewrite(contents, page.resources, visible, true); ok {
-				page.dict.Entries.Set("Contents", fixed)
-			}
+			rewrite(contents, page.resources, visible, true)
 		case pdf.PDFArray:
 			for i, item := range contents {
 				// The array is one drawing cut into pieces, so a block left
 				// open at the end of a piece may be closed by the next one.
 				if cd, ok := item.(pdf.PDFDict); ok {
-					if fixed, ok := rewrite(cd, page.resources, visible, i == len(contents)-1); ok {
-						contents[i] = fixed
-					}
+					rewrite(cd, page.resources, visible, i == len(contents)-1)
 				}
 			}
 		}
 	}
 
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) (pdf.PDFDict, bool) {
+	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		isForm := (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"})
 		isTiling := d.Entries.Get("PatternType") == pdf.PDFInteger(1)
-		if !d.HasStream || (!isForm && !isTiling) {
-			return d, false
+		if !d.IsStream() || (!isForm && !isTiling) {
+			return false
 		}
 		resources, ok := d.Entries.Get("Resources").(pdf.PDFDict)
 		if !ok || resources.Entries == nil {
-			return d, false
+			return false
 		}
 		bbox, ok := rectOf(d.Entries.Get("BBox"))
 		if !ok {
-			return d, false
+			return false
 		}
 		return rewrite(d, resources, bbox, true)
 	})
@@ -128,12 +120,15 @@ func rectOf(v pdf.PDFValue) (rect, bool) {
 }
 
 // unnestStream rewrites one content stream so no q/Q block in it nests past
-// maxQNesting, or reports false and leaves it alone -- when it does not need
+// limit, or reports false and leaves it alone -- when it does not need
 // it, or when a block cannot be moved without changing the drawing. resources
 // is the dict the stream resolves names in, visible the area it can show in
 // its own space, and last whether nothing drawn after it could close a block
-// it leaves open.
-func unnestStream(d, resources pdf.PDFDict, visible rect, last bool) (pdf.PDFDict, bool) {
+// it leaves open. A zero limit sets none.
+func unnestStream(d, resources pdf.PDFDict, visible rect, last bool, limit int) (pdf.PDFDict, bool) {
+	if limit == 0 {
+		return d, false
+	}
 	data, err := pdf.DecodeStream(d)
 	if err != nil {
 		return d, false
@@ -152,16 +147,16 @@ func unnestStream(d, resources pdf.PDFDict, visible rect, last bool) (pdf.PDFDic
 			depth = max(depth-1, 0)
 		}
 	})
-	if deepest <= maxQNesting || !cs.Complete() {
+	if deepest <= limit || !cs.Complete() {
 		return d, false
 	}
-	return unnestOps(d, ops, resources, visible, last)
+	return unnestOps(d, ops, resources, visible, last, limit)
 }
 
 // unnestOps is unnestStream past the scan: it rewrites ops, the stream's
 // operators, and stores the result in d.
-func unnestOps(d pdf.PDFDict, ops []writer.ContentOp, resources pdf.PDFDict, visible rect, last bool) (pdf.PDFDict, bool) {
-	u := unnester{resources: resources}
+func unnestOps(d pdf.PDFDict, ops []writer.ContentOp, resources pdf.PDFDict, visible rect, last bool, limit int) (pdf.PDFDict, bool) {
+	u := unnester{resources: resources, limit: limit}
 	out, ok := u.run(ops, visible, last)
 	if !ok {
 		return d, false
@@ -178,27 +173,29 @@ func unnestOps(d pdf.PDFDict, ops []writer.ContentOp, resources pdf.PDFDict, vis
 type unnester struct {
 	resources pdf.PDFDict
 	next      int
+	// limit is the deepest nesting the output may reach.
+	limit int
 }
 
-// run returns ops with every q block that would exceed maxQNesting replaced by
-// a Do of a form holding it. ops is drawn in a space whose visible part is
-// visible; closed says a block still open at the end may be closed there.
+// run returns ops with every q block that would exceed u.limit replaced by
+// an XObject invocation that draws a form holding it. ops is drawn in a space
+// whose visible part is visible; closed says a block still open at the end
+// may be closed there.
 func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]writer.ContentOp, bool) {
 	out := make([]writer.ContentOp, 0, len(ops))
-	ctm := raster.IdentityMatrix
-	var saved []raster.Matrix
+	gs := content.NewTracker()
 	inText := false
 	for i := 0; i < len(ops); i++ {
 		op := ops[i]
 		switch op.Op {
 		case "q":
-			if len(saved)+1 == maxQNesting {
-				end, deepest := blockEnd(ops, i)
-				if deepest > maxQNesting {
+			if gs.Depth()+1 == u.limit {
+				end, deepest := blockEnd(ops, i, u.limit)
+				if deepest > u.limit {
 					if inText || (end == len(ops) && !closed) || !selfContained(ops[i+1:min(end, len(ops))]) {
 						return nil, false
 					}
-					do, ok := u.extract(ops[i+1:min(end, len(ops))], ctm, visible)
+					do, ok := u.extract(ops[i+1:min(end, len(ops))], gs.CTM, visible)
 					if !ok {
 						return nil, false
 					}
@@ -207,29 +204,21 @@ func (u *unnester) run(ops []writer.ContentOp, visible rect, closed bool) ([]wri
 					continue
 				}
 			}
-			saved = append(saved, ctm)
-		case "Q":
-			if n := len(saved); n > 0 {
-				ctm, saved = saved[n-1], saved[:n-1]
-			}
-		case "cm":
-			if m, ok := cmMatrix(op.Operands); ok {
-				ctm = m.Mul(ctm)
-			}
 		case "BT":
 			inText = true
 		case "ET":
 			inText = false
 		}
+		gs.Step(op.Op, op.Operands, pdf.PDFDict{})
 		out = append(out, op)
 	}
 	return out, true
 }
 
 // extract builds the form XObject holding inner, a block's content without
-// its q and Q, and returns the Do that draws it. ctm maps the block's space
-// into the space visible is given in.
-func (u *unnester) extract(inner []writer.ContentOp, ctm raster.Matrix, visible rect) (writer.ContentOp, bool) {
+// its q and Q, and returns the operator that draws it. ctm maps the block's
+// space into the space visible is given in.
+func (u *unnester) extract(inner []writer.ContentOp, ctm content.Matrix, visible rect) (writer.ContentOp, bool) {
 	inv, ok := ctm.Invert()
 	if !ok {
 		return writer.ContentOp{}, false
@@ -279,9 +268,9 @@ func (u *unnester) freeName(xobjects pdf.PDFDict) string {
 
 // blockEnd finds the Q closing the q at ops[start], returning its index (or
 // len(ops) when the stream ends first) and the deepest nesting reached
-// inside, counting the block's own q from the depth start sits at.
-func blockEnd(ops []writer.ContentOp, start int) (end, deepest int) {
-	depth := maxQNesting
+// inside, counting the block's own q from the depth start sits at, limit.
+func blockEnd(ops []writer.ContentOp, start, limit int) (end, deepest int) {
+	depth := limit
 	deepest = depth
 	for i := start + 1; i < len(ops); i++ {
 		switch ops[i].Op {
@@ -290,7 +279,7 @@ func blockEnd(ops []writer.ContentOp, start int) (end, deepest int) {
 			deepest = max(deepest, depth)
 		case "Q":
 			depth--
-			if depth < maxQNesting {
+			if depth < limit {
 				return i, deepest
 			}
 		}
@@ -333,25 +322,9 @@ func selfContained(ops []writer.ContentOp) bool {
 	return !inText && marked == 0 && compat == 0
 }
 
-// cmMatrix reads a cm operator's six operands.
-func cmMatrix(operands []pdf.PDFValue) (raster.Matrix, bool) {
-	if len(operands) != 6 {
-		return raster.Matrix{}, false
-	}
-	var v [6]float64
-	for i, o := range operands {
-		f, ok := numericValue(o)
-		if !ok {
-			return raster.Matrix{}, false
-		}
-		v[i] = f
-	}
-	return raster.Matrix{A: v[0], B: v[1], C: v[2], D: v[3], E: v[4], F: v[5]}, true
-}
-
 // transformRect maps r through m and returns the bounds of the result.
-func transformRect(r rect, m raster.Matrix) rect {
-	corners := [4]raster.Point{{X: r[0], Y: r[1]}, {X: r[2], Y: r[1]}, {X: r[0], Y: r[3]}, {X: r[2], Y: r[3]}}
+func transformRect(r rect, m content.Matrix) rect {
+	corners := [4]content.Point{{X: r[0], Y: r[1]}, {X: r[2], Y: r[1]}, {X: r[0], Y: r[3]}, {X: r[2], Y: r[3]}}
 	out := rect{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 	for _, c := range corners {
 		p := m.Apply(c)

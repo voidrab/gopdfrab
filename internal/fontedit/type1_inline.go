@@ -1,8 +1,10 @@
-package fontprog
+package fontedit
 
 import (
 	"bytes"
 	"strconv"
+
+	"github.com/voidrab/gopdfrab/internal/fontprog"
 )
 
 // InlineType1WidthSubrs rewrites a Type 1 (FontFile) program so that every
@@ -10,8 +12,7 @@ import (
 // command itself: the called subr's body, less its return, replaces the
 // "idx callsubr" that invoked it. Execution is unchanged -- a Type 1 subr runs
 // on the caller's operand stack, in place -- but a reader that reads a glyph's
-// width without following callsubr, as veraPDF does for 6.3.5/6.3.6, now finds
-// it.
+// width without following callsubr, as veraPDF does for 6.3.5/6.3.6, finds it.
 //
 // length1 and length2 are the FontFile stream's /Length1 and /Length2: the
 // clear-text part and the binary eexec part. The result keeps the clear text
@@ -24,17 +25,17 @@ func InlineType1WidthSubrs(font []byte, length1, length2 int) (out []byte, newLe
 	if binStart <= 0 || length2 < 4 || binEnd > len(font) || isHexEexec(font[binStart:]) {
 		return font, length2, false
 	}
-	plain := decryptType1(font[binStart:binEnd], 55665, 0)
+	plain := fontprog.DecryptType1(font[binStart:binEnd], 55665, 0)
 	csIdx := bytes.Index(plain, []byte("/CharStrings"))
 	if csIdx < 0 {
 		return font, length2, false
 	}
-	lenIV := type1LenIV(plain[:csIdx])
-	subrs := type1SubrArray(plain[:csIdx], lenIV)
+	lenIV := fontprog.Type1LenIV(plain[:csIdx])
+	subrs := fontprog.Type1SubrArray(plain[:csIdx], lenIV)
 
 	var rebuilt []byte
 	copied := 0 // plain[:copied] is already in rebuilt
-	for _, m := range Type1CharStringRe.FindAllSubmatchIndex(plain[csIdx:], -1) {
+	for _, m := range fontprog.Type1CharStringRe.FindAllSubmatchIndex(plain[csIdx:], -1) {
 		for k := range m {
 			m[k] += csIdx
 		}
@@ -42,7 +43,7 @@ func InlineType1WidthSubrs(font []byte, length1, length2 int) (out []byte, newLe
 		if err != nil || m[1]+n > len(plain) {
 			continue
 		}
-		cs := decryptType1(plain[m[1]:m[1]+n], 4330, 0)
+		cs := fontprog.DecryptType1(plain[m[1]:m[1]+n], 4330, 0)
 		if len(cs) < lenIV {
 			continue
 		}
@@ -84,14 +85,15 @@ func isHexEexec(b []byte) bool {
 // command is already a width command, the chain leads elsewhere, or a subr is
 // missing or nested too deeply.
 func inlineWidthSubr(cs []byte, subrs [][]byte) ([]byte, bool) {
-	for depth := 0; depth <= type1SubrDepth; depth++ {
+	for depth := 0; depth <= fontprog.Type1SubrDepth; depth++ {
 		i, last := 0, -1 // last: start of the final operand before the command
+		var idx float64  // last's value
 		for i < len(cs) && (cs[i] >= 32 || cs[i] == 28) {
-			size := type1NumberSize(cs[i])
-			if i+size > len(cs) {
+			v, size, ok := fontprog.Type1Number(cs[i:])
+			if !ok {
 				return nil, false
 			}
-			last = i
+			last, idx = i, v
 			i += size
 		}
 		if i == len(cs) {
@@ -107,43 +109,14 @@ func inlineWidthSubr(cs []byte, subrs [][]byte) ([]byte, bool) {
 		if last < 0 {
 			return nil, false
 		}
-		idx := type1NumberValue(cs[last:i])
-		if idx < 0 || idx >= len(subrs) || subrs[idx] == nil {
+		n := int(idx)
+		if n < 0 || n >= len(subrs) || subrs[n] == nil {
 			return nil, false
 		}
-		sub := bytes.TrimSuffix(subrs[idx], []byte{11})
+		sub := bytes.TrimSuffix(subrs[n], []byte{11})
 		cs = append(append(append(make([]byte, 0, len(cs)+len(sub)), cs[:last]...), sub...), cs[i+1:]...)
 	}
 	return nil, false
-}
-
-// type1NumberSize is the encoded length of the charstring number whose first
-// byte is b (b >= 32, or 28).
-func type1NumberSize(b byte) int {
-	switch {
-	case b == 28:
-		return 3
-	case b <= 246:
-		return 1
-	case b <= 254:
-		return 2
-	}
-	return 5
-}
-
-// type1NumberValue decodes one charstring number, its bytes exactly.
-func type1NumberValue(n []byte) int {
-	switch b := n[0]; {
-	case b == 28:
-		return int(int16(uint16(n[1])<<8 | uint16(n[2])))
-	case b <= 246:
-		return int(b) - 139
-	case b <= 250:
-		return (int(b)-247)*256 + int(n[1]) + 108
-	case b <= 254:
-		return -((int(b)-251)*256 + int(n[1]) + 108)
-	}
-	return int(int32(uint32(n[1])<<24 | uint32(n[2])<<16 | uint32(n[3])<<8 | uint32(n[4])))
 }
 
 // encryptType1 is the eexec / charstring cipher's encryption direction; the

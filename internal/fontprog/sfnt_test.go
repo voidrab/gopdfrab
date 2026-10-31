@@ -105,11 +105,9 @@ func TestTrueTypeTableGuards(t *testing.T) {
 // means for 6.3.5: an empty loca entry is how TrueType encodes a glyph with no
 // contours -- a space -- and such a glyph is defined, not missing.
 //
-// The check used to accept an empty outline only when its advance width was
-// also zero. A space in a monospaced subset is empty and 600/1000 wide, so
-// every one of those fonts was reported as missing a glyph it plainly defines
-// (Ghostscript's PDF/A output, which veraPDF passes). Only an out-of-range
-// glyph id is genuinely absent.
+// An empty outline is accepted whatever its advance width: a space in a
+// monospaced subset is empty and 600/1000 wide. Only an out-of-range glyph id
+// is genuinely absent.
 func TestTTGlyphPresentEmptyOutlines(t *testing.T) {
 	head := make([]byte, 52) // indexToLocFormat (offset 50) = 0, unitsPerEm at 18
 	head[18], head[19] = 0x03, 0xE8

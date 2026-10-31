@@ -20,9 +20,7 @@ import (
 // Builder assembles a PDF byte-for-byte, tracking the byte offset of each
 // indirect object as it is written so a classic cross-reference table or a
 // /W-encoded cross-reference stream can be computed exactly like a real writer
-// would. It is a reusable promotion of the previously test-only pdfBuilder
-// (internal/pdf/xrefstream_test.go) and writeMinimalPDF/buildClassicXRefBody
-// (internal/pdf/document_test.go) helpers.
+// would.
 type Builder struct {
 	buf     bytes.Buffer
 	offsets map[int]int64

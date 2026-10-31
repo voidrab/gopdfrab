@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontedit"
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -26,7 +27,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 		t.Errorf("Flags = %d, want symbolic set and non-symbolic clear", flags)
 	}
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
-	if !ok || !ff.HasStream {
+	if !ok || !ff.IsStream() {
 		t.Fatalf("no embedded FontFile2")
 	}
 	data, err := pdf.DecodeStream(ff)
@@ -37,10 +38,10 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if !ok {
 		t.Fatalf("FontFile2 is not a valid sfnt")
 	}
-	if n, ok := trueTypeCmapSubtableCount(data); !ok || n != 1 {
+	if n, ok := fontprog.CmapSubtableCount(data); !ok || n != 1 {
 		t.Errorf("cmap subtable count = %d, want exactly 1", n)
 	}
-	platform, encID, gidMap, ok := fontprog.FirstFormat4CmapSubtable(tables)
+	platform, encID, gidMap, ok := fontedit.FirstFormat4CmapSubtable(tables)
 	if !ok {
 		t.Fatalf("no format-4 cmap subtable")
 	}
@@ -56,7 +57,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	}
 
 	toUni, ok := font.Entries.Get("ToUnicode").(pdf.PDFDict)
-	if !ok || !toUni.HasStream {
+	if !ok || !toUni.IsStream() {
 		t.Fatalf("no ToUnicode CMap on symbolic substitute")
 	}
 	tuData, err := pdf.DecodeStream(toUni)
@@ -88,7 +89,7 @@ func TestFontSubstitutionSymbolicPreservesDingbats(t *testing.T) {
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("Root", pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Font": font})})
 
-	changed, err := fontSubstitutionFixer{}.Fix(&trailer, nil)
+	changed, err := fontSubstitutionFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestFontSubstitutionSymbolicPreservesDingbats(t *testing.T) {
 	assertSymbolicSubstitute(t, font, 52, 0x2714)
 
 	// A second pass must be a no-op.
-	changed, err = fontSubstitutionFixer{}.Fix(&trailer, nil)
+	changed, err = fontSubstitutionFixer{spec: a1bSpec}.Fix(&trailer, nil)
 	if err != nil {
 		t.Fatalf("second Fix: %v", err)
 	}

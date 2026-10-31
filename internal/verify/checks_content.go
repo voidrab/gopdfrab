@@ -2,7 +2,6 @@ package verify
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -40,22 +39,9 @@ var InlineCSAbbrev = map[string]string{
 
 // scanContentDict decodes and inspects a single content stream dictionary.
 func scanContentDict(dict pdf.PDFDict, resources pdf.PDFDict, ctx *ValidationContext) {
-	ctx.scanStream(dict, contentChecker(dict, resources, ctx))
-}
-
-// scanContentValue inspects a /Contents value that may be a single stream or an
-// array of streams.
-func scanContentValue(contents pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) {
-	switch v := contents.(type) {
-	case pdf.PDFDict:
-		scanContentDict(v, resources, ctx)
-	case pdf.PDFArray:
-		for _, item := range v {
-			if d, ok := item.(pdf.PDFDict); ok {
-				scanContentDict(d, resources, ctx)
-			}
-		}
-	}
+	ctx.collapsingStreamReports(func() {
+		ctx.scanStream(dict, contentChecker(dict, resources, ctx))
+	})
 }
 
 // NamedColourModel resolves a colour-space name to a device model, consulting
@@ -86,12 +72,12 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 		for _, operand := range operands {
 			checkOperandLimits(operand, obj, ctx)
 		}
-		// 6.1.12: maximum nesting depth of q/Q operators is 28.
+		// 6.1.12: q/Q operators nest no deeper than the level's limit.
 		switch op {
 		case "q":
 			qDepth++
-			if qDepth > 28 {
-				ctx.Report(pdf.Checks.Structure.GraphicsStateNesting, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of 28", qDepth))
+			if limit := ctx.Spec.Limits.MaxQNesting; overLimit(qDepth, limit) {
+				ctx.Report(pdf.Checks.Structure.GraphicsStateNesting, obj, fmt.Sprintf("q/Q nesting depth %d exceeds maximum of %d", qDepth, limit))
 			}
 		case "Q":
 			if qDepth > 0 {
@@ -121,7 +107,7 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 			colourSet = true
 		case "ri":
 			if len(operands) > 0 {
-				if name, ok := operands[len(operands)-1].(pdf.PDFName); ok && !AllowedIntents[name.Value] {
+				if name, ok := operands[len(operands)-1].(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
 					ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("undefined rendering intent /%s", name.Value))
 				}
 			}
@@ -147,16 +133,16 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 func checkOperandLimits(operand pdf.PDFValue, obj pdf.PDFValue, ctx *ValidationContext) {
 	switch v := operand.(type) {
 	case pdf.PDFInteger:
-		if v > 2147483647 || v < -2147483648 {
+		if integerOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.IntegerOutOfRange, obj, fmt.Sprintf("integer in content stream exceeds limits: %d", v))
 		}
 	case pdf.PDFReal:
-		if math.Abs(float64(v)) > 32767 {
+		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, obj, fmt.Sprintf("real number in content stream out of range: %g", float64(v)))
 		}
 	case pdf.PDFString:
-		if len(v.Value) > 65535 {
-			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, "string in content stream exceeds maximum length of 65535 bytes")
+		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {
+			ctx.Report(pdf.Checks.Structure.StringTooLong, obj, fmt.Sprintf("string in content stream exceeds maximum length of %d bytes", limit))
 		}
 	case pdf.PDFHexString:
 		// 6.1.6: hex string operands must be valid hex digits, even count.
@@ -241,39 +227,26 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 				ctx.Report(pdf.Checks.Image.ImageInterpolate, obj, "inline image Interpolate shall not be true")
 			}
 		case "Intent":
-			if name, ok := val.(pdf.PDFName); ok && !AllowedIntents[name.Value] {
+			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
 				ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}
 	}
 }
 
-// validateContentStreams dispatches content-stream inspection for pages, form
-// XObjects, Type3 glyph procedures and tiling patterns.
+// validateContentStreams inspects the content streams v holds (see
+// pdf.ContentRoots): a page's, with its annotation appearances, a tiling
+// pattern, a form XObject that page content reaches, or a Type 3 font's
+// glyph procedures.
 func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
-	resources, _ := v.Entries.Get("Resources").(pdf.PDFDict)
-	switch {
-	case v.Entries.Get("Type") == pdf.PDFName{Value: "Page"}:
-		// The walk has already put this page's /Resources in scope; the names
-		// its content uses may still come from one inherited up the tree.
-		scanContentValue(v.Entries.Get("Contents"), inheritedResources(v), ctx)
-		scanAnnotAppearances(v, ctx)
-	case v.Entries.Get("PatternType") == pdf.PDFInteger(1) && v.HasStream:
-		// Tiling patterns are always rendered (invoked via scn/SCN, not Do).
-		scanContentDict(v, resources, ctx)
-	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"} && v.HasStream:
-		if !ctx.isReachableXObject(v) {
+	kind := pdf.ContentRoots(v, func(r pdf.ContentRoot) {
+		if r.Kind == pdf.ContentForm && !ctx.isReachableXObject(v) {
 			return
 		}
-		scanContentDict(v, resources, ctx)
-	case v.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}:
-		if cp, ok := v.Entries.Get("CharProcs").(pdf.PDFDict); ok {
-			for _, proc := range cp.Entries.All() {
-				if pd, ok := proc.(pdf.PDFDict); ok && pd.HasStream {
-					scanContentDict(pd, resources, ctx)
-				}
-			}
-		}
+		scanContentDict(r.Stream, r.Resources, ctx)
+	})
+	if kind == pdf.ContentPage {
+		scanAnnotAppearances(v, ctx)
 	}
 }
 
@@ -307,16 +280,13 @@ func scanAnnotAppearances(page pdf.PDFDict, ctx *ValidationContext) {
 func scanAPEntry(n pdf.PDFValue, ctx *ValidationContext) {
 	switch v := n.(type) {
 	case pdf.PDFDict:
-		if v.HasStream {
+		if v.IsStream() {
 			apRes, _ := v.Entries.Get("Resources").(pdf.PDFDict)
 			scanContentDict(v, apRes, ctx)
 		} else {
 			// Subdictionary of appearance states.
-			for k, sv := range v.Entries.All() {
-				if k == pdf.RefKey {
-					continue
-				}
-				if sd, ok := sv.(pdf.PDFDict); ok && sd.HasStream {
+			for _, sv := range v.Entries.All() {
+				if sd, ok := sv.(pdf.PDFDict); ok && sd.IsStream() {
 					apRes, _ := sd.Entries.Get("Resources").(pdf.PDFDict)
 					scanContentDict(sd, apRes, ctx)
 				}

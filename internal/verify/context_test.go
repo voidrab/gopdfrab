@@ -11,12 +11,12 @@ import (
 // tests and convert's throwaway contexts are built.
 func TestScanStreamReportsUndecodable(t *testing.T) {
 	broken := pdf.NewPDFDict()
-	broken.HasStream = true
+	broken.SetStream(nil)
 	broken.Entries.Set("Filter", pdf.PDFName{Value: "FlateDecode"})
-	broken.RawStream = []byte("not a zlib stream")
+	broken.SetStream([]byte("not a zlib stream"))
 
 	noOp := func(string, []pdf.PDFValue) { t.Error("a broken stream reported an operator") }
-	ctx := &ValidationContext{} // nil reader
+	ctx := &ValidationContext{Spec: a1bSpec} // nil reader
 	if err := ctx.scanStream(broken, noOp); err == nil {
 		t.Fatal("expected a decode error")
 	}
@@ -37,7 +37,7 @@ func TestScanStreamReportsUndecodable(t *testing.T) {
 	}
 
 	// The reader-backed path reports the same way.
-	withReader := &ValidationContext{reader: &pdf.Reader{}}
+	withReader := &ValidationContext{Spec: a1bSpec, reader: &pdf.Reader{}}
 	if err := withReader.scanStream(broken, noOp); err == nil {
 		t.Fatal("expected a decode error through the reader")
 	}

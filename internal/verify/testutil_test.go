@@ -6,7 +6,18 @@ import (
 	"strings"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
+	"github.com/voidrab/gopdfrab/internal/pdfa"
 )
+
+// a1b returns a fresh copy of PDF/A-1b's spec, for a test to run checks by or
+// to change one rule of.
+func a1b() pdfa.Spec {
+	s, _ := pdfa.For(pdf.A1B)
+	return s
+}
+
+// a1bSpec is PDF/A-1b's spec for test contexts that only read it.
+var a1bSpec = func() *pdfa.Spec { s := a1b(); return &s }()
 
 // hasCheck reports whether ctx recorded a violation of c.
 func hasCheck(ctx *ValidationContext, c pdf.Check) bool {
@@ -51,12 +62,12 @@ func minimalConformantRoot(trailer pdf.PDFDict) {
 	pages.Entries.Set("Type", pdf.PDFName{Value: "Pages"})
 	pages.Entries.Set("Kids", pdf.PDFArray{})
 	pages.Entries.Set("Count", pdf.PDFInteger(0))
-	pages.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 2})
+	pages.SetRef(pdf.PDFRef{ObjNum: 2})
 
 	catalog := pdf.NewPDFDict()
 	catalog.Entries.Set("Type", pdf.PDFName{Value: "Catalog"})
 	catalog.Entries.Set("Pages", pages)
-	catalog.Entries.Set(pdf.RefKey, pdf.PDFRef{ObjNum: 1})
+	catalog.SetRef(pdf.PDFRef{ObjNum: 1})
 	trailer.Entries.Set("Root", catalog)
 	if trailer.Entries.Get("Size") == nil {
 		trailer.Entries.Set("Size", pdf.PDFInteger(1))
@@ -84,8 +95,7 @@ func clauseMatches(got, expected string) bool {
 // streamDict returns a stream dictionary whose (unfiltered) data is raw.
 func streamDict(raw string) pdf.PDFDict {
 	d := pdf.NewPDFDict()
-	d.HasStream = true
-	d.RawStream = []byte(raw)
+	d.SetStream([]byte(raw))
 	return d
 }
 
