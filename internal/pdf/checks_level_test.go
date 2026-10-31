@@ -300,7 +300,9 @@ func TestChecksForClauseIn(t *testing.T) {
 
 // TestPart2ClausesNameOneCheckEach verifies that every Part 2 entry numbers a
 // registered PDF/A check, that no two checks share a Part 2 clause and
-// subclause, and that ClauseIn reports the entry under every Part 2 level.
+// subclause, and that ClauseIn(A2B) reports each entry's clause. A check
+// applies to PDF/A-2b exactly when Part 2 numbers it or it is an object-model
+// check.
 func TestPart2ClausesNameOneCheckEach(t *testing.T) {
 	seen := map[clauseRef]string{}
 	for id, ref := range part2Clauses {
@@ -331,10 +333,10 @@ func TestPart2ClausesNameOneCheckEach(t *testing.T) {
 	}
 }
 
-// TestFullProfilesEnableTheirPart verifies that a full profile enables the
-// checks of its level's ISO 19005 part and no others: the Part 1 profiles
-// keep the whole Part 1 catalogue, Level A requirements included, and the
-// PDF/A-2b profile enables only the checks Part 2 numbers.
+// TestFullProfilesEnableTheirPart verifies that a full profile enables exactly
+// the checks that apply to its level: the Part 1 profiles keep the whole Part 1
+// catalogue, Level A requirements included, and PDFA2B enables the checks for
+// which AppliesTo(A2B) is true.
 func TestFullProfilesEnableTheirPart(t *testing.T) {
 	for _, tc := range []struct {
 		p    *Profile

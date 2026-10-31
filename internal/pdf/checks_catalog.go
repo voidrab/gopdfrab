@@ -48,9 +48,9 @@ func partOf(level LevelType) parts {
 	return 0
 }
 
-// familyOf returns every level of the ISO 19005 part a level belongs to: a
-// Part 1 profile carries the Level A requirements too, which no Level B
-// verification reports.
+// familyOf returns the set of levels in the ISO 19005 part that level belongs
+// to. The Part 1 family includes PDF/A-1a, so a Part 1 profile also enables
+// the Level A requirements.
 func familyOf(level LevelType) parts {
 	switch p := partOf(level); {
 	case p&partsA1 != 0:

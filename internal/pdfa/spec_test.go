@@ -133,8 +133,8 @@ func TestA1BPolicySets(t *testing.T) {
 	}
 }
 
-// TestA2BLimits pins ISO 19005-2 6.1.13: arrays and dictionaries have no
-// limit, and reals, strings and DeviceN colorants have Part 2's.
+// TestA2BLimits verifies the limits that ISO 19005-2 6.1.13 sets for PDF/A-2b,
+// where arrays and dictionaries have no limit.
 func TestA2BLimits(t *testing.T) {
 	want := Limits{
 		MaxInteger:          2147483647,

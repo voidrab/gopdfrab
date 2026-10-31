@@ -50,7 +50,7 @@ var PDF *Profile
 var PDFA1B *Profile
 
 // PDFA2B is the default PDF/A-2b profile, tuned like PDFA1B to veraPDF's
-// interpretation of the spec. Used by Verify(A2B).
+// interpretation of the spec.
 var PDFA2B *Profile
 
 // Legacy1B is the strict, fully spec-literal PDF/A-1b profile: every check
@@ -131,8 +131,8 @@ func ObjectModelOnly() *Profile {
 	)
 }
 
-// NewFullProfile returns a profile for the given conformance level enabling
-// every check of the ISO 19005 part the level belongs to.
+// NewFullProfile returns a profile enabling every check of the part that level
+// belongs to. A level with no part, such as Undefined, enables no checks.
 func NewFullProfile(level LevelType) *Profile {
 	family := familyOf(level)
 	p := &Profile{Level: level, enabled: make(map[int]bool)}
