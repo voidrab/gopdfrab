@@ -15,10 +15,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -43,17 +46,10 @@ func TestConvertMergedFinalVerifyOracle(t *testing.T) {
 	}
 
 	var files []string
-	for _, dir := range []string{isartorDir, veraDir} {
-		if _, err := os.Stat(dir); err != nil {
-			continue
+	for _, c := range corpustest.All {
+		if c.Level() == pdf.A1B {
+			files = append(files, c.Files()...)
 		}
-		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			files = append(files, path)
-			return nil
-		})
 	}
 	if len(files) == 0 {
 		t.Skip("no corpora present")
@@ -114,13 +110,13 @@ func checkMultiset(issues []PDFError) []string {
 // must produce the same validity/residual/iterations as the
 // file-backed Convert for the same input.
 func TestConvertBytesMatchesFile(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
 	tested := 0
-	for path := range fixtures {
+	for _, path := range fixtures {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -153,13 +149,13 @@ func TestConvertBytesMatchesFile(t *testing.T) {
 // TestConvertAllMatchesConvert checks that ConvertAll's per-path results
 // agree with calling Convert individually.
 func TestConvertAllMatchesConvert(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
 	var paths []string
-	for path := range fixtures {
+	for _, path := range fixtures {
 		paths = append(paths, path)
 		if len(paths) >= 5 {
 			break // a representative sample is enough
@@ -217,12 +213,12 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 // TestConvertEachMatchesConvertAll checks the streaming ConvertEach delivers the
 // same per-file outcome as ConvertAll, honouring Options.Workers.
 func TestConvertEachMatchesConvertAll(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 	var paths []string
-	for path := range fixtures {
+	for _, path := range fixtures {
 		paths = append(paths, path)
 		if len(paths) >= 5 {
 			break
@@ -300,7 +296,7 @@ func TestConvertRasterizesUnfixableResidual(t *testing.T) {
 		t.Fatalf("Convert: %v", err)
 	}
 	if !cr.Result.Valid {
-		t.Errorf("raster last resort did not produce a conformant output; residual: %v", issueClauses(cr.Residual()))
+		t.Errorf("raster last resort did not produce a conformant output; residual: %v", corpustest.Clauses(cr.Residual(), pdf.A1B))
 	}
 	if len(cr.RasterizedPages) == 0 {
 		t.Error("no page was rasterized; the fixture no longer exercises the raster last resort")
@@ -321,7 +317,7 @@ func TestConvertRasterNoOpOnConformantInput(t *testing.T) {
 			continue
 		}
 		if !cr.Result.Valid {
-			t.Errorf("conformant input made non-conformant: %v", issueClauses(cr.Residual()))
+			t.Errorf("conformant input made non-conformant: %v", corpustest.Clauses(cr.Residual(), pdf.A1B))
 		}
 	}
 }
@@ -473,11 +469,11 @@ type veraValidationReport struct {
 	} `xml:"details"`
 }
 
-// runVeraPDF invokes the bundled veraPDF binary and returns the parsed MRR
-// report. veraPDF exits non-zero for non-compliant files, so only an empty
-// output is treated as a failed run.
-func runVeraPDF(args ...string) (veraReport, error) {
-	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", "1b"}, args...)...)
+// runVeraPDF invokes the bundled veraPDF binary with the given --flavour
+// ("1b", "2b", ...) and returns the parsed MRR report. veraPDF exits non-zero
+// for non-compliant files, so only an empty output is treated as a failed run.
+func runVeraPDF(flavour string, args ...string) (veraReport, error) {
+	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", flavour}, args...)...)
 	out, err := cmd.Output()
 	if len(out) == 0 {
 		if err != nil {
@@ -595,7 +591,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 // veraPDFClauses runs the reference veraPDF verifier and returns the set of
 // clauses it reports as failed for path, and whether it deems the file compliant.
 func veraPDFClauses(path string) (clauses map[string]bool, compliant bool, err error) {
-	rep, err := runVeraPDF(path)
+	rep, err := runVeraPDF("1b", path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -634,10 +630,10 @@ func clauseSetMatches(got, want map[string]bool) (match bool, onlyGot, onlyWant 
 }
 
 // clauseSetHas reports whether set contains a clause matching c under
-// clauseMatches.
+// corpustest.ClauseMatches.
 func clauseSetHas(set map[string]bool, c string) bool {
 	for s := range set {
-		if clauseMatches(s, c) {
+		if corpustest.ClauseMatches(s, c) {
 			return true
 		}
 	}
@@ -669,6 +665,42 @@ func realWorldPDFs(t *testing.T, dir string) []string {
 		return nil
 	})
 	return paths
+}
+
+// realWorldPassSets returns the files under each should-pass/<flavour>
+// directory, keyed by flavour. It also returns a problem for each entry of dir
+// that is not the directory of a flavour checked by a corpus in
+// corpustest.All, such as a file placed directly in should-pass or an unknown
+// flavour.
+func realWorldPassSets(t *testing.T, dir string) (sets map[string][]string, problems []string) {
+	t.Helper()
+	sets = map[string][]string{}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() == ".gitkeep" {
+			continue
+		}
+		if _, ok := realWorldPassProfile(e.Name()); !ok || !e.IsDir() {
+			problems = append(problems, fmt.Sprintf("%s is not a should-pass/<flavour> directory", filepath.Join(dir, e.Name())))
+			continue
+		}
+		if files := realWorldPDFs(t, filepath.Join(dir, e.Name())); len(files) > 0 {
+			sets[e.Name()] = files
+		}
+	}
+	return sets, problems
+}
+
+// realWorldPassProfile returns the profile should-pass/<flavour> files must
+// verify clean against: the default profile of the level veraPDF's flavour
+// checks.
+func realWorldPassProfile(flavour string) (*Profile, bool) {
+	for _, c := range corpustest.All {
+		if c.Flavour == flavour {
+			return c.Default, true
+		}
+	}
+	return nil, false
 }
 
 // manifestEntry is one row of tests/realworld/manifest.json: the committed
@@ -842,11 +874,12 @@ func (r *realWorldReporter) flush(t *testing.T) {
 	t.Logf("wrote %d records to %s", len(r.records), r.path)
 }
 
-// distinctIssueClauses is issueClauses deduped and sorted: a real-world file
-// can report the same clause on dozens of objects, and triage groups by clause.
+// distinctIssueClauses returns the PDF/A-1b clauses of issues, deduplicated and
+// sorted. A real-world file can report the same clause on dozens of objects,
+// and triage groups by clause.
 func distinctIssueClauses(issues []PDFError) []string {
 	set := make(map[string]bool, len(issues))
-	for _, c := range issueClauses(issues) {
+	for _, c := range corpustest.Clauses(issues, pdf.A1B) {
 		set[c] = true
 	}
 	return sortedClauses(set)
@@ -864,25 +897,24 @@ func fileSize(path string) int64 {
 // rejects, keyed by sha256 (content-addressed, so a re-classified or renamed
 // file keeps its justification) with the reason as the value.
 //
-// The corpus puts a file in should-pass when veraPDF calls it PDF/A-1b, so a
-// rejection is normally a gopdfrab false positive and a bug. The exception is a
-// veraPDF *false negative*: a file that genuinely violates the standard and
-// that gopdfrab is right to reject. Each entry has to make that case, and a
-// listed file that starts verifying clean fails the test, so a deviation cannot
-// outlive the reason for it.
+// A file is placed in should-pass/<flavour> when veraPDF accepts it under that
+// flavour, so a rejection is normally a gopdfrab false positive. The exception
+// is a veraPDF false negative: a file that violates the standard and that
+// gopdfrab is right to reject. Each entry must document that case. A listed
+// file that verifies clean fails the test, so an entry cannot outlive its
+// reason.
 var shouldPassDeviations = map[string]string{}
 
-// checkShouldPass verifies each file against PDF/A-1b and returns the paths
-// gopdfrab wrongly rejected. These are real files a tool and veraPDF both call
-// PDF/A-1b, so any rejection is a false positive unless
-// shouldPassDeviations justifies it.
+// checkShouldPass verifies each file against p and returns a message for each
+// file that fails: a parse error, a rejection not covered by
+// shouldPassDeviations, or a deviation entry for a file that verifies clean.
 //
 // VerifyAllContext rather than a loop: it is the batch entry point real callers
 // use, so the corpus exercises it on real input rather than only on fixtures.
-func checkShouldPass(t *testing.T, files []string, rep *realWorldReporter) (failures []string) {
+func checkShouldPass(t *testing.T, files []string, p *Profile, rep *realWorldReporter) (failures []string) {
 	t.Helper()
 	start := time.Now()
-	results, err := VerifyAllContext(context.Background(), files, PDFA1B, Options{})
+	results, err := VerifyAllContext(context.Background(), files, p, Options{})
 	if err != nil {
 		t.Errorf("should-pass batch: %v", err)
 		return nil
@@ -1054,7 +1086,7 @@ func (v *veraSample) crossCheck(t *testing.T) {
 	sort.Strings(args)
 
 	start := time.Now()
-	rep, err := runVeraPDF(args...)
+	rep, err := runVeraPDF("1b", args...)
 	if err != nil {
 		t.Errorf("veraPDF cross-check: %v", err)
 		return
@@ -1334,13 +1366,19 @@ func TestRealWorldCorpus(t *testing.T) {
 	}
 
 	base := filepath.Join("tests", "realworld")
-	passFiles := realWorldPDFs(t, filepath.Join(base, "should-pass"))
+	passSets, layoutProblems := realWorldPassSets(t, filepath.Join(base, "should-pass"))
 	convFiles := realWorldPDFs(t, filepath.Join(base, "should-convert"))
-	if len(passFiles)+len(convFiles) == 0 {
+	present := append([]string{}, convFiles...)
+	for _, files := range passSets {
+		present = append(present, files...)
+	}
+	if len(present) == 0 {
 		t.Skip("no real-world corpus present (see tests/realworld/README.md)")
 	}
+	for _, p := range layoutProblems {
+		t.Errorf("layout: %s", p)
+	}
 
-	present := append(append([]string{}, passFiles...), convFiles...)
 	if problems, err := manifestProblems(base, present); err != nil {
 		t.Errorf("manifest.json: %v (run scripts/gen-realworld-manifest.sh)", err)
 	} else {
@@ -1352,9 +1390,11 @@ func TestRealWorldCorpus(t *testing.T) {
 	rep := newRealWorldReporter()
 	defer rep.flush(t)
 
-	if len(passFiles) > 0 {
-		failures := checkShouldPass(t, passFiles, rep)
-		t.Logf("should-pass: %d files, %d rejected", len(passFiles), len(failures))
+	for _, flavour := range slices.Sorted(maps.Keys(passSets)) {
+		files := passSets[flavour]
+		p, _ := realWorldPassProfile(flavour)
+		failures := checkShouldPass(t, files, p, rep)
+		t.Logf("should-pass/%s: %d files, %d rejected", flavour, len(files), len(failures))
 		for _, f := range failures {
 			t.Errorf("should-pass false positive: %s", f)
 		}
@@ -1386,7 +1426,7 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	rep := &realWorldReporter{path: filepath.Join(t.TempDir(), "report.json")}
 
 	pass := realWorldPDFs(t, passDir)
-	if failures := checkShouldPass(t, pass, rep); len(pass) != 1 || len(failures) != 0 {
+	if failures := checkShouldPass(t, pass, PDFA1B, rep); len(pass) != 1 || len(failures) != 0 {
 		t.Errorf("should-pass self-check: files=%d failures=%v, want 1/none", len(pass), failures)
 	}
 
@@ -1410,6 +1450,23 @@ func TestRealWorldHarnessSelfCheck(t *testing.T) {
 	// metrics must stay at zero -- otherwise they are measuring nothing.
 	if rasterized != 0 || dropped != 0 {
 		t.Errorf("should-convert self-check: rasterized=%d dropped=%d, want 0/0", rasterized, dropped)
+	}
+
+	// should-pass holds one directory per known flavour and nothing else.
+	layout := t.TempDir()
+	for _, name := range []string{"1b/src", "zz"} {
+		if err := os.MkdirAll(filepath.Join(layout, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{".gitkeep", "1b/src/a.pdf", "stray.pdf"} {
+		if err := os.WriteFile(filepath.Join(layout, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sets, problems := realWorldPassSets(t, layout)
+	if len(sets) != 1 || len(sets["1b"]) != 1 || len(problems) != 2 {
+		t.Errorf("realWorldPassSets = %v, %v; want one 1b file and problems for stray.pdf and zz", sets, problems)
 	}
 
 	// A missing directory yields no files (the skip path).

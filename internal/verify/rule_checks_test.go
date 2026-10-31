@@ -232,15 +232,7 @@ func TestNarrowProfileReportsWhatTheFullOneDoes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("verifies every corpus file several times")
 	}
-	var paths []string
-	for _, dir := range []string{isartorDir, veraPDFDir} {
-		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".pdf") {
-				paths = append(paths, path)
-			}
-			return nil
-		})
-	}
+	paths := a1bCorpusFiles()
 	if len(paths) == 0 {
 		t.Skip("no corpora present")
 	}

@@ -17,19 +17,20 @@ import (
 // verify and raster sit on the same layer and must not import each other;
 // anything both need belongs one layer down.
 var allowedInternalImports = map[string][]string{
-	"arlington": nil,
-	"content":   {"pdf"},
-	"convert":   {"arlington", "content", "fidelity", "fontedit", "fontprog", "fontsubst", "pdf", "pdfa", "raster", "verify", "writer"},
-	"fidelity":  {"content", "pdf", "raster"},
-	"fontedit":  {"fontprog"},
-	"fontprog":  {"pdf"},
-	"fontsubst": {"pdf"},
-	"pdf":       nil,
-	"pdfa":      {"pdf"},
-	"pdfgen":    nil,
-	"raster":    {"content", "fontprog", "fontsubst", "pdf"},
-	"verify":    {"arlington", "fontprog", "pdf", "pdfa"},
-	"writer":    {"pdf"},
+	"arlington":  nil,
+	"content":    {"pdf"},
+	"corpustest": {"pdf"},
+	"convert":    {"arlington", "content", "fidelity", "fontedit", "fontprog", "fontsubst", "pdf", "pdfa", "raster", "verify", "writer"},
+	"fidelity":   {"content", "pdf", "raster"},
+	"fontedit":   {"fontprog"},
+	"fontprog":   {"pdf"},
+	"fontsubst":  {"pdf"},
+	"pdf":        nil,
+	"pdfa":       {"pdf"},
+	"pdfgen":     nil,
+	"raster":     {"content", "fontprog", "fontsubst", "pdf"},
+	"verify":     {"arlington", "fontprog", "pdf", "pdfa"},
+	"writer":     {"pdf"},
 }
 
 // TestPackageLayering fails when an internal package imports one it sits

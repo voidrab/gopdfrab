@@ -4,11 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
@@ -38,13 +38,6 @@ func openReader(t *testing.T, data []byte) *pdf.Reader {
 // filledPage draws a large black rectangle, so the page carries real ink.
 const filledPage = "0 0 0 rg\n20 20 160 160 re\nf\n"
 
-
-
-
-
-
-
-
 // TestConvertFidelityNoBlankedPages is the fidelity gate over both corpora:
 // every "fail" fixture that converts to output must not have any page blanked
 // (rendered content on input, near-empty on output). Convert is free to fix
@@ -54,7 +47,7 @@ func TestConvertFidelityNoBlankedPages(t *testing.T) {
 	if testing.Short() {
 		t.Skip("corpus fidelity gate skipped in short mode")
 	}
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
@@ -66,33 +59,32 @@ func TestConvertFidelityNoBlankedPages(t *testing.T) {
 	// fixtures too. GOPDFRAB_FIDELITY_FULL=1 renders everything.
 	const maxFidelityInput = 50 << 10
 	full := os.Getenv("GOPDFRAB_FIDELITY_FULL") != ""
-	paths := make([]string, 0, len(fixtures))
-	for path := range fixtures {
+	selected := make([]corpustest.Fixture, 0, len(fixtures))
+	for _, f := range fixtures {
 		if !full {
-			if info, err := os.Stat(path); err != nil || info.Size() > maxFidelityInput {
+			if info, err := os.Stat(f.Path); err != nil || info.Size() > maxFidelityInput {
 				continue
 			}
 		}
-		paths = append(paths, path)
+		selected = append(selected, f)
 	}
-	sort.Strings(paths)
 
 	var checked, blanked int64
-	jobs := make(chan string)
+	jobs := make(chan corpustest.Fixture)
 	var wg sync.WaitGroup
 	for range runtime.NumCPU() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for path := range jobs {
-				if checkFidelity(t, path, &checked) {
+			for f := range jobs {
+				if checkFidelity(t, f.Path, f.Corpus.Default, &checked) {
 					atomic.AddInt64(&blanked, 1)
 				}
 			}
 		}()
 	}
-	for _, path := range paths {
-		jobs <- path
+	for _, f := range selected {
+		jobs <- f
 	}
 	close(jobs)
 	wg.Wait()
@@ -102,12 +94,12 @@ func TestConvertFidelityNoBlankedPages(t *testing.T) {
 
 // checkFidelity converts one fixture, compares input against output, and
 // reports any blanked page via t.Errorf. It returns true if a page was blanked.
-func checkFidelity(t *testing.T, path string, checked *int64) bool {
+func checkFidelity(t *testing.T, path string, p *pdf.Profile, checked *int64) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	cr, err := ConvertBytes(data, pdf.PDFA1B, Options{})
+	cr, err := ConvertBytes(data, p, Options{})
 	if err != nil {
 		return false
 	}
@@ -208,11 +200,6 @@ func TestConvertReportsFidelity(t *testing.T) {
 		t.Errorf("BlankedPages = %v without CheckFidelity, want nil", off.BlankedPages)
 	}
 }
-
-
-
-
-
 
 // drawnAtZeroOpacity is a page of the kind the zero-opacity repair exists for:
 // a black rectangle the size of the page, drawn at zero opacity over the
