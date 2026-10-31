@@ -24,6 +24,11 @@ Everything under `internal/` may change in any release without notice.
 
 ## [Unreleased]
 
+### Added
+
+- `Check.DescriptionIn` describes a check's rule as a given conformance level
+  words it.
+
 ### Fixed
 
 - Convert replaces a trailer ID that holds no file identifier bytes, such as

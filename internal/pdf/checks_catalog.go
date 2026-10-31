@@ -65,8 +65,21 @@ func familyOf(level LevelType) parts {
 // Name returns the CamelCase identifier of this check (e.g. "ImageWithSoftMask").
 func (c Check) Name() string { return c.name }
 
-// Description returns a human-readable summary of what this check enforces.
+// Description returns a human-readable summary of what this check enforces
+// under PDF/A-1.
 func (c Check) Description() string { return c.description }
+
+// DescriptionIn returns a summary of what c enforces under the given level.
+// It is the Part 1 description for a level that does not word the rule
+// differently, and for a level c is no rule of.
+func (c Check) DescriptionIn(level LevelType) string {
+	if partOf(level)&partsA2 != 0 && c.parts&partsA2 != 0 {
+		if d := part2Clauses[c.id].description; d != "" {
+			return d
+		}
+	}
+	return c.description
+}
 
 // Clause returns the PDF/A-1 specification clause number (e.g. "6.1.2").
 func (c Check) Clause() string { return c.clause }
@@ -400,7 +413,10 @@ func ChecksForClause(clause string) []Check {
 }
 
 // CheckByClauseIn looks up the check that enforces (clause, subclause) under
-// the given conformance level. ok is false if no check of that level does.
+// the given conformance level. Under a Part 2 level several checks may enforce
+// one rule together; CheckByClauseIn returns the first of them in catalogue
+// order, and ChecksForClauseIn returns them all. ok is false if no check of
+// that level enforces the rule.
 func CheckByClauseIn(level LevelType, clause string, subclause int) (c Check, ok bool) {
 	for _, c := range allChecksCatalog {
 		if cl, sub, ok := c.ClauseIn(level); ok && cl == clause && sub == subclause {

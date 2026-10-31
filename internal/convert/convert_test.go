@@ -529,8 +529,12 @@ func TestConvertIsDeterministic(t *testing.T) {
 // corpora. One encrypted fixture is decrypted with the Standard security
 // handler (empty user password) before conversion, so its RC4 streams are
 // re-encoded as content and the output is conformant.
+//
+// The PDF/A-2b floor counts the fail fixtures of the clauses its verifier
+// covers so far (corpustest.VeraPDF2B.Clauses), and grows with them.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
+	pdf.A2B: 15,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to

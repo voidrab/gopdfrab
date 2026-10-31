@@ -1,6 +1,10 @@
 package pdf
 
-import "testing"
+import (
+	"slices"
+	"strings"
+	"testing"
+)
 
 // stableCheckIDs pins every check's registration ID. IDs key Profile's
 // enabled set and are public through Check.ID, so inserting a check for a new
@@ -298,13 +302,11 @@ func TestChecksForClauseIn(t *testing.T) {
 	}
 }
 
-// TestPart2ClausesNameOneCheckEach verifies that every Part 2 entry numbers a
-// registered PDF/A check, that no two checks share a Part 2 clause and
-// subclause, and that ClauseIn(A2B) reports each entry's clause. A check
-// applies to PDF/A-2b exactly when Part 2 numbers it or it is an object-model
-// check.
-func TestPart2ClausesNameOneCheckEach(t *testing.T) {
-	seen := map[clauseRef]string{}
+// TestPart2Clauses verifies that every Part 2 entry numbers a registered
+// PDF/A check under a well-formed clause, that ClauseIn(A2B) and
+// DescriptionIn(A2B) report the entry, and that a check applies to PDF/A-2b
+// exactly when Part 2 numbers it or it is an object-model check.
+func TestPart2Clauses(t *testing.T) {
 	for id, ref := range part2Clauses {
 		c, ok := catalogByID[id]
 		if !ok {
@@ -314,15 +316,21 @@ func TestPart2ClausesNameOneCheckEach(t *testing.T) {
 		if c.Clause() == ObjectModelClause {
 			t.Errorf("%s: an object-model check keeps its clause under every level", c.Name())
 		}
-		if ref.clause == "" || ref.subclause <= 0 {
+		if !strings.HasPrefix(ref.clause, "6.") || ref.subclause < 0 {
 			t.Errorf("%s: Part 2 clause %q/%d", c.Name(), ref.clause, ref.subclause)
 		}
-		if dup, ok := seen[ref]; ok {
-			t.Errorf("%s and %s share the Part 2 clause %s/%d", dup, c.Name(), ref.clause, ref.subclause)
-		}
-		seen[ref] = c.Name()
 		if clause, sub, ok := c.ClauseIn(A2B); !ok || clause != ref.clause || sub != ref.subclause {
 			t.Errorf("%s: ClauseIn(A2B) = %s/%d, %v, want %s/%d", c.Name(), clause, sub, ok, ref.clause, ref.subclause)
+		}
+		want := ref.description
+		if want == "" {
+			want = c.Description()
+		}
+		if got := c.DescriptionIn(A2B); got != want {
+			t.Errorf("%s: DescriptionIn(A2B) = %q, want %q", c.Name(), got, want)
+		}
+		if got := c.DescriptionIn(A1B); got != c.Description() {
+			t.Errorf("%s: DescriptionIn(A1B) = %q, want the Part 1 description", c.Name(), got)
 		}
 	}
 	for _, c := range AllChecks() {
@@ -330,6 +338,41 @@ func TestPart2ClausesNameOneCheckEach(t *testing.T) {
 		if want := numbered || c.Clause() == ObjectModelClause; c.AppliesTo(A2B) != want {
 			t.Errorf("%s: AppliesTo(A2B) = %v, want %v", c.Name(), c.AppliesTo(A2B), want)
 		}
+	}
+}
+
+// TestPart2SharingStaysWithinAPart1Clause verifies that checks share a Part 2
+// clause and subclause only when they enforce the same Part 1 clause, so a
+// copied entry on an unrelated check is caught.
+func TestPart2SharingStaysWithinAPart1Clause(t *testing.T) {
+	owner := map[clauseRef]Check{}
+	for id, ref := range part2Clauses {
+		c := catalogByID[id]
+		key := clauseRef{clause: ref.clause, subclause: ref.subclause}
+		if prev, ok := owner[key]; ok && prev.Clause() != c.Clause() {
+			t.Errorf("%s (Part 1 %s) and %s (Part 1 %s) share the Part 2 rule %s/%d",
+				prev.Name(), prev.Clause(), c.Name(), c.Clause(), ref.clause, ref.subclause)
+		}
+		owner[key] = c
+	}
+}
+
+// TestSharedPart2Clause verifies that the checks sharing one veraPDF rule are
+// all found under its clause, and that CheckByClauseIn picks the first of
+// them in catalogue order.
+func TestSharedPart2Clause(t *testing.T) {
+	got := ChecksForClauseIn(A2B, "6.1.2")
+	want := []Check{
+		Checks.Structure.FileHeaderSignature,
+		Checks.Structure.FileHeaderComment,
+		Checks.Structure.FileHeaderCommentLength,
+		Checks.Structure.FileHeaderCommentBytes,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ChecksForClauseIn(A2B, 6.1.2) = %v, want %v", got, want)
+	}
+	if c, ok := CheckByClauseIn(A2B, "6.1.2", 2); !ok || c != Checks.Structure.FileHeaderComment {
+		t.Errorf("CheckByClauseIn(A2B, 6.1.2, 2) = %s, %v", c.Name(), ok)
 	}
 }
 

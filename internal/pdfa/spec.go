@@ -55,6 +55,19 @@ type Spec struct {
 
 	// ModelVersion is the PDF version whose object model applies.
 	ModelVersion string
+	// MaxPDFVersion is the newest version the file header may name, with the
+	// same major version; empty allows any %PDF-N.M header.
+	MaxPDFVersion string
+	// LinearizedFileID says whether the first ID entry of a linearized
+	// file's trailers must agree.
+	LinearizedFileID bool
+	// FileIDBytes says whether the trailer ID must be an array whose strings
+	// hold at least one byte between them, rather than merely be present.
+	FileIDBytes bool
+	// ExactXRefOffsets says whether the startxref and Prev offsets must
+	// locate the cross-reference sections exactly, so that a table the reader
+	// had to rebuild by scanning is a violation.
+	ExactXRefOffsets bool
 }
 
 // Limits are a level's architectural limits. A zero field sets no limit.
@@ -146,6 +159,9 @@ var a1b = Spec{
 	XMPConformance:  "B",
 	XMPConformances: NewNames("A", "B"),
 	ModelVersion:    "1.4",
+	// 6.1.3 and 6.1.4.
+	LinearizedFileID: true,
+	ExactXRefOffsets: true,
 }
 
 // a2b is PDF/A-2b, ISO 19005-2:2011 Level B.
@@ -192,6 +208,9 @@ var a2b = Spec{
 	XMPConformance:  "B",
 	XMPConformances: NewNames("A", "B", "U"),
 	ModelVersion:    "1.7",
+	// 6.1.2 and 6.1.3.
+	MaxPDFVersion: "1.7",
+	FileIDBytes:   true,
 }
 
 // objectModel is plain PDF: the object model, and none of PDF/A's rules.

@@ -86,6 +86,10 @@ func TestA1BSwitchesAndIdentity(t *testing.T) {
 	if s.ModelVersion != "1.4" {
 		t.Errorf("ModelVersion = %q, want 1.4", s.ModelVersion)
 	}
+	if s.MaxPDFVersion != "" || !s.LinearizedFileID || s.FileIDBytes || !s.ExactXRefOffsets {
+		t.Errorf("file structure rules: MaxPDFVersion %q, LinearizedFileID %v, FileIDBytes %v, ExactXRefOffsets %v",
+			s.MaxPDFVersion, s.LinearizedFileID, s.FileIDBytes, s.ExactXRefOffsets)
+	}
 }
 
 func TestA1BPolicySets(t *testing.T) {
@@ -168,6 +172,10 @@ func TestA2BSwitchesAndIdentity(t *testing.T) {
 	}
 	if s.ModelVersion != "1.7" {
 		t.Errorf("ModelVersion = %q, want 1.7", s.ModelVersion)
+	}
+	if s.MaxPDFVersion != "1.7" || s.LinearizedFileID || !s.FileIDBytes || s.ExactXRefOffsets {
+		t.Errorf("file structure rules: MaxPDFVersion %q, LinearizedFileID %v, FileIDBytes %v, ExactXRefOffsets %v",
+			s.MaxPDFVersion, s.LinearizedFileID, s.FileIDBytes, s.ExactXRefOffsets)
 	}
 	if got := s.ForbiddenViewerPrefKeys.All(); len(got) != 0 {
 		t.Errorf("ForbiddenViewerPrefKeys = %v: PDF 1.7 defines them all", got)
