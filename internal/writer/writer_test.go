@@ -552,3 +552,41 @@ func withRef(d pdf.PDFDict, ref pdf.PDFRef) pdf.PDFDict {
 	d.SetRef(ref)
 	return d
 }
+
+// TestWriteDocumentReplacesEmptyFileID verifies that an ID holding no
+// identifier bytes is replaced by a synthesized one, as a missing ID is, while
+// a real one is kept.
+func TestWriteDocumentReplacesEmptyFileID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   pdf.PDFValue
+		keep bool
+	}{
+		{"real", pdf.PDFArray{pdf.PDFHexString{Value: "ABCD"}, pdf.PDFHexString{Value: "ABCD"}}, true},
+		{"empty strings", pdf.PDFArray{pdf.PDFHexString{}, pdf.PDFHexString{}}, false},
+		{"not an array", pdf.PDFString{Value: "x"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := withRef(pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+				"Type": pdf.PDFName{Value: "Catalog"},
+			})}, pdf.PDFRef{ObjNum: 1})
+			trailer := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Root": catalog, "ID": tc.id})}
+			var buf bytes.Buffer
+			if err := WriteDocument(&buf, trailer, 0); err != nil {
+				t.Fatalf("WriteDocument: %v", err)
+			}
+			doc, err := pdf.Open(writeTempPDF(t, "id.pdf", buf.Bytes()))
+			if err != nil {
+				t.Fatalf("pdf.Open: %v", err)
+			}
+			defer doc.Close()
+			got := doc.Trailer().Entries.Get("ID")
+			if !pdf.HasFileIdentifier(got) {
+				t.Errorf("written ID %v holds no identifier bytes", got)
+			}
+			if kept := pdf.EqualPDFValue(got, tc.id); kept != tc.keep {
+				t.Errorf("written ID %v; kept the input's = %v, want %v", got, kept, tc.keep)
+			}
+		})
+	}
+}

@@ -22,6 +22,14 @@ Everything under `internal/` may change in any release without notice.
   its replacement, kept for at least one minor release, and removed no earlier
   than the next major version.
 
+## [Unreleased]
+
+### Fixed
+
+- Convert replaces a trailer ID that holds no file identifier bytes, such as
+  `[<> <>]`, with a synthesized one, as it does a missing ID, instead of
+  copying it to the output.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added
