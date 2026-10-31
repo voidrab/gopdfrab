@@ -368,7 +368,7 @@ func TestTrueTypeEncodingFixerSkipsAndLeavesUnrepairable(t *testing.T) {
 }
 
 func TestTrueTypeCmapSubtableCountTinyCmap(t *testing.T) {
-	if _, ok := trueTypeCmapSubtableCount(wrapInSfnt(0x00010000, map[string][]byte{"cmap": {0, 0}})); ok {
+	if _, ok := fontprog.CmapSubtableCount(wrapInSfnt(0x00010000, map[string][]byte{"cmap": {0, 0}})); ok {
 		t.Error("cmap shorter than its header reported a count")
 	}
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
-	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // isolateTempDir points the process temp directory at a fresh empty dir, so a
@@ -62,11 +61,11 @@ func TestSerializeAndVerifyReleasesOutputOnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cr ConvertResult
-	if err := serializeAndVerify(doc, graph.(pdf.PDFDict), &cr, nil, verify.Parts{}, true, 0); err == nil {
+	r := &run{doc: doc, trailer: graph.(pdf.PDFDict), graphClean: true}
+	if err := r.serializeAndVerify(); err == nil {
 		t.Fatal("expected the nil-profile verify to fail")
 	}
-	if cr.backing != nil {
+	if r.cr.backing != nil {
 		t.Error("failed serializeAndVerify left its backing on the result")
 	}
 	assertEmptyDir(t, dir)

@@ -25,6 +25,7 @@ The entire project is a single Go module with no dependencies other than `klausp
 | `internal/verify`    | Contains the PDF/A-1b checks.                                                    |
 | `internal/raster`    | Renders page content to images, for the raster fallback and the fidelity gate.   |
 | `internal/convert`   | Contains the fixers and the fix loop.                                            |
+| `internal/fidelity`  | Compares input and output renders page by page, for the fidelity gate.           |
 | `internal/writer`    | Serializes the object graph back into PDF bytes.                                 |
 | `internal/arlington` | Contains the Arlington PDF Model tables used by the object-model checks.         |
 | `internal/pdfgen`    | Generates PDFs for tests and fuzzing.                                            |
@@ -32,8 +33,9 @@ The entire project is a single Go module with no dependencies other than `klausp
 The packages form layers, and imports only point downwards:
 
 ```text
-convert                                    → verify, raster, writer, fontedit, content, fontprog, fontsubst, arlington, pdfa, pdf
+convert                                    → verify, fidelity, raster, writer, fontedit, content, fontprog, fontsubst, arlington, pdfa, pdf
 verify                                     → fontprog, arlington, pdfa, pdf
+fidelity                                   → raster, content, pdf
 raster                                     → content, fontprog, fontsubst, pdf
 fontedit                                   → fontprog
 content, fontprog, fontsubst, writer, pdfa → pdf
@@ -43,7 +45,7 @@ content, fontprog, fontsubst, writer, pdfa → pdf
 
 `gopdfrab.go` at the root defines the public API: `Verify`, `Convert`, and `Open`, together with their `Bytes`, `All`, `Each`, and `Context` variants, as well as `Document` and `Options`. It contains almost no implementation logic; instead, it re-exports types and delegates to the internal packages.
 
-`verify/` is the second public package: the verification half of that API, under the same names and over the same type aliases, for programs that never convert. It imports only `internal/pdf` and `internal/verify`, so it never reaches the converter. `TestVerifyPackageIsLight` (`layering_test.go`) fails if any chain of imports from it reaches `convert`, `fontedit`, `fontsubst`, `raster` or `writer`, and `TestVerifyAPIParity` (`verify_api_test.go`) fails if its API drifts from the root package's verification half. `Limits` is defined there and aliased at the root, so there is one type.
+`verify/` is the second public package: the verification half of that API, under the same names and over the same type aliases, for programs that never convert. It imports only `internal/pdf` and `internal/verify`, so it never reaches the converter. `TestVerifyPackageIsLight` (`layering_test.go`) fails if any chain of imports from it reaches `convert`, `fidelity`, `fontedit`, `fontsubst`, `raster` or `writer`, and `TestVerifyAPIParity` (`verify_api_test.go`) fails if its API drifts from the root package's verification half. `Limits` is defined there and aliased at the root, so there is one type.
 
 `cmd/gopdfrab` provides the CLI. `wasm/main.go` is the full browser build and `wasm/verify/main.go` the verify-only one, built on `gopdfrab/verify`; both share the JavaScript bridge in `wasm/internal/jsapi`.
 
@@ -135,9 +137,11 @@ Two optional capabilities improve performance. A `batchDictFixer` performs edits
 
 The fixers themselves are defined in `fixups_*.go` files, named according to what they repair—for example, `fixups_colour.go`, `fixups_font.go`, `fixups_xmp.go`, and `fixups_annot.go`. Each fixer must be idempotent because the loop may invoke it more than once.
 
-When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place. Rasterization is lossy, so a conversion reports how much of the output was produced that way.
+When content cannot be made conformant by any other means, the converter renders it with `internal/raster` and embeds the resulting image in its place (`raster_fallback.go`). Rasterization is lossy, so a conversion reports how much of the output was produced that way.
 
-`fidelity.go` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
+`internal/fidelity` guards against the opposite failure mode: producing a perfectly conformant but blank page. It renders both the input and output and compares them to ensure that the conversion has not lost the page's visual content.
+
+`convert.go` holds the entry points and the `run` struct that carries one conversion through the loop, the raster backstop and the final serialize-and-verify. `result.go` holds `ConvertResult` and its output methods, and `batch.go` the batch engine behind `ConvertAll` and `ConvertEach`.
 
 `spill.go` keeps large output in a temporary file rather than the heap.
 

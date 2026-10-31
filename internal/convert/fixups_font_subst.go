@@ -2,7 +2,6 @@ package convert
 
 import (
 	_ "embed"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"slices"
@@ -51,30 +50,6 @@ func italicAngleFor(italic bool) pdf.PDFInteger {
 		return -12
 	}
 	return 0
-}
-
-// ttScaledAscentDescent reads hhea's ascender/descender, scaled to PDF's
-// 1000-unit em like ttAdvanceWidth, for a FontDescriptor's Ascent/Descent.
-func ttScaledAscentDescent(tables map[string][]byte) (ascent, descent int) {
-	hhea := tables["hhea"]
-	upm, ok := fontprog.UnitsPerEm(tables)
-	if len(hhea) < 8 || !ok {
-		return 0, 0
-	}
-	a := int(int16(binary.BigEndian.Uint16(hhea[4:6])))
-	d := int(int16(binary.BigEndian.Uint16(hhea[6:8])))
-	return a * 1000 / upm, d * 1000 / upm
-}
-
-// ttScaledCapHeight reads OS/2's sCapHeight scaled to PDF's 1000-unit em,
-// falling back when the field isn't present (OS/2 version < 2).
-func ttScaledCapHeight(tables map[string][]byte, fallback int) int {
-	os2 := tables["OS/2"]
-	upm, ok := fontprog.UnitsPerEm(tables)
-	if len(os2) < 90 || !ok {
-		return fallback
-	}
-	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm
 }
 
 func simpleFontCodeToUnicode(enc pdf.PDFValue) [256]uint16 {
@@ -534,10 +509,10 @@ func applySubstituteDescriptor(desc pdf.PDFDict, tables map[string][]byte, progr
 	desc.Entries.Set("FontFile2", fontFile)
 	desc.Entries.Set("FontBBox", ttScaledBBox(tables))
 	desc.Entries.Set("Flags", substituteFlags(face))
-	ascent, descent := ttScaledAscentDescent(tables)
+	ascent, descent := fontprog.ScaledAscentDescent(tables)
 	desc.Entries.Set("Ascent", pdf.PDFInteger(ascent))
 	desc.Entries.Set("Descent", pdf.PDFInteger(descent))
-	desc.Entries.Set("CapHeight", pdf.PDFInteger(ttScaledCapHeight(tables, ascent)))
+	desc.Entries.Set("CapHeight", pdf.PDFInteger(fontprog.ScaledCapHeight(tables, ascent)))
 	desc.Entries.Set("StemV", stemVFor(face.Bold))
 	desc.Entries.Set("ItalicAngle", italicAngleFor(face.Italic))
 	desc.Entries.Set("MissingWidth", pdf.PDFInteger(0))
@@ -952,7 +927,7 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	if err != nil {
 		return false
 	}
-	if n, ok := trueTypeCmapSubtableCount(data); !ok || n == 1 {
+	if n, ok := fontprog.CmapSubtableCount(data); !ok || n == 1 {
 		return false
 	}
 	trimmed, err := fontedit.TrimTrueTypeCmapToSingleSubtable(data)
@@ -962,16 +937,4 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 	writer.SetStreamFlate(&ff, trimmed)
 	desc.Entries.Set("FontFile2", ff)
 	return true
-}
-
-func trueTypeCmapSubtableCount(data []byte) (int, bool) {
-	tables, ok := fontprog.ParseSfnt(data)
-	if !ok {
-		return 0, false
-	}
-	cmap := tables["cmap"]
-	if len(cmap) < 4 {
-		return 0, false
-	}
-	return int(binary.BigEndian.Uint16(cmap[2:4])), true
 }

@@ -1,7 +1,6 @@
-package convert
+package fidelity
 
 import (
-	"fmt"
 	"image"
 
 	"github.com/voidrab/gopdfrab/internal/content"
@@ -9,18 +8,11 @@ import (
 	"github.com/voidrab/gopdfrab/internal/raster"
 )
 
-// Fidelity compares the rendered appearance of a converted document against its
-// input, page by page, using gopdfrab's own rasterizer on both sides. Because
-// the same renderer draws both, its operator-coverage gaps are symmetric and
-// cancel, so the comparison isolates what the *conversion* changed rather than
-// what the renderer cannot draw. Its purpose is to catch the destructive
-// failure a conformance-only metric misses: a page silently blanked or gutted
-// while the result still "verifies clean".
-
 // fidelity tuning. The comparison runs at a low DPI: gross change and blanking
 // are what matter, not sub-pixel accuracy.
 const (
-	fidelityDPI   = 72
+	// DPI is the resolution the gate renders both sides at.
+	DPI           = 72
 	fidelityGrid  = 48    // NxN sample grid for the similarity score
 	inkThreshold  = 0.004 // a page with < 0.4% non-white pixels counts as blank
 	blankLossRate = 0.10  // losing >90% of the input's ink is "blanked"
@@ -63,15 +55,15 @@ func (f PageFidelity) Overpainted() bool {
 	return f.Covered >= overpaintArea
 }
 
-// blankedPages returns the pages of report that came out blank, in ascending
-// order. comparePageRenders already walks the pages in order, so this only
-// filters. Nil when nothing was lost, so a caller can test it with len.
-func blankedPages(report []PageFidelity) []int {
+// BlankedPages returns the pages of report that came out blank, in ascending
+// order. Compare already walks the pages in order, so this only filters. Nil
+// when nothing was lost, so a caller can test it with len.
+func BlankedPages(report []PageFidelity) []int {
 	return pagesWhere(report, PageFidelity.Blanked)
 }
 
-// overpaintedPages is blankedPages for the pages that gained ink.
-func overpaintedPages(report []PageFidelity) []int {
+// OverpaintedPages is BlankedPages for the pages something was painted over.
+func OverpaintedPages(report []PageFidelity) []int {
 	return pagesWhere(report, PageFidelity.Overpainted)
 }
 
@@ -85,28 +77,12 @@ func pagesWhere(report []PageFidelity, match func(PageFidelity) bool) []int {
 	return pages
 }
 
-// CompareFidelity renders input and output at dpi and returns a per-page
-// fidelity report for every page present in both. Pages the rasterizer cannot
-// draw on the input side (nil render) are skipped, since there is no baseline
-// to judge against.
-func CompareFidelity(input, output *pdf.Reader, dpi int) ([]PageFidelity, error) {
-	in, err := summarizeReaderPages(input, dpi)
-	if err != nil {
-		return nil, fmt.Errorf("fidelity: render input: %w", err)
-	}
-	out, err := summarizeReaderPages(output, dpi)
-	if err != nil {
-		return nil, fmt.Errorf("fidelity: render output: %w", err)
-	}
-	return comparePageSummaries(in, out), nil
-}
-
-// pageSummary is everything the comparison needs from one rendered page: how
-// much ink it carries, how dark each part of it is, and the samples the
-// similarity score is taken from. A few tens of kilobytes, where the page it
-// was measured from is a few megabytes -- and a document's worth of those is
-// what a comparison has to hold.
-type pageSummary struct {
+// Summary holds the measurements of one rendered page that a comparison
+// needs: its ink fraction, the mean luminance of each cell of the comparison
+// grid, and the grayscale samples the similarity score is taken from. A Summary
+// is about 36 KiB, far smaller than the page it was measured from, so a
+// comparison holds summaries rather than renders.
+type Summary struct {
 	rendered bool
 	ink      float64
 	cells    [fidelityGrid * fidelityGrid]float64
@@ -114,17 +90,18 @@ type pageSummary struct {
 }
 
 // summarize measures a rendered page and lets go of it.
-func summarize(img *image.RGBA) pageSummary {
+func summarize(img *image.RGBA) Summary {
 	if img == nil {
-		return pageSummary{}
+		return Summary{}
 	}
-	return pageSummary{rendered: true, ink: inkFraction(img), cells: cellMeans(img), gray: grayGrid(img)}
+	return Summary{rendered: true, ink: inkFraction(img), cells: cellMeans(img), gray: grayGrid(img)}
 }
 
-// comparePageSummaries builds the per-page report from two measured page
-// lists. An unrendered input page is skipped (no baseline); an unrendered
-// output page with an inked input counts as fully lost.
-func comparePageSummaries(in, out []pageSummary) []PageFidelity {
+// Compare builds the per-page report from two lists of measured pages. An
+// input page that did not render is skipped, since it has no baseline. An
+// output page that did not render gets no output ink and zero similarity, so
+// an inked input page is reported as blanked.
+func Compare(in, out []Summary) []PageFidelity {
 	n := min(len(in), len(out))
 	var report []PageFidelity
 	for i := range n {
@@ -142,18 +119,6 @@ func comparePageSummaries(in, out []pageSummary) []PageFidelity {
 		report = append(report, pf)
 	}
 	return report
-}
-
-// comparePageRenders is comparePageSummaries over pages still in hand.
-func comparePageRenders(in, out []*image.RGBA) []PageFidelity {
-	summaries := func(imgs []*image.RGBA) []pageSummary {
-		out := make([]pageSummary, len(imgs))
-		for i, img := range imgs {
-			out[i] = summarize(img)
-		}
-		return out
-	}
-	return comparePageSummaries(summaries(in), summaries(out))
 }
 
 // cellMeans divides img into a fidelityGrid x fidelityGrid grid and returns
@@ -198,31 +163,27 @@ func coveredFraction(before, after [fidelityGrid * fidelityGrid]float64) float64
 	return float64(covered) / float64(len(before))
 }
 
-// summarizeReaderPages resolves r's graph and measures every page in order.
-func summarizeReaderPages(r *pdf.Reader, dpi int) ([]pageSummary, error) {
-	trailer, err := resolveTrailer(r)
-	if err != nil {
-		return nil, err
+// Summarize rasterizes every page of a resolved trailer in page order, the
+// order the verifier numbers pages in, and keeps only the measurements, so one
+// page is in memory at a time rather than a whole document twice over. A page
+// that fails to render is left unrendered rather than aborting.
+func Summarize(trailer pdf.PDFDict, dpi int) []Summary {
+	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
+	pages, ok := root.Entries.Get("Pages").(pdf.PDFDict)
+	if !ok {
+		return nil
 	}
-	return summarizeTrailerPages(trailer, dpi), nil
-}
-
-// summarizeTrailerPages rasterizes every page of an already-resolved trailer
-// in order and keeps only the measurements, so one page is in memory at a time
-// rather than a whole document twice over. A page that fails to render is left
-// unrendered rather than aborting.
-func summarizeTrailerPages(trailer pdf.PDFDict, dpi int) []pageSummary {
-	pages := orderedPages(trailer)
-	out := make([]pageSummary, len(pages))
 	// The input is measured as a viewer shows it, with the layers it turns
 	// off hidden; the conversion removes their content.
-	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
 	oc := content.NewOptionalContent(root)
-	for i, p := range pages {
-		if img, _, err := raster.RenderPage(p.dict, p.resources, p.mediaBox, dpi, oc); err == nil {
-			out[i] = summarize(img)
+	var out []Summary
+	pdf.WalkPages(pages, func(page, resources pdf.PDFDict, mediaBox [4]float64, _ int) {
+		var s Summary
+		if img, _, err := raster.RenderPage(page, resources, mediaBox, dpi, oc); err == nil {
+			s = summarize(img)
 		}
-	}
+		out = append(out, s)
+	})
 	return out
 }
 
@@ -248,14 +209,10 @@ func inkFraction(img *image.RGBA) float64 {
 	return float64(ink) / float64(total)
 }
 
-// pageSimilarity samples both renders on a fixed grid (so differing pixel
-// dimensions are handled) and returns 1 minus the mean per-cell grayscale
+// gridSimilarity compares two grids of samples taken by grayGrid. Because
+// grayGrid samples every render on the same fixed grid, differing pixel
+// dimensions do not matter. It returns 1 minus the mean per-cell grayscale
 // difference, normalized to [0,1].
-func pageSimilarity(a, b *image.RGBA) float64 {
-	return gridSimilarity(grayGrid(a), grayGrid(b))
-}
-
-// gridSimilarity is pageSimilarity over samples already taken.
 func gridSimilarity(ga, gb [fidelityGrid * fidelityGrid]float64) float64 {
 	var sum float64
 	for i := range ga {

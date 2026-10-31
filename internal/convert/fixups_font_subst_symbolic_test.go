@@ -38,7 +38,7 @@ func assertSymbolicSubstitute(t *testing.T, font pdf.PDFDict, code int, unicode 
 	if !ok {
 		t.Fatalf("FontFile2 is not a valid sfnt")
 	}
-	if n, ok := trueTypeCmapSubtableCount(data); !ok || n != 1 {
+	if n, ok := fontprog.CmapSubtableCount(data); !ok || n != 1 {
 		t.Errorf("cmap subtable count = %d, want exactly 1", n)
 	}
 	platform, encID, gidMap, ok := fontedit.FirstFormat4CmapSubtable(tables)

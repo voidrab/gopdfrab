@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fidelity"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
 
@@ -139,7 +140,7 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 				continue
 			}
 			blanked, overpainted := 0, 0
-			for _, page := range comparePageSummaries(before, after) {
+			for _, page := range fidelity.Compare(before, after) {
 				switch {
 				case page.Blanked():
 					blanked++
@@ -174,7 +175,7 @@ func attributeInk(t *testing.T, paths []string) map[string]*inkTally {
 // inkPerPage reads the file, runs one repair over it if given one, and returns
 // how each page looks afterwards -- the survey's own measurements, so the two
 // can be compared with the survey's own thresholds.
-func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageSummary, error) {
+func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]fidelity.Summary, error) {
 	doc, err := pdf.Open(path)
 	if err != nil {
 		return nil, err
@@ -193,7 +194,7 @@ func inkPerPage(path string, run func(*pdf.PDFDict, *pdf.Reader) error) ([]pageS
 			return nil, err
 		}
 	}
-	return summarizeTrailerPages(trailer, fidelityDPI), nil
+	return fidelity.Summarize(trailer, fidelity.DPI), nil
 }
 
 // TestFidelityAttributionSelfCheck runs the harness where no corpus is needed,
