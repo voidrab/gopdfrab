@@ -54,6 +54,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			}
 			if name, ok := operands[len(operands)-1].(pdf.PDFName); ok {
 				emit(namedOrAbbrevColourModel(name.Value, resources), resources)
+				emit(patternBaseModel(name, resources), resources)
 			}
 		case "INLINEIMAGE":
 			for i := 0; i+1 < len(operands); i += 2 {
@@ -92,16 +93,32 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.IsStream() {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
+		case "Tf":
+			// A Type 3 font's glyph procedures are scanned with the font's
+			// own Resources when it has them, and otherwise with the
+			// resources the text is shown in.
+			if len(operands) == 0 {
+				return
+			}
+			font, ok := namedType3Font(operands[0], resources)
+			if !ok || !claim(pdf.ValuePointer(font.Entries)) {
+				return
+			}
+			pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+				scanContentColour(r.Stream, resourcesOf(font, resources), claim, decode, emit)
+			})
 		}
 	})
 }
 
-// deviceColourFixer remediates DeviceColourContentStream (content-stream
-// operators/inline images) and DeviceColourSpaceUsage (Image/Shading
-// /ColorSpace entries), mirroring reportContentColour/checkDeviceColour in
-// checks_content.go/checks_colour.go -- both consult a page's /Resources
-// (directly, or via ctx.pageResources as a fallback for nested Form
-// XObjects/patterns), so injecting the missing Default* there clears both.
+// deviceColourFixer remediates DeviceColourContentStream (device colour in
+// content stream operators and inline images), DeviceColourSpaceUsage (device
+// colour spaces of Image and Shading dictionaries) and DeviceColourBase (the
+// base space of an Indexed or uncoloured Pattern space). It mirrors
+// reportContentColour and checkDeviceColour in the verify package, which both
+// consult the page's Resources (or the page resources, for nested Form XObjects
+// and patterns), so injecting the missing Default colour space entries there
+// clears both.
 // deviceColourFixer holds the run's decode function (the Reader's concurrent
 // cache) so repeated content scans across fixer iterations hit warm bytes.
 type deviceColourFixer struct {
@@ -111,7 +128,8 @@ type deviceColourFixer struct {
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage:
+	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage,
+		pdf.Checks.Colour.DeviceColourBase:
 		return true
 	}
 	return false
@@ -298,6 +316,11 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			category = "XObject"
 		case "scn", "SCN":
 			category = "Pattern"
+		case "Tf":
+			if len(operands) > 0 && in.runType3(operands[0], scope) {
+				changed = true
+			}
+			return
 		default:
 			return
 		}
@@ -316,6 +339,41 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 		}
 	})
 	return changed
+}
+
+// runType3 injects Default colour spaces into the resources of the Type 3 font
+// that a Tf operand names, if the font has its own Resources, and follows the
+// form XObjects its glyph procedures draw. The glyph procedures are checked
+// against the font's resources, which the page's Default colour spaces do not
+// reach.
+func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
+	font, ok := namedType3Font(operand, scope)
+	if !ok {
+		return false
+	}
+	res, own := font.Entries.Get("Resources").(pdf.PDFDict)
+	ptr := pdf.ValuePointer(font.Entries)
+	if !own || in.visited[ptr] {
+		return false
+	}
+	in.visited[ptr] = true
+	// injectDefaultCS edits the font's resources in place.
+	changed := injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	glyphs := in
+	glyphs.create = false
+	pdf.ContentRoots(font, func(r pdf.ContentRoot) {
+		if glyphs.run(r.Stream, res) {
+			changed = true
+		}
+	})
+	return changed
+}
+
+// namedType3Font returns the Type 3 font a Tf operand names in resources.
+func namedType3Font(operand pdf.PDFValue, resources pdf.PDFDict) (pdf.PDFDict, bool) {
+	name, _ := operand.(pdf.PDFName)
+	font, ok := pdf.LookupResource(resources, "Font", name.Value).(pdf.PDFDict)
+	return font, ok && font.Entries.Get("Subtype") == (pdf.PDFName{Value: "Type3"})
 }
 
 // injectDefaultCS injects missing Default* colour-space entries into the
@@ -464,6 +522,16 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}
 	}
+}
+
+// patternBaseModel returns the device colour model of the base space of the
+// uncoloured Pattern colour space a cs or CS operand names, or "".
+func patternBaseModel(name pdf.PDFName, resources pdf.PDFDict) string {
+	cs, _ := pdf.LookupNamedColorSpace(name.Value, resources)
+	if arr, ok := cs.(pdf.PDFArray); !ok || len(arr) == 0 || arr[0] != (pdf.PDFName{Value: "Pattern"}) {
+		return ""
+	}
+	return verify.BaseColourModel(cs)
 }
 
 // namedOrAbbrevColourModel resolves a cs/CS or inline-image /CS operand name

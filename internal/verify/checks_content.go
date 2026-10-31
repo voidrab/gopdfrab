@@ -67,7 +67,17 @@ func NamedColourModel(name pdf.PDFName, resources pdf.PDFDict) string {
 func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationContext) func(string, []pdf.PDFValue) {
 	colourSet := false
 	qDepth := 0
+	inherit := ctx.inherit
+	part2 := ctx.part2()
+	var over *overprintTracker
+	if part2 {
+		over = &overprintTracker{}
+	}
 	return func(op string, operands []pdf.PDFValue) {
+		if part2 {
+			inherit.checkOperands(op, operands, obj, ctx)
+			over.step(op, operands, resources, obj, ctx)
+		}
 		// 6.1.12: integer/real/string operands are bounded (2^31-1, 32767, 65535 bytes).
 		for _, operand := range operands {
 			checkOperandLimits(operand, obj, ctx)
@@ -101,6 +111,7 @@ func contentChecker(obj pdf.PDFValue, resources pdf.PDFDict, ctx *ValidationCont
 					if model := NamedColourModel(name, resources); model != "" {
 						reportContentColour(obj, model, resources, ctx)
 					}
+					checkBaseColour(namedColourSpace(name, resources), resources, obj, ctx)
 				}
 			}
 		case "sc", "scn", "SC", "SCN":
@@ -169,7 +180,7 @@ func reportContentColour(obj pdf.PDFValue, model string, resources pdf.PDFDict, 
 	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
-	ctx.Report(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourContentStream, obj, fmt.Sprintf("device colour (%s) used in content stream without matching OutputIntent", model))
 }
 
 // checkInlineImageColour inspects inline image parameters for a device colour
@@ -193,6 +204,7 @@ func checkInlineImageColour(obj pdf.PDFValue, params []pdf.PDFValue, resources p
 			}
 		case pdf.PDFArray:
 			model = DeviceColourModel(val)
+			checkBaseColour(val, resources, obj, ctx)
 		}
 		if model != "" && !ctx.deviceColourAllowed(model) {
 			reportContentColour(obj, model, resources, ctx)
@@ -235,7 +247,13 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 			}
 		case "Intent":
 			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
-				ctx.Report(pdf.Checks.Colour.RenderingIntent, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
+				// Part 1 numbers it with the content stream's intents
+				// (6.2.9), Part 2 with the image dictionaries' (6.2.6).
+				c := pdf.Checks.Colour.RenderingIntent
+				if ctx.part2() {
+					c = pdf.Checks.Image.ImageRenderingIntent
+				}
+				ctx.Report(c, obj, fmt.Sprintf("inline image rendering intent /%s is not a standard rendering intent", name.Value))
 			}
 		}
 	}
@@ -250,7 +268,10 @@ func validateContentStreams(v pdf.PDFDict, ctx *ValidationContext) {
 		if r.Kind == pdf.ContentForm && !ctx.isReachableXObject(v) {
 			return
 		}
+		saved := ctx.inherit
+		ctx.inherit = inheritanceOf(r, v, ctx)
 		scanContentDict(r.Stream, r.Resources, ctx)
+		ctx.inherit = saved
 	})
 	if kind == pdf.ContentPage {
 		scanAnnotAppearances(v, ctx)

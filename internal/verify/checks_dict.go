@@ -109,9 +109,10 @@ func validateExtGState(v pdf.PDFDict, ctx *ValidationContext) {
 	if t, ok := v.Entries.Get("Type").(pdf.PDFName); ok && t.Value != "ExtGState" {
 		return
 	}
-	if !HasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI") {
+	if !HasAnyKey(v, "TR", "TR2", "SMask", "BM", "CA", "ca", "RI", "HT", "HTP") {
 		return
 	}
+	validateHalftones(v, ctx)
 
 	if v.Entries.Get("TR") != nil {
 		ctx.Report(pdf.Checks.Transparency.TransferFunction, v, "ExtGState shall not contain a TR key")

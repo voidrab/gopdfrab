@@ -114,7 +114,8 @@ func checkDeviceColour(obj pdf.PDFValue, cs pdf.PDFValue, ctx *ValidationContext
 	if DefaultColorSpaceDefined(model, ctx.resourceScope) {
 		return
 	}
-	ctx.Report(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
+	checkBaseColour(cs, pdf.PDFDict{}, obj, ctx)
+	ctx.reportUncovered(pdf.Checks.Colour.DeviceColourSpaceUsage, obj, fmt.Sprintf("device colour space (%s) used in %s without matching OutputIntent", model, context))
 }
 
 // validateColourSpaceUsage checks dictionary-level colour-space usage: image and
@@ -153,6 +154,13 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	// [/Separation name alternateSpace tintTransform]
 	// [/DeviceN names alternateSpace tintTransform]
 	validateColorantNames(arr, ctx)
+	if ctx.part2() {
+		if head.Value == "DeviceN" {
+			checkDeviceNColorants(arr, ctx)
+		} else {
+			checkSeparationConsistency(arr, ctx)
+		}
+	}
 	if head.Value == "DeviceN" {
 		// 6.1.12: a DeviceN colour space has no more colorants than the
 		// level's limit.
@@ -166,7 +174,7 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	if model == "" || ctx.deviceColourAllowed(model) {
 		return
 	}
-	ctx.Report(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
+	ctx.reportUncovered(pdf.Checks.Colour.SeparationAlternateColour, arr, fmt.Sprintf("%s alternate colour space (%s) used without matching OutputIntent", head.Value, model))
 }
 
 // validateICCBasedColourSpace checks an [/ICCBased stream] colour space against

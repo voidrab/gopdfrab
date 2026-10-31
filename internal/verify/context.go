@@ -40,6 +40,9 @@ type ValidationContext struct {
 	rgbCovered      bool
 	cmykCovered     bool
 	grayCovered     bool
+	// uncoveredDeviceColour is set once a device colour space no output
+	// intent covers has been reported.
+	uncoveredDeviceColour bool
 
 	// ReachableXObjectPtrs is the set of Entries-map pointers of Form XObjects
 	// that are actually invoked (via Do) from page or other reachable content
@@ -91,6 +94,16 @@ type ValidationContext struct {
 	// its own /Resources is not excused by the page's Default*, while a form
 	// without any inherits the enclosing one.
 	resourceScope pdf.PDFDict
+	// parentResourceScope is the scope that was in force above the nearest
+	// dict that has its own Resources entry: what a form XObject, tiling
+	// pattern or Type 3 font with its own resources would inherit from.
+	parentResourceScope pdf.PDFDict
+	// inherit is the inheritance of the content stream being checked
+	// (ISO 19005-2 6.2.2).
+	inherit inheritance
+	// separations holds, by colorant name, the first Separation colour space
+	// the walk met (ISO 19005-2 6.2.4.4).
+	separations map[string]*separation
 
 	// undecodable is the set of streams already reported as
 	// Structure.StreamUndecodable, so a stream several checks read is flagged
@@ -281,6 +294,12 @@ func (ctx *ValidationContext) usedCIDsFor(v pdf.PDFDict) (cids map[int]bool, kno
 	return cids, known
 }
 
+// part2 reports whether the context verifies a level of ISO 19005-2, whose
+// graphics rules need state the Part 1 checks do not.
+func (ctx *ValidationContext) part2() bool {
+	return ctx.Spec != nil && ctx.Spec.Part >= 2
+}
+
 // deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
 // "gray") may be used given the document's OutputIntent coverage (6.2.3.3).
 func (ctx *ValidationContext) deviceColourAllowed(model string) bool {
@@ -305,6 +324,14 @@ func (ctx *ValidationContext) Issues() []pdf.PDFError {
 
 func (ctx *ValidationContext) report(err pdf.PDFError) {
 	ctx.errs = append(ctx.errs, err)
+}
+
+// reportUncovered reports c against obj and records that a device colour
+// space without a matching output intent was found, for
+// deviceColourWithoutPDFAIntentRule to read.
+func (ctx *ValidationContext) reportUncovered(c pdf.Check, obj pdf.PDFValue, msg string) {
+	ctx.uncoveredDeviceColour = true
+	ctx.Report(c, obj, msg)
 }
 
 // Report records a single violation of c against obj.

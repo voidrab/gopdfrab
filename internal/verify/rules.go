@@ -52,6 +52,8 @@ var dictRules = []dictRule{
 		checks: []pdf.Check{
 			pdf.Checks.Transparency.BlendMode, pdf.Checks.Transparency.DefaultTransferFunction,
 			pdf.Checks.Transparency.ExtGStateRenderingIntent,
+			pdf.Checks.Transparency.HalftoneExtGState, pdf.Checks.Transparency.HalftoneName,
+			pdf.Checks.Transparency.HalftoneTransferFunction, pdf.Checks.Transparency.HalftoneType,
 			pdf.Checks.Transparency.NonStrokingAlpha, pdf.Checks.Transparency.SoftMaskExtGState,
 			pdf.Checks.Transparency.StrokingAlpha, pdf.Checks.Transparency.TransferFunction,
 		},
@@ -93,14 +95,17 @@ var dictRules = []dictRule{
 	},
 	{
 		checks: []pdf.Check{
-			pdf.Checks.Colour.DeviceColourSpaceUsage,
+			pdf.Checks.Colour.DeviceColourBase, pdf.Checks.Colour.DeviceColourSpaceUsage,
 		},
 		fn: validateColourSpaceUsage,
 	},
 	{
 		checks: []pdf.Check{
-			pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.RenderingIntent,
+			pdf.Checks.Colour.DeviceColourBase, pdf.Checks.Colour.DeviceColourContentStream,
+			pdf.Checks.Colour.ICCBasedCMYKOverprint, pdf.Checks.Colour.InheritedResources,
+			pdf.Checks.Colour.RenderingIntent,
 			pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Image.ImageInterpolate,
+			pdf.Checks.Image.ImageRenderingIntent,
 			pdf.Checks.Structure.GraphicsStateNesting, pdf.Checks.Structure.HexStringInvalidChar,
 			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageFilterNotAllowed,
 			pdf.Checks.Structure.InlineImageLZWFilter,
@@ -188,12 +193,19 @@ var (
 				pdf.Checks.Colour.OutputIntentInvalidS,
 				pdf.Checks.Colour.OutputIntentMissingIdentifier,
 				pdf.Checks.Colour.OutputIntentMissingN,
+				pdf.Checks.Colour.OutputIntentDestOutputProfileRef,
 				pdf.Checks.Colour.OutputIntentMultipleProfiles,
 				pdf.Checks.Colour.OutputIntentNotArray, pdf.Checks.Colour.OutputIntentNotDict,
 				pdf.Checks.Colour.OutputIntentUnresolvedProfile,
 				pdf.Checks.Colour.OutputIntentWrongS,
 			},
 			fn: outputIntentRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Colour.DeviceColourWithoutPDFAIntent,
+			},
+			fn: deviceColourWithoutPDFAIntentRule,
 		},
 		{
 			checks: []pdf.Check{

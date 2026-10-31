@@ -831,9 +831,9 @@ func verifyDocument(graph pdf.PDFValue, ctx *ValidationContext) {
 			// spaces of 6.2.3.3 are read from that scope, so a form's own
 			// resources have to displace the page's for its content and images.
 			if res, ok := v.Entries.Get("Resources").(pdf.PDFDict); ok {
-				saved := ctx.resourceScope
-				ctx.resourceScope = res
-				defer func() { ctx.resourceScope = saved }()
+				saved, savedParent := ctx.resourceScope, ctx.parentResourceScope
+				ctx.resourceScope, ctx.parentResourceScope = res, saved
+				defer func() { ctx.resourceScope, ctx.parentResourceScope = saved, savedParent }()
 			}
 
 			if first && !ctx.schemaOnly {
@@ -1527,7 +1527,17 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 			continue
 		}
 
-		if s.Value != spec.OutputIntentSubtype {
+		if s.Value == "GTS_PDFX" && intent.Entries.Get("DestOutputProfileRef") != nil {
+			errs = append(errs, pdf.NewError(
+				pdf.Checks.Colour.OutputIntentDestOutputProfileRef,
+				[]error{fmt.Errorf("PDF/X output intent contains a DestOutputProfileRef entry")},
+				0,
+				refOf(intent),
+			))
+		}
+
+		other := s.Value != spec.OutputIntentSubtype
+		if other && !spec.OtherOutputIntents {
 			err := pdf.NewError(
 				pdf.Checks.Colour.OutputIntentWrongS,
 				[]error{fmt.Errorf("S is /%s, expected /%s", s.Value, spec.OutputIntentSubtype)},
@@ -1549,6 +1559,10 @@ func verifyOutputIntent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 		}
 
 		destOutputProfile := intent.Entries.Get("DestOutputProfile")
+		if destOutputProfile == nil && other && spec.OtherOutputIntents {
+			// Only the PDF/A output intent needs a profile of its own.
+			continue
+		}
 		if destOutputProfile == nil {
 			// 6.2.2: DestOutputProfile shall be present unless OutputConditionIdentifier
 			// names a standard ICC registry profile, which is not the case for "Custom".
@@ -1729,7 +1743,7 @@ func ICCInputProfileDefect(data []byte, spec pdfa.Spec) string {
 		return fmt.Sprintf("ICC profile has device class %q, which an ICCBased colour space may not use", class)
 	}
 	if colorSpace := string(data[16:20]); !iccInputColourSpace(colorSpace) {
-		return fmt.Sprintf("ICC profile has colour space %q, which PDF/A-1 does not permit", colorSpace)
+		return fmt.Sprintf("ICC profile has colour space %q, which an ICCBased colour space may not use", colorSpace)
 	}
 	return ""
 }

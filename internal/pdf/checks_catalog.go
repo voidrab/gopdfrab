@@ -203,6 +203,15 @@ type colourChecks struct {
 	RenderingIntent Check
 	// 6.2.10 PDF operators
 	UndefinedOperator Check
+	// Rules of ISO 19005-2 only: 6.2.2 Content streams, 6.2.3 Output intent
+	// and 6.2.4 Colour spaces.
+	InheritedResources               Check
+	DeviceColourWithoutPDFAIntent    Check
+	OutputIntentDestOutputProfileRef Check
+	ICCBasedCMYKOverprint            Check
+	DeviceNColorantsMissing          Check
+	SeparationInconsistent           Check
+	DeviceColourBase                 Check
 }
 
 type imageChecks struct {
@@ -236,6 +245,11 @@ type transparencyChecks struct {
 	NonStrokingAlpha  Check
 	TransparencyGroup Check
 	ImageWithSoftMask Check
+	// Rules of ISO 19005-2 only: 6.2.5 Extended graphics state.
+	HalftoneExtGState        Check
+	HalftoneType             Check
+	HalftoneName             Check
+	HalftoneTransferFunction Check
 }
 
 type fontChecks struct {
@@ -761,6 +775,27 @@ func init() {
 				"UndefinedOperator",
 				"Content streams must not use operators not defined in the PDF Reference",
 				"6.2.10", 1),
+			InheritedResources: newPart2Check(167,
+				"InheritedResources",
+				"A content stream must find the resources it names in its own Resources dictionary, not inherit them"),
+			DeviceColourWithoutPDFAIntent: newPart2Check(168,
+				"DeviceColourWithoutPDFAIntent",
+				"A file that uses device colour spaces must have a PDF/A output intent; output intents of other kinds do not cover them"),
+			OutputIntentDestOutputProfileRef: newPart2Check(169,
+				"OutputIntentDestOutputProfileRef",
+				"A PDF/X output intent must not contain a DestOutputProfileRef entry"),
+			ICCBasedCMYKOverprint: newPart2Check(170,
+				"ICCBasedCMYKOverprint",
+				"Overprint mode must not be 1 when an ICCBased CMYK colour space is used with overprinting on"),
+			DeviceNColorantsMissing: newPart2Check(171,
+				"DeviceNColorantsMissing",
+				"Each spot colour of a DeviceN colour space must have an entry in its Colorants dictionary"),
+			SeparationInconsistent: newPart2Check(172,
+				"SeparationInconsistent",
+				"Separation colour spaces with the same colorant name must have the same alternate space and tint transform"),
+			DeviceColourBase: newPart2Check(173,
+				"DeviceColourBase",
+				"The base space of an Indexed or Pattern colour space must not be an uncovered device colour space"),
 		},
 
 		Image: imageChecks{
@@ -851,6 +886,18 @@ func init() {
 				"ImageWithSoftMask",
 				"Image XObjects must not contain a soft mask (SMask) other than /None",
 				"6.4", 6),
+			HalftoneExtGState: newPart2Check(174,
+				"HalftoneExtGState",
+				"ExtGState dictionaries must not contain an HTP entry"),
+			HalftoneType: newPart2Check(175,
+				"HalftoneType",
+				"A halftone's HalftoneType must be 1 or 5"),
+			HalftoneName: newPart2Check(176,
+				"HalftoneName",
+				"Halftones must not contain a HalftoneName entry"),
+			HalftoneTransferFunction: newPart2Check(177,
+				"HalftoneTransferFunction",
+				"A halftone must have a TransferFunction only for a non-primary colorant, as ISO 32000-1 requires"),
 		},
 
 		Font: fontChecks{

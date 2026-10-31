@@ -14,6 +14,8 @@ type Spec struct {
 	Level pdf.LevelType
 	// PDFA is false for a level that is plain PDF, with no PDF/A rules.
 	PDFA bool
+	// Part is the part of ISO 19005 the level belongs to, or 0 for plain PDF.
+	Part int
 
 	// Limits are the level's architectural limits.
 	Limits Limits
@@ -48,8 +50,12 @@ type Spec struct {
 
 	// ICCMaxMajorVersion is the newest ICC profile major version allowed.
 	ICCMaxMajorVersion int
-	// OutputIntentSubtype is the /S an OutputIntent must have.
+	// OutputIntentSubtype is the subtype (/S) of the level's own output
+	// intent.
 	OutputIntentSubtype string
+	// OtherOutputIntents says whether output intents with another subtype,
+	// such as PDF/X ones, may stand beside the level's own.
+	OtherOutputIntents bool
 
 	// XMPPart and XMPConformance are the pdfaid:part and pdfaid:conformance
 	// a converted file declares; XMPConformances are the conformance values
@@ -131,6 +137,7 @@ func (s Spec) BlendModeAllowed(bm pdf.PDFValue) bool {
 var a1b = Spec{
 	Level: pdf.A1B,
 	PDFA:  true,
+	Part:  1,
 	// ISO 19005-1 Table 1 (6.1.12).
 	Limits: Limits{
 		MaxInteger:          2147483647,
@@ -177,6 +184,7 @@ var a1b = Spec{
 var a2b = Spec{
 	Level: pdf.A2B,
 	PDFA:  true,
+	Part:  2,
 	// ISO 19005-2 6.1.13. Arrays and dictionaries have no limit.
 	Limits: Limits{
 		MaxInteger:          2147483647,
@@ -221,6 +229,7 @@ var a2b = Spec{
 	// 6.2.3: ICC.1:2010.
 	ICCMaxMajorVersion:  4,
 	OutputIntentSubtype: "GTS_PDFA1",
+	OtherOutputIntents:  true,
 	// 6.6.4.
 	XMPPart:         "2",
 	XMPConformance:  "B",
