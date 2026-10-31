@@ -410,7 +410,8 @@ func TestType1DivShortStack(t *testing.T) {
 }
 
 func TestType1HsbwShortStack(t *testing.T) {
-	// Drawing goes on past an hsbw that lacks its sbx, from the origin.
+	// An hsbw with fewer than two operands is ignored, so the moveto that
+	// follows is relative to the origin.
 	got := interpretType1Charstring(cs(nums(100), []byte{t1Hsbw}, nums(10, 10), []byte{t1Rmoveto},
 		nums(7), []byte{6, t1Endchar})) // hlineto 7
 	if lastPoint(t, got) != (Point{17, 10}) {

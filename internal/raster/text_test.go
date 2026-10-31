@@ -188,7 +188,7 @@ func TestEmbeddedTrueTypeSimpleFontCodes(t *testing.T) {
 		t.Fatalf("DecodeStream: %v", err)
 	}
 	tables, _ := fontprog.ParseSfnt(data)
-	// WinAnsiEncoding gives code 5 no name, and LiberationSans has no
+	// WinAnsiEncoding gives code 5 no name, and the embedded font has no
 	// symbolic cmap to look the raw code up in.
 	want, ok := glyphOutlineFromTrueType(tables, 5)
 	if !ok {
