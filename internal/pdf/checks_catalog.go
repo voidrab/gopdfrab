@@ -166,6 +166,16 @@ type structureChecks struct {
 	OptionalContent Check
 	// 6.1.2 File header — post-1.4 ViewerPreferences keys
 	PostPDF14ViewerPref Check
+	// Rules of ISO 19005-2 only: 6.1.8 Name objects, 6.1.12 Permissions and
+	// 6.1.13 Implementation limits.
+	NameNotUTF8              Check
+	PermissionsKeys          Check
+	SignatureReferenceDigest Check
+	PageBoundarySize         Check
+	// 6.1.7.2 Filters, 6.1.10 Inline image dictionaries and 6.1.13 again.
+	StreamFilterNotAllowed      Check
+	InlineImageFilterNotAllowed Check
+	RealTooCloseToZero          Check
 }
 
 type colourChecks struct {
@@ -450,6 +460,15 @@ func newCheck(id int, name, description, clause string, subclause int) Check {
 	return register(Check{id: id, name: name, description: description, clause: clause, subclause: subclause, parts: p})
 }
 
+// newPart2Check registers a check that is a rule of ISO 19005-2 only. It has
+// no Part 1 clause; part2Clauses numbers it.
+func newPart2Check(id int, name, description string) Check {
+	if _, ok := part2Clauses[name]; !ok {
+		panic(fmt.Sprintf("checks_catalog: Part 2 check %s has no Part 2 clause", name))
+	}
+	return register(Check{id: id, name: name, description: description, parts: partsA2})
+}
+
 // newLevelACheck registers a PDF/A-1a requirement, which binds no level a
 // profile verifies.
 func newLevelACheck(id int, name, description, clause string, subclause int) Check {
@@ -458,13 +477,15 @@ func newLevelACheck(id int, name, description, clause string, subclause int) Che
 
 func register(c Check) Check {
 	key := c.clause + "/" + strconv.Itoa(c.subclause)
-	if _, exists := catalogByPair[key]; exists {
+	if _, exists := catalogByPair[key]; exists && c.clause != "" {
 		panic(fmt.Sprintf("checks_catalog: duplicate registration for %s", key))
 	}
 	if dup, exists := catalogByID[c.id]; exists {
 		panic(fmt.Sprintf("checks_catalog: %s reuses the ID %d of %s", c.name, c.id, dup.name))
 	}
-	catalogByPair[key] = c
+	if c.clause != "" {
+		catalogByPair[key] = c
+	}
 	catalogByID[c.id] = c
 	allChecksCatalog = append(allChecksCatalog, c)
 	return c
@@ -644,6 +665,27 @@ func init() {
 				"PostPDF14ViewerPref",
 				"ViewerPreferences must not contain keys introduced after PDF 1.4 (e.g. PrintScaling, PickTrayByPDFSize)",
 				"6.1.2", 5),
+			NameNotUTF8: newPart2Check(160,
+				"NameNotUTF8",
+				"Font names, Separation and DeviceN colorant names and structure type names must be valid UTF-8"),
+			PermissionsKeys: newPart2Check(161,
+				"PermissionsKeys",
+				"A permissions dictionary must contain no keys other than UR3 and DocMDP"),
+			SignatureReferenceDigest: newPart2Check(162,
+				"SignatureReferenceDigest",
+				"With DocMDP permissions, signature references must not contain DigestLocation, DigestMethod or DigestValue"),
+			PageBoundarySize: newPart2Check(163,
+				"PageBoundarySize",
+				"Each page boundary must be at least 3 and at most 14,400 units in either direction"),
+			StreamFilterNotAllowed: newPart2Check(164,
+				"StreamFilterNotAllowed",
+				"Streams must use only the standard filters other than LZWDecode, and the Crypt filter only as Identity"),
+			InlineImageFilterNotAllowed: newPart2Check(165,
+				"InlineImageFilterNotAllowed",
+				"Inline images must use only the standard filters other than LZW, JBIG2Decode, JPXDecode and Crypt"),
+			RealTooCloseToZero: newPart2Check(166,
+				"RealTooCloseToZero",
+				"Nonzero real values must have an absolute value of at least 1.175 x 10^-38"),
 		},
 
 		Colour: colourChecks{

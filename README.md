@@ -298,7 +298,7 @@ res, err := doc.Verify(p)
 | `Checks.ObjectModel`  | ISO 32000 object-model conformance, independent of PDF/A     |
 
 An eleventh group, `Checks.LogicalStructure` (6.8.x), is PDF/A-1a only, so
-`AllChecks()` returns 159 checks over all eleven groups, 154 over the ten above.
+`AllChecks()` returns 166 checks over all eleven groups, 161 over the ten above.
 A clause names a check only within a conformance level, so lookups take one:
 `CheckByClauseIn(gopdfrab.A1B, "6.3.4", 1)`, `ChecksForClauseIn` and
 `check.ClauseIn(level)`. The older `CheckByClause` and `ChecksForClause` read

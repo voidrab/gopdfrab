@@ -148,6 +148,9 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return postScriptXObjectFixer{} },
 		func(r *fixerRun) Fixer { return optionalContentFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer { return viewerPrefFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return unicodeNameFixer{} },
+		func(r *fixerRun) Fixer { return permissionsFixer{} },
+		func(r *fixerRun) Fixer { return pageBoundaryFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },
@@ -158,6 +161,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return fontSubstitutionFixer{doc: r.doc, spec: r.spec} },
 		func(r *fixerRun) Fixer { return trueTypeEncodingFixer{doc: r.doc} },
 		func(r *fixerRun) Fixer { return inlineImageLZWFixer{} },
+		func(r *fixerRun) Fixer { return inlineImageFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return pagesTreeArrayFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return resourceDictPruneFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return nameTooLongFixer{spec: r.spec} },
@@ -169,7 +173,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return wrongValueTypeFixer{} },
 		func(r *fixerRun) Fixer { return post14KeyFixer{} },
 		func(r *fixerRun) Fixer { return qNestingFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return lzwStreamFixer{} },
+		func(r *fixerRun) Fixer { return streamFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return undecodableStreamFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer {
 			return transparencyFlattener{dpi: r.dpi, drops: r.formDrops, ctx: r.ctx}

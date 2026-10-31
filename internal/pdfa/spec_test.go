@@ -138,18 +138,21 @@ func TestA1BPolicySets(t *testing.T) {
 }
 
 // TestA2BLimits verifies the limits that ISO 19005-2 6.1.13 sets for PDF/A-2b,
-// where arrays and dictionaries have no limit.
+// where arrays and dictionaries have no limit and page boundaries have one.
 func TestA2BLimits(t *testing.T) {
 	want := Limits{
 		MaxInteger:          2147483647,
 		MinInteger:          -2147483648,
 		MaxReal:             3.403e38,
+		MinReal:             1.175e-38,
 		MaxStringBytes:      32767,
 		MaxNameBytes:        127,
 		MaxCID:              65535,
 		MaxDeviceNColorants: 32,
 		MaxIndirectObjects:  8388607,
 		MaxQNesting:         28,
+		MinPageBoundary:     3,
+		MaxPageBoundary:     14400,
 	}
 	if got := mustFor(t, pdf.A2B).Limits; got != want {
 		t.Errorf("A2B limits = %+v, want %+v", got, want)

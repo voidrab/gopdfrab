@@ -25,7 +25,8 @@ var dictRules = []dictRule{
 	{
 		checks: []pdf.Check{
 			pdf.Checks.Structure.StreamFileDecodeParams, pdf.Checks.Structure.StreamFileFilter,
-			pdf.Checks.Structure.StreamFileSpec, pdf.Checks.Structure.StreamLZWFilter,
+			pdf.Checks.Structure.StreamFileSpec, pdf.Checks.Structure.StreamFilterNotAllowed,
+			pdf.Checks.Structure.StreamLZWFilter,
 		},
 		fn: validateStreamObject,
 	},
@@ -101,8 +102,10 @@ var dictRules = []dictRule{
 			pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.RenderingIntent,
 			pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Image.ImageInterpolate,
 			pdf.Checks.Structure.GraphicsStateNesting, pdf.Checks.Structure.HexStringInvalidChar,
-			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageLZWFilter,
+			pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.InlineImageFilterNotAllowed,
+			pdf.Checks.Structure.InlineImageLZWFilter,
 			pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
+			pdf.Checks.Structure.RealTooCloseToZero,
 			pdf.Checks.Structure.StreamUndecodable, pdf.Checks.Structure.StringTooLong,
 		},
 		fn: validateContentStreams,
@@ -133,6 +136,24 @@ var dictRules = []dictRule{
 		},
 		fn: validateViewerPreferences,
 	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.NameNotUTF8,
+		},
+		fn: validateUnicodeNames,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.SignatureReferenceDigest,
+		},
+		fn: validateSignatureReferences,
+	},
+	{
+		checks: []pdf.Check{
+			pdf.Checks.Structure.PageBoundarySize,
+		},
+		fn: validatePageBoundaries,
+	},
 }
 
 // preWalkDocRules run before the walk, and postWalkDocRules after it.
@@ -144,6 +165,12 @@ var (
 				pdf.Checks.Structure.InfoDictXMPMismatch,
 			},
 			fn: docInfoRule,
+		},
+		{
+			checks: []pdf.Check{
+				pdf.Checks.Structure.PermissionsKeys,
+			},
+			fn: permissionsRule,
 		},
 	}
 	postWalkDocRules = []docRule{

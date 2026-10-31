@@ -1,6 +1,9 @@
 package pdf
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestDecodePDFTextStringPDFDocEncoding(t *testing.T) {
 	tests := []struct {
@@ -216,6 +219,47 @@ func TestEncodePDFTextString(t *testing.T) {
 		}
 		if back := DecodePDFTextString([]byte(got)); back != c.text {
 			t.Errorf("round trip of %q gave %q", c.text, back)
+		}
+	}
+}
+
+// TestEncodePDFName verifies that EncodePDFName escapes exactly the bytes a
+// name cannot hold as they are, and that DecodePDFName undoes it.
+func TestEncodePDFName(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"Cyan", "Cyan"},
+		{"Caf\xc3\xa9", "Caf#C3#A9"},
+		{"a b#c/d(e)", "a#20b#23c#2Fd#28e#29"},
+		{"\x00\x7f", "#00#7F"},
+		{"", ""},
+	} {
+		got := EncodePDFName([]byte(tc.in))
+		if got != tc.want {
+			t.Errorf("EncodePDFName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if back := string(DecodePDFName(got)); back != tc.in {
+			t.Errorf("DecodePDFName(%q) = %q, want %q", got, back, tc.in)
+		}
+	}
+}
+
+// TestRealOf verifies that RealOf keeps a nonzero value nonzero and its sign.
+func TestRealOf(t *testing.T) {
+	for _, tc := range []struct {
+		in   float64
+		want PDFReal
+	}{
+		{0, 0},
+		{0.5, 0.5},
+		{1e-40, PDFReal(float32(1e-40))},
+		{1e-50, PDFReal(math.SmallestNonzeroFloat32)},
+		{-1e-50, -PDFReal(math.SmallestNonzeroFloat32)},
+	} {
+		if got := RealOf(tc.in); got != tc.want {
+			t.Errorf("RealOf(%g) = %g, want %g", tc.in, got, tc.want)
 		}
 	}
 }

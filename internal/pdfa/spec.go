@@ -33,6 +33,11 @@ type Spec struct {
 	// ForbiddenViewerPrefKeys are the ViewerPreferences keys the level's PDF
 	// version does not define.
 	ForbiddenViewerPrefKeys Names
+	// StreamFilters and InlineImageFilters, when not empty, are the only
+	// filters a stream and an inline image may name. A stream's Crypt filter
+	// must be the Identity one.
+	StreamFilters      Names
+	InlineImageFilters Names
 
 	// Transparency, OptionalContent, XRefStreams and EmbeddedFiles say
 	// whether the level permits each feature.
@@ -73,8 +78,9 @@ type Spec struct {
 // Limits are a level's architectural limits. A zero field sets no limit.
 type Limits struct {
 	MaxInteger, MinInteger int64
-	// MaxReal bounds the absolute value of a real number.
-	MaxReal             float64
+	// MaxReal bounds the absolute value of a real number, and MinReal that of
+	// a nonzero one.
+	MaxReal, MinReal    float64
 	MaxStringBytes      int
 	MaxNameBytes        int
 	MaxArrayElements    int
@@ -84,6 +90,9 @@ type Limits struct {
 	MaxIndirectObjects  int
 	// MaxQNesting is the deepest q/Q nesting a content stream may reach.
 	MaxQNesting int
+	// MinPageBoundary and MaxPageBoundary bound the width and height of each
+	// page boundary (MediaBox, CropBox, BleedBox, TrimBox and ArtBox).
+	MinPageBoundary, MaxPageBoundary float64
 }
 
 // For returns the spec of a conformance level. ok is false for a level there
@@ -173,12 +182,15 @@ var a2b = Spec{
 		MaxInteger:          2147483647,
 		MinInteger:          -2147483648,
 		MaxReal:             3.403e38,
+		MinReal:             1.175e-38,
 		MaxStringBytes:      32767,
 		MaxNameBytes:        127,
 		MaxCID:              65535,
 		MaxDeviceNColorants: 32,
 		MaxIndirectObjects:  8388607,
 		MaxQNesting:         28,
+		MinPageBoundary:     3,
+		MaxPageBoundary:     14400,
 	},
 	// 6.2.9.
 	RenderingIntents: NewNames("AbsoluteColorimetric", "RelativeColorimetric", "Saturation", "Perceptual"),
@@ -196,10 +208,16 @@ var a2b = Spec{
 		"Saturation", "Color", "Luminosity"),
 	// 6.2.11.4.1.
 	FontFileSubtypes: NewNames("Type1C", "CIDFontType0C", "OpenType"),
-	Transparency:     true,
-	OptionalContent:  true,
-	XRefStreams:      true,
-	EmbeddedFiles:    true,
+	// 6.1.7.2 and 6.1.10: ISO 32000-1 Table 6 less LZWDecode, and for inline
+	// images also less JBIG2Decode, JPXDecode and Crypt, in either spelling.
+	StreamFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",
+		"CCITTFaxDecode", "JBIG2Decode", "DCTDecode", "JPXDecode", "Crypt"),
+	InlineImageFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",
+		"CCITTFaxDecode", "DCTDecode", "AHx", "A85", "Fl", "RL", "CCF", "DCT"),
+	Transparency:    true,
+	OptionalContent: true,
+	XRefStreams:     true,
+	EmbeddedFiles:   true,
 	// 6.2.3: ICC.1:2010.
 	ICCMaxMajorVersion:  4,
 	OutputIntentSubtype: "GTS_PDFA1",

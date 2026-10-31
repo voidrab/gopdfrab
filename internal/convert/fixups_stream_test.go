@@ -51,12 +51,13 @@ func TestDecodeLZWRoundTrips(t *testing.T) {
 	}
 }
 
-// TestLZWStreamFixerAppliesOnlyToStreamLZWFilter verifies that the fixer
-// claims exactly its one Check, since fixersFor panics on overlap.
-func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
-	fixer := lzwStreamFixer{}
+// TestStreamFilterFixerAppliesOnlyToTheFilterChecks verifies that the fixer
+// claims exactly the two stream filter checks, since fixersFor panics on
+// overlap.
+func TestStreamFilterFixerAppliesOnlyToTheFilterChecks(t *testing.T) {
+	fixer := streamFilterFixer{spec: a1bSpec}
 	for _, c := range pdf.AllChecks() {
-		want := c == pdf.Checks.Structure.StreamLZWFilter
+		want := c == pdf.Checks.Structure.StreamLZWFilter || c == pdf.Checks.Structure.StreamFilterNotAllowed
 		if got := fixer.Applies(c); got != want {
 			t.Errorf("Applies(%s/%d) = %v, want %v", c.Clause(), c.Subclause(), got, want)
 		}
@@ -65,7 +66,7 @@ func TestLZWStreamFixerAppliesOnlyToStreamLZWFilter(t *testing.T) {
 
 // lzwStreamTrailer builds a minimal Catalog/Pages/Page graph whose page
 // content stream is LZW-encoded, with optional DecodeParms (for predictor
-// coverage), for exercising lzwStreamFixer.
+// coverage), for exercising streamFilterFixer.
 func lzwStreamTrailer(encoded []byte, decodeParms pdf.PDFDict) pdf.PDFDict {
 	entries := pdf.DictOf(map[string]pdf.PDFValue{"Filter": pdf.PDFName{Value: "LZWDecode"}})
 	if decodeParms.Entries != nil {
@@ -88,8 +89,8 @@ func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
 	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
 	trailer := lzwStreamTrailer(encodeLZW(t, plaintext), pdf.PDFDict{})
 
-	fixer := lzwStreamFixer{}
-	changed, err := fixer.Fix(&trailer, nil)
+	fixer := streamFilterFixer{spec: a1bSpec}
+	changed, err := fixer.Fix(&trailer, issuesOf(pdf.Checks.Structure.StreamLZWFilter))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestLZWStreamFixerDecodesAndSetsFlate(t *testing.T) {
 	}
 
 	// Idempotent: a second pass over the already-fixed graph is a no-op.
-	changed, err = fixer.Fix(&trailer, nil)
+	changed, err = fixer.Fix(&trailer, issuesOf(pdf.Checks.Structure.StreamLZWFilter))
 	if err != nil {
 		t.Fatalf("Fix (second pass): %v", err)
 	}
@@ -137,8 +138,8 @@ func TestLZWStreamFixerUndoesPredictor(t *testing.T) {
 	})}
 	trailer := lzwStreamTrailer(encodeLZW(t, predicted), parms)
 
-	fixer := lzwStreamFixer{}
-	changed, err := fixer.Fix(&trailer, nil)
+	fixer := streamFilterFixer{spec: a1bSpec}
+	changed, err := fixer.Fix(&trailer, issuesOf(pdf.Checks.Structure.StreamLZWFilter))
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
@@ -269,8 +270,8 @@ func TestLZWStreamFixerRoundTripsThroughWriter(t *testing.T) {
 	plaintext := []byte("0 0 0 rg 0 0 100 100 re f")
 	trailer := lzwStreamTrailer(encodeLZW(t, plaintext), pdf.PDFDict{})
 
-	fixer := lzwStreamFixer{}
-	if _, err := fixer.Fix(&trailer, nil); err != nil {
+	fixer := streamFilterFixer{spec: a1bSpec}
+	if _, err := fixer.Fix(&trailer, issuesOf(pdf.Checks.Structure.StreamLZWFilter)); err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
 
@@ -447,7 +448,7 @@ func TestLZWStreamFixerLeavesUndecodableStream(t *testing.T) {
 	}
 	trailer := pdf.NewPDFDict()
 	trailer.Entries.Set("S", d)
-	changed, err := (lzwStreamFixer{}).Fix(&trailer, nil)
+	changed, err := (streamFilterFixer{spec: a1bSpec}).Fix(&trailer, issuesOf(pdf.Checks.Structure.StreamLZWFilter))
 	if err != nil || changed {
 		t.Errorf("Fix = %v, %v; want no change", changed, err)
 	}

@@ -28,12 +28,25 @@ Everything under `internal/` may change in any release without notice.
 
 - `Check.DescriptionIn` describes a check's rule as a given conformance level
   words it.
+- Seven checks for rules that only PDF/A-2 sets: `Checks.Structure.NameNotUTF8`,
+  `PermissionsKeys`, `SignatureReferenceDigest`, `PageBoundarySize`,
+  `StreamFilterNotAllowed`, `InlineImageFilterNotAllowed` and
+  `RealTooCloseToZero`. They have no PDF/A-1 clause, so `Clause()` is empty
+  and `ClauseIn` names their PDF/A-2 clause, and no PDF/A-1 profile enables
+  them.
 
 ### Fixed
 
 - Convert replaces a trailer ID that holds no file identifier bytes, such as
   `[<> <>]`, with a synthesized one, as it does a missing ID, instead of
   copying it to the output.
+- Verify reports a `stream` keyword followed by a lone carriage return, which
+  the rule on stream framing does not allow: the EOL must be CRLF or a single
+  LF. It also reports an indirect object whose number does not start a line.
+- An inline image's dictionary and string parameters, such as the `/DP`
+  decode parameters of a CCITT image, are read as values. They used to be
+  spilled into the parameter list, so that verify misread them and a convert
+  repair that rewrote the image, such as turning off `/I`, lost them.
 
 ## [1.3.0] - 2026-10-31
 

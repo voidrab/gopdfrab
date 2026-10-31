@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"math"
+
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/writer"
@@ -47,7 +49,7 @@ func (contentLimitsFixer) Applies(c pdf.Check) bool {
 	case pdf.Checks.Colour.UndefinedOperator, pdf.Checks.Colour.RenderingIntent,
 		pdf.Checks.Structure.HexStringOddLength, pdf.Checks.Structure.HexStringInvalidChar,
 		pdf.Checks.Structure.IntegerOutOfRange, pdf.Checks.Structure.RealOutOfRange,
-		pdf.Checks.Structure.StringTooLong:
+		pdf.Checks.Structure.RealTooCloseToZero, pdf.Checks.Structure.StringTooLong:
 		return true
 	}
 	return false
@@ -95,6 +97,9 @@ func (f contentLimitsFixer) limits() pdfa.Limits {
 	}
 	if !f.reported[st.RealOutOfRange] {
 		l.MaxReal = 0
+	}
+	if !f.reported[st.RealTooCloseToZero] {
+		l.MinReal = 0
 	}
 	if !f.reported[st.StringTooLong] {
 		l.MaxStringBytes = 0
@@ -265,6 +270,9 @@ func fixScalarLimitsValue(v pdf.PDFValue, l pdfa.Limits, hex bool) (fixed pdf.PD
 		}
 	case pdf.PDFReal:
 		switch {
+		case val != 0 && math.Abs(float64(val)) < l.MinReal:
+			// Too close to zero: zero is the nearest value allowed.
+			return pdf.PDFReal(0), true
 		case l.MaxReal == 0:
 		case float64(val) > l.MaxReal:
 			return pdf.PDFReal(l.MaxReal), true

@@ -402,6 +402,12 @@ func realOutOfRange(v pdf.PDFReal, l pdfa.Limits) bool {
 	return l.MaxReal > 0 && math.Abs(float64(v)) > l.MaxReal
 }
 
+// realTooCloseToZero reports whether v is nonzero and nearer zero than the
+// level's smallest real; a zero limit sets none.
+func realTooCloseToZero(v pdf.PDFReal, l pdfa.Limits) bool {
+	return v != 0 && math.Abs(float64(v)) < l.MinReal
+}
+
 func verifyAllObjectFraming(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 	issues := indirectObjectLimit(d.IndirectObjectCount(), spec)
 
@@ -1383,6 +1389,7 @@ func validateStreamObject(v pdf.PDFDict, ctx *ValidationContext) {
 	if pdf.HasFilter(v.Entries.Get("Filter"), pdf.FilterLZW) {
 		ctx.Report(pdf.Checks.Structure.StreamLZWFilter, v, "stream object uses forbidden LZWDecode filter")
 	}
+	checkStreamFilters(v, ctx)
 }
 
 // validateObject validates requirements outlined in 6.1.11, in a level
@@ -1419,6 +1426,9 @@ func validateArchitecturalLimits(node pdf.PDFValue, owner pdf.PDFValue, ctx *Val
 	case pdf.PDFReal:
 		if realOutOfRange(v, ctx.Spec.Limits) {
 			ctx.Report(pdf.Checks.Structure.RealOutOfRange, owner, fmt.Sprintf("real number out of range: %g", float64(v)))
+		}
+		if realTooCloseToZero(v, ctx.Spec.Limits) {
+			ctx.Report(pdf.Checks.Structure.RealTooCloseToZero, owner, fmt.Sprintf("real number too close to zero: %g", float64(v)))
 		}
 	case pdf.PDFString:
 		if limit := ctx.Spec.Limits.MaxStringBytes; overLimit(len(v.Value), limit) {

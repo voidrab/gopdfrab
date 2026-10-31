@@ -4,8 +4,9 @@ import (
 	"testing"
 )
 
-// TestConsumeStreamEOL covers the LF, CRLF, bare-CR, stray-bytes-before-EOL,
-// and EOF-with-no-EOL paths.
+// TestConsumeStreamEOL verifies the result of consumeStreamEOL for LF, CRLF,
+// a bare CR, stray bytes before the LF, and input with no EOL. It also checks
+// that the lexer is left at the stream data.
 func TestConsumeStreamEOL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -14,7 +15,7 @@ func TestConsumeStreamEOL(t *testing.T) {
 	}{
 		{"LF only", "\nrest", false},
 		{"CRLF", "\r\nrest", false},
-		{"bare CR", "\rrest", false},
+		{"bare CR", "\rrest", true},
 		{"stray bytes before LF", "  \nrest", true},
 		{"EOF with no EOL", "", false},
 	}
@@ -24,6 +25,9 @@ func TestConsumeStreamEOL(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
 			if got := d.consumeStreamEOL(l); got != tc.want {
 				t.Errorf("consumeStreamEOL(%q) = %v, want %v", tc.data, got, tc.want)
+			}
+			if b, ok := l.peekByte(); tc.data != "" && (!ok || b != 'r') {
+				t.Errorf("consumeStreamEOL(%q) left the lexer at %q, want the data", tc.data, b)
 			}
 		})
 	}

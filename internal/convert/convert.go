@@ -460,20 +460,24 @@ func dispatchFixers(pass *fixPass, result pdf.Result, localFixers map[pdf.Check]
 	return changed, nil
 }
 
-// sortedChecks returns counts' keys ordered by clause, then subclause, giving
-// the fixer loop a stable application order. A (clause, subclause) pair
-// identifies one check -- pdf's newCheck panics on a duplicate -- so that
-// ordering is total and needs no name tie-break.
+// sortedChecks returns counts' keys ordered by Part 1 clause, then
+// subclause, then ID, giving the fixer loop a stable application order. A
+// Part 1 (clause, subclause) pair identifies one check, so the ID decides only
+// among the rules of Part 2 alone, which have no Part 1 clause.
 func sortedChecks(counts map[pdf.Check]int) []pdf.Check {
 	checks := make([]pdf.Check, 0, len(counts))
 	for c := range counts {
 		checks = append(checks, c)
 	}
 	sort.Slice(checks, func(i, j int) bool {
-		if checks[i].Clause() != checks[j].Clause() {
-			return checks[i].Clause() < checks[j].Clause()
+		a, b := checks[i], checks[j]
+		if a.Clause() != b.Clause() {
+			return a.Clause() < b.Clause()
 		}
-		return checks[i].Subclause() < checks[j].Subclause()
+		if a.Subclause() != b.Subclause() {
+			return a.Subclause() < b.Subclause()
+		}
+		return a.ID() < b.ID()
 	})
 	return checks
 }

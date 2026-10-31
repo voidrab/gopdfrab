@@ -143,7 +143,7 @@ func parseScalarToken(tok Token) (v PDFValue, ok bool, err error) {
 		if err != nil {
 			return nil, true, err
 		}
-		return PDFReal(f), true, nil
+		return RealOf(f), true, nil
 
 	case TokenString:
 		return PDFString{Value: tok.Value}, true, nil

@@ -117,6 +117,24 @@ type ValidationContext struct {
 	// throwaway contexts built outside a real verify pass, which then decode
 	// uncached.
 	reader *pdf.Reader
+
+	// docMDP caches hasDocMDP once it is known.
+	docMDP *bool
+}
+
+// hasDocMDP reports whether the catalog's permissions dictionary holds DocMDP,
+// which restricts the keys of signature references (ISO 19005-2 6.1.12). A
+// context without a reader has no catalog to hold it.
+func (ctx *ValidationContext) hasDocMDP() bool {
+	if ctx.docMDP == nil {
+		has := false
+		if ctx.reader != nil {
+			_, err := ctx.reader.ResolveGraphByPath([]string{"Root", "Perms", "DocMDP"})
+			has = err == nil
+		}
+		ctx.docMDP = &has
+	}
+	return *ctx.docMDP
 }
 
 // objectModel returns the Arlington object model of the context's level: the

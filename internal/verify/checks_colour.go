@@ -152,6 +152,7 @@ func validateColourSpaceArray(arr pdf.PDFArray, ctx *ValidationContext) {
 	}
 	// [/Separation name alternateSpace tintTransform]
 	// [/DeviceN names alternateSpace tintTransform]
+	validateColorantNames(arr, ctx)
 	if head.Value == "DeviceN" {
 		// 6.1.12: a DeviceN colour space has no more colorants than the
 		// level's limit.
