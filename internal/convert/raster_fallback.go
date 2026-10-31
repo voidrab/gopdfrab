@@ -7,61 +7,55 @@ import (
 	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
-	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/raster"
-	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
-// rasterBackstop is Run's last-resort remediation: rasterize residual pages
+// backstop is the run's last-resort remediation: rasterize residual pages
 // so a resolvable graph always converts. Only fixer-addressable issues
 // trigger it; structural violations (no registered fixer) are fixed by
-// construction by the writer and do not need rasterization. It updates cr,
-// lastParts, and graphClean exactly as the fix loop's verifies do.
+// construction by the writer and do not need rasterization. It updates the
+// run's result and clean-graph state exactly as the fix loop's verifies do.
 //
 // A loop that ran out of iterations ends on a fix pass nothing verified, so
-// cr.Result still lists what that pass repaired. Verify first: rasterizing
+// the result still lists what that pass repaired. Verify first: rasterizing
 // from the stale list flattened pages that were already conformant.
-func rasterBackstop(ctx context.Context, doc *pdf.Reader, trailer *pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, spec pdfa.Spec, localFixers map[pdf.Check]Fixer, lastParts *verify.Parts, graphClean *bool, dpi, hint int) error {
-	if !*graphClean {
-		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
-		cr.Result = result
-		*lastParts, *graphClean = parts, true
+func (r *run) backstop() error {
+	if !r.graphClean {
+		r.verifyGraph()
 	}
-	if cr.Result.Valid || !hasFixableIssue(cr.Result.Issues, localFixers, false) {
+	if r.cr.Result.Valid || !hasFixableIssue(r.cr.Result.Issues, r.fixers, false) {
 		return nil
 	}
-	if err := ctx.Err(); err != nil {
+	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	if drops, rasterized, changed := applyRasterFallback(ctx, trailer, cr.Result.Issues, dpi); changed {
+	if drops, rasterized, changed := applyRasterFallback(r.ctx, &r.trailer, r.cr.Result.Issues, r.o.dpi()); changed {
 		// A cancelled pass rasterized only some pages; the run is abandoned.
-		if err := ctx.Err(); err != nil {
+		if err := r.ctx.Err(); err != nil {
 			return err
 		}
-		cr.RasterDrops = append(cr.RasterDrops, drops...)
-		cr.addRasterizedPages(rasterized)
-		cr.Iterations++
-		*graphClean = false
-		result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
-		cr.Result = result
-		*lastParts, *graphClean = parts, true
+		r.recordRaster(drops, rasterized)
 	}
-	if !cr.Result.Valid && hasFixableIssue(cr.Result.Issues, localFixers, true) {
-		if drops, rasterized, changed := flattenAllPages(ctx, trailer, dpi); changed {
-			if err := ctx.Err(); err != nil {
+	if !r.cr.Result.Valid && hasFixableIssue(r.cr.Result.Issues, r.fixers, true) {
+		if drops, rasterized, changed := flattenAllPages(r.ctx, &r.trailer, r.o.dpi()); changed {
+			if err := r.ctx.Err(); err != nil {
 				return err
 			}
-			cr.RasterDrops = append(cr.RasterDrops, drops...)
-			cr.addRasterizedPages(rasterized)
-			cr.Iterations++
-			*graphClean = false
-			result, parts, _ := inHeapVerify(doc, *trailer, p, spec, hint)
-			cr.Result = result
-			*lastParts, *graphClean = parts, true
+			r.recordRaster(drops, rasterized)
 		}
 	}
 	return nil
+}
+
+// recordRaster records a completed raster pass and verifies the graph it
+// changed.
+func (r *run) recordRaster(drops []RasterDrop, rasterized []int) {
+	r.cr.RasterDrops = append(r.cr.RasterDrops, drops...)
+	r.cr.addRasterizedPages(rasterized)
+	r.cr.Iterations++
+	r.graphClean = false
+	r.verifyGraph()
 }
 
 // applyRasterFallback rebuilds every page carrying a residual issue as a flat

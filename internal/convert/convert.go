@@ -143,73 +143,26 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 		return ConvertResult{}, fmt.Errorf("convert: pre-emptive fixups: %w", err)
 	}
 
-	var formDrops []RasterDrop
-	var lost []pdf.PDFError
-	localFixers := rs.fixersFor(&fixerRun{
+	r := &run{ctx: ctx, doc: doc, p: p, o: o, spec: spec, trailer: trailer, objHint: doc.Footprint().Objects}
+	r.fixers = rs.fixersFor(&fixerRun{
 		ctx:       ctx,
 		doc:       doc,
-		spec:      &spec,
+		spec:      &r.spec,
 		dpi:       o.dpi(),
 		decode:    decoderFor(doc),
 		fontSrc:   &appearanceFontSource{},
-		formDrops: &formDrops,
-		lost:      &lost,
+		formDrops: &r.formDrops,
+		lost:      &r.lost,
 	})
 
-	var (
-		cr         ConvertResult
-		prevCounts map[pdf.Check]int
-
-		// graphClean records whether the in-heap graph is byte-for-byte the
-		// graph the most recent inHeapVerify checked -- true right after each
-		// verify, false once any fixer or flattener edits it. When the run
-		// ends clean, serializeAndVerify can reuse lastParts.Graph instead of
-		// replaying the whole graph verification against the output bytes.
-		graphClean bool
-		lastParts  verify.Parts
-
-		// objHint sizes the writer's discovery index. The resolved object
-		// count is the first estimate; after that each pass reports what the
-		// last one actually numbered. See writer.newPDFWriter.
-		objHint = doc.Footprint().Objects
-	)
-
-	for iter := 1; iter <= o.iterations(); iter++ {
-		if err := ctx.Err(); err != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
-		}
-		cr.Iterations = iter
-
-		result, parts, objs := inHeapVerify(doc, trailer, p, spec, objHint)
-		cr.Result = result
-		lastParts, graphClean = parts, true
-		objHint = len(objs)
-
-		if cr.Result.Valid {
-			break
-		}
-
-		counts := violationCounts(cr.Result.Issues)
-		if sameMultiset(counts, prevCounts) {
-			break // no progress since last iteration
-		}
-		prevCounts = counts
-
-		changed, err := dispatchFixers(&fixPass{trailer: &trailer, objs: objs}, cr.Result, localFixers)
-		if err != nil {
-			return ConvertResult{}, fmt.Errorf("convert: %w", err)
-		}
-		if !changed {
-			break
-		}
-		graphClean = false
-	}
-
-	if err := rasterBackstop(ctx, doc, &trailer, &cr, p, spec, localFixers, &lastParts, &graphClean, o.dpi(), objHint); err != nil {
+	if err := r.fixLoop(); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
-	cr.RasterDrops = append(cr.RasterDrops, formDrops...)
-	cr.LostObjects = append(cr.LostObjects, lost...)
+	if err := r.backstop(); err != nil {
+		return ConvertResult{}, fmt.Errorf("convert: %w", err)
+	}
+	r.cr.RasterDrops = append(r.cr.RasterDrops, r.formDrops...)
+	r.cr.LostObjects = append(r.cr.LostObjects, r.lost...)
 
 	// A fixer's raster pass stops dispatching on cancellation without
 	// reporting it, so check before committing to the output.
@@ -219,9 +172,10 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 
 	// Final serialize + verify against the actual output bytes (structural checks
 	// like xref format must run on the written output, not the original reader).
-	if err := serializeAndVerify(doc, trailer, &cr, p, lastParts, graphClean, objHint); err != nil {
+	if err := r.serializeAndVerify(); err != nil {
 		return ConvertResult{}, fmt.Errorf("convert: %w", err)
 	}
+	cr := r.cr
 
 	// Objects the reader degraded to null were serialized as null: their
 	// content is lost. The final verify ran on the output bytes, where the
@@ -253,6 +207,83 @@ func runWith(ctx context.Context, doc *pdf.Reader, p *pdf.Profile, o Options, rs
 	return cr, nil
 }
 
+// run is one conversion in progress: the document and the level it is
+// converted to, the graph being repaired, and the verdict on that graph.
+type run struct {
+	ctx     context.Context
+	doc     *pdf.Reader
+	p       *pdf.Profile
+	o       Options
+	spec    pdfa.Spec
+	trailer pdf.PDFDict
+	fixers  map[pdf.Check]Fixer
+	cr      ConvertResult
+
+	// graphClean records whether the in-heap graph is byte-for-byte the
+	// graph the most recent verifyGraph checked -- true right after each
+	// verify, false once any fixer or flattener edits it. When the run ends
+	// clean, serializeAndVerify can reuse lastParts.Graph instead of
+	// replaying the whole graph verification against the output bytes.
+	graphClean bool
+	lastParts  verify.Parts
+
+	// objHint sizes the writer's discovery index. The resolved object count
+	// is the first estimate; after that each fix-loop verify reports what it
+	// actually numbered. See writer.newPDFWriter.
+	objHint int
+
+	// formDrops and lost collect what fixers render or carry over
+	// incompletely.
+	formDrops []RasterDrop
+	lost      []pdf.PDFError
+}
+
+// fixLoop verifies the graph and runs a fix pass on what the verify reports,
+// until the graph is valid, a pass changes nothing or makes no progress, or
+// the iteration limit is reached.
+func (r *run) fixLoop() error {
+	var prevCounts map[pdf.Check]int
+	for iter := 1; iter <= r.o.iterations(); iter++ {
+		if err := r.ctx.Err(); err != nil {
+			return err
+		}
+		r.cr.Iterations = iter
+
+		objs := r.verifyGraph()
+		r.objHint = len(objs)
+
+		if r.cr.Result.Valid {
+			return nil
+		}
+
+		counts := violationCounts(r.cr.Result.Issues)
+		if sameMultiset(counts, prevCounts) {
+			return nil // no progress since last iteration
+		}
+		prevCounts = counts
+
+		changed, err := dispatchFixers(&fixPass{trailer: &r.trailer, objs: objs}, r.cr.Result, r.fixers)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return nil
+		}
+		r.graphClean = false
+	}
+	return nil
+}
+
+// verifyGraph verifies the in-heap graph, records the verdict as the run's
+// result and marks the graph clean. It returns the ObjNum -> object index
+// inHeapVerify built, valid until the next renumbering.
+func (r *run) verifyGraph() map[int]pdf.PDFValue {
+	result, parts, objs := inHeapVerify(r.doc, r.trailer, r.p, r.spec, r.objHint)
+	r.cr.Result = result
+	r.lastParts, r.graphClean = parts, true
+	return objs
+}
+
 // summarizeTrailerPagesOf resolves out's graph and measures its pages at the
 // fidelity DPI, returning nil on any resolve failure (the comparison then has
 // no output baseline and reports the pages as lost).
@@ -281,8 +312,8 @@ func inHeapVerify(doc *pdf.Reader, trailer pdf.PDFDict, p *pdf.Profile, spec pdf
 // that cross-check the merged path against the full one.
 var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 
-// serializeAndVerify serializes trailer and verifies the output bytes,
-// updating cr.Output and cr.Result. Called exactly once at the end of Run.
+// serializeAndVerify serializes the graph and verifies the output bytes,
+// updating the run's output and result. Called exactly once at the end of Run.
 // The loop Reader's stream caches carry over: the graph is the same in-heap
 // one, so unchanged streams keep their decoded/tokenized results while
 // rewritten streams miss on their fresh stream bytes' identity.
@@ -293,12 +324,13 @@ var fullFinalVerify = os.Getenv("GOPDFRAB_FULL_FINAL_VERIFY") == "1"
 // TestConvertSeededVerifyMatchesFreshVerify pins the equivalence), so only
 // the byte-level structural checks run against the output and lastParts
 // supplies the graph verdicts. A dirty graph gets today's full verify.
-func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertResult, p *pdf.Profile, lastParts verify.Parts, graphClean bool, hint int) (err error) {
+func (r *run) serializeAndVerify() (err error) {
+	loopDoc, trailer, cr, p := r.doc, r.trailer, &r.cr, r.p
 	var sw spillWriter
 	if loopDoc != nil {
 		sw.grow(int(loopDoc.Size()))
 	}
-	order, err := writer.WriteDocumentIndexed(&sw, trailer, hint)
+	order, err := writer.WriteDocumentIndexed(&sw, trailer, r.objHint)
 	if err != nil {
 		sw.abort()
 		return err
@@ -332,12 +364,12 @@ func serializeAndVerify(loopDoc *pdf.Reader, trailer pdf.PDFDict, cr *ConvertRes
 	out.AdoptStreamCaches(loopDoc)
 	out.SeedResolvedGraph(trailer, objs)
 
-	if graphClean && !fullFinalVerify {
+	if r.graphClean && !fullFinalVerify {
 		parts, err := verify.VerifyStructural(out, p)
 		if err != nil {
 			return err
 		}
-		parts.Graph = lastParts.Graph
+		parts.Graph = r.lastParts.Graph
 		cr.Result = verify.ResultFromIssues(p, parts.Issues())
 		return nil
 	}

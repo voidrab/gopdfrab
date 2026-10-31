@@ -15,7 +15,6 @@ import (
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
-	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -60,21 +59,16 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	doc := openTrailer(t, trailer)
 
 	c := pdf.Checks.Colour.OutputIntentNotArray
-	cr := &ConvertResult{Result: pdf.Result{
-		Valid:  false,
-		Issues: []pdf.PDFError{pdf.NewError(c, []error{errors.New("synthetic residual")}, 0, nil)},
-	}}
-	fixers := map[pdf.Check]Fixer{c: nil}
-	var lastParts verify.Parts
-	graphClean := true // the synthetic issues stand for a verify of this graph
+	r := backstopRun(context.Background(), doc, trailer, map[pdf.Check]Fixer{c: nil},
+		pdf.NewError(c, []error{errors.New("synthetic residual")}, 0, nil))
 
-	if err := rasterBackstop(context.Background(), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
-		t.Fatalf("rasterBackstop: %v", err)
+	if err := r.backstop(); err != nil {
+		t.Fatalf("backstop: %v", err)
 	}
-	if cr.Iterations != 1 {
-		t.Errorf("Iterations = %d, want 1 (one flatten-all verify)", cr.Iterations)
+	if r.cr.Iterations != 1 {
+		t.Errorf("Iterations = %d, want 1 (one flatten-all verify)", r.cr.Iterations)
 	}
-	if !graphClean {
+	if !r.graphClean {
 		t.Error("graphClean = false after the backstop's verify")
 	}
 	page := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
@@ -84,6 +78,17 @@ func TestRasterBackstopFlattensAllPages(t *testing.T) {
 	}
 	if xo, ok := res.Entries.Get("XObject").(pdf.PDFDict); !ok || xo.Entries.Get("Im0") == nil {
 		t.Error("page was not flattened: Resources/XObject/Im0 missing")
+	}
+}
+
+// backstopRun returns a run whose graph is trailer and whose last verify of
+// it, a clean one, reported residual. The synthetic issue stands for that
+// verify.
+func backstopRun(ctx context.Context, doc *pdf.Reader, trailer pdf.PDFDict, fixers map[pdf.Check]Fixer, residual pdf.PDFError) *run {
+	return &run{
+		ctx: ctx, doc: doc, p: pdf.PDFA1B, spec: a1b(), trailer: trailer, fixers: fixers,
+		cr:         ConvertResult{Result: pdf.Result{Valid: false, Issues: []pdf.PDFError{residual}}},
+		graphClean: true,
 	}
 }
 
@@ -120,15 +125,10 @@ func TestRasterBackstopCancelledMidPass(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for n := int64(1); n < 64; n++ {
 				trailer := onePageTrailer()
-				cr := &ConvertResult{Result: pdf.Result{
-					Valid:  false,
-					Issues: []pdf.PDFError{pdf.NewError(c, []error{errors.New("synthetic")}, page, nil)},
-				}}
-				doc := openTrailer(t, trailer)
-				var lastParts verify.Parts
-				graphClean := true
-				err := rasterBackstop(newCountdownCtx(n), doc, &trailer, cr, pdf.PDFA1B, a1b(), fixers, &lastParts, &graphClean, defaultRasterDPI, 0)
-				if err == nil && cr.Iterations > 0 {
+				r := backstopRun(newCountdownCtx(n), openTrailer(t, trailer), trailer, fixers,
+					pdf.NewError(c, []error{errors.New("synthetic")}, page, nil))
+				err := r.backstop()
+				if err == nil && r.cr.Iterations > 0 {
 					t.Fatalf("countdown %d: ran to completion without seeing the cancellation", n)
 				}
 				if err == nil {
@@ -139,8 +139,8 @@ func TestRasterBackstopCancelledMidPass(t *testing.T) {
 				}
 				pg := trailer.Entries.Get("Root").(pdf.PDFDict).Entries.Get("Pages").(pdf.PDFDict).Entries.Get("Kids").(pdf.PDFArray)[0].(pdf.PDFDict)
 				if _, rastered := pg.Entries.Get("Resources").(pdf.PDFDict); rastered {
-					if cr.Iterations != 0 || !graphClean {
-						t.Fatalf("countdown %d: a cancelled pass still counted an iteration (%d) or dirtied the graph", n, cr.Iterations)
+					if r.cr.Iterations != 0 || !r.graphClean {
+						t.Fatalf("countdown %d: a cancelled pass still counted an iteration (%d) or dirtied the graph", n, r.cr.Iterations)
 					}
 					return
 				}
@@ -186,19 +186,14 @@ func TestRunContextCancelledBeforeOutput(t *testing.T) {
 
 // TestRasterBackstopSkipsUnfixableIssues pins the no-op guard.
 func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
-	trailer := onePageTrailer()
-	cr := &ConvertResult{Result: pdf.Result{
-		Valid:  false,
-		Issues: []pdf.PDFError{pdf.NewError(pdf.Checks.Colour.OutputIntentNotArray, []error{errors.New("x")}, 0, nil)},
-	}}
-	var lastParts verify.Parts
-	graphClean := true
 	// No fixer registered for the issue's check: nothing to do.
-	if err := rasterBackstop(context.Background(), nil, &trailer, cr, pdf.PDFA1B, a1b(), map[pdf.Check]Fixer{}, &lastParts, &graphClean, defaultRasterDPI, 0); err != nil {
-		t.Fatalf("rasterBackstop: %v", err)
+	r := backstopRun(context.Background(), nil, onePageTrailer(), map[pdf.Check]Fixer{},
+		pdf.NewError(pdf.Checks.Colour.OutputIntentNotArray, []error{errors.New("x")}, 0, nil))
+	if err := r.backstop(); err != nil {
+		t.Fatalf("backstop: %v", err)
 	}
-	if cr.Iterations != 0 || !graphClean {
-		t.Errorf("backstop acted on an unfixable issue: iterations=%d graphClean=%v", cr.Iterations, graphClean)
+	if r.cr.Iterations != 0 || !r.graphClean {
+		t.Errorf("backstop acted on an unfixable issue: iterations=%d graphClean=%v", r.cr.Iterations, r.graphClean)
 	}
 }
 
@@ -206,8 +201,8 @@ func TestRasterBackstopSkipsUnfixableIssues(t *testing.T) {
 // error returns (merged/clean and full/dirty) via the nil-profile guard.
 func TestSerializeAndVerifyRejectsBadProfile(t *testing.T) {
 	for _, clean := range []bool{true, false} {
-		cr := &ConvertResult{}
-		err := serializeAndVerify(nil, onePageTrailer(), cr, nil, verify.Parts{}, clean, 0)
+		r := &run{trailer: onePageTrailer(), graphClean: clean}
+		err := r.serializeAndVerify()
 		if err == nil {
 			t.Errorf("serializeAndVerify(nil profile, graphClean=%v) did not error", clean)
 		}
@@ -640,10 +635,11 @@ func TestSummarizeTrailerPagesOfUnresolvableOutput(t *testing.T) {
 func TestSerializeAndVerifyFullVerifyOnDirtyGraph(t *testing.T) {
 	trailer := onePageTrailer()
 	doc := openTrailer(t, trailer)
-	var cr ConvertResult
-	if err := serializeAndVerify(doc, trailer, &cr, pdf.PDFA1B, verify.Parts{}, false, 0); err != nil {
+	r := &run{doc: doc, trailer: trailer, p: pdf.PDFA1B}
+	if err := r.serializeAndVerify(); err != nil {
 		t.Fatal(err)
 	}
+	cr := r.cr
 	defer cr.Close()
 	if cr.Result.Type != pdf.A1B {
 		t.Errorf("Result.Type = %v, want A1B (full verify ran)", cr.Result.Type)
@@ -679,12 +675,11 @@ func TestResolveGraphRootIsAlwaysADict(t *testing.T) {
 func TestSerializeAndVerifyFullVerifyError(t *testing.T) {
 	trailer := onePageTrailer()
 	doc := openTrailer(t, trailer)
-	var cr ConvertResult
-	err := serializeAndVerify(doc, trailer, &cr, &pdf.Profile{Level: pdf.Undefined}, verify.Parts{}, false, 0)
-	if err == nil {
+	r := &run{doc: doc, trailer: trailer, p: &pdf.Profile{Level: pdf.Undefined}}
+	if err := r.serializeAndVerify(); err == nil {
 		t.Fatal("serializeAndVerify with an undefined profile succeeded")
 	}
-	if cr.backing != nil {
+	if r.cr.backing != nil {
 		t.Error("backing kept after a failed verify; the output must be released")
 	}
 }
@@ -729,12 +724,12 @@ func TestSerializeAndVerifySpillErrors(t *testing.T) {
 			}
 			trailer := onePageTrailer()
 			doc := openTrailer(t, trailer)
-			var cr ConvertResult
-			if err := serializeAndVerify(doc, trailer, &cr, pdf.PDFA1B, verify.Parts{}, false, 0); err == nil {
-				cr.Close()
+			r := &run{doc: doc, trailer: trailer, p: pdf.PDFA1B}
+			if err := r.serializeAndVerify(); err == nil {
+				r.cr.Close()
 				t.Fatal("serializeAndVerify succeeded despite the broken spill file")
 			}
-			if cr.backing != nil {
+			if r.cr.backing != nil {
 				t.Error("backing kept after failure")
 			}
 			assertEmptyDir(t, dir)
