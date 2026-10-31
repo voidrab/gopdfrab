@@ -366,8 +366,8 @@ func (ctx *ValidationContext) equivalent(a, b pdf.PDFValue, depth int) bool {
 // encoded rather than what it is.
 var encodingKeys = map[string]bool{"Length": true, "Filter": true, "DecodeParms": true, "DL": true}
 
-// equivalentEntries compares two dictionaries' entries, leaving out a
-// stream's encodingKeys, since equivalent compares its decoded data.
+// equivalentEntries compares two dictionaries' entries, leaving out the
+// encoding entries of a stream, since equivalent compares its decoded data.
 func (ctx *ValidationContext) equivalentEntries(a, b pdf.PDFDict, depth int) bool {
 	count := func(d pdf.PDFDict) int {
 		n := d.Entries.Len()
