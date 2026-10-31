@@ -43,6 +43,10 @@ Everything under `internal/` may change in any release without notice.
 - Verify reports a `stream` keyword followed by a lone carriage return, which
   the rule on stream framing does not allow: the EOL must be CRLF or a single
   LF. It also reports an indirect object whose number does not start a line.
+- An inline image's dictionary and string parameters, such as the `/DP`
+  decode parameters of a CCITT image, are read as values. They used to be
+  spilled into the parameter list, so that verify misread them and a convert
+  repair that rewrote the image, such as turning off `/I`, lost them.
 
 ## [1.3.0] - 2026-10-31
 

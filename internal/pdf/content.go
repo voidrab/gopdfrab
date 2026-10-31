@@ -481,9 +481,17 @@ func (cs *ContentScanner) scanInlineImage(fn func(op string, operands []PDFValue
 			params = append(params, RealOf(f))
 		case TokenBoolean:
 			params = append(params, PDFBoolean(tok.Value == "true"))
+		case TokenString:
+			params = append(params, PDFString{Value: tok.Value})
+		case TokenHexString:
+			params = append(params, PDFHexString{Value: tok.Value})
 		case TokenArrayStart:
 			if arr, err := parseArray(cs.lex); err == nil {
 				params = append(params, arr)
+			}
+		case TokenDictStart:
+			if dict, err := parseDictionary(cs.lex); err == nil {
+				params = append(params, dict)
 			}
 		}
 	}

@@ -566,3 +566,32 @@ func TestShownStringBytes(t *testing.T) {
 		t.Errorf("ShownStringBytes(Tj, no operands) = %q, want nil", got)
 	}
 }
+
+// TestContentScannerInlineImageDictAndStrings verifies that an inline image's
+// dictionary and string parameters, such as a /DP dictionary, are read as
+// values rather than spilled into the parameter list.
+func TestContentScannerInlineImageDictAndStrings(t *testing.T) {
+	ops := TokenizeContent([]byte(`BI /W 8 /F /CCF /DP << /K -1 /Columns 8 >> /A (s) /B <00> ID X EI`))
+	if len(ops) != 1 || ops[0].Op != "INLINEIMAGE" {
+		t.Fatalf("ops = %+v, want one INLINEIMAGE", ops)
+	}
+	params, _, _ := InlineImageRawOperand(ops[0].Operands)
+	dp := NewPDFDict()
+	dp.Entries.Set("K", PDFInteger(-1))
+	dp.Entries.Set("Columns", PDFInteger(8))
+	want := []PDFValue{
+		PDFName{Value: "W"}, PDFInteger(8),
+		PDFName{Value: "F"}, PDFName{Value: "CCF"},
+		PDFName{Value: "DP"}, dp,
+		PDFName{Value: "A"}, PDFString{Value: "s"},
+		PDFName{Value: "B"}, PDFHexString{Value: "00"},
+	}
+	if len(params) != len(want) {
+		t.Fatalf("params = %v, want %v", params, want)
+	}
+	for i := range want {
+		if !EqualPDFValue(params[i], want[i]) {
+			t.Errorf("params[%d] = %v, want %v", i, params[i], want[i])
+		}
+	}
+}
