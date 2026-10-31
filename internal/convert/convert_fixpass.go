@@ -111,37 +111,12 @@ func (p *fixPass) isContentStream(d pdf.PDFDict) bool {
 }
 
 // collectContentStreamPtrs records the Entries identity of every content-
-// bearing stream, mirroring walkContentStreams' positional dispatch (page
-// Contents, tiling patterns, form XObjects, Type3 CharProcs) without
-// decoding anything.
+// bearing stream (see pdf.ContentRoots) without decoding anything.
 func collectContentStreamPtrs(trailer pdf.PDFDict, out map[uintptr]bool) {
 	walkDicts(trailer, map[uintptr]bool{}, func(d pdf.PDFDict) {
-		switch {
-		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
-			switch contents := d.Entries.Get("Contents").(type) {
-			case pdf.PDFDict:
-				if contents.IsStream() {
-					out[pdf.ValuePointer(contents.Entries)] = true
-				}
-			case pdf.PDFArray:
-				for _, item := range contents {
-					if cd, ok := item.(pdf.PDFDict); ok && cd.IsStream() {
-						out[pdf.ValuePointer(cd.Entries)] = true
-					}
-				}
-			}
-		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.IsStream(),
-			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.IsStream():
-			out[pdf.ValuePointer(d.Entries)] = true
-		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
-			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
-				for _, v := range procs.Entries.All() {
-					if pd, ok := v.(pdf.PDFDict); ok && pd.IsStream() {
-						out[pdf.ValuePointer(pd.Entries)] = true
-					}
-				}
-			}
-		}
+		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
+			out[pdf.ValuePointer(r.Stream.Entries)] = true
+		})
 	})
 }
 

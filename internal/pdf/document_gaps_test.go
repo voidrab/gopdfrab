@@ -55,7 +55,7 @@ var _ = errors.New
 // value.
 func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 	doc := "1 0 obj\n<< /A 2 0 R >>\nendobj\n2 0 obj\n<< /B\nendobj\n"
-	d := &Reader{data: []byte(doc), size: int64(len(doc)), xrefTable: map[int]int64{
+	d := &Reader{src: memSource([]byte(doc)), xrefTable: map[int]int64{
 		1: 0, 2: int64(len("1 0 obj\n<< /A 2 0 R >>\nendobj\n")),
 	}}
 	root := PDFDict{Entries: DictOf(map[string]PDFValue{"A": PDFRef{ObjNum: 2}})}
@@ -68,7 +68,7 @@ func TestResolvePathStopsAtUnparseableObject(t *testing.T) {
 // "N G obj" header at all, the answer is "not scanned", since absence proves
 // nothing.
 func TestObjectHeaderExistsWithoutAnyHeader(t *testing.T) {
-	d := &Reader{data: []byte("no objects in here"), size: 18}
+	d := &Reader{src: memSource([]byte("no objects in here"))}
 	if exists, scanned := d.objectHeaderExists(1); exists || scanned {
 		t.Errorf("objectHeaderExists = %v, %v; want false, false", exists, scanned)
 	}
@@ -100,7 +100,7 @@ func TestAdoptStreamCachesSharesDecodeErrors(t *testing.T) {
 }
 
 func TestNegativeXRefOffsetIsAnError(t *testing.T) {
-	d := &Reader{data: []byte("x"), size: 1, xrefTable: map[int]int64{3: -1}}
+	d := &Reader{src: memSource([]byte("x")), xrefTable: map[int]int64{3: -1}}
 	if _, err := d.ResolveReference(PDFRef{ObjNum: 3}); err == nil || !strings.Contains(err.Error(), "negative offset") {
 		t.Errorf("err = %v, want a negative-offset error", err)
 	}
@@ -118,7 +118,7 @@ func TestEncryptedBareObjectsAreDecrypted(t *testing.T) {
 		return fmt.Sprintf("<%x>", out)
 	}
 	doc := fmt.Sprintf("5 0 obj\n%s\nendobj\n6 0 obj\n[%s]\nendobj\n", seal(5, "secret"), seal(6, "hidden"))
-	d := &Reader{data: []byte(doc), size: int64(len(doc)), crypt: h, xrefTable: map[int]int64{
+	d := &Reader{src: memSource([]byte(doc)), crypt: h, xrefTable: map[int]int64{
 		5: 0, 6: int64(strings.Index(doc, "6 0 obj")),
 	}}
 	if v, err := d.ResolveReference(PDFRef{ObjNum: 5}); err != nil || v != (PDFString{Value: "secret"}) {

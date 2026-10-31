@@ -226,61 +226,25 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 }
 
 // walkContentStreamDicts hands every content-bearing stream reachable from
-// trailer -- Page /Contents, tiling Pattern, Form XObject, Type3 CharProcs --
-// to rewrite, the same dispatch validateContentStreams (checks_content.go)
-// uses. Taking whole dicts rather than one operator at a time lets a rewrite
-// carry state across the stream, which rescaling a path needs.
+// trailer (see pdf.ContentRoots) to rewrite, as validateContentStreams in
+// verify reads them. Taking whole dicts rather than one operator at a time
+// lets a rewrite carry state across the stream, which rescaling a path needs.
 func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
-		switch {
-		case (d.Entries.Get("Type") == pdf.PDFName{Value: "Page"}):
-			switch contents := d.Entries.Get("Contents").(type) {
-			case pdf.PDFDict:
-				if contents.IsStream() {
-					if fixed, ok := rewrite(contents); ok {
-						d.Entries.Set("Contents", fixed)
-						changed = true
-					}
-				}
-			case pdf.PDFArray:
-				for i, item := range contents {
-					cd, ok := item.(pdf.PDFDict)
-					if !ok || !cd.IsStream() {
-						continue
-					}
-					if fixed, ok := rewrite(cd); ok {
-						contents[i] = fixed
-						changed = true
-					}
-				}
+		fixedSelf := false
+		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
+			fixed, ok := rewrite(r.Stream)
+			if !ok {
+				return
 			}
-			return false
-
-		case d.Entries.Get("PatternType") == pdf.PDFInteger(1) && d.IsStream(),
-			(d.Entries.Get("Subtype") == pdf.PDFName{Value: "Form"}) && d.IsStream():
-			if _, ok := rewrite(d); ok {
-				changed = true
-				return true
+			r.Replace(fixed)
+			changed = true
+			if r.Kind == pdf.ContentPattern || r.Kind == pdf.ContentForm {
+				fixedSelf = true
 			}
-			return false
-
-		case (d.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}):
-			if procs, ok := d.Entries.Get("CharProcs").(pdf.PDFDict); ok {
-				for k, v := range procs.Entries.All() {
-					pd, ok := v.(pdf.PDFDict)
-					if !ok || !pd.IsStream() {
-						continue
-					}
-					if fixed, ok := rewrite(pd); ok {
-						procs.Entries.Set(k, fixed)
-						changed = true
-					}
-				}
-			}
-			return false
-		}
-		return false
+		})
+		return fixedSelf
 	})
 	return changed
 }

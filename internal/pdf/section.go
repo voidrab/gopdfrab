@@ -32,7 +32,7 @@ func (d *Reader) SectionAt(offset int64) *SectionCursor {
 // A read that fails returns less than was read before; what was read before
 // stays, so the read position stays inside the window.
 func (c *SectionCursor) fill(n int) {
-	buf, err := c.d.readWindow(c.base, n)
+	buf, err := c.d.src.window(c.base, n)
 	if len(buf) < len(c.buf) {
 		buf = c.buf
 	}

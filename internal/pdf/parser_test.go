@@ -6,11 +6,12 @@ import (
 	"testing"
 )
 
-// newTestFileReader builds a bare Reader over in-memory bytes, bypassing
-// Open/OpenBytes's structure parsing so ParseXRefSectionAt can be driven
-// directly against hand-crafted xref sections at a known offset.
+// newTestFileReader builds a bare Reader that reads data through a file source
+// (src.mem is nil), bypassing Open/OpenBytes's structure parsing so
+// ParseXRefSectionAt can be driven directly against hand-crafted xref sections
+// at a known offset.
 func newTestFileReader(data []byte) *Reader {
-	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data)), xrefTable: map[int]int64{}}
+	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}, xrefTable: map[int]int64{}}
 }
 
 // TestParseXRefSectionAt covers a valid classic table+trailer, a bad (past
@@ -47,7 +48,7 @@ func TestParseXRefSectionAt(t *testing.T) {
 				name string
 				r    *Reader
 			}{
-				{"bytes", &Reader{data: data, xrefTable: map[int]int64{}}},
+				{"bytes", &Reader{src: memSource(data), xrefTable: map[int]int64{}}},
 				{"seek", newTestFileReader(data)},
 			} {
 				dict, err := tc.r.ParseXRefSectionAt(0, false)
@@ -110,10 +111,10 @@ func TestParseXRefSectionAt(t *testing.T) {
 		}
 	})
 
-	t.Run("negative offset seek error", func(t *testing.T) {
+	t.Run("negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("xref\n"))
 		if _, err := r.ParseXRefSectionAt(-1, false); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 
@@ -134,13 +135,13 @@ func TestParseXRefSectionAt(t *testing.T) {
 	})
 }
 
-// TestParseXRefTable covers parseXRefTable's Seek error, a successful parse,
-// and a truncated entry line (ReadFull error).
+// TestParseXRefTable covers a negative offset, which reads nothing, a
+// successful parse, and a truncated entry line.
 func TestParseXRefTable(t *testing.T) {
-	t.Run("negative offset seek error", func(t *testing.T) {
+	t.Run("negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("xref\n"))
 		if err := r.parseXRefTable(-1); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 
@@ -177,8 +178,7 @@ func TestParseXRefTable(t *testing.T) {
 // parseDictionary (which invokes parseObject for each value).
 func TestParseObjectValueTypes(t *testing.T) {
 	src := "/A null /B keywordX /C true /D 1.5 /E <48656C6C6F> >>"
-	l := NewLexer(bytes.NewReader([]byte(src)))
-	defer l.Release()
+	l := NewLexerBytes([]byte(src), 0)
 
 	dict, err := parseDictionary(l)
 	if err != nil {
@@ -204,8 +204,7 @@ func TestParseObjectValueTypes(t *testing.T) {
 
 // TestParseDictionaryUnexpectedEOF covers parseDictionary's EOF error branch.
 func TestParseDictionaryUnexpectedEOF(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("/A 1")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("/A 1"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error for a dictionary truncated before '>>'")
 	}
@@ -214,8 +213,7 @@ func TestParseDictionaryUnexpectedEOF(t *testing.T) {
 // TestParseDictionaryKeyTypeMismatch covers the "expected dictionary key"
 // error: a non-Name token where a key is expected.
 func TestParseDictionaryKeyTypeMismatch(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("1 >>")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("1 >>"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error for a non-name dictionary key")
 	}
@@ -225,8 +223,7 @@ func TestParseDictionaryKeyTypeMismatch(t *testing.T) {
 // branch: a malformed nested array value fails to parse and the failure
 // bubbles up (also exercising parseArray's own error-propagation branch).
 func TestParseDictionaryValueError(t *testing.T) {
-	l := NewLexer(bytes.NewReader([]byte("/A [1 2 >>")))
-	defer l.Release()
+	l := NewLexerBytes([]byte("/A [1 2 >>"), 0)
 	if _, err := parseDictionary(l); err == nil {
 		t.Error("expected error propagated from a malformed nested array value")
 	}
@@ -259,7 +256,7 @@ func TestScalarDispatchAgreesAcrossParsers(t *testing.T) {
 			l := NewLexerBytes([]byte(c.literal), 0)
 			want, wantErr := parseObject(l, l.NextToken())
 
-			d := &Reader{data: []byte("1 0 obj " + c.literal + " endobj")}
+			d := &Reader{src: memSource([]byte("1 0 obj " + c.literal + " endobj"))}
 			got, gotErr := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
 
 			if (wantErr == nil) != (gotErr == nil) {
@@ -286,7 +283,7 @@ func TestObjectBodyIntegerIsNotAReference(t *testing.T) {
 		t.Fatalf("inside an object, 1 0 R = %#v, want PDFRef{1,0}", inside)
 	}
 
-	d := &Reader{data: []byte("1 0 obj 1 0 R endobj")}
+	d := &Reader{src: memSource([]byte("1 0 obj 1 0 R endobj"))}
 	body, err := d.parseClassicAt(PDFRef{ObjNum: 1}, 0)
 	if err != nil {
 		t.Fatalf("parseClassicAt: %v", err)

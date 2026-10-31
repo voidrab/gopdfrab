@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestLexer_BasicDictionary(t *testing.T) {
 	input := []byte("<< /Type /Catalog /Pages 1 0 R >>")
-	l := NewLexer(bytes.NewReader(input))
+	l := NewLexerBytes(input, 0)
 
 	// Number tokens carry their payload in Int with an empty Value.
 	expected := []struct {
@@ -34,7 +35,7 @@ func TestLexer_BasicDictionary(t *testing.T) {
 
 func TestLexer_ArraysAndStrings(t *testing.T) {
 	input := []byte("[ (Hello World) <41 41 42 42> ]")
-	l := NewLexer(bytes.NewReader(input))
+	l := NewLexerBytes(input, 0)
 
 	expectedTokens := []struct {
 		Type  TokenType
@@ -81,7 +82,7 @@ func TestLexer_StringLiteralDecoding(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			l := NewLexer(bytes.NewReader([]byte(tc.input)))
+			l := NewLexerBytes([]byte(tc.input), 0)
 			tok := l.NextToken()
 			if tok.Type != TokenString {
 				t.Fatalf("token type = %v, want TokenString", tok.Type)
@@ -150,22 +151,6 @@ func TestNewLexerBytesNil(t *testing.T) {
 	}
 }
 
-// TestLexerReaderPath drives the io.Reader-backed lexer, covering peekByte and
-// NextToken's reader branches.
-func TestLexerReaderPath(t *testing.T) {
-	lex := NewLexer(bytes.NewReader([]byte("<< /K 7 >>")))
-	defer lex.Release()
-	want := []TokenType{TokenDictStart, TokenName, TokenInteger, TokenDictEnd}
-	for i, w := range want {
-		if tok := lex.NextToken(); tok.Type != w {
-			t.Errorf("reader token[%d] = %v, want %v", i, tok.Type, w)
-		}
-	}
-	if tok := lex.NextToken(); tok.Type != TokenEOF {
-		t.Errorf("final token = %v, want EOF", tok.Type)
-	}
-}
-
 func TestIsHexDigit(t *testing.T) {
 	for _, ch := range []byte("0123456789ABCDEFabcdef") {
 		if !IsHexDigit(ch) {
@@ -196,7 +181,6 @@ func TestRequireEOL(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			if err := l.requireEOL(); (err != nil) != tc.wantErr {
 				t.Errorf("requireEOL(%q) = %v, wantErr %v", tc.data, err, tc.wantErr)
 			}
@@ -208,13 +192,11 @@ func TestRequireEOL(t *testing.T) {
 // and immediate EOF (error).
 func TestSkipEOL(t *testing.T) {
 	l := NewLexerBytes([]byte("\nrest"), 0)
-	defer l.Release()
 	if err := l.skipEOL(); err != nil {
 		t.Errorf("skipEOL(LF) = %v, want nil", err)
 	}
 
 	l2 := NewLexerBytes([]byte("Xrest"), 0)
-	defer l2.Release()
 	if err := l2.skipEOL(); err != nil {
 		t.Errorf("skipEOL(non-EOL) = %v, want nil", err)
 	}
@@ -223,7 +205,6 @@ func TestSkipEOL(t *testing.T) {
 	}
 
 	l3 := NewLexerBytes([]byte(""), 0)
-	defer l3.Release()
 	if err := l3.skipEOL(); err == nil {
 		t.Error("skipEOL at EOF should error")
 	}
@@ -246,7 +227,6 @@ func TestRequireSingleSpace(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			if err := l.requireSingleSpace(); (err != nil) != tc.wantErr {
 				t.Errorf("requireSingleSpace(%q) = %v, wantErr %v", tc.data, err, tc.wantErr)
 			}
@@ -275,7 +255,6 @@ func TestValidateObjectStart(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			num, errs := l.validateObjectStart()
 			if len(errs) != tc.wantErrs {
 				t.Errorf("validateObjectStart(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
@@ -303,7 +282,6 @@ func TestValidateEndObj(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			if errs := l.validateEndObj(); len(errs) != tc.wantErrs {
 				t.Errorf("validateEndObj(%q) = %v, want %d errors", tc.data, errs, tc.wantErrs)
 			}
@@ -314,29 +292,49 @@ func TestValidateEndObj(t *testing.T) {
 // TestValidateObjectEnd covers the trailing-EOL success and failure paths.
 func TestValidateObjectEnd(t *testing.T) {
 	l := NewLexerBytes([]byte("\n"), 0)
-	defer l.Release()
 	if errs := l.validateObjectEnd(); errs != nil {
 		t.Errorf("validateObjectEnd(LF) = %v, want nil", errs)
 	}
 
 	l2 := NewLexerBytes([]byte("X"), 0)
-	defer l2.Release()
 	if errs := l2.validateObjectEnd(); errs == nil {
 		t.Error("validateObjectEnd(non-EOL) should error")
 	}
 }
 
-type failingReader struct{}
+type failingReaderAt struct{}
 
-func (failingReader) Read([]byte) (int, error) { return 0, errors.New("disk on fire") }
+func (failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, errors.New("disk on fire") }
 
 // TestNextTokenReportsReadError pins that a read error other than EOF surfaces
 // as a TokenError carrying the error, not as a silent end of input.
 func TestNextTokenReportsReadError(t *testing.T) {
-	l := NewLexer(failingReader{})
-	defer l.Release()
-	if tok := l.NextToken(); tok.Type != TokenError || tok.Value != "disk on fire" {
+	src := &source{file: failingReaderAt{}, size: 10}
+	if tok := src.lexer(0).NextToken(); tok.Type != TokenError || tok.Value != "disk on fire" {
 		t.Fatalf("NextToken = %+v, want TokenError \"disk on fire\"", tok)
+	}
+}
+
+// TestLexerWindowMatchesSlice verifies that lexing a file read on demand, whose
+// window moves along the file, gives the tokens lexing it in memory does, for
+// tokens straddling a window's end and a number longer than a window.
+func TestLexerWindowMatchesSlice(t *testing.T) {
+	data := []byte(strings.Repeat(" ", lexerWindow-3) + "12345 /Name (str) " +
+		strings.Repeat("7", 2*lexerWindow) + " 1.5 [<4142>] endobj")
+	tokens := func(l *Lexer) []Token {
+		var got []Token
+		for {
+			tok := l.NextToken()
+			got = append(got, tok)
+			if tok.Type == TokenEOF || tok.Type == TokenError {
+				return got
+			}
+		}
+	}
+	want := tokens(NewLexerBytes(data, 0))
+	file := &source{file: bytes.NewReader(data), size: int64(len(data))}
+	if got := tokens(file.lexer(0)); !reflect.DeepEqual(got, want) {
+		t.Errorf("tokens through a window = %v\nwant %v", got, want)
 	}
 }
 
@@ -354,15 +352,13 @@ func TestSkipEOLCarriageReturn(t *testing.T) {
 		if b, _ := l.readByte(); b != tc.next {
 			t.Errorf("skipEOL(%q) left next byte %q, want %q", tc.data, b, tc.next)
 		}
-		l.Release()
 	}
 }
 
-// TestPeekByteReaderAtEOF verifies that peeking an exhausted reader reports
+// TestPeekByteAtEOF verifies that peeking past the end of the input reports
 // no byte.
-func TestPeekByteReaderAtEOF(t *testing.T) {
-	l := NewLexer(strings.NewReader(""))
-	defer l.Release()
+func TestPeekByteAtEOF(t *testing.T) {
+	l := NewLexerBytes(nil, 0)
 	if b, ok := l.peekByte(); ok {
 		t.Errorf("peekByte = %q, true; want false", b)
 	}

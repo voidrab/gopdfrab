@@ -1,8 +1,6 @@
 package pdf
 
 import (
-	"bytes"
-	"errors"
 	"testing"
 )
 
@@ -24,7 +22,6 @@ func TestConsumeStreamEOL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			d := &Reader{}
 			l := NewLexerBytes([]byte(tc.data), 0)
-			defer l.Release()
 			if got := d.consumeStreamEOL(l); got != tc.want {
 				t.Errorf("consumeStreamEOL(%q) = %v, want %v", tc.data, got, tc.want)
 			}
@@ -32,12 +29,12 @@ func TestConsumeStreamEOL(t *testing.T) {
 	}
 }
 
-// TestWindowAt covers the negative-offset guard, the in-memory (d.data)
+// TestWindowAt covers the negative-offset guard, the in-memory (src.mem)
 // path (including past-EOF), and the file-backed fallback path.
 func TestWindowAt(t *testing.T) {
 	data := []byte("0123456789")
 
-	dMem := &Reader{data: data}
+	dMem := &Reader{src: memSource(data)}
 	if got := dMem.windowAt(-1, 4); got != nil {
 		t.Errorf("windowAt(-1) = %v, want nil", got)
 	}
@@ -63,7 +60,7 @@ func TestWindowAt(t *testing.T) {
 func TestCheckEndstreamFramingRecordsMissingEOL(t *testing.T) {
 	t.Run("in-memory, missing EOL", func(t *testing.T) {
 		data := []byte("BODYendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		d.checkEndstreamFraming(1, 0, 4) // "BODY" is 4 bytes, no EOL before "endstream"
 		if len(d.parseDiagnostics) != 1 {
 			t.Errorf("expected one diagnostic, got %d", len(d.parseDiagnostics))
@@ -72,7 +69,7 @@ func TestCheckEndstreamFramingRecordsMissingEOL(t *testing.T) {
 
 	t.Run("in-memory, EOL present", func(t *testing.T) {
 		data := []byte("BODY\nendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		d.checkEndstreamFraming(1, 0, 4)
 		if len(d.parseDiagnostics) != 0 {
 			t.Errorf("expected no diagnostic, got %d", len(d.parseDiagnostics))
@@ -92,12 +89,11 @@ func TestCheckEndstreamFramingRecordsMissingEOL(t *testing.T) {
 // TestValidateStream covers validateStream's Length-lookup errors, the
 // in-memory and file-backed body-capture paths (including the
 // Length-includes-EOL diagnostic), the missing-endstream error, the
-// stray-bytes-before-endstream diagnostic, and the file-backed seek/reset
-// on success.
+// stray-bytes-before-endstream diagnostic.
 func TestValidateStream(t *testing.T) {
 	t.Run("missing Length", func(t *testing.T) {
 		data := []byte("\nHello\nendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
@@ -107,7 +103,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("Length not an integer", func(t *testing.T) {
 		data := []byte("\nHello\nendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFName{Value: "X"}})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
@@ -119,7 +115,7 @@ func TestValidateStream(t *testing.T) {
 		prefix := "99 0 obj\n[1 2\nendobj\n"
 		streamRegion := "\nHello\nendstream"
 		full := []byte(prefix + streamRegion)
-		d := &Reader{data: full, xrefTable: map[int]int64{99: 0}}
+		d := &Reader{src: memSource(full), xrefTable: map[int]int64{99: 0}}
 		l := NewLexerBytes(full, int64(len(prefix)))
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFRef{ObjNum: 99}})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
@@ -129,7 +125,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("in-memory body extends past EOF", func(t *testing.T) {
 		data := []byte("\nHello\nendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
@@ -142,7 +138,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("no endstream anywhere", func(t *testing.T) {
 		data := []byte("\nHello\nendobj")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
@@ -152,7 +148,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("in-memory Length includes EOL", func(t *testing.T) {
 		data := []byte("\ndataendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
@@ -166,8 +162,7 @@ func TestValidateStream(t *testing.T) {
 	t.Run("file-backed ReadAt error", func(t *testing.T) {
 		data := []byte("\nHi")
 		d := newTestFileReader(data)
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
+		l := d.src.lexer(0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(1000)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
 			t.Error("expected error reading a stream body past EOF")
@@ -177,8 +172,7 @@ func TestValidateStream(t *testing.T) {
 	t.Run("file-backed Length includes EOL", func(t *testing.T) {
 		data := []byte("\ndataendstream")
 		d := newTestFileReader(data)
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
+		l := d.src.lexer(0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
 			t.Fatalf("validateStream: %v", err)
@@ -190,7 +184,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("endstream not found", func(t *testing.T) {
 		data := []byte("\ndataNOTHINGHERE")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err == nil {
@@ -200,7 +194,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("stray bytes before endstream", func(t *testing.T) {
 		data := []byte("\ndataXXendstream")
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
@@ -213,7 +207,7 @@ func TestValidateStream(t *testing.T) {
 
 	t.Run("stray bytes before the stream keyword's EOL", func(t *testing.T) {
 		data := []byte("  \ndataendstream") // stray spaces before the EOL
-		d := &Reader{data: data}
+		d := &Reader{src: memSource(data)}
 		l := NewLexerBytes(data, 0)
 		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
 		if err := d.validateStream(l, &dict, 1); err != nil {
@@ -223,31 +217,12 @@ func TestValidateStream(t *testing.T) {
 			t.Error("expected a diagnostic for stray bytes before the 'stream' EOL")
 		}
 	})
-
-	t.Run("file-backed final seek error", func(t *testing.T) {
-		data := []byte("\ndataendstream")
-		d := &Reader{file: seekFailFileSource{bytesFileSource{bytes.NewReader(data)}}}
-		l := NewLexerAt(d.file, 0)
-		defer l.Release()
-		dict := PDFDict{Entries: DictOf(map[string]PDFValue{"Length": PDFInteger(4)})}
-		if err := d.validateStream(l, &dict, 1); err == nil {
-			t.Error("expected the final seek-back error to propagate")
-		}
-	})
-}
-
-// seekFailFileSource wraps bytesFileSource but always fails Seek, to exercise
-// validateStream's file-backed post-endstream seek-back error branch.
-type seekFailFileSource struct{ bytesFileSource }
-
-func (seekFailFileSource) Seek(offset int64, whence int) (int64, error) {
-	return 0, errors.New("seek always fails")
 }
 
 // TestCheckEndstreamFramingStartPastWindow covers the "start > len(window)"
 // early return: a declared length far larger than the actual available data.
 func TestCheckEndstreamFramingStartPastWindow(t *testing.T) {
-	d := &Reader{data: []byte("ab")}
+	d := &Reader{src: memSource([]byte("ab"))}
 	d.checkEndstreamFraming(1, 0, 1000) // length=1000 but only 2 bytes exist
 	if len(d.parseDiagnostics) != 0 {
 		t.Errorf("expected no diagnostic when start is past the available window, got %d", len(d.parseDiagnostics))
@@ -257,7 +232,7 @@ func TestCheckEndstreamFramingStartPastWindow(t *testing.T) {
 // TestCheckEndstreamFramingNoKeywordInWindow verifies that, with no endstream
 // in the window, there is nothing to frame-check, so no diagnostic is recorded.
 func TestCheckEndstreamFramingNoKeywordInWindow(t *testing.T) {
-	d := &Reader{data: []byte("0123456789")}
+	d := &Reader{src: memSource([]byte("0123456789"))}
 	d.checkEndstreamFraming(1, 0, 4)
 	if len(d.parseDiagnostics) != 0 {
 		t.Errorf("got %d diagnostics, want none", len(d.parseDiagnostics))

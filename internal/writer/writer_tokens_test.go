@@ -63,7 +63,6 @@ func TestWrittenNamesReparse(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := pdf.NewLexerBytes(buf.Bytes(), 0)
-	defer l.Release()
 	var names []string
 	for tok := l.NextToken(); tok.Type != pdf.TokenEOF; tok = l.NextToken() {
 		if tok.Type == pdf.TokenName {

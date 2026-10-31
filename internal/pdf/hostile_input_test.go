@@ -24,9 +24,9 @@ func hostileStreamDoc(length string, extra ...string) []byte {
 }
 
 // TestStreamLengthBoundedOnBothPaths pins that a /Length past the end of the
-// file never sizes an allocation, on the mmap/bytes path and on the seek path
-// alike. The seek path must bound the length before allocating a buffer of
-// that size.
+// file never sizes an allocation, whether the file is in memory or read on
+// demand. A file read on demand must bound the length before allocating a
+// buffer of that size.
 func TestStreamLengthBoundedOnBothPaths(t *testing.T) {
 	data := hostileStreamDoc("99999999999")
 	open := map[string]func([]byte) (*Reader, error){
@@ -70,7 +70,8 @@ func TestStreamLengthResolveErrorKeepsCause(t *testing.T) {
 // TestWrongStreamLengthRecoversFromEndstream pins the keyword-scan fallback: a
 // /Length that misses the body by more than the framing window -- too short,
 // too long, or past the end of the file -- recovers the body up to the EOL
-// before endstream on both read paths, reports 6.1.7, and degrades nothing.
+// before endstream, both in memory and on a file read on demand, reports
+// 6.1.7, and degrades nothing.
 func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 	body := strings.Repeat("0123456789", 20) // 200 bytes, well past the 64-byte window
 	cases := map[string]struct {
@@ -127,7 +128,6 @@ func TestWrongStreamLengthRecoversFromEndstream(t *testing.T) {
 func TestLexerConsecutiveCommentsUseConstantStack(t *testing.T) {
 	data := []byte(strings.Repeat("%c\n", 1_000_000) + "42")
 	l := NewLexerBytes(data, 0)
-	defer l.Release()
 	old := debug.SetMaxStack(8 << 20)
 	defer debug.SetMaxStack(old)
 	tok := l.NextToken()

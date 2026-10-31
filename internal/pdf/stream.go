@@ -2,9 +2,7 @@ package pdf
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 )
 
 // validateStream performs a partial validation of requirements 6.1.7 and
@@ -44,7 +42,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 	end := streamStart + int64(length)
 	kwPos, stray := int64(-1), false
 	// end < streamStart is int64 overflow from a pathologically large Length.
-	if end >= streamStart && end <= d.sourceSize() {
+	if end >= streamStart && end <= d.src.size {
 		w := d.windowAt(end, 64+len(endstreamKeyword))
 		if k := bytes.Index(w, endstreamKeyword); k >= 0 {
 			kwPos = end + int64(k)
@@ -67,16 +65,12 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		length = int(end - streamStart)
 	}
 
-	if d.data != nil {
-		// Fast path: alias the backing slice directly (mmap or caller buffer).
-		dict.SetStream(d.data[streamStart:end:end])
-	} else {
-		data := make([]byte, length)
-		if _, err := d.file.ReadAt(data, streamStart); err != nil {
-			return err
-		}
-		dict.SetStream(data)
+	// A body in memory aliases the file rather than being copied.
+	body, err := d.src.window(streamStart, length)
+	if err != nil {
+		return err
 	}
+	dict.SetStream(body)
 
 	// 6.1.7: Length must not include the EOL before endstream.
 	if !recovered && kwPos == end {
@@ -94,14 +88,7 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 		d.recordStreamFraming(objNum, DiagStreamLengthMismatch,
 			"stray bytes between the stream body and the endstream keyword")
 	}
-	posAfter := kwPos + int64(len(endstreamKeyword))
-	if d.data == nil {
-		if _, err := d.file.Seek(posAfter, io.SeekStart); err != nil {
-			return err
-		}
-		l.reader.Reset(d.file)
-	}
-	l.pos = posAfter
+	l.pos = kwPos + int64(len(endstreamKeyword))
 
 	return nil
 }
@@ -109,27 +96,18 @@ func (d *Reader) validateStream(l *Lexer, dict *PDFDict, objNum int) error {
 var endstreamKeyword = []byte("endstream")
 
 // indexFrom returns the offset of the first occurrence of pat at or after off.
-// The seek path reads in bounded chunks, never the whole remainder.
+// For a file read on demand, the search goes in bounded chunks, never over the
+// whole remainder at once.
 func (d *Reader) indexFrom(off int64, pat []byte) (int64, bool) {
-	if d.data != nil {
-		if off > int64(len(d.data)) {
-			return 0, false
+	found := int64(-1)
+	d.src.chunks(off, 64<<10, len(pat)-1, func(base int64, buf []byte, _ bool) bool {
+		if k := bytes.Index(buf, pat); k >= 0 {
+			found = base + int64(k)
+			return false
 		}
-		k := bytes.Index(d.data[off:], pat)
-		return off + int64(k), k >= 0
-	}
-	const chunk = 64 << 10
-	buf := make([]byte, chunk+len(pat)-1)
-	for pos := off; pos < d.size; pos += chunk {
-		n, _ := d.file.ReadAt(buf, pos)
-		if n == 0 {
-			break
-		}
-		if k := bytes.Index(buf[:n], pat); k >= 0 {
-			return pos + int64(k), true
-		}
-	}
-	return 0, false
+		return true
+	})
+	return found, found >= 0
 }
 
 // trimTrailingEOL returns kwPos moved back over the single EOL marker (CRLF,
@@ -143,14 +121,6 @@ func (d *Reader) trimTrailingEOL(start, kwPos int64) int64 {
 		return kwPos - 1
 	}
 	return kwPos
-}
-
-// sourceSize is the byte length of the underlying file.
-func (d *Reader) sourceSize() int64 {
-	if d.data != nil {
-		return int64(len(d.data))
-	}
-	return d.size
 }
 
 // consumeStreamEOL advances the lexer past the EOL following the 'stream'
@@ -175,32 +145,11 @@ func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	}
 }
 
-// windowAt returns up to n bytes starting at off, from the in-memory buffer
-// when available or the underlying source otherwise.
+// windowAt returns up to n bytes starting at off, or fewer when the file ends
+// or cannot be read.
 func (d *Reader) windowAt(off int64, n int) []byte {
-	b, _ := d.readWindow(off, n)
+	b, _ := d.src.window(off, n)
 	return b
-}
-
-// readWindow is windowAt that also returns the error a read from the
-// underlying source failed with. Reaching the end of the file is not one.
-func (d *Reader) readWindow(off int64, n int) ([]byte, error) {
-	if off < 0 {
-		return nil, nil
-	}
-	if d.data != nil {
-		if off >= int64(len(d.data)) {
-			return nil, nil
-		}
-		end := min(off+int64(n), int64(len(d.data)))
-		return d.data[off:end], nil
-	}
-	buf := make([]byte, n)
-	read, err := d.file.ReadAt(buf, off)
-	if errors.Is(err, io.EOF) {
-		err = nil
-	}
-	return buf[:read], err
 }
 
 // checkEndstreamFraming verifies that the endstream keyword is preceded by an

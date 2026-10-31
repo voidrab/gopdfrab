@@ -9,7 +9,7 @@ import "testing"
 func TestParseReferenceDanglingScan(t *testing.T) {
 	t.Run("found by brute-force scan", func(t *testing.T) {
 		data := []byte("5 0 obj\n<< /Foo 1 >>\nendobj\n")
-		r := &Reader{data: data, xrefTable: map[int]int64{}}
+		r := &Reader{src: memSource(data), xrefTable: map[int]int64{}}
 		v, err := r.parseReference(PDFRef{ObjNum: 5})
 		if err != nil {
 			t.Fatalf("parseReference: %v", err)
@@ -21,7 +21,7 @@ func TestParseReferenceDanglingScan(t *testing.T) {
 	})
 
 	t.Run("truly missing resolves to null", func(t *testing.T) {
-		r := &Reader{data: []byte("no objects here"), xrefTable: map[int]int64{}}
+		r := &Reader{src: memSource([]byte("no objects here")), xrefTable: map[int]int64{}}
 		v, err := r.parseReference(PDFRef{ObjNum: 99})
 		if err != nil || v != nil {
 			t.Errorf("parseReference = %v, %v; want nil, nil", v, err)
@@ -29,8 +29,9 @@ func TestParseReferenceDanglingScan(t *testing.T) {
 	})
 }
 
-// TestParseClassicReferenceFileBacked covers the d.data == nil path, which
-// reads the object through d.file instead of aliasing an in-memory slice.
+// TestParseClassicReferenceFileBacked covers the src.mem == nil path, which
+// reads the object from the file on demand instead of aliasing an in-memory
+// file.
 func TestParseClassicReferenceFileBacked(t *testing.T) {
 	data := []byte("5 0 obj\n<< /Foo 1 >>\nendobj\n")
 	r := newTestFileReader(data)
@@ -66,7 +67,7 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			data := []byte("1 0 obj\n" + tc.body + "\nendobj\n")
-			r := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+			r := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 			got, err := r.ResolveReference(PDFRef{ObjNum: 1})
 			if err != nil {
 				t.Fatalf("ResolveReference: %v", err)
@@ -82,7 +83,7 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 		// TokenReal, but strconv.ParseFloat rejects it, exercising RealValue's
 		// error branch.
 		data := []byte("1 0 obj\n1.2.3\nendobj\n")
-		r := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		r := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		if _, err := r.ResolveReference(PDFRef{ObjNum: 1}); err == nil {
 			t.Error("expected error for a malformed real number")
 		}
@@ -90,28 +91,28 @@ func TestParseClassicReferenceTokenTypes(t *testing.T) {
 
 	t.Run("unterminated array error", func(t *testing.T) {
 		data := []byte("1 0 obj\n[1 2\nendobj\n")
-		r := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		r := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		if _, err := r.ResolveReference(PDFRef{ObjNum: 1}); err == nil {
 			t.Error("expected error for an unterminated array")
 		}
 	})
 }
 
-// TestParseClassicReferenceDictBranches covers the file-backed Seek error,
-// the parseDictionary error, the validateStream error, the leadingWS/preEOL
+// TestParseClassicReferenceDictBranches covers the negative-offset error, the
+// parseDictionary error, the validateStream error, the leadingWS/preEOL
 // framing diagnostics before "endobj", and the "neither stream nor endobj
 // follows" default branch.
 func TestParseClassicReferenceDictBranches(t *testing.T) {
-	t.Run("file-backed seek error", func(t *testing.T) {
+	t.Run("file-backed negative offset", func(t *testing.T) {
 		r := newTestFileReader([]byte("data"))
 		if _, err := r.parseClassicReference(PDFRef{ObjNum: 1}, -1); err == nil {
-			t.Error("expected a seek error for a negative offset")
+			t.Error("expected an error for a negative offset")
 		}
 	})
 
 	t.Run("parseDictionary error", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /A 1\nendobj\n") // unterminated dictionary
-		d := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		d := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		if _, err := d.ResolveReference(PDFRef{ObjNum: 1}); err == nil {
 			t.Error("expected error for an unterminated dictionary")
 		}
@@ -119,7 +120,7 @@ func TestParseClassicReferenceDictBranches(t *testing.T) {
 
 	t.Run("validateStream error", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /Length /Bad >>\nstream\ndata\nendstream\nendobj\n")
-		d := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		d := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		if _, err := d.ResolveReference(PDFRef{ObjNum: 1}); err == nil {
 			t.Error("expected error from a non-integer stream /Length")
 		}
@@ -131,7 +132,7 @@ func TestParseClassicReferenceDictBranches(t *testing.T) {
 		// which would skip the preEOL/leadingWS check entirely (see the
 		// comment on that check in parseClassicReference).
 		data := []byte("1 0 obj\n<< /A true >> \nendobj\n") // stray space before the EOL
-		d := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		d := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		v, err := d.ResolveReference(PDFRef{ObjNum: 1})
 		if err != nil {
 			t.Fatalf("ResolveReference: %v", err)
@@ -146,7 +147,7 @@ func TestParseClassicReferenceDictBranches(t *testing.T) {
 
 	t.Run("neither stream nor endobj follows", func(t *testing.T) {
 		data := []byte("1 0 obj\n<< /A 1 >>\nfoo\n")
-		d := &Reader{data: data, xrefTable: map[int]int64{1: 0}}
+		d := &Reader{src: memSource(data), xrefTable: map[int]int64{1: 0}}
 		v, err := d.ResolveReference(PDFRef{ObjNum: 1})
 		if err != nil {
 			t.Fatalf("ResolveReference: %v", err)

@@ -6,12 +6,12 @@ import (
 )
 
 // Whole-file scans for damaged-file recovery. They match bytes directly rather
-// than with regular expressions, because RE2 allocates per match and, on the
-// seek path, would need the whole file on the heap. These walk the in-memory
-// slice directly, or the file source in bounded chunks.
+// than with regular expressions, because RE2 allocates per match and, for a
+// file read on demand, would need the whole file on the heap. These walk the
+// in-memory slice directly, or the file source in bounded chunks.
 
-// scanChunk is the read size for chunked scans on the seek path. A var so
-// tests can shrink it to exercise matches straddling a chunk boundary.
+// scanChunk is the read size for chunked scans of a file read on demand. A var
+// so tests can shrink it to exercise matches straddling a chunk boundary.
 var scanChunk = 1 << 20
 
 // isLineEnd reports whether b ends a line.
@@ -96,35 +96,26 @@ func matchObjHeader(buf []byte, i int, atEOF bool) (num int, ok bool, m headerMa
 // (at the start of the file or right after CR or LF), in file order, with the
 // object number and the offset of its first digit.
 func (d *Reader) scanObjectHeaders(fn func(objNum int, off int64)) {
-	if d.data != nil {
-		scanHeadersIn(d.data, '\n', true, 0, fn) // the start of the file is a line start
-		return
-	}
-	buf := make([]byte, scanChunk)
 	prev := byte('\n') // the start of the file counts as a line start
-	for pos := int64(0); pos < d.size; pos += int64(scanChunk) {
-		n, _ := d.file.ReadAt(buf, pos)
-		if n == 0 {
-			return
-		}
-		atEOF := pos+int64(n) >= d.size
-		for _, i := range scanHeadersIn(buf[:n], prev, atEOF, pos, fn) {
+	d.src.chunks(0, scanChunk, 0, func(base int64, buf []byte, atEOF bool) bool {
+		for _, i := range scanHeadersIn(buf, prev, atEOF, base, fn) {
 			// A header straddling the chunk end: re-read from its start
 			// with a growing window until it is decided.
 			for size := 256; ; size *= 2 {
-				w := d.windowAt(pos+int64(i), size)
-				end := pos+int64(i)+int64(len(w)) >= d.size
+				w := d.windowAt(base+int64(i), size)
+				end := base+int64(i)+int64(len(w)) >= d.src.size
 				num, ok, m := matchObjHeader(w, 0, end)
 				if m == headerYes && ok {
-					fn(num, pos+int64(i))
+					fn(num, base+int64(i))
 				}
 				if m != headerMore {
 					break
 				}
 			}
 		}
-		prev = buf[n-1]
-	}
+		prev = buf[len(buf)-1]
+		return true
+	})
 }
 
 // scanHeadersIn reports the headers that start a line in buf, where prev is
@@ -160,32 +151,24 @@ func (d *Reader) forEachIndex(pat []byte, fn func(off int64) bool) {
 	if len(pat) == 0 {
 		return
 	}
-	if d.data != nil {
-		for off := 0; ; {
-			k := bytes.Index(d.data[off:], pat)
-			if k < 0 || !fn(int64(off+k)) {
-				return
+	// Pieces overlap by len(pat)-1 so a match straddling a boundary is seen;
+	// only matches starting in a piece's own span, before the next piece
+	// starts, are reported.
+	d.src.chunks(0, scanChunk, len(pat)-1, func(base int64, buf []byte, atEOF bool) bool {
+		span := len(buf)
+		if !atEOF {
+			span = scanChunk
+		}
+		for off := 0; off < span; {
+			k := bytes.Index(buf[off:], pat)
+			if k < 0 || off+k >= span {
+				return true
+			}
+			if !fn(base + int64(off+k)) {
+				return false
 			}
 			off += k + 1
 		}
-	}
-	// Overlap chunks by len(pat)-1 so a match straddling the boundary is
-	// seen, and only report matches starting in this chunk's own span.
-	buf := make([]byte, scanChunk+len(pat)-1)
-	for pos := int64(0); pos < d.size; pos += int64(scanChunk) {
-		n, _ := d.file.ReadAt(buf, pos)
-		if n == 0 {
-			return
-		}
-		for off := 0; off < min(n, scanChunk); {
-			k := bytes.Index(buf[off:n], pat)
-			if k < 0 || off+k >= scanChunk {
-				break
-			}
-			if !fn(pos + int64(off+k)) {
-				return
-			}
-			off += k + 1
-		}
-	}
+		return true
+	})
 }

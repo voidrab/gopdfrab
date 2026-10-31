@@ -28,7 +28,7 @@ func TestXrefEntryOffset(t *testing.T) {
 }
 
 func TestParseXRefTableBytesMalformed(t *testing.T) {
-	newDoc := func(data string) *Reader { return &Reader{data: []byte(data)} }
+	newDoc := func(data string) *Reader { return &Reader{src: memSource([]byte(data))} }
 
 	if err := newDoc("xref").parseXRefTable(99); !errors.Is(err, io.EOF) {
 		t.Errorf("offset past end: err = %v, want io.EOF", err)
@@ -57,7 +57,7 @@ func TestParseXRefTableBytesParsesEntries(t *testing.T) {
 		"0000000000 65535 f \n" +
 		"0000000017 00000 n \n" +
 		"trailer\n"
-	d := &Reader{data: []byte(data)}
+	d := &Reader{src: memSource([]byte(data))}
 	if err := d.parseXRefTable(0); err != nil {
 		t.Fatalf("parseXRefTable: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestParseXRefTableBytesParsesEntries(t *testing.T) {
 
 func TestParseXRefSectionAtBytes(t *testing.T) {
 	newDoc := func(data string) *Reader {
-		return &Reader{data: []byte(data), xrefTable: map[int]int64{}}
+		return &Reader{src: memSource([]byte(data)), xrefTable: map[int]int64{}}
 	}
 
 	if _, err := newDoc("x").ParseXRefSectionAt(50, false); !errors.Is(err, io.EOF) {

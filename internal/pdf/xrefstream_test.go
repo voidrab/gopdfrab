@@ -249,6 +249,31 @@ func TestXRefStreamOnly(t *testing.T) {
 	}
 }
 
+// TestXRefStreamWrongLength pins that a cross-reference stream whose /Length
+// runs past the end of the file is read up to its endstream keyword, so the
+// object table comes from the stream rather than from scanning the file.
+func TestXRefStreamWrongLength(t *testing.T) {
+	data := buildXRefStreamOnlyPDF(t)
+	at := bytes.LastIndex(data, []byte("/Length "))
+	end := at + bytes.IndexByte(data[at:], ' ') + 1
+	end += bytes.IndexByte(data[end:], ' ')
+	data = append(data[:at:at], append([]byte("/Length 99999"), data[end:]...)...)
+
+	doc, err := pdf.OpenBytes(data)
+	if err != nil {
+		t.Fatalf("OpenBytes: %v", err)
+	}
+	defer doc.Close()
+	for _, e := range doc.Diagnostics() {
+		if e.Kind == pdf.DiagXRefRebuilt {
+			t.Fatalf("object table rebuilt by scanning: %v", e.Errs)
+		}
+	}
+	if n, err := doc.PageCount(); err != nil || n != 1 {
+		t.Fatalf("PageCount() = %d, %v; want 1, nil", n, err)
+	}
+}
+
 // TestXRefStreamWithObjStm verifies a PDF using both a cross-reference stream
 // and a compressed object stream (ObjStm) is fully readable: the Catalog,
 // Pages and Page dictionaries packed inside the ObjStm must resolve exactly

@@ -92,12 +92,10 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		numTok := headerLex.NextToken()
 		offTok := headerLex.NextToken()
 		if numTok.Type != TokenInteger || offTok.Type != TokenInteger {
-			headerLex.Release()
 			return nil, fmt.Errorf("object stream %d: malformed header at entry %d", streamObjNum, i)
 		}
 		pairs = append(pairs, pair{numTok.IntValue(), offTok.IntValue()})
 	}
-	headerLex.Release()
 
 	entries := make([]objStmEntry, 0, len(pairs))
 	for i, p := range pairs {
@@ -117,7 +115,6 @@ func (d *Reader) decodeObjStm(streamObjNum int) ([]objStmEntry, error) {
 		objLex := NewLexerBytes(data[start:end], 0)
 		tok := objLex.NextToken()
 		val, err := parseObject(objLex, tok)
-		objLex.Release()
 		if err != nil {
 			entries = append(entries, objStmEntry{objNum: p.objNum,
 				err: fmt.Errorf("object stream %d: object %d: %w", streamObjNum, p.objNum, err)})

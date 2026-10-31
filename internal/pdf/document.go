@@ -18,9 +18,7 @@ import (
 // disk (Open) or an in-memory buffer (OpenBytes), so a freshly-written PDF can
 // be re-verified without a temp-file round-trip.
 type fileSource interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }
 
@@ -37,7 +35,7 @@ type fileSource interface {
 // concurrent needs its own Reader.
 type Reader struct {
 	file       fileSource
-	size       int64
+	src        source // the file's bytes; see source
 	header     []byte
 	trailer    PDFDict
 	xrefTable  map[int]int64
@@ -63,11 +61,7 @@ type Reader struct {
 	// self-referential resolution cycles. See ResolveReference.
 	resolvingInProgress map[int]bool
 
-	// data is the full file content as a byte slice (mmap on unix, heap on
-	// other platforms, or the caller-supplied slice for OpenBytes).
-	// nil only for NewRawReader, which drives test-only paths.
-	data   []byte
-	unmap  func() error // non-nil when data is mmap'd; called by Close
+	unmap  func() error // non-nil when src.mem is mapped; called by Close
 	closed bool         // Close has run; later calls are no-ops
 
 	// compressedXref maps an object number to its location inside a
@@ -463,12 +457,10 @@ func (d *Reader) discardObjDiagnostics(mark, objNum int) {
 // behavior against a specific -- often deliberately malformed -- structure
 // without a real file round-trip; production code should use Open/OpenBytes.
 func NewRawReader(file interface {
-	io.Reader
 	io.ReaderAt
-	io.Seeker
 	io.Closer
 }, trailer PDFDict, size int64, xrefOffset int64) *Reader {
-	return &Reader{file: file, trailer: trailer, size: size, xrefOffset: xrefOffset, degradeUnresolvable: true}
+	return &Reader{file: file, src: source{file: file, size: size}, trailer: trailer, xrefOffset: xrefOffset, degradeUnresolvable: true}
 }
 
 // Open initializes the PDF document at path, decrypting with the empty
@@ -518,11 +510,10 @@ func OpenBytesWithPassword(data, password []byte) (*Reader, error) {
 	return newDocument(bytesFileSource{bytes.NewReader(data)}, int64(len(data)), data, nil, password)
 }
 
-// OpenBytesSeek parses in-memory data like OpenBytes but withholds the byte
-// slice from the Reader, so parsing drives the file-source ReadAt/Seek path
-// (NewLexerAt, an incremental read) instead of indexing the slice directly. That
-// is the exact read path Open takes on a platform without file mapping (Windows,
-// where mmapFile returns nil), which the byte-slice path otherwise never
+// OpenBytesSeek parses in-memory data like OpenBytes but leaves src.mem nil,
+// so the data is read on demand through ReadAt instead of being indexed in
+// memory. That is the read path Open takes on a platform without file mapping
+// (Windows, where mmapFile returns nil), which the byte-slice path never
 // exercises. It exists so that path can be tested on any OS; on unix, Open uses
 // mmap and there is no reason to prefer it.
 func OpenBytesSeek(data []byte) (*Reader, error) {
@@ -541,9 +532,8 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 
 	doc := &Reader{
 		file:     src,
-		size:     size,
+		src:      source{mem: data, file: src, size: size},
 		header:   header,
-		data:     data,
 		unmap:    unmap,
 		password: password,
 	}
@@ -565,9 +555,7 @@ func newDocument(src fileSource, size int64, data []byte, unmap func() error, pa
 func (d *Reader) initializeStructure() error {
 	// Detect garbage bytes preceding the %PDF- marker (6.1.2).
 	// xref offsets in such files are relative to the PDF content start.
-	scanSize := min(d.size, 1024)
-	scanBuf := make([]byte, scanSize)
-	if _, err := d.file.ReadAt(scanBuf, 0); err == nil {
+	if scanBuf, err := d.src.window(0, 1024); err == nil {
 		idx := bytes.Index(scanBuf, []byte("%PDF-"))
 		if idx < 0 {
 			// No header anywhere in the leading bytes: not a PDF, not merely
@@ -579,11 +567,10 @@ func (d *Reader) initializeStructure() error {
 		}
 	}
 
-	tailSize := min(d.size, int64(1500))
-
-	tailOffset := d.size - tailSize
-	tail := make([]byte, tailSize)
-	if _, err := d.file.ReadAt(tail, tailOffset); err != nil {
+	tailSize := min(d.src.size, int64(1500))
+	tailOffset := d.src.size - tailSize
+	tail, err := d.src.window(tailOffset, int(tailSize))
+	if err != nil {
 		return err
 	}
 
@@ -664,19 +651,16 @@ func (d *Reader) initializeStructure() error {
 		var literalTrailer PDFDict
 		haveLiteral := false
 		if trailerIdx != -1 {
-			l := NewLexer(bytes.NewReader(searchBlock[trailerIdx:]))
+			l := NewLexerBytes(searchBlock[trailerIdx:], 0)
 			if tok := l.NextToken(); tok.Value == "trailer" {
 				if t, terr := parseDictionary(l); terr == nil {
 					literalTrailer, haveLiteral = t, true
 				} else if xrefErr == nil {
-					l.Release()
 					return fmt.Errorf("%w: could not parse trailer dictionary: %v", ErrDamaged, terr)
 				}
 			} else if xrefErr == nil {
-				l.Release()
 				return fmt.Errorf("%w: expected 'trailer' keyword", ErrDamaged)
 			}
-			l.Release()
 		} else if xrefErr == nil {
 			return fmt.Errorf("%w: trailer keyword not found", ErrDamaged)
 		}
@@ -873,15 +857,10 @@ func (d *Reader) FullBytes() ([]byte, error) {
 	return d.fullBytes()
 }
 
-// fullBytes returns the full file as a byte slice, reusing d.data when
-// available to avoid a redundant heap allocation.
+// fullBytes returns the full file as a byte slice, the file in memory itself
+// when there is one.
 func (d *Reader) fullBytes() ([]byte, error) {
-	if d.data != nil {
-		return d.data, nil
-	}
-	raw := make([]byte, d.size)
-	_, err := d.file.ReadAt(raw, 0)
-	return raw, err
+	return d.src.window(0, int(d.src.size))
 }
 
 // EffectiveTrailer returns d.trailer, or d.firstPageTrailer for linearized
@@ -976,7 +955,7 @@ func (d *Reader) Close() error {
 			return err
 		}
 		d.unmap = nil
-		d.data = nil
+		d.src.mem = nil
 	}
 	return d.file.Close()
 }
@@ -989,7 +968,7 @@ func (d *Reader) ReadAt(p []byte, off int64) (int, error) {
 
 // Size returns the total size of the underlying file source in bytes.
 func (d *Reader) Size() int64 {
-	return d.size
+	return d.src.size
 }
 
 // PDFStart returns the byte offset of the "%PDF-" header, non-zero when the
