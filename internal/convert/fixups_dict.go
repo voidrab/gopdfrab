@@ -567,33 +567,6 @@ func (postScriptXObjectFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool,
 	return changed, nil
 }
 
-// --- 6.1.13 Optional content ---
-
-// optionalContentFixer remediates Checks.Structure.OptionalContent by
-// deleting the catalog's /OCProperties entry, mirroring
-// (*Document).verifyOptionalContent in verifier.go. Marked-content BDC/EMC
-// wrappers in content streams that reference the removed OCGs are left in
-// place: rewriting content-stream bytes is out of scope for a
-// dictionary-level fix, and they have no PDF/A-meaningful effect once
-// OCProperties is gone.
-type optionalContentFixer struct{}
-
-func (optionalContentFixer) Applies(c pdf.Check) bool {
-	return c == pdf.Checks.Structure.OptionalContent
-}
-
-func (optionalContentFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
-	root, ok := trailer.Entries.Get("Root").(pdf.PDFDict)
-	if !ok {
-		return false, nil
-	}
-	if _, ok := root.Entries.Lookup("OCProperties"); !ok {
-		return false, nil
-	}
-	root.Entries.Del("OCProperties")
-	return true, nil
-}
-
 // --- 6.1.2 ViewerPreferences (post-1.4 keys) ---
 
 // viewerPrefFixer removes the ViewerPreferences keys the level's PDF version

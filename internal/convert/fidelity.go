@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 
+	"github.com/voidrab/gopdfrab/internal/content"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/raster"
 )
@@ -213,8 +214,12 @@ func summarizeReaderPages(r *pdf.Reader, dpi int) ([]pageSummary, error) {
 func summarizeTrailerPages(trailer pdf.PDFDict, dpi int) []pageSummary {
 	pages := orderedPages(trailer)
 	out := make([]pageSummary, len(pages))
+	// The input is measured as a viewer shows it, with the layers it turns
+	// off hidden; the conversion removes their content.
+	root, _ := trailer.Entries.Get("Root").(pdf.PDFDict)
+	oc := content.NewOptionalContent(root)
 	for i, p := range pages {
-		if img, _, err := raster.RenderPage(p.dict, p.resources, p.mediaBox, dpi); err == nil {
+		if img, _, err := raster.RenderPage(p.dict, p.resources, p.mediaBox, dpi, oc); err == nil {
 			out[i] = summarize(img)
 		}
 	}

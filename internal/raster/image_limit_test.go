@@ -105,7 +105,7 @@ func TestRasterReportsOversizedImage(t *testing.T) {
 		"Width": pdf.PDFInteger(60000), "Height": pdf.PDFInteger(60000),
 		"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
 	}, []byte{0}))
-	_, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
