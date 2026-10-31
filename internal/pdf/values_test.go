@@ -1,6 +1,9 @@
 package pdf
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestDecodePDFTextStringPDFDocEncoding(t *testing.T) {
 	tests := []struct {
@@ -239,6 +242,24 @@ func TestEncodePDFName(t *testing.T) {
 		}
 		if back := string(DecodePDFName(got)); back != tc.in {
 			t.Errorf("DecodePDFName(%q) = %q, want %q", got, back, tc.in)
+		}
+	}
+}
+
+// TestRealOf verifies that RealOf keeps a nonzero value nonzero and its sign.
+func TestRealOf(t *testing.T) {
+	for _, tc := range []struct {
+		in   float64
+		want PDFReal
+	}{
+		{0, 0},
+		{0.5, 0.5},
+		{1e-40, PDFReal(float32(1e-40))},
+		{1e-50, PDFReal(math.SmallestNonzeroFloat32)},
+		{-1e-50, -PDFReal(math.SmallestNonzeroFloat32)},
+	} {
+		if got := RealOf(tc.in); got != tc.want {
+			t.Errorf("RealOf(%g) = %g, want %g", tc.in, got, tc.want)
 		}
 	}
 }

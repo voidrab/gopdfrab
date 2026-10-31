@@ -1,5 +1,7 @@
 package pdf
 
+import "math"
+
 // PDFValue is any PDF object. The null object (ISO 32000-1 7.3.10) is a nil
 // PDFValue -- there is no PDFNull type. Three sites depend on it: a reference
 // with no target resolves to nil, the 'null' keyword parses to nil, and the
@@ -16,6 +18,17 @@ type PDFHexString struct{ Value string }
 type PDFString struct{ Value string }
 type PDFInteger int
 type PDFReal float32
+
+// RealOf returns the PDFReal nearest f that keeps f's sign and, when f is
+// nonzero, stays nonzero: a value too close to zero for a float32 becomes the
+// smallest one, so that a check against a level's smallest real still sees
+// it.
+func RealOf(f float64) PDFReal {
+	if r := float32(f); r != 0 || f == 0 {
+		return PDFReal(r)
+	}
+	return PDFReal(math.Copysign(math.SmallestNonzeroFloat32, f))
+}
 type PDFBoolean bool
 type PDFName struct{ Value string }
 type PDFArray []PDFValue

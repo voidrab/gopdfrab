@@ -423,7 +423,7 @@ func (cs *ContentScanner) Scan(fn func(op string, operands []PDFValue)) {
 			cs.stack = append(cs.stack, PDFInteger(tok.IntValue()))
 		case TokenReal:
 			f, _ := tok.RealValue()
-			cs.stack = append(cs.stack, PDFReal(f))
+			cs.stack = append(cs.stack, RealOf(f))
 		case TokenString:
 			cs.stack = append(cs.stack, PDFString{Value: tok.Value})
 		case TokenHexString:
@@ -478,7 +478,7 @@ func (cs *ContentScanner) scanInlineImage(fn func(op string, operands []PDFValue
 			params = append(params, PDFInteger(tok.IntValue()))
 		case TokenReal:
 			f, _ := tok.RealValue()
-			params = append(params, PDFReal(f))
+			params = append(params, RealOf(f))
 		case TokenBoolean:
 			params = append(params, PDFBoolean(tok.Value == "true"))
 		case TokenArrayStart:
