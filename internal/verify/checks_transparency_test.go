@@ -281,3 +281,20 @@ func TestNormalBlendModeNull(t *testing.T) {
 		t.Error("a null blend mode does not count as Normal")
 	}
 }
+
+// TestPageContainsTransparencyScansSharedContentOnce verifies that a form
+// drawn many times from the same state is scanned once, and that a Type 3
+// font's encoding is read once however many strings it shows.
+func TestPageContainsTransparencyScansSharedContentOnce(t *testing.T) {
+	shared := streamDictWith("0 0 1 1 re f", "Subtype", name("Form"))
+	outer := streamDictWith("/X0 Do /X0 Do", "Subtype", name("Form"))
+	outer.Entries.Set("Resources", kv("XObject", kv("X0", shared)))
+	scan := transparencyScan{visiting: map[uintptr]bool{}, scanned: map[scanKey]bool{}, encodings: map[uintptr]map[byte]string{}}
+	res := kv("XObject", kv("X0", outer), "Font", kv("F1", kv("Subtype", name("Type3"), "CharProcs", kv())))
+	if scan.stream(streamDict("/X0 Do /X0 Do BT /F1 1 Tf (a) Tj (a) Tj ET"), res, opaque, 0) {
+		t.Fatal("opaque content contains transparency")
+	}
+	if len(scan.scanned) != 3 || len(scan.encodings) != 1 {
+		t.Errorf("scanned %d streams and read %d encodings, want 3 and 1", len(scan.scanned), len(scan.encodings))
+	}
+}

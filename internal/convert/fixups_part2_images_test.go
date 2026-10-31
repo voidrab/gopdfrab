@@ -41,6 +41,7 @@ func TestJPXColourSpaceFixer(t *testing.T) {
 		{"RGB", image(jp2Data(3)), 3},
 		{"CMYK", image(jp2Data(4)), 4},
 		{"two channels", image(jp2Data(2)), 0},
+		{"usable colour specification", image(jp2UsableData()), 0},
 		{"has a ColorSpace", image(jp2Data(3), "ColorSpace", nm("DeviceRGB")), 0},
 		{"undecodable", image(jp2Data(3), "Filter", pdf.PDFArray{nm("FlateDecode"), nm("JPXDecode")}), 0},
 		{"not JPX", streamWith(kv("Subtype", nm("Image")), nil), 0},
@@ -139,4 +140,16 @@ func TestImageSampleDepthFixerKeepsDepthsTheLevelAllows(t *testing.T) {
 	if changed, _ := (imageSampleDepthFixer{spec: a1bSpec}).Fix(&trailer, nil); !changed {
 		t.Error("Part 1: a 16-bit image kept")
 	}
+}
+
+// jp2UsableData returns JP2 data of three channels with one enumerated sRGB
+// colour specification, which a reader can use as it is.
+func jp2UsableData() []byte {
+	data := jp2Data(3)
+	// Drop the second colour specification box (15 bytes) and shrink the
+	// header box by as much.
+	data = data[:len(data)-15]
+	n := binary.BigEndian.Uint32(data[12:16])
+	binary.BigEndian.PutUint32(data[12:16], n-15)
+	return data
 }

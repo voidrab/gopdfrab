@@ -81,7 +81,7 @@ func BlendingColourSpace(v pdf.PDFDict) (cs pdf.PDFValue, resources pdf.PDFDict,
 // tiling pattern or Type 3 glyph whose own content involves it. d, when not
 // nil, decodes the content streams through its cache.
 func PageContainsTransparency(page pdf.PDFDict, d *pdf.Reader) bool {
-	t := transparencyScan{reader: d, visiting: map[uintptr]bool{}}
+	t := transparencyScan{reader: d, visiting: map[uintptr]bool{}, scanned: map[scanKey]bool{}, encodings: map[uintptr]map[byte]string{}}
 	resources := pdf.PageResources(page)
 	for _, stream := range pageContentStreams(page) {
 		if t.stream(stream, resources, opaque, 0) {
@@ -168,6 +168,19 @@ type transparencyScan struct {
 	// visiting holds the streams being scanned, so a stream that draws
 	// itself ends the descent.
 	visiting map[uintptr]bool
+	// scanned holds the outcome of each stream already scanned from a given
+	// state with given resources, so content drawn many times is scanned
+	// once.
+	scanned map[scanKey]bool
+	// encodings holds the Differences of each Type 3 font met.
+	encodings map[uintptr]map[byte]string
+}
+
+// scanKey identifies one scan of a stream: the stream, the resources its
+// names resolve in and the state it starts in.
+type scanKey struct {
+	stream, resources uintptr
+	state             alphaState
 }
 
 // paintCall is a form, pattern or glyph a stream paints, to be scanned once
@@ -186,9 +199,20 @@ func (t *transparencyScan) stream(s, resources pdf.PDFDict, state alphaState, de
 	if depth > maxTransparencyDepth || t.visiting[key] {
 		return false
 	}
+	memo := scanKey{key, pdf.ValuePointer(resources.Entries), state}
+	if found, ok := t.scanned[memo]; ok {
+		return found
+	}
 	t.visiting[key] = true
-	defer delete(t.visiting, key)
+	found := t.walkContent(s, resources, state, depth)
+	delete(t.visiting, key)
+	t.scanned[memo] = found
+	return found
+}
 
+// walkContent does the scan of one content stream that stream guards against
+// cycles and repeats.
+func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaState, depth int) bool {
 	found := false
 	var calls []paintCall
 	var saved []alphaState
@@ -260,7 +284,7 @@ func (t *transparencyScan) stream(s, resources pdf.PDFDict, state alphaState, de
 			if found = state.paints(fill, stroke, &calls, resources); found {
 				return
 			}
-			for _, glyph := range type3Glyphs(state.font, operands) {
+			for _, glyph := range t.type3Glyphs(state.font, operands) {
 				calls = append(calls, paintCall{stream: glyph, resources: resourcesOr(state.font, resources), state: state})
 			}
 		}
@@ -389,13 +413,18 @@ func tilingPattern(operands []pdf.PDFValue, resources pdf.PDFDict) pdf.PDFDict {
 // type3Glyphs returns the glyph procedures of a Type 3 font that a text
 // showing operator's strings select, through the font's Encoding
 // Differences.
-func type3Glyphs(font pdf.PDFDict, operands []pdf.PDFValue) []pdf.PDFDict {
+func (t *transparencyScan) type3Glyphs(font pdf.PDFDict, operands []pdf.PDFValue) []pdf.PDFDict {
 	if font.Entries == nil {
 		return nil
 	}
 	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
-	enc, _ := font.Entries.Get("Encoding").(pdf.PDFDict)
-	names := differences(enc)
+	key := pdf.ValuePointer(font.Entries)
+	names, ok := t.encodings[key]
+	if !ok {
+		enc, _ := font.Entries.Get("Encoding").(pdf.PDFDict)
+		names = differences(enc)
+		t.encodings[key] = names
+	}
 	var out []pdf.PDFDict
 	seen := map[uintptr]bool{}
 	forEachShownByte(operands, func(code byte) {

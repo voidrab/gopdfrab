@@ -29,6 +29,13 @@ type JPXHeader struct {
 	Method, EnumCS int
 }
 
+// ColourSpecificationUsable reports whether the data has exactly one colour
+// specification a reader uses, of a method and colour space the rules allow,
+// so that an image needs no ColorSpace entry to override it.
+func (h JPXHeader) ColourSpecificationUsable() bool {
+	return (h.ColourSpecs == 1 || h.ApproxSpecs == 1) && h.Method >= 1 && h.Method <= 3 && h.EnumCS != 19
+}
+
 // jp2Signature is the JPEG 2000 signature box that starts a JP2 file.
 var jp2Signature = []byte{0, 0, 0, 0x0C, 'j', 'P', ' ', ' ', 0x0D, 0x0A, 0x87, 0x0A}
 
