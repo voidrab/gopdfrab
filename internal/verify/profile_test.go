@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfgen"
 )
@@ -182,7 +183,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	}
 	caught := false
 	for _, iss := range full.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			caught = true
 			break
 		}
@@ -195,7 +196,7 @@ func TestVerifyProfile_RemoveCheckSuppressesViolation(t *testing.T) {
 	p := pdf.PDFA1B.RemoveCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			t.Errorf("disabled 6.1.2 check still reported: %s", iss)
 		}
 	}
@@ -213,13 +214,13 @@ func TestVerifyProfile_ClearThenAddOnlyFiresEnabledCheck(t *testing.T) {
 	p := pdf.PDFA1B.Clear().AddCheck(header61checks()...)
 	res, _ := Verify(doc, p)
 	for _, iss := range res.Issues {
-		if !clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if !corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			t.Errorf("unexpected clause %q reported with only 6.1.2 checks enabled", iss.Check().Clause())
 		}
 	}
 	caught := false
 	for _, iss := range res.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.2") {
+		if corpustest.CheckMatches(iss.Check(), pdf.A1B, "6.1.2") {
 			caught = true
 			break
 		}

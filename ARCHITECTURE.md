@@ -29,6 +29,7 @@ The entire project is a single Go module with no dependencies other than `klausp
 | `internal/writer`    | Serializes the object graph back into PDF bytes.                                 |
 | `internal/arlington` | Contains the Arlington PDF Model tables used by the object-model checks.         |
 | `internal/pdfgen`    | Generates PDFs for tests and fuzzing.                                            |
+| `internal/corpustest`| Lists the conformance corpora for tests: directory, level, profile, flavour.     |
 
 The packages form layers, and imports only point downwards:
 
@@ -39,6 +40,7 @@ fidelity                                   → raster, content, pdf
 raster                                     → content, fontprog, fontsubst, pdf
 fontedit                                   → fontprog
 content, fontprog, fontsubst, writer, pdfa → pdf
+corpustest                                 → pdf
 ```
 
 `verify` and `raster` never import each other, and nothing below `convert` imports it. A helper that two packages on the same layer both need belongs one layer down, which is how `fontprog` came to exist: the checks and the fixers both parse font programs. Rewriting them is the converter's business alone, so that half sits in `fontedit`, which only `convert` imports. `TestPackageLayering` (`layering_test.go`) fails if an import breaks this.
@@ -163,4 +165,4 @@ This model drives the `ObjectModel` check group, which asks whether the document
 
 ## Tests
 
-Tests are located alongside the code. There are three corpora under `tests/`, ranging from the Isartor and veraPDF suites to a collection of 1,585 real-world documents. [CONTRIBUTING.md](CONTRIBUTING.md) describes these corpora and explains how to work with them.
+Tests are located alongside the code. There are three corpora under `tests/`, ranging from the Isartor and veraPDF suites to a collection of 1,585 real-world documents. [CONTRIBUTING.md](CONTRIBUTING.md) describes these corpora and explains how to work with them. Every test that walks the conformance corpora reads them from `corpustest.All`, one row per corpus with the level, profiles and veraPDF flavour it is checked against.

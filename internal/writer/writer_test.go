@@ -3,19 +3,14 @@ package writer
 import (
 	"bytes"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
-
-// veraDir locates the veraPDF reference corpus relative to this package's
-// directory (two levels under the repo root).
-const veraDir = "../../tests/veraPDF/PDF_A-1b"
 
 // issueClauses returns the violated clause for each issue, for diagnostics.
 func issueClauses(issues []pdf.PDFError) []string {
@@ -213,29 +208,29 @@ func TestWriterRoundTripDirtyStream(t *testing.T) {
 	}
 }
 
-// TestWriterRoundTripConformantCorpusFiles takes every PDF/A-1b-conformant
-// "pass" fixture from the veraPDF corpus, round-trips each through WritePDF,
+// TestWriterRoundTripConformantCorpusFiles takes every pass fixture of the
+// committed corpora, round-trips each through WritePDF,
 // and checks that the rewritten file is still reported fully conformant. This
 // verifies that renumbering and verbatim stream pass-through do not corrupt a
 // structurally rich, potentially cyclic (for example Page/Parent) document.
 // The "pass" files span annotations, forms, optional content and transparency
 // groups, so they cover far more structure than a single hand-picked fixture.
 func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
-	paths := passFixtures(t)
-	if len(paths) == 0 {
-		t.Skip("veraPDF suite not present")
+	fixtures := corpustest.AllFixtures(false)
+	if len(fixtures) == 0 {
+		t.Skip("no corpus present")
 	}
 
-	for _, path := range paths {
-		rel, _ := filepath.Rel(veraDir, path)
-		t.Run(rel, func(t *testing.T) {
+	for _, f := range fixtures {
+		path := f.Path
+		t.Run(f.Corpus.Name+"/"+f.Corpus.Rel(path), func(t *testing.T) {
 			orig, err := pdf.Open(path)
 			if err != nil {
 				t.Fatalf("pdf.Open(%s): %v", path, err)
 			}
 			defer orig.Close()
 
-			origRes, err := verify.Verify(orig, pdf.PDFA1B)
+			origRes, err := verify.Verify(orig, f.Corpus.Default)
 			if err != nil {
 				t.Fatalf("Verify(original): %v", err)
 			}
@@ -262,7 +257,7 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 				t.Errorf("PageCount(rewritten) = %d, %v; want %d, nil", n, err, origPages)
 			}
 
-			res, err := verify.Verify(rewritten, pdf.PDFA1B)
+			res, err := verify.Verify(rewritten, f.Corpus.Default)
 			if err != nil {
 				t.Fatalf("Verify(rewritten): %v", err)
 			}
@@ -271,26 +266,6 @@ func TestWriterRoundTripConformantCorpusFiles(t *testing.T) {
 			}
 		})
 	}
-}
-
-// passFixtures returns every "pass" fixture path in the veraPDF corpus, or
-// nil if the corpus is not present.
-func passFixtures(t *testing.T) []string {
-	t.Helper()
-	if _, err := os.Stat(veraDir); err != nil {
-		return nil
-	}
-	var found []string
-	filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.Contains(strings.ToLower(d.Name()), "-pass-") {
-			found = append(found, path)
-		}
-		return nil
-	})
-	return found
 }
 
 // errAfter is an io.Writer that succeeds for its first n writes, then fails,

@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
@@ -144,36 +145,11 @@ func TestConvertReportsRemovedAttachments(t *testing.T) {
 	}
 }
 
-// failFixturesByExpectedClause walks both corpora and returns every "fail"
-// fixture's path paired with the clause its filename targets (see
-// veraClauseAndKind / expectedClauseFromName).
-func failFixturesByExpectedClause(t *testing.T) map[string]string {
+// failFixtures returns every fail fixture of every committed corpus
+// (corpustest.All). Each is converted with its corpus's default profile.
+func failFixtures(t *testing.T) []corpustest.Fixture {
 	t.Helper()
-	out := map[string]string{}
-
-	if _, err := os.Stat(veraDir); err == nil {
-		filepath.WalkDir(veraDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			if clause, wantFail := veraClauseAndKind(d.Name()); wantFail && clause != "" {
-				out[path] = clause
-			}
-			return nil
-		})
-	}
-	if _, err := os.Stat(isartorDir); err == nil {
-		filepath.WalkDir(isartorDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			if clause := expectedClauseFromName(d.Name()); clause != "" {
-				out[path] = clause
-			}
-			return nil
-		})
-	}
-	return out
+	return corpustest.AllFixtures(true)
 }
 
 // TestConvertClearsRegisteredFixerChecks sweeps both corpora's "fail"
@@ -186,21 +162,22 @@ func failFixturesByExpectedClause(t *testing.T) map[string]string {
 // unrelated violations the same file happens to also contain are not this
 // Fixer's job), so this checks per-Check absence, not cr.Result.Valid.
 func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 	fixers := standardRepairs.fixersFor(&fixerRun{})
 
 	var tested, cleared int
-	for path := range fixtures {
+	for _, f := range fixtures {
+		path := f.Path
 		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA1B)
+			return verify.Verify(doc, f.Corpus.Default)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -218,7 +195,7 @@ func TestConvertClearsRegisteredFixerChecks(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path, pdf.PDFA1B, Options{})
+			cr, err := Convert(path, f.Corpus.Default, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -315,7 +292,7 @@ func isKnownUnfixableXMPSync(msg string) bool {
 // Convert call, not dispatched through fixerRegistry by Check -- so this
 // needs its own sweep rather than reusing TestConvertClearsRegisteredFixerChecks.
 func TestConvertRegeneratesXMP(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
@@ -325,14 +302,15 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 	}
 
 	var tested, cleared int
-	for path := range fixtures {
+	for _, f := range fixtures {
+		path := f.Path
 		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA1B)
+			return verify.Verify(doc, f.Corpus.Default)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -350,7 +328,7 @@ func TestConvertRegeneratesXMP(t *testing.T) {
 		tested++
 
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cr, err := Convert(path, pdf.PDFA1B, Options{})
+			cr, err := Convert(path, f.Corpus.Default, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -406,7 +384,7 @@ func outputIntentChecks() []pdf.Check {
 // injectOutputIntent is a pre-emptive fixup (see convert.go), not dispatched
 // through fixerRegistry, so this needs its own sweep.
 func TestConvertInjectsOutputIntent(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
@@ -416,14 +394,15 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 	}
 
 	var tested, cleared int
-	for path := range fixtures {
+	for _, f := range fixtures {
+		path := f.Path
 		origRes, err := func() (pdf.Result, error) {
 			doc, err := pdf.Open(path)
 			if err != nil {
 				return pdf.Result{}, err
 			}
 			defer doc.Close()
-			return verify.Verify(doc, pdf.PDFA1B)
+			return verify.Verify(doc, f.Corpus.Default)
 		}()
 		if err != nil || origRes.Valid {
 			continue
@@ -460,7 +439,7 @@ func TestConvertInjectsOutputIntent(t *testing.T) {
 				doc.Close()
 			}
 
-			cr, err := Convert(path, pdf.PDFA1B, Options{})
+			cr, err := Convert(path, f.Corpus.Default, Options{})
 			if err != nil {
 				t.Fatalf("Convert: %v", err)
 			}
@@ -541,14 +520,17 @@ func TestConvertIsDeterministic(t *testing.T) {
 	}
 }
 
-// minConvertedFully is a regression floor on how many of both corpora's "fail"
-// fixtures Convert turns fully conformant. A drop means something regressed.
+// minConvertedFully is a regression floor, per conformance level, on how many
+// of the corpora's fail fixtures Convert turns fully conformant. A drop means
+// something regressed. Every level with a corpus needs an entry.
 //
-// The floor is 510, which is every "fail" fixture. isartor-6-1-3-t02-fail-a.pdf,
+// The PDF/A-1b floor is 510, which is every fail fixture of both its corpora. isartor-6-1-3-t02-fail-a.pdf,
 // the only encrypted fixture in either corpus, is decrypted with the Standard
 // security handler (empty user password), so its RC4 streams are re-encoded as
 // content and the output is conformant.
-const minConvertedFully = 510
+var minConvertedFully = map[pdf.LevelType]int{
+	pdf.A1B: 510,
+}
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to
 // end in the raster fallback, each with why no fixer can repair it in place.
@@ -567,20 +549,29 @@ var expectedRasterized = map[string]string{
 	"veraPDF test suite 6-1-12-t10-fail-a.pdf": "CJK CID font, glyph missing, not substitutable",
 }
 
-// TestConvertCorpusEndToEnd sweeps every "fail" fixture in both corpora
-// through Convert and tallies the outcome.
+// TestConvertCorpusEndToEnd sweeps every fail fixture of every corpus through
+// Convert and tallies the outcome per conformance level.
 func TestConvertCorpusEndToEnd(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
-	var fullyValid, otherResidual, errored int
-	for path := range fixtures {
-		cr, err := Convert(path, pdf.PDFA1B, Options{})
+	type tally struct{ fullyValid, otherResidual, errored, total int }
+	tallies := map[pdf.LevelType]*tally{}
+	for _, f := range fixtures {
+		path := f.Path
+		level := f.Corpus.Level()
+		tl := tallies[level]
+		if tl == nil {
+			tl = &tally{}
+			tallies[level] = tl
+		}
+		tl.total++
+		cr, err := Convert(path, f.Corpus.Default, Options{})
 		if err != nil {
 			t.Errorf("Convert(%s): %v", path, err)
-			errored++
+			tl.errored++
 			continue
 		}
 		reason, expected := expectedRasterized[filepath.Base(path)]
@@ -591,21 +582,27 @@ func TestConvertCorpusEndToEnd(t *testing.T) {
 			t.Errorf("%s: no longer rasterized (was: %s); drop it from expectedRasterized", filepath.Base(path), reason)
 		}
 		if cr.Result.Valid {
-			fullyValid++
+			tl.fullyValid++
 			continue
 		}
-
-		otherResidual++
+		tl.otherResidual++
 	}
 
-	t.Logf("Convert corpus end-to-end: %d fully conformant, %d non-conformant with other residual, %d errored (total %d)",
-		fullyValid, otherResidual, errored, len(fixtures))
-
-	if errored > 0 {
-		t.Errorf("%d fixture(s) made Convert error outright; see logged Convert(...) errors above", errored)
-	}
-	if fullyValid < minConvertedFully {
-		t.Errorf("only %d fixtures converted fully, want >= %d (regression floor); see minConvertedFully", fullyValid, minConvertedFully)
+	for _, level := range slices.Sorted(maps.Keys(tallies)) {
+		tl := tallies[level]
+		t.Logf("Convert corpus end-to-end, %s: %d fully conformant, %d non-conformant with other residual, %d errored (total %d)",
+			level, tl.fullyValid, tl.otherResidual, tl.errored, tl.total)
+		if tl.errored > 0 {
+			t.Errorf("%s: %d fixture(s) made Convert error outright; see logged Convert(...) errors above", level, tl.errored)
+		}
+		floor, ok := minConvertedFully[level]
+		if !ok {
+			t.Errorf("%s has fixtures but no entry in minConvertedFully", level)
+			continue
+		}
+		if tl.fullyValid < floor {
+			t.Errorf("%s: only %d fixtures converted fully, want >= %d (regression floor); see minConvertedFully", level, tl.fullyValid, floor)
+		}
 	}
 }
 

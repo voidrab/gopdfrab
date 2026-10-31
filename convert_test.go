@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
@@ -43,17 +44,10 @@ func TestConvertMergedFinalVerifyOracle(t *testing.T) {
 	}
 
 	var files []string
-	for _, dir := range []string{isartorDir, veraDir} {
-		if _, err := os.Stat(dir); err != nil {
-			continue
+	for _, c := range corpustest.All {
+		if c.Level() == pdf.A1B {
+			files = append(files, c.Files()...)
 		}
-		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".pdf") {
-				return nil
-			}
-			files = append(files, path)
-			return nil
-		})
 	}
 	if len(files) == 0 {
 		t.Skip("no corpora present")
@@ -114,13 +108,13 @@ func checkMultiset(issues []PDFError) []string {
 // must produce the same validity/residual/iterations as the
 // file-backed Convert for the same input.
 func TestConvertBytesMatchesFile(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
 	tested := 0
-	for path := range fixtures {
+	for _, path := range fixtures {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -153,13 +147,13 @@ func TestConvertBytesMatchesFile(t *testing.T) {
 // TestConvertAllMatchesConvert checks that ConvertAll's per-path results
 // agree with calling Convert individually.
 func TestConvertAllMatchesConvert(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 
 	var paths []string
-	for path := range fixtures {
+	for _, path := range fixtures {
 		paths = append(paths, path)
 		if len(paths) >= 5 {
 			break // a representative sample is enough
@@ -217,12 +211,12 @@ func TestConvertAllMatchesConvert(t *testing.T) {
 // TestConvertEachMatchesConvertAll checks the streaming ConvertEach delivers the
 // same per-file outcome as ConvertAll, honouring Options.Workers.
 func TestConvertEachMatchesConvertAll(t *testing.T) {
-	fixtures := failFixturesByExpectedClause(t)
+	fixtures := failFixtures(t)
 	if len(fixtures) == 0 {
 		t.Skip("no corpora present")
 	}
 	var paths []string
-	for path := range fixtures {
+	for _, path := range fixtures {
 		paths = append(paths, path)
 		if len(paths) >= 5 {
 			break
@@ -300,7 +294,7 @@ func TestConvertRasterizesUnfixableResidual(t *testing.T) {
 		t.Fatalf("Convert: %v", err)
 	}
 	if !cr.Result.Valid {
-		t.Errorf("raster last resort did not produce a conformant output; residual: %v", issueClauses(cr.Residual()))
+		t.Errorf("raster last resort did not produce a conformant output; residual: %v", corpustest.Clauses(cr.Residual(), pdf.A1B))
 	}
 	if len(cr.RasterizedPages) == 0 {
 		t.Error("no page was rasterized; the fixture no longer exercises the raster last resort")
@@ -321,7 +315,7 @@ func TestConvertRasterNoOpOnConformantInput(t *testing.T) {
 			continue
 		}
 		if !cr.Result.Valid {
-			t.Errorf("conformant input made non-conformant: %v", issueClauses(cr.Residual()))
+			t.Errorf("conformant input made non-conformant: %v", corpustest.Clauses(cr.Residual(), pdf.A1B))
 		}
 	}
 }
@@ -473,11 +467,11 @@ type veraValidationReport struct {
 	} `xml:"details"`
 }
 
-// runVeraPDF invokes the bundled veraPDF binary and returns the parsed MRR
-// report. veraPDF exits non-zero for non-compliant files, so only an empty
+// runVeraPDF invokes the bundled veraPDF binary with the given --flavour
+// ("1b", "2b", ...) and returns the parsed MRR report. veraPDF exits non-zero for non-compliant files, so only an empty
 // output is treated as a failed run.
-func runVeraPDF(args ...string) (veraReport, error) {
-	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", "1b"}, args...)...)
+func runVeraPDF(flavour string, args ...string) (veraReport, error) {
+	cmd := exec.Command(veraPDFBin, append([]string{"--format", "mrr", "--flavour", flavour}, args...)...)
 	out, err := cmd.Output()
 	if len(out) == 0 {
 		if err != nil {
@@ -595,7 +589,7 @@ func TestConvertNoResidualIssues(t *testing.T) {
 // veraPDFClauses runs the reference veraPDF verifier and returns the set of
 // clauses it reports as failed for path, and whether it deems the file compliant.
 func veraPDFClauses(path string) (clauses map[string]bool, compliant bool, err error) {
-	rep, err := runVeraPDF(path)
+	rep, err := runVeraPDF("1b", path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -634,10 +628,10 @@ func clauseSetMatches(got, want map[string]bool) (match bool, onlyGot, onlyWant 
 }
 
 // clauseSetHas reports whether set contains a clause matching c under
-// clauseMatches.
+// corpustest.ClauseMatches.
 func clauseSetHas(set map[string]bool, c string) bool {
 	for s := range set {
-		if clauseMatches(s, c) {
+		if corpustest.ClauseMatches(s, c) {
 			return true
 		}
 	}
@@ -842,11 +836,12 @@ func (r *realWorldReporter) flush(t *testing.T) {
 	t.Logf("wrote %d records to %s", len(r.records), r.path)
 }
 
-// distinctIssueClauses is issueClauses deduped and sorted: a real-world file
-// can report the same clause on dozens of objects, and triage groups by clause.
+// distinctIssueClauses is the issues' PDF/A-1b clauses, deduped and sorted: a
+// real-world file can report the same clause on dozens of objects, and triage
+// groups by clause.
 func distinctIssueClauses(issues []PDFError) []string {
 	set := make(map[string]bool, len(issues))
-	for _, c := range issueClauses(issues) {
+	for _, c := range corpustest.Clauses(issues, pdf.A1B) {
 		set[c] = true
 	}
 	return sortedClauses(set)
@@ -1054,7 +1049,7 @@ func (v *veraSample) crossCheck(t *testing.T) {
 	sort.Strings(args)
 
 	start := time.Now()
-	rep, err := runVeraPDF(args...)
+	rep, err := runVeraPDF("1b", args...)
 	if err != nil {
 		t.Errorf("veraPDF cross-check: %v", err)
 		return

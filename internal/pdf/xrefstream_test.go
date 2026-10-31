@@ -7,29 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/corpustest"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/verify"
 )
-
-// clauseMatches reports whether a reported clause satisfies the expected clause.
-func clauseMatches(got, expected string) bool {
-	if got == expected {
-		return true
-	}
-	return strings.HasPrefix(got+".", expected+".") ||
-		strings.HasPrefix(expected+".", got+".")
-}
-
-func issueClauses(issues []pdf.PDFError) []string {
-	out := make([]string, 0, len(issues))
-	for _, iss := range issues {
-		out = append(out, iss.Check().Clause())
-	}
-	return out
-}
 
 // pdfBuilder assembles a minimal hand-crafted PDF byte-for-byte, tracking the
 // byte offset of each indirect object as it is written, so a cross-reference
@@ -238,14 +221,8 @@ func TestXRefStreamOnly(t *testing.T) {
 	if res.Valid {
 		t.Fatalf("expected a cross-reference-stream-only file to be flagged non-conformant (6.1.4)")
 	}
-	foundXRefClause := false
-	for _, iss := range res.Issues {
-		if clauseMatches(iss.Check().Clause(), "6.1.4") {
-			foundXRefClause = true
-		}
-	}
-	if !foundXRefClause {
-		t.Errorf("expected a 6.1.4 issue among %v", issueClauses(res.Issues))
+	if !corpustest.AnyMatches(res.Issues, pdf.A1B, "6.1.4") {
+		t.Errorf("expected a 6.1.4 issue among %v", corpustest.Clauses(res.Issues, pdf.A1B))
 	}
 }
 
