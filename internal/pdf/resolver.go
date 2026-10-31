@@ -152,24 +152,56 @@ func (d *Reader) parseClassicReference(ref PDFRef, offset int64) (PDFValue, erro
 	return v, nil
 }
 
-func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error) {
+// parseClassicAt reads the indirect object ref at a classic byte offset,
+// recording its framing diagnostics and decrypting it.
+func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (PDFValue, error) {
+	v, _, err := d.readObjectAt(offset, ref.ObjNum, false)
+	return v, err
+}
+
+// parseBootstrapAt reads the indirect object at offset before the
+// cross-reference table exists: a cross-reference stream. Whatever object
+// number its header declares is accepted, its /Length must be a direct
+// integer (ISO 32000-1 7.5.8.2), since nothing can be resolved yet, and it
+// leaves no diagnostics: the object is checked again when it is resolved
+// through the table.
+func (d *Reader) parseBootstrapAt(offset int64) (PDFValue, error) {
+	mark := len(d.parseDiagnostics)
+	v, objNum, err := d.readObjectAt(offset, -1, true)
+	d.discardObjDiagnostics(mark, objNum)
+	return v, err
+}
+
+// readObjectAt reads the indirect object "N G obj <object> [stream ...]
+// endobj" at offset and returns it with its declared object number. Unless
+// bootstrap is set, the header must declare objNum, and the value is
+// decrypted and, if a dictionary, carries its reference.
+func (d *Reader) readObjectAt(offset int64, objNum int, bootstrap bool) (_ PDFValue, _ int, err error) {
 	if offset < 0 {
-		return nil, fmt.Errorf("object %d: negative offset %d", ref.ObjNum, offset)
+		return nil, objNum, fmt.Errorf("object %d: negative offset %d", objNum, offset)
 	}
 	l := d.src.lexer(offset)
 	defer func() {
 		// If the lexer hit a failed read, report that error instead of the
 		// parse error it caused.
 		if err != nil && l.err != nil {
-			err = fmt.Errorf("object %d: %w", ref.ObjNum, l.err)
+			err = fmt.Errorf("object %d: %w", objNum, l.err)
 		}
 	}()
 
 	headerNum, headerErrs := l.validateObjectStart()
-	d.recordFraming(ref.ObjNum, headerErrs)
-	if headerNum >= 0 && headerNum != ref.ObjNum {
-		return nil, fmt.Errorf("%w: found object %d", errWrongObjectHeader, headerNum)
+	if bootstrap {
+		if headerNum < 0 {
+			return nil, objNum, fmt.Errorf("no object header at offset %d: %w", offset, errors.Join(headerErrs...))
+		}
+		objNum = headerNum
 	}
+	d.recordFraming(objNum, headerErrs)
+	if headerNum >= 0 && headerNum != objNum {
+		return nil, objNum, fmt.Errorf("%w: found object %d", errWrongObjectHeader, headerNum)
+	}
+	ref := PDFRef{ObjNum: objNum}
+	decrypt := !bootstrap && d.shouldDecrypt(ref)
 
 	t := l.NextToken()
 
@@ -177,21 +209,23 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error
 	// parseScalarToken); an object body only adds decryption on top.
 	if v, ok, err := parseScalarToken(t); ok {
 		if err != nil {
-			return nil, err
+			return nil, objNum, err
 		}
-		if d.shouldDecrypt(ref) {
+		if decrypt {
 			v = d.decryptStrings(v, ref)
 		}
-		return v, nil
+		return v, objNum, nil
 	}
 
 	switch t.Type {
 	case TokenDictStart:
 		m, err := parseDictionary(l)
 		if err != nil {
-			return nil, err
+			return nil, objNum, err
 		}
-		m.SetRef(ref)
+		if !bootstrap {
+			m.SetRef(ref)
+		}
 
 		// 6.1.8: capture EOL/whitespace right after '>>' before NextToken swallows it;
 		// only used if next token is 'endobj'. Skipped when l.pushed is non-empty, since
@@ -210,18 +244,22 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error
 		switch next.Type {
 		case TokenStreamStart:
 			m.SetStream(nil)
-			err := d.validateStream(l, &m, ref.ObjNum)
-			if err != nil {
-				return nil, err
+			if bootstrap {
+				if _, ok := m.Entries.Get("Length").(PDFInteger); !ok {
+					return nil, objNum, fmt.Errorf("object %d: stream /Length must be a direct integer for bootstrap parsing", objNum)
+				}
 			}
-			d.recordFraming(ref.ObjNum, l.validateEndObj())
-			if d.shouldDecrypt(ref) {
+			if err := d.validateStream(l, &m, objNum); err != nil {
+				return nil, objNum, err
+			}
+			d.recordFraming(objNum, l.validateEndObj())
+			if decrypt {
 				if err := d.decryptStream(&m, ref); err != nil {
-					return nil, err
+					return nil, objNum, err
 				}
 				d.decryptStrings(m, ref)
 			}
-			return m, nil
+			return m, objNum, nil
 		case TokenObjectEnd:
 			var errs []error
 			if preEOLErr != nil {
@@ -231,32 +269,32 @@ func (d *Reader) parseClassicAt(ref PDFRef, offset int64) (_ PDFValue, err error
 				errs = append(errs, fmt.Errorf("white space before endobj keyword"))
 			}
 			errs = append(errs, l.validateObjectEnd()...)
-			d.recordFraming(ref.ObjNum, errs)
+			d.recordFraming(objNum, errs)
 		default:
 			l.UnreadToken(next)
 		}
 
-		if d.shouldDecrypt(ref) {
+		if decrypt {
 			d.decryptStrings(m, ref)
 		}
-		return m, nil
+		return m, objNum, nil
 
 	case TokenArrayStart:
 		arr, err := parseArray(l)
 		if err != nil {
-			return nil, err
+			return nil, objNum, err
 		}
-		if d.shouldDecrypt(ref) {
+		if decrypt {
 			d.decryptStrings(arr, ref)
 		}
-		return arr, nil
+		return arr, objNum, nil
 
 	// An object body is a value, not a reference chain, so a leading integer is
 	// just an integer -- no "N G R" lookahead, unlike parseObject.
 	case TokenInteger:
-		return PDFInteger(t.IntValue()), nil
+		return PDFInteger(t.IntValue()), objNum, nil
 
 	default:
-		return nil, fmt.Errorf("unexpected token %v in object %d", t.Type, ref.ObjNum)
+		return nil, objNum, fmt.Errorf("unexpected token %v in object %d", t.Type, objNum)
 	}
 }

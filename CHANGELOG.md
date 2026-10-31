@@ -100,6 +100,9 @@ notice.
   resource-renaming repairs missed what it names.
 - An issue after a link annotation was attributed to the link's destination
   page, so the raster fallback could rasterize the wrong page.
+- A cross-reference stream whose /Length is wrong is read up to its
+  endstream keyword, as other streams are, instead of being discarded so
+  the object table had to be rebuilt by scanning the file.
 - When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
   the last fix pass had already repaired.
 - An image claiming a size its data does not back could make the raster

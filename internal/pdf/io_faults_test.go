@@ -59,16 +59,10 @@ func TestStreamBodyReadFailure(t *testing.T) {
 	}
 }
 
-func TestXRefStreamBodyReadFailure(t *testing.T) {
+func TestXRefStreamReadFailure(t *testing.T) {
 	src := newFaulty(streamObj)
-	// ReadAt calls: 1 = the lexer's window, 2 = read the body.
-	src.failReadAt = func(n int) bool { return n == 2 }
-	if _, _, err := parseIndirectObjectAt(&source{file: src, size: int64(src.Len())}, 0); !errors.Is(err, errInjected) {
-		t.Errorf("err = %v, want the injected ReadAt failure", err)
-	}
-	src = newFaulty(streamObj)
 	src.failReadAt = func(int) bool { return true }
-	if _, _, err := parseIndirectObjectAt(&source{file: src, size: int64(src.Len())}, 0); !errors.Is(err, errInjected) {
+	if _, err := faultyReader(src).tryParseXRefStream(0, false); !errors.Is(err, errInjected) {
 		t.Errorf("err = %v, want the injected failure to read the object", err)
 	}
 }
