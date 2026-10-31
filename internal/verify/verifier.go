@@ -1431,8 +1431,8 @@ func verifyOptionalContent(d *pdf.Reader, spec pdfa.Spec) []pdf.PDFError {
 
 // 6.2 Graphics
 
-// describeObject names v for a message: an indirect object by its reference,
-// anything else as direct.
+// describeObject returns how v is named in a message. An indirect object is
+// named by its reference; any other value is described as a direct object.
 func describeObject(v pdf.PDFValue) string {
 	if d, ok := v.(pdf.PDFDict); ok {
 		if r, ok := d.Ref(); ok {

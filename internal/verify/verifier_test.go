@@ -2517,9 +2517,10 @@ func TestOutputIntentDifferingProfilesReported(t *testing.T) {
 	}
 }
 
-// TestOutputIntentMessages pins the wording of the 6.2.2 findings: a wrong
-// or mistyped /S names the value, and differing profiles are named by their
-// references, never by printing the profile streams.
+// TestOutputIntentMessages verifies the messages of the 6.2.2 findings. A /S
+// that is not a name is reported as such, a wrong /S names the value found,
+// and differing profiles are named by their references rather than printed
+// as stream data.
 func TestOutputIntentMessages(t *testing.T) {
 	intent := func(s pdf.PDFValue, profile pdf.PDFDict) pdf.PDFDict {
 		d := pdf.NewPDFDict()
