@@ -29,8 +29,8 @@ func TestParseReferenceDanglingScan(t *testing.T) {
 	})
 }
 
-// TestParseClassicReferenceFileBacked covers the d.data == nil path, which
-// reads the object through d.file instead of aliasing an in-memory slice.
+// TestParseClassicReferenceFileBacked covers the src.mem == nil path, which
+// reads the object through d.file instead of aliasing the in-memory file.
 func TestParseClassicReferenceFileBacked(t *testing.T) {
 	data := []byte("5 0 obj\n<< /Foo 1 >>\nendobj\n")
 	r := newTestFileReader(data)

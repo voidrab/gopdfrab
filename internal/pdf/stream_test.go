@@ -32,7 +32,7 @@ func TestConsumeStreamEOL(t *testing.T) {
 	}
 }
 
-// TestWindowAt covers the negative-offset guard, the in-memory (d.data)
+// TestWindowAt covers the negative-offset guard, the in-memory (src.mem)
 // path (including past-EOF), and the file-backed fallback path.
 func TestWindowAt(t *testing.T) {
 	data := []byte("0123456789")

@@ -759,7 +759,7 @@ func TestFindAndLoadFirstPageTrailerBranches(t *testing.T) {
 	}
 }
 
-// TestFullBytes covers both branches: the in-memory d.data shortcut and the
+// TestFullBytes covers both branches: the in-memory src.mem shortcut and the
 // file-backed read, including its error path.
 func TestFullBytes(t *testing.T) {
 	r := &Reader{src: memSource([]byte("in-memory"))}

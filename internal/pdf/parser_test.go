@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-// newTestFileReader builds a bare Reader over in-memory bytes, bypassing
-// Open/OpenBytes's structure parsing so ParseXRefSectionAt can be driven
-// directly against hand-crafted xref sections at a known offset.
+// newTestFileReader builds a bare Reader that reads data through a file source
+// (src.mem is nil), bypassing Open/OpenBytes's structure parsing so
+// ParseXRefSectionAt can be driven directly against hand-crafted xref sections
+// at a known offset.
 func newTestFileReader(data []byte) *Reader {
 	return &Reader{file: bytesFileSource{bytes.NewReader(data)}, src: source{file: bytesFileSource{bytes.NewReader(data)}, size: int64(len(data))}, xrefTable: map[int]int64{}}
 }

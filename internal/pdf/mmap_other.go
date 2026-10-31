@@ -5,7 +5,7 @@ package pdf
 import "os"
 
 // mmapFile returns nil on non-unix platforms (notably Windows), so the Reader's
-// data slice stays nil and parsing falls back to the incremental seek/ReadAt
+// src.mem stays nil and parsing falls back to the incremental seek/ReadAt
 // path (NewLexerAt). That path is behaviourally identical to the byte-slice one
 // -- exercised on any OS via OpenBytesSeek and the seek-parity tests -- but does
 // not get mmap's OS-managed paging, so the larger-than-RAM guarantee is

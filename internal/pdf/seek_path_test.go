@@ -34,7 +34,7 @@ func openSeekFile(t *testing.T, data []byte) *Reader {
 }
 
 // TestSeekPathParsesLikeBytes pins the Windows read path at the parse layer:
-// with d.data == nil (parsing via NewLexerAt over the file source) resolution
+// with src.mem == nil (parsing via NewLexerAt over the file source) resolution
 // must succeed or fail exactly as the byte-slice path does and expose the same
 // full bytes, driven from both an in-memory source (OpenBytesSeek) and a real
 // *os.File, on clean, generated, and damaged inputs. The damaged case exercises
