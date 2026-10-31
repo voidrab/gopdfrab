@@ -163,8 +163,8 @@ func (f actionFixer) prepare(_ *pdf.PDFDict, issues []pdf.PDFError, changed *boo
 	ac := pdf.Checks.Action
 	forbidden, named := reported[ac.ForbiddenActionType], reported[ac.DisallowedNamedAction]
 	additional := reported[ac.AdditionalActions]
-	// The named actions this pass emptied: their owners are dead too, even
-	// when the forbidden types were not reported.
+	// An owner whose named action this pass emptied loses its entry too,
+	// even when the forbidden types were not reported.
 	cleared := map[uintptr]bool{}
 	return func(d pdf.PDFDict) {
 		if _, ok := d.Entries.Lookup("AA"); ok && additional {

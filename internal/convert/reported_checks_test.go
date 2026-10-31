@@ -168,8 +168,9 @@ func TestContentLimitsFixerRepairsOnlyReportedChecks(t *testing.T) {
 	}
 }
 
-// pairFixer covers two checks and records every call, the shape of a fixer
-// like extGStateFixer that one registration hands several checks.
+// pairFixer covers two checks and records every call. It stands in for a
+// fixer such as extGStateFixer, which one registration covers with several
+// checks.
 type pairFixer struct {
 	a, b  pdf.Check
 	calls *[][]pdf.PDFError
@@ -297,16 +298,19 @@ func TestAnnotationFlagsFixerRepairsOnlyReportedChecks(t *testing.T) {
 	}
 }
 
-// repairProbe reports whether one repair of a fixer was made on a fixture.
+// repairProbe is one repair of a fixer, as checked by
+// assertRepairsOnlyReported. check is the rule that reports it, and repaired
+// reports whether the repair was made.
 type repairProbe struct {
 	check    pdf.Check
 	what     string
 	repaired func() bool
 }
 
-// assertRepairsOnlyReported runs fix once per probe on a fresh fixture that
-// breaks every rule, with only that probe's check reported, and verifies that
-// exactly the probes of that check were repaired.
+// assertRepairsOnlyReported runs Fix once for each distinct check among the
+// probes. Each run uses a fresh fixture that breaks every rule and reports only
+// that check, and verifies that exactly the probes of that check were
+// repaired.
 func assertRepairsOnlyReported(t *testing.T, fixture func() (pdf.PDFDict, graphFixer, []repairProbe)) {
 	t.Helper()
 	_, _, probes := fixture()
