@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -20,13 +21,23 @@ func TestDisallowedAnnotFixer(t *testing.T) {
 		"Type": pdf.PDFName{Value: "Annot"}, "Subtype": pdf.PDFName{Value: "Movie"},
 		"Rect": pdf.PDFArray{},
 	})}
+	annot.SetRef(pdf.PDFRef{ObjNum: 5})
 	trailer := trailerWith("Annot0", annot)
-	changed, err := disallowedAnnotFixer{spec: a1bSpec}.Fix(&trailer, nil)
+	var lost []pdf.PDFError
+	changed, err := disallowedAnnotFixer{spec: a1bSpec, lost: &lost}.Fix(&trailer, nil)
 	if err != nil || !changed {
 		t.Fatalf("disallowedAnnotFixer.Fix = %v, %v", changed, err)
 	}
 	if _, ok := annot.Entries.Lookup("Subtype"); ok {
 		t.Error("disallowed annotation not cleared")
+	}
+	if len(lost) != 1 {
+		t.Fatalf("lost = %v, want one record for the cleared annotation", lost)
+	}
+	if ref, ok := lost[0].ObjectRef(); !ok || ref.ObjNum != 5 ||
+		lost[0].Check() != pdf.Checks.Annotation.DisallowedSubtype ||
+		!slices.Equal(lost[0].Messages(), []string{"Movie annotation removed"}) {
+		t.Errorf("lost[0] = %v, want object 5's Movie annotation under DisallowedSubtype", lost[0])
 	}
 }
 
@@ -157,5 +168,43 @@ func TestAnnotColourFixerCmykAndGrayModels(t *testing.T) {
 	}
 	if _, ok := rgb.Entries.Lookup("C"); ok {
 		t.Error("uncovered rgb /C kept")
+	}
+}
+
+// TestDisallowedAnnotFixerNamesAttachedFile verifies that clearing a file
+// attachment reports the embedded file removed with it.
+func TestDisallowedAnnotFixerNamesAttachedFile(t *testing.T) {
+	fs := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"F":  pdf.PDFString{Value: "notes.txt"},
+		"EF": pdf.PDFDict{Entries: pdf.NewDict()},
+	})}
+	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Annot"}, "Subtype": pdf.PDFName{Value: "FileAttachment"}, "FS": fs,
+	})}
+	trailer := trailerWith("Annot0", annot)
+	var lost []pdf.PDFError
+	if _, err := (disallowedAnnotFixer{spec: a1bSpec, lost: &lost}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	want := []string{`FileAttachment annotation removed with its embedded file "notes.txt"`}
+	if len(lost) != 1 || !slices.Equal(lost[0].Messages(), want) {
+		t.Errorf("lost = %v, want %q", lost, want)
+	}
+	if _, ok := lost[0].ObjectRef(); ok {
+		t.Error("a direct annotation was reported with an object reference")
+	}
+}
+
+// TestDisallowedAnnotFixerUntypedAnnotation verifies the report for an
+// annotation that has no Subtype entry to name it by.
+func TestDisallowedAnnotFixerUntypedAnnotation(t *testing.T) {
+	annot := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"Type": pdf.PDFName{Value: "Annot"}})}
+	trailer := trailerWith("Annot0", annot)
+	var lost []pdf.PDFError
+	if _, err := (disallowedAnnotFixer{spec: a1bSpec, lost: &lost}).Fix(&trailer, nil); err != nil {
+		t.Fatalf("Fix: %v", err)
+	}
+	if len(lost) != 1 || !slices.Equal(lost[0].Messages(), []string{"annotation removed"}) {
+		t.Errorf("lost = %v, want one \"annotation removed\" record", lost)
 	}
 }

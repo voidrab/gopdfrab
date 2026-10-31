@@ -131,7 +131,7 @@ var standardRepairs = repairs{
 	// structure tree reaches Pages nodes through Pg references).
 	postWalk: []preemptiveFixup{dropOversizedStructureFixup},
 	fixers: []func(r *fixerRun) Fixer{
-		func(r *fixerRun) Fixer { return disallowedAnnotFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return disallowedAnnotFixer{spec: r.spec, lost: r.lost} },
 		func(r *fixerRun) Fixer { return annotColourFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return appearanceFixer{fontSrc: r.fontSrc, spec: r.spec} },
 		func(r *fixerRun) Fixer { return iccBasedProfileFixer{spec: r.spec} },
@@ -148,7 +148,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return postScriptXObjectFixer{} },
 		func(r *fixerRun) Fixer { return optionalContentFixer{} },
 		func(r *fixerRun) Fixer { return viewerPrefFixer{spec: r.spec} },
-		func(r *fixerRun) Fixer { return fileSpecFixer{} },
+		func(r *fixerRun) Fixer { return fileSpecFixer{lost: r.lost} },
 		func(r *fixerRun) Fixer { return fontDictFixer{} },
 		func(r *fixerRun) Fixer { return type0FontFixer{} },
 		func(r *fixerRun) Fixer { return baseFontFixer{} },

@@ -67,6 +67,8 @@ notice.
 
 ### Fixed
 
+- Convert removed embedded files and forbidden annotations, file attachments
+  among them, without listing them in `LostObjects`.
 - `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
   (`pdfaid` XMP, `GTS_PDFA1` OutputIntent, font repairs) without a PDF/A check.
 - A violation repeated throughout a content stream is reported once per check,
