@@ -210,8 +210,8 @@ func (t *transparencyScan) stream(s, resources pdf.PDFDict, state alphaState, de
 	return found
 }
 
-// walkContent does the scan of one content stream that stream guards against
-// cycles and repeats.
+// walkContent scans the content of one stream. stream calls it, and handles
+// cycles and repeated scans.
 func (t *transparencyScan) walkContent(s, resources pdf.PDFDict, state alphaState, depth int) bool {
 	found := false
 	var calls []paintCall

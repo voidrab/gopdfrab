@@ -85,7 +85,9 @@ func TestICCSpacesShareOneSpacePerModel(t *testing.T) {
 }
 
 func TestBlendingSpaceFixer(t *testing.T) {
-	group := func(cs string) pdf.PDFDict { return kv("S", nm("Transparency"), "I", pdf.PDFBoolean(true), "CS", nm(cs)) }
+	group := func(cs string) pdf.PDFDict {
+		return kv("S", nm("Transparency"), "I", pdf.PDFBoolean(true), "CS", nm(cs))
+	}
 	intent := func(n int) pdf.PDFArray {
 		return pdf.PDFArray{kv("S", nm("GTS_PDFA1"), "DestOutputProfile", kv("N", pdf.PDFInteger(n)))}
 	}
