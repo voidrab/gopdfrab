@@ -4,8 +4,9 @@ import (
 	"testing"
 )
 
-// TestConsumeStreamEOL covers the LF, CRLF, bare-CR, stray-bytes-before-EOL,
-// and EOF-with-no-EOL paths, and that the stream data starts after the EOL.
+// TestConsumeStreamEOL verifies the result of consumeStreamEOL for LF, CRLF,
+// a bare CR, stray bytes before the LF, and input with no EOL. It also checks
+// that the lexer is left at the stream data.
 func TestConsumeStreamEOL(t *testing.T) {
 	tests := []struct {
 		name string

@@ -123,10 +123,10 @@ func (d *Reader) trimTrailingEOL(start, kwPos int64) int64 {
 	return kwPos
 }
 
-// consumeStreamEOL advances the lexer past the EOL following the 'stream'
-// keyword. It reports whether that EOL is other than CRLF or a single LF
-// (6.1.7): non-EOL bytes before the line break, or a lone CR. The stream data
-// starts after a lone CR all the same.
+// consumeStreamEOL advances the lexer past the EOL that follows the 'stream'
+// keyword. It reports whether that line break is malformed under 6.1.7: other
+// bytes precede it, or it is a lone CR. The lexer is left at the first byte
+// after the EOL, or at end of input.
 func (d *Reader) consumeStreamEOL(l *Lexer) bool {
 	bad := false
 	for {
