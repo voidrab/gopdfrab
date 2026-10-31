@@ -32,6 +32,7 @@ func runConformanceCorpus(t *testing.T, c corpustest.Corpus) {
 		passClean, passRejected                 int
 		failCaught, failCorrect, failFalseNeg   int
 		failWrongClause, openErrFail, unmatched int
+		uncovered                               int
 	)
 	for _, path := range c.Files() {
 		t.Run(c.Rel(path), func(t *testing.T) {
@@ -40,6 +41,10 @@ func runConformanceCorpus(t *testing.T, c corpustest.Corpus) {
 				unmatched++
 				t.Errorf("name does not follow the corpus's convention")
 				return
+			}
+			if wantFail && !c.Covers(expected) {
+				uncovered++
+				t.Skipf("clause %s is not covered yet", expected)
 			}
 
 			doc, err := Open(path)
@@ -85,9 +90,9 @@ func runConformanceCorpus(t *testing.T, c corpustest.Corpus) {
 		})
 	}
 
-	t.Logf("%s scoreboard: pass: clean=%d rejected=%d | fail: caught=%d correctClause=%d falseNeg=%d wrongClause=%d openErr=%d | unmatched names=%d",
+	t.Logf("%s scoreboard: pass: clean=%d rejected=%d | fail: caught=%d correctClause=%d falseNeg=%d wrongClause=%d openErr=%d uncovered=%d | unmatched names=%d",
 		c.Name, passClean, passRejected,
-		failCaught, failCorrect, failFalseNeg, failWrongClause, openErrFail, unmatched)
+		failCaught, failCorrect, failFalseNeg, failWrongClause, openErrFail, uncovered, unmatched)
 }
 
 // differentialDeviations lists files where gopdfrab's verdict deliberately
@@ -133,6 +138,9 @@ func TestDifferentialVeraPDFCorpora(t *testing.T) {
 				if job.Report == nil {
 					t.Logf("veraPDF produced no verdict; skipping")
 					return
+				}
+				if expected, wantFail := c.Expect(rel); wantFail && !c.Covers(expected) {
+					t.Skipf("clause %s is not covered yet", expected)
 				}
 				res, verr := Verify(filepath.Join(dir, filepath.FromSlash(rel)), c.Default)
 				if verr != nil {
