@@ -77,7 +77,16 @@ func TestCheckMatchesIsLevelAware(t *testing.T) {
 }
 
 func TestCorpusFiles(t *testing.T) {
-	dir := t.TempDir()
+	// Corpus.Dir is relative to the repository root, so the fixture corpus
+	// has to sit under it: t.TempDir can be on another drive on Windows.
+	dir, err := os.MkdirTemp(".", "testcorpus-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if dir, err = filepath.Abs(dir); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"b/x.PDF", "a.pdf", "notes.txt", "6-1-2-t01-fail-a.pdf", "6-1-3-t01-pass-a.pdf"} {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
