@@ -89,7 +89,7 @@ func TestRenderInlineImageRGB(t *testing.T) {
 	}
 	content := "q 20 0 0 20 0 0 cm BI /W 2 /H 2 /CS /RGB /BPC 8 ID " + string(samples) + " EI Q"
 
-	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestRenderInlineImageStencilMask(t *testing.T) {
 	// One 1-bit sample, value 0: opaque under the default /Decode [0 1].
 	content := "q 0 1 0 rg 20 0 0 20 0 0 cm BI /IM true /W 1 /H 1 /BPC 1 ID \x00 EI Q"
 
-	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestRenderInlineImageUndecodableDrops(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, drops, err := RenderPage(inlineImagePage(tc.content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+			_, drops, err := RenderPage(inlineImagePage(tc.content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -165,7 +165,7 @@ func TestRenderStrayInlineImageOperatorDrops(t *testing.T) {
 		"plain operands":  "1 2 INLINEIMAGE",
 		"inside a q pair": "q 5 INLINEIMAGE Q",
 	} {
-		_, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+		_, drops, err := RenderPage(inlineImagePage(content), pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 		if err != nil {
 			t.Fatalf("%s: RenderPage: %v", name, err)
 		}

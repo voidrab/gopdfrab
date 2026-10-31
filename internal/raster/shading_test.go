@@ -118,7 +118,7 @@ func renderShadingContent(t *testing.T, sh pdf.PDFValue, content string) (*image
 			"GSNone": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"ca": pdf.PDFReal(0)})},
 		})},
 	})}
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

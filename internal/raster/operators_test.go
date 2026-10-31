@@ -17,7 +17,7 @@ func renderSized(t *testing.T, w, h float64, content string, resources pdf.PDFDi
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
-	canvas, drops, err := RenderPage(page, resources, [4]float64{0, 0, w, h}, 72)
+	canvas, drops, err := RenderPage(page, resources, [4]float64{0, 0, w, h}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

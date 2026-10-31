@@ -21,12 +21,13 @@ import (
 // (gs ExtGState ca/CA), Form/Image XObjects (Do, recursing into Forms and
 // compositing Images including their own /SMask), and text (BT/ET/Tf/Td/TD/
 // Tm/T*/Tj/TJ/'/"). Clipping (W/W*) is approximated as a bounding box.
-func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) (*image.RGBA, []string, error) {
+// Content that oc hides is not drawn; a nil oc hides nothing.
+func RenderPage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int, oc *content.OptionalContent) (*image.RGBA, []string, error) {
 	src, err := PageContentBytes(page)
 	if err != nil {
 		return nil, nil, err
 	}
-	return renderContent(src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop)
+	return renderContent(src, resources, mediaBox, dpi, InheritedPaint{}, paperBackdrop, oc)
 }
 
 // RenderFormContent rasterizes a Form XObject's own /BBox + content in
@@ -48,7 +49,7 @@ func RenderFormContent(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inherit
 	// A form is drawn onto whatever the page already has, so it renders on
 	// nothing: what its content does not paint stays unpainted, and the caller
 	// keeps that as the mask of what it may cover.
-	canvas, drops, err := renderContent(src, resources, box, dpi, inherited, clearBackdrop)
+	canvas, drops, err := renderContent(src, resources, box, dpi, inherited, clearBackdrop, nil)
 	return canvas, box, drops, err
 }
 
@@ -73,7 +74,7 @@ const (
 // renderContent is the shared core behind RenderPage and RenderFormContent:
 // it rasterizes content into a fresh canvas sized from bounds (a user-space
 // rect) at dpi, then runs the graphics-state machine over it.
-func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop) (*image.RGBA, []string, error) {
+func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int, inherited InheritedPaint, bd backdrop, oc *content.OptionalContent) (*image.RGBA, []string, error) {
 	dpi = dpiWithin(bounds, dpi)
 	width := int(math.Ceil((bounds[2] - bounds[0]) * float64(dpi) / 72))
 	height := int(math.Ceil((bounds[3] - bounds[1]) * float64(dpi) / 72))
@@ -104,7 +105,7 @@ func renderContent(src []byte, resources pdf.PDFDict, bounds [4]float64, dpi int
 	if inherited.Set {
 		gs.Fill.RGB, gs.Stroke.RGB = inherited.Fill, inherited.Stroke
 	}
-	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base}
+	r := &renderer{canvas: canvas, fontCache: map[uintptr]*fontInfo{}, patternBase: base, oc: oc}
 	r.execContent(src, resources, gs)
 	return canvas, sortedDrops(r.dropped), nil
 }
@@ -190,6 +191,8 @@ type renderer struct {
 	// dropped records content features the rasterizer cannot draw (and so
 	// silently omits from the flattened image), keyed by a human name.
 	dropped map[string]bool
+	// oc hides the optional content the document turns off.
+	oc *content.OptionalContent
 }
 
 // raster-drop feature names, reported so a rasterized conversion does not
@@ -285,6 +288,7 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 	var path pathBuilder
 	pendingClip := false
 	pendingClipEvenOdd := false
+	marked := content.NewMarkedContent(r.oc)
 
 	applyPendingClip := func() {
 		if !pendingClip {
@@ -310,6 +314,22 @@ func (r *renderer) execContent(data []byte, resources pdf.PDFDict, gs renderStat
 				out[i], _ = pdf.PDFNumberToFloat(v)
 			}
 			return out
+		}
+
+		// Hidden content still changes the graphics state, sets the clip and
+		// moves the text position; it only marks nothing.
+		marked.Step(op, operands, resources)
+		if marked.Hidden() {
+			switch op {
+			case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*":
+				op = "n"
+			case "sh", "INLINEIMAGE", "Do":
+				return
+			case "Tj", "'", "\"", "TJ":
+				mode := gs.renderMode
+				gs.renderMode = 3
+				defer func() { gs.renderMode = mode }()
+			}
 		}
 
 		switch op {
@@ -556,7 +576,7 @@ func (r *renderer) doXObject(operands []pdf.PDFValue, resources pdf.PDFDict, gs 
 	}
 	xobjects, _ := resources.Entries.Get("XObject").(pdf.PDFDict)
 	xobj, ok := xobjects.Entries.Get(name.Value).(pdf.PDFDict)
-	if !ok || !xobj.IsStream() {
+	if !ok || !xobj.IsStream() || r.oc.Hides(xobj.Entries.Get("OC")) {
 		return
 	}
 	subtype, _ := xobj.Entries.Get("Subtype").(pdf.PDFName)

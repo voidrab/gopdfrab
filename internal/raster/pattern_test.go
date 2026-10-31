@@ -31,7 +31,7 @@ func renderPattern(t *testing.T, content string, pattern pdf.PDFValue) (*image.R
 	resources := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Pattern": pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{"P1": pattern})},
 	})}
-	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}

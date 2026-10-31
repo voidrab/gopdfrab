@@ -767,7 +767,9 @@ func flattenFormToImage(form pdf.PDFDict, resources pdf.PDFDict, dpi int, inheri
 // an unsupported image codec) leaves page untouched, reporting no change
 // rather than erroring the whole Convert.
 func flattenPageToImage(page pdf.PDFDict, resources pdf.PDFDict, mediaBox [4]float64, dpi int) ([]string, bool) {
-	canvas, drops, err := raster.RenderPage(page, resources, mediaBox, dpi)
+	// The optional content fixer (6.1.13) runs before this flattener (6.4)
+	// and removes the hidden layers, so no optional content is passed.
+	canvas, drops, err := raster.RenderPage(page, resources, mediaBox, dpi, nil)
 	if err != nil {
 		return nil, false
 	}

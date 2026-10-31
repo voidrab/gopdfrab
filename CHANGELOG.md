@@ -69,6 +69,10 @@ notice.
 
 - Convert removed embedded files and forbidden annotations, file attachments
   among them, without listing them in `LostObjects`.
+- Removing `/OCProperties` made the optional content layers that a document
+  turns off visible in the output. Their content is now removed and listed in
+  `LostObjects`, and the fidelity gate renders the input with those layers
+  hidden.
 - `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
   (`pdfaid` XMP, `GTS_PDFA1` OutputIntent, font repairs) without a PDF/A check.
 - A violation repeated throughout a content stream is reported once per check,

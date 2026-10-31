@@ -18,7 +18,7 @@ func TestRasterReportsShading(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("q /Sh1 sh Q")),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestRasterDrawsInlineImage(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
-	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	img, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestRasterCleanPageReportsNothing(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte("1 0 0 rg 5 5 10 10 re f")),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestRasterReportsPlaceholderImage(t *testing.T) {
 				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
 				"Filter": pdf.PDFName{Value: filter},
 			}, []byte{0}))
-			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -119,7 +119,7 @@ func TestRasterPlaceholderMaskIsLeftOff(t *testing.T) {
 				"BitsPerComponent": pdf.PDFInteger(8), "ColorSpace": pdf.PDFName{Value: "DeviceGray"},
 				key: jbig2,
 			}, []byte{0}))
-			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72)
+			img, drops, err := RenderPage(page, resources, [4]float64{0, 0, 20, 20}, 72, nil)
 			if err != nil {
 				t.Fatalf("RenderPage: %v", err)
 			}
@@ -141,7 +141,7 @@ func TestRasterReportsPlaceholderInlineImage(t *testing.T) {
 	page := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"Contents": pdf.NewStreamDict(nil, []byte(content)),
 	})}
-	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72)
+	_, drops, err := RenderPage(page, pdf.PDFDict{}, [4]float64{0, 0, 20, 20}, 72, nil)
 	if err != nil {
 		t.Fatalf("RenderPage: %v", err)
 	}
