@@ -11,7 +11,7 @@ type clauseRef struct {
 // part2Clauses numbers, by check name, the checks that are rules of ISO 19005-2
 // too. The subclause is the test number veraPDF gives the rule, so several
 // checks that together enforce one veraPDF rule share its number; a check with
-// no veraPDF counterpart has subclause 0. A check missing here is no rule of
+// no veraPDF counterpart, or one that enforces several, has subclause 0. A check missing here is no rule of
 // the Part 2 levels.
 var part2Clauses = map[string]clauseRef{
 	// 6.1.2 File header.
@@ -63,4 +63,44 @@ var part2Clauses = map[string]clauseRef{
 	"DeviceNColorants":        {"6.1.13", 9, "DeviceN colour spaces must not exceed 32 colorants"},
 	"CMapCIDOutOfRange":       {"6.1.13", 10, ""},
 	"PageBoundarySize":        {"6.1.13", 11, ""},
+	// 6.2.2 Content streams.
+	"UndefinedOperator":  {"6.2.2", 1, "Content streams must not use operators not defined in ISO 32000-1, even between BX and EX"},
+	"RenderingIntent":    {"6.2.2", 0, ""},
+	"InheritedResources": {"6.2.2", 2, ""},
+	// 6.2.3 Output intent.
+	"OutputIntentNotArray":             {"6.2.3", 0, ""},
+	"OutputIntentNotDict":              {"6.2.3", 0, ""},
+	"OutputIntentInvalidS":             {"6.2.3", 0, ""},
+	"OutputIntentMissingIdentifier":    {"6.2.3", 0, ""},
+	"OutputIntentUnresolvedProfile":    {"6.2.3", 0, ""},
+	"DeviceColourWithoutPDFAIntent":    {"6.2.3", 0, ""},
+	"OutputIntentInvalidProfile":       {"6.2.3", 1, ""},
+	"OutputIntentMissingN":             {"6.2.3", 1, ""},
+	"OutputIntentInvalidN":             {"6.2.3", 1, ""},
+	"OutputIntentICCVersion":           {"6.2.3", 1, "The OutputIntent ICC profile must be an output or monitor profile of version 4.x or earlier"},
+	"OutputIntentMultipleProfiles":     {"6.2.3", 2, ""},
+	"OutputIntentDestOutputProfileRef": {"6.2.3", 3, ""},
+	// 6.2.4.2 ICCBased colour spaces.
+	"ICCBasedComponentsMismatch": {"6.2.4.2", 1, ""},
+	"ICCBasedProfileInvalid":     {"6.2.4.2", 1, "An ICCBased colour space's embedded ICC profile must be of version 4.x or earlier, with a device class and colour space ISO 19005-2 allows"},
+	"ICCBasedCMYKOverprint":      {"6.2.4.2", 2, ""},
+	// 6.2.4.3 Uncalibrated device colour spaces.
+	"DeviceColourSpaceUsage":    {"6.2.4.3", 0, ""},
+	"DeviceColourContentStream": {"6.2.4.3", 0, ""},
+	// 6.2.4.4 Separation and DeviceN colour spaces.
+	"SeparationAlternateColour": {"6.2.4.4", 0, ""},
+	"DeviceNColorantsMissing":   {"6.2.4.4", 1, ""},
+	"SeparationInconsistent":    {"6.2.4.4", 2, ""},
+	// 6.2.4.5 Indexed and Pattern colour spaces.
+	"DeviceColourBase": {"6.2.4.5", 0, ""},
+	// 6.2.5 Extended graphics state.
+	"TransferFunction":         {"6.2.5", 1, ""},
+	"DefaultTransferFunction":  {"6.2.5", 2, ""},
+	"HalftoneExtGState":        {"6.2.5", 3, ""},
+	"HalftoneType":             {"6.2.5", 4, ""},
+	"HalftoneName":             {"6.2.5", 5, ""},
+	"HalftoneTransferFunction": {"6.2.5", 6, ""},
+	"ExtGStateRenderingIntent": {"6.2.5", 0, ""},
+	// 6.2.6 Rendering intents.
+	"ImageRenderingIntent": {"6.2.6", 1, ""},
 }

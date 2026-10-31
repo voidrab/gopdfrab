@@ -34,6 +34,13 @@ Everything under `internal/` may change in any release without notice.
   `RealTooCloseToZero`. They have no PDF/A-1 clause, so `Clause()` is empty
   and `ClauseIn` names their PDF/A-2 clause, and no PDF/A-1 profile enables
   them.
+- Eleven more PDF/A-2-only checks, for content streams, output intents,
+  colour spaces and halftones: `Checks.Colour.InheritedResources`,
+  `DeviceColourWithoutPDFAIntent`, `OutputIntentDestOutputProfileRef`,
+  `ICCBasedCMYKOverprint`, `DeviceNColorantsMissing`,
+  `SeparationInconsistent` and `DeviceColourBase`, and
+  `Checks.Transparency.HalftoneExtGState`, `HalftoneType`, `HalftoneName` and
+  `HalftoneTransferFunction`.
 
 ### Fixed
 

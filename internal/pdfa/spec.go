@@ -48,8 +48,11 @@ type Spec struct {
 
 	// ICCMaxMajorVersion is the newest ICC profile major version allowed.
 	ICCMaxMajorVersion int
-	// OutputIntentSubtype is the /S an OutputIntent must have.
+	// OutputIntentSubtype is the /S of the level's own output intent.
 	OutputIntentSubtype string
+	// OtherOutputIntents says whether output intents with another /S, such
+	// as PDF/X ones, may stand beside the level's own.
+	OtherOutputIntents bool
 
 	// XMPPart and XMPConformance are the pdfaid:part and pdfaid:conformance
 	// a converted file declares; XMPConformances are the conformance values
@@ -221,6 +224,7 @@ var a2b = Spec{
 	// 6.2.3: ICC.1:2010.
 	ICCMaxMajorVersion:  4,
 	OutputIntentSubtype: "GTS_PDFA1",
+	OtherOutputIntents:  true,
 	// 6.6.4.
 	XMPPart:         "2",
 	XMPConformance:  "B",

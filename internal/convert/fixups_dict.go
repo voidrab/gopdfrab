@@ -8,6 +8,7 @@ import (
 	"github.com/voidrab/gopdfrab/internal/raster"
 
 	"github.com/voidrab/gopdfrab/internal/verify"
+	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
 // This file registers Fixers for the dictionary-level violations classified
@@ -434,9 +435,9 @@ func (formFixer) prepare(trailer *pdf.PDFDict, issues []pdf.PDFError, changed *b
 
 // imageMetadataFixer remediates the simple key-deletion Image/Form XObject
 // checks, mirroring the Image/Form cases of validateXObjectDict in
-// checks_dict.go, plus the inline-image flavour of ImageInterpolate
-// (checkInlineImageOther, checks_content.go) via fixInlineImageInterpolate
-// (fixups_inline_image.go) -- a Check can only have one registered Fixer,
+// checks_dict.go, plus the inline-image flavours of ImageInterpolate and,
+// under Part 2, ImageRenderingIntent (checkInlineImageOther,
+// checks_content.go) via fixInlineImage -- a Check can only have one registered Fixer,
 // so the inline case is folded in here rather than given its own. The
 // PostScript-related checks (FormPostScript, FormPSEntry, FormSubtype2PS,
 // PostScriptXObject) belong to postScriptXObjectFixer below.
@@ -488,10 +489,24 @@ func (f imageMetadataFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bo
 			}
 		}
 	})
-	if walkContentStreams(trailer, fixInlineImageInterpolate) {
+	if walkContentStreams(trailer, f.fixInlineImage) {
 		changed = true
 	}
 	return changed, nil
+}
+
+// fixInlineImage repairs an inline image's Interpolate and, since a Part 2
+// level reports it as ImageRenderingIntent, its rendering intent.
+func (f imageMetadataFixer) fixInlineImage(op string, operands []pdf.PDFValue, changed *bool) (writer.ContentOp, bool) {
+	cop, keep := fixInlineImageInterpolate(op, operands, changed)
+	if op != "INLINEIMAGE" {
+		return cop, keep
+	}
+	if fixed, ok := fixInlineImageRenderingIntent(cop.Operands, f.spec); ok {
+		cop.Operands = fixed
+		*changed = true
+	}
+	return cop, keep
 }
 
 // --- 6.2.4 sample depth ---
