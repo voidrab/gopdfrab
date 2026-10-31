@@ -54,6 +54,7 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			}
 			if name, ok := operands[len(operands)-1].(pdf.PDFName); ok {
 				emit(namedOrAbbrevColourModel(name.Value, resources), resources)
+				emit(patternBaseModel(name, resources), resources)
 			}
 		case "INLINEIMAGE":
 			for i := 0; i+1 < len(operands); i += 2 {
@@ -130,7 +131,8 @@ type deviceColourFixer struct {
 
 func (deviceColourFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage:
+	case pdf.Checks.Colour.DeviceColourContentStream, pdf.Checks.Colour.DeviceColourSpaceUsage,
+		pdf.Checks.Colour.DeviceColourBase:
 		return true
 	}
 	return false
@@ -521,6 +523,17 @@ func scanAPAppearance(n pdf.PDFValue, claim func(uintptr) bool, decode decodeFun
 			scanContentColour(sd, apRes, claim, decode, emit)
 		}
 	}
+}
+
+// patternBaseModel returns the device colour model of the base space of the
+// uncoloured Pattern colour space a cs or CS operand names, or "".
+func patternBaseModel(name pdf.PDFName, resources pdf.PDFDict) string {
+	spaces, _ := resources.Entries.Get("ColorSpace").(pdf.PDFDict)
+	arr, ok := spaces.Entries.Get(name.Value).(pdf.PDFArray)
+	if !ok || len(arr) < 2 || arr[0] != (pdf.PDFName{Value: "Pattern"}) {
+		return ""
+	}
+	return verify.DeviceColourModel(arr[1])
 }
 
 // namedOrAbbrevColourModel resolves a cs/CS or inline-image /CS operand name
