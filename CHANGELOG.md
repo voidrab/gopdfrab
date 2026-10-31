@@ -7,58 +7,49 @@ onward.
 
 ## Versioning and stability
 
-**From 1.0, the stability guarantee covers the public packages only** —
-`github.com/voidrab/gopdfrab` and, from 1.3.0, its verification-only subset
-`github.com/voidrab/gopdfrab/verify`. Everything under `internal/` is implementation
-detail, is not importable by external code, and may change in any release without
-notice.
+**From 1.0, the stability guarantee covers the public packages only:**
+`github.com/voidrab/gopdfrab` and, from 1.3.0, `github.com/voidrab/gopdfrab/verify`.
+Everything under `internal/` may change in any release without notice.
 
 - A **breaking change** is any change to a public package that requires a
   consumer to edit their code to keep compiling, or that alters documented
   behavior of a public symbol. These happen only in a major version after 1.0.
 - **Additions** (new functions, types, options) are minor releases.
-- **Fixes** that do not change the public surface are patch releases. Note that a
-  verifier or converter producing a *more correct* result for a given input is
-  treated as a fix, not a breaking change, even if a caller was relying on the
-  previous verdict.
-- **Deprecation:** a symbol slated for removal is marked with a `// Deprecated:`
-  comment naming its replacement, kept for at least one subsequent minor release,
-  and removed no earlier than the next major version.
+- **Fixes** that do not change the public surface are patch releases. A more
+  correct verdict for a given input is a fix, even if a caller relied on the old
+  one.
+- **Deprecation:** a symbol slated for removal is marked `// Deprecated:` with
+  its replacement, kept for at least one minor release, and removed no earlier
+  than the next major version.
 
-## [Unreleased]
+## [1.3.0] - 2026-10-31
 
 ### Added
 
+- `github.com/voidrab/gopdfrab/verify`: the verification API alone, under the
+  same names and over the same types, for programs that never convert. It does
+  not compile or link the converter.
+- WebAssembly: a verify-only module, `./wasm/verify` (about 6.2 MB against the
+  full module's 15.1 MB), so a page can fetch the full module only to convert.
+  Both modules announce themselves with `{type: "ready", module}`.
 - `CheckByClauseIn`, `ChecksForClauseIn`, `Check.ClauseIn` and
   `Check.AppliesTo` look checks up by clause within a conformance level.
-- `Profile.Name`, `ProfileByName` and `Profiles` name the ready-made
-  profiles (`pdfa1b`, `legacy1b`, `pdf`) and look them up by name.
-- `github.com/voidrab/gopdfrab/verify`: the verification API alone, under
-  the same names and over the same types, for programs that never convert.
-  It does not compile or link the converter.
-- WebAssembly: a verify-only module, `./wasm/verify` (about 6.2 MB against
-  the full module's 15.1 MB), so a page can load it first and fetch the full
-  module only to convert. Both modules now say which one is ready:
-  `{type: "ready", module: "verify" | "convert"}`.
+- `Profile.Name`, `ProfileByName` and `Profiles` name the ready-made profiles
+  (`pdfa1b`, `legacy1b`, `pdf`) and look them up by name.
 
 ### Changed
 
-- A profile of the `ObjectModel` level that enables a PDF/A check is now
-  rejected with an error naming the check, not verified by PDF/A-1b's rules.
-- The Arlington object model behind the `ObjectModel` checks ships as 17.5 KB
-  of embedded data decoded on first use, instead of a generated Go map literal
-  that compiled to about 680 KB of startup code. Every binary is about 1 MB
-  smaller (1.6 MB in WebAssembly), and a program that never runs the
-  object-model checks no longer pays to build the table at startup.
-- Conversion allocates less: on an object-heavy file, about a third fewer
-  allocations and 28% fewer bytes, a 12% lower peak heap and about 15% less
-  time. Verification allocates 6–14% less.
-- Verify skips a family of checks, such as the font or XMP checks, when the
-  profile enables none of its checks, rather than running it and filtering
-  its findings out.
-- A document-level issue from the Info dictionary, optional content, output
-  intent, interactive form or XMP checks names the object it was found in,
-  such as the Info dictionary, the output intent or the metadata stream.
+- Every binary is about 1 MB smaller (1.6 MB in WebAssembly): the Arlington
+  object model ships as 17.5 KB of embedded data decoded on first use instead
+  of generated Go code that also cost startup time.
+- Conversion makes about a third fewer allocations and runs about 15% faster
+  on object-heavy files, with a 12% lower peak heap. Verification allocates
+  6–14% less and skips a check family entirely when the profile enables none
+  of its checks.
+- Document-level issues from the Info dictionary, optional content, output
+  intent, interactive form and XMP checks name the object they were found in.
+- An `ObjectModel` profile that enables a PDF/A check is rejected with an error
+  naming the check, instead of being verified by PDF/A-1b's rules.
 
 ### Deprecated
 
@@ -67,67 +58,42 @@ notice.
 
 ### Fixed
 
-- The 6.2.2 finding for output intents with differing profiles printed both
-  profile streams byte by byte. It names them by object reference, and the
-  findings for a wrong or mistyped `/S` name the value.
-- Convert removed embedded files and forbidden annotations, file attachments
-  among them, without listing them in `LostObjects`.
-- Removing `/OCProperties` made the optional content layers that a document
-  turns off visible in the output. Their content is now removed and listed in
-  `LostObjects`, and the fidelity gate renders the input with those layers
-  hidden.
-- Convert rasterized a figure whose transparency group draws nested forms,
-  as chart libraries write labels, even when nothing in it is transparent.
-  Such a group is now dropped and the figure stays vector content.
+- Convert removed embedded files and forbidden annotations without listing them
+  in `LostObjects`, and removing `/OCProperties` made layers the document hides
+  visible. Hidden layers are now removed and listed, and the fidelity gate
+  renders the input with them hidden.
+- Convert could write a corrupt stream into output it reported conformant: a
+  stream shared by several objects was rewritten through only one of them, and
+  a repair to a font program several fonts share reached only one font.
 - `ConvertObjectModel` and the `PDF` profile stamped the output as PDF/A-1b
-  (`pdfaid` XMP, `GTS_PDFA1` OutputIntent, font repairs) without a PDF/A check.
-- A violation repeated throughout a content stream is reported once per check,
-  with a count, not once per operator, which could run verify out of memory.
-- Convert rewrote a stream shared by several objects through only one of them,
-  writing a corrupt stream into output it reported conformant.
-- A font repair on an embedded program that several fonts share reached only
-  one of them; the others kept the original bytes under the repaired
-  `/Length1` and `/Filter`. Every font sharing the program now gets the repair.
-- The 6.3.6 width check and its repair skipped Type 1 glyphs that set their
-  width with `sbw`, and misread widths computed with `div`.
-- Raster fallback: a TrueType contour made only of off-curve points, as
-  round dots often are, was drawn with each curve bent toward the wrong
-  control point.
-- Raster fallback: simple fonts map codes to glyphs as verify does
-  (ISO 32000-1 9.6.6). A Type 1 font without /Encoding uses its built-in
-  encoding rather than StandardEncoding, a symbolic TrueType font resolves
-  through its (3,0) cmap, and a Type 1C font finds its glyphs by name
-  instead of taking the code as the glyph ID.
-- The DeviceN colorant repair kept the colour space a q block set after its
-  Q, and rewrote a later colour in the restored space as black.
-- Transparency flattening carried the previous colour into a form drawn
-  after a colour space operator, which starts the colour at black.
-- Raster fallback: a colour space operator started the colour at black in
-  every space; it starts at the space's initial colour, such as full tint
-  in a Separation space. A cm or colour operator short of operands is
-  skipped instead of setting a zero matrix or black.
-- Repairs that read a page's content used only the page's own /Resources,
-  not one inherited from the page tree. The resource pruning repair could
-  then delete resources such a page uses, and the colour, DeviceN and
-  resource-renaming repairs missed what it names.
-- An issue after a link annotation was attributed to the link's destination
-  page, so the raster fallback could rasterize the wrong page.
-- A cross-reference stream whose /Length is wrong is read up to its
-  endstream keyword, as other streams are, instead of being discarded so
-  the object table had to be rebuilt by scanning the file.
-- When the fix loop hit `MaxIterations`, the raster fallback rasterized pages
-  the last fix pass had already repaired.
-- An image claiming a size its data does not back could make the raster
-  fallback allocate gigabytes; it is now an `oversized image` drop.
-- Raster fallback: CFF and Type 1 glyphs drawn through subroutines, flex or
-  `seac` lost segments, transparency groups were drawn at the group's opacity
-  instead of composited once, and strokes thinner than a pixel were dropped.
+  (XMP identifier, OutputIntent, font repairs) without any PDF/A check.
+- Fewer needless rasterizations: a transparency group with only opaque
+  graphics states, or one drawing nested forms, now stays vector; an issue
+  after a link annotation no longer points at the link's destination page; and
+  hitting `MaxIterations` no longer rasterizes pages the last pass repaired.
 - Transparency flattening: fills under 50% opacity vanished and lighter ones
-  turned grey, the opacity repair ran first so overlapping fills washed out,
-  forms on a page with its own group were left to a later pass and came out
-  opaque, and nested forms raced between workers.
-- A transparency group with only opaque graphics states was rasterized; it
-  now stays vector.
+  turned grey, overlapping fills washed out, forms on a page with its own group
+  came out opaque, a form drawn after a colour space operator kept the previous
+  colour, and nested forms raced between workers.
+- Repairs that read a page's content ignored `/Resources` inherited from the
+  page tree, so resource pruning could delete resources in use. The DeviceN
+  repair kept a colour space past the `Q` that restored it.
+- Raster fallback: simple fonts map codes to glyphs as verify does (ISO 32000-1
+  9.6.6); CFF and Type 1 glyphs using subroutines, flex or `seac` no longer
+  lose segments; TrueType contours of only off-curve points curve correctly;
+  transparency groups are composited once; sub-pixel strokes are drawn; a
+  colour space operator starts at the space's initial colour; operators short
+  of operands are skipped; and an image claiming more data than it has is an
+  `oversized image` drop instead of a multi-gigabyte allocation.
+- The 6.3.6 width check and repair handle Type 1 glyphs that set their width
+  with `sbw` or compute it with `div`.
+- A violation repeated throughout a content stream is reported once per check
+  with a count, instead of once per operator, which could run verify out of
+  memory.
+- The 6.2.2 output intent findings printed profile streams byte by byte; they
+  name them by reference and show the offending `/S` value.
+- A cross-reference stream with a wrong `/Length` is read up to `endstream`
+  instead of forcing a rebuild of the object table.
 - Verify reported Info/XMP Title and Subject mismatches in a random order.
 
 ## [1.2.0] - 2026-10-11
