@@ -247,8 +247,8 @@ func checkInlineImageOther(obj pdf.PDFValue, params []pdf.PDFValue, ctx *Validat
 			}
 		case "Intent":
 			if name, ok := val.(pdf.PDFName); ok && !ctx.Spec.RenderingIntents.Has(name.Value) {
-				// Part 1 numbers it with the content stream's intents
-				// (6.2.9), Part 2 with every other rendering intent (6.2.6).
+				// Part 1 reports it as a content stream rendering intent
+				// (6.2.9), and Part 2 as an image rendering intent (6.2.6).
 				c := pdf.Checks.Colour.RenderingIntent
 				if ctx.part2() {
 					c = pdf.Checks.Image.ImageRenderingIntent

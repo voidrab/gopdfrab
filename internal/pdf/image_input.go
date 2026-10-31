@@ -11,11 +11,12 @@ import (
 // ImageCodecInput returns a reader over the bytes that feed the image codec
 // ending dict's filter chain, and the codec. A Flate filter without a
 // predictor is inflated as the reader is read, so a caller that needs only
-// the start of the data, such as an image header, reads only that much;
-// any other filter before the codec is decoded whole when the reader is
-// built. codec is nil for a chain that ends in no image codec. As with
-// InflateZlib, damage inside Flate data ends the data rather than failing
-// it, so the reader reports it as an error from Read.
+// the start of the data, such as an image header, reads only that much.
+// Any other filter before the codec is decoded whole when the reader is
+// built. codec is nil for a chain that ends in no image codec. A bad zlib
+// header, and a filter decoded whole that yields nothing, are returned as
+// err; damage later in lazily inflated data is returned by Read after the
+// bytes before it.
 func ImageCodecInput(dict PDFDict) (r io.Reader, codec *FilterInfo, err error) {
 	if !dict.IsStream() {
 		return nil, nil, ErrNotAStream
