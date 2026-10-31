@@ -130,9 +130,10 @@ func dropFilters(d *pdf.PDFDict) {
 // allow: one using LZW, and, for StreamFilterNotAllowed, one naming a filter
 // outside the level's set or a Crypt filter other than the Identity one. A
 // filter written in its inline-image abbreviation is renamed, which keeps the
-// bytes; any other such chain is decoded and re-encoded as Flate. A chain
-// that cannot be decoded to bytes, such as one ending in an image codec, is
-// left as it is. Each repair runs only for its reported check.
+// bytes. A chain that names any other disallowed filter, or uses LZW, is
+// decoded and re-encoded as Flate. A chain that cannot be decoded to bytes,
+// such as one ending in an image codec, is left as it is. Each repair runs
+// only for its reported check.
 type streamFilterFixer struct{ spec *pdfa.Spec }
 
 func (streamFilterFixer) Applies(c pdf.Check) bool {
