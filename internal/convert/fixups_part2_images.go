@@ -63,11 +63,11 @@ func (jpxColourSpaceFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, er
 			!pdf.HasFilter(d.Entries.Get("Filter"), pdf.FilterJPX) {
 			return false
 		}
-		s, err := pdf.DecodeStreamFull(d, pdf.DecodeOptions{})
-		if err != nil || !s.IsImage() {
+		data, codec, err := pdf.ImageCodecInput(d)
+		if err != nil || codec == nil {
 			return false
 		}
-		h := verify.ParseJPXHeader(s.Data)
+		h := verify.ReadJPXHeader(data)
 		if h.ColourSpecificationUsable() {
 			return false
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 )
@@ -39,17 +40,66 @@ func (h JPXHeader) ColourSpecificationUsable() bool {
 // jp2Signature is the JPEG 2000 signature box that starts a JP2 file.
 var jp2Signature = []byte{0, 0, 0, 0x0C, 'j', 'P', ' ', ' ', 0x0D, 0x0A, 0x87, 0x0A}
 
-// ParseJPXHeader reads the JP2 header box of JPEG 2000 data, the way veraPDF
+// maxJP2HeaderBytes bounds how much of a JP2 header box ReadJPXHeader reads.
+// The box holds a few small boxes and at most an ICC profile.
+const maxJP2HeaderBytes = 16 << 20
+
+// ReadJPXHeader reads the JP2 header box of JPEG 2000 data, the way veraPDF
 // does: a box it cannot read ends the parse, keeping what was read so far.
-func ParseJPXHeader(data []byte) JPXHeader {
-	h := JPXHeader{EnumCS: -1}
-	if !bytes.HasPrefix(data, jp2Signature) {
-		return h
+// It reads r only up to the end of that box, skipping the boxes before it,
+// and treats a read error as the end of the data.
+func ReadJPXHeader(r io.Reader) JPXHeader {
+	sig := make([]byte, len(jp2Signature))
+	if _, err := io.ReadFull(r, sig); err != nil || !bytes.Equal(sig, jp2Signature) {
+		return JPXHeader{EnumCS: -1}
 	}
-	header, ok := findJP2Box(data[len(jp2Signature):], "jp2h")
+	header, ok := readJP2Box(r, "jp2h")
 	if !ok {
-		return h
+		return JPXHeader{EnumCS: -1}
 	}
+	return parseJP2Header(header)
+}
+
+// readJP2Box reads top-level boxes from r up to the first of a kind, and
+// returns its contents, which may be cut short by the end of the data or by
+// maxJP2HeaderBytes. found is false when no box of the kind is read.
+func readJP2Box(r io.Reader, kind string) (body []byte, found bool) {
+	for {
+		head := make([]byte, 8)
+		if _, err := io.ReadFull(r, head); err != nil {
+			return nil, false
+		}
+		length, headerLen, boxKind := uint64(binary.BigEndian.Uint32(head)), uint64(8), string(head[4:])
+		if length == 1 {
+			if _, err := io.ReadFull(r, head); err != nil {
+				return nil, false
+			}
+			length, headerLen = binary.BigEndian.Uint64(head), 16
+		}
+		toEnd := length == 0
+		if !toEnd && length < headerLen {
+			return nil, false
+		}
+		if boxKind == kind {
+			limit := uint64(maxJP2HeaderBytes)
+			if !toEnd {
+				limit = min(limit, length-headerLen)
+			}
+			body, _ = io.ReadAll(io.LimitReader(r, int64(limit)))
+			return body, true
+		}
+		if toEnd {
+			return nil, false
+		}
+		if _, err := io.CopyN(io.Discard, r, int64(length-headerLen)); err != nil {
+			return nil, false
+		}
+	}
+}
+
+// parseJP2Header reads the boxes of a JP2 header box's contents.
+func parseJP2Header(header []byte) JPXHeader {
+	h := JPXHeader{EnumCS: -1}
 	firstMethod, firstEnum := -1, -1
 	approxMethod, approxEnum := -1, -1
 	forEachJP2Box(header, func(kind string, body []byte) bool {
@@ -103,18 +153,6 @@ func ParseJPXHeader(data []byte) JPXHeader {
 	return h
 }
 
-// findJP2Box returns the contents of the first top-level box of a kind.
-func findJP2Box(data []byte, kind string) (body []byte, found bool) {
-	forEachJP2Box(data, func(k string, b []byte) bool {
-		if k == kind {
-			body, found = b, true
-			return false
-		}
-		return true
-	})
-	return body, found
-}
-
 // forEachJP2Box calls fn with the type and contents of each box in data, in
 // order, until fn returns false or a box is malformed. A box of length 0
 // extends to the end of data.
@@ -150,11 +188,11 @@ func validateJPXImage(v pdf.PDFDict, ctx *ValidationContext) {
 		!pdf.HasFilter(v.Entries.Get("Filter"), pdf.FilterJPX) {
 		return
 	}
-	s, err := pdf.DecodeStreamFull(v, pdf.DecodeOptions{})
-	if err != nil || !s.IsImage() || s.Image.Kind != pdf.FilterJPX {
+	data, codec, err := pdf.ImageCodecInput(v)
+	if err != nil || codec == nil || codec.Kind != pdf.FilterJPX {
 		return
 	}
-	h := ParseJPXHeader(s.Data)
+	h := ReadJPXHeader(data)
 	if h.Channels != 1 && h.Channels != 3 && h.Channels != 4 {
 		ctx.Report(pdf.Checks.Image.JPXColourChannels, v, fmt.Sprintf("JPEG 2000 data has %d colour channels, not 1, 3 or 4", h.Channels))
 	}

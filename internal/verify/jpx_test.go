@@ -1,7 +1,9 @@
 package verify
 
 import (
+	"bytes"
 	"encoding/binary"
+	"io"
 	"testing"
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -42,7 +44,7 @@ func colr(method, approx byte, enum uint32) []byte {
 	return jp2Box("colr", body...)
 }
 
-func TestParseJPXHeader(t *testing.T) {
+func TestReadJPXHeader(t *testing.T) {
 	extended := append([]byte{}, jp2Signature...)
 	extended = append(extended, 0, 0, 0, 1, 'j', 'p', '2', 'h', 0, 0, 0, 0, 0, 0, 0, 16+22)
 	extended = append(extended, ihdr(3, 8)...)
@@ -71,10 +73,17 @@ func TestParseJPXHeader(t *testing.T) {
 		{"extended length", extended, JPXHeader{Channels: 3, BitDepth: 8, EnumCS: -1}},
 		{"extended length cut short", append(append([]byte{}, jp2Signature...), 0, 0, 0, 1, 'j', 'p', '2', 'h', 0), JPXHeader{EnumCS: -1}},
 		{"header box to the end", open, JPXHeader{Channels: 1, BitDepth: 8, EnumCS: -1}},
+		{"inner extended length", jp2File(append([]byte{0, 0, 0, 1, 'i', 'h', 'd', 'r', 0, 0, 0, 0, 0, 0, 0, 30}, ihdr(3, 8)[8:]...)),
+			JPXHeader{Channels: 3, BitDepth: 8, EnumCS: -1}},
+		{"inner extended length cut short", jp2File([]byte{0, 0, 0, 1, 'i', 'h', 'd', 'r', 0}), JPXHeader{EnumCS: -1}},
+		{"inner box to the end", jp2File(append([]byte{0, 0, 0, 0}, ihdr(1, 8)[4:]...)), JPXHeader{Channels: 1, BitDepth: 8, EnumCS: -1}},
+		{"other box to the end", append(append([]byte{}, jp2Signature...), 0, 0, 0, 0, 'f', 't', 'y', 'p'), JPXHeader{EnumCS: -1}},
+		{"top-level box shorter than its header", append(append([]byte{}, jp2Signature...), 0, 0, 0, 4, 'f', 't', 'y', 'p'), JPXHeader{EnumCS: -1}},
+		{"top-level box longer than the data", append(append([]byte{}, jp2Signature...), 0, 0, 0, 99, 'f', 't', 'y', 'p'), JPXHeader{EnumCS: -1}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := ParseJPXHeader(tc.data); got != tc.want {
-				t.Errorf("ParseJPXHeader = %+v, want %+v", got, tc.want)
+			if got := ReadJPXHeader(bytes.NewReader(tc.data)); got != tc.want {
+				t.Errorf("ReadJPXHeader = %+v, want %+v", got, tc.want)
 			}
 		})
 	}
@@ -127,5 +136,26 @@ func TestValidateJPXImage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// tripwire is a reader that records whether it was read.
+type tripwire struct{ read bool }
+
+func (t *tripwire) Read([]byte) (int, error) {
+	t.read = true
+	return 0, io.EOF
+}
+
+// TestReadJPXHeaderStopsAtTheHeaderBox verifies that ReadJPXHeader reads
+// nothing past the header box, so the codestream after it is never read.
+func TestReadJPXHeaderStopsAtTheHeaderBox(t *testing.T) {
+	codestream := &tripwire{}
+	h := ReadJPXHeader(io.MultiReader(bytes.NewReader(jp2File(ihdr(3, 8), colr(1, 0, 16))), codestream))
+	if h.Channels != 3 {
+		t.Errorf("Channels = %d, want 3", h.Channels)
+	}
+	if codestream.read {
+		t.Error("the data after the header box was read")
 	}
 }
