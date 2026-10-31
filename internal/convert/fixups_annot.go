@@ -13,8 +13,12 @@ import (
 // dictionary is emptied rather than removed from the page's /Annots array, as
 // actionFixer does for forbidden action dictionaries: no check reads /Annots
 // membership, only each entry's own Type and Subtype, so an emptied dictionary
-// is ignored by every other check.
-type disallowedAnnotFixer struct{ spec *pdfa.Spec }
+// is ignored by every other check. The annotation is content the output no
+// longer holds, so each one cleared is reported to lost, when non-nil.
+type disallowedAnnotFixer struct {
+	spec *pdfa.Spec
+	lost *[]pdf.PDFError
+}
 
 func (disallowedAnnotFixer) Applies(c pdf.Check) bool {
 	return c == pdf.Checks.Annotation.DisallowedSubtype
@@ -31,8 +35,18 @@ func (f disallowedAnnotFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed 
 		}
 		subtype, _ := d.Entries.Get("Subtype").(pdf.PDFName)
 		if !f.spec.AnnotationSubtypes.Has(subtype.Value) {
+			msg := "annotation removed"
+			if subtype.Value != "" {
+				msg = subtype.Value + " " + msg
+			}
+			// A file attachment's file goes with it, unless something else
+			// still holds the file specification.
+			if fs, ok := d.Entries.Get("FS").(pdf.PDFDict); ok && fs.Entries.Get("EF") != nil {
+				msg += " with its " + embeddedFileName(fs)
+			}
 			clearDict(d)
 			*changed = true
+			reportLost(f.lost, pdf.Checks.Annotation.DisallowedSubtype, d, msg)
 		}
 	}, true
 }
