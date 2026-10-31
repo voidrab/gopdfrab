@@ -92,13 +92,32 @@ func scanContentColour(dict, resources pdf.PDFDict, claim func(uintptr) bool, de
 			if pat, ok := patterns.Entries.Get(name.Value).(pdf.PDFDict); ok && pat.IsStream() {
 				scanContentColour(pat, resourcesOf(pat, resources), claim, decode, emit)
 			}
+		case "Tf":
+			// A Type 3 font's glyph procedures paint with the colours
+			// they set themselves, in the font's resources.
+			if len(operands) == 0 {
+				return
+			}
+			name, _ := operands[0].(pdf.PDFName)
+			fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
+			font, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict)
+			if !ok || font.Entries.Get("Subtype") != (pdf.PDFName{Value: "Type3"}) || !claim(pdf.ValuePointer(font.Entries)) {
+				return
+			}
+			procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
+			for _, v := range procs.Entries.All() {
+				if proc, ok := v.(pdf.PDFDict); ok && proc.IsStream() {
+					scanContentColour(proc, resourcesOf(font, resources), claim, decode, emit)
+				}
+			}
 		}
 	})
 }
 
 // deviceColourFixer remediates DeviceColourContentStream (content-stream
-// operators/inline images) and DeviceColourSpaceUsage (Image/Shading
-// /ColorSpace entries), mirroring reportContentColour/checkDeviceColour in
+// operators/inline images), DeviceColourSpaceUsage (Image/Shading
+// /ColorSpace entries) and DeviceColourBase (the base of an Indexed or
+// uncoloured Pattern space), mirroring reportContentColour/checkDeviceColour in
 // checks_content.go/checks_colour.go -- both consult a page's /Resources
 // (directly, or via ctx.pageResources as a fallback for nested Form
 // XObjects/patterns), so injecting the missing Default* there clears both.
@@ -298,6 +317,11 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			category = "XObject"
 		case "scn", "SCN":
 			category = "Pattern"
+		case "Tf":
+			if len(operands) > 0 && in.runType3(operands[0], scope) {
+				changed = true
+			}
+			return
 		default:
 			return
 		}
@@ -315,6 +339,39 @@ func (in defaultCSInjection) run(stream, scope pdf.PDFDict) bool {
 			}
 		}
 	})
+	return changed
+}
+
+// runType3 injects into the resources of the Type 3 font a Tf operand names,
+// when it has its own, and follows the form XObjects its glyph procedures
+// draw. Its glyph procedures are checked in the font's resources, which the
+// page's Default* does not reach.
+func (in defaultCSInjection) runType3(operand pdf.PDFValue, scope pdf.PDFDict) bool {
+	name, ok := operand.(pdf.PDFName)
+	if !ok {
+		return false
+	}
+	fonts, _ := scope.Entries.Get("Font").(pdf.PDFDict)
+	font, ok := fonts.Entries.Get(name.Value).(pdf.PDFDict)
+	if !ok || font.Entries.Get("Subtype") != (pdf.PDFName{Value: "Type3"}) {
+		return false
+	}
+	res, own := font.Entries.Get("Resources").(pdf.PDFDict)
+	ptr := pdf.ValuePointer(font.Entries)
+	if !own || in.visited[ptr] {
+		return false
+	}
+	in.visited[ptr] = true
+	// injectDefaultCS edits the font's resources in place.
+	changed := injectDefaultCS(font, in.needRGB, in.needCMYK, in.rgb, in.cmyk)
+	procs, _ := font.Entries.Get("CharProcs").(pdf.PDFDict)
+	glyphs := in
+	glyphs.create = false
+	for _, v := range procs.Entries.All() {
+		if proc, ok := v.(pdf.PDFDict); ok && proc.IsStream() && glyphs.run(proc, res) {
+			changed = true
+		}
+	}
 	return changed
 }
 

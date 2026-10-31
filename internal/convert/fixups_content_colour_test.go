@@ -665,3 +665,53 @@ func TestDeviceColourFixerInjectsIntoTilingPatternResources(t *testing.T) {
 		t.Error("DefaultCMYK not injected into the tiling pattern's own resources")
 	}
 }
+
+// TestDefaultCSInjectionReachesType3Glyphs verifies that a Type 3 font with
+// its own resources gets the Default colour space, and that the forms its
+// glyphs draw are followed.
+func TestDefaultCSInjectionReachesType3Glyphs(t *testing.T) {
+	inner := pdf.NewStreamDict(kv("Subtype", nm("Form"), "Resources", kv()).Entries, []byte("1 0 0 rg"))
+	glyph := pdf.NewStreamDict(nil, []byte("/X0 Do"))
+	type3 := kv("Subtype", nm("Type3"), "Resources", kv("XObject", kv("X0", inner)), "CharProcs", kv("a", glyph, "b", pdf.PDFInteger(1)))
+	bare := kv("Subtype", nm("Type3"))
+	scope := kv("Font", kv("T3", type3, "T0", bare, "F1", kv("Subtype", nm("Type1"))))
+	rgb := iccBasedColourSpace(3, srgbICCProfile)
+	in := defaultCSInjection{needRGB: true, rgb: rgb, visited: map[uintptr]bool{}}
+	for _, tc := range []struct {
+		desc    string
+		operand pdf.PDFValue
+		want    bool
+	}{
+		{"Type 3 font", nm("T3"), true},
+		{"Type 3 font again", nm("T3"), false},
+		{"Type 3 font without resources", nm("T0"), false},
+		{"not a Type 3 font", nm("F1"), false},
+		{"unknown font", nm("F9"), false},
+		{"operand not a name", pdf.PDFInteger(1), false},
+	} {
+		if got := in.runType3(tc.operand, scope); got != tc.want {
+			t.Errorf("%s: runType3 = %v, want %v", tc.desc, got, tc.want)
+		}
+	}
+	for _, d := range []pdf.PDFDict{type3, inner} {
+		if !verify.DefaultColorSpaceDefined("rgb", resourcesOf(d, pdf.PDFDict{})) {
+			t.Errorf("%v got no DefaultRGB", d)
+		}
+	}
+}
+
+// TestScanContentColourFollowsType3Glyphs verifies that the colours a Type 3
+// font's glyphs set count as used, once per font.
+func TestScanContentColourFollowsType3Glyphs(t *testing.T) {
+	glyph := pdf.NewStreamDict(nil, []byte("0 0 0 1 k"))
+	type3 := kv("Subtype", nm("Type3"), "CharProcs", kv("a", glyph, "b", pdf.PDFInteger(1)))
+	resources := kv("Font", kv("T3", type3, "F1", kv("Subtype", nm("Type1"))))
+	content := pdf.NewStreamDict(nil, []byte("/T3 1 Tf /T3 1 Tf /F1 1 Tf /F9 1 Tf Tf"))
+	used := map[string]int{}
+	seen := map[uintptr]bool{}
+	claim := func(p uintptr) bool { ok := !seen[p]; seen[p] = true; return ok }
+	scanContentColour(content, resources, claim, nil, func(m string, _ pdf.PDFDict) { used[m]++ })
+	if used["cmyk"] != 1 {
+		t.Errorf("cmyk used %d times, want 1", used["cmyk"])
+	}
+}

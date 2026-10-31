@@ -47,6 +47,9 @@ Everything under `internal/` may change in any release without notice.
   decode parameters of a CCITT image, are read as values. They used to be
   spilled into the parameter list, so that verify misread them and a convert
   repair that rewrote the image, such as turning off `/I`, lost them.
+- Convert covers device colour that a Type 3 font's glyph procedures set when
+  the font has resources of its own. It used to leave that colour uncovered,
+  and the page then fell back to rasterization.
 
 ## [1.3.0] - 2026-10-31
 
