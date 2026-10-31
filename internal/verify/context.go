@@ -294,14 +294,14 @@ func (ctx *ValidationContext) usedCIDsFor(v pdf.PDFDict) (cids map[int]bool, kno
 	return cids, known
 }
 
-// deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
-// "gray") may be used given the document's OutputIntent coverage (6.2.3.3).
 // part2 reports whether the context verifies a level of ISO 19005-2, whose
 // graphics rules need state the Part 1 checks do not.
 func (ctx *ValidationContext) part2() bool {
 	return ctx.Spec != nil && pdf.Checks.Colour.InheritedResources.AppliesTo(ctx.Spec.Level)
 }
 
+// deviceColourAllowed reports whether a device colour model ("rgb", "cmyk",
+// "gray") may be used given the document's OutputIntent coverage (6.2.3.3).
 func (ctx *ValidationContext) deviceColourAllowed(model string) bool {
 	switch model {
 	case "rgb":

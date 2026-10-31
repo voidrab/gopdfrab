@@ -135,7 +135,8 @@ func TestDeviceNColorantEntriesFixer(t *testing.T) {
 	attrs := kv()
 	withAttrs := pdf.PDFArray{nm("DeviceN"), pdf.PDFArray{nm("Red")}, nm("DeviceRGB"), tint, attrs}
 	short := pdf.PDFArray{nm("DeviceN"), pdf.PDFArray{nm("Red")}}
-	holder := kv("A", bare, "B", partial, "C", broken, "D", withAttrs, "E", short, "S", existing, "T", pdf.PDFArray{nm("Separation"), pdf.PDFInteger(1)})
+	holder := kv("A", bare, "B", partial, "C", broken, "D", withAttrs, "E", short, "S", existing,
+		"T", pdf.PDFArray{nm("Separation"), pdf.PDFInteger(1), nm("DeviceRGB"), kv()}, "U", pdf.PDFArray{nm("Separation")})
 	trailer := kv("Root", holder)
 	if !(deviceNColorantEntriesFixer{}).Applies(pdf.Checks.Colour.DeviceNColorantsMissing) {
 		t.Error("does not apply to DeviceNColorantsMissing")
@@ -212,7 +213,7 @@ func TestSeparationConsistencyFixer(t *testing.T) {
 	second := pdf.PDFArray{nm("Separation"), nm("Red"), nm("DeviceGray"), fn2}
 	same := pdf.PDFArray{nm("Separation"), nm("Red"), nm("DeviceRGB"), fn1}
 	odd := pdf.PDFArray{nm("Separation"), pdf.PDFInteger(1), nm("DeviceGray"), fn2}
-	trailer := kv("Root", kv("A", first, "B", second, "C", same, "D", odd))
+	trailer := kv("Root", kv("A", first, "B", second, "C", same, "D", odd, "E", pdf.PDFArray{nm("Separation")}))
 	if !(separationConsistencyFixer{}).Applies(pdf.Checks.Colour.SeparationInconsistent) {
 		t.Error("does not apply to SeparationInconsistent")
 	}
@@ -338,5 +339,19 @@ func TestDeviceColourFixerCoversPatternBase(t *testing.T) {
 	}
 	if !verify.DefaultColorSpaceDefined("cmyk", resources) {
 		t.Error("no DefaultCMYK for the Pattern space's DeviceCMYK base")
+	}
+}
+
+// TestInheritedResourcesFixerAdoptsIntoAppearances verifies that an appearance
+// stream without resources of its own gets the page resources it uses.
+func TestInheritedResourcesFixerAdoptsIntoAppearances(t *testing.T) {
+	ap := form("/Helv 9 Tf", nil)
+	trailer, page := hoistPage("", kv("Font", kv("Helv", kv())))
+	page.Entries.Set("Annots", pdf.PDFArray{kv("AP", kv("N", ap))})
+	if changed, _ := (inheritedResourcesFixer{}).Fix(&trailer, nil); !changed {
+		t.Fatal("Fix made no change")
+	}
+	if lookupResource(resourcesOf(ap, pdf.PDFDict{}), "Font", "Helv") == nil {
+		t.Error("the appearance stream did not get /Helv")
 	}
 }

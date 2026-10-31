@@ -44,8 +44,9 @@ func (f inheritedResourcesFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bo
 			annot, _ := item.(pdf.PDFDict)
 			ap, _ := annot.Entries.Get("AP").(pdf.PDFDict)
 			for _, s := range appearanceStreams(ap.Entries.Get("N")) {
-				apRes, _ := s.Entries.Get("Resources").(pdf.PDFDict)
-				if f.followChildren(s, apRes, visited) {
+				// An appearance stream is checked like a form drawn on
+				// the page, so it inherits from the page's resources.
+				if f.adopt(s, res, visited) {
 					changed = true
 				}
 			}
@@ -241,7 +242,10 @@ func (deviceNColorantEntriesFixer) Applies(c pdf.Check) bool {
 func (deviceNColorantEntriesFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	separations := map[string]pdf.PDFArray{}
 	colourSpaceArrays(*trailer, "Separation", func(arr pdf.PDFArray) (pdf.PDFArray, bool) {
-		if name, ok := arr[1].(pdf.PDFName); ok && len(arr) >= 4 && separations[name.Value] == nil {
+		if len(arr) < 4 {
+			return nil, false
+		}
+		if name, ok := arr[1].(pdf.PDFName); ok && separations[name.Value] == nil {
 			separations[name.Value] = arr
 		}
 		return nil, false
@@ -369,8 +373,11 @@ func (separationConsistencyFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (b
 	first := map[string]pdf.PDFArray{}
 	changed := false
 	colourSpaceArrays(*trailer, "Separation", func(arr pdf.PDFArray) (pdf.PDFArray, bool) {
+		if len(arr) < 4 {
+			return nil, false
+		}
 		name, ok := arr[1].(pdf.PDFName)
-		if !ok || len(arr) < 4 {
+		if !ok {
 			return nil, false
 		}
 		f, seen := first[name.Value]

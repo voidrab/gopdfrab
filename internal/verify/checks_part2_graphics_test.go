@@ -332,6 +332,11 @@ func TestEquivalent(t *testing.T) {
 		{"stream and dict", streamDict(""), kv(), false},
 		{"equal streams, different lengths", stream("abc", 3), stream("abc", 9), true},
 		{"streams with different data", stream("abc", 3), stream("abd", 3), false},
+		{"equal data, different filters", stream("{}", 2), func() pdf.PDFDict {
+			s := stream("7B7D>", 5)
+			s.Entries.Set("Filter", name("ASCIIHexDecode"))
+			return s
+		}(), true},
 		{"undecodable stream", brokenStreamDict(), brokenStreamDict(), false},
 		{"nesting past the cap", deep, other, true},
 	} {
