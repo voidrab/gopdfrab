@@ -12,7 +12,8 @@ import (
 // 6.1.8 Name objects (ISO 19005-2)
 
 // checkUnicodeName reports name, if it is one, when its bytes are not valid
-// UTF-8 once its #XX escapes are expanded. what says which name it is.
+// UTF-8 once its #XX escapes are expanded. what names the kind of name in the
+// report.
 func checkUnicodeName(name pdf.PDFValue, owner pdf.PDFValue, what string, ctx *ValidationContext) {
 	n, ok := name.(pdf.PDFName)
 	if !ok || utf8.Valid(pdf.DecodePDFName(n.Value)) {

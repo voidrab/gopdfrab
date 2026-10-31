@@ -420,9 +420,9 @@ func TestFullProfilesEnableTheirPart(t *testing.T) {
 	}
 }
 
-// TestNewPart2CheckRequiresAPart2Clause verifies that registering a rule of
-// Part 2 only that part2Clauses does not number panics, since such a check
-// would apply to no level.
+// TestNewPart2CheckRequiresAPart2Clause verifies that newPart2Check panics
+// when part2Clauses does not number the check, since such a check would apply
+// to no level.
 func TestNewPart2CheckRequiresAPart2Clause(t *testing.T) {
 	savedLen := len(allChecksCatalog)
 	defer func() {

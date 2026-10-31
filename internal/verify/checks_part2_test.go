@@ -204,7 +204,7 @@ func TestValidatePageBoundaries(t *testing.T) {
 }
 
 // TestInheritedPageAttributeStopsAtTheDepthCap verifies that a Parent chain
-// longer than the page tree may be deep is not followed to its end.
+// deeper than pdf.MaxPageTreeDepth is not followed to its end.
 func TestInheritedPageAttributeStopsAtTheDepthCap(t *testing.T) {
 	top := kv("CropBox", pdf.PDFArray{})
 	node := top
