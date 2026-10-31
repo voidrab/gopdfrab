@@ -118,9 +118,9 @@ func TestGraphicsStateParameter(t *testing.T) {
 	}
 }
 
-// TestPost14Keys verifies that ViewerPreferences.Post14Keys contains the keys
+// TestLaterKeys verifies that ViewerPreferences.LaterKeys contains the keys
 // that PDF 1.4 lacks, such as PrintScaling and NumCopies.
-func TestPost14Keys(t *testing.T) {
+func TestLaterKeys(t *testing.T) {
 	vp, ok := Type("ViewerPreferences")
 	if !ok {
 		t.Fatal("ViewerPreferences type not found")
@@ -128,14 +128,14 @@ func TestPost14Keys(t *testing.T) {
 	want := []string{"PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"}
 	for _, k := range want {
 		found := false
-		for _, p := range vp.Post14Keys {
+		for _, p := range vp.LaterKeys {
 			if p == k {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("ViewerPreferences.Post14Keys = %v, want to contain %q", vp.Post14Keys, k)
+			t.Errorf("ViewerPreferences.LaterKeys = %v, want to contain %q", vp.LaterKeys, k)
 		}
 	}
 }
@@ -598,9 +598,10 @@ func TestClassificationFloor(t *testing.T) {
 	t.Logf("simple-row fraction: %.3f (%d/%d)", fraction, simple, total)
 }
 
-// TestGeneratorIdempotent regenerates model.bin into a scratch file and asserts it is
-// byte-identical to the checked-in one, guarding against edits to gen.go or the vendored
-// TSVs that were never regenerated.
+// TestGeneratorIdempotent verifies that regenerating each model-<version>.bin
+// into a scratch file gives a file byte-identical to the checked-in one. This
+// guards against edits to gen.go or to the vendored TSVs that were never
+// regenerated.
 func TestGeneratorIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("invokes `go run`; skipped in -short mode")
@@ -609,17 +610,19 @@ func TestGeneratorIdempotent(t *testing.T) {
 		t.Skip("Arlington TSVs not present (excluded from the module zip)")
 	}
 
-	out := filepath.Join(t.TempDir(), "model.bin")
-	cmd := exec.Command("go", "run", "gen.go", "-out", out)
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go run gen.go: %v\n%s", err, b)
-	}
-	regenerated, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(regenerated, modelData) {
-		t.Error("model.bin is stale: regenerating produces a different file; run `go generate ./internal/arlington/...`")
+	for _, m := range []*Model{pdf14, pdf17} {
+		out := filepath.Join(t.TempDir(), "model.bin")
+		cmd := exec.Command("go", "run", "gen.go", "-version", m.Version(), "-out", out)
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go run gen.go -version %s: %v\n%s", m.Version(), err, b)
+		}
+		regenerated, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(regenerated, m.data) {
+			t.Errorf("model-%s.bin is stale: regenerating produces a different file; run `go generate ./internal/arlington/...`", m.Version())
+		}
 	}
 }
 

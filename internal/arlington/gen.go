@@ -1,11 +1,13 @@
 //go:build ignore
 
-// Command gen reads the vendored Arlington PDF Model TSVs under testdata/tsv/1.4, builds one
-// ObjectType per TSV file, and writes them with arlington.EncodeModel to model.bin, which
-// the package embeds and decodes on first use.
+// Command gen reads the vendored Arlington PDF Model TSVs for one PDF version
+// under testdata/tsv/<version>, builds one ObjectType per TSV file, and writes
+// them with arlington.EncodeModel to model-<version>.bin, which the package
+// embeds and decodes on first use.
 //
-// Invoke via `go generate ./internal/arlington/...`; -out writes elsewhere (the idempotence
-// test regenerates into a scratch file and compares).
+// Invoke via `go generate ./internal/arlington/...`. The -version flag picks
+// the TSV set (1.4 or 1.7), and -out writes elsewhere; the idempotence test
+// regenerates into a scratch file and compares.
 package main
 
 import (
@@ -22,13 +24,14 @@ import (
 	"github.com/voidrab/gopdfrab/internal/arlington"
 )
 
-const (
-	tsvDir    = "testdata/tsv/1.4"
-	latestDir = "testdata/tsv/latest"
+const latestDir = "testdata/tsv/latest"
 
-	// modelVersion pins the PDF version version-gate predicates are folded against; it must
-	// match the vendored TSV subset under tsvDir.
-	modelVersion = "1.4"
+var (
+	// modelVersion is the PDF version that version-gate predicates are
+	// folded against. It names the vendored TSV subset under tsvDir and is
+	// set from the -version flag.
+	modelVersion string
+	tsvDir       string
 )
 
 // valueTypeIdent maps an Arlington TSV Type token to the matching Go identifier declared in
@@ -101,17 +104,23 @@ type typeEntry struct {
 }
 
 func main() {
+	flag.StringVar(&modelVersion, "version", "1.4", "the PDF version whose TSV set to read")
+	out := flag.String("out", "", "where to write the encoded model (default model-<version>.bin)")
+	flag.Parse()
+	tsvDir = filepath.Join("testdata", "tsv", modelVersion)
+	if *out == "" {
+		*out = "model-" + modelVersion + ".bin"
+	}
+
 	files, err := filepath.Glob(filepath.Join(tsvDir, "*.tsv"))
 	if err != nil || len(files) == 0 {
 		log.Fatalf("glob %s: %v (found %d files)", tsvDir, err, len(files))
 	}
 	sort.Strings(files)
-	out := flag.String("out", "model.bin", "where to write the encoded model")
-	flag.Parse()
 
-	post14Keys, err := computePost14Keys()
+	laterKeys, err := computeLaterKeys()
 	if err != nil {
-		log.Fatalf("computing post-1.4 keys: %v", err)
+		log.Fatalf("computing keys introduced after PDF %s: %v", modelVersion, err)
 	}
 
 	// First pass: parse every type's own keys. keyDefsByType is needed by the second pass to
@@ -170,7 +179,7 @@ func main() {
 
 	model := make(map[string]arlington.ObjectType, len(types))
 	for _, t := range types {
-		ot := arlington.ObjectType{Name: t.name, Post14Keys: post14Keys[t.name]}
+		ot := arlington.ObjectType{Name: t.name, LaterKeys: laterKeys[t.name]}
 		for _, kd := range t.keys {
 			ot.Keys = append(ot.Keys, toKeyDef(kd))
 		}
@@ -408,12 +417,13 @@ func compileValueCond(raw string) (tree *condExpr, ok bool) {
 	}
 }
 
-// computePost14Keys returns, per type name (TSV basename), the keys present in testdata/tsv/latest
-// but absent from testdata/tsv/1.4 -- i.e. keys the Arlington PDF Model says were introduced
-// after PDF 1.4. A type absent from tsv/latest (renamed across versions) is simply omitted,
-// which yields an empty, safe (false-negative) Post14Keys for it.
-func computePost14Keys() (map[string][]string, error) {
-	keys14, err := keySetsByType(tsvDir)
+// computeLaterKeys returns, per type name (TSV basename), the keys present in
+// testdata/tsv/latest but absent from tsvDir. These are the keys the Arlington
+// PDF Model says were introduced after modelVersion. A type absent from
+// tsv/latest (renamed across versions) is omitted, which yields an empty, safe
+// (false-negative) LaterKeys for it.
+func computeLaterKeys() (map[string][]string, error) {
+	keysOld, err := keySetsByType(tsvDir)
 	if err != nil {
 		return nil, err
 	}
@@ -422,9 +432,9 @@ func computePost14Keys() (map[string][]string, error) {
 		return nil, err
 	}
 
-	post14 := make(map[string][]string, len(keysLatest))
+	later := make(map[string][]string, len(keysLatest))
 	for typeName, latestKeys := range keysLatest {
-		old := keys14[typeName]
+		old := keysOld[typeName]
 		var added []string
 		for k := range latestKeys {
 			if k == "*" || old[k] {
@@ -434,10 +444,10 @@ func computePost14Keys() (map[string][]string, error) {
 		}
 		if len(added) > 0 {
 			sort.Strings(added)
-			post14[typeName] = added
+			later[typeName] = added
 		}
 	}
-	return post14, nil
+	return later, nil
 }
 
 // keySetsByType reads every TSV under dir and returns, per type name, the set of Key column

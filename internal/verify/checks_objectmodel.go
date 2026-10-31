@@ -13,12 +13,14 @@ import (
 // must be one of its schema-allowed types (WrongValueType); a present key with an enumerated
 // PossibleValues list must use one of them (DisallowedValue); a key requiring an indirect
 // reference must not be inlined (IndirectRequired); and a key the model says was introduced
-// after PDF 1.4 must not appear on a non-wildcard type (KeyIntroducedAfterPDF14). A predicated
-// column -- one whose fn: condition the Arlington generator could not fold -- suppresses only
-// its own check, erring toward false negatives over false positives. Keys absent from both the
-// 1.4 and post-1.4 schema (custom/private keys) are never flagged.
+// after the level's PDF version must not appear on a non-wildcard type
+// (KeyIntroducedAfterPDF14). Each check uses the object model of the context's
+// level (Spec.ModelVersion). A predicated column (one whose fn: condition the
+// Arlington generator could not fold) suppresses only its own check, erring
+// toward false negatives over false positives. Keys absent from both the
+// model's schema and its later keys (custom/private keys) are never flagged.
 func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContext) {
-	ot, ok := arlington.Type(typeName)
+	ot, ok := ctx.objectModel().Type(typeName)
 	if !ok {
 		return
 	}
@@ -151,16 +153,17 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 		ctx.keyScratch = ctx.keyScratch[:keysBase]
 	}
 
-	// A wildcard type allows arbitrary keys, so there is nothing "introduced after PDF 1.4"
-	// to flag there; a custom/private key on a non-wildcard type is likewise never in
-	// Post14Keys, so it is never flagged either.
+	// A wildcard type allows arbitrary keys, so there is nothing
+	// "introduced after" the model's version to flag there. A custom or
+	// private key on a non-wildcard type is likewise never in LaterKeys, so
+	// it is never flagged.
 	if ot.Wildcard == nil {
 		for k := range v.Entries.All() {
-			if stringInList(k, ot.Post14Keys) {
+			if stringInList(k, ot.LaterKeys) {
 				ctx.ReportObjModel(
 					pdf.Checks.ObjectModel.KeyIntroducedAfterPDF14,
 					v, typeName, k,
-					fmt.Sprintf("%s key %q was introduced after PDF 1.4", typeName, k),
+					fmt.Sprintf("%s key %q was introduced after PDF %s", typeName, k, ctx.objectModel().Version()),
 				)
 			}
 		}
@@ -176,7 +179,7 @@ func validateAgainstSchema(v pdf.PDFDict, typeName string, ctx *ValidationContex
 // holding v ("" when v is nested inside another array). A predicated column suppresses
 // only its own check, as in validateAgainstSchema.
 func validateArrayAgainstSchema(v pdf.PDFArray, typeName string, owner pdf.PDFValue, entry string, ctx *ValidationContext) {
-	ot, ok := arlington.Type(typeName)
+	ot, ok := ctx.objectModel().Type(typeName)
 	if !ok {
 		return
 	}
@@ -529,9 +532,10 @@ func comparisonOperands[S condOperands](src S, c *arlington.Cond) (lhs, rhs floa
 	return lhs, rhs, true
 }
 
-// selfIdentifiedType re-anchors an untyped dict by its own /Type (+/Subtype) names via the
-// generated unambiguous-identification table; "" when they do not identify exactly one type.
-func selfIdentifiedType(v pdf.PDFDict) string {
+// selfIdentifiedType returns the type of model m that the /Type and /Subtype
+// names of v identify, or "" when they do not identify exactly one type. It
+// consults the model's unambiguous-identification table.
+func selfIdentifiedType(m *arlington.Model, v pdf.PDFDict) string {
 	t, ok := v.Entries.Get("Type").(pdf.PDFName)
 	if !ok {
 		return ""
@@ -540,7 +544,7 @@ func selfIdentifiedType(v pdf.PDFDict) string {
 	if s, ok := v.Entries.Get("Subtype").(pdf.PDFName); ok {
 		sub = s.Value
 	}
-	return arlington.SelfIdentified(t.Value, sub)
+	return m.SelfIdentified(t.Value, sub)
 }
 
 // numericValue converts a PDF integer or real to float64 for range conditions.
@@ -642,12 +646,13 @@ func valueTypeAllowed(val pdf.PDFValue, vt arlington.ValueType) bool {
 	}
 }
 
-// arlingtonChildType returns the Arlington type name that val (key's value inside a dict of type
-// parentType) should conform to, or "" if parentType is unknown, key has no schema entry, or
-// val doesn't resolve to a single candidate type. Deliberately conservative: propagating a
-// wrong guessed type would misvalidate an entire subtree.
-func arlingtonChildType(parentType, key string, val pdf.PDFValue) string {
-	ot, ok := arlington.Type(parentType)
+// arlingtonChildType returns the type name of model m that val should conform
+// to. val is the value of key inside a dict of type parentType. The result is
+// "" if parentType is unknown, key has no schema entry, or val does not resolve
+// to a single candidate type. Deliberately conservative: propagating a wrong
+// guessed type would misvalidate an entire subtree.
+func arlingtonChildType(m *arlington.Model, parentType, key string, val pdf.PDFValue) string {
+	ot, ok := m.Type(parentType)
 	if !ok {
 		return ""
 	}
@@ -658,10 +663,11 @@ func arlingtonChildType(parentType, key string, val pdf.PDFValue) string {
 	return resolveLinkGroups(kd.LinkGroups, kd.Types, val)
 }
 
-// arlingtonElementType returns the Arlington type name that item (an element of an array of
-// type arrayType) should conform to, or "" if unknown or unresolved.
-func arlingtonElementType(arrayType string, item pdf.PDFValue) string {
-	ot, ok := arlington.Type(arrayType)
+// arlingtonElementType returns the type name of model m that item should
+// conform to. item is an element of an array of type arrayType. The result is
+// "" if the type is unknown or the element does not resolve.
+func arlingtonElementType(m *arlington.Model, arrayType string, item pdf.PDFValue) string {
+	ot, ok := m.Type(arrayType)
 	if !ok || ot.Wildcard == nil {
 		return ""
 	}

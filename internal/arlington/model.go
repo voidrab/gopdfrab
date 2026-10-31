@@ -11,10 +11,10 @@ import (
 	"github.com/klauspost/compress/flate"
 )
 
-// The model is stored as data, not code: model.bin holds the tables in a
-// compact binary form that is decoded on first use. Keeping them out of a Go
-// map literal keeps the package's initialisation code small. gen.go writes the
-// file with EncodeModel.
+// The model is stored as data, not code: model-<version>.bin holds the tables
+// in a compact binary form that is decoded on first use. Keeping them out of a
+// Go map literal keeps the package's initialisation code small. gen.go writes
+// the files with EncodeModel.
 //
 // Layout, after flate decompression: a string table (count, then each string
 // as length and bytes), then the types sorted by name, then the
@@ -22,27 +22,81 @@ import (
 // table index, integers as varints, and absent pointers, slices and maps as
 // a zero count or flag, so nil decodes back to nil.
 
-//go:embed model.bin
-var modelData []byte
+//go:embed model-1.4.bin
+var model14Data []byte
+
+//go:embed model-1.7.bin
+var model17Data []byte
+
+// Model is the Arlington object model for one PDF version: the types that
+// version defines, with version-gated constraints folded against it.
+type Model struct {
+	version string
+	data    []byte
+
+	once           sync.Once
+	types          map[string]ObjectType
+	selfIdentified map[[2]string]string
+}
 
 var (
-	loadOnce          sync.Once
-	types             map[string]ObjectType
-	selfIdentifiedMap map[[2]string]string
+	pdf14  = &Model{version: "1.4", data: model14Data}
+	pdf17  = &Model{version: "1.7", data: model17Data}
+	models = map[string]*Model{pdf14.version: pdf14, pdf17.version: pdf17}
 )
 
-// load decodes modelData once, on the first lookup.
-func load() {
-	loadOnce.Do(func() {
-		types, selfIdentifiedMap = decodeModel(modelData)
+// ModelFor returns the model for a PDF version ("1.4" or "1.7"), or nil when
+// no model for that version is vendored.
+func ModelFor(version string) *Model { return models[version] }
+
+// Version returns the PDF version the model describes, such as "1.4".
+func (m *Model) Version() string { return m.version }
+
+// load decodes the model's data once, on the first lookup.
+func (m *Model) load() {
+	m.once.Do(func() {
+		m.types, m.selfIdentified = decodeModel(m.data)
 	})
 }
 
-// Types returns every vendored PDF 1.4 Arlington type, keyed by name. The map
-// is shared and decoded once, on the first call; callers must not modify it.
-func Types() map[string]ObjectType {
-	load()
-	return types
+// Types returns every type of the model, keyed by name. The map is shared and
+// decoded once, on the first call; callers must not modify it.
+func (m *Model) Types() map[string]ObjectType {
+	m.load()
+	return m.types
+}
+
+// Type looks up a type of the model by name (e.g. "Catalog", "ExtGState").
+func (m *Model) Type(name string) (ObjectType, bool) {
+	t, ok := m.Types()[name]
+	return t, ok
+}
+
+// SelfIdentified returns the one type of the model an untyped dictionary's
+// own /Type (and /Subtype) names unambiguously identify, or "" when the pair
+// is unknown or ambiguous. The generated table only contains pairs exactly
+// one type in the model is consistent with, so re-anchoring on the result
+// never guesses.
+func (m *Model) SelfIdentified(typeVal, subtypeVal string) string {
+	m.load()
+	if subtypeVal != "" {
+		if n, ok := m.selfIdentified[[2]string{typeVal, subtypeVal}]; ok {
+			return n
+		}
+	}
+	return m.selfIdentified[[2]string{typeVal, ""}]
+}
+
+// Types returns every type of the PDF 1.4 model; see [Model.Types].
+func Types() map[string]ObjectType { return pdf14.Types() }
+
+// Type looks up a type of the PDF 1.4 model by name; see [Model.Type].
+func Type(name string) (ObjectType, bool) { return pdf14.Type(name) }
+
+// SelfIdentified returns the PDF 1.4 type a /Type and /Subtype pair
+// identifies; see [Model.SelfIdentified].
+func SelfIdentified(typeVal, subtypeVal string) string {
+	return pdf14.SelfIdentified(typeVal, subtypeVal)
 }
 
 // encoder writes the body and interns strings; the table is written last
@@ -157,8 +211,9 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // EncodeModel serializes ts and the self-identification table into the
-// model.bin format decodeModel reads. The output depends only on the content,
-// not on map order, so regenerating an unchanged model is byte-identical.
+// model-<version>.bin format that decodeModel reads. The output depends only
+// on the content, not on map order, so regenerating an unchanged model is
+// byte-identical.
 func EncodeModel(ts map[string]ObjectType, self map[[2]string]string) []byte {
 	e := &encoder{index: map[string]int{}}
 
@@ -179,7 +234,7 @@ func EncodeModel(ts map[string]ObjectType, self map[[2]string]string) []byte {
 		if ot.Wildcard != nil {
 			e.keyDef(ot.Wildcard)
 		}
-		e.strs(ot.Post14Keys)
+		e.strs(ot.LaterKeys)
 	}
 
 	pairs := make([][2]string, 0, len(self))
@@ -336,13 +391,13 @@ func (d *decoder) keyDef() KeyDef {
 	return kd
 }
 
-// decodeModel reads the model.bin format: the types keyed by name, each with
-// its key index built, and the self-identification table. It panics on data
-// EncodeModel did not write.
+// decodeModel reads the model-<version>.bin format: the types keyed by name,
+// each with its key index built, and the self-identification table. It panics
+// on data that EncodeModel did not write.
 func decodeModel(data []byte) (map[string]ObjectType, map[[2]string]string) {
 	raw, err := io.ReadAll(flate.NewReader(bytes.NewReader(data)))
 	if err != nil {
-		panic("arlington: corrupt model.bin: " + err.Error())
+		panic("arlington: corrupt model data: " + err.Error())
 	}
 	d := &decoder{buf: raw}
 	d.strings = make([]string, d.uint())
@@ -366,7 +421,7 @@ func decodeModel(data []byte) (map[string]ObjectType, map[[2]string]string) {
 			w := d.keyDef()
 			ot.Wildcard = &w
 		}
-		ot.Post14Keys = d.strs()
+		ot.LaterKeys = d.strs()
 		ot.keyByName = indexKeys(ot.Keys)
 		ts[ot.Name] = ot
 	}
