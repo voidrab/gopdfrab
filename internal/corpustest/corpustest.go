@@ -83,7 +83,7 @@ var (
 		Default: pdf.PDFA2B,
 		Flavour: "2b",
 		Naming:  VeraPDFNames,
-		Clauses: []string{"6.1.2", "6.1.3", "6.1.4"},
+		Clauses: []string{"6.1.2", "6.1.3", "6.1.4", "6.1.6", "6.1.7.1", "6.1.9", "6.1.10"},
 	}
 )
 
