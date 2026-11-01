@@ -984,7 +984,8 @@ func isContainer(val pdf.PDFValue) bool {
 //
 // complete is false when any content stream failed to decode, meaning the
 // sets are a subset of the truth. Since every one of them drives a check
-// *suppression*, callers must discard them all in that case.
+// *suppression*, callers must discard them all in that case. It also records
+// on ctx the composite fonts a shown string ends in mid-code for.
 func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 	reachable map[uintptr]bool,
 	invisibleOnly map[uintptr]bool,
@@ -1048,6 +1049,7 @@ func ComputeContentUsage(graph pdf.PDFValue, ctx *ValidationContext) (
 			invisibleOnly[ptr] = true
 		}
 	}
+	ctx.partialCodeFonts = fu.partialCodes
 	return reachable, invisibleOnly, fu.usedCodes, fu.usedCIDs, complete
 }
 
@@ -1146,6 +1148,7 @@ type fontUsage struct {
 	invisible       map[uintptr]bool
 	usedCodes       map[uintptr]map[int]bool
 	usedCIDs        map[uintptr]map[int]bool
+	partialCodes    map[uintptr]bool
 	scannedPatterns map[uintptr]bool
 	scannedForms    map[formScan]bool
 }
@@ -1157,6 +1160,7 @@ func newFontUsage() *fontUsage {
 		invisible:       map[uintptr]bool{},
 		usedCodes:       map[uintptr]map[int]bool{},
 		usedCIDs:        map[uintptr]map[int]bool{},
+		partialCodes:    map[uintptr]bool{},
 		scannedPatterns: map[uintptr]bool{},
 		scannedForms:    map[formScan]bool{},
 	}
@@ -1248,6 +1252,9 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 				shown := pdf.ShownStringBytes(op, operands)
 				for i := 0; i+1 < len(shown); i += 2 {
 					set[int(shown[i])<<8|int(shown[i+1])] = true
+				}
+				if len(shown)%2 != 0 {
+					fu.partialCodes[st.compositeFontPtr] = true
 				}
 			}
 		case "scn", "SCN":

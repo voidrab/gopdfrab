@@ -125,4 +125,34 @@ var part2Clauses = map[string]clauseRef{
 	"BlendMode":                        {"6.2.10", 1, "ExtGState blend mode (BM) must be one ISO 32000-1 defines"},
 	"TransparencyWithoutBlendingSpace": {"6.2.10", 2, ""},
 	"DeviceBlendingColourSpace":        {"6.2.10", 0, ""},
+	// 6.2.11.2 General.
+	"FontType":            {"6.2.11.2", 1, ""},
+	"InvalidSubtype":      {"6.2.11.2", 2, ""},
+	"FontBaseFont":        {"6.2.11.2", 3, ""},
+	"SimpleFontFirstChar": {"6.2.11.2", 4, ""},
+	"SimpleFontLastChar":  {"6.2.11.2", 5, ""},
+	"SimpleFontWidths":    {"6.2.11.2", 6, ""},
+	"FontFileSubtype":     {"6.2.11.2", 7, "An embedded font file Subtype, when present, must be Type1C, CIDFontType0C or OpenType"},
+	"InvalidProgram":      {"6.2.11.2", 0, ""},
+	// 6.2.11.3 Composite fonts.
+	"CIDSystemInfoMismatch": {"6.2.11.3.1", 1, "An embedded CMap's CIDSystemInfo must have the descendant CIDFont's Registry and Ordering, and a Supplement no lower"},
+	"CIDToGIDMapMissing":    {"6.2.11.3.2", 1, "An embedded CIDFontType2 font must have a CIDToGIDMap that is a stream or Identity"},
+	"CMapNotEmbedded":       {"6.2.11.3.3", 1, "A CMap must be embedded unless it is one ISO 32000-1 Table 118 lists"},
+	"CMapWModeInconsistent": {"6.2.11.3.3", 2, ""},
+	"UseCMapNotPredefined":  {"6.2.11.3.3", 3, ""},
+	// 6.2.11.4 Embedding.
+	"SimpleNotEmbedded":   {"6.2.11.4.1", 1, ""},
+	"CIDNotEmbedded":      {"6.2.11.4.1", 1, ""},
+	"SubsetGlyphCoverage": {"6.2.11.4.1", 2, ""},
+	"Type1SubsetCharSet":  {"6.2.11.4.2", 1, "A Type 1 subset font descriptor's CharSet, when present, must list every glyph of the embedded program"},
+	"CIDSubsetCIDSet":     {"6.2.11.4.2", 2, "A CID subset font descriptor's CIDSet, when present, must identify every CID of the embedded program"},
+	// 6.2.11.5 Font metrics.
+	"AdvanceWidthMismatch": {"6.2.11.5", 1, ""},
+	// 6.2.11.6 Character encodings.
+	"NonSymbolicTrueTypeCmap":  {"6.2.11.6", 1, ""},
+	"TrueTypeEncoding":         {"6.2.11.6", 2, "Non-symbolic TrueType fonts must use MacRomanEncoding or WinAnsiEncoding, as the Encoding or its BaseEncoding, with Differences only of Adobe Glyph List names"},
+	"SymbolicTrueTypeEncoding": {"6.2.11.6", 3, ""},
+	"SymbolicTrueTypeCmap":     {"6.2.11.6", 4, "Symbolic TrueType fonts must have exactly one cmap subtable, or a Microsoft Symbol (3,0) one"},
+	// 6.2.11.8 Use of .notdef glyph.
+	"NotdefGlyphReference": {"6.2.11.8", 1, ""},
 }

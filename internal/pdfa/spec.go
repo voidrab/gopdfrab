@@ -32,6 +32,14 @@ type Spec struct {
 	BlendModes Names
 	// FontFileSubtypes are the /Subtype values an embedded font file may have.
 	FontFileSubtypes Names
+	// PredefinedCMaps are the CMaps a composite font may name without
+	// embedding them, and the only ones an embedded CMap may use, when the
+	// level checks what a CMap uses (UseCMapPredefined).
+	PredefinedCMaps   Names
+	UseCMapPredefined bool
+	// SubsetSetsOptional says whether a subset font's descriptor may omit its
+	// CharSet or CIDSet, which must still be complete when present.
+	SubsetSetsOptional bool
 	// ForbiddenViewerPrefKeys are the ViewerPreferences keys the level's PDF
 	// version does not define.
 	ForbiddenViewerPrefKeys Names
@@ -180,6 +188,8 @@ var a1b = Spec{
 	BlendModes: NewNames("Normal", "Compatible"),
 	// 6.3.2: the only font file subtypes PDF 1.4 defines.
 	FontFileSubtypes: NewNames("Type1C", "CIDFontType0C"),
+	// 6.3.3.3.
+	PredefinedCMaps: NewNames("Identity-H", "Identity-V"),
 	// Keys introduced after PDF 1.4.
 	ForbiddenViewerPrefKeys: NewNames("PrintScaling", "PickTrayByPDFSize", "PrintPageRange", "NumCopies"),
 	// 6.2.2: ICC.1:2003-09.
@@ -231,6 +241,24 @@ var a2b = Spec{
 		"Saturation", "Color", "Luminosity"),
 	// 6.2.11.4.1.
 	FontFileSubtypes: NewNames("Type1C", "CIDFontType0C", "OpenType"),
+	// 6.2.11.3.3: ISO 32000-1 Table 118.
+	PredefinedCMaps: NewNames("Identity-H", "Identity-V",
+		"GB-EUC-H", "GB-EUC-V", "GBpc-EUC-H", "GBpc-EUC-V", "GBK-EUC-H", "GBK-EUC-V",
+		"GBKp-EUC-H", "GBKp-EUC-V", "GBK2K-H", "GBK2K-V", "UniGB-UCS2-H", "UniGB-UCS2-V",
+		"UniGB-UTF16-H", "UniGB-UTF16-V",
+		"B5pc-H", "B5pc-V", "HKscs-B5-H", "HKscs-B5-V", "ETen-B5-H", "ETen-B5-V",
+		"ETenms-B5-H", "ETenms-B5-V", "CNS-EUC-H", "CNS-EUC-V", "UniCNS-UCS2-H",
+		"UniCNS-UCS2-V", "UniCNS-UTF16-H", "UniCNS-UTF16-V",
+		"83pv-RKSJ-H", "90ms-RKSJ-H", "90ms-RKSJ-V", "90msp-RKSJ-H", "90msp-RKSJ-V",
+		"90pv-RKSJ-H", "Add-RKSJ-H", "Add-RKSJ-V", "EUC-H", "EUC-V", "Ext-RKSJ-H",
+		"Ext-RKSJ-V", "H", "V", "UniJIS-UCS2-H", "UniJIS-UCS2-V", "UniJIS-UCS2-HW-H",
+		"UniJIS-UCS2-HW-V", "UniJIS-UTF16-H", "UniJIS-UTF16-V",
+		"KSC-EUC-H", "KSC-EUC-V", "KSCms-UHC-H", "KSCms-UHC-V", "KSCms-UHC-HW-H",
+		"KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H",
+		"UniKS-UTF16-V"),
+	UseCMapPredefined: true,
+	// 6.2.11.4.2.
+	SubsetSetsOptional: true,
 	// 6.1.7.2 and 6.1.10: ISO 32000-1 Table 6 less LZWDecode, and for inline
 	// images also less JBIG2Decode, JPXDecode and Crypt, in either spelling.
 	StreamFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",

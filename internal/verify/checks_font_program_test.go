@@ -915,12 +915,13 @@ func TestTrueTypeCmapSubtablesAndSymbolicCmap(t *testing.T) {
 	ff.SetStream(ttf)
 	desc.Entries.Set("FontFile2", ff)
 
-	n, ok := trueTypeCmapSubtables(&ValidationContext{Spec: a1bSpec}, desc)
+	cm, ok := trueTypeCmaps(&ValidationContext{Spec: a1bSpec}, desc)
+	n := cm.count
 	if !ok || n <= 0 {
-		t.Errorf("trueTypeCmapSubtables = %d, %v", n, ok)
+		t.Errorf("trueTypeCmaps = %d subtables, %v", n, ok)
 	}
-	if _, ok := trueTypeCmapSubtables(&ValidationContext{Spec: a1bSpec}, pdf.NewPDFDict()); ok {
-		t.Error("trueTypeCmapSubtables should be ok=false with no FontFile2")
+	if _, ok := trueTypeCmaps(&ValidationContext{Spec: a1bSpec}, pdf.NewPDFDict()); ok {
+		t.Error("trueTypeCmaps should be ok=false with no FontFile2")
 	}
 
 	// A (1,0) Mac subtable is returned when no (3,0) Windows symbol subtable exists.
@@ -1119,8 +1120,8 @@ func TestFontProgramCheckersDecodeFailureGuards(t *testing.T) {
 	validateSimpleTrueTypeMetrics(v, garbage, 0, nil, ctx)
 	validateType1Metrics(v, pdf.PDFDict{}, noStream, 0, nil, nil, ctx)
 	validateCMapWMode(v, pdf.NewPDFDict(), ctx) // no stream
-	if _, ok := trueTypeCmapSubtables(ctx, desc); ok {
-		t.Error("trueTypeCmapSubtables should be ok=false without a FontFile2")
+	if _, ok := trueTypeCmaps(ctx, desc); ok {
+		t.Error("trueTypeCmaps should be ok=false without a FontFile2")
 	}
 	ValidateFontProgram(v, desc, "Test", ctx) // no FontFile* entries at all
 
@@ -1761,8 +1762,8 @@ func TestTrueTypeCmapSubtablesUnavailable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			desc := pdf.NewPDFDict()
 			desc.Entries.Set("FontFile2", tc.ff)
-			if n, ok := trueTypeCmapSubtables(&ValidationContext{Spec: a1bSpec}, desc); ok {
-				t.Errorf("trueTypeCmapSubtables = %d, true; want unavailable", n)
+			if cm, ok := trueTypeCmaps(&ValidationContext{Spec: a1bSpec}, desc); ok {
+				t.Errorf("trueTypeCmaps = %d subtables, true; want unavailable", cm.count)
 			}
 		})
 	}

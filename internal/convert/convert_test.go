@@ -539,7 +539,7 @@ func TestConvertIsDeterministic(t *testing.T) {
 // can fix those.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
-	pdf.A2B: 189,
+	pdf.A2B: 227,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to
@@ -557,6 +557,10 @@ var expectedRasterized = map[string]string{
 	"isartor-6-3-3-3-t02-fail-a.pdf":           "CJK CID font, glyph missing, not substitutable",
 	"isartor-6-3-4-t01-fail-c.pdf":             "CJK CID font not embedded, not substitutable",
 	"veraPDF test suite 6-1-12-t10-fail-a.pdf": "CJK CID font, glyph missing, not substitutable",
+	"veraPDF test suite 6-1-13-t10-fail-a.pdf": "CJK CID font, glyph missing, not substitutable",
+	// The CMap is a name that is neither predefined nor embedded, so which
+	// CIDs the codes select is unknown.
+	"veraPDF test suite 6-2-11-3-3-t01-fail-a.pdf": "CMap neither predefined nor embedded",
 }
 
 // TestConvertCorpusEndToEnd sweeps every fail fixture of every corpus through

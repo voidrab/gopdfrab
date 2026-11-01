@@ -156,7 +156,7 @@ func simpleFontNeedsSubstitution(d, desc pdf.PDFDict, usedCodes map[uintptr]map[
 			verify.ValidateSimpleTrueTypeSubset(d, ff, int(firstChar), int(lastChar), widths, vctx)
 		}
 	case "Type1", "MMType1":
-		if desc.Entries.Get("CharSet") != nil {
+		if desc.Entries.Get("CharSet") != nil || spec != nil && spec.SubsetSetsOptional {
 			verify.ValidateType1SubsetCoverage(d, d, desc, int(firstChar), int(lastChar), widths, vctx)
 		}
 	}
@@ -845,12 +845,17 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 	return changed, nil
 }
 
-// trueTypeEncodingFixer remediates the 6.3.7 TrueType encoding checks.
+// trueTypeEncodingFixer remediates the TrueType encoding checks of 6.3.7 and
+// 6.2.11.6. A non-symbolic font whose program has no cmap subtable but the
+// Microsoft Symbol (3,0) one, which only a symbolic font may rely on, is made
+// symbolic: its codes then select glyphs through that subtable, as a reader
+// falls back to when no other applies.
 type trueTypeEncodingFixer struct{ doc *pdf.Reader }
 
 func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 	switch c {
-	case pdf.Checks.Font.TrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeCmap:
+	case pdf.Checks.Font.TrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeEncoding, pdf.Checks.Font.SymbolicTrueTypeCmap,
+		pdf.Checks.Font.NonSymbolicTrueTypeCmap:
 		return true
 	}
 	return false
@@ -858,6 +863,7 @@ func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 
 func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) (bool, error) {
 	changed := false
+	symbolOnly := reportedChecks(issues)[pdf.Checks.Font.NonSymbolicTrueTypeCmap]
 	var usedCodes map[uintptr]map[int]bool
 	usageComputed := false
 	usage := func() map[uintptr]map[int]bool {
@@ -881,6 +887,11 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 		flags := 0
 		if f, ok := desc.Entries.Get("Flags").(pdf.PDFInteger); ok {
 			flags = int(f)
+		}
+		if flags&4 == 0 && symbolOnly && onlySymbolCmap(desc) {
+			desc.Entries.Set("Flags", pdf.PDFInteger(flags&^32|4))
+			flags = flags&^32 | 4
+			changed = true
 		}
 		if flags&4 != 0 { // symbolic
 			if d.Entries.Get("Encoding") != nil {
@@ -914,6 +925,25 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 		}
 	})
 	return changed, nil
+}
+
+// onlySymbolCmap reports whether desc's embedded FontFile2 has a cmap table
+// whose one subtable is the Microsoft Symbol (3,0) one.
+func onlySymbolCmap(desc pdf.PDFDict) bool {
+	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
+	if !ok || !ff.IsStream() {
+		return false
+	}
+	data, err := pdf.DecodeStream(ff)
+	if err != nil {
+		return false
+	}
+	tables, ok := fontprog.ParseSfnt(data)
+	if !ok {
+		return false
+	}
+	n, ok := fontprog.CmapSubtableCount(data)
+	return ok && n == 1 && fontprog.TTCmapSubtable(tables, 3, 0) != nil
 }
 
 // trimSymbolicCmap reduces desc's embedded FontFile2's cmap to a single

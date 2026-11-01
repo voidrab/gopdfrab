@@ -377,10 +377,12 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 		return r.Fallback(cc)
 	}
 
+	// A zero width is rewritten too: verify checks it when the code is shown,
+	// and for one that is not, the program's width does no harm.
 	changed := false
 	for i, w := range widths {
 		pdfWidth, ok := pdf.PDFNumberToInt(w)
-		if !ok || pdfWidth == 0 {
+		if !ok {
 			continue
 		}
 		cc := int(firstChar) + i
@@ -388,7 +390,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		gid, known := codeToGID(cc)
-		if !known {
+		if !known || gid == 0 {
 			continue
 		}
 		fontWidth := fontprog.TTAdvanceWidth(tables, gid)

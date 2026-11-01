@@ -167,6 +167,8 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return fontFileSubtypeFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return fontSubstitutionFixer{doc: r.doc, spec: r.spec} },
 		func(r *fixerRun) Fixer { return trueTypeEncodingFixer{doc: r.doc} },
+		func(r *fixerRun) Fixer { return useCMapFixer{spec: r.spec} },
+		func(r *fixerRun) Fixer { return notdefFixer{} },
 		func(r *fixerRun) Fixer { return inlineImageLZWFixer{} },
 		func(r *fixerRun) Fixer { return inlineImageFilterFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return pagesTreeArrayFixer{spec: r.spec} },

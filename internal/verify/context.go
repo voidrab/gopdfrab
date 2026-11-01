@@ -82,6 +82,13 @@ type ValidationContext struct {
 	// fall back to checking every W entry.
 	UsedCIDs map[uintptr]map[int]bool
 
+	// partialCodeFonts holds the descendant-dict pointers of the composite
+	// fonts a shown string ends in mid-code for: one byte left over of a
+	// two-byte code, which selects no glyph. ComputeContentUsage records it.
+	// Unlike the usage sets it drives reports, not suppressions, so it is
+	// kept when usage is incomplete.
+	partialCodeFonts map[uintptr]bool
+
 	// schemaOnly restricts verifyDocument's walk to the generic object-model
 	// schema checks, skipping every PDF/A-specific family whose findings the
 	// profile would filter out anyway (see Profile.OnlyObjectModelChecks).
@@ -301,6 +308,12 @@ func (ctx *ValidationContext) usedCIDsFor(v pdf.PDFDict) (cids map[int]bool, kno
 	}
 	cids, known = ctx.UsedCIDs[pdf.ValuePointer(v.Entries)]
 	return cids, known
+}
+
+// showsPartialCode reports whether a shown string ends in mid-code for the
+// composite font whose descendant CIDFont is v.
+func (ctx *ValidationContext) showsPartialCode(v pdf.PDFDict) bool {
+	return ctx.partialCodeFonts[pdf.ValuePointer(v.Entries)]
 }
 
 // part2 reports whether the context verifies a level of ISO 19005-2, whose

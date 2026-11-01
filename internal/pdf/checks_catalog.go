@@ -293,6 +293,11 @@ type fontChecks struct {
 	TrueTypeEncoding         Check
 	SymbolicTrueTypeEncoding Check
 	SymbolicTrueTypeCmap     Check
+	// Rules of PDF/A-2 alone: CMaps a CMap uses, non-symbolic TrueType cmap
+	// tables and the .notdef glyph.
+	UseCMapNotPredefined    Check
+	NonSymbolicTrueTypeCmap Check
+	NotdefGlyphReference    Check
 }
 
 type annotationChecks struct {
@@ -1015,6 +1020,15 @@ func init() {
 				"SymbolicTrueTypeCmap",
 				"Symbolic TrueType fonts must have exactly one cmap subtable",
 				"6.3.7", 3),
+			UseCMapNotPredefined: newPart2Check(185,
+				"UseCMapNotPredefined",
+				"A CMap may only use (UseCMap) one of the CMaps ISO 32000-1 Table 118 lists"),
+			NonSymbolicTrueTypeCmap: newPart2Check(186,
+				"NonSymbolicTrueTypeCmap",
+				"The embedded program of a non-symbolic TrueType font must have a cmap subtable other than the Microsoft Symbol (3,0) one"),
+			NotdefGlyphReference: newPart2Check(187,
+				"NotdefGlyphReference",
+				"Text showing operators must not reference the .notdef glyph"),
 			ToUnicodeMissing: newLevelACheck(103,
 				"ToUnicodeMissing",
 				"Fonts must include a ToUnicode CMap unless they use a predefined encoding or character collection (Level A)",

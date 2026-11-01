@@ -22,11 +22,12 @@ import (
 // spec default) or reconciling metadata that already describes the same
 // embedded data two different ways.
 
-// fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by adding the
-// spec-default /CIDToGIDMap /Identity to any CIDFontType2 descendant font
-// that lacks it, mirroring the detection in validateFontDict
-// (checks_font.go). Adding /Identity is always valid, because it is the PDF
-// default applied when the key is absent. It therefore never changes rendered
+// fontDictFixer remediates Checks.Font.CIDToGIDMapMissing by giving any
+// CIDFontType2 descendant font that lacks a CIDToGIDMap, or has one that is
+// neither a stream nor Identity, the spec-default /CIDToGIDMap /Identity,
+// mirroring the detection in validateFontDict (checks_font.go). /Identity is
+// the PDF default applied when the key is absent, and what a reader falls
+// back to for a value it cannot use. It therefore never changes rendered
 // appearance or breaks a conformant file, so the fixer applies it to every such
 // font.
 type fontDictFixer struct{}
@@ -47,7 +48,7 @@ func (fontDictFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 		if (d.Entries.Get("Subtype") != pdf.PDFName{Value: "CIDFontType2"}) {
 			return
 		}
-		if d.Entries.Get("CIDToGIDMap") == nil {
+		if c2g := d.Entries.Get("CIDToGIDMap"); c2g == nil || !verify.ValidCIDToGIDMap(c2g) {
 			d.Entries.Set("CIDToGIDMap", pdf.PDFName{Value: "Identity"})
 			*changed = true
 		}
@@ -58,7 +59,8 @@ func (fontDictFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (f
 // mismatches, mirroring validateType0Font/validateCMapWMode
 // (checks_font.go/checks_font_program.go). The descendant CIDFont's
 // CIDSystemInfo is authoritative -- it describes the glyph data actually
-// embedded -- so a mismatched CMap CIDSystemInfo is overwritten to match it;
+// embedded -- so a CMap CIDSystemInfo with another Registry or Ordering, or a
+// lower Supplement, is overwritten to match it;
 // a mismatched dictionary /WMode is overwritten to match the value the CMap
 // stream itself declares.
 type type0FontFixer struct{}
@@ -91,7 +93,10 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (
 		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
 			cmapCSI, hasCmapCSI := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
 			cidCSI, hasCidCSI := cid.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
-			if hasCmapCSI && hasCidCSI && !verify.SameCIDSystemInfo(cmapCSI, cidCSI) {
+			// A CIDFont without an integer Supplement has none to give the CMap.
+			_, cidSupplement := cidCSI.Entries.Get("Supplement").(pdf.PDFInteger)
+			if hasCmapCSI && hasCidCSI && (!verify.SameCIDSystemInfo(cmapCSI, cidCSI) ||
+				cidSupplement && !verify.SupplementCovered(cmapCSI, cidCSI)) {
 				cmap.Entries.Set("CIDSystemInfo", cid.Entries.Get("CIDSystemInfo"))
 				*changed = true
 			}
