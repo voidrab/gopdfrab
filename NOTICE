@@ -48,6 +48,16 @@ Small-footprint_FOGRA39v2.icc
     Askary".
 
 
+internal/fontprog/assets/
+-------------------------
+
+glyphlist.txt
+    Adobe Glyph List, version 2.0, unchanged from
+    https://github.com/adobe-type-tools/agl-aglfn at commit 4036a9ca80a6.
+    BSD 3-Clause License, as the file's own header states.
+    Copyright 2002-2019 Adobe.
+    Compiled into every gopdfrab binary.
+
 internal/arlington/testdata/tsv/, internal/arlington/model-*.bin
 ----------------------------------------------------------------
 
