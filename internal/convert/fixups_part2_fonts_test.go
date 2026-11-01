@@ -384,9 +384,9 @@ func TestTrueTypeEncodingFixerSymbolOnlyCmap(t *testing.T) {
 		t.Error("Encoding kept on the now symbolic font")
 	}
 
-	// Without the report the font is left alone, and with it so is a program
-	// with another subtable, one without a (3,0) subtable, or one that cannot
-	// be read.
+	// Without the report the font is left alone. With it, a program with
+	// another subtable, one without a (3,0) subtable, or one that cannot be
+	// read is left alone too.
 	font, _ = fontWith(streamOf(sfntCmapOnly([2]uint16{3, 0})))
 	trailer = trailerWith("F", font)
 	if changed, _ := (trueTypeEncodingFixer{}).Fix(&trailer, nil); changed {

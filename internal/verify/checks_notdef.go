@@ -112,7 +112,8 @@ func simpleNotdefCodes(v pdf.PDFDict, subtype string, desc pdf.PDFDict) (notdef 
 }
 
 // encodingGlyphNames returns the glyph name a simple font's Encoding gives
-// each code, and which codes it gives one. Only the WinAnsiEncoding and
+// each code, and which codes it gives one. Differences entries name glyphs
+// over any base encoding. Otherwise only the WinAnsiEncoding and
 // MacRomanEncoding base encodings name glyphs, as veraPDF's tables do; an
 // Encoding of StandardEncoding, for example, gives none.
 func encodingGlyphNames(enc pdf.PDFValue) (names [256]string, named [256]bool) {

@@ -84,9 +84,9 @@ type ValidationContext struct {
 
 	// partialCodeFonts holds the descendant CIDFont pointers of the composite
 	// fonts whose shown strings end with one byte of a two-byte code, which
-	// selects no glyph, as ComputeContentUsage finds them. Unlike the usage sets,
-	// it drives reports rather than suppressions, so it is kept when usage is
-	// incomplete.
+	// selects no glyph, as ComputeContentUsage finds them. Unlike the usage
+	// sets, it drives reports rather than suppressions, so it is kept when
+	// usage is incomplete.
 	partialCodeFonts map[uintptr]bool
 
 	// schemaOnly restricts verifyDocument's walk to the generic object-model

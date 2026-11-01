@@ -47,8 +47,9 @@ type stdSecurityHandler struct {
 }
 
 // StringBytes returns the bytes of a literal or hex string, and false for a
-// value that is no string. Literal strings are already decoded
-// (PDFString.Value holds bytes); hex strings still hold hex text.
+// value that is no string. Literal strings are already decoded, so their
+// PDFString.Value is returned as is. PDFHexString.Value holds hex digits,
+// which are decoded here.
 func StringBytes(v PDFValue) ([]byte, bool) {
 	switch s := v.(type) {
 	case PDFString:
@@ -59,7 +60,8 @@ func StringBytes(v PDFValue) ([]byte, bool) {
 	return nil, false
 }
 
-// stringBytes is StringBytes without the flag.
+// stringBytes returns the bytes that StringBytes returns, or nil for a value
+// that is no string.
 func stringBytes(v PDFValue) []byte {
 	b, _ := StringBytes(v)
 	return b
