@@ -850,7 +850,10 @@ func (f fontSubstitutionFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 // only the Microsoft Symbol (3,0) subtable is made symbolic, since only a
 // symbolic font may rely on that subtable. Its codes then select glyphs through
 // the subtable, as a reader falls back to when no other applies.
-type trueTypeEncodingFixer struct{ doc *pdf.Reader }
+type trueTypeEncodingFixer struct {
+	doc  *pdf.Reader
+	spec *pdfa.Spec
+}
 
 func (trueTypeEncodingFixer) Applies(c pdf.Check) bool {
 	switch c {
@@ -898,7 +901,9 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 				d.Entries.Del("Encoding")
 				changed = true
 			}
-			if trimSymbolicCmap(desc) {
+			// PDF/A-2 accepts several subtables when one is (3,0), the one a
+			// symbolic font's codes select glyphs through, so it is kept.
+			if trimSymbolicCmap(desc, f.spec != nil && f.spec.Part >= 2) {
 				changed = true
 			}
 			return
@@ -947,8 +952,9 @@ func onlySymbolCmap(desc pdf.PDFDict) bool {
 }
 
 // trimSymbolicCmap reduces desc's embedded FontFile2's cmap to a single
-// subtable in place, leaving glyph data untouched.
-func trimSymbolicCmap(desc pdf.PDFDict) bool {
+// subtable in place, leaving glyph data untouched. With keepSymbol, a cmap
+// that has a (3,0) subtable is left as it is.
+func trimSymbolicCmap(desc pdf.PDFDict, keepSymbol bool) bool {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok || !ff.IsStream() {
 		return false
@@ -958,6 +964,9 @@ func trimSymbolicCmap(desc pdf.PDFDict) bool {
 		return false
 	}
 	if n, ok := fontprog.CmapSubtableCount(data); !ok || n == 1 {
+		return false
+	}
+	if tables, _ := fontprog.ParseSfnt(data); keepSymbol && fontprog.TTCmapSubtable(tables, 3, 0) != nil {
 		return false
 	}
 	trimmed, err := fontedit.TrimTrueTypeCmapToSingleSubtable(data)

@@ -39,7 +39,7 @@ func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDi
 		for _, part := range fontprog.SplitCharSetNames(charSetStr) {
 			charSet[part] = true
 		}
-	} else if ctx.Spec == nil || !ctx.Spec.SubsetSetsOptional {
+	} else if !ctx.subsetSetsOptional() {
 		return // CharSet absence is caught by a separate check
 	}
 

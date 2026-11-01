@@ -595,3 +595,20 @@ func TestContentScannerInlineImageDictAndStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestShownStrings(t *testing.T) {
+	tj := []PDFValue{PDFArray{PDFString{Value: "a"}, PDFInteger(-5), PDFHexString{Value: "4243"}}}
+	got := ShownStrings("TJ", tj)
+	if len(got) != 2 || string(got[0]) != "a" || string(got[1]) != "BC" {
+		t.Errorf("ShownStrings(TJ) = %q", got)
+	}
+	if got := ShownStringBytes("TJ", tj); string(got) != "aBC" {
+		t.Errorf("ShownStringBytes(TJ) = %q", got)
+	}
+	if got := ShownStrings("\"", []PDFValue{PDFInteger(1), PDFInteger(2), PDFString{Value: "x"}}); len(got) != 1 || string(got[0]) != "x" {
+		t.Errorf("ShownStrings(\") = %q", got)
+	}
+	if got := ShownStrings("Tj", nil); got != nil {
+		t.Errorf("ShownStrings without operands = %q", got)
+	}
+}

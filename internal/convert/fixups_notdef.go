@@ -26,31 +26,12 @@ func (notdefFixer) Applies(c pdf.Check) bool {
 
 func (notdefFixer) Fix(trailer *pdf.PDFDict, _ []pdf.PDFError) (bool, error) {
 	vctx := &verify.ValidationContext{}
+	// One entry per font dictionary for the whole walk, so that a font many
+	// streams use has its program read once.
+	fonts := map[uintptr]*notdefFont{}
 	return walkContentStreamDictsWithResources(trailer, func(stream, resources pdf.PDFDict) (pdf.PDFDict, bool) {
-		return stripNotdefCodes(stream, resources, vctx)
+		return stripNotdefCodes(stream, resources, fonts, vctx)
 	}), nil
-}
-
-// walkContentStreamDictsWithResources is walkContentStreamDicts, except that
-// rewrite also receives each stream's resources.
-func walkContentStreamDictsWithResources(trailer *pdf.PDFDict, rewrite func(stream, resources pdf.PDFDict) (pdf.PDFDict, bool)) bool {
-	changed := false
-	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
-		fixedSelf := false
-		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
-			fixed, ok := rewrite(r.Stream, r.Resources)
-			if !ok {
-				return
-			}
-			r.Replace(fixed)
-			changed = true
-			if r.Kind == pdf.ContentPattern || r.Kind == pdf.ContentForm {
-				fixedSelf = true
-			}
-		})
-		return fixedSelf
-	})
-	return changed
 }
 
 // notdefTextState is the part of the text state that decides how far a
@@ -70,24 +51,26 @@ type notdefFont struct {
 
 // stripNotdefCodes rewrites the strings stream shows so that none selects
 // .notdef, and reports whether it changed anything.
-func stripNotdefCodes(stream, resources pdf.PDFDict, vctx *verify.ValidationContext) (pdf.PDFDict, bool) {
+func stripNotdefCodes(stream, resources pdf.PDFDict, cache map[uintptr]*notdefFont, vctx *verify.ValidationContext) (pdf.PDFDict, bool) {
 	data, err := pdf.DecodeStream(stream)
 	if err != nil {
 		return stream, false
 	}
 	fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
-	cache := map[string]*notdefFont{}
 	fontNamed := func(name string) *notdefFont {
-		if f, ok := cache[name]; ok {
+		font, ok := fonts.Entries.Get(name).(pdf.PDFDict)
+		if !ok {
+			return nil
+		}
+		ptr := pdf.ValuePointer(font.Entries)
+		if f, ok := cache[ptr]; ok {
 			return f
 		}
 		var nf *notdefFont
-		if font, ok := fonts.Entries.Get(name).(pdf.PDFDict); ok {
-			if codeLen, notdef, ok := verify.NotdefSelector(font, vctx); ok {
-				nf = &notdefFont{codeLen: codeLen, notdef: notdef, width: glyphWidthFunc(font)}
-			}
+		if codeLen, notdef, ok := verify.NotdefSelector(font, vctx); ok {
+			nf = &notdefFont{codeLen: codeLen, notdef: notdef, width: glyphWidthFunc(font)}
 		}
-		cache[name] = nf
+		cache[ptr] = nf
 		return nf
 	}
 
@@ -119,6 +102,12 @@ func stripNotdefCodes(stream, resources pdf.PDFDict, vctx *verify.ValidationCont
 				st.tw, _ = pdf.PDFNumberToFloat(operands[0])
 			}
 		case "Tj", "'", "\"", "TJ":
+			// " sets the word and character spacing whether or not its
+			// string is rewritten.
+			if op == "\"" && len(operands) == 3 {
+				st.tw, _ = pdf.PDFNumberToFloat(operands[0])
+				st.tc, _ = pdf.PDFNumberToFloat(operands[1])
+			}
 			if ops, ok := st.stripShown(op, operands); ok {
 				for _, o := range ops {
 					_ = cw.WriteOp(o.Op, o.Operands)
@@ -148,9 +137,6 @@ func (st *notdefTextState) stripShown(op string, operands []pdf.PDFValue) ([]wri
 		if len(operands) != 3 {
 			return nil, false
 		}
-		tw, _ := pdf.PDFNumberToFloat(operands[0])
-		tc, _ := pdf.PDFNumberToFloat(operands[1])
-		st.tw, st.tc = tw, tc
 		prefix = []writer.ContentOp{
 			{Op: "Tw", Operands: operands[:1]},
 			{Op: "Tc", Operands: operands[1:2]},
@@ -257,7 +243,8 @@ func shownBytes(v pdf.PDFValue) ([]byte, bool) {
 
 // glyphWidthFunc returns the width a font dictionary gives each code, in
 // thousandths of text space: a simple font's Widths entry or MissingWidth,
-// or a composite font's W entry or DW.
+// or a composite font's W entry or DW. A Type 3 font's widths are in glyph
+// space, which its FontMatrix maps to text space.
 func glyphWidthFunc(font pdf.PDFDict) func(code int) float64 {
 	if (font.Entries.Get("Subtype") == pdf.PDFName{Value: "Type0"}) {
 		cid := verify.DescendantCIDFont(font)
@@ -281,12 +268,20 @@ func glyphWidthFunc(font pdf.PDFDict) func(code int) float64 {
 	widths, _ := font.Entries.Get("Widths").(pdf.PDFArray)
 	desc, _ := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
 	missing, _ := pdf.PDFNumberToFloat(desc.Entries.Get("MissingWidth"))
+	scale := 1.0 // a FontMatrix of [0.001 0 0 0.001 0 0] maps to thousandths
+	if (font.Entries.Get("Subtype") == pdf.PDFName{Value: "Type3"}) {
+		if m, ok := font.Entries.Get("FontMatrix").(pdf.PDFArray); ok && len(m) == 6 {
+			if a, ok := pdf.PDFNumberToFloat(m[0]); ok {
+				scale = 1000 * a
+			}
+		}
+	}
 	return func(code int) float64 {
 		if i := code - int(first); i >= 0 && i < len(widths) {
 			if w, ok := pdf.PDFNumberToFloat(widths[i]); ok {
-				return w
+				return w * scale
 			}
 		}
-		return missing
+		return missing * scale
 	}
 }

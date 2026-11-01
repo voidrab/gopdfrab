@@ -235,11 +235,19 @@ func walkContentStreams(trailer *pdf.PDFDict, rewrite contentOpRewriter) bool {
 // verify reads them. Taking whole dicts rather than one operator at a time
 // lets a rewrite carry state across the stream, which rescaling a path needs.
 func walkContentStreamDicts(trailer *pdf.PDFDict, rewrite func(pdf.PDFDict) (pdf.PDFDict, bool)) bool {
+	return walkContentStreamDictsWithResources(trailer, func(stream, _ pdf.PDFDict) (pdf.PDFDict, bool) {
+		return rewrite(stream)
+	})
+}
+
+// walkContentStreamDictsWithResources is walkContentStreamDicts, except that
+// rewrite also receives each stream's resources.
+func walkContentStreamDictsWithResources(trailer *pdf.PDFDict, rewrite func(stream, resources pdf.PDFDict) (pdf.PDFDict, bool)) bool {
 	changed := false
 	walkStreamDicts(*trailer, map[uintptr]bool{}, func(d pdf.PDFDict) bool {
 		fixedSelf := false
 		pdf.ContentRoots(d, func(r pdf.ContentRoot) {
-			fixed, ok := rewrite(r.Stream)
+			fixed, ok := rewrite(r.Stream, r.Resources)
 			if !ok {
 				return
 			}

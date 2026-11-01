@@ -547,3 +547,45 @@ func TestNotdefSelector(t *testing.T) {
 		t.Error("a dictionary with no font subtype is not judged")
 	}
 }
+
+// TestComputeContentUsageTJStringsApart verifies that each string of a TJ
+// array is decoded on its own: a two-byte code never spans two strings, and a
+// string with a byte left over is a code cut short.
+func TestComputeContentUsageTJStringsApart(t *testing.T) {
+	descendant := pdf.NewPDFDict()
+	composite := type0WithDescendant(descendant)
+	fonts := pdf.NewPDFDict()
+	fonts.Entries.Set("F1", composite)
+	resources := pdf.NewPDFDict()
+	resources.Entries.Set("Font", fonts)
+	page := pdf.NewPDFDict()
+	page.Entries.Set("Type", pdf.PDFName{Value: "Page"})
+	page.Entries.Set("Resources", resources)
+	page.Entries.Set("Contents", streamDict("BT /F1 12 Tf [<00> -100 <4100>] TJ ET"))
+
+	ctx := &ValidationContext{Spec: a2bSpec}
+	_, _, _, usedCIDs, _ := ComputeContentUsage(page, ctx)
+	cids := usedCIDs[pdf.ValuePointer(descendant.Entries)]
+	if len(cids) != 1 || !cids[0x4100] {
+		t.Errorf("CIDs = %v, want only 0x4100", cids)
+	}
+	if !ctx.showsPartialCode(descendant) {
+		t.Error("the one-byte string is not recorded as a code cut short")
+	}
+}
+
+// TestFontRulesWithoutSpec verifies that the font rules a level parameterizes
+// fall back to PDF/A-1's on a context with no spec, rather than failing.
+func TestFontRulesWithoutSpec(t *testing.T) {
+	ctx := &ValidationContext{}
+	if ctx.subsetSetsOptional() {
+		t.Error("subset sets optional without a spec")
+	}
+	if !ctx.predefinedCMap("Identity-H") || ctx.predefinedCMap("90ms-RKSJ-H") {
+		t.Error("predefined CMaps without a spec are not the Identity ones")
+	}
+	validateType0Font(type0FontWith(embeddedCMap(pdf.PDFInteger(2), pdf.PDFName{Value: "Custom"}), pdf.PDFInteger(2)), ctx)
+	if hasCheck(ctx, pdf.Checks.Font.UseCMapNotPredefined) {
+		t.Error("UseCMapNotPredefined reported without a spec")
+	}
+}

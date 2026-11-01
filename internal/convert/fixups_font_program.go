@@ -391,7 +391,7 @@ func fixSimpleTrueTypeWidths(v pdf.PDFDict, ff pdf.PDFDict) bool {
 			continue
 		}
 		gid, known := codeToGID(cc)
-		if !known || gid == 0 {
+		if !known {
 			continue
 		}
 		fontWidth := fontprog.TTAdvanceWidth(tables, gid)

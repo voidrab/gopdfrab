@@ -1250,12 +1250,13 @@ func collectUsageFromBytes(ctx *ValidationContext, dict pdf.PDFDict, resources p
 					set = map[int]bool{}
 					fu.usedCIDs[st.compositeFontPtr] = set
 				}
-				shown := pdf.ShownStringBytes(op, operands)
-				for i := 0; i+1 < len(shown); i += 2 {
-					set[int(shown[i])<<8|int(shown[i+1])] = true
-				}
-				if len(shown)%2 != 0 {
-					fu.partialCodes[st.compositeFontPtr] = true
+				for _, shown := range pdf.ShownStrings(op, operands) {
+					for i := 0; i+1 < len(shown); i += 2 {
+						set[int(shown[i])<<8|int(shown[i+1])] = true
+					}
+					if len(shown)%2 != 0 {
+						fu.partialCodes[st.compositeFontPtr] = true
+					}
 				}
 			}
 		case "scn", "SCN":

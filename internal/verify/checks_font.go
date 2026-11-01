@@ -115,7 +115,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 			haveWidths := fcOK && lcOK && wOK
 
 			if subset {
-				if desc.Entries != nil && desc.Entries.Get("CharSet") == nil && !ctx.Spec.SubsetSetsOptional {
+				if desc.Entries != nil && desc.Entries.Get("CharSet") == nil && !ctx.subsetSetsOptional() {
 					ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, v, "Type 1 subset font descriptor lacks CharSet")
 				} else if !renderingMode3 && haveWidths {
 					ValidateType1SubsetCoverage(v, v, desc, int(firstChar), int(lastChar), widths, ctx)
@@ -146,7 +146,7 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 			}
 		}
 		hasCIDSet := desc.Entries.Get("CIDSet") != nil
-		if subset && desc.Entries != nil && !hasCIDSet && !ctx.Spec.SubsetSetsOptional {
+		if subset && desc.Entries != nil && !hasCIDSet && !ctx.subsetSetsOptional() {
 			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
 		} else if subset && !renderingMode3 && (hasCIDSet || desc.Entries == nil) {
 			switch subtype.Value {
@@ -384,7 +384,7 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 	enc := v.Entries.Get("Encoding")
 
 	// 6.3.3.3: a CMap shall be one of the predefined CMaps or embedded.
-	if name, ok := enc.(pdf.PDFName); ok && !ctx.Spec.PredefinedCMaps.Has(name.Value) {
+	if name, ok := enc.(pdf.PDFName); ok && !ctx.predefinedCMap(name.Value) {
 		ctx.Report(pdf.Checks.Font.CMapNotEmbedded, v, fmt.Sprintf("CMap /%s is neither predefined nor embedded", name.Value))
 	}
 	cmap, cmapOK := enc.(pdf.PDFDict)
@@ -392,8 +392,8 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 		// 6.3.3.3: an embedded CMap's WMode shall be consistent.
 		validateCMapWMode(v, cmap, ctx)
 		// 6.2.11.3.3: an embedded CMap may use only predefined CMaps.
-		if ctx.Spec.UseCMapPredefined {
-			if used := cmap.Entries.Get("UseCMap"); used != nil && !ctx.Spec.PredefinedCMaps.Has(cmapName(used)) {
+		if ctx.Spec != nil && ctx.Spec.UseCMapPredefined {
+			if used := cmap.Entries.Get("UseCMap"); used != nil && !ctx.predefinedCMap(cmapName(used)) {
 				ctx.Report(pdf.Checks.Font.UseCMapNotPredefined, v, fmt.Sprintf("CMap uses CMap /%s, which is not predefined", cmapName(used)))
 			}
 		}

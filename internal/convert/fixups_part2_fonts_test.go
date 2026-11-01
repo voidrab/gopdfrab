@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/voidrab/gopdfrab/internal/fontsubst"
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 )
 
 // a2bSpecForTest returns the PDF/A-2b spec.
@@ -92,6 +94,18 @@ func TestUseCMapFixer(t *testing.T) {
 	}
 	if data, _ := pdf.DecodeStream(top); !strings.Contains(string(data), "/H usecmap") {
 		t.Errorf("merged program = %q", data)
+	}
+
+	// An embedded copy of a predefined CMap at the end of a chain is used by
+	// its name.
+	mid = cmapStream("Mid", cmapStream("Identity-H", nil, baseCMap), baseCMap)
+	top = cmapStream("Top", mid, ownCMap)
+	trailer = trailerWith("F", type0Over(top))
+	if changed, _ := f.Fix(&trailer, nil); !changed {
+		t.Fatal("Fix changed nothing over an embedded predefined CMap")
+	}
+	if got := top.Entries.Get("UseCMap"); got != (pdf.PDFName{Value: "Identity-H"}) {
+		t.Errorf("UseCMap = %v, want /Identity-H", got)
 	}
 
 	// A chain deeper than the fixer follows is left alone.
@@ -326,7 +340,8 @@ func TestFixPanose(t *testing.T) {
 }
 
 // sfntCmapOnly returns a TrueType program with one cmap record per
-// (platform, encoding) pair.
+// (platform, encoding) pair, all pointing at one format-0 subtable that maps
+// no code to a glyph.
 func sfntCmapOnly(records ...[2]uint16) []byte {
 	cmap := binary.BigEndian.AppendUint16(nil, 0)
 	cmap = binary.BigEndian.AppendUint16(cmap, uint16(len(records)))
@@ -417,12 +432,22 @@ func TestType0FontFixerSupplement(t *testing.T) {
 		t.Errorf("CMap Supplement = %v, want 3", got)
 	}
 
-	// A CIDFont without an integer Supplement gives the CMap no Supplement
-	// to copy, so the CMap is left alone.
-	font, _ = fontWith(nil, nil)
-	trailer = trailerWith("F", font)
-	if changed, _ := (type0FontFixer{}).Fix(&trailer, nil); changed {
-		t.Error("Fix changed a CMap the CIDFont has no Supplement for")
+	// A CIDFont without a Supplement gets 0, and the CMap its CIDSystemInfo,
+	// so verify's comparison holds and a second pass changes nothing.
+	for _, cmapSupp := range []pdf.PDFValue{nil, pdf.PDFInteger(2), pdf.PDFReal(1.5)} {
+		font, cmap := fontWith(cmapSupp, nil)
+		trailer := trailerWith("F", font)
+		if changed, _ := (type0FontFixer{}).Fix(&trailer, nil); !changed {
+			t.Fatalf("CMap Supplement %v: Fix changed nothing", cmapSupp)
+		}
+		cmapCSI := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
+		cid := font.Entries.Get("DescendantFonts").(pdf.PDFArray)[0].(pdf.PDFDict)
+		if !verify.SupplementCovered(cmapCSI, cid.Entries.Get("CIDSystemInfo").(pdf.PDFDict)) {
+			t.Errorf("CMap Supplement %v: Supplements still not comparable", cmapSupp)
+		}
+		if changed, _ := (type0FontFixer{}).Fix(&trailer, nil); changed {
+			t.Errorf("CMap Supplement %v: second pass changed the font", cmapSupp)
+		}
 	}
 }
 
@@ -437,5 +462,70 @@ func TestFontDictFixerReplacesInvalidCIDToGIDMap(t *testing.T) {
 	}
 	if got := cid.Entries.Get("CIDToGIDMap"); got != (pdf.PDFName{Value: "Identity"}) {
 		t.Errorf("CIDToGIDMap = %v, want /Identity", got)
+	}
+}
+
+func TestTrimSymbolicCmapKeepsSymbolSubtable(t *testing.T) {
+	descWith := func(records ...[2]uint16) pdf.PDFDict {
+		return dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(sfntCmapOnly(records...))})
+	}
+	if trimSymbolicCmap(descWith([2]uint16{1, 0}, [2]uint16{3, 0}), true) {
+		t.Error("trimmed a cmap with a (3,0) subtable that may keep several")
+	}
+	liberation := dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular)})
+	if !trimSymbolicCmap(liberation, true) {
+		t.Error("kept several subtables without a (3,0) one")
+	}
+
+	// Through the fixer: under PDF/A-2 a compliant symbolic font is left alone
+	// while another font's report runs it.
+	desc := descWith([2]uint16{1, 0}, [2]uint16{3, 0})
+	desc.Entries.Set("Flags", pdf.PDFInteger(4))
+	font := dictOf(map[string]pdf.PDFValue{
+		"Type": pdf.PDFName{Value: "Font"}, "Subtype": pdf.PDFName{Value: "TrueType"}, "FontDescriptor": desc,
+	})
+	trailer := trailerWith("F", font)
+	if changed, _ := (trueTypeEncodingFixer{spec: a2bSpecForTest()}).Fix(&trailer, nil); changed {
+		t.Error("the fixer trimmed a PDF/A-2-compliant symbolic cmap")
+	}
+}
+
+func TestGlyphWidthFuncType3(t *testing.T) {
+	font := dictOf(map[string]pdf.PDFValue{
+		"Subtype": pdf.PDFName{Value: "Type3"}, "FirstChar": pdf.PDFInteger(0), "Widths": ints(1),
+		"FontMatrix": pdf.PDFArray{pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(0)},
+	})
+	if got := glyphWidthFunc(font)(0); got != 1000 {
+		t.Errorf("Type 3 width under a unit FontMatrix = %v, want 1000", got)
+	}
+	font.Entries.Set("FontMatrix", pdf.PDFArray{pdf.PDFName{Value: "x"}, pdf.PDFInteger(0), pdf.PDFInteger(0), pdf.PDFInteger(1), pdf.PDFInteger(0), pdf.PDFInteger(0)})
+	if got := glyphWidthFunc(font)(0); got != 1 {
+		t.Errorf("Type 3 width under an unreadable FontMatrix = %v, want 1", got)
+	}
+}
+
+// TestNotdefFixerSpacingBeforeFont verifies that a " operator shown before
+// the stream's own Tf still sets the spacing a later strip accounts for.
+func TestNotdefFixerSpacingBeforeFont(t *testing.T) {
+	page, trailer := notdefPage("BT 5 2 (x) \" /F1 10 Tf (\x00) Tj ET", map[string]pdf.PDFValue{"F1": winAnsiType1(500)})
+	if changed, _ := (notdefFixer{}).Fix(&trailer, nil); !changed {
+		t.Fatal("Fix changed nothing")
+	}
+	if got := contentOf(t, page); !strings.Contains(got, "[-700] TJ") {
+		t.Errorf("content = %q, want the character spacing 2 counted", got)
+	}
+}
+
+// TestNotdefFixerReadsEachFontOnce verifies that the fixer judges a font once
+// however many streams use it.
+func TestNotdefFixerReadsEachFontOnce(t *testing.T) {
+	font := winAnsiType1(500)
+	cache := map[uintptr]*notdefFont{}
+	resources := dictOf(map[string]pdf.PDFValue{"Font": dictOf(map[string]pdf.PDFValue{"F1": font})})
+	for range 2 {
+		stripNotdefCodes(streamOf([]byte("BT /F1 10 Tf (\x00) Tj ET")), resources, cache, &verify.ValidationContext{})
+	}
+	if len(cache) != 1 || cache[pdf.ValuePointer(font.Entries)] == nil {
+		t.Errorf("cache = %v, want one entry for the font", cache)
 	}
 }

@@ -586,12 +586,23 @@ func NumericOperands(operands []PDFValue) []float64 {
 // text-showing operator passes to the font.
 func ShownStringBytes(op string, operands []PDFValue) []byte {
 	var out []byte
+	for _, s := range ShownStrings(op, operands) {
+		out = append(out, s...)
+	}
+	return out
+}
+
+// ShownStrings returns the bytes of each string a text-showing operator
+// shows, one slice per string: a TJ array's strings are decoded apart, as a
+// character code never spans two of them.
+func ShownStrings(op string, operands []PDFValue) [][]byte {
+	var out [][]byte
 	appendOperand := func(v PDFValue) {
 		switch s := v.(type) {
 		case PDFString:
-			out = append(out, s.Value...)
+			out = append(out, []byte(s.Value))
 		case PDFHexString:
-			out = append(out, DecodePDFHexStringBytes(s.Value)...)
+			out = append(out, DecodePDFHexStringBytes(s.Value))
 		}
 	}
 	switch op {
