@@ -70,6 +70,10 @@ Everything under `internal/` may change in any release without notice.
   convert replaces it with Identity.
 - Verify checks the width of every shown code of a TrueType font, including
   one whose Widths entry is 0, and convert corrects such entries.
+- Convert corrects the JP2 image header of JPEG 2000 data whose number of
+  components or bit depth disagrees with its codestream, which PDF/A-2
+  reads from the header, and removes a bits-per-component box that
+  components of one depth do not need. The image data is not changed.
 - Convert repairs a font descriptor's Style dictionary whose Panose is not
   12 bytes: a bare 10-byte classification gets its family class, and any
   other value removes the Style dictionary.

@@ -534,12 +534,10 @@ func TestConvertIsDeterministic(t *testing.T) {
 // re-encoded as content and the output is conformant.
 //
 // The PDF/A-2b floor counts the fail fixtures of the clauses listed in
-// corpustest.VeraPDF2B.Clauses, less the two whose JPEG 2000 data has two
-// colour channels or a bit depth of 41: no repair short of decoding the data
-// can fix those.
+// corpustest.VeraPDF2B.Clauses.
 var minConvertedFully = map[pdf.LevelType]int{
 	pdf.A1B: 510,
-	pdf.A2B: 227,
+	pdf.A2B: 229,
 }
 
 // expectedRasterized lists the "fail" fixtures whose conversion is meant to

@@ -151,6 +151,7 @@ var standardRepairs = repairs{
 		func(r *fixerRun) Fixer { return imageMetadataFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return imageSampleDepthFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return jpxColourSpaceFixer{} },
+		func(r *fixerRun) Fixer { return jpxHeaderFixer{} },
 		func(r *fixerRun) Fixer { return blendingSpaceFixer{spec: r.spec} },
 		func(r *fixerRun) Fixer { return postScriptXObjectFixer{} },
 		func(r *fixerRun) Fixer { return optionalContentFixer{lost: r.lost} },

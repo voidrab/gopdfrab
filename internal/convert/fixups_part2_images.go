@@ -42,9 +42,8 @@ var channelModels = map[int]string{1: "gray", 3: "rgb", 4: "cmyk"}
 // when its data has no single colour specification a reader can use. An image
 // whose data has one is left alone, since a ColorSpace entry would override
 // that colour space. The entry is an ICCBased space with as many
-// components as the data has channels. Data with another number of channels,
-// or with bit depths the rules do not allow, cannot be repaired without
-// decoding it.
+// components as the data has channels. A header that misstates the number of
+// channels or their depth is jpxHeaderFixer's to correct.
 type jpxColourSpaceFixer struct{}
 
 func (jpxColourSpaceFixer) Applies(c pdf.Check) bool {
