@@ -52,10 +52,6 @@ type notdefFont struct {
 // stripNotdefCodes rewrites the strings stream shows so that none selects
 // .notdef, and reports whether it changed anything.
 func stripNotdefCodes(stream, resources pdf.PDFDict, cache map[uintptr]*notdefFont, vctx *verify.ValidationContext) (pdf.PDFDict, bool) {
-	data, err := pdf.DecodeStream(stream)
-	if err != nil {
-		return stream, false
-	}
 	fonts, _ := resources.Entries.Get("Font").(pdf.PDFDict)
 	fontNamed := func(name string) *notdefFont {
 		font, ok := fonts.Entries.Get(name).(pdf.PDFDict)
@@ -72,6 +68,22 @@ func stripNotdefCodes(stream, resources pdf.PDFDict, cache map[uintptr]*notdefFo
 		}
 		cache[ptr] = nf
 		return nf
+	}
+	// A stream none of whose fonts can be judged code by code is not even
+	// decoded.
+	judged := false
+	for name := range fonts.Entries.All() {
+		if fontNamed(name) != nil {
+			judged = true
+			break
+		}
+	}
+	if !judged {
+		return stream, false
+	}
+	data, err := pdf.DecodeStream(stream)
+	if err != nil {
+		return stream, false
 	}
 
 	var cw writer.ContentStreamWriter
@@ -155,7 +167,7 @@ func (st *notdefTextState) stripShown(op string, operands []pdf.PDFValue) ([]wri
 	out := make(pdf.PDFArray, 0, len(items))
 	stripped := false
 	for _, item := range items {
-		raw, isString := shownBytes(item)
+		raw, isString := pdf.StringBytes(item)
 		if !isString {
 			out = append(out, item)
 			continue
@@ -227,18 +239,6 @@ func (st *notdefTextState) advance(code int) float64 {
 		adv += spacing * 1000 / st.size
 	}
 	return adv
-}
-
-// shownBytes returns the bytes a string operand shows, and false for an
-// operand that is no string.
-func shownBytes(v pdf.PDFValue) ([]byte, bool) {
-	switch s := v.(type) {
-	case pdf.PDFString:
-		return []byte(s.Value), true
-	case pdf.PDFHexString:
-		return pdf.DecodePDFHexStringBytes(s.Value), true
-	}
-	return nil, false
 }
 
 // glyphWidthFunc returns the width a font dictionary gives each code, in

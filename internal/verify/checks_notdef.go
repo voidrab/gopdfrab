@@ -3,7 +3,6 @@ package verify
 import (
 	"encoding/binary"
 	"fmt"
-	"sort"
 
 	"github.com/voidrab/gopdfrab/internal/fontprog"
 	"github.com/voidrab/gopdfrab/internal/pdf"
@@ -26,11 +25,9 @@ func validateNotdefReferences(v pdf.PDFDict, subtype string, desc pdf.PDFDict, c
 		if !known {
 			return
 		}
-		for _, code := range sortedKeys(codes) {
-			if simpleFontShowsNotdef(v, subtype, desc, code) {
-				ctx.Report(pdf.Checks.Font.NotdefGlyphReference, v, fmt.Sprintf("character code %d selects the .notdef glyph", code))
-				return
-			}
+		table := simpleNotdefCodes(v, subtype, desc)
+		if code, found := lowestWhere(codes, func(c int) bool { return c >= 0 && c < 256 && table[c] }); found {
+			ctx.Report(pdf.Checks.Font.NotdefGlyphReference, v, fmt.Sprintf("character code %d selects the .notdef glyph", code))
 		}
 	case "Type0":
 		cid := DescendantCIDFont(v)
@@ -46,11 +43,8 @@ func validateNotdefReferences(v pdf.PDFDict, subtype string, desc pdf.PDFDict, c
 			ctx.Report(pdf.Checks.Font.NotdefGlyphReference, v, "a shown string ends in the middle of a two-byte character code, which selects the .notdef glyph")
 			return
 		}
-		for _, c := range sortedKeys(cids) {
-			if !present(c) {
-				ctx.Report(pdf.Checks.Font.NotdefGlyphReference, v, fmt.Sprintf("CID %d selects the .notdef glyph", c))
-				return
-			}
+		if c, found := lowestWhere(cids, func(c int) bool { return !present(c) }); found {
+			ctx.Report(pdf.Checks.Font.NotdefGlyphReference, v, fmt.Sprintf("CID %d selects the .notdef glyph", c))
 		}
 	}
 }
@@ -66,7 +60,8 @@ func NotdefSelector(font pdf.PDFDict, ctx *ValidationContext) (codeLen int, notd
 	switch subtype.Value {
 	case "Type1", "MMType1", "TrueType", "Type3":
 		desc, _ := font.Entries.Get("FontDescriptor").(pdf.PDFDict)
-		return 1, func(code int) bool { return simpleFontShowsNotdef(font, subtype.Value, desc, code) }, true
+		table := simpleNotdefCodes(font, subtype.Value, desc)
+		return 1, func(code int) bool { return code >= 0 && code < 256 && table[code] }, true
 	case "Type0":
 		if (font.Entries.Get("Encoding") != pdf.PDFName{Value: "Identity-H"}) {
 			return 0, nil, false
@@ -80,24 +75,25 @@ func NotdefSelector(font pdf.PDFDict, ctx *ValidationContext) (codeLen int, notd
 	return 0, nil, false
 }
 
-// sortedKeys returns the keys of set in ascending order, so that the first
-// offending code reported is the same on every run.
-func sortedKeys(set map[int]bool) []int {
-	keys := make([]int, 0, len(set))
-	for k := range set {
-		keys = append(keys, k)
+// lowestWhere returns the lowest member of set that pred holds for, so that
+// the code reported is the same on every run.
+func lowestWhere(set map[int]bool, pred func(int) bool) (int, bool) {
+	lowest, found := 0, false
+	for c := range set {
+		if (!found || c < lowest) && pred(c) {
+			lowest, found = c, true
+		}
 	}
-	sort.Ints(keys)
-	return keys
+	return lowest, found
 }
 
-// simpleFontShowsNotdef reports whether code selects .notdef in a simple
-// font. The glyph name comes from the Encoding: a Differences entry, or else
-// the WinAnsiEncoding or MacRomanEncoding base table. A symbolic TrueType
-// font's Encoding is ignored. When the Encoding names no glyph for code, a
+// simpleNotdefCodes returns which codes select .notdef in a simple font. The
+// glyph name comes from the Encoding: a Differences entry, or else the
+// WinAnsiEncoding or MacRomanEncoding base table. A symbolic TrueType font's
+// Encoding is ignored. When the Encoding names no glyph for a code, a
 // TrueType code selects .notdef only if it is 0 and the font has no embedded
 // program, as veraPDF trusts the program for every other code.
-func simpleFontShowsNotdef(v pdf.PDFDict, subtype string, desc pdf.PDFDict, code int) bool {
+func simpleNotdefCodes(v pdf.PDFDict, subtype string, desc pdf.PDFDict) (notdef [256]bool) {
 	trueType := subtype == "TrueType"
 	enc := v.Entries.Get("Encoding")
 	if trueType && desc.Entries != nil {
@@ -105,48 +101,54 @@ func simpleFontShowsNotdef(v pdf.PDFDict, subtype string, desc pdf.PDFDict, code
 			enc = nil
 		}
 	}
-	name, named := encodingGlyphName(enc, code)
-	if !named {
-		return trueType && code == 0 && !HasEmbeddedProgram(desc, "FontFile2", "FontFile3")
+	names, named := encodingGlyphNames(enc)
+	for code := range notdef {
+		notdef[code] = named[code] && names[code] == ".notdef"
 	}
-	return name == ".notdef"
+	if !named[0] && trueType && !HasEmbeddedProgram(desc, "FontFile2", "FontFile3") {
+		notdef[0] = true
+	}
+	return notdef
 }
 
-// encodingGlyphName returns the glyph name that a simple font's Encoding gives
-// code, and false when it gives none. Only the WinAnsiEncoding and
+// encodingGlyphNames returns the glyph name a simple font's Encoding gives
+// each code, and which codes it gives one. Only the WinAnsiEncoding and
 // MacRomanEncoding base encodings name glyphs, as veraPDF's tables do; an
 // Encoding of StandardEncoding, for example, gives none.
-func encodingGlyphName(enc pdf.PDFValue, code int) (string, bool) {
+func encodingGlyphNames(enc pdf.PDFValue) (names [256]string, named [256]bool) {
 	base := enc
 	if dict, ok := enc.(pdf.PDFDict); ok {
-		name, found := "", false
-		fontprog.EachDifference(dict, func(c int, glyph string) {
-			if c == code {
-				name, found = glyph, true
-			}
-		})
-		if found {
-			return name, true
-		}
 		base = dict.Entries.Get("BaseEncoding")
 	}
 	baseName, _ := base.(pdf.PDFName)
 	var table *[256]string
 	switch baseName.Value {
 	case "WinAnsiEncoding":
-		if winAnsiBullets[code] {
-			return "bullet", true
-		}
 		table = &fontprog.WinAnsiGlyphName
 	case "MacRomanEncoding":
 		table = &fontprog.MacRomanGlyphName
-	default:
-		return "", false
 	}
-	if code < 0 || code > 255 || table[code] == "" {
-		return ".notdef", true
+	if table != nil {
+		for code, name := range table {
+			if name == "" {
+				name = ".notdef"
+			}
+			names[code], named[code] = name, true
+		}
+		if table == &fontprog.WinAnsiGlyphName {
+			for code := range winAnsiBullets {
+				names[code] = "bullet"
+			}
+		}
 	}
-	return table[code], true
+	if dict, ok := enc.(pdf.PDFDict); ok {
+		fontprog.EachDifference(dict, func(code int, glyph string) {
+			if code >= 0 && code < 256 {
+				names[code], named[code] = glyph, true
+			}
+		})
+	}
+	return names, named
 }
 
 // cidGlyphPresence returns a function reporting whether a CID has a glyph in

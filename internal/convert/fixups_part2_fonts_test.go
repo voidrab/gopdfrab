@@ -384,9 +384,9 @@ func TestTrueTypeEncodingFixerSymbolOnlyCmap(t *testing.T) {
 		t.Error("Encoding kept on the now symbolic font")
 	}
 
-	// Without the report the font is left alone. onlySymbolCmap is false for
-	// a program with another subtable, one without a (3,0) subtable, or one
-	// that cannot be read.
+	// Without the report the font is left alone, and with it so is a program
+	// with another subtable, one without a (3,0) subtable, or one that cannot
+	// be read.
 	font, _ = fontWith(streamOf(sfntCmapOnly([2]uint16{3, 0})))
 	trailer = trailerWith("F", font)
 	if changed, _ := (trueTypeEncodingFixer{}).Fix(&trailer, nil); changed {
@@ -399,8 +399,11 @@ func TestTrueTypeEncodingFixerSymbolOnlyCmap(t *testing.T) {
 		"not sfnt":      streamOf([]byte("junk")),
 		"not a stream":  pdf.NewPDFDict(),
 	} {
-		if onlySymbolCmap(dictOf(map[string]pdf.PDFValue{"FontFile2": program})) {
-			t.Errorf("%s: onlySymbolCmap = true", name)
+		font, desc := fontWith(program)
+		trailer := trailerWith("F", font)
+		(trueTypeEncodingFixer{}).Fix(&trailer, reported)
+		if flags := desc.Entries.Get("Flags"); flags != pdf.PDFInteger(32) {
+			t.Errorf("%s: Flags = %v, want the font left non-symbolic", name, flags)
 		}
 	}
 }
@@ -470,11 +473,11 @@ func TestTrimSymbolicCmapKeepsSymbolSubtable(t *testing.T) {
 	descWith := func(records ...[2]uint16) pdf.PDFDict {
 		return dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(sfntCmapOnly(records...))})
 	}
-	if trimSymbolicCmap(descWith([2]uint16{1, 0}, [2]uint16{3, 0}), true) {
+	if trimSymbolicCmap(pdf.NewPDFDict(), readTrueTypeProgram(descWith([2]uint16{1, 0}, [2]uint16{3, 0})), true) {
 		t.Error("trimmed a cmap with a (3,0) subtable that may keep several")
 	}
 	liberation := dictOf(map[string]pdf.PDFValue{"FontFile2": streamOf(fontsubst.LiberationSansRegular)})
-	if !trimSymbolicCmap(liberation, true) {
+	if !trimSymbolicCmap(liberation, readTrueTypeProgram(liberation), true) {
 		t.Error("kept several subtables without a (3,0) one")
 	}
 
@@ -528,5 +531,22 @@ func TestNotdefFixerReadsEachFontOnce(t *testing.T) {
 	}
 	if len(cache) != 1 || cache[pdf.ValuePointer(font.Entries)] == nil {
 		t.Errorf("cache = %v, want one entry for the font", cache)
+	}
+}
+
+// TestNotdefFixerSkipsStreamsWithoutJudgedFonts verifies that a stream whose
+// fonts cannot be judged code by code is left as it is.
+func TestNotdefFixerSkipsStreamsWithoutJudgedFonts(t *testing.T) {
+	vertical := identityType0(t)
+	vertical.Entries.Set("Encoding", pdf.PDFName{Value: "Identity-V"})
+	for name, fonts := range map[string]map[string]pdf.PDFValue{
+		"no fonts":        nil,
+		"vertical font":   {"F1": vertical},
+		"not a font dict": {"F1": pdf.PDFInteger(1)},
+	} {
+		_, trailer := notdefPage("BT /F1 10 Tf <0000> Tj ET", fonts)
+		if changed, _ := (notdefFixer{}).Fix(&trailer, nil); changed {
+			t.Errorf("%s: Fix changed the stream", name)
+		}
 	}
 }

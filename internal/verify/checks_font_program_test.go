@@ -916,7 +916,7 @@ func TestTrueTypeCmapSubtablesAndSymbolicCmap(t *testing.T) {
 	desc.Entries.Set("FontFile2", ff)
 
 	cm, ok := trueTypeCmaps(&ValidationContext{Spec: a1bSpec}, desc)
-	n := cm.count
+	n := cm.Count
 	if !ok || n <= 0 {
 		t.Errorf("trueTypeCmaps = %d subtables, %v", n, ok)
 	}
@@ -1763,7 +1763,7 @@ func TestTrueTypeCmapSubtablesUnavailable(t *testing.T) {
 			desc := pdf.NewPDFDict()
 			desc.Entries.Set("FontFile2", tc.ff)
 			if cm, ok := trueTypeCmaps(&ValidationContext{Spec: a1bSpec}, desc); ok {
-				t.Errorf("trueTypeCmaps = %d subtables, true; want unavailable", cm.count)
+				t.Errorf("trueTypeCmaps = %d subtables, true; want unavailable", cm.Count)
 			}
 		})
 	}

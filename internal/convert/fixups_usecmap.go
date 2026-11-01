@@ -5,6 +5,7 @@ import (
 
 	"github.com/voidrab/gopdfrab/internal/pdf"
 	"github.com/voidrab/gopdfrab/internal/pdfa"
+	"github.com/voidrab/gopdfrab/internal/verify"
 	"github.com/voidrab/gopdfrab/internal/writer"
 )
 
@@ -62,7 +63,7 @@ func (f useCMapFixer) mergeUsedCMaps(cmap pdf.PDFDict, depth int) bool {
 	if !ok || !used.IsStream() || depth >= maxUseCMapDepth {
 		return false
 	}
-	if name, ok := used.Entries.Get("CMapName").(pdf.PDFName); ok && f.spec.PredefinedCMaps.Has(name.Value) {
+	if f.spec.PredefinedCMaps.Has(verify.CMapName(used)) {
 		return false
 	}
 	f.mergeUsedCMaps(used, depth+1)
@@ -74,11 +75,11 @@ func (f useCMapFixer) mergeUsedCMaps(cmap pdf.PDFDict, depth int) bool {
 	case pdf.PDFName:
 		next = u
 	case pdf.PDFDict:
-		name, ok := u.Entries.Get("CMapName").(pdf.PDFName)
-		if !ok || !f.spec.PredefinedCMaps.Has(name.Value) {
+		name := verify.CMapName(u)
+		if !f.spec.PredefinedCMaps.Has(name) {
 			return false // the chain ends in a CMap that is not predefined
 		}
-		next = name
+		next = pdf.PDFName{Value: name}
 	}
 	own, err := pdf.DecodeStream(cmap)
 	if err != nil {

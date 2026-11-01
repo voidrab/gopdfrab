@@ -233,8 +233,8 @@ func TestCMapName(t *testing.T) {
 		{streamDict(""), ""},
 		{pdf.PDFInteger(1), ""},
 	} {
-		if got := cmapName(tc.cmap); got != tc.want {
-			t.Errorf("cmapName(%v) = %q, want %q", tc.cmap, got, tc.want)
+		if got := CMapName(tc.cmap); got != tc.want {
+			t.Errorf("CMapName(%v) = %q, want %q", tc.cmap, got, tc.want)
 		}
 	}
 }
@@ -323,7 +323,7 @@ func TestPartialCodeIsMissingGlyph(t *testing.T) {
 	}
 }
 
-func TestEncodingGlyphName(t *testing.T) {
+func TestEncodingGlyphNames(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		enc       pdf.PDFValue
@@ -335,7 +335,6 @@ func TestEncodingGlyphName(t *testing.T) {
 		{"WinAnsi control code", pdf.PDFName{Value: "WinAnsiEncoding"}, 0, ".notdef", true},
 		{"WinAnsi undefined code", pdf.PDFName{Value: "WinAnsiEncoding"}, 129, "bullet", true},
 		{"MacRoman control code", pdf.PDFName{Value: "MacRomanEncoding"}, 1, ".notdef", true},
-		{"out of byte range", pdf.PDFName{Value: "MacRomanEncoding"}, 300, ".notdef", true},
 		{"Standard", pdf.PDFName{Value: "StandardEncoding"}, 'A', "", false},
 		{"none", nil, 'A', "", false},
 		{"Differences entry", encodingDict("", "Aring"), 96, "Aring", true},
@@ -344,15 +343,15 @@ func TestEncodingGlyphName(t *testing.T) {
 		{"no BaseEncoding fallback", encodingDict("", "Aring"), 'A', "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, named := encodingGlyphName(tc.enc, tc.code)
-			if got != tc.want || named != tc.wantNamed {
-				t.Errorf("encodingGlyphName = %q, %v; want %q, %v", got, named, tc.want, tc.wantNamed)
+			names, named := encodingGlyphNames(tc.enc)
+			if got := names[tc.code]; got != tc.want || named[tc.code] != tc.wantNamed {
+				t.Errorf("encodingGlyphNames[%d] = %q, %v; want %q, %v", tc.code, got, named[tc.code], tc.want, tc.wantNamed)
 			}
 		})
 	}
 }
 
-func TestSimpleFontShowsNotdef(t *testing.T) {
+func TestSimpleNotdefCodes(t *testing.T) {
 	winAnsi := pdf.PDFName{Value: "WinAnsiEncoding"}
 	for _, tc := range []struct {
 		name    string
@@ -382,15 +381,15 @@ func TestSimpleFontShowsNotdef(t *testing.T) {
 			if tc.enc != nil {
 				font.Entries.Set("Encoding", tc.enc)
 			}
-			if got := simpleFontShowsNotdef(font, tc.subtype, desc, tc.code); got != tc.want {
-				t.Errorf("simpleFontShowsNotdef = %v, want %v", got, tc.want)
+			if got := simpleNotdefCodes(font, tc.subtype, desc)[tc.code]; got != tc.want {
+				t.Errorf("simpleNotdefCodes[%d] = %v, want %v", tc.code, got, tc.want)
 			}
 		})
 	}
 	// A font without a descriptor still has an Encoding to go by.
 	font := pdf.NewPDFDict()
 	font.Entries.Set("Encoding", winAnsi)
-	if !simpleFontShowsNotdef(font, "TrueType", pdf.PDFDict{}, 0) {
+	if !simpleNotdefCodes(font, "TrueType", pdf.PDFDict{})[0] {
 		t.Error("WinAnsi code 0 of a TrueType font without a descriptor is .notdef")
 	}
 }
@@ -564,12 +563,12 @@ func TestComputeContentUsageTJStringsApart(t *testing.T) {
 	page.Entries.Set("Contents", streamDict("BT /F1 12 Tf [<00> -100 <4100>] TJ ET"))
 
 	ctx := &ValidationContext{Spec: a2bSpec}
-	_, _, _, usedCIDs, _ := ComputeContentUsage(page, ctx)
+	_, _, _, usedCIDs, partialCodes, _ := ComputeContentUsage(page, ctx)
 	cids := usedCIDs[pdf.ValuePointer(descendant.Entries)]
 	if len(cids) != 1 || !cids[0x4100] {
 		t.Errorf("CIDs = %v, want only 0x4100", cids)
 	}
-	if !ctx.showsPartialCode(descendant) {
+	if !partialCodes[pdf.ValuePointer(descendant.Entries)] {
 		t.Error("the one-byte string is not recorded as a code cut short")
 	}
 }

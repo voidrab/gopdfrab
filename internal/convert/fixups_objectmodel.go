@@ -263,13 +263,7 @@ func fixPanose(d pdf.PDFDict) bool {
 	if !ok {
 		return false
 	}
-	var panose []byte
-	switch p := style.Entries.Get("Panose").(type) {
-	case pdf.PDFString:
-		panose = []byte(p.Value)
-	case pdf.PDFHexString:
-		panose = pdf.DecodePDFHexStringBytes(p.Value)
-	}
+	panose, _ := pdf.StringBytes(style.Entries.Get("Panose"))
 	switch len(panose) {
 	case 12:
 		return false

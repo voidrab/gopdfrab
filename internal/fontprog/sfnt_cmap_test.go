@@ -225,3 +225,13 @@ func TestParseCmapFormat6Truncated(t *testing.T) {
 		t.Error("a subtable shorter than its declared count should decode to nil")
 	}
 }
+
+func TestSummarizeCmap(t *testing.T) {
+	if _, ok := SummarizeCmap(map[string][]byte{}); ok {
+		t.Error("SummarizeCmap without a cmap table = ok")
+	}
+	tables := map[string][]byte{"cmap": cmapFormat4Table(3, 0, map[uint16]uint16{0xF041: 1})}
+	if got, ok := SummarizeCmap(tables); !ok || got != (CmapSummary{Count: 1, Symbol: true}) {
+		t.Errorf("SummarizeCmap = %+v, %v", got, ok)
+	}
+}

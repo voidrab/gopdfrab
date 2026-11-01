@@ -286,7 +286,7 @@ func TestTrimSymbolicCmap(t *testing.T) {
 	desc := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FontFile2": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), data),
 	})}
-	if !trimSymbolicCmap(desc, false) {
+	if !trimSymbolicCmap(desc, readTrueTypeProgram(desc), false) {
 		t.Fatal("trimSymbolicCmap on a multi-subtable face = false, want true")
 	}
 	ff := desc.Entries.Get("FontFile2").(pdf.PDFDict)
@@ -302,7 +302,7 @@ func TestTrimSymbolicCmap(t *testing.T) {
 	desc2 := pdf.PDFDict{Entries: pdf.DictOf(map[string]pdf.PDFValue{
 		"FontFile2": pdf.NewStreamDict(pdf.DictOf(map[string]pdf.PDFValue{}), trimmed),
 	})}
-	if trimSymbolicCmap(desc2, false) {
+	if trimSymbolicCmap(desc2, readTrueTypeProgram(desc2), false) {
 		t.Error("trimSymbolicCmap on an already-single-subtable face = true, want false")
 	}
 }

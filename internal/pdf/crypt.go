@@ -46,16 +46,23 @@ type stdSecurityHandler struct {
 	stmMethod     cryptMethod
 }
 
-// stringBytes returns a string value's raw bytes. Literal strings are already
-// decoded (PDFString.Value holds bytes); hex strings still hold hex text.
-func stringBytes(v PDFValue) []byte {
+// StringBytes returns the bytes of a literal or hex string, and false for a
+// value that is no string. Literal strings are already decoded
+// (PDFString.Value holds bytes); hex strings still hold hex text.
+func StringBytes(v PDFValue) ([]byte, bool) {
 	switch s := v.(type) {
 	case PDFString:
-		return []byte(s.Value)
+		return []byte(s.Value), true
 	case PDFHexString:
-		return DecodePDFHexStringBytes(s.Value)
+		return DecodePDFHexStringBytes(s.Value), true
 	}
-	return nil
+	return nil, false
+}
+
+// stringBytes is StringBytes without the flag.
+func stringBytes(v PDFValue) []byte {
+	b, _ := StringBytes(v)
+	return b
 }
 
 func dictBytes(dict PDFDict, key string) []byte {

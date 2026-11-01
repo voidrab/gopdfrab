@@ -596,19 +596,26 @@ func TestContentScannerInlineImageDictAndStrings(t *testing.T) {
 	}
 }
 
-func TestShownStrings(t *testing.T) {
+func TestEachShownString(t *testing.T) {
+	collect := func(op string, operands []PDFValue) []string {
+		var got []string
+		EachShownString(op, operands, func(b []byte) { got = append(got, string(b)) })
+		return got
+	}
 	tj := []PDFValue{PDFArray{PDFString{Value: "a"}, PDFInteger(-5), PDFHexString{Value: "4243"}}}
-	got := ShownStrings("TJ", tj)
-	if len(got) != 2 || string(got[0]) != "a" || string(got[1]) != "BC" {
-		t.Errorf("ShownStrings(TJ) = %q", got)
+	if got := collect("TJ", tj); len(got) != 2 || got[0] != "a" || got[1] != "BC" {
+		t.Errorf("EachShownString(TJ) = %q", got)
 	}
 	if got := ShownStringBytes("TJ", tj); string(got) != "aBC" {
 		t.Errorf("ShownStringBytes(TJ) = %q", got)
 	}
-	if got := ShownStrings("\"", []PDFValue{PDFInteger(1), PDFInteger(2), PDFString{Value: "x"}}); len(got) != 1 || string(got[0]) != "x" {
-		t.Errorf("ShownStrings(\") = %q", got)
+	if got := collect("\"", []PDFValue{PDFInteger(1), PDFInteger(2), PDFString{Value: "x"}}); len(got) != 1 || got[0] != "x" {
+		t.Errorf("EachShownString(\") = %q", got)
 	}
-	if got := ShownStrings("Tj", nil); got != nil {
-		t.Errorf("ShownStrings without operands = %q", got)
+	if got := collect("TJ", []PDFValue{PDFInteger(1)}); got != nil {
+		t.Errorf("EachShownString(TJ) without an array = %q", got)
+	}
+	if got := collect("Tj", nil); got != nil {
+		t.Errorf("EachShownString without operands = %q", got)
 	}
 }

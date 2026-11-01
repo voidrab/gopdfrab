@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -22,15 +24,11 @@ import (
 func ValidateType1SubsetCoverage(obj pdf.PDFValue, v pdf.PDFDict, desc pdf.PDFDict, firstChar, lastChar int, widths pdf.PDFArray, ctx *ValidationContext) {
 	var charSet map[string]bool
 	if charSetVal, ok := desc.Entries.Lookup("CharSet"); ok {
-		var charSetStr string
-		switch cs := charSetVal.(type) {
-		case pdf.PDFString:
-			charSetStr = cs.Value
-		case pdf.PDFHexString:
-			charSetStr = string(pdf.DecodePDFHexStringBytes(cs.Value))
-		default:
+		raw, isString := pdf.StringBytes(charSetVal)
+		if !isString {
 			return
 		}
+		charSetStr := string(raw)
 		if charSetStr == "" {
 			ctx.Report(pdf.Checks.Font.Type1SubsetCharSet, obj, "Type 1 subset font descriptor has an empty CharSet")
 			return
@@ -378,12 +376,8 @@ func cidsRenderedBy(obj pdf.PDFDict, ctx *ValidationContext) (cids []int, known 
 	if !known {
 		return nil, false
 	}
-	cids = make([]int, 0, len(used))
-	for cid := range used {
-		cids = append(cids, cid)
-	}
-	sort.Ints(cids) // the first mismatch is reported, so the order must be stable
-	return cids, true
+	// The first mismatch is reported, so the order must be stable.
+	return slices.Sorted(maps.Keys(used)), true
 }
 
 // cidsToCheck returns the CIDs a coverage/metrics check should examine for the
@@ -393,12 +387,7 @@ func cidsRenderedBy(obj pdf.PDFDict, ctx *ValidationContext) (cids []int, known 
 func cidsToCheck(obj pdf.PDFValue, w pdf.PDFArray, ctx *ValidationContext) (cids []int, knownUsage bool) {
 	if desc, ok := obj.(pdf.PDFDict); ok {
 		if used, known := ctx.usedCIDsFor(desc); known {
-			cids = make([]int, 0, len(used))
-			for cid := range used {
-				cids = append(cids, cid)
-			}
-			sort.Ints(cids)
-			return cids, true
+			return slices.Sorted(maps.Keys(used)), true
 		}
 	}
 	for _, pair := range fontprog.ParseCIDWidths(w) {
@@ -707,39 +696,23 @@ func ValidateFontProgram(obj pdf.PDFValue, desc pdf.PDFDict, name string, ctx *V
 	}
 }
 
-// sfntCmaps describes the cmap table of an embedded TrueType program: how
-// many subtables it has, and whether a Microsoft Symbol (3,0) or Unicode
-// (3,1) subtable is among them.
-type sfntCmaps struct {
-	count           int
-	symbol, unicode bool
-}
-
 // trueTypeCmaps returns the cmap table summary of an embedded TrueType font,
 // and whether it could be read.
-func trueTypeCmaps(ctx *ValidationContext, desc pdf.PDFDict) (sfntCmaps, bool) {
+func trueTypeCmaps(ctx *ValidationContext, desc pdf.PDFDict) (fontprog.CmapSummary, bool) {
 	ff, ok := desc.Entries.Get("FontFile2").(pdf.PDFDict)
 	if !ok {
-		return sfntCmaps{}, false
+		return fontprog.CmapSummary{}, false
 	}
 	data, err := ctx.decodeStreamCached(ff)
 	if err != nil {
-		return sfntCmaps{}, false
+		return fontprog.CmapSummary{}, false
 	}
 	// unparseable program: reported as Font.InvalidProgram (6.3.2) by ValidateFontProgram
 	tables, ok := fontprog.ParseSfnt(data)
 	if !ok {
-		return sfntCmaps{}, false
+		return fontprog.CmapSummary{}, false
 	}
-	cmap, ok := tables["cmap"]
-	if !ok || len(cmap) < 4 {
-		return sfntCmaps{}, false
-	}
-	return sfntCmaps{
-		count:   int(binary.BigEndian.Uint16(cmap[2:4])),
-		symbol:  fontprog.TTCmapSubtable(tables, 3, 0) != nil,
-		unicode: fontprog.TTCmapSubtable(tables, 3, 1) != nil,
-	}, true
+	return fontprog.SummarizeCmap(tables)
 }
 
 // type1ProgramFor memoizes ExtractType1Program per decoded font program for

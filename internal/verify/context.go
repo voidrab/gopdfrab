@@ -84,7 +84,7 @@ type ValidationContext struct {
 
 	// partialCodeFonts holds the descendant CIDFont pointers of the composite
 	// fonts whose shown strings end with one byte of a two-byte code, which
-	// selects no glyph. ComputeContentUsage records it. Unlike the usage sets,
+	// selects no glyph, as ComputeContentUsage finds them. Unlike the usage sets,
 	// it drives reports rather than suppressions, so it is kept when usage is
 	// incomplete.
 	partialCodeFonts map[uintptr]bool
@@ -320,6 +320,12 @@ func (ctx *ValidationContext) showsPartialCode(v pdf.PDFDict) bool {
 // CharSet or CIDSet. A context with no spec requires them.
 func (ctx *ValidationContext) subsetSetsOptional() bool {
 	return ctx.Spec != nil && ctx.Spec.SubsetSetsOptional
+}
+
+// symbolCmapAmongOthers reports whether a symbolic TrueType font may have
+// several cmap subtables when one is the Microsoft Symbol (3,0) one.
+func (ctx *ValidationContext) symbolCmapAmongOthers() bool {
+	return ctx.Spec != nil && ctx.Spec.SymbolCmapAmongOthers
 }
 
 // predefinedCMap reports whether a composite font may name the CMap name

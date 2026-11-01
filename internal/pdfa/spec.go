@@ -37,6 +37,10 @@ type Spec struct {
 	// CMaps an embedded CMap may use.
 	PredefinedCMaps   Names
 	UseCMapPredefined bool
+	// SymbolCmapAmongOthers says whether a symbolic TrueType font's program
+	// may have several cmap subtables when one is the Microsoft Symbol (3,0)
+	// one, rather than exactly one.
+	SymbolCmapAmongOthers bool
 	// SubsetSetsOptional says whether a subset font's descriptor may omit its
 	// CharSet or CIDSet, which must still be complete when present.
 	SubsetSetsOptional bool
@@ -257,8 +261,9 @@ var a2b = Spec{
 		"KSCms-UHC-HW-V", "KSCpc-EUC-H", "UniKS-UCS2-H", "UniKS-UCS2-V", "UniKS-UTF16-H",
 		"UniKS-UTF16-V"),
 	UseCMapPredefined: true,
-	// 6.2.11.4.2.
-	SubsetSetsOptional: true,
+	// 6.2.11.4.2 and 6.2.11.6.
+	SubsetSetsOptional:    true,
+	SymbolCmapAmongOthers: true,
 	// 6.1.7.2 and 6.1.10: ISO 32000-1 Table 6 less LZWDecode, and for inline
 	// images also less JBIG2Decode, JPXDecode and Crypt, in either spelling.
 	StreamFilters: NewNames("ASCIIHexDecode", "ASCII85Decode", "FlateDecode", "RunLengthDecode",

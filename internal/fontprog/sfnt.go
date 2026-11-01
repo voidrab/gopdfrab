@@ -278,6 +278,27 @@ func ScaledCapHeight(tables map[string][]byte, fallback int) int {
 	return int(int16(binary.BigEndian.Uint16(os2[88:90]))) * 1000 / upm
 }
 
+// CmapSummary describes a cmap table: how many subtables it has, and whether
+// a Microsoft Symbol (3,0) or Unicode (3,1) subtable is among them.
+type CmapSummary struct {
+	Count           int
+	Symbol, Unicode bool
+}
+
+// SummarizeCmap describes the cmap table of a parsed sfnt, and reports false
+// when it has no usable one.
+func SummarizeCmap(tables map[string][]byte) (CmapSummary, bool) {
+	cmap := tables["cmap"]
+	if len(cmap) < 4 {
+		return CmapSummary{}, false
+	}
+	return CmapSummary{
+		Count:   int(binary.BigEndian.Uint16(cmap[2:4])),
+		Symbol:  TTCmapSubtable(tables, 3, 0) != nil,
+		Unicode: TTCmapSubtable(tables, 3, 1) != nil,
+	}, true
+}
+
 // CmapSubtableCount returns the number of subtables in the cmap table of the
 // sfnt font program data, and false when data does not parse or has no
 // usable cmap table.

@@ -145,10 +145,11 @@ func ValidateFontDict(v pdf.PDFDict, ctx *ValidationContext) {
 				ctx.Report(pdf.Checks.Font.CIDToGIDMapMissing, v, "CIDFontType2 CIDToGIDMap is neither a stream nor Identity")
 			}
 		}
-		hasCIDSet := desc.Entries.Get("CIDSet") != nil
-		if subset && desc.Entries != nil && !hasCIDSet && !ctx.subsetSetsOptional() {
-			ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
-		} else if subset && !renderingMode3 && (hasCIDSet || desc.Entries == nil) {
+		if subset && desc.Entries != nil && desc.Entries.Get("CIDSet") == nil {
+			if !ctx.subsetSetsOptional() {
+				ctx.Report(pdf.Checks.Font.CIDSubsetCIDSet, v, "CID subset font descriptor lacks CIDSet")
+			}
+		} else if subset && !renderingMode3 {
 			switch subtype.Value {
 			case "CIDFontType0":
 				if ff, ok := desc.Entries.Get("FontFile3").(pdf.PDFDict); ok {
@@ -278,7 +279,12 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 		flags = int(f)
 	}
 	symbolic := flags&4 != 0
-	cmaps, haveCmaps := trueTypeCmaps(ctx, desc)
+	// Only the symbolic rules and those of PDF/A-2 read the cmap table.
+	var cmaps fontprog.CmapSummary
+	haveCmaps := false
+	if symbolic || ctx.part2() {
+		cmaps, haveCmaps = trueTypeCmaps(ctx, desc)
+	}
 
 	enc := v.Entries.Get("Encoding")
 	if symbolic {
@@ -288,14 +294,14 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 		}
 		// 6.3.7: a symbolic TrueType cmap shall contain exactly one subtable.
 		// PDF/A-2 also allows several when one is the (3,0) subtable.
-		if haveCmaps && cmaps.count != 1 && !(ctx.part2() && cmaps.symbol) {
-			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", cmaps.count))
+		if haveCmaps && cmaps.Count != 1 && !(ctx.symbolCmapAmongOthers() && cmaps.Symbol) {
+			ctx.Report(pdf.Checks.Font.SymbolicTrueTypeCmap, v, fmt.Sprintf("symbolic TrueType cmap has %d subtables, expected 1", cmaps.Count))
 		}
 		return
 	}
 
 	// 6.2.11.6: a non-symbolic program needs a cmap subtable other than (3,0).
-	if ctx.part2() && haveCmaps && (cmaps.count == 0 || cmaps.symbol && cmaps.count == 1) {
+	if ctx.part2() && haveCmaps && (cmaps.Count == 0 || cmaps.Symbol && cmaps.Count == 1) {
 		ctx.Report(pdf.Checks.Font.NonSymbolicTrueTypeCmap, v, "non-symbolic TrueType cmap has no subtable other than (3,0)")
 	}
 
@@ -324,7 +330,7 @@ func validateTrueTypeEncoding(v pdf.PDFDict, desc pdf.PDFDict, ctx *ValidationCo
 // or its BaseEncoding, must be MacRomanEncoding or WinAnsiEncoding. Differences
 // may name only Adobe Glyph List glyphs, and only when the program has a (3,1)
 // cmap subtable, as veraPDF reads the rule.
-func part2TrueTypeEncodingProblem(enc pdf.PDFValue, cmaps sfntCmaps, haveCmaps bool, desc pdf.PDFDict) string {
+func part2TrueTypeEncodingProblem(enc pdf.PDFValue, cmaps fontprog.CmapSummary, haveCmaps bool, desc pdf.PDFDict) string {
 	base := enc
 	dict, isDict := enc.(pdf.PDFDict)
 	if isDict {
@@ -336,7 +342,7 @@ func part2TrueTypeEncodingProblem(enc pdf.PDFValue, cmaps sfntCmaps, haveCmaps b
 	if !isDict || dict.Entries.Get("Differences") == nil || !HasEmbeddedProgram(desc, "FontFile2") {
 		return ""
 	}
-	if !haveCmaps || !cmaps.unicode {
+	if !haveCmaps || !cmaps.Unicode {
 		return "non-symbolic TrueType font with Differences has no (3,1) cmap subtable"
 	}
 	bad := ""
@@ -393,8 +399,10 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 		validateCMapWMode(v, cmap, ctx)
 		// 6.2.11.3.3: an embedded CMap may use only predefined CMaps.
 		if ctx.Spec != nil && ctx.Spec.UseCMapPredefined {
-			if used := cmap.Entries.Get("UseCMap"); used != nil && !ctx.predefinedCMap(cmapName(used)) {
-				ctx.Report(pdf.Checks.Font.UseCMapNotPredefined, v, fmt.Sprintf("CMap uses CMap /%s, which is not predefined", cmapName(used)))
+			if used := cmap.Entries.Get("UseCMap"); used != nil {
+				if name := CMapName(used); !ctx.predefinedCMap(name) {
+					ctx.Report(pdf.Checks.Font.UseCMapNotPredefined, v, fmt.Sprintf("CMap uses CMap /%s, which is not predefined", name))
+				}
 			}
 		}
 	}
@@ -414,9 +422,9 @@ func validateType0Font(v pdf.PDFDict, ctx *ValidationContext) {
 	}
 }
 
-// cmapName returns the name of a CMap given by name or as a stream with a
+// CMapName returns the name of a CMap given by name or as a stream with a
 // CMapName entry, or "".
-func cmapName(cmap pdf.PDFValue) string {
+func CMapName(cmap pdf.PDFValue) string {
 	if d, ok := cmap.(pdf.PDFDict); ok {
 		cmap = d.Entries.Get("CMapName")
 	}
