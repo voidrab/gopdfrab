@@ -102,8 +102,8 @@ func stripNotdefCodes(stream, resources pdf.PDFDict, cache map[uintptr]*notdefFo
 				st.tw, _ = pdf.PDFNumberToFloat(operands[0])
 			}
 		case "Tj", "'", "\"", "TJ":
-			// " sets the word and character spacing whether or not its
-			// string is rewritten.
+			// The " operator sets the word and character spacing whether or
+			// not its string is rewritten.
 			if op == "\"" && len(operands) == 3 {
 				st.tw, _ = pdf.PDFNumberToFloat(operands[0])
 				st.tc, _ = pdf.PDFNumberToFloat(operands[1])

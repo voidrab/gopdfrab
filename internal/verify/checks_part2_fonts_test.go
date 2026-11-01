@@ -575,7 +575,7 @@ func TestComputeContentUsageTJStringsApart(t *testing.T) {
 }
 
 // TestFontRulesWithoutSpec verifies that the font rules a level parameterizes
-// fall back to PDF/A-1's on a context with no spec, rather than failing.
+// fall back to the PDF/A-1 values on a context with no spec.
 func TestFontRulesWithoutSpec(t *testing.T) {
 	ctx := &ValidationContext{}
 	if ctx.subsetSetsOptional() {

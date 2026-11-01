@@ -901,8 +901,9 @@ func (f trueTypeEncodingFixer) Fix(trailer *pdf.PDFDict, issues []pdf.PDFError) 
 				d.Entries.Del("Encoding")
 				changed = true
 			}
-			// PDF/A-2 accepts several subtables when one is (3,0), the one a
-			// symbolic font's codes select glyphs through, so it is kept.
+			// PDF/A-2 allows several cmap subtables when one is (3,0), which
+			// a symbolic font's codes select glyphs through, so the cmap is
+			// kept as it is.
 			if trimSymbolicCmap(desc, f.spec != nil && f.spec.Part >= 2) {
 				changed = true
 			}

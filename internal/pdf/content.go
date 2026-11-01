@@ -592,9 +592,9 @@ func ShownStringBytes(op string, operands []PDFValue) []byte {
 	return out
 }
 
-// ShownStrings returns the bytes of each string a text-showing operator
-// shows, one slice per string: a TJ array's strings are decoded apart, as a
-// character code never spans two of them.
+// ShownStrings returns the decoded bytes of each string a text-showing
+// operator shows, one slice per string. The strings of a TJ array are kept
+// apart because a character code never spans two of them.
 func ShownStrings(op string, operands []PDFValue) [][]byte {
 	var out [][]byte
 	appendOperand := func(v PDFValue) {

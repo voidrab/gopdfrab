@@ -91,9 +91,9 @@ func (type0FontFixer) prepare(_ *pdf.PDFDict, _ []pdf.PDFError, changed *bool) (
 		if cid := verify.DescendantCIDFont(d); cid.Entries != nil {
 			cmapCSI, hasCmapCSI := cmap.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
 			cidCSI, hasCidCSI := cid.Entries.Get("CIDSystemInfo").(pdf.PDFDict)
-			// A CIDFont without an integer Supplement claims none of the
-			// supplements, which Supplement 0 says; the CMap then gets the
-			// CIDFont's CIDSystemInfo as it would for a lower Supplement.
+			// A CIDFont without an integer Supplement is given Supplement 0
+			// when the CMap's Supplement is not covered, so that the CMap
+			// takes the CIDFont's CIDSystemInfo below.
 			if hasCmapCSI && hasCidCSI && verify.SameCIDSystemInfo(cmapCSI, cidCSI) && !verify.SupplementCovered(cmapCSI, cidCSI) {
 				if _, ok := cidCSI.Entries.Get("Supplement").(pdf.PDFInteger); !ok {
 					cidCSI.Entries.Set("Supplement", pdf.PDFInteger(0))

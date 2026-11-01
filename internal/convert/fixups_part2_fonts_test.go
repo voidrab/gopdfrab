@@ -432,8 +432,9 @@ func TestType0FontFixerSupplement(t *testing.T) {
 		t.Errorf("CMap Supplement = %v, want 3", got)
 	}
 
-	// A CIDFont without a Supplement gets 0, and the CMap its CIDSystemInfo,
-	// so verify's comparison holds and a second pass changes nothing.
+	// A CIDFont without a Supplement gets Supplement 0 and the CMap takes its
+	// CIDSystemInfo; after that verify's comparison holds and a second pass
+	// changes nothing.
 	for _, cmapSupp := range []pdf.PDFValue{nil, pdf.PDFInteger(2), pdf.PDFReal(1.5)} {
 		font, cmap := fontWith(cmapSupp, nil)
 		trailer := trailerWith("F", font)
@@ -477,8 +478,7 @@ func TestTrimSymbolicCmapKeepsSymbolSubtable(t *testing.T) {
 		t.Error("kept several subtables without a (3,0) one")
 	}
 
-	// Through the fixer: under PDF/A-2 a compliant symbolic font is left alone
-	// while another font's report runs it.
+	// Through the fixer, a PDF/A-2-compliant symbolic font is left unchanged.
 	desc := descWith([2]uint16{1, 0}, [2]uint16{3, 0})
 	desc.Entries.Set("Flags", pdf.PDFInteger(4))
 	font := dictOf(map[string]pdf.PDFValue{
@@ -504,8 +504,9 @@ func TestGlyphWidthFuncType3(t *testing.T) {
 	}
 }
 
-// TestNotdefFixerSpacingBeforeFont verifies that a " operator shown before
-// the stream's own Tf still sets the spacing a later strip accounts for.
+// TestNotdefFixerSpacingBeforeFont verifies that a " operator before the
+// stream's first Tf sets the character spacing that the strip then accounts
+// for.
 func TestNotdefFixerSpacingBeforeFont(t *testing.T) {
 	page, trailer := notdefPage("BT 5 2 (x) \" /F1 10 Tf (\x00) Tj ET", map[string]pdf.PDFValue{"F1": winAnsiType1(500)})
 	if changed, _ := (notdefFixer{}).Fix(&trailer, nil); !changed {
@@ -516,8 +517,8 @@ func TestNotdefFixerSpacingBeforeFont(t *testing.T) {
 	}
 }
 
-// TestNotdefFixerReadsEachFontOnce verifies that the fixer judges a font once
-// however many streams use it.
+// TestNotdefFixerReadsEachFontOnce verifies that a font used by several
+// streams gets a single cache entry, so that its program is read once.
 func TestNotdefFixerReadsEachFontOnce(t *testing.T) {
 	font := winAnsiType1(500)
 	cache := map[uintptr]*notdefFont{}

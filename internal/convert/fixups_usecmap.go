@@ -66,8 +66,9 @@ func (f useCMapFixer) mergeUsedCMaps(cmap pdf.PDFDict, depth int) bool {
 		return false
 	}
 	f.mergeUsedCMaps(used, depth+1)
-	// What the used CMap uses in turn is by now a CMap the level predefines,
-	// by name or as an embedded copy, which the merged CMap uses by its name.
+	// After the recursion, the used CMap's UseCMap is either a predefined CMap
+	// named directly or an embedded copy of one. The merged CMap uses it by
+	// name.
 	var next pdf.PDFName
 	switch u := used.Entries.Get("UseCMap").(type) {
 	case pdf.PDFName:
@@ -75,7 +76,7 @@ func (f useCMapFixer) mergeUsedCMaps(cmap pdf.PDFDict, depth int) bool {
 	case pdf.PDFDict:
 		name, ok := u.Entries.Get("CMapName").(pdf.PDFName)
 		if !ok || !f.spec.PredefinedCMaps.Has(name.Value) {
-			return false // a chain too deep to flatten
+			return false // the chain ends in a CMap that is not predefined
 		}
 		next = name
 	}
